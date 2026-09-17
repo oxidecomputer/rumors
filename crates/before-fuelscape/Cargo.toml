@@ -13,7 +13,7 @@ publish = false
 edition = "2021"
 
 [dependencies]
-# The subject under audit: the samplers target its packed codecs, and the
+# The subject under audit: the samplers target its encoded codecs, and the
 # `meter` feature exposes the committed adversarial family generators the
 # renders overlay as marked points. The deterministic native counters
 # (`scan-meter`/`limb-meter`) feed the spanbands discriminator, which

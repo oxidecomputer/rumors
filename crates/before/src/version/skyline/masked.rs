@@ -4,7 +4,7 @@
 //! A projection `v / p` is the version's step function gated by the party's
 //! 0-or-1 ownership landscape: the height where `p` owns, zero elsewhere.
 //! Comparing a projection therefore never needs the projected stream as an
-//! object — it is a pointwise question over the overlay of up to four packed
+//! object — it is a pointwise question over the overlay of up to four encoded
 //! streams (each side's event stream plus its optional id mask), and this
 //! module answers it in one fused merge, the [`overlay`](super::overlay)
 //! machinery generalized from two cursors to the full cursor set.
@@ -89,7 +89,7 @@ use super::sweep::{eq_exit, order_exit, Directions};
 
 /// The causal order of two projected skylines, `None` for concurrent.
 ///
-/// `a_mask`/`b_mask` are the sides' packed id streams; a side without a mask
+/// `a_mask`/`b_mask` are the sides' party streams; a side without a mask
 /// compares its whole skyline. One fused merge over every operand stream; no
 /// projection is materialized.
 ///
@@ -97,7 +97,7 @@ use super::sweep::{eq_exit, order_exit, Directions};
 ///
 /// Every operand must be canonical — event operands canonical skyline streams
 /// (run [`validate`](fn@super::validate) first on untrusted bytes), mask
-/// operands canonical packed ids. The violations the walk structurally notices
+/// operands canonical partys. The violations the walk structurally notices
 /// (truncation, malformation) panic; the rest (a collapsible sibling pair, a
 /// delta driving the running height negative) sweep silently, and the verdict
 /// is then unspecified.

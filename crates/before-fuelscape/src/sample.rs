@@ -1,4 +1,4 @@
-//! Exact-uniform samplers over the packed input spaces, by exact byte size.
+//! Exact-uniform samplers over the encoded input spaces, by exact byte size.
 //!
 //! The sampling mechanism is counting-guided generation: at every node the
 //! sampler draws one uniform integer below the exact number of canonical
@@ -37,8 +37,8 @@ use crate::count::{
 #[cfg(test)]
 mod tests;
 
-/// A packed bit stream under construction, MSB-first within each byte —
-/// the codec's storage order, so the packed bytes are exactly what
+/// An encoded bit stream under construction, MSB-first within each byte —
+/// the codec's storage order, so the encoded bytes are exactly what
 /// `decode` reads.
 #[derive(Default)]
 pub struct BitSink {
@@ -69,7 +69,7 @@ impl BitSink {
         self.len == 0
     }
 
-    /// The packed bytes, sealed behind the canonical padding — one `1`
+    /// The encoded bytes, sealed behind the canonical padding — one `1`
     /// marker bit, then zeros to the byte boundary (the canonical
     /// stored form `decode` accepts).
     pub fn into_bytes(mut self) -> Vec<u8> {
@@ -166,14 +166,14 @@ fn interleave(lo: usize, hi: usize) -> impl Iterator<Item = usize> {
     })
 }
 
-/// An exact-uniform sampler over packed versions of an exact byte size.
+/// An exact-uniform sampler over encoded versions of an exact byte size.
 pub struct VersionSampler {
     counts: VersionCounts,
 }
 
-/// One version draw: the canonical packed bytes and the live bit length.
+/// One version draw: the canonical encoded bytes and the live bit length.
 pub struct VersionDraw {
-    /// Canonical packed bytes (`Version::decode` accepts them; pinned).
+    /// Canonical encoded bytes (`Version::decode` accepts them; pinned).
     pub bytes: Vec<u8>,
     /// The live bit length before the zero pad.
     pub bits: usize,
@@ -206,7 +206,7 @@ impl VersionSampler {
         &self.counts
     }
 
-    /// Draw one version uniformly from the canonical versions whose packed
+    /// Draw one version uniformly from the canonical versions whose encoded
     /// encoding is exactly `bytes` bytes. `None` if the space is empty
     /// (it is not, for any `bytes >= 1` within the table).
     pub fn sample_bytes(&self, bytes: usize, rng: &mut ChaChaRng) -> Option<VersionDraw> {
@@ -363,15 +363,15 @@ impl HeightWalk {
     }
 }
 
-/// An exact-uniform sampler over packed parties of an exact byte size:
+/// An exact-uniform sampler over encoded parties of an exact byte size:
 /// pure counting-guided generation, no rejection anywhere.
 pub struct PartySampler {
     counts: PartyCounts,
 }
 
-/// One party draw: the canonical packed bytes and the live bit length.
+/// One party draw: the canonical encoded bytes and the live bit length.
 pub struct PartyDraw {
-    /// Canonical packed bytes (`Party::decode` accepts them; pinned).
+    /// Canonical encoded bytes (`Party::decode` accepts them; pinned).
     pub bytes: Vec<u8>,
     /// The live bit length before the zero pad.
     pub bits: usize,
@@ -399,7 +399,7 @@ impl PartySampler {
         &self.counts
     }
 
-    /// Draw one party uniformly from the canonical parties whose packed
+    /// Draw one party uniformly from the canonical parties whose encoded
     /// encoding is exactly `bytes` bytes.
     pub fn sample_bytes(&self, bytes: usize, rng: &mut ChaChaRng) -> Option<PartyDraw> {
         let window = bit_window(bytes, MIN_PARTY_BITS);

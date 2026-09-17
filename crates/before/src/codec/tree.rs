@@ -1,37 +1,23 @@
-use crate::error::{Decode, Parse};
+use crate::error::Decode;
 
 use super::{BitCursor, BitsView};
 
-/// While building a node bottom-up, what we still need from the stream.
-///
-/// The parsers keep one frame per unfinished ancestor on an explicit heap `Vec`
-/// — as deep as the tree, never the call stack. A terminal parse pushes nothing
-/// and allocates nothing; deeper trees pay plain amortized growth, a rounding
-/// error against the per-node tag reads.
+/// The unvisited part of an unfinished party node.
 enum IdFrame {
     /// A both-present node: the next subtree is its left child.
     BothNeedLeft,
-    /// A both-present node whose left child is parsed (a terminal? — needed for
-    /// the `(1, 1)` check); the next subtree is its right child.
+    /// A both-present node whose left child is complete.
     BothNeedRight { left_terminal: bool },
     /// A unary node (left- or right-only): the next subtree is its one child.
     UnaryNeedChild,
 }
 
-/// Parse one packed id tree at `pos`, validating id normal form (no node with
-/// two terminal children, that is `(1, 1)`).
+/// Parse one party tree at `pos` and return the first bit after it.
 ///
-/// Returns the position just past the tree, at the walk's own `u64` width:
-/// the byte decode doors walk their whole padded buffer as bits, whose
-/// positions can exceed a 32-bit `usize`. Iterative: depth lives on an
-/// explicit stack, never the call stack.
-///
-/// Each node is a 2-bit presence tag (bit 0 = left child follows, bit 1 = right
-/// child follows): `00` a terminal, `10`/`01` a unary node, `11` a both-present
-/// node. A `0` id is structural absence — a zero presence bit in its parent's
-/// tag, no bits of its own — so the grammar has no empty production: input
-/// exhausted before a tag completes, the empty input included, is
-/// [`Decode::Truncated`], exactly as a byte-starved reader reports it.
+/// Each node begins with two child-presence bits. `00` is a terminal; `10` and
+/// `01` have one child; `11` has two. Two terminal children are noncanonical
+/// because they collapse to one terminal. An explicit stack makes the parser
+/// safe for arbitrarily deep inputs.
 pub(crate) fn parse_id(bits: BitsView<'_>, pos: u64) -> Result<u64, Decode> {
     let mut cursor = super::DsiCursor::new_at(bits, pos);
     parse_id_core(&mut cursor)?;
@@ -49,11 +35,7 @@ where
     Ok(cursor.position())
 }
 
-/// Parse and validate one id tree from a sequential bit cursor: the one
-/// grammar body.
-///
-/// The end position is left to the caller's own [`BitCursor::position`]
-/// read.
+/// Parse and validate one party tree from a sequential bit cursor.
 pub(crate) fn parse_id_core<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,
@@ -98,27 +80,5 @@ where
                 }
             }
         }
-    }
-}
-
-/// Confirm a freshly built id bit stream is exactly one canonical-normal-form
-/// tree. Wraps [`parse_id`] (the single source of truth for id normal form),
-/// mapping its outcome onto [`Parse`].
-///
-/// The empty stream is accepted here, unlike at [`parse_id`]: it is the
-/// in-memory normal form of the anonymous `0` id, which the builders and the
-/// text grammar legitimately construct (the literal `0`). Whether an anonymous
-/// id is *allowed* is the caller's question, answered at the standalone-value
-/// gates (`Parse::Anonymous`); the wire grammar never asks it, because no
-/// encoder spells the anonymous id on the wire.
-pub(crate) fn validate_id(bits: BitsView<'_>) -> Result<(), Parse> {
-    if bits.is_empty() {
-        return Ok(());
-    }
-    match parse_id(bits, 0) {
-        Ok(end) if end == bits.len() => Ok(()),
-        Ok(_) => Err(Parse::Syntax),
-        Err(Decode::NotCanonical) => Err(Parse::NotCanonical),
-        Err(_) => Err(Parse::Syntax),
     }
 }

@@ -1,24 +1,24 @@
-//! The packed-form-to-skyline transcoder: the bridge from the adversarial
-//! generators' construction language (min-lifted preorder packed streams, one
+//! The encoded-to-skyline transcoder: the bridge from the adversarial
+//! generators' construction language (min-lifted preorder encoded streams, one
 //! gamma-coded base per node) to the stored skyline coding.
 
 use crate::codec::{self, Base, BitsBuf, BitsView};
 
 use super::signed::zigzag;
 
-/// Transcode a min-lifted packed preorder stream into its skyline stream.
+/// Transcode a min-lifted preorder stream into its skyline stream.
 ///
 /// One preorder pass: each node contributes its topology flag, and each leaf's
 /// absolute height — the root-to-leaf path sum of stored bases — is emitted as
 /// `gamma(v1)` for the first leaf and `zigzag-gamma(vi − vi−1)` for every later
 /// one. Transient state is the inherited-path-sum stack (one [`Base`] per open
-/// subtree), bounded by the packed input's own depth and magnitudes. The walk
+/// subtree), bounded by the encoded input's own depth and magnitudes. The walk
 /// is iterative over a heap stack, so it needs no stack-growth guard at any
 /// input depth.
 ///
 /// # Panics
 ///
-/// Panics if the packed form does not parse cleanly; callers hand in
+/// Panics if the encoded form does not parse cleanly; callers hand in
 /// generator-built canonical streams.
 pub(crate) fn encode_bits(bits: BitsView<'_>) -> BitsBuf {
     let mut out = BitsBuf::with_capacity(bits.len());
@@ -54,7 +54,7 @@ pub(crate) fn encode_bits(bits: BitsView<'_>) -> BitsBuf {
     assert_eq!(
         pos,
         bits.len(),
-        "a canonical packed walk consumes every input bit"
+        "a canonical encoded walk consumes every input bit"
     );
     out
 }

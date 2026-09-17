@@ -230,13 +230,7 @@ fn main() {
     let join_pair = impl_clocks(&p3, 2);
     let (ja, jb) = (&join_pair[0], &join_pair[1]);
 
-    // Leaf counts, read off the text rendering: every leaf is a digit run.
-    let leaves = |v: &Version| {
-        let s = v.to_string();
-        s.split(|c: char| !c.is_ascii_digit())
-            .filter(|t| !t.is_empty())
-            .count()
-    };
+    let leaves = |v: &Version| v.shape().count();
     println!(
         "n={n} clock bytes={} party bits={} version bits={} leaves={} join operands: {}b/{} leaves, {}b/{} leaves",
         bytes.len(),

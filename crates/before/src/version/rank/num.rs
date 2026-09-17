@@ -8,7 +8,7 @@
 //! `usize`. On 64-bit targets that ceiling (2⁶⁴ − 64 bits) sits
 //! astronomically past allocatable memory and never binds. On a 32-bit
 //! target it is 2³² − 32 bits — about 512 MiB of value in a 4 GiB address
-//! space — and the rank wire door can honestly outgrow it: the fraction
+//! space — and the rank wire entry point can honestly outgrow it: the fraction
 //! form reaches a wider numerator from ~604 MB of input, and the integral
 //! form from ~512 MiB, both loud backend panics rather than values without
 //! this module. [`Num`] closes that gap: the [`Base`] arm keeps the
@@ -31,7 +31,7 @@
 //! boundary pins (the below/at-capacity decode pins fill the backend's
 //! last word on the [`Base`] arm; the past-capacity pins decode on the
 //! [`Wide`] arm); tests may lower it (the test-only `ceiling` module) so
-//! every public door drives both arms and the seam between them at
+//! every public entry point drives both arms and the seam between them at
 //! host-friendly sizes.
 //!
 //! # Metering
@@ -88,7 +88,7 @@ pub(crate) const BACKEND_CAPACITY_BITS: u64 =
 ///
 /// In production this is [`BACKEND_CAPACITY_BITS`]; under test an
 /// override (the test-only `ceiling` module) may lower it so host-scale
-/// inputs drive the wide arm through the public doors.
+/// inputs drive the wide arm through the public entry points.
 #[inline]
 pub(crate) fn arm_ceiling_bits() -> u64 {
     #[cfg(test)]
@@ -102,7 +102,7 @@ pub(crate) fn arm_ceiling_bits() -> u64 {
 /// of [`arm_ceiling_bits`].
 ///
 /// The lowering makes the wide arm — honestly reachable only past ~2³²
-/// bits on a 32-bit target — drivable through the public doors at
+/// bits on a 32-bit target — drivable through the public entry points at
 /// host-friendly sizes.
 ///
 /// The override changes routing only, never values: both arms are exact,

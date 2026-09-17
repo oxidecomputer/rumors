@@ -1,245 +1,185 @@
-//! The family registry: the single source of truth for adversarial input
-//! families, from which every instrument derives.
+//! Adversarial input families shared by the resource instruments.
 //!
-//! # The invariant
-//!
-//! Every adversarial input family is a [`FamilyId`] variant carrying its row of
-//! record ([`FamilySpec`]), and every instrument derives its family axis from
-//! this roster, so a family existing outside an instrument's coverage is
-//! structurally impossible — enforced by the compiler wherever the compiler can
-//! reach:
-//!
-//! - **Construction.** The raw shape constructors are private to the
-//!   [`meter`](crate::meter) module, and [`Shape`] is the one public door:
-//!   its constructor table (`Shape::builder`, the exhaustive match) is
-//!   the constructors' only caller outside the module's own unit tests.
-//!   A constructor without a registry row is dead code the gate's
-//!   warnings-denied builds reject; a [`Shape`] variant without a
-//!   constructor does not compile; and no code outside the module —
-//!   envelope band, bench, fuelscape panel, example, kernel unit test,
-//!   or downstream crate — can mint an adversarial shape except through
-//!   the registry:
+//! Each [`FamilyId`] owns one [`FamilySpec`]. Instruments derive their family
+//! axes from this roster, while [`Shape`] provides the registered constructors.
+//! Types keep those declarations aligned; tests cover relationships that remain
+//! data, such as a family's shape membership.
 //!
 //!   ```compile_fail,E0603
-//!   // The raw constructors are private: an unregistered shape cannot
-//!   // compile outside the registry door.
+//!   // Raw constructors are private.
 //!   let _ = before::meter::cliff_comb(4, 4);
 //!   ```
 //!
 //!   ```
 //!   use before::meter::registry::Shape;
-//!   // The registry door: the same comb, minted through its Shape row.
-//!   let comb = Shape::CliffComb.packed2(4, 4);
+//!   let comb = Shape::CliffComb.build2(4, 4);
 //!   assert_eq!(comb.bits, 4 * (2 * 4 + 10) + 2);
 //!   ```
-//!
-//! - **The board.** The amplification board's family axis is
-//!   [`FamilyId::board`] — this roster filtered on each variant's
-//!   committed [`Coverage`] answer — and its cells are the product of
-//!   that axis with the operation and currency tables, so a variant
-//!   answering [`Coverage::Board`] is priced on every operation its
-//!   operand bundle supplies with no per-cell wiring, and a variant
-//!   answering [`Coverage::EnvelopeOnly`] carries the dated reason it
-//!   earns no column. The declared bundle reach (`cells`) is the
-//!   committed expectation the board smoke suite holds the rendered
-//!   matrix to.
-//! - **The bands.** The envelope suite's flatness/adequacy bands build
-//!   their operands through [`Shape`], so the band-to-family link is a
-//!   compiler-checked construction site, never a name mapping held in a
-//!   parallel table; each family's committed band roster is its spec's
-//!   [`Bands`] answer, and a family without a band carries the dated
-//!   reason instead. Bespoke instruments (adequacy tripwires with
-//!   committed-bad kernels, gate pins outside the band convention) stay
-//!   hand-written and reach their shapes through the same door.
-//! - **No intermediate state.** A red board cell on the board of record
-//!   is unconditionally a gate failure until it is resolved — by a cure,
-//!   or by an owner-declared model at the cell. Coverage by bands alone
-//!   is likewise not a state a family can occupy silently: the roster
-//!   answer is a board column or a dated envelope-only ruling, nothing
-//!   in between.
-//!
-//! # What the compiler cannot reach
-//!
-//! Two seams stay pinned by tests instead of types, each a deliberate,
-//! named survivor:
-//!
-//! - **Band names.** The bands live in a separate test binary
-//!   (`tests/meter.rs`), and test function names are not items the
-//!   compiler can resolve across crates. The board smoke suite
-//!   (`tests/amp_board_smoke.rs`) scans that suite's band-named tests
-//!   and holds them equal, name for name, to the union of the specs'
-//!   [`Bands`] rosters and [`AXIS_BANDS`].
-//! - **Shape citation.** A [`Shape`]'s membership in some family's
-//!   `shapes` row is data, not types; this module's tests hold every
-//!   shape cited by at least one family, so a constructor cannot ride
-//!   the registry door without a family answering for it.
 
 #[cfg(test)]
 mod tests;
 
 use suanpan::UBig;
 
-use super::Packed;
+use super::Encoding;
 use crate::Version;
 
-// ─── the construction door ───────────────────────────────────────────────────
+// ─── registered shapes ───────────────────────────────────────────────────────
 
-/// One registered shape constructor: the only public door to the
-/// [`meter`](crate::meter) module's adversarial generators.
+/// A registered adversarial shape constructor.
 ///
 /// Each variant names its knobs and the accessor it builds through; the full
 /// construction derivation (layout, normal-form argument, closed-form size,
 /// panics) lives on the private constructor behind it, rendered by the internal
 /// documentation build. Every variant is cited by at least one [`FamilyId`]
-/// spec (this module's tests hold it), so building through this enum is
-/// building inside the registry's coverage.
+/// spec, as checked by this module's tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Shape {
-    /// The dense event spine `S(d)`: [`Shape::packed1`]`(d)`.
+    /// The dense event spine `S(d)`: [`Shape::build1`]`(d)`.
     Dense,
     /// The bigroot event `B(b, d)`, a `2^b − 1` root over `S(d)`:
-    /// [`Shape::packed2`]`(b, d)`.
+    /// [`Shape::build2`]`(b, d)`.
     Bigroot,
     /// The hugeleaf event, one leaf of value `2^b − 1`:
-    /// [`Shape::packed1`]`(b)`.
+    /// [`Shape::build1`]`(b)`.
     Hugeleaf,
     /// The boundary comb `C(k, n)`, `n` cliff teeth:
-    /// [`Shape::packed2`]`(k, n)`.
+    /// [`Shape::build2`]`(k, n)`.
     CliffComb,
     /// The jump comb `J(k, n)`, one low tooth then `n − 1` cliff teeth:
-    /// [`Shape::packed2`]`(k, n)`.
+    /// [`Shape::build2`]`(k, n)`.
     JumpComb,
     /// The wide-tooth comb `W(k, w, n)`, `n` teeth of width `2^w`:
-    /// [`Shape::packed3`]`(k, w, n)`.
+    /// [`Shape::build3`]`(k, w, n)`.
     WideToothComb,
     /// The unpaid-crossing fan `F(k, n)`, `n` cheap teeth under one
-    /// stored magnitude: [`Shape::packed2`]`(k, n)`.
+    /// stored magnitude: [`Shape::build2`]`(k, n)`.
     CliffFan,
     /// The cancelling-prefix chain `P(k, n)`, `n` peak-to-1 drops:
-    /// [`Shape::packed2`]`(k, n)`.
+    /// [`Shape::build2`]`(k, n)`.
     CancellingChain,
     /// The harmonic spine `H(d)`, a 1-leaf at every depth:
-    /// [`Shape::packed1`]`(d)`.
+    /// [`Shape::build1`]`(d)`.
     Harmonic,
-    /// The alternating-binary spine `A(d)`: [`Shape::packed1`]`(d)`.
+    /// The alternating-binary spine `A(d)`: [`Shape::build1`]`(d)`.
     AltSpine,
     /// The scattered id `Z(e)`, `e` owned fragments at alternating
-    /// depths: [`Shape::packed1`]`(e)`.
+    /// depths: [`Shape::build1`]`(e)`.
     ScatteredId,
     /// The id spine `I(d, divert)`, a unary chain of depth `d`:
-    /// [`Shape::packed_flagged`]`(d, divert)`.
+    /// [`Shape::build_flagged`]`(d, divert)`.
     IdSpine,
-    /// The nested-full-sibling id `N(d)`: [`Shape::packed1`]`(d)`.
+    /// The nested-full-sibling id `N(d)`: [`Shape::build1`]`(d)`.
     NestedFullId,
-    /// The mirror nested-full id `M(d)`: [`Shape::packed1`]`(d)`.
+    /// The mirror nested-full id `M(d)`: [`Shape::build1`]`(d)`.
     NestedLeftFullId,
     /// The wide-tail event, a zero-leaf spine with one `2^b − 1` tail:
-    /// [`Shape::packed2`]`(b, d)`.
+    /// [`Shape::build2`]`(b, d)`.
     WideTail,
-    /// The descending staircase `D(d)`: [`Shape::packed1`]`(d)`.
+    /// The descending staircase `D(d)`: [`Shape::build1`]`(d)`.
     Staircase,
     /// The memo-chain event `Q(k, distinct)`:
-    /// [`Shape::packed_flagged`]`(k, distinct)`.
+    /// [`Shape::build_flagged`]`(k, distinct)`.
     MemoChain,
-    /// The memo-chain id: [`Shape::packed1`]`(k)`.
+    /// The memo-chain id: [`Shape::build1`]`(k)`.
     MemoChainId,
-    /// The memo-comb event `B(d)`: [`Shape::packed1`]`(d)`.
+    /// The memo-comb event `B(d)`: [`Shape::build1`]`(d)`.
     MemoComb,
-    /// The memo-comb id: [`Shape::packed1`]`(d)`.
+    /// The memo-comb id: [`Shape::build1`]`(d)`.
     MemoCombId,
-    /// The memo fan-out event `F(k, b)`: [`Shape::packed2`]`(k, b)`.
+    /// The memo fan-out event `F(k, b)`: [`Shape::build2`]`(k, b)`.
     MemoFanout,
     /// The oscillating-siblings event `O(k, b)`:
-    /// [`Shape::packed2`]`(k, b)`.
+    /// [`Shape::build2`]`(k, b)`.
     MemoOscillating,
-    /// The memo-churn event `U(d)`: [`Shape::packed1`]`(d)`.
+    /// The memo-churn event `U(d)`: [`Shape::build1`]`(d)`.
     MemoChurn,
-    /// The memo-churn id: [`Shape::packed1`]`(d)`.
+    /// The memo-churn id: [`Shape::build1`]`(d)`.
     MemoChurnId,
-    /// The descending-raises event `W(d)`: [`Shape::packed1`]`(d)`.
+    /// The descending-raises event `W(d)`: [`Shape::build1`]`(d)`.
     DescendingRaises,
-    /// The descending-raises id: [`Shape::packed1`]`(d)`.
+    /// The descending-raises id: [`Shape::build1`]`(d)`.
     DescendingRaisesId,
-    /// The reveal-comb event `R(k, b)`: [`Shape::packed2`]`(k, b)`.
+    /// The reveal-comb event `R(k, b)`: [`Shape::build2`]`(k, b)`.
     RevealComb,
     /// The reveal comb with its floor raised to `2^b − 2` (the gap
-    /// control): [`Shape::packed2`]`(k, b)`.
+    /// control): [`Shape::build2`]`(k, b)`.
     RevealCombHifloor,
-    /// The reveal-comb id: [`Shape::packed1`]`(k)`.
+    /// The reveal-comb id: [`Shape::build1`]`(k)`.
     RevealCombId,
-    /// The pure-comb event `L(k, b)`: [`Shape::packed2`]`(k, b)`.
+    /// The pure-comb event `L(k, b)`: [`Shape::build2`]`(k, b)`.
     PureComb,
-    /// The pure-comb id: [`Shape::packed1`]`(k)`.
+    /// The pure-comb id: [`Shape::build1`]`(k)`.
     PureCombId,
-    /// The ascending cliff `A(k, b)`: [`Shape::packed2`]`(k, b)`.
+    /// The ascending cliff `A(k, b)`: [`Shape::build2`]`(k, b)`.
     AscendCliff,
     /// The ascending cliff with every wide leaf leveled (the
-    /// hop-schedule control): [`Shape::packed2`]`(k, b)`.
+    /// hop-schedule control): [`Shape::build2`]`(k, b)`.
     AscendCliffPlateau,
-    /// The ascending-cliff id: [`Shape::packed1`]`(k)`.
+    /// The ascending-cliff id: [`Shape::build1`]`(k)`.
     AscendCliffId,
-    /// The dominated-undercut spine `DU(k, b)`: [`Shape::packed2`]`(k, b)`.
+    /// The dominated-undercut spine `DU(k, b)`: [`Shape::build2`]`(k, b)`.
     DominatedUndercut,
-    /// The dominated-undercut id: [`Shape::packed1`]`(k)`.
+    /// The dominated-undercut id: [`Shape::build1`]`(k)`.
     DominatedUndercutId,
-    /// The seam-plunge spine `SP(k, r)`: [`Shape::packed2`]`(k, r)`.
+    /// The seam-plunge spine `SP(k, r)`: [`Shape::build2`]`(k, r)`.
     SeamPlunge,
     /// The seam-plunge control (the ascent kept, the plunge leveled away):
-    /// [`Shape::packed2`]`(k, r)`.
+    /// [`Shape::build2`]`(k, r)`.
     SeamPlungeControl,
-    /// The seam-stop spine `SS(k)`: [`Shape::packed1`]`(k)`.
+    /// The seam-stop spine `SS(k)`: [`Shape::build1`]`(k)`.
     SeamStop,
     /// The seam-stop control (the descent kept, the stacked boundary
-    /// removed): [`Shape::packed1`]`(k)`.
+    /// removed): [`Shape::build1`]`(k)`.
     SeamStopControl,
-    /// The latent-ladder comb `LL(w, k)`: [`Shape::packed2`]`(w, k)`.
+    /// The latent-ladder comb `LL(w, k)`: [`Shape::build2`]`(w, k)`.
     LatentLadder,
-    /// The freeze-position spine `FP(k)`: [`Shape::packed1`]`(k)`.
+    /// The freeze-position spine `FP(k)`: [`Shape::build1`]`(k)`.
     FreezePosition,
-    /// The promotion re-arm spine `PR(p)`: [`Shape::packed1`]`(p)`.
+    /// The promotion re-arm spine `PR(p)`: [`Shape::build1`]`(p)`.
     PromotionRearm,
     /// The promotion re-arm mate `PRM(p)`, the small twin:
-    /// [`Shape::packed1`]`(p)`.
+    /// [`Shape::build1`]`(p)`.
     PromotionRearmMate,
     /// The dense-suffix re-arm family `DS(p, d)`:
-    /// [`Shape::packed2`]`(p, d)`.
+    /// [`Shape::build2`]`(p, d)`.
     DenseSuffix,
     /// The dense-suffix mate `DSM(p, d)`, the unit twin:
-    /// [`Shape::packed2`]`(p, d)`.
+    /// [`Shape::build2`]`(p, d)`.
     DenseSuffixMate,
-    /// The wide-arming family `WA(w, d)`: [`Shape::packed2`]`(w, d)`.
+    /// The wide-arming family `WA(w, d)`: [`Shape::build2`]`(w, d)`.
     WideArming,
     /// The hoisted-window family `HW(w, d, t)`:
-    /// [`Shape::packed3`]`(w, d, t)`.
+    /// [`Shape::build3`]`(w, d, t)`.
     HoistedWindow,
-    /// The weight-comb family `WC(n)`: [`Shape::packed1`]`(n)`.
+    /// The weight-comb family `WC(n)`: [`Shape::build1`]`(n)`.
     WeightComb,
-    /// The freeze-parade family `FZ(k)`: [`Shape::packed1`]`(k)`.
+    /// The freeze-parade family `FZ(k)`: [`Shape::build1`]`(k)`.
     FreezeParade,
     /// The lone-freeze spine `LF(pre, post)`:
-    /// [`Shape::packed2`]`(pre, post)`.
+    /// [`Shape::build2`]`(pre, post)`.
     LoneFreeze,
-    /// The tooth-tail pair `TT(g, m)`: [`Shape::packed_pair`]`(g, m)`.
+    /// The tooth-tail pair `TT(g, m)`: [`Shape::build_pair`]`(g, m)`.
     ToothTail,
     /// The puncture-product embedding `V(x, y)` over arbitrary factors:
-    /// [`Shape::packed_product`]`(&x, &y)`.
+    /// [`Shape::build_product`]`(&x, &y)`.
     PunctureProduct,
     /// The plateau-puncture family `PP(w, d)` over its committed
-    /// factors: [`Shape::packed2`]`(w, d)`.
+    /// factors: [`Shape::build2`]`(w, d)`.
     PlateauPuncture,
     /// The arming-train family `AT(n, w, g, alternate)`:
-    /// [`Shape::packed_train`]`(n, w, g, alternate)`.
+    /// [`Shape::build_train`]`(n, w, g, alternate)`.
     ArmingTrain,
     /// The two-operand jump comb `JP(k, m, d)`:
-    /// [`Shape::packed_pair3`]`(k, m, d)`.
+    /// [`Shape::build_pair3`]`(k, m, d)`.
     JumpPair,
     /// The concurrent pair `CP(n)`, two organically built versions:
     /// [`Shape::version_pair`]`(n)`.
     ConcurrentPair,
     /// The staggered-comb fold operand `SG(n, m, i)`:
-    /// [`Shape::packed3`]`(n, m, i)`.
+    /// [`Shape::build3`]`(n, m, i)`.
     StaggerComb,
-    /// The staggered id `SI(n, m, i)`: [`Shape::packed3`]`(n, m, i)`.
+    /// The staggered id `SI(n, m, i)`: [`Shape::build3`]`(n, m, i)`.
     StaggerId,
     /// The staggered fold population, all `n` operands in bit-reversed
     /// feed order: [`Shape::population`]`(n, m)`.
@@ -247,20 +187,20 @@ pub enum Shape {
     /// The meet-shade population `MS(d, k)`: [`Shape::versions`]`(d, k)`.
     MeetShade,
     /// The masked-comparison correlated triple `MT(k, n)`:
-    /// [`Shape::packed_triple`]`(k, n)`.
+    /// [`Shape::build_triple`]`(k, n)`.
     MaskDriftTriple,
     /// The masked-comparison correlated quadruple `MQ(k, n)`:
-    /// [`Shape::packed_quadruple`]`(k, n)`.
+    /// [`Shape::build_quadruple`]`(k, n)`.
     MaskDriftQuadruple,
-    /// The collapse-hole pair `CH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    /// The collapse-hole pair `CH(k, m)`: [`Shape::build_pair`]`(k, m)`.
     CollapseHole,
-    /// The copy-hole pair `CO(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    /// The copy-hole pair `CO(k, m)`: [`Shape::build_pair`]`(k, m)`.
     CopyHole,
-    /// The raise-hole pair `RH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    /// The raise-hole pair `RH(k, m)`: [`Shape::build_pair`]`(k, m)`.
     RaiseHole,
-    /// The site-hole pair `SH(k, m)`: [`Shape::packed_pair`]`(k, m)`.
+    /// The site-hole pair `SH(k, m)`: [`Shape::build_pair`]`(k, m)`.
     SiteHole,
-    /// The masked-hole triple `MH(d, h)`: [`Shape::packed_triple`]`(d, h)`.
+    /// The masked-hole triple `MH(d, h)`: [`Shape::build_triple`]`(d, h)`.
     MaskedHoleTriple,
 }
 
@@ -270,32 +210,32 @@ pub enum Shape {
 // be indirection to track, not documentation.
 #[allow(clippy::type_complexity)]
 enum Builder {
-    /// One size knob to one packed shape.
-    P1(fn(usize) -> Packed),
-    /// Two size knobs to one packed shape.
-    P2(fn(usize, usize) -> Packed),
-    /// Three size knobs to one packed shape.
-    P3(fn(usize, usize, usize) -> Packed),
-    /// A size knob and a variant flag to one packed shape.
-    Flag(fn(usize, bool) -> Packed),
+    /// One size knob to one encoded shape.
+    P1(fn(usize) -> Encoding),
+    /// Two size knobs to one encoded shape.
+    P2(fn(usize, usize) -> Encoding),
+    /// Three size knobs to one encoded shape.
+    P3(fn(usize, usize, usize) -> Encoding),
+    /// A size knob and a variant flag to one encoded shape.
+    Flag(fn(usize, bool) -> Encoding),
     /// The arming-train signature: three knobs and a sign schedule.
-    Train(fn(usize, usize, usize, bool) -> Packed),
-    /// Two arbitrary factors to one packed shape.
-    Product(fn(&UBig, &UBig) -> Packed),
-    /// Two size knobs to a geometrically coupled packed pair.
-    Pair2(fn(usize, usize) -> (Packed, Packed)),
-    /// Three size knobs to a geometrically coupled packed pair.
-    Pair3(fn(usize, usize, usize) -> (Packed, Packed)),
+    Train(fn(usize, usize, usize, bool) -> Encoding),
+    /// Two arbitrary factors to one encoded shape.
+    Product(fn(&UBig, &UBig) -> Encoding),
+    /// Two size knobs to a geometrically coupled encoded pair.
+    Pair2(fn(usize, usize) -> (Encoding, Encoding)),
+    /// Three size knobs to a geometrically coupled encoded pair.
+    Pair3(fn(usize, usize, usize) -> (Encoding, Encoding)),
     /// One size knob to an organically built version pair.
     VersionPair(fn(usize) -> (Version, Version)),
     /// Two size knobs to a fold population of versions.
     Versions2(fn(usize, usize) -> Vec<Version>),
     /// Two size knobs to a fold population of (versions, ids).
-    Population2(fn(usize, usize) -> (Vec<Packed>, Vec<Packed>)),
+    Population2(fn(usize, usize) -> (Vec<Encoding>, Vec<Encoding>)),
     /// Two size knobs to a correlated operand triple.
-    Triple2(fn(usize, usize) -> (Packed, Packed, Packed)),
+    Triple2(fn(usize, usize) -> (Encoding, Encoding, Encoding)),
     /// Two size knobs to a correlated operand quadruple.
-    Quad2(fn(usize, usize) -> ((Packed, Packed), (Packed, Packed))),
+    Quad2(fn(usize, usize) -> ((Encoding, Encoding), (Encoding, Encoding))),
 }
 
 impl Shape {
@@ -381,59 +321,59 @@ impl Shape {
 
     /// The accessor-mismatch failure: a shape asked to build through a
     /// signature its constructor does not have.
-    fn wrong_door(self, called: &str) -> ! {
+    fn wrong_builder(self, called: &str) -> ! {
         panic!("{self:?} does not build through {called}: its variant doc names its accessor")
     }
 
-    /// Build a one-knob packed shape.
+    /// Build a one-knob encoded shape.
     ///
     /// # Panics
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed1(self, a: usize) -> Packed {
+    pub fn build1(self, a: usize) -> Encoding {
         match self.builder() {
             Builder::P1(f) => f(a),
-            _ => self.wrong_door("packed1"),
+            _ => self.wrong_builder("build1"),
         }
     }
 
-    /// Build a two-knob packed shape.
+    /// Build a two-knob encoded shape.
     ///
     /// # Panics
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed2(self, a: usize, b: usize) -> Packed {
+    pub fn build2(self, a: usize, b: usize) -> Encoding {
         match self.builder() {
             Builder::P2(f) => f(a, b),
-            _ => self.wrong_door("packed2"),
+            _ => self.wrong_builder("build2"),
         }
     }
 
-    /// Build a three-knob packed shape.
+    /// Build a three-knob encoded shape.
     ///
     /// # Panics
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed3(self, a: usize, b: usize, c: usize) -> Packed {
+    pub fn build3(self, a: usize, b: usize, c: usize) -> Encoding {
         match self.builder() {
             Builder::P3(f) => f(a, b, c),
-            _ => self.wrong_door("packed3"),
+            _ => self.wrong_builder("build3"),
         }
     }
 
-    /// Build a knob-and-flag packed shape.
+    /// Build a knob-and-flag encoded shape.
     ///
     /// # Panics
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed_flagged(self, a: usize, flag: bool) -> Packed {
+    pub fn build_flagged(self, a: usize, flag: bool) -> Encoding {
         match self.builder() {
             Builder::Flag(f) => f(a, flag),
-            _ => self.wrong_door("packed_flagged"),
+            _ => self.wrong_builder("build_flagged"),
         }
     }
 
@@ -443,49 +383,49 @@ impl Shape {
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed_train(self, n: usize, w: usize, g: usize, alternate: bool) -> Packed {
+    pub fn build_train(self, n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
         match self.builder() {
             Builder::Train(f) => f(n, w, g, alternate),
-            _ => self.wrong_door("packed_train"),
+            _ => self.wrong_builder("build_train"),
         }
     }
 
-    /// Build a packed shape over two arbitrary factors.
+    /// Build a shape from two arbitrary factors.
     ///
     /// # Panics
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own factor preconditions.
-    pub fn packed_product(self, x: &UBig, y: &UBig) -> Packed {
+    pub fn build_product(self, x: &UBig, y: &UBig) -> Encoding {
         match self.builder() {
             Builder::Product(f) => f(x, y),
-            _ => self.wrong_door("packed_product"),
+            _ => self.wrong_builder("build_product"),
         }
     }
 
-    /// Build a geometrically coupled two-knob packed pair.
+    /// Build a geometrically coupled two-knob encoded pair.
     ///
     /// # Panics
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed_pair(self, a: usize, b: usize) -> (Packed, Packed) {
+    pub fn build_pair(self, a: usize, b: usize) -> (Encoding, Encoding) {
         match self.builder() {
             Builder::Pair2(f) => f(a, b),
-            _ => self.wrong_door("packed_pair"),
+            _ => self.wrong_builder("build_pair"),
         }
     }
 
-    /// Build a geometrically coupled three-knob packed pair.
+    /// Build a geometrically coupled three-knob encoded pair.
     ///
     /// # Panics
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed_pair3(self, a: usize, b: usize, c: usize) -> (Packed, Packed) {
+    pub fn build_pair3(self, a: usize, b: usize, c: usize) -> (Encoding, Encoding) {
         match self.builder() {
             Builder::Pair3(f) => f(a, b, c),
-            _ => self.wrong_door("packed_pair3"),
+            _ => self.wrong_builder("build_pair3"),
         }
     }
 
@@ -498,7 +438,7 @@ impl Shape {
     pub fn version_pair(self, n: usize) -> (Version, Version) {
         match self.builder() {
             Builder::VersionPair(f) => f(n),
-            _ => self.wrong_door("version_pair"),
+            _ => self.wrong_builder("version_pair"),
         }
     }
 
@@ -511,7 +451,7 @@ impl Shape {
     pub fn versions(self, a: usize, b: usize) -> Vec<Version> {
         match self.builder() {
             Builder::Versions2(f) => f(a, b),
-            _ => self.wrong_door("versions"),
+            _ => self.wrong_builder("versions"),
         }
     }
 
@@ -521,10 +461,10 @@ impl Shape {
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn population(self, a: usize, b: usize) -> (Vec<Packed>, Vec<Packed>) {
+    pub fn population(self, a: usize, b: usize) -> (Vec<Encoding>, Vec<Encoding>) {
         match self.builder() {
             Builder::Population2(f) => f(a, b),
-            _ => self.wrong_door("population"),
+            _ => self.wrong_builder("population"),
         }
     }
 
@@ -534,10 +474,10 @@ impl Shape {
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed_triple(self, a: usize, b: usize) -> (Packed, Packed, Packed) {
+    pub fn build_triple(self, a: usize, b: usize) -> (Encoding, Encoding, Encoding) {
         match self.builder() {
             Builder::Triple2(f) => f(a, b),
-            _ => self.wrong_door("packed_triple"),
+            _ => self.wrong_builder("build_triple"),
         }
     }
 
@@ -547,10 +487,14 @@ impl Shape {
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own knob preconditions.
-    pub fn packed_quadruple(self, a: usize, b: usize) -> ((Packed, Packed), (Packed, Packed)) {
+    pub fn build_quadruple(
+        self,
+        a: usize,
+        b: usize,
+    ) -> ((Encoding, Encoding), (Encoding, Encoding)) {
         match self.builder() {
             Builder::Quad2(f) => f(a, b),
-            _ => self.wrong_door("packed_quadruple"),
+            _ => self.wrong_builder("build_quadruple"),
         }
     }
 }
@@ -560,30 +504,8 @@ impl Shape {
 /// One adversarial input family: the roster every instrument's family
 /// axis derives from.
 ///
-/// The leading variants are the amplification board's columns, in render
-/// order (each variant's doc carries its genre note); the rest are the
-/// envelope suite's kernel-seam probe families, each answering
-/// [`Coverage::EnvelopeOnly`] with the dated reason it earns no column. Every
-/// variant's row of record is its [`FamilyId::spec`] answer.
-///
-/// Adding a family: the [`FamilyId::spec`] and [`FamilyId::index`] arms and —
-/// for a board column — the board family module's bundle-build and
-/// designed-diagonal match arms are compiler-forced from the variant. What the
-/// compiler cannot force, in the order it is otherwise found by luck: the
-/// roster entry in [`FamilyId::ALL`], the shape's base-size constant (the board
-/// family module, with its derivation doc), that module's family prose and any
-/// cardinality it carries, the declared bundle reach on the variant's
-/// [`Coverage::Board`] answer, the envelope rows in `tests/meter.rs` (the
-/// enforced record), the ceiling-calibration witnesses (the board `ceilings`
-/// module's header comment), and — only if a cell needs a declared model or
-/// turns up red — the declaration site (the `ceilings` module's declared-models
-/// section), the rider list
-/// ([`BOARD_DECLARED_BENCH_RIDERS`](crate::meter::board::BOARD_DECLARED_BENCH_RIDERS)),
-/// and the judge roster with its membership pin
-/// (`tools/benchjudge-expected.json`, `tests/bench_judge_roster.rs`). And not
-/// every family belongs on the board: a whole-surface adversary earns a column,
-/// while a kernel-seam shape answers [`Coverage::EnvelopeOnly`] with the dated
-/// reason, as wide-tooth-comb, alt-spine, and the memo probes do.
+/// Whole-surface adversaries form board columns. Narrower kernel probes belong
+/// only to the envelope suite, as recorded by [`Coverage::EnvelopeOnly`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FamilyId {
     /// The dense event spine `S(d)`: node count and depth maximizer.
@@ -672,10 +594,9 @@ pub enum FamilyId {
     /// `s` sibling left-full sites share one `2^s`-wide minimum over a zero
     /// floor, and the left-leaning spine closes each site's frame back into the
     /// floor frame between consecutive consumes: the width-`s` boundary
-    /// difference is minted at every consume and popped at every close — the
-    /// unfunded width circulation, in the touch currency these columns do not
-    /// carry (the gate pins in `tests/meter.rs` enforce it; the bench mirror's
-    /// time leg sees it). The designated cross of the two tick rows.
+    /// difference is created at every consume and popped at every close. The
+    /// gate pins its touch cost in `tests/meter.rs`. The designated cross of
+    /// the two tick rows.
     RevealComb,
     /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
     /// reveal-comb id.
@@ -809,24 +730,10 @@ pub enum FamilyId {
     /// `skyline_flatness` dense-suffix rank and distance bands carry the
     /// enforcement). Designed against the linear-functional query rows.
     DenseSuffix,
-    /// The wide-arming family `wide_arming(s, s)`: the single-arming wide ×
-    /// dense sentinel, both factors on one knob.
+    /// Combines one wide counter change with a dense suffix.
     ///
-    /// The gap spine holds the trailing interval mass at `Θ(s)` isolated digits
-    /// and the one re-arm block parks a `2^(32s)` drift and promotes it — one
-    /// ledger arming as wide as the input owing its debt across a trailing mass
-    /// as dense as the input, so the settle's one aggregate product is the wide
-    /// × dense cross term at its purest, undodgeable by seam cancellation (the
-    /// `ledger_wide_arming` band in `tests/meter.rs` carries the enforcement;
-    /// the committed schoolbook settle kernel keeps the per-digit charge
-    /// failing on this family). Its rendered text is the same shape at the
-    /// parse seam: one wide swing ahead of `Θ(s)` trailing zero-delta leaves,
-    /// where a per-leaf delta extraction that pays a stale high-water span
-    /// instead of the settled top reads `Θ(w·d)` touches on `Θ(w + d)` text
-    /// (the `parse_wide_arming` band and the committed schoolbook parse kernel
-    /// carry both readings), so the column's five text-parse cells are the
-    /// standing watch on the exact-`top` genre at the text seam. Designed
-    /// against the linear-functional query rows.
+    /// Both grow linearly with `s`, exposing implementations that repeatedly
+    /// process the wide value for every suffix element.
     WideArming,
     /// The plateau-puncture family `plateau_puncture(s, s)`: the
     /// answer-embedded-product sentinel, and the floor under every settle.
@@ -1023,8 +930,7 @@ pub enum FamilyId {
 /// from.
 #[derive(Debug, Clone, Copy)]
 pub struct FamilySpec {
-    /// The family name of record: the board column header, the bench cell key,
-    /// and the prose name the bands and pins use.
+    /// The name used by the board, bands, and pins.
     pub name: &'static str,
     /// The registered constructors that build this family's operands.
     ///
@@ -1096,14 +1002,29 @@ pub enum Bands {
     },
 }
 
-/// The default denominator: packed input bytes.
-const PACKED: &str = "packed input bytes";
+/// Board rows reached by a family with version operands.
+const VERSION_BUNDLE_CELLS: usize = 54;
+
+/// Board rows reached by a family with party operands.
+const PARTY_BUNDLE_CELLS: usize = 30;
+
+/// Board rows reached by a family with version, party, and clock operands.
+const CROSS_BUNDLE_CELLS: usize = 70;
+
+/// Board rows reached by a family with every operand bundle.
+const FULL_BUNDLE_CELLS: usize = 74;
+
+/// Board rows reached by a fold-only family.
+const FOLD_BUNDLE_CELLS: usize = 4;
+
+/// The default denominator: encoded input bytes.
+const ENCODED: &str = "encoded input bytes";
 
 /// The date the registry's rulings were ratified as the rows of record.
 const REGISTRY_RATIFIED: &str = "2026-07-29";
 
 /// The fold populations' shared denominator note.
-const FOLD_DENOM: &str = "packed operand bytes, judged under the declared O(D log k) fold model";
+const FOLD_DENOM: &str = "encoded operand bytes, judged under the declared O(D log k) fold model";
 
 /// The tick crosses' shared no-band reason.
 const TICK_CROSS_UNBANDED: &str = "tick cross: the tick gate pins in tests/meter.rs price its walk";
@@ -1246,13 +1167,15 @@ impl FamilyId {
             FamilyId::Dense => FamilySpec {
                 name: "dense",
                 shapes: &[Shape::Dense],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "depth/node maximizer; absolute envelope rows carry it, no \
                              committed two-point flatness claim",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: Some(
                     "4d + 4 bits for 2d + 1 nodes at depth d; the meter suite pins the \
                      size closed form",
@@ -1261,73 +1184,84 @@ impl FamilyId {
             FamilyId::Bigroot => FamilySpec {
                 name: "bigroot",
                 shapes: &[Shape::Bigroot],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "magnitude-over-depth shape; absolute envelope rows carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::Hugeleaf => FamilySpec {
                 name: "hugeleaf",
                 shapes: &[Shape::Hugeleaf],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "single-node magnitude maximizer; absolute envelope rows carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::Cliff => FamilySpec {
                 name: "cliff",
                 shapes: &[Shape::CliffComb],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&[
                     "skyline_validate_cliff_cost_is_flat_per_unit",
                     "skyline_cmp_cliff_cost_is_flat_per_unit",
                     "skyline_join_cliff_cost_is_flat_per_unit",
-                    "skyline_parse_cliff_touch_cost_is_flat_per_unit",
                 ]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::IdPair => FamilySpec {
                 name: "id-pair",
                 shapes: &[Shape::IdSpine],
-                coverage: Coverage::Board { cells: 37 },
+                coverage: Coverage::Board {
+                    cells: PARTY_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "party-only bundle; the flatness bands price version query and \
                              comparison kernels",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::CombScatter => FamilySpec {
                 name: "comb-scatter",
                 shapes: &[Shape::CliffComb, Shape::ScatteredId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "the output-domination cross; its projection rows are \
                              I/O-denominated",
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: "value content bytes for exponents (the flat-denominator \
-                              shape); packed I/O on the projection rows",
+                              shape); encoded I/O on the projection rows",
                 closed_form: None,
             },
             FamilyId::Harmonic => FamilySpec {
                 name: "harmonic",
                 shapes: &[Shape::Harmonic],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "the rank fold's wide-numerator adversary; the board's harmonic \
                              tripwire column and its envelope rows carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: Some(
                     "rank telescopes to (2^d − 1)/2^d; the meter suite pins the closed \
                      form against the fold",
@@ -1336,7 +1270,9 @@ impl FamilyId {
             FamilyId::Scatter => FamilySpec {
                 name: "scatter",
                 shapes: &[],
-                coverage: Coverage::Board { cells: 4 },
+                coverage: Coverage::Board {
+                    cells: FOLD_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "fold-only bundle; the fold rows are judged by the declared \
                              fold model",
@@ -1348,7 +1284,9 @@ impl FamilyId {
             FamilyId::Weave => FamilySpec {
                 name: "weave",
                 shapes: &[],
-                coverage: Coverage::Board { cells: 4 },
+                coverage: Coverage::Board {
+                    cells: FOLD_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "fold-only bundle; the fold rows are judged by the declared \
                              fold model",
@@ -1364,7 +1302,9 @@ impl FamilyId {
                     Shape::StaggerComb,
                     Shape::StaggerId,
                 ],
-                coverage: Coverage::Board { cells: 4 },
+                coverage: Coverage::Board {
+                    cells: FOLD_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&[
                     "fold_version_stagger_arity_axis_is_flat_per_unit",
                     "fold_version_stagger_size_axis_is_flat_per_unit",
@@ -1377,111 +1317,133 @@ impl FamilyId {
             FamilyId::NestedFull => FamilySpec {
                 name: "nested-full",
                 shapes: &[Shape::Dense, Shape::NestedFullId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::NestedWide => FamilySpec {
                 name: "nested-wide",
                 shapes: &[Shape::Bigroot, Shape::NestedFullId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MirrorWide => FamilySpec {
                 name: "mirror-wide",
                 shapes: &[Shape::WideTail, Shape::NestedLeftFullId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MirrorNarrow => FamilySpec {
                 name: "mirror-narrow",
                 shapes: &[Shape::WideTail, Shape::NestedLeftFullId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::Staircase => FamilySpec {
                 name: "staircase",
                 shapes: &[Shape::Staircase, Shape::IdSpine],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::RevealComb => FamilySpec {
                 name: "reveal-comb",
                 shapes: &[Shape::RevealComb, Shape::RevealCombId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["skyline_min_ticks_reveal_comb_is_flat_per_unit"]),
-                denominator: "packed input bytes; packed I/O on the output-dominated \
+                denominator: "encoded input bytes; encoded I/O on the output-dominated \
                               projection rows",
                 closed_form: None,
             },
             FamilyId::RevealHifloor => FamilySpec {
                 name: "reveal-hifloor",
                 shapes: &[Shape::RevealCombHifloor, Shape::RevealCombId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["reveal_comb_hifloor_control_is_flat_per_unit"]),
-                denominator: "packed input bytes; packed I/O on the output-dominated \
+                denominator: "encoded input bytes; encoded I/O on the output-dominated \
                               projection rows",
                 closed_form: None,
             },
             FamilyId::PureComb => FamilySpec {
                 name: "pure-comb",
                 shapes: &[Shape::PureComb, Shape::PureCombId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["skyline_min_ticks_pure_comb_is_flat_per_unit"]),
-                denominator: "packed input bytes; packed I/O on the output-dominated \
+                denominator: "encoded input bytes; encoded I/O on the output-dominated \
                               projection rows",
                 closed_form: None,
             },
             FamilyId::AscendCliff => FamilySpec {
                 name: "ascend-cliff",
                 shapes: &[Shape::AscendCliff, Shape::AscendCliffId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "the cascade's red-direction driver; its leveled control \
                              (ascend-plateau) carries the committed flatness band",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::AscendPlateau => FamilySpec {
                 name: "ascend-plateau",
                 shapes: &[Shape::AscendCliffPlateau, Shape::AscendCliffId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["ascend_cliff_plateau_control_is_flat_per_unit"]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::DominatedUndercut => FamilySpec {
                 name: "dominated-undercut",
                 shapes: &[Shape::DominatedUndercut, Shape::DominatedUndercutId],
-                coverage: Coverage::Board { cells: 81 },
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["tick_dominated_undercut_arm_is_flat_per_unit"]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: Some(
                     "k(2b + 26) + 2 construction bits, one dominated-undercut decision \
                      per site; the meter suite pins the size closed form and the band \
@@ -1491,21 +1453,25 @@ impl FamilyId {
             FamilyId::JumpPair => FamilySpec {
                 name: "jump-pair",
                 shapes: &[Shape::JumpPair],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["skyline_distance_jump_pair_is_flat_per_unit"]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::FreezePos => FamilySpec {
                 name: "freeze-pos",
                 shapes: &[Shape::FreezePosition],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&[
                     "skyline_rank_freeze_position_is_flat_per_unit",
                     "skyline_min_ticks_freeze_position_is_flat_per_unit",
                     "skyline_distance_freeze_position_is_flat_per_unit",
                 ]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: Some(
                     "rank exponent 2s − 1 (one trailing zero strips): the remainder-\
                      alignment derivation on the family's board base constant",
@@ -1514,13 +1480,15 @@ impl FamilyId {
             FamilyId::PromoRearm => FamilySpec {
                 name: "promo-rearm",
                 shapes: &[Shape::PromotionRearm, Shape::PromotionRearmMate],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&[
                     "skyline_rank_promotion_rearm_is_flat_per_unit",
                     "skyline_min_ticks_promotion_rearm_is_flat_per_unit",
                     "skyline_distance_promotion_rearm_is_flat_per_unit",
                 ]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: Some(
                     "rank exponent 36s: the remainder-alignment derivation on the \
                      family's board base constant",
@@ -1529,39 +1497,44 @@ impl FamilyId {
             FamilyId::WeightComb => FamilySpec {
                 name: "weight-comb",
                 shapes: &[Shape::WeightComb],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["skyline_rank_weight_comb_is_flat_per_unit"]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::FreezeParade => FamilySpec {
                 name: "freeze-parade",
                 shapes: &[Shape::FreezeParade],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["skyline_rank_freeze_parade_is_flat_per_unit"]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::DenseSuffix => FamilySpec {
                 name: "dense-suffix",
                 shapes: &[Shape::DenseSuffix, Shape::DenseSuffixMate],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&[
                     "skyline_rank_dense_suffix_is_flat_per_unit",
                     "skyline_distance_dense_suffix_is_flat_per_unit",
                 ]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::WideArming => FamilySpec {
                 name: "wide-arming",
                 shapes: &[Shape::WideArming],
-                coverage: Coverage::Board { cells: 61 },
-                bands: Bands::Priced(&[
-                    "rank_wide_arming_is_flat_per_unit",
-                    "parse_wide_arming_touch_cost_is_flat_per_unit",
-                ]),
-                denominator: PACKED,
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
+                bands: Bands::Priced(&["rank_wide_arming_is_flat_per_unit"]),
+                denominator: ENCODED,
                 closed_form: Some(
                     "rank exponent 32s (remainder 0 at every knob): the derivation on \
                      the family's board base constant",
@@ -1570,9 +1543,11 @@ impl FamilyId {
             FamilyId::PlateauPuncture => FamilySpec {
                 name: "plateau-puncture",
                 shapes: &[Shape::PlateauPuncture, Shape::PunctureProduct],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["rank_plateau_puncture_is_flat_per_unit"]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: Some(
                     "the exact rank embeds the integer product 2·x·y + 1 of the committed \
                      factors (plateau_puncture_factors); the query fold's suite pins the \
@@ -1582,44 +1557,52 @@ impl FamilyId {
             FamilyId::LoneFreeze => FamilySpec {
                 name: "lone-freeze",
                 shapes: &[Shape::LoneFreeze],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&[
                     "skyline_rank_lone_freeze_late_is_flat_per_unit",
                     "skyline_rank_lone_freeze_tail_is_flat_per_unit",
                 ]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::ConcurrentPair => FamilySpec {
                 name: "concurrent-pair",
                 shapes: &[Shape::ConcurrentPair],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "the switch-density pair; absolute envelope pair-query rows \
                              carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::ToothTail => FamilySpec {
                 name: "tooth-tail",
                 shapes: &[Shape::ToothTail],
-                coverage: Coverage::Board { cells: 61 },
+                coverage: Coverage::Board {
+                    cells: VERSION_BUNDLE_CELLS,
+                },
                 bands: Bands::Priced(&["skyline_cmp_tooth_tail_is_flat_per_unit"]),
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::Benign => FamilySpec {
                 name: "benign",
                 shapes: &[],
-                coverage: Coverage::Board { cells: 85 },
+                coverage: Coverage::Board {
+                    cells: FULL_BUNDLE_CELLS,
+                },
                 bands: Bands::Unbanded {
                     reason: "the organic control population; flatness bands price \
                              adversarial constructions",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: "packed input bytes (the organic control)",
+                denominator: "encoded input bytes (the organic control)",
                 closed_form: None,
             },
             FamilyId::WideToothComb => FamilySpec {
@@ -1633,7 +1616,7 @@ impl FamilyId {
                     decided: REGISTRY_RATIFIED,
                 },
                 bands: Bands::Priced(&["skyline_rank_wide_tooth_freeze_band"]),
-                denominator: "packed input bytes, through the internal skyline rank entry",
+                denominator: "encoded input bytes, through the internal skyline rank entry",
                 closed_form: None,
             },
             FamilyId::JumpComb => FamilySpec {
@@ -1647,7 +1630,7 @@ impl FamilyId {
                     decided: REGISTRY_RATIFIED,
                 },
                 bands: Bands::Priced(&["skyline_rank_jump_eviction_is_flat_per_unit"]),
-                denominator: "packed input bytes, through the internal skyline rank entry",
+                denominator: "encoded input bytes, through the internal skyline rank entry",
                 closed_form: None,
             },
             FamilyId::CliffFan => FamilySpec {
@@ -1664,7 +1647,7 @@ impl FamilyId {
                              tier2 suites, not two-point bands in tests/meter.rs",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::CancellingChain => FamilySpec {
@@ -1681,7 +1664,7 @@ impl FamilyId {
                              tier2 suites, not two-point bands in tests/meter.rs",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::AltSpine => FamilySpec {
@@ -1697,7 +1680,7 @@ impl FamilyId {
                     reason: "its pins are absolute envelope rows, not two-point bands",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MemoChain => FamilySpec {
@@ -1709,7 +1692,7 @@ impl FamilyId {
                     decided: REGISTRY_RATIFIED,
                 },
                 bands: Bands::Priced(&["memo_chain_shared_control_is_flat_per_unit"]),
-                denominator: "packed cross bytes (the touch currency)",
+                denominator: "encoded cross bytes (the touch currency)",
                 closed_form: None,
             },
             FamilyId::MemoComb => FamilySpec {
@@ -1725,7 +1708,7 @@ impl FamilyId {
                              absolute pins outside the band convention",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: "packed cross bytes (the touch currency)",
+                denominator: "encoded cross bytes (the touch currency)",
                 closed_form: None,
             },
             FamilyId::MemoFanout => FamilySpec {
@@ -1742,7 +1725,7 @@ impl FamilyId {
                              blows), outside the band convention",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: "packed cross bytes (the touch currency)",
+                denominator: "encoded cross bytes (the touch currency)",
                 closed_form: None,
             },
             FamilyId::MemoOscillating => FamilySpec {
@@ -1758,7 +1741,7 @@ impl FamilyId {
                              the memo-resolution gate pins in tests/meter.rs",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: "packed cross bytes (the touch currency)",
+                denominator: "encoded cross bytes (the touch currency)",
                 closed_form: None,
             },
             FamilyId::MemoChurn => FamilySpec {
@@ -1774,7 +1757,7 @@ impl FamilyId {
                              absolute pins outside the band convention",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: "packed cross bytes (the touch currency)",
+                denominator: "encoded cross bytes (the touch currency)",
                 closed_form: None,
             },
             FamilyId::DescendingRaises => FamilySpec {
@@ -1791,7 +1774,7 @@ impl FamilyId {
                              absolute pins outside the band convention",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: "packed cross bytes (the touch currency)",
+                denominator: "encoded cross bytes (the touch currency)",
                 closed_form: None,
             },
             FamilyId::MaskDrift => FamilySpec {
@@ -1808,7 +1791,7 @@ impl FamilyId {
                     "masked_cmp_drift_cost_is_flat_per_unit",
                     "masked_pair_cmp_drift_cost_is_flat_per_unit",
                 ]),
-                denominator: "combined packed tuple bytes",
+                denominator: "combined encoded tuple bytes",
                 closed_form: None,
             },
             FamilyId::MeetShade => FamilySpec {
@@ -1821,7 +1804,7 @@ impl FamilyId {
                     decided: REGISTRY_RATIFIED,
                 },
                 bands: Bands::Priced(&["meet_all_shade_is_flat_per_unit"]),
-                denominator: "packed operand bytes of the population",
+                denominator: "encoded operand bytes of the population",
                 closed_form: None,
             },
             FamilyId::ArmingTrain => FamilySpec {
@@ -1839,7 +1822,7 @@ impl FamilyId {
                     "arming_trains_is_flat_per_unit",
                     "pair_plateau_train_is_flat_per_unit",
                 ]),
-                denominator: "packed input bytes; three fixed-width points (level ratio, \
+                denominator: "encoded input bytes; three fixed-width points (level ratio, \
                               not a two-scale fit)",
                 closed_form: None,
             },
@@ -1863,7 +1846,7 @@ impl FamilyId {
                              scans engaging; no two-point flatness claim is committed",
                     decided: "2026-08-10",
                 },
-                denominator: PACKED,
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MaskedHole => FamilySpec {
@@ -1876,7 +1859,7 @@ impl FamilyId {
                     decided: "2026-08-10",
                 },
                 bands: Bands::Priced(&["masked_cmp_hole_depth_band"]),
-                denominator: "combined packed tuple bytes (the depth band's flat ceiling \
+                denominator: "combined encoded tuple bytes (the depth band's flat ceiling \
                               is absolute: the block skip makes the reading a function \
                               of the mask depth alone)",
                 closed_form: None,
@@ -1896,7 +1879,7 @@ impl FamilyId {
                     "rank_hoisted_window_is_flat_per_unit",
                     "rank_hoisted_window_densify_span_band",
                 ]),
-                denominator: "packed input bytes for the walk columns; the densify column \
+                denominator: "encoded input bytes for the walk columns; the densify column \
                               is judged absolute across the tail doubling (span-priced \
                               work is position-free by construction)",
                 closed_form: Some(
@@ -1927,7 +1910,7 @@ impl FamilyId {
                     "skyline_min_ticks_seam_plunge_clearance_band",
                     "skyline_min_ticks_seam_stop_is_flat_per_unit",
                 ]),
-                denominator: "packed input bytes; each control-paired leg is judged as \
+                denominator: "encoded input bytes; each control-paired leg is judged as \
                               the run difference against its wire-near-identical control",
                 closed_form: Some(
                     "min_ticks is each shape's stored-base sum, closed-form in the knobs \
@@ -1945,7 +1928,7 @@ impl FamilyId {
                     decided: "2026-08-11",
                 },
                 bands: Bands::Priced(&["skyline_min_ticks_latent_ladder_is_flat_per_unit"]),
-                denominator: "packed input bytes; the decision leg is judged as the \
+                denominator: "encoded input bytes; the decision leg is judged as the \
                               k-marginal at fixed width across a width doubling",
                 closed_form: Some(
                     "min_ticks(LL(w, k)) = (k + 1)·5·2^(32(w−1)) + 1 − k(k + 1)/2 (the \

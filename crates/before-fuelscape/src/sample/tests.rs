@@ -16,7 +16,7 @@ use super::{cell_rng, PartySampler, VersionSampler};
 /// covered into the low twenties of bits.
 const EXHAUSTIVE_BYTES: usize = 2;
 
-/// Every canonical version of at most [`EXHAUSTIVE_BYTES`] packed bytes,
+/// Every canonical version of at most [`EXHAUSTIVE_BYTES`] encoded bytes,
 /// listed from the grammar: enumerate the sibling-rule family per exact
 /// bit length, keep the nonnegative-height members, pack.
 fn version_ground_truth(bytes: usize) -> BTreeSet<Vec<u8>> {
@@ -30,7 +30,7 @@ fn version_ground_truth(bytes: usize) -> BTreeSet<Vec<u8>> {
         .collect()
 }
 
-/// Every canonical party of exactly `bytes` packed bytes, from the grammar.
+/// Every canonical party of exactly `bytes` encoded bytes, from the grammar.
 fn party_ground_truth(bytes: usize) -> BTreeSet<Vec<u8>> {
     bit_window(bytes, MIN_PARTY_BITS)
         .flat_map(|n| party_subtrees(n).into_iter().map(|(bits, _)| pack(&bits)))
@@ -63,7 +63,7 @@ fn accepted_byte_strings(len: usize, accept: impl Fn(&[u8]) -> bool) -> BTreeSet
 /// The version grammar's members are exactly the decoder's accept set.
 ///
 /// Not a subset, not a superset: for every byte length up to the
-/// exhaustive bound, the packed members the grammar enumeration produces
+/// exhaustive bound, the encoded members the grammar enumeration produces
 /// must equal, as a set, the byte strings `Version::decode` accepts out
 /// of all `256^n` candidates.
 #[test]
@@ -78,7 +78,7 @@ fn version_grammar_is_exactly_the_decoder_accept_set() {
     }
 }
 
-/// The party grammar's packed members must equal, as a set, the byte
+/// The party grammar's encoded members must equal, as a set, the byte
 /// strings `Party::decode` accepts out of all `256^n` candidates, for
 /// every byte length up to the exhaustive bound.
 #[test]
@@ -227,7 +227,7 @@ proptest! {
     ///
     /// `Version::decode` accepts the bytes, re-encoding reproduces them
     /// byte-identically, the live bit length matches the draw's, and the
-    /// packed length is exactly the requested size. Stated over random
+    /// encoded length is exactly the requested size. Stated over random
     /// (seed, size) cells so the family, not points, carries the claim.
     #[test]
     fn version_draws_round_trip_at_the_requested_size(

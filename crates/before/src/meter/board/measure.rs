@@ -3,8 +3,8 @@
 
 use crate::meter;
 
-use super::ceilings::{capacity_chain_peak, TEXT_PIPELINE_LIMB_OPS_PER_VALUE};
-use super::cell::{assert_honest_text, Cell, Denom};
+use super::ceilings::capacity_chain_peak;
+use super::cell::{Cell, Denom};
 use super::currency::{ByCurrency, Floors};
 
 /// The peak-heap meter the board reads, supplied by the binary that runs it.
@@ -26,23 +26,17 @@ pub struct HeapMeter {
 /// One measured run of a cell body: every meter and its denominators.
 pub(super) struct Sample {
     /// The denominator of the heap and segment constants (and, on most cells,
-    /// of every exponent): packed input bytes, or `n_io` for the
+    /// of every exponent): encoded input bytes, or `n_io` for the
     /// I/O-denominated cells.
     pub(super) denom_bytes: usize,
     /// The exponent legs' denominator.
     ///
     /// `denom_bytes` everywhere except the flat-denominator shape's
     /// input-denominated cells, where it is the bundle's value content: the
-    /// packed denominator is intercept-dominated there, and a two-point
+    /// encoded denominator is intercept-dominated there, and a two-point
     /// power-law fit against an intercept-dominated denominator manufactures
     /// exponents out of exactly linear marginal work.
     pub(super) exp_denom_bytes: usize,
-    /// The limb *constant*'s denominator: `denom_bytes`, or `R` for the
-    /// text rows (the limb exponent is judged against `denom_bytes` on
-    /// every row).
-    pub(super) limb_denom: u64,
-    /// Whether the limb column is judged at the text ceiling κ.
-    pub(super) text_row: bool,
     /// The cell's liveness declarations; each sample carries its own since
     /// floors scale with the sample's operands.
     pub(super) floors: Floors,
@@ -56,10 +50,6 @@ pub(super) struct Sample {
     /// The family-stated flat heap ceiling, on the cells that declare one (the
     /// `ceilings` module's declared-models section).
     pub(super) declared_heap: Option<f64>,
-    /// The family-stated limb model `(exponent ceiling, per-radix-unit constant
-    /// ceiling)`, on the cells that declare one (the `ceilings` module's
-    /// declared-models section).
-    pub(super) declared_limb: Option<(f64, f64)>,
     /// Every currency's counter reading over the body; `None` where the counter
     /// is not compiled in (the feature-gated limb, scan, and touch columns
     /// render `off` and are exempt from judgment).
@@ -70,11 +60,10 @@ pub(super) struct Sample {
 ///
 /// The denominators are settled after the meters are read and before the result
 /// is dropped: an I/O-denominated cell's output side comes from the actual
-/// result (never from a prediction), and a text output is checked against the
-/// honesty ceiling right here.
+/// result rather than a prediction.
 pub(super) fn measure(
     heap: &HeapMeter,
-    op: &'static str,
+    _op: &'static str,
     cell: Cell,
     content: Option<usize>,
 ) -> Sample {
@@ -91,13 +80,13 @@ pub(super) fn measure(
     let scan = read_scan();
     let touch = read_touch();
     let mut heap_model = None;
-    let (denom_bytes, exp_denom_bytes, limb_denom, text_row) = match cell.denom {
+    let (denom_bytes, exp_denom_bytes) = match cell.denom {
         // The flat-denominator shape's content denominator carries the exponent
         // legs of its input-denominated cells alone: an I/O-denominated cell's
         // output side already scales.
         Denom::Input => {
             let exp = content.unwrap_or(cell.input_bytes);
-            (cell.input_bytes, exp, cell.input_bytes as u64, false)
+            (cell.input_bytes, exp)
         }
         Denom::Io(spec) => {
             let output_bytes = (spec.output_bytes)(result.as_ref());
@@ -105,29 +94,17 @@ pub(super) fn measure(
                 heap_model = Some(capacity_chain_peak(cell.input_bytes, output_bytes));
             }
             let n_io = cell.input_bytes + output_bytes;
-            match spec.text {
-                None => (n_io, n_io, n_io as u64, false),
-                Some(text) => {
-                    if text.output_is_text {
-                        assert_honest_text(op, output_bytes, text.radix_units);
-                    }
-                    let pipeline = TEXT_PIPELINE_LIMB_OPS_PER_VALUE * text.spelled_values;
-                    (n_io, n_io, n_io as u64 + text.radix_units + pipeline, true)
-                }
-            }
+            (n_io, n_io)
         }
     };
     drop(result);
     Sample {
         denom_bytes,
         exp_denom_bytes,
-        limb_denom,
-        text_row,
         floors: cell.floors,
         fold_arity: cell.fold_arity,
         heap_model,
         declared_heap: cell.declared_heap,
-        declared_limb: cell.declared_limb,
         readings: ByCurrency {
             heap: Some(peak_heap as u64),
             segments: Some(segments),

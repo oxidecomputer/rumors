@@ -1,54 +1,26 @@
-//! The append-truncate builder core shared by the packed preorder emitters.
+//! A bit-stream builder shared by the party and version encoders.
 //!
-//! Every packed tree in the crate — id trees on 2-bit presence tags,
-//! skyline event streams on 1-bit topology flags plus leaf payload codes —
-//! is written by the same small move set over one output bit buffer:
+//! It provides four operations:
 //!
-//! - **append**: push flag bits and payload codes at the end;
-//! - **reserve/patch**: hold a fixed-width header slot open while the
-//!   children are emitted, then write its final bits in place;
-//! - **copy-splice**: extend the output with a verbatim bit range copied
-//!   from an already-normal source stream;
-//! - **truncate**: roll the output back to a recorded position, which is
-//!   the whole of normalization on these streams — nothing an emitter
-//!   writes is ever widened in place, so every repair is subtractive.
+//! - append flags and integer codes;
+//! - reserve and later patch fixed-width headers;
+//! - copy a range from an existing stream;
+//! - truncate output when canonicalization collapses a subtree.
 //!
-//! This module is that move set, with the packed-stream write meter
-//! ([`scan::record_bits`](crate::codec::scan)) applied uniformly at the
-//! primitives so every builder's write work is counted once, in one place. The
-//! per-node payload discipline lives in the wrappers: the id builder
-//! (`party::ops`) patches presence tags and collapses uniform subtrees to their
-//! tag; the skyline builder ([`crate::version::skyline`]) appends leaf delta
-//! codes and collapses equal sibling leaves by truncation.
-//!
-//! # Storage
-//!
-//! The buffer is the output's whole bytes plus one staging register of
-//! fewer than eight trailing bits, so every append is shift arithmetic
-//! against the register and lands in the byte vector at byte
-//! granularity — bit-granular work costs word ops, not one buffer
-//! operation per bit. A verbatim splice aligns its source to the
-//! source's own byte boundary (at most seven leading bits through the
-//! register) and then copies bytes — a `memcpy` when the register is
-//! empty, a two-shift merge per byte otherwise.
+//! The builder stores complete bytes plus fewer than eight staged bits. Bulk
+//! copies therefore operate bytewise even when the destination is unaligned.
+//! All primitive reads and writes update the scan meter.
 
 use super::code::SMALL_CODE_BITS;
 use super::{BitsBuf, BitsView, Code};
 
-/// An append-truncate builder over one packed preorder bit stream.
+/// Builds one encoded bit stream.
 ///
-/// The wrapper owning it defines the tree coding; this core owns the
-/// buffer, the primitive moves, and the write metering.
-///
-/// Positions and lengths run at `u64` width on every target, the build
-/// side's discipline (the `buf` module doc): the builder is exact to
-/// allocatable memory, and byte *indexes* — which fit `usize` because they
-/// index an allocated buffer — are converted exactly where a byte is
-/// touched.
-pub(crate) struct PackedBuilder {
+/// Positions and lengths are `u64`; byte indexes are `usize`.
+pub(crate) struct BitBuilder {
     /// The committed prefix: whole bytes, most-significant bit first.
     bytes: Vec<u8>,
-    /// The trailing not-yet-committed bits, value-packed at the low end
+    /// The trailing not-yet-committed bits, right-aligned
     /// (the stream's next bit is the register's most significant live
     /// bit). Always fewer than eight: appends flush whole bytes
     /// greedily.
@@ -57,14 +29,14 @@ pub(crate) struct PackedBuilder {
     staged_len: u32,
 }
 
-impl PackedBuilder {
+impl BitBuilder {
     /// Create a builder with room for `capacity` bits before reallocation.
     ///
     /// The capacity is a hint: a request past the target's address space
     /// allocates nothing up front, and the buffer still grows to whatever
     /// the appends actually demand.
     pub(crate) fn with_capacity(capacity: u64) -> Self {
-        PackedBuilder {
+        BitBuilder {
             bytes: Vec::with_capacity(usize::try_from(capacity / 8 + 1).unwrap_or(0)),
             staged: 0,
             staged_len: 0,
@@ -192,7 +164,7 @@ impl PackedBuilder {
             pos += whole * 8;
         }
         if pos < end {
-            // Trailing bits (fewer than 8), value-packed from their byte.
+            // Trailing bits (fewer than 8), right-aligned from their byte.
             let rem = (end - pos) as u32;
             let byte = src.bytes()[(pos / 8) as usize];
             self.append_bits(u64::from(byte >> (8 - rem)), rem);
@@ -239,7 +211,7 @@ impl PackedBuilder {
         BitsBuf::from_raw_parts(bytes, bit_len)
     }
 
-    /// Append `len <= 63` bits, value-packed at the low end of `value`
+    /// Append `len <= 63` bits, right-aligned in `value`
     /// (bits above `len` must be zero), flushing whole bytes into the
     /// committed prefix.
     fn append_bits(&mut self, value: u64, len: u32) {
@@ -281,7 +253,7 @@ impl PackedBuilder {
         self.staged = u64::from(carry);
     }
 
-    /// Read `n <= 63` bits at `pos` back out of the output, value-packed
+    /// Read `n <= 63` bits at `pos` back out of the output, right-aligned
     /// at the low end of the result.
     fn read_bits(&self, pos: u64, n: u32) -> u64 {
         debug_assert!(u64::from(n) <= SMALL_CODE_BITS && pos + u64::from(n) <= self.len());

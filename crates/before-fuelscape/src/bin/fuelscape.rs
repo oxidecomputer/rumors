@@ -92,7 +92,7 @@ struct Args {
     /// Samples per size column, on average
     #[arg(long, default_value_t = 300, conflicts_with_all = ["render_from", "compact_from"])]
     samples: usize,
-    /// Top of the size grid, in packed input bytes
+    /// Top of the size grid, in encoded input bytes
     #[arg(long, default_value_t = 256, conflicts_with_all = ["render_from", "compact_from"])]
     max_bytes: usize,
     /// Base seed of the deterministic per-cell RNG streams

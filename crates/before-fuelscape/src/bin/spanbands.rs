@@ -4,7 +4,7 @@
 //! The atlas's `version_span` heatmap shows banded conditional work
 //! distributions, but a heatmap cannot say *which coordinate of the
 //! pair* separates the bands — it plots work against total size alone.
-//! This runner re-draws the same input space (total packed bytes, split
+//! This runner re-draws the same input space (total encoded bytes, split
 //! uniformly across two version operands, each drawn exactly uniformly
 //! at its size) and records, per pair, the candidate discriminating
 //! coordinates beside the work: the split (lopsidedness), the pair's
@@ -18,7 +18,7 @@
 //! run needs no wasm guest.
 //!
 //! Flags (all optional): `--samples <n>` per size column (default 500),
-//! `--sizes <a,b,c>` total packed bytes per column (default
+//! `--sizes <a,b,c>` total encoded bytes per column (default
 //! `64,256,1024,4096`), `--seed <u64>` base seed (default `0xa71a5`),
 //! `--out <path>` CSV destination (default `target/spanbands.csv`).
 //!
@@ -38,7 +38,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use before::meter::{self, skyline, Packed};
+use before::meter::{self, skyline, Encoding};
 use before::Version;
 use before_fuelscape::sample::{cell_rng, VersionSampler};
 use rand::Rng;
@@ -123,11 +123,11 @@ fn main() {
             rejected_total += rejected;
             let a = Version::decode(&da.bytes[..]).expect("a sampled version decodes");
             let b = Version::decode(&db.bytes[..]).expect("a sampled version decodes");
-            let pa = Packed {
+            let pa = Encoding {
                 bytes: da.bytes,
                 bits: da.bits,
             };
-            let pb = Packed {
+            let pb = Encoding {
                 bytes: db.bytes,
                 bits: db.bits,
             };

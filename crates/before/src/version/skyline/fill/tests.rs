@@ -10,10 +10,9 @@
 //! not trip it, and the first emitted leaf compares absolute against absolute
 //! (the worked corner cases pin both). The oracle walks on native frames, so
 //! these grids run at oracle-sized depths; deep-input coverage lives in the
-//! closed-form witnesses below, the meter suite's closed-form output asserts at
-//! its pinned scales, and the board's determinism tripwire. Those are size-axis
-//! instruments: none of them discriminates the width of the flag's value
-//! comparison, so that axis is pinned separately — the full-width worked
+//! closed-form witnesses below and the meter suite's output assertions at its
+//! pinned scales. Those size checks do not discriminate the width of the flag's
+//! value comparison, so that axis is pinned separately — the full-width worked
 //! witnesses below (a multiple-of-`2^64` raise offset must read nonzero; a wide
 //! value-reproducing raise must read a full-width zero) and
 //! `generators::arb_base`'s `2^64`-aligned arm, which keeps generator mass on
@@ -28,7 +27,7 @@ use rayon::prelude::*;
 use crate::codec::Base;
 use crate::idbits::IdReader;
 use crate::meter::registry::Shape;
-use crate::meter::Packed;
+use crate::meter::Encoding;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
 };
@@ -37,20 +36,54 @@ use crate::testing::exhaustive::{
 };
 use crate::testing::{generators, optrace};
 use crate::version::skyline::{encode, validate};
-use crate::{Clock, Party, Version};
+use crate::{Clock, Party, Ticks, Version};
 
 use super::super::grow::Cost;
 use super::fuse::{Out, RouteProbe};
 use super::{fused_fill, tick, ticks, FillOutcome};
 
-/// Lift a meter-generated packed event shape into a [`Version`].
-fn version_of(p: &Packed) -> Version {
+/// Lift a meter-generated encoded event shape into a [`Version`].
+fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
-/// Decode a meter-generated packed id shape as a [`Party`].
-fn party_of(p: &Packed) -> Party {
+/// Decode a meter-generated party shape as a [`Party`].
+fn party_of(p: &Encoding) -> Party {
     Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+}
+
+/// Build a uniform version through the public tick operation.
+fn uniform(ticks: impl Into<Ticks>) -> Version {
+    let mut version = Version::new();
+    Party::seed().ticks(&mut version, ticks);
+    version
+}
+
+/// Select one dyadic region by following `left`/`right` directions.
+fn path_party(path: impl IntoIterator<Item = bool>) -> Party {
+    let mut party = Party::seed();
+    for left in path {
+        let right = party.fork();
+        if !left {
+            party = right;
+        }
+    }
+    party
+}
+
+/// Build a version that is one on one dyadic region and zero elsewhere.
+fn spike(path: impl IntoIterator<Item = bool>) -> Version {
+    let party = path_party(path);
+    (&uniform(1u8) / &party).to_version()
+}
+
+/// Builds a party with one owned left half beside `tail` at each level.
+fn left_halves(depth: usize, mut tail: crate::oracle::Party) -> Party {
+    use crate::oracle::Party as P;
+    for _ in 0..depth {
+        tail = P::node(P::node(P::Leaf(true), P::Leaf(false)), tail);
+    }
+    from_oracle_party(&tail)
 }
 
 /// Whether the fused walk's changed flag tripped on one pair.
@@ -78,18 +111,18 @@ fn assert_tick(v: &Version, p: &Party) {
         FillOutcome::Changed(bits) => {
             assert!(
                 changed,
-                "the changed flag tripped but the oracle's fill is the identity: {v} with {p}"
+                "the changed flag tripped but the oracle's fill is the identity: {v:?} with {p:?}"
             );
             assert_eq!(
                 bits,
                 encode(&filled),
-                "the changed branch must be the oracle's fill: {v} with {p}"
+                "the changed branch must be the oracle's fill: {v:?} with {p:?}"
             );
         }
         FillOutcome::Unchanged(_) => {
             assert!(
                 !changed,
-                "the changed flag stayed clear but the oracle's fill moved the tree: {v} with {p}"
+                "the changed flag stayed clear but the oracle's fill moved the tree: {v:?} with {p:?}"
             );
         }
     }
@@ -100,14 +133,14 @@ fn assert_tick(v: &Version, p: &Party) {
     assert_eq!(
         out,
         encode(&from_oracle_version(&oracle)),
-        "tick must register the recursive oracle's event: {v} with {p}"
+        "tick must register the recursive oracle's event: {v:?} with {p:?}"
     );
     let mut expected = v.clone();
     expected.tick(p);
     assert_eq!(
         out,
         encode(&expected),
-        "the module tick and the public tick must agree: {v} with {p}"
+        "the module tick and the public tick must agree: {v:?} with {p:?}"
     );
 }
 
@@ -116,47 +149,47 @@ fn assert_tick(v: &Version, p: &Party) {
 fn event_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&Shape::Dense.packed1(1)),
-        version_of(&Shape::Dense.packed1(2)),
-        version_of(&Shape::Dense.packed1(64)),
-        version_of(&Shape::Bigroot.packed2(7, 3)),
-        version_of(&Shape::Bigroot.packed2(64, 16)),
-        version_of(&Shape::Hugeleaf.packed1(1)),
-        version_of(&Shape::Hugeleaf.packed1(64)),
-        version_of(&Shape::CliffComb.packed2(3, 2)),
-        version_of(&Shape::CliffComb.packed2(16, 16)),
-        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
-        version_of(&Shape::CliffFan.packed2(16, 8)),
-        version_of(&Shape::CancellingChain.packed2(16, 8)),
-        version_of(&Shape::AltSpine.packed1(3)),
-        version_of(&Shape::AltSpine.packed1(64)),
-        version_of(&Shape::Harmonic.packed1(16)),
-        version_of(&Shape::WideTail.packed2(7, 3)),
-        version_of(&Shape::WideTail.packed2(64, 16)),
-        version_of(&Shape::Staircase.packed1(1)),
-        version_of(&Shape::Staircase.packed1(16)),
-        version_of(&Shape::MemoChain.packed_flagged(1, true)),
-        version_of(&Shape::MemoChain.packed_flagged(8, true)),
-        version_of(&Shape::MemoChain.packed_flagged(8, false)),
-        version_of(&Shape::MemoComb.packed1(1)),
-        version_of(&Shape::MemoComb.packed1(4)),
-        version_of(&Shape::MemoFanout.packed2(1, 7)),
-        version_of(&Shape::MemoFanout.packed2(6, 64)),
-        version_of(&Shape::MemoOscillating.packed2(6, 64)),
-        version_of(&Shape::MemoChurn.packed1(1)),
-        version_of(&Shape::MemoChurn.packed1(5)),
-        version_of(&Shape::DescendingRaises.packed1(1)),
-        version_of(&Shape::DescendingRaises.packed1(6)),
-        version_of(&Shape::RevealComb.packed2(1, 2)),
-        version_of(&Shape::RevealComb.packed2(6, 5)),
-        version_of(&Shape::RevealCombHifloor.packed2(1, 2)),
-        version_of(&Shape::RevealCombHifloor.packed2(6, 5)),
-        version_of(&Shape::PureComb.packed2(1, 2)),
-        version_of(&Shape::PureComb.packed2(6, 5)),
-        version_of(&Shape::AscendCliff.packed2(1, 2)),
-        version_of(&Shape::AscendCliff.packed2(6, 5)),
-        version_of(&Shape::AscendCliffPlateau.packed2(1, 2)),
-        version_of(&Shape::AscendCliffPlateau.packed2(6, 5)),
+        version_of(&Shape::Dense.build1(1)),
+        version_of(&Shape::Dense.build1(2)),
+        version_of(&Shape::Dense.build1(64)),
+        version_of(&Shape::Bigroot.build2(7, 3)),
+        version_of(&Shape::Bigroot.build2(64, 16)),
+        version_of(&Shape::Hugeleaf.build1(1)),
+        version_of(&Shape::Hugeleaf.build1(64)),
+        version_of(&Shape::CliffComb.build2(3, 2)),
+        version_of(&Shape::CliffComb.build2(16, 16)),
+        version_of(&Shape::WideToothComb.build3(16, 8, 8)),
+        version_of(&Shape::CliffFan.build2(16, 8)),
+        version_of(&Shape::CancellingChain.build2(16, 8)),
+        version_of(&Shape::AltSpine.build1(3)),
+        version_of(&Shape::AltSpine.build1(64)),
+        version_of(&Shape::Harmonic.build1(16)),
+        version_of(&Shape::WideTail.build2(7, 3)),
+        version_of(&Shape::WideTail.build2(64, 16)),
+        version_of(&Shape::Staircase.build1(1)),
+        version_of(&Shape::Staircase.build1(16)),
+        version_of(&Shape::MemoChain.build_flagged(1, true)),
+        version_of(&Shape::MemoChain.build_flagged(8, true)),
+        version_of(&Shape::MemoChain.build_flagged(8, false)),
+        version_of(&Shape::MemoComb.build1(1)),
+        version_of(&Shape::MemoComb.build1(4)),
+        version_of(&Shape::MemoFanout.build2(1, 7)),
+        version_of(&Shape::MemoFanout.build2(6, 64)),
+        version_of(&Shape::MemoOscillating.build2(6, 64)),
+        version_of(&Shape::MemoChurn.build1(1)),
+        version_of(&Shape::MemoChurn.build1(5)),
+        version_of(&Shape::DescendingRaises.build1(1)),
+        version_of(&Shape::DescendingRaises.build1(6)),
+        version_of(&Shape::RevealComb.build2(1, 2)),
+        version_of(&Shape::RevealComb.build2(6, 5)),
+        version_of(&Shape::RevealCombHifloor.build2(1, 2)),
+        version_of(&Shape::RevealCombHifloor.build2(6, 5)),
+        version_of(&Shape::PureComb.build2(1, 2)),
+        version_of(&Shape::PureComb.build2(6, 5)),
+        version_of(&Shape::AscendCliff.build2(1, 2)),
+        version_of(&Shape::AscendCliff.build2(6, 5)),
+        version_of(&Shape::AscendCliffPlateau.build2(1, 2)),
+        version_of(&Shape::AscendCliffPlateau.build2(6, 5)),
     ]
 }
 
@@ -166,31 +199,31 @@ fn event_pool() -> Vec<Version> {
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
         Party::seed(),
-        party_of(&Shape::IdSpine.packed_flagged(1, false)),
-        party_of(&Shape::IdSpine.packed_flagged(3, false)),
-        party_of(&Shape::IdSpine.packed_flagged(3, true)),
-        party_of(&Shape::IdSpine.packed_flagged(64, false)),
-        party_of(&Shape::IdSpine.packed_flagged(64, true)),
-        party_of(&Shape::ScatteredId.packed1(1)),
-        party_of(&Shape::ScatteredId.packed1(16)),
-        party_of(&Shape::NestedFullId.packed1(1)),
-        party_of(&Shape::NestedFullId.packed1(8)),
-        party_of(&Shape::NestedLeftFullId.packed1(1)),
-        party_of(&Shape::NestedLeftFullId.packed1(8)),
-        party_of(&Shape::MemoChainId.packed1(1)),
-        party_of(&Shape::MemoChainId.packed1(8)),
-        party_of(&Shape::MemoCombId.packed1(1)),
-        party_of(&Shape::MemoCombId.packed1(4)),
-        party_of(&Shape::MemoChurnId.packed1(1)),
-        party_of(&Shape::MemoChurnId.packed1(5)),
-        party_of(&Shape::DescendingRaisesId.packed1(1)),
-        party_of(&Shape::DescendingRaisesId.packed1(6)),
-        party_of(&Shape::RevealCombId.packed1(1)),
-        party_of(&Shape::RevealCombId.packed1(6)),
-        party_of(&Shape::PureCombId.packed1(1)),
-        party_of(&Shape::PureCombId.packed1(6)),
-        party_of(&Shape::AscendCliffId.packed1(1)),
-        party_of(&Shape::AscendCliffId.packed1(6)),
+        party_of(&Shape::IdSpine.build_flagged(1, false)),
+        party_of(&Shape::IdSpine.build_flagged(3, false)),
+        party_of(&Shape::IdSpine.build_flagged(3, true)),
+        party_of(&Shape::IdSpine.build_flagged(64, false)),
+        party_of(&Shape::IdSpine.build_flagged(64, true)),
+        party_of(&Shape::ScatteredId.build1(1)),
+        party_of(&Shape::ScatteredId.build1(16)),
+        party_of(&Shape::NestedFullId.build1(1)),
+        party_of(&Shape::NestedFullId.build1(8)),
+        party_of(&Shape::NestedLeftFullId.build1(1)),
+        party_of(&Shape::NestedLeftFullId.build1(8)),
+        party_of(&Shape::MemoChainId.build1(1)),
+        party_of(&Shape::MemoChainId.build1(8)),
+        party_of(&Shape::MemoCombId.build1(1)),
+        party_of(&Shape::MemoCombId.build1(4)),
+        party_of(&Shape::MemoChurnId.build1(1)),
+        party_of(&Shape::MemoChurnId.build1(5)),
+        party_of(&Shape::DescendingRaisesId.build1(1)),
+        party_of(&Shape::DescendingRaisesId.build1(6)),
+        party_of(&Shape::RevealCombId.build1(1)),
+        party_of(&Shape::RevealCombId.build1(6)),
+        party_of(&Shape::PureCombId.build1(1)),
+        party_of(&Shape::PureCombId.build1(6)),
+        party_of(&Shape::AscendCliffId.build1(1)),
+        party_of(&Shape::AscendCliffId.build1(6)),
     ];
     for oid in all_normal_ids(2) {
         let p = from_oracle_party(&oid);
@@ -268,36 +301,59 @@ fn exhaustive_small_scope_ticks_n_matches_iterated() {
 /// itself, plus the declined raise whose flag stays clear.
 #[test]
 fn worked_examples_tick_exactly() {
+    use crate::oracle::{Party as P, Version as V};
+    let party = |p: P| from_oracle_party(&p);
+    let version = |v: V| from_oracle_version(&v);
     // (party, before, fill's result): fill moves the tree, so the tick IS
     // fill's result.
-    let changed: [(&str, &str, &str); 5] = [
+    let changed = [
         // The full id collapses the whole tree to its max (heights 2 and 3; the
         // collapse is the higher plateau).
-        ("1", "(2, 0, 1)", "3"),
+        (
+            P::seed(),
+            V::node(2u8, V::leaf(0u8), V::leaf(1u8)),
+            V::leaf(3u8),
+        ),
         // Left-full: the collapsed left rises to the right's minimum (min
         // fill(0, er) = 3 > max(el) = 2), and the pair merges.
-        ("(1, 0)", "(2, 0, 1)", "3"),
+        (
+            P::node(P::Leaf(true), P::Leaf(false)),
+            V::node(2u8, V::leaf(0u8), V::leaf(1u8)),
+            V::leaf(3u8),
+        ),
         // Right-full, mirrored.
-        ("(0, 1)", "(2, 1, 0)", "3"),
+        (
+            P::node(P::Leaf(false), P::Leaf(true)),
+            V::node(2u8, V::leaf(1u8), V::leaf(0u8)),
+            V::leaf(3u8),
+        ),
         // Left-full over an internal left child: the whole el subtree collapses
         // into the raised leaf.
-        ("(1, 0)", "(2, (0, 1, 0), 3)", "5"),
+        (
+            P::node(P::Leaf(true), P::Leaf(false)),
+            V::node(2u8, V::node(0u8, V::leaf(1u8), V::leaf(0u8)), V::leaf(3u8)),
+            V::leaf(5u8),
+        ),
         // A node id whose left child is itself a shortcut site: the inner raise
         // lifts the root's minimum, and norm re-lifts it.
-        ("((1, 0), 0)", "(1, (0, 0, 1), 2)", "(2, 0, 1)"),
+        (
+            P::node(P::node(P::Leaf(true), P::Leaf(false)), P::Leaf(false)),
+            V::node(1u8, V::node(0u8, V::leaf(0u8), V::leaf(1u8)), V::leaf(2u8)),
+            V::node(2u8, V::leaf(0u8), V::leaf(1u8)),
+        ),
     ];
-    for (party, before, after) in changed {
-        let p: Party = party.parse().expect("test party literals parse");
-        let v: Version = before.parse().expect("test version literals parse");
-        let expected: Version = after.parse().expect("test version literals parse");
+    for (party_tree, before_tree, after_tree) in changed {
+        let p = party(party_tree);
+        let v = version(before_tree);
+        let expected = version(after_tree);
         match fused_fill(crate::codec::built_view(&encode(&v)), &p) {
             FillOutcome::Changed(bits) => assert_eq!(
                 bits,
                 encode(&expected),
-                "fill of {before} with {party} must yield {after}"
+                "fill of {v:?} with {p:?} must yield {expected:?}"
             ),
             FillOutcome::Unchanged(_) => {
-                panic!("fill of {before} with {party} moves the tree: the flag must trip")
+                panic!("fill of {v:?} with {p:?} moves the tree: the flag must trip")
             }
         }
         assert_tick(&v, &p);
@@ -305,8 +361,8 @@ fn worked_examples_tick_exactly() {
     // Right-full where the raise is declined (max(er) = 3 already clears
     // min(el') = 2): fill is the identity, the flag stays clear, and the tick
     // is the grow branch.
-    let p: Party = "(0, 1)".parse().expect("test party literals parse");
-    let v: Version = "(2, 0, 1)".parse().expect("test version literals parse");
+    let p = party(P::node(P::Leaf(false), P::Leaf(true)));
+    let v = version(V::node(2u8, V::leaf(0u8), V::leaf(1u8)));
     assert!(
         !flag_of(&v, &p),
         "a declined raise reproduces the input: the flag must stay clear"
@@ -326,11 +382,12 @@ fn worked_examples_tick_exactly() {
 /// comparison is reached.
 #[test]
 fn flag_reads_plateau_divergence_not_arm_firing() {
+    use crate::oracle::{Party as P, Version as V};
     // Left-full raise, value-reproducing at the stream's head: max(max(el) = 1,
     // min(er) = 0) = 1 = el. The first emitted leaf is the raise's — absolute
     // against absolute — and the flag stays clear.
-    let p: Party = "(1, 0)".parse().expect("test party literals parse");
-    let v: Version = "(2, 1, 0)".parse().expect("test version literals parse");
+    let p = from_oracle_party(&P::node(P::Leaf(true), P::Leaf(false)));
+    let v = from_oracle_version(&V::node(2u8, V::leaf(1u8), V::leaf(0u8)));
     assert!(
         !flag_of(&v, &p),
         "a value-reproducing raise emits the input plateau: no divergence"
@@ -340,7 +397,11 @@ fn flag_reads_plateau_divergence_not_arm_firing() {
     // The same arm over a multi-leaf left child: the collapse shifts which leaf
     // is first, so the flag trips on topology — the range replaced by one leaf
     // was a node — before any code comparison.
-    let v: Version = "(2, (0, 1, 0), 5)".parse().expect("test literals parse");
+    let v = from_oracle_version(&V::node(
+        2u8,
+        V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
+        V::leaf(5u8),
+    ));
     assert!(
         flag_of(&v, &p),
         "a collapse that moves topology trips the flag on the plateau's depth"
@@ -361,13 +422,13 @@ fn flag_reads_plateau_divergence_not_arm_firing() {
 /// `generators::arb_base`'s `2^64`-aligned arm.
 #[test]
 fn flag_compares_offsets_at_full_width() {
+    use crate::oracle::{Party as P, Version as V};
+    let wide = Base::from(1u8) << 64u32;
     // Left-full raise over a single zero leaf against min(er) = 2^64: the
     // emitted offset is exactly 2^64 — nonzero only above the low limb — so the
     // flag must trip, and the tick is fill's collapse to the single wide leaf.
-    let p: Party = "(1, 0)".parse().expect("test party literals parse");
-    let v: Version = "(0, 0, 18446744073709551616)"
-        .parse()
-        .expect("test version literals parse");
+    let p = from_oracle_party(&P::node(P::Leaf(true), P::Leaf(false)));
+    let v = from_oracle_version(&V::node(0u8, V::leaf(0u8), V::leaf(wide.clone())));
     assert!(
         flag_of(&v, &p),
         "a multiple-of-2^64 raise offset reads nonzero: the flag must trip"
@@ -377,9 +438,7 @@ fn flag_compares_offsets_at_full_width() {
     // The declined dual: max(max(el) = 2^64, min(er) = 0) = el — the raise
     // reproduces the wide input leaf, the offset is a zero computed as the
     // difference of two wide values, and the flag must stay clear.
-    let v: Version = "(0, 18446744073709551616, 0)"
-        .parse()
-        .expect("test version literals parse");
+    let v = from_oracle_version(&V::node(0u8, V::leaf(wide), V::leaf(0u8)));
     assert!(
         !flag_of(&v, &p),
         "a wide value-reproducing raise reads a full-width zero: the flag stays clear"
@@ -403,9 +462,12 @@ fn flag_compares_offsets_at_full_width() {
 /// the public surface cannot reach.
 #[test]
 fn materialize_is_a_noop_once_built() {
-    let v: Version = "(2, (0, 1, 0), 3)"
-        .parse()
-        .expect("test version literals parse");
+    use crate::oracle::Version as V;
+    let v = from_oracle_version(&V::node(
+        2u8,
+        V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
+        V::leaf(3u8),
+    ));
     let event = encode(&v);
     let matched_end = event.len();
 
@@ -452,10 +514,28 @@ fn materialize_is_a_noop_once_built() {
 /// wrong tick output, caught here against the recursive oracle.
 #[test]
 fn dominated_undercut_residue_carries_its_offset() {
-    let p: Party = "((1, 0), 1)".parse().expect("test party literals parse");
-    let v: Version = "(0, (0, 0, (3, (0, 237684487543081243156783562749, 0), 1)), 0)"
-        .parse()
-        .expect("test version literals parse");
+    use crate::oracle::{Party as P, Version as V};
+    let p = from_oracle_party(&P::node(
+        P::node(P::Leaf(true), P::Leaf(false)),
+        P::Leaf(true),
+    ));
+    let v = from_oracle_version(&V::node(
+        0u8,
+        V::node(
+            0u8,
+            V::leaf(0u8),
+            V::node(
+                3u8,
+                V::node(
+                    0u8,
+                    V::leaf(UBig::from(237_684_487_543_081_243_156_783_562_749u128)),
+                    V::leaf(0u8),
+                ),
+                V::leaf(1u8),
+            ),
+        ),
+        V::leaf(0u8),
+    ));
     crate::meter::reset_emit_traffic();
     assert_tick(&v, &p);
     // The witness binds to its branch only through the walk's current
@@ -492,21 +572,20 @@ fn dominated_undercut_residue_carries_its_offset() {
 /// differential pins the values over the whole knob space.
 #[test]
 fn dominated_undercut_family_ticks_identically() {
-    let site = |c: u64, m: u64, b: usize, r: u64| -> String {
-        let wide = UBig::from(m) << b;
-        format!("({c}, (0, {wide}, 0), {r})")
-    };
     let strategy = proptest::collection::vec((0u64..=6, 1u64..=7, 64usize..=192, 1u64..=4), 1..=4);
     proptest!(|(sites in strategy)| {
-        let mut text = String::new();
-        for (c, m, b, r) in &sites {
-            text.push_str(&format!("(0, (0, 0, {}), ", site(*c, *m, *b, *r)));
+        use crate::oracle::Version as V;
+        let mut tree = V::leaf(0u8);
+        for (c, m, b, r) in sites.iter().rev() {
+            let site = V::node(
+                *c,
+                V::node(0u8, V::leaf(UBig::from(*m) << *b), V::leaf(0u8)),
+                V::leaf(*r),
+            );
+            tree = V::node(0u8, V::node(0u8, V::leaf(0u8), site), tree);
         }
-        text.push('0');
-        text.push_str(&")".repeat(sites.len()));
-        let v: Version = text.parse().expect("the site literal is normal form");
-        let id = "((1, 0), ".repeat(sites.len()) + "1" + &")".repeat(sites.len());
-        let p: Party = id.parse().expect("the site id literal parses");
+        let v = from_oracle_version(&tree);
+        let p = left_halves(sites.len(), crate::oracle::Party::Leaf(true));
         assert_tick(&v, &p);
     });
 }
@@ -732,12 +811,16 @@ proptest! {
 /// differential pins the walk's decision byte for byte.
 #[test]
 fn left_full_raise_decides_at_the_site_not_its_close() {
-    let p: Party = "(1, (1, (1, 0)))"
-        .parse()
-        .expect("test party literals parse");
-    let v: Version = "(0, 0, (0, 5, (0, 0, 9)))"
-        .parse()
-        .expect("test version literals parse");
+    use crate::oracle::{Party as P, Version as V};
+    let p = from_oracle_party(&P::node(
+        P::Leaf(true),
+        P::node(P::Leaf(true), P::node(P::Leaf(true), P::Leaf(false))),
+    ));
+    let v = from_oracle_version(&V::node(
+        0u8,
+        V::leaf(0u8),
+        V::node(0u8, V::leaf(5u8), V::node(0u8, V::leaf(0u8), V::leaf(9u8))),
+    ));
     assert_tick(&v, &p);
 }
 
@@ -974,57 +1057,27 @@ proptest! {
 /// everywhere else: `depth` nested nodes, all bases zero, the single 1-leaf at
 /// the bottom left.
 ///
-/// Built as a text literal — the parser is iterative — so the expected tree
-/// shares no walk with the kernel under test.
 fn left_spike(depth: usize) -> Version {
-    let mut text = "(0, ".repeat(depth - 1);
-    text.push_str("(0, 1, 0)");
-    text.push_str(&", 0)".repeat(depth - 1));
-    text.parse().expect("the spike literal is normal form")
+    spike(std::iter::repeat_n(true, depth))
 }
 
-/// Deep spines in every regime stay correct at depths that would overflow a
-/// native-frame walk.
-///
-/// The regimes: the collapse scan, the pass-through copy, the two-cursor
-/// descent, the memoized pre-scan, and both fused epilogues (the prefix
-/// materialization and the route-driven splice).
+/// Deep spines stay correct without using the recursive oracle.
 ///
 /// The recursive oracle walks on native frames (it is the small-scope
 /// reference, not a deep-input one), so the value witnesses here are closed
-/// forms, derived per case: the full id collapses the whole spine to one leaf
-/// at its maximum height — the alternating spine's only nonzero leaf is the `1`
-/// at the bottom pair — and that collapse trips the flag, so it is also the
-/// tick; the deep unary id over the empty version leaves the flag clear (fill
-/// of a leaf under a node id is the leaf) and ticks to the left spike, the
-/// expansion chain to its owned tip; and over the deep spine the same id turns
-/// left into the spine's depth-2 zero leaf (the spine's structure continues
-/// right there), so the flag again stays clear and the grown tree raises
-/// exactly the owned region from 0 to 1 — the pointwise max with the spike,
-/// realized through the independently-pinned join kernel and byte-exact by
-/// canonical uniqueness. The nested-full- sibling id over its matched spine
-/// leaves the flag clear, derived: every level's right-full raise is
-/// `max(max(er), min(fill(il, el)))`, where `er` is a single leaf (its own
-/// maximum) and the left range's minimum stays at the spine's floor of zero, so
-/// no raise ever moves a value — and the id terminus pairs with a leaf (the
-/// untouched-leaf arm). The case drives the deferred right-full decision and
-/// its per-level raise bookkeeping at full depth with a value witness the small
-/// scope pins against the oracle. The mirror id over the wide-tail spine
-/// collapses to the single wide leaf, derived bottom-up: the deepest left-full
-/// raise is `max(max(el), min(fill(ir, er)))` with `el` a lone zero leaf and
-/// `er` the wide tail itself (a leaf's minimum is its value), so the raise
-/// lifts the zero leaf to the tail's value, the equal sibling pair collapses,
-/// and each enclosing level sees the same wide leaf as its right minimum — the
-/// collapse telescopes to the root. The case drives the memoized pre-scan at
-/// full depth with wide minima in every memo entry, and the collapse trips the
-/// flag. The staircase under the unary id spine leaves the flag clear — its
-/// levels pair internal × internal down to the terminus, whose left-full raise
-/// `max(max(a), min(b))` with `a` one step above `b` returns `a` itself — and
-/// its tick increments the id's owned tip, the bottom-left leaf; every consumed
-/// leaf undercuts every open range on the way, the full-penetration
-/// minimum-update schedule. A changed pair's output re-ticks through the grow
-/// branch (fill is idempotent, restated as the flag reading clear on a filled
-/// stream); canonicality and tick entry agreement ride along on every case.
+/// forms. The full id collapses the whole spine to one leaf at its maximum
+/// height — the alternating spine's only nonzero leaf is the `1` at the bottom
+/// pair — and that collapse trips the flag, so it is also the tick; the deep
+/// unary id over the empty version leaves the flag clear (fill of a leaf under
+/// a node id is the leaf) and ticks to the left spike, the expansion chain to
+/// its owned tip; and over the deep spine the same id turns left into the
+/// spine's depth-2 zero leaf (the spine's structure continues right there), so
+/// the flag again stays clear and the grown tree raises exactly the owned
+/// region from 0 to 1 — the pointwise max with the spike, realized through the
+/// independently-pinned join kernel and byte-exact by canonical uniqueness. A
+/// changed output then takes the grow branch, which checks idempotence at the
+/// same depth. Every case also checks canonicality and agreement with the
+/// public entry point.
 #[test]
 fn deep_spines_tick_and_flag_identically() {
     // A changed pair: the flag trips, the fill-branch stream is the derived
@@ -1066,10 +1119,10 @@ fn deep_spines_tick_and_flag_identically() {
         assert_eq!(encode(&ticked), encode(grown), "entry agreement");
     };
 
-    let deep_ev = version_of(&Shape::AltSpine.packed1(4096));
-    let deep_id = party_of(&Shape::IdSpine.packed_flagged(4096, false));
+    let deep_ev = version_of(&Shape::AltSpine.build1(4096));
+    let deep_id = party_of(&Shape::IdSpine.build_flagged(4096, false));
     let spike = left_spike(4096);
-    let one: Version = "1".parse().expect("test literals parse");
+    let one = uniform(1u8);
 
     // The full id: the collapse to the maximum leaf.
     assert_deep_changed(&deep_ev, &Party::seed(), &one);
@@ -1081,136 +1134,29 @@ fn deep_spines_tick_and_flag_identically() {
     // Both deep: no fully-owned region meets a subdividable subtree, so fill is
     // the identity; the grown tree is the pointwise max with the spike.
     assert_deep_unchanged(&deep_ev, &deep_id, &(&deep_ev | &spike));
-
-    // The nested-full-sibling id over its matched spine: a right-full shortcut
-    // site at every one of the 4096 levels — the deferred right-full decision
-    // and its raise bookkeeping at full depth. Fill is the identity (the doc
-    // comment's derivation: each raise maxes a lone leaf against a zero
-    // minimum), so the tick registers the inflation: the id's cheapest site is
-    // the terminus leaf at the bottom right, `(0, 0, 1)` over the matched
-    // spine's zero — the pointwise max with the deepest-right unit spike.
-    let mut text = "(0, ".repeat(4095);
-    text.push_str("(0, 0, 1)");
-    text.push_str(&", 0)".repeat(4095));
-    let matched: Version = text.parse().expect("the matched spine literal parses");
-    let nested = party_of(&Shape::NestedFullId.packed1(4096));
-    assert!(
-        !flag_of(&matched, &nested),
-        "every nested raise maxes a lone leaf against a zero minimum: identity"
-    );
-    let mut grown = matched.clone();
-    grown.tick(&nested);
-    validate(crate::codec::built_view(&encode(&grown))).expect("a ticked stream is canonical");
-
-    // The mirror id over the wide-tail spine: a left-full shortcut site at
-    // every one of the 4096 levels — the memoized pre-scan at full depth, every
-    // memo entry a wide minimum. The deepest raise lifts its zero leaf to the
-    // tail's value, the equal pair collapses, and the collapse telescopes to
-    // the root: fill is the single wide leaf, and the flag trips.
-    let mut text = "(0, 0, ".repeat(4095);
-    text.push_str(&format!("(0, 0, {})", u64::MAX));
-    text.push_str(&")".repeat(4095));
-    let tail: Version = text.parse().expect("the wide-tail literal parses");
-    let wide_leaf: Version = u64::MAX
-        .to_string()
-        .parse()
-        .expect("the leaf literal parses");
-    let mirror = party_of(&Shape::NestedLeftFullId.packed1(4096));
-    assert_deep_changed(&tail, &mirror, &wide_leaf);
-
-    // The descending staircase under the unary id spine: every consumed leaf
-    // undercuts every open range — the full-penetration minimum-update schedule
-    // at 4096 levels, all values word-scale. Fill is the identity (internal ×
-    // internal at every level above the terminus, whose raise `max(a, min(b))`
-    // returns `a` itself), so tick grows: the id's owned tip is the bottom-left
-    // leaf, a zero-expansion increment and the only owned site.
-    let mut text = "(0, ".to_string();
-    text.push_str(&"(1, ".repeat(4094));
-    text.push_str("(1, 1, 0)");
-    text.push_str(&", 0)".repeat(4095));
-    let stairs: Version = text.parse().expect("the staircase literal parses");
-    let spine_id = party_of(&Shape::IdSpine.packed_flagged(4096, false));
-    let mut text = "(0, ".to_string();
-    text.push_str(&"(1, ".repeat(4094));
-    text.push_str("(1, 2, 0)");
-    text.push_str(&", 0)".repeat(4095));
-    let grown: Version = text.parse().expect("the grown staircase literal parses");
-    assert_deep_unchanged(&stairs, &spine_id, &grown);
-
-    // The memo chain at 4096 sites: every interior left-full site collapses its
-    // `(0, 0, j)` node to the leaf `j` (the raise meets the site's own
-    // single-leaf range), and the covering site's raise stays at the tree
-    // minimum 0 — so the filled tree is the spine with each site replaced by
-    // its leaf, in closed form. The walk resolves all 4096 memoized minima from
-    // one fresh scan.
-    let k = 4_096u64;
-    let mut text = "(0, 0, ".to_string();
-    for j in 1..=k {
-        text.push_str(&format!("(0, {j}, "));
-    }
-    text.push('0');
-    text.push_str(&")".repeat(k as usize + 1));
-    let expected: Version = text.parse().expect("the chain literal parses");
-    let chain = Shape::MemoChain.packed_flagged(k as usize, true).version();
-    let chain_id = party_of(&Shape::MemoChainId.packed1(k as usize));
-    assert_deep_changed(&chain, &chain_id, &expected);
-
-    // The reveal comb at 4096 sites: every site's left-full raise meets its
-    // single-leaf range at the shared minimum `2^b` (the raise is `max(2^b − 1,
-    // 2^b)`), so each site collapses to the leaf `2^b`, while the covering
-    // site's raise stays at the tree minimum 0 (the floor) — the filled tree is
-    // the comb with each site replaced by its wide leaf, in closed form.
-    // Between consecutive site consumes the site's node frame closes back into
-    // the 0-floor frame: the close-reveal cycle at full depth.
-    let (k, b) = (4_096usize, 8usize);
-    let w = 1u64 << b;
-    let mut text = "(0, 0, ".to_string();
-    text.push_str(&"(0, ".repeat(k - 1));
-    text.push_str(&format!("(0, 0, {w})"));
-    text.push_str(&format!(", {w})").repeat(k - 1));
-    text.push(')');
-    let expected: Version = text.parse().expect("the reveal-comb literal parses");
-    let comb = Shape::RevealComb.packed2(k, b).version();
-    let comb_id = party_of(&Shape::RevealCombId.packed1(k));
-    assert_deep_changed(&comb, &comb_id, &expected);
-
-    // The ascending cliff at 4096 spine nodes: fill is the identity (no id
-    // region covers a subdividable subtree at its minimum), so tick grows — the
-    // id's owned site is the cliff leaf, which expands to (0, 1, 0). The
-    // cliff's wide undercut propagates through 4095 nonzero unit boundary
-    // differences on the way: the fold-direction cascade at full depth.
-    let (k, b) = (4_096usize, 13usize);
-    let w = 1u64 << b;
-    let mut text = String::new();
-    for i in 1..=k {
-        text.push_str(&format!("(0, {}, ", w + i as u64));
-    }
-    text.push_str("(0, 1, 0)");
-    text.push_str(&")".repeat(k));
-    let expected: Version = text
-        .parse()
-        .expect("the grown ascending-cliff literal parses");
-    let cliff = Shape::AscendCliff.packed2(k, b).version();
-    let cliff_id = party_of(&Shape::AscendCliffId.packed1(k));
-    assert_deep_unchanged(&cliff, &cliff_id, &expected);
 }
 
 /// The tick takes both branches: a fill that simplifies is the tick, and a fill
 /// that changes nothing falls through to the grow splice.
 #[test]
 fn tick_splices_fill_and_grow() {
+    use crate::oracle::{Party as P, Version as V};
     // fill simplifies: the collapse is the tick.
-    let v: Version = "(2, 0, 1)".parse().expect("test literals parse");
-    let p: Party = "(1, 0)".parse().expect("test literals parse");
+    let v = from_oracle_version(&V::node(2u8, V::leaf(0u8), V::leaf(1u8)));
+    let p = from_oracle_party(&P::node(P::Leaf(true), P::Leaf(false)));
     assert_eq!(
         tick(crate::codec::built_view(&encode(&v)), &p),
-        encode(&"3".parse().unwrap())
+        encode(&uniform(3u8))
     );
     // fill is the identity: grow registers the event.
-    let v: Version = "(0, 1, 0)".parse().expect("test literals parse");
+    let v = from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)));
     assert_eq!(
         tick(crate::codec::built_view(&encode(&v)), &p),
-        encode(&"(0, 2, 0)".parse().unwrap())
+        encode(&from_oracle_version(&V::node(
+            0u8,
+            V::leaf(2u8),
+            V::leaf(0u8),
+        )))
     );
     assert_tick(&v, &p);
 }
@@ -1256,9 +1202,7 @@ proptest! {
     /// sizes: `bits(tick(e, i)) ≤ 2·bits(e) + 4·bits(i) + 32` over arbitrary
     /// pairs.
     ///
-    /// The bound the board's input denomination of the tick rows rests on,
-    /// computed the second way (the operation itself, against the arithmetic of
-    /// its parts). Fill's raises telescope the codes their collapsed ranges
+    /// Fill's raises telescope the codes their collapsed ranges
     /// already spent, and grow adds one increment or one expansion chain, a
     /// constant per id bit at the site — but either can re-code up to two
     /// deltas against a wide neighbor (the raise's landing, grow's zero leaf),
@@ -1340,9 +1284,9 @@ proptest! {
 /// bounded value at the same position, replacing, never stacking.
 #[test]
 fn tick_deep_orbits_stay_banded() {
-    let ev = Shape::Bigroot.packed2(64, 4).version();
-    let ida = party_of(&Shape::IdSpine.packed_flagged(4, false));
-    let idb = party_of(&Shape::IdSpine.packed_flagged(4, true));
+    let ev = Shape::Bigroot.build2(64, 4).version();
+    let ida = party_of(&Shape::IdSpine.build_flagged(4, false));
+    let idb = party_of(&Shape::IdSpine.build_flagged(4, true));
 
     let mut e = encode(&ev);
     e = tick(crate::codec::built_view(&e), &ida);
@@ -1388,20 +1332,10 @@ fn tick_deep_orbits_stay_banded() {
 /// The party owning exactly the region at the end of `path`: one internal id
 /// node per direction (the off-path sibling absent), a full terminal below.
 ///
-/// Built as a text literal — the parser is iterative — so the id shares no
-/// construction with the DP under test. The packing is depth-first with
-/// absent children unencoded, so the chain's level-`i` 2-bit tag sits at bit
-/// `2·i` — the route key the expansion DP records level `i`'s direction at.
+/// The encoding is depth-first with absent children omitted, so the chain's
+/// level-`i` tag sits at bit `2·i`, the route key the expansion DP records.
 fn direction_chain(path: &[bool]) -> Party {
-    let mut text = "1".to_string();
-    for &left in path.iter().rev() {
-        text = if left {
-            format!("({text}, 0)")
-        } else {
-            format!("(0, {text})")
-        };
-    }
-    text.parse().expect("the chain literal is normal form")
+    path_party(path.iter().copied())
 }
 
 /// Run the expansion DP over `path`'s direction chain at `ceiling` and assert
@@ -1460,7 +1394,7 @@ fn chain_one_past_the_ceiling_stays_feasible() {
     assert_chain_saturation(&[true; 8], SCALED_CEILING);
     // End to end at the production ceiling: the same chain family around the
     // scaled bound, grown over a leaf, against the recursive oracle.
-    let leaf: Version = "5".parse().expect("test literals parse");
+    let leaf = uniform(5u8);
     for depth in [7, 8, 9] {
         assert_tick(&leaf, &direction_chain(&vec![true; depth]));
     }
@@ -1514,7 +1448,7 @@ fn check_ticks_equivalence(v: &Version, p: &Party, ns: &[u32]) {
         let fused = ticks_version(v, p, &Base::from(n));
         assert_eq!(
             fused, iterated,
-            "ticks({n}) diverged from {n} iterated ticks: {v} with {p}"
+            "ticks({n}) diverged from {n} iterated ticks: {v:?} with {p:?}"
         );
     }
 }
@@ -1550,15 +1484,13 @@ proptest! {
         let one = ticks_version(&v, &p, &Base::from(1u8));
         let mut ticked = v.clone();
         ticked.tick(&p);
-        prop_assert_eq!(&one, &ticked, "ticks(1) diverged from tick: {} with {}", v, p);
+        prop_assert_eq!(&one, &ticked, "ticks(1) diverged from tick: {:?} with {:?}", v, p);
         let mut oracle = to_oracle_version(&v);
         oracle.tick(&to_oracle_party(&p));
         prop_assert_eq!(
             &one,
             &from_oracle_version(&oracle),
-            "ticks(1) diverged from the oracle event: {} with {}",
-            v,
-            p
+            "ticks(1) diverged from the oracle event: {:?} with {:?}", v, p
         );
     }
 
@@ -1577,7 +1509,7 @@ proptest! {
         if let FillOutcome::Changed(bits) = fused_fill(crate::codec::built_view(&encode(&v)), &p) {
             prop_assert!(
                 matches!(fused_fill(crate::codec::built_view(&bits), &p), FillOutcome::Unchanged(_)),
-                "fill moved a tree it had already filled: {} with {}", v, p
+                "fill moved a tree it had already filled: {:?} with {:?}", v, p
             );
         }
     }
@@ -1601,7 +1533,7 @@ proptest! {
         for _ in 0..4 {
             prop_assert!(
                 matches!(fused_fill(crate::codec::built_view(&encode(&cur)), &p), FillOutcome::Unchanged(_)),
-                "a grow re-opened the fill branch: {} with {}", v, p
+                "a grow re-opened the fill branch: {:?} with {:?}", v, p
             );
             cur.tick(&p);
         }
@@ -1689,16 +1621,15 @@ fn ticks_covers_fill_changed_branch() {
     check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
 }
 
-/// Closed-form witness from the identity: `ticks(n)` on the empty version under
-/// the seed party renders as `n` — the whole-line counter, readable without any
-/// reference implementation.
+/// From the identity, `ticks(n)` under the seed party yields uniform height
+/// `n`.
 #[test]
 fn ticks_from_empty_is_the_counter() {
     let v = Version::new();
     let seed = Party::seed();
     let n = Base::from(123_456_789_012_345u64);
     let ticked = ticks_version(&v, &seed, &n);
-    assert_eq!(ticked.to_string(), "123456789012345");
+    assert_eq!(ticked, uniform(123_456_789_012_345u64));
     // And the seam back to ground truth at small n.
     check_ticks_equivalence(&v, &seed, &[0, 1, 2, 3, 7, 64, 1000]);
 }
@@ -1775,12 +1706,12 @@ mod prescan_raise_shapes {
         lf(ev, 0);
         lf(ev, 0); // wrapper floor
     }
-    /// Seal a built construction-language stream (the meter `Packed` form).
-    fn pk(bits: BitsBuf) -> Packed {
+    /// Seal a built construction-language stream (the meter `Encoding` form).
+    fn pk(bits: BitsBuf) -> Encoding {
         let live = bits.len();
         let mut sealed = bits;
         codec::seal_padding(&mut sealed);
-        Packed {
+        Encoding {
             bytes: sealed.into_bytes(),
             bits: usize::try_from(live).expect("test streams are small"),
         }
@@ -1946,19 +1877,25 @@ proptest! {
     ) {
         let k = raises.len();
         let wide = UBig::from(m) << b;
-        let mut text = String::new();
-        for (level, raise) in raises.iter().enumerate() {
+        use crate::oracle::{Party as P, Version as V};
+        let mut tree = V::node(
+            c,
+            V::node(0u8, V::leaf(wide), V::leaf(0u8)),
+            V::leaf(r),
+        );
+        for (level, raise) in raises.iter().enumerate().rev() {
             // The innermost site's raise meets the region's own base at zero;
             // the outer ones meet the level below, whose minimum is already
             // zero, so they are free.
             let leaf = if level + 1 == k { 0 } else { *raise };
-            text.push_str(&format!("(0, {leaf}, "));
+            tree = V::node(0u8, V::leaf(leaf), tree);
         }
-        text.push_str(&format!("({c}, (0, {wide}, 0), {r})"));
-        text.push_str(&")".repeat(k));
-        let v: Version = text.parse().expect("the spine literal is normal form");
-        let id = "(1, ".repeat(k) + "0" + &")".repeat(k);
-        let p: Party = id.parse().expect("the spine id literal parses");
+        let v = from_oracle_version(&tree);
+        let mut id = P::Leaf(false);
+        for _ in 0..k {
+            id = P::node(P::Leaf(true), id);
+        }
+        let p = from_oracle_party(&id);
         assert_tick(&v, &p);
     }
 }

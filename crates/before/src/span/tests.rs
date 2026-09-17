@@ -146,7 +146,7 @@ fn span_contains_admits_every_witness() {
     assert!(!coincident.contains(&b1));
 }
 
-/// The validating door admits exactly the ordered pairs: `lo <= hi` composes
+/// The validating entry point admits exactly the ordered pairs: `lo <= hi` composes
 /// (coincident included), while reversed and incomparable pairs are rejected
 /// with `Crossed`.
 #[test]
@@ -163,10 +163,10 @@ fn span_new_rejects_unordered_pairs() {
     assert_eq!(Span::new(&b1, &a2), Err(Crossed));
 }
 
-/// The constructor doors accept any ownership mix per endpoint (owned,
+/// The constructor entry points accept any ownership mix per endpoint (owned,
 /// borrowed, and one of each) and build the same span from the same values.
 #[test]
-fn span_doors_accept_owned_and_borrowed_endpoints() {
+fn span_constructors_accept_owned_and_borrowed_endpoints() {
     let ([_, a2, _, a4, _], _) = span_fixtures();
     let borrowed = Span::new(&a2, &a4).unwrap();
     let owned: Span<'static> = Span::new(a2.clone(), a4.clone()).unwrap();
@@ -200,13 +200,13 @@ fn at_builds_the_coincident_span() {
     assert_eq!(borrowed, point);
 }
 
-/// The deriving doors on every input genre: the receiver keeps the hull total,
-/// and every genre yields its tightest containing span.
+/// The deriving entry points on every input genre: the receiver keeps the hull
+/// total, and every genre yields its tightest containing span.
 ///
 /// An empty iterator's hull is the coincident `[self, self]`; a comparable
 /// pair's is its validated span from either operand order (binary and n-ary
 /// alike); a concurrent pair's is a hull whose fresh endpoints strictly bracket
-/// both inputs; and owned items feed the n-ary door as references do.
+/// both inputs; and owned items behave like references in the multi-input form.
 #[test]
 fn span_derives_the_hull() {
     let ([a1, a2, _, _, _], b1) = span_fixtures();
@@ -228,7 +228,7 @@ fn span_derives_the_hull() {
     let hull = a2.span(&b1);
     assert_eq!(hull.place(&a2), Placement::Between);
     assert_eq!(hull.place(&b1), Placement::Between);
-    // Owned items feed the n-ary door (the Borrow calling convention).
+    // Owned items use the same `Borrow` implementation as references.
     assert_eq!(a1.span_all([a2.clone()]), flat);
 }
 // The span gate's family claim (`Span::new` admits exactly the ordered
@@ -385,7 +385,9 @@ fn span_decode_verdict_matches_the_composed_form_exhaustively() {
                             "the fused decode's accept is the composed span"
                         ),
                         Err(e) => {
-                            panic!("fused decode must accept the ordered pair [{lo}, {hi}]: {e}")
+                            panic!(
+                                "fused decode must accept the ordered pair [{lo:?}, {hi:?}]: {e}"
+                            )
                         }
                     }
                 }
@@ -393,7 +395,7 @@ fn span_decode_verdict_matches_the_composed_form_exhaustively() {
                     rejected += 1;
                     assert!(
                         matches!(fused, Err(Decode::NotCanonical)),
-                        "fused decode must reject the unordered pair [{lo}, {hi}] as NotCanonical"
+                        "fused decode must reject the unordered pair [{lo:?}, {hi:?}] as NotCanonical"
                     );
                 }
             }
@@ -427,12 +429,12 @@ proptest! {
                     "the fused decode's accept is the composed span"
                 ),
                 Err(e) => return Err(TestCaseError::fail(format!(
-                    "fused decode must accept the ordered pair [{a}, {b}]: {e}"
+                    "fused decode must accept the ordered pair [{a:?}, {b:?}]: {e}"
                 ))),
             },
             Err(Crossed) => prop_assert!(
                 matches!(fused, Err(Decode::NotCanonical)),
-                "fused decode must reject the unordered pair [{a}, {b}] as NotCanonical"
+                "fused decode must reject the unordered pair [{a:?}, {b:?}] as NotCanonical"
             ),
         }
     }
@@ -633,15 +635,15 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
         let fused = Span::decode(&composite[..]);
         match (fused, composed(&composite, seam)) {
             (Ok(f), Ok(c)) => {
-                assert_eq!(f, c, "accept identity for [{lo}, {hi}]");
+                assert_eq!(f, c, "accept identity for [{lo:?}, {hi:?}]");
                 assert_eq!(f.encode(), composite, "re-encode identity");
             }
             (Err(ef), Err(ec)) => assert_eq!(
                 std::mem::discriminant(&ef),
                 std::mem::discriminant(&ec),
-                "genre identity for [{lo}, {hi}]: fused {ef:?}, composed {ec:?}"
+                "genre identity for [{lo:?}, {hi:?}]: fused {ef:?}, composed {ec:?}"
             ),
-            (f, c) => panic!("verdict mismatch for [{lo}, {hi}]: fused {f:?}, composed {c:?}"),
+            (f, c) => panic!("verdict mismatch for [{lo:?}, {hi:?}]: fused {f:?}, composed {c:?}"),
         }
     }
 
@@ -815,7 +817,7 @@ proptest! {
     ///
     /// `place`, `dominance`, `precedence`, and `contains` against `[v, v]`
     /// return identical verdicts whether the endpoints share one buffer (the
-    /// clone-identity rung: hull doors, wire decode) or sit in distinct
+    /// clone-identity rung: hull entry points, wire decode) or sit in distinct
     /// byte-equal buffers (the fused three-stream walk), and place transcribes
     /// `probe.partial_cmp(v)` exactly — the
     /// `degenerate_span_place_is_partial_cmp` law's table.
@@ -901,11 +903,11 @@ fn pointwise_operators_restrict_to_versions_on_points() {
     assert_eq!(hull, a1.span(&b1));
 }
 
-/// The n-ary doors settle the receiver on an empty iterator — owned endpoints,
+/// The multi-input operations settle the receiver on an empty iterator — owned endpoints,
 /// value unchanged — and `intersect_all`'s `None` means an empty intersection,
 /// never an empty input.
 #[test]
-fn nary_doors_settle_the_receiver_on_empty_input() {
+fn multi_input_operations_settle_the_receiver_on_empty_input() {
     let ([a1, a2, _, _, _], _) = span_fixtures();
     let span = Span::new(&a1, &a2).unwrap();
     let none: [Span; 0] = [];
@@ -915,13 +917,13 @@ fn nary_doors_settle_the_receiver_on_empty_input() {
     assert_eq!(span.meet_all(none.iter()), span);
 }
 
-/// One mixed n-ary fold per door — coincident and wide inputs together, so the
+/// One mixed n-ary fold per entry point — coincident and wide inputs together, so the
 /// point and wide combine arms both fire — equals the sequential binary fold.
 ///
 /// The laws quantify this over arities and rotations; the witness pins one
 /// readable instance.
 #[test]
-fn nary_doors_match_sequential_folds_on_a_mixed_family() {
+fn multi_input_operations_match_sequential_folds_on_a_mixed_family() {
     let ([a1, a2, a3, a4, _], b1) = span_fixtures();
     let seed = Span::new(&a1, &a2).unwrap();
     let family = [
@@ -933,9 +935,9 @@ fn nary_doors_match_sequential_folds_on_a_mixed_family() {
         seed.union_all(&family),
         family.iter().fold(seed.clone(), |acc, s| &acc + s),
     );
-    // The sequential reference folds *through* `Option` deliberately: the door
-    // defers its verdict to the end, so the reference must complete the same
-    // fold (`try_fold` would exit at the first `None`).
+    // The sequential reference folds *through* `Option` deliberately: the entry
+    // point defers its verdict to the end, so the reference must complete the
+    // same fold (`try_fold` would exit at the first `None`).
     #[allow(clippy::manual_try_fold)]
     let sequential_intersect = family
         .iter()
@@ -1042,7 +1044,7 @@ fn own_span_projects_both_endpoints() {
     assert!(span.contains(&both));
     assert!(!view.contains(&both));
     // Materialization is the eagerly projected span (the owned endpoints ride
-    // straight into the door: no borrow, no settle).
+    // straight into the entry point: no borrow, no settle).
     let eager = Span::new(
         (&a1 / alice.party()).to_version(),
         (&both / alice.party()).to_version(),

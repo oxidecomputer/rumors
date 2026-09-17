@@ -229,7 +229,7 @@ fn party_decoder_census_matches_count_table() {
     }
 }
 
-/// A packed encoding of exactly `n` bytes carries a live bit length in
+/// A canonical encoding of exactly `n` bytes carries a live bit length in
 /// `[8(n-1), 8n-1]` — the marker claims one bit, and decode bounds the
 /// padding to one byte — floored at the grammar's minimum subtree size.
 #[test]

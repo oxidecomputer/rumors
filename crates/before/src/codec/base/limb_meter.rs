@@ -7,7 +7,7 @@
 //! operation — arithmetic, comparison, equality, and hashing all record before
 //! they run, and the wide-gamma decode in `codec::gamma` records one
 //! value-width count per decoded value — so amortized-linear algorithms count
-//! linearly in packed input bits and magnitude-quadratic ones count
+//! linearly in encoded input bits and magnitude-quadratic ones count
 //! quadratically. The denomination is the value's width in 64-bit limbs,
 //! not any particular storage: the rank numerator's wide arm
 //! (`version::rank::num`, magnitudes past the backend's capacity on

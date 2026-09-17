@@ -4,9 +4,9 @@
 //! The board is a product over three declarative axes — shapes × operations ×
 //! currencies — and this module is the third axis's definition. A *currency* is
 //! one deterministic meter the criterion judges (peak heap bytes, grown stack
-//! segments, big-integer limb operations, packed-stream scan bits, accumulator
-//! digit touches); [`ByCurrency`] is the container with **one field per
-//! currency**, and every per-currency quantity on the board — a cell's liveness
+//! segments, big-integer limb operations, encoded scan bits, accumulator digit
+//! touches); [`ByCurrency`] is the container with **one field per currency**,
+//! and every per-currency quantity on the board — a cell's liveness
 //! declarations, a sample's counter readings, a result's scores — is a
 //! `ByCurrency<T>`.
 //!
@@ -33,7 +33,7 @@ pub enum Currency {
     Segments,
     /// Big-integer limb operations (arithmetic-width cost; `limb-meter`).
     Limb,
-    /// Packed-stream scan bits (traversal cost; `scan-meter`).
+    /// encoded scan bits (traversal cost; `scan-meter`).
     Scan,
     /// Accumulator digit touches (digit-state cost; `limb-meter`).
     Touch,

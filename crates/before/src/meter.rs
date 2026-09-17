@@ -1,19 +1,9 @@
-//! Adversarial input generators and deterministic resource meters.
+//! Adversarial inputs and deterministic counters for complexity tests.
 //!
-//! Public under the `meter` feature so the metering test binaries can drive
-//! them.
-//!
-//! This module is the measurement half of the crate's resource-proportionality
-//! work: transient cost — peak heap, stack segments, big-integer limb work,
-//! packed-stream scan work — as a function of packed input size, with no bound
-//! on value magnitude, tree depth, or encoded size. The generators below build
-//! the canonical packed encodings that maximize each cost against its input
-//! size; the meters read the deterministic counters the envelopes are pinned
-//! against. Public under the `meter` feature so the metering test binaries (and
-//! benches) can reach it; never part of a production build. (The proptest
-//! strategies over *arbitrary* inputs are a different instrument and live in
-//! the test-only `testing::generators` module; the shapes here are hand-derived
-//! worst cases.)
+//! Available only through the `meter` feature. The generators construct
+//! canonical binary inputs chosen to exercise worst-case time and transient
+//! memory. The counters observe peak heap, stack segments, big-integer limb
+//! work, and encoded bits read as those inputs grow.
 //!
 //! The generators themselves are private: every instrument mints its shapes
 //! through the family registry ([`registry`]), whose roster is the single
@@ -48,7 +38,7 @@
 //! argument, argued at
 //! [`Shape::MemoFanout`](crate::meter::registry::Shape::MemoFanout) versus
 //! [`Shape::MemoOscillating`](crate::meter::registry::Shape::MemoOscillating) —
-//! and, for pair shapes, whether the pair is two packed streams
+//! and, for pair shapes, whether the pair is two encoded streams
 //! ([`Shape::JumpPair`](crate::meter::registry::Shape::JumpPair)) or
 //! organically built [`Version`](crate::Version)s
 //! ([`Shape::ConcurrentPair`](crate::meter::registry::Shape::ConcurrentPair),
@@ -82,27 +72,27 @@ pub use crate::version::skyline::web_traffic::EmitTraffic;
 
 use crate::codec::{self, Base, BitsBuf};
 
-/// A generator's output: canonical packed bytes plus the exact bit length.
+/// A generator's output: canonical encoded bytes plus the exact bit length.
 ///
 /// `bytes` is what `decode` accepts and `encode` reproduces
 /// (marker-padded to a byte boundary); `bits` is the live bit length
 /// before that padding, so tests can pin the closed-form size of each
 /// shape.
 #[derive(Debug, Clone)]
-pub struct Packed {
-    /// The canonical packed bytes, marker-padded to a byte boundary.
+pub struct Encoding {
+    /// The canonical encoded bytes, marker-padded to a byte boundary.
     pub bytes: Vec<u8>,
     /// The exact number of live bits in `bytes` before the padding.
     pub bits: usize,
 }
 
-impl Packed {
+impl Encoding {
     /// Canonicalize a built bit stream: seal the marker padding, keeping
     /// the live length.
     fn from_bits(mut bits: BitsBuf) -> Self {
         let len = usize::try_from(bits.len()).expect("instrument shapes are host-built and small");
         codec::seal_padding(&mut bits);
-        Packed {
+        Encoding {
             bytes: bits.into_bytes(),
             bits: len,
         }
@@ -114,7 +104,7 @@ impl Packed {
     }
 
     /// Lift an event-shape generator's output into a stored [`Version`](crate::Version),
-    /// transcoding the construction language (a min-lifted packed preorder
+    /// transcoding the construction language (a min-lifted preorder
     /// stream) into the skyline coding the version stores.
     pub fn version(&self) -> crate::Version {
         crate::Version::from_bits(skyline::encode_bits(self.as_bits()))
@@ -164,11 +154,11 @@ fn ev_spine(bits: &mut BitsBuf, d: usize) {
 /// # Panics
 ///
 /// Panics if `d == 0`: the spine needs at least one internal node.
-fn dense(d: usize) -> Packed {
+fn dense(d: usize) -> Encoding {
     assert!(d >= 1, "dense spine needs at least one internal node");
     let mut bits = BitsBuf::with_capacity((4 * d + 4) as u64);
     ev_spine(&mut bits, d);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// A root with base `2^b − 1` over `S(d)` and a 0-leaf: `2b + 4d + 8` bits.
@@ -181,7 +171,7 @@ fn dense(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `b == 0` or `d == 0`.
-fn bigroot(b: usize, d: usize) -> Packed {
+fn bigroot(b: usize, d: usize) -> Encoding {
     assert!(b >= 1, "bigroot needs a nonzero root magnitude");
     assert!(d >= 1, "bigroot needs a nonzero spine depth");
     let mut bits = BitsBuf::with_capacity((2 * b + 4 * d + 8) as u64);
@@ -189,7 +179,7 @@ fn bigroot(b: usize, d: usize) -> Packed {
     codec::encode_int(&mut bits, &pow2_minus_1(b));
     ev_spine(&mut bits, d); // left child: the dense spine (its root has base 0)
     ev_leaf(&mut bits, 0); // right child: the root's required zero-base leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// A single event leaf of value `2^b − 1`: one node, `2b + 2` bits.
@@ -201,12 +191,12 @@ fn bigroot(b: usize, d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `b == 0`.
-fn hugeleaf(b: usize) -> Packed {
+fn hugeleaf(b: usize) -> Encoding {
     assert!(b >= 1, "hugeleaf needs a nonzero magnitude");
     let mut bits = BitsBuf::with_capacity((2 * b + 2) as u64);
     bits.push(false); // leaf flag
     codec::encode_int(&mut bits, &pow2_minus_1(b));
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The boundary comb `C(k, n)`: `n` cliff teeth, `n(2k + 10) + 2` bits.
@@ -233,7 +223,7 @@ fn hugeleaf(b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `n == 0`.
-fn cliff_comb(k: usize, n: usize) -> Packed {
+fn cliff_comb(k: usize, n: usize) -> Encoding {
     assert!(k >= 1, "cliff comb needs a nonzero tooth magnitude");
     assert!(n >= 1, "cliff comb needs at least one tooth");
     let mut bits = BitsBuf::with_capacity((n * (2 * k + 10) + 2) as u64);
@@ -247,7 +237,7 @@ fn cliff_comb(k: usize, n: usize) -> Packed {
         ev_leaf(&mut bits, 1); // tooth's right leaf: value 2^k
     }
     ev_leaf(&mut bits, 0); // terminal spine leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The jump comb `J(k, n)`: one low tooth, then `n − 1` cliff teeth, `(n −
@@ -274,7 +264,7 @@ fn cliff_comb(k: usize, n: usize) -> Packed {
 ///
 /// Panics if `k == 0` or `n < 2`: the jump needs a low tooth and at least one
 /// cliff tooth to jump between.
-fn jump_comb(k: usize, n: usize) -> Packed {
+fn jump_comb(k: usize, n: usize) -> Encoding {
     assert!(k >= 1, "jump comb needs a nonzero cliff magnitude");
     assert!(n >= 2, "jump comb needs a low tooth and a cliff tooth");
     let mut bits = BitsBuf::with_capacity(((n - 1) * (2 * k + 10) + 14) as u64);
@@ -289,7 +279,7 @@ fn jump_comb(k: usize, n: usize) -> Packed {
         ev_leaf(&mut bits, 1); // tooth's right leaf: distinct, no collapse
     }
     ev_leaf(&mut bits, 0); // terminal spine leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The wide-tooth comb `W(k, w, n)`: `n` teeth of width `2^w` oscillating
@@ -317,7 +307,7 @@ fn jump_comb(k: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `w == 0`, `w ≥ k`, or `n == 0`.
-fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Packed {
+fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Encoding {
     assert!(w >= 1, "wide-tooth comb needs a nonzero tooth width");
     assert!(
         w < k,
@@ -336,7 +326,7 @@ fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Packed {
         ev_leaf_wide(&mut bits, &tooth_width); // tooth's right leaf: value 2^k
     }
     ev_leaf(&mut bits, 0); // terminal spine leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The unpaid-crossing fan `F(k, n)`: `n` cheap teeth under one stored
@@ -364,7 +354,7 @@ fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `n == 0`.
-fn cliff_fan(k: usize, n: usize) -> Packed {
+fn cliff_fan(k: usize, n: usize) -> Encoding {
     assert!(k >= 1, "cliff fan needs a nonzero root magnitude");
     assert!(n >= 1, "cliff fan needs at least one tooth");
     let mut bits = BitsBuf::with_capacity((12 * n + 2 * k + 6) as u64);
@@ -381,7 +371,7 @@ fn cliff_fan(k: usize, n: usize) -> Packed {
     }
     ev_leaf(&mut bits, 0); // terminal fan leaf
     ev_leaf(&mut bits, 0); // the root's required zero-base right leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The cancelling-prefix chain `P(k, n)`: `n` peak-to-1 drops, `n(2k + 10) + 2`
@@ -397,9 +387,8 @@ fn cliff_fan(k: usize, n: usize) -> Packed {
 /// input code, so the family prices deep sign scans against the wide writes
 /// that immediately precede them. It does not exercise the collapse: a scan
 /// funded by an adjacent write is linear whether or not the fold rewrites what
-/// it scanned. The collapse-is-load-bearing case — a cancelling prefix built
-/// once, then read many times — is a delta-stream shape, not a packed input,
-/// and is pinned by the accumulator envelope suite's static-prefix stream.
+/// it scanned. The accumulator envelope suite separately checks repeated reads
+/// of one cancelling prefix.
 ///
 /// Layout per tooth: `"11"` (spine node, `gamma(0)`), `"1" · gamma(1)`
 /// (tooth node), `"0" · gamma(2^k − 1)` (leaf `2^k − 1`), `"01"` (leaf 0);
@@ -411,7 +400,7 @@ fn cliff_fan(k: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `n == 0`.
-fn cancelling_chain(k: usize, n: usize) -> Packed {
+fn cancelling_chain(k: usize, n: usize) -> Encoding {
     assert!(k >= 1, "cancelling chain needs a nonzero peak magnitude");
     assert!(n >= 1, "cancelling chain needs at least one tooth");
     let mut bits = BitsBuf::with_capacity((n * (2 * k + 10) + 2) as u64);
@@ -426,7 +415,7 @@ fn cancelling_chain(k: usize, n: usize) -> Packed {
         ev_leaf(&mut bits, 0); // right leaf: value 1
     }
     ev_leaf(&mut bits, 0); // terminal spine leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The harmonic spine `H(d)`: a 1-leaf at every depth, `6d + 2` bits, rank
@@ -452,7 +441,7 @@ fn cancelling_chain(k: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`: the spine needs at least one internal node.
-fn harmonic(d: usize) -> Packed {
+fn harmonic(d: usize) -> Encoding {
     assert!(d >= 1, "harmonic spine needs at least one internal node");
     let mut bits = BitsBuf::with_capacity((6 * d + 2) as u64);
     for _ in 0..d {
@@ -463,7 +452,7 @@ fn harmonic(d: usize) -> Packed {
     for _ in 0..d {
         ev_leaf(&mut bits, 1); // each level's right sibling: value 1
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The alternating-binary spine `A(d)`: depth `d`, `2d + 1` nodes, `4d + 4`
@@ -489,7 +478,7 @@ fn harmonic(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`: the spine needs at least one internal node.
-fn alt_spine(d: usize) -> Packed {
+fn alt_spine(d: usize) -> Encoding {
     assert!(d >= 1, "alternating spine needs at least one internal node");
     let mut bits = BitsBuf::with_capacity((4 * d + 4) as u64);
     // Levels 0..d−1 have one internal child each (left at even levels,
@@ -508,7 +497,7 @@ fn alt_spine(d: usize) -> Packed {
             ev_leaf(&mut bits, 0); // trailing leaf sibling: internal child left
         }
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The scattered id `Z(e)`: `e` owned left subtrees at alternating depths of a
@@ -531,7 +520,7 @@ fn alt_spine(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `e == 0`.
-fn scattered_id(e: usize) -> Packed {
+fn scattered_id(e: usize) -> Encoding {
     assert!(e >= 1, "scattered id needs at least one owned fragment");
     let mut bits = BitsBuf::with_capacity((6 * e + 2) as u64);
     for _ in 0..e {
@@ -544,7 +533,7 @@ fn scattered_id(e: usize) -> Packed {
     }
     bits.push(false); // terminal tag "00": the owned tip
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The id spine `I(d, divert)`: a unary chain of depth `d`, `2d + 2` bits.
@@ -558,7 +547,7 @@ fn scattered_id(e: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn id_spine(d: usize, divert: bool) -> Packed {
+fn id_spine(d: usize, divert: bool) -> Encoding {
     assert!(d >= 1, "id spine needs at least one unary node");
     let mut bits = BitsBuf::with_capacity((2 * d + 2) as u64);
     for _ in 0..d - 1 {
@@ -570,7 +559,7 @@ fn id_spine(d: usize, divert: bool) -> Packed {
     bits.push(divert);
     bits.push(false); // terminal tag "00": the single owned tip
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left spine,
@@ -586,7 +575,7 @@ fn id_spine(d: usize, divert: bool) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn nested_full_id(d: usize) -> Packed {
+fn nested_full_id(d: usize) -> Encoding {
     assert!(d >= 1, "nested-full id needs at least one shortcut level");
     let mut bits = BitsBuf::with_capacity((4 * d + 4) as u64);
     for _ in 0..d {
@@ -601,7 +590,7 @@ fn nested_full_id(d: usize) -> Packed {
         bits.push(false); // each level's right child: the full terminal
         bits.push(false);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The mirror nested-full id `M(d)`: `(1, x)` repeated down a right spine,
@@ -619,7 +608,7 @@ fn nested_full_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn nested_left_full_id(d: usize) -> Packed {
+fn nested_left_full_id(d: usize) -> Encoding {
     assert!(
         d >= 1,
         "nested-left-full id needs at least one shortcut level"
@@ -635,7 +624,7 @@ fn nested_left_full_id(d: usize) -> Packed {
     bits.push(true);
     bits.push(false); // ... whose right child is the terminal
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// A right-leaning spine of zero leaves with one `2^b − 1` tail leaf: depth
@@ -653,7 +642,7 @@ fn nested_left_full_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `b == 0` or `d == 0`.
-fn wide_tail(b: usize, d: usize) -> Packed {
+fn wide_tail(b: usize, d: usize) -> Encoding {
     assert!(b >= 1, "wide tail needs a nonzero magnitude");
     assert!(d >= 1, "wide tail needs a nonzero spine depth");
     let mut bits = BitsBuf::with_capacity((4 * d + 2 * b + 3) as u64);
@@ -663,7 +652,7 @@ fn wide_tail(b: usize, d: usize) -> Packed {
         ev_leaf(&mut bits, 0); // its zero left leaf
     }
     ev_leaf_wide(&mut bits, &pow2_minus_1(b)); // the bottom's wide tail
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The descending staircase `D(d)`: the dense left spine whose preorder leaf
@@ -683,7 +672,7 @@ fn wide_tail(b: usize, d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn staircase(d: usize) -> Packed {
+fn staircase(d: usize) -> Encoding {
     assert!(d >= 1, "the staircase needs at least one internal node");
     let mut bits = BitsBuf::with_capacity((5 * d + 8) as u64);
     bits.push(true); // the root: base 0 (the whole tree's minimum)
@@ -697,7 +686,7 @@ fn staircase(d: usize) -> Packed {
     for _ in 1..d {
         ev_leaf(&mut bits, 0); // each ancestor's right leaf: its floor
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// Append one *hole region*: a right-leaning staircase of `m + 1` leaves
@@ -770,7 +759,7 @@ fn hole_region(bits: &mut BitsBuf, lead: usize, m: usize) {
 ///
 /// Panics if `k` is not an even count of at least 2 (the lead alternation
 /// needs equal halves), or if `m == 0`.
-fn collapse_hole(k: usize, m: usize) -> (Packed, Packed) {
+fn collapse_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     assert!(
         k >= 2 && k.is_multiple_of(2),
         "the collapse hole needs an even unit count"
@@ -795,7 +784,7 @@ fn collapse_hole(k: usize, m: usize) -> (Packed, Packed) {
         id.push(false); // the full collapse child
         id.push(false);
     }
-    (Packed::from_bits(ev), Packed::from_bits(id))
+    (Encoding::from_bits(ev), Encoding::from_bits(id))
 }
 
 /// The copy-hole pair `CO(k, m)`: `k` absent-child hole regions down a
@@ -822,7 +811,7 @@ fn collapse_hole(k: usize, m: usize) -> (Packed, Packed) {
 /// # Panics
 ///
 /// Panics if `k` is not an even count of at least 2, or if `m == 0`.
-fn copy_hole(k: usize, m: usize) -> (Packed, Packed) {
+fn copy_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     assert!(
         k >= 2 && k.is_multiple_of(2),
         "the copy hole needs an even unit count"
@@ -849,7 +838,7 @@ fn copy_hole(k: usize, m: usize) -> (Packed, Packed) {
     }
     id.push(false); // the owned tail tip
     id.push(false);
-    (Packed::from_bits(ev), Packed::from_bits(id))
+    (Encoding::from_bits(ev), Encoding::from_bits(id))
 }
 
 /// The raise-hole pair `RH(k, m)`: `k` right-full sites up a left chain,
@@ -875,7 +864,7 @@ fn copy_hole(k: usize, m: usize) -> (Packed, Packed) {
 /// # Panics
 ///
 /// Panics if `k` is not an even count of at least 2, or if `m == 0`.
-fn raise_hole(k: usize, m: usize) -> (Packed, Packed) {
+fn raise_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     assert!(
         k >= 2 && k.is_multiple_of(2),
         "the raise hole needs an even unit count"
@@ -903,7 +892,7 @@ fn raise_hole(k: usize, m: usize) -> (Packed, Packed) {
         id.push(false); // each chain node's full right child, innermost first
         id.push(false);
     }
-    (Packed::from_bits(ev), Packed::from_bits(id))
+    (Encoding::from_bits(ev), Encoding::from_bits(id))
 }
 
 /// The site-hole pair `SH(k, m)`: `k` interior left-full sites down a
@@ -935,7 +924,7 @@ fn raise_hole(k: usize, m: usize) -> (Packed, Packed) {
 ///
 /// Panics if `k` is not an even count of at least 2 (the lead alternation
 /// needs equal halves), or if `m == 0`.
-fn site_hole(k: usize, m: usize) -> (Packed, Packed) {
+fn site_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     assert!(
         k >= 2 && k.is_multiple_of(2),
         "the site hole needs an even unit count"
@@ -967,7 +956,7 @@ fn site_hole(k: usize, m: usize) -> (Packed, Packed) {
         id.push(false); // the full collapse child
         id.push(false);
     }
-    (Packed::from_bits(ev), Packed::from_bits(id))
+    (Encoding::from_bits(ev), Encoding::from_bits(id))
 }
 
 /// The memo-chain event `Q(k, distinct)`: a right-leaning spine of `k`
@@ -990,7 +979,7 @@ fn site_hole(k: usize, m: usize) -> (Packed, Packed) {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-fn memo_chain(k: usize, distinct: bool) -> Packed {
+fn memo_chain(k: usize, distinct: bool) -> Encoding {
     assert!(k >= 1, "the memo chain needs at least one interior site");
     let mut bits = BitsBuf::with_capacity((14 * k + 9) as u64);
     bits.push(true); // the root: the covering site's node
@@ -1005,7 +994,7 @@ fn memo_chain(k: usize, distinct: bool) -> Packed {
         ev_leaf(&mut bits, if distinct { j as u64 } else { 1 }); // its range: one leaf, the site minimum
     }
     ev_leaf(&mut bits, 0); // the spine terminal
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The memo-chain id over [`memo_chain`]: `(1, ·)` at the root and at every
@@ -1019,7 +1008,7 @@ fn memo_chain(k: usize, distinct: bool) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-fn memo_chain_id(k: usize) -> Packed {
+fn memo_chain_id(k: usize) -> Encoding {
     assert!(k >= 1, "the memo-chain id needs at least one interior site");
     let mut bits = BitsBuf::with_capacity((10 * k + 8) as u64);
     bits.push(true); // the root: full left child ...
@@ -1042,7 +1031,7 @@ fn memo_chain_id(k: usize) -> Packed {
     bits.push(false);
     bits.push(false);
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The memo-comb event `B(d)`: `d` alternating levels of a single-leaf site and
@@ -1067,7 +1056,7 @@ fn memo_chain_id(k: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn memo_comb(d: usize) -> Packed {
+fn memo_comb(d: usize) -> Encoding {
     assert!(d >= 1, "the memo comb needs at least one level");
     let mut bits = BitsBuf::with_capacity((20 * d + 24) as u64);
     bits.push(true); // the root: the outermost covering site's node
@@ -1085,7 +1074,7 @@ fn memo_comb(d: usize) -> Packed {
         ev_leaf(&mut bits, 0); // its collapsed left leaf
     }
     ev_leaf(&mut bits, d as u64 + 1); // the innermost range: one leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The memo-comb id over [`memo_comb`]: a covering `(1, ·)` site per level
@@ -1098,7 +1087,7 @@ fn memo_comb(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn memo_comb_id(d: usize) -> Packed {
+fn memo_comb_id(d: usize) -> Encoding {
     assert!(d >= 1, "the memo-comb id needs at least one level");
     let mut bits = BitsBuf::with_capacity((14 * d + 12) as u64);
     bits.push(true); // the root: full left child over the comb
@@ -1125,7 +1114,7 @@ fn memo_comb_id(d: usize) -> Packed {
     bits.push(false);
     bits.push(false);
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The memo fan-out event `F(k, b)`: the memo-chain skeleton with one `2^b − 1`
@@ -1149,7 +1138,7 @@ fn memo_comb_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-fn memo_fanout(k: usize, b: usize) -> Packed {
+fn memo_fanout(k: usize, b: usize) -> Encoding {
     assert!(k >= 1, "the memo fan-out needs at least one site");
     assert!(b >= 1, "the memo fan-out needs a nonzero magnitude");
     let wide = pow2_minus_1(b);
@@ -1167,7 +1156,7 @@ fn memo_fanout(k: usize, b: usize) -> Packed {
         ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
     }
     ev_leaf(&mut bits, 0); // the spine terminal: the covering minimum
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The oscillating-siblings event `O(k, b)`: the memo-chain skeleton with site
@@ -1183,7 +1172,7 @@ fn memo_fanout(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-fn memo_oscillating(k: usize, b: usize) -> Packed {
+fn memo_oscillating(k: usize, b: usize) -> Encoding {
     assert!(k >= 1, "the oscillating siblings need at least one site");
     assert!(b >= 1, "the oscillating siblings need a nonzero magnitude");
     let wide = pow2_minus_1(b);
@@ -1203,7 +1192,7 @@ fn memo_oscillating(k: usize, b: usize) -> Packed {
         ev_leaf_wide(&mut bits, if j % 2 == 0 { &wide } else { &one });
     }
     ev_leaf(&mut bits, 0); // the spine terminal
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The memo-churn event `U(d)`: `d` sibling single-leaf sites, then a
@@ -1224,7 +1213,7 @@ fn memo_oscillating(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn memo_churn(d: usize) -> Packed {
+fn memo_churn(d: usize) -> Encoding {
     assert!(d >= 1, "the memo churn needs at least one site");
     let mut bits = BitsBuf::with_capacity((18 * d + 10 * (2 * d) + 20) as u64);
     bits.push(true); // the root: the covering site's node
@@ -1252,7 +1241,7 @@ fn memo_churn(d: usize) -> Packed {
     for _ in 1..run {
         ev_leaf(&mut bits, 0); // each ancestor's right leaf: its floor
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The memo-churn id over [`memo_churn`]: a covering `(1, ·)` root, per level
@@ -1267,7 +1256,7 @@ fn memo_churn(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn memo_churn_id(d: usize) -> Packed {
+fn memo_churn_id(d: usize) -> Encoding {
     assert!(d >= 1, "the memo-churn id needs at least one site");
     let mut bits = BitsBuf::with_capacity((14 * d + 6) as u64);
     bits.push(true); // the root: full left child over the carriers
@@ -1286,7 +1275,7 @@ fn memo_churn_id(d: usize) -> Packed {
         bits.push(false);
         bits.push(false);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The descending-raises event `W(d)`: a floor realized high, then `d` sibling
@@ -1306,7 +1295,7 @@ fn memo_churn_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn descending_raises(d: usize) -> Packed {
+fn descending_raises(d: usize) -> Encoding {
     assert!(d >= 1, "the descending raises need at least one site");
     let mut bits = BitsBuf::with_capacity((13 * d + 30) as u64);
     bits.push(true); // the root: the covering site's node
@@ -1324,7 +1313,7 @@ fn descending_raises(d: usize) -> Packed {
         ev_leaf(&mut bits, (d as u64 + 2) - j as u64); // its range: below the floor so far
     }
     ev_leaf(&mut bits, 0); // the spine terminal
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The descending-raises id over [`descending_raises`]: the covering `(1, ·)`
@@ -1338,7 +1327,7 @@ fn descending_raises(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-fn descending_raises_id(d: usize) -> Packed {
+fn descending_raises_id(d: usize) -> Encoding {
     assert!(d >= 1, "the descending-raises id needs at least one site");
     let mut bits = BitsBuf::with_capacity((10 * d + 10) as u64);
     bits.push(true); // the root: full left child over the rest
@@ -1363,7 +1352,7 @@ fn descending_raises_id(d: usize) -> Packed {
     bits.push(false);
     bits.push(false);
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The reveal-comb event `R(k, b)`: one covering site over a left-leaning comb
@@ -1389,7 +1378,7 @@ fn descending_raises_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-fn reveal_comb(k: usize, b: usize) -> Packed {
+fn reveal_comb(k: usize, b: usize) -> Encoding {
     assert!(k >= 1, "the reveal comb needs at least one site");
     assert!(b >= 1, "the reveal comb needs a nonzero magnitude");
     let wide = pow2(b);
@@ -1409,7 +1398,7 @@ fn reveal_comb(k: usize, b: usize) -> Packed {
         ev_leaf_wide(&mut bits, &below); // its collapsed left leaf: 2^b − 1
         ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// [`reveal_comb`] with the floor raised to `2^b − 2`: identical site forest,
@@ -1426,7 +1415,7 @@ fn reveal_comb(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
+fn reveal_comb_hifloor(k: usize, b: usize) -> Encoding {
     assert!(k >= 1, "the reveal comb needs at least one site");
     assert!(b >= 1, "the reveal comb needs a nonzero magnitude");
     let wide = pow2(b);
@@ -1447,7 +1436,7 @@ fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
         ev_leaf_wide(&mut bits, &below); // its collapsed left leaf: 2^b − 1
         ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The reveal-comb id over [`reveal_comb`]: the covering `(1, ·)` root over
@@ -1463,7 +1452,7 @@ fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-fn reveal_comb_id(k: usize) -> Packed {
+fn reveal_comb_id(k: usize) -> Encoding {
     assert!(k >= 1, "the reveal-comb id needs at least one site");
     let mut bits = BitsBuf::with_capacity((10 * k + 4) as u64);
     bits.push(true); // the root: full left child ...
@@ -1486,7 +1475,7 @@ fn reveal_comb_id(k: usize) -> Packed {
         bits.push(false);
         bits.push(false);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The pure-comb event `L(k, b)`: [`reveal_comb`]'s left-leaning comb with a
@@ -1506,7 +1495,7 @@ fn reveal_comb_id(k: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-fn pure_comb(k: usize, b: usize) -> Packed {
+fn pure_comb(k: usize, b: usize) -> Encoding {
     assert!(k >= 1, "the pure comb needs at least one level");
     assert!(b >= 1, "the pure comb needs a nonzero magnitude");
     let wide = pow2(b);
@@ -1519,7 +1508,7 @@ fn pure_comb(k: usize, b: usize) -> Packed {
     for _ in 0..k {
         ev_leaf_wide(&mut bits, &wide); // a_i's right leaf: 2^b
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The pure-comb id over [`pure_comb`]: per-comb-level `(b_{i−1}, (1, 0))`
@@ -1533,7 +1522,7 @@ fn pure_comb(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-fn pure_comb_id(k: usize) -> Packed {
+fn pure_comb_id(k: usize) -> Encoding {
     assert!(k >= 1, "the pure-comb id needs at least one level");
     let mut bits = BitsBuf::with_capacity((6 * k) as u64);
     for _ in 1..k {
@@ -1548,7 +1537,7 @@ fn pure_comb_id(k: usize) -> Packed {
         bits.push(false); // ... whose left child is the terminal
         bits.push(false);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The ascending cliff `A(k, b)`: a right spine of `k` ascending wide left
@@ -1574,7 +1563,7 @@ fn pure_comb_id(k: usize) -> Packed {
 ///
 /// Panics if `k == 0`, `b == 0`, or `k + 2 > 2^b` (the ascent must
 /// stay inside the width-`b` gamma-code band the closed form counts).
-fn ascend_cliff(k: usize, b: usize) -> Packed {
+fn ascend_cliff(k: usize, b: usize) -> Encoding {
     ascend_spine(k, b, true)
 }
 
@@ -1593,13 +1582,13 @@ fn ascend_cliff(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`, `b == 0`, or `k + 2 > 2^b`.
-fn ascend_cliff_plateau(k: usize, b: usize) -> Packed {
+fn ascend_cliff_plateau(k: usize, b: usize) -> Encoding {
     ascend_spine(k, b, false)
 }
 
 /// The shared ascending-cliff layout: ascending leaves or the
 /// leveled control.
-fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
+fn ascend_spine(k: usize, b: usize, ascend: bool) -> Encoding {
     assert!(k >= 1, "the ascending cliff needs at least one spine node");
     assert!(b >= 1, "the ascending cliff needs a nonzero magnitude");
     // Every leaf's gamma code must stay 2b + 1 bits: γ(n) codes
@@ -1618,7 +1607,7 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
         ev_leaf_wide(&mut bits, &(&wide + step)); // its wide left leaf
     }
     ev_leaf(&mut bits, 0); // the cliff: S_k's right child
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The exponent of the wide drop in [`freeze_position`] and of the in-pair drop
@@ -1654,7 +1643,7 @@ const FREEZE_POSITION_DROP_BITS: usize = 288;
 /// # Panics
 ///
 /// Panics if `k == 0`.
-fn freeze_position(k: usize) -> Packed {
+fn freeze_position(k: usize) -> Encoding {
     assert!(k >= 1, "the freeze-position spine needs at least one block");
     let band = FREEZE_POSITION_DROP_BITS + 1 + bitlen(k);
     let wide = suanpan::UBig::ONE << FREEZE_POSITION_DROP_BITS;
@@ -1671,7 +1660,7 @@ fn freeze_position(k: usize) -> Packed {
         }
     }
     ev_leaf(&mut bits, 0); // the terminal leaf: every ancestor's minimum
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The bit length of `k` (`k >= 1`): the freeze-position band's
@@ -1728,7 +1717,7 @@ const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 /// # Panics
 ///
 /// Panics if `p == 0`.
-fn promotion_rearm(p: usize) -> Packed {
+fn promotion_rearm(p: usize) -> Encoding {
     assert!(
         p >= 1,
         "the promotion re-arm spine needs at least one block"
@@ -1751,7 +1740,7 @@ fn promotion_rearm(p: usize) -> Packed {
         }
     }
     ev_leaf(&mut bits, 1); // the terminal leaf: the last unit climb
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The promotion re-arm mate `PRM(p)`: the small twin of [`promotion_rearm`] —
@@ -1773,7 +1762,7 @@ fn promotion_rearm(p: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `p == 0`.
-fn promotion_rearm_mate(p: usize) -> Packed {
+fn promotion_rearm_mate(p: usize) -> Encoding {
     assert!(p >= 1, "the re-arm mate needs at least one block's worth");
     let zero = Base::ZERO;
     // The spine matches PR(p) node for node: 32p span-builder levels
@@ -1786,7 +1775,7 @@ fn promotion_rearm_mate(p: usize) -> Packed {
         ev_leaf(&mut bits, u64::from(level % 2 == 0)); // 1, 0, 1, 0, …
     }
     ev_leaf(&mut bits, 1); // the terminal leaf: the unequal closer
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// Spine levels per suffix digit in [`dense_suffix`] and [`wide_arming`].
@@ -1823,7 +1812,7 @@ const DENSE_SUFFIX_DIGIT_STRIDE: usize = 33;
 /// # Panics
 ///
 /// Panics if `p == 0` or `d == 0`.
-fn dense_suffix(p: usize, d: usize) -> Packed {
+fn dense_suffix(p: usize, d: usize) -> Encoding {
     assert!(p >= 1, "the dense-suffix family needs at least one block");
     assert!(d >= 1, "the dense-suffix family needs at least one gap");
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
@@ -1842,7 +1831,7 @@ fn dense_suffix(p: usize, d: usize) -> Packed {
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0); // the left turns' siblings, innermost first
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The dense-suffix mate `DSM(p, d)`: the small twin of [`dense_suffix`] — the
@@ -1861,7 +1850,7 @@ fn dense_suffix(p: usize, d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `p == 0` or `d == 0`.
-fn dense_suffix_mate(p: usize, d: usize) -> Packed {
+fn dense_suffix_mate(p: usize, d: usize) -> Encoding {
     assert!(p >= 1, "the dense-suffix mate needs at least one block");
     assert!(d >= 1, "the dense-suffix mate needs at least one gap");
     let one = Base::from(1u8);
@@ -1876,7 +1865,7 @@ fn dense_suffix_mate(p: usize, d: usize) -> Packed {
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The wide-arming family `WA(w, d)`: the gap spine of [`dense_suffix`] over a
@@ -1905,7 +1894,7 @@ fn dense_suffix_mate(p: usize, d: usize) -> Packed {
 ///
 /// Panics if `w < 10` (the parked component must clear the settling drift's ten
 /// digits by more than the freeze allowance) or `d == 0`.
-fn wide_arming(w: usize, d: usize) -> Packed {
+fn wide_arming(w: usize, d: usize) -> Encoding {
     assert!(
         w >= 10,
         "the wide arming must out-span the settling drift plus the allowance"
@@ -1925,7 +1914,7 @@ fn wide_arming(w: usize, d: usize) -> Packed {
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The hoisted-window family `HW(w, d, t)`: [`wide_arming`]'s gap spine and
@@ -1956,7 +1945,7 @@ fn wide_arming(w: usize, d: usize) -> Packed {
 /// must hoist the trailing window past every settle factor's cluster gap
 /// limit, or the tail mass's own compacted digits merge into the trailing
 /// cluster and the family stops separating span from position.
-fn hoisted_window(w: usize, d: usize, t: usize) -> Packed {
+fn hoisted_window(w: usize, d: usize, t: usize) -> Encoding {
     assert!(
         w >= 10,
         "the wide arming must out-span the settling drift plus the allowance"
@@ -1980,7 +1969,7 @@ fn hoisted_window(w: usize, d: usize, t: usize) -> Packed {
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// Append the dense-suffix gap spine: `33d` zero-base levels turning right
@@ -2055,7 +2044,7 @@ fn parked_unit_spine(bits: &mut BitsBuf, s: usize) {
 /// # Panics
 ///
 /// Panics if `n` is not a power of two (the block is one complete subtree).
-fn weight_comb(n: usize) -> Packed {
+fn weight_comb(n: usize) -> Encoding {
     assert!(
         n.is_power_of_two(),
         "the weight-comb block is one complete subtree"
@@ -2076,7 +2065,7 @@ fn weight_comb(n: usize) -> Packed {
         }
     }
     block(&mut bits, 2 * n);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The freeze-parade family `FZ(k)`: the parked-unit spine at depth `64k`, then
@@ -2106,7 +2095,7 @@ fn weight_comb(n: usize) -> Packed {
 ///
 /// Panics if `k` is not a power of two (the parade is one complete
 /// subtree).
-fn freeze_parade(k: usize) -> Packed {
+fn freeze_parade(k: usize) -> Encoding {
     assert!(
         k.is_power_of_two(),
         "the freeze parade is one complete subtree"
@@ -2140,7 +2129,7 @@ fn freeze_parade(k: usize) -> Packed {
         block(bits, r, my_min);
     }
     block(&mut bits, &values, &suanpan::UBig::ZERO);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The height of the lone-freeze plateau: one freeze-allowance-clearing drop
@@ -2191,7 +2180,7 @@ const LONE_FREEZE_PLATEAU_BITS: usize = 288;
 ///
 /// Panics if `pre` or `post` is zero or odd (the closed forms count
 /// whole oscillation pairs).
-fn lone_freeze(pre: usize, post: usize) -> Packed {
+fn lone_freeze(pre: usize, post: usize) -> Encoding {
     assert!(
         pre >= 2 && pre.is_multiple_of(2),
         "the lone freeze needs a whole-pair plateau prefix"
@@ -2216,7 +2205,7 @@ fn lone_freeze(pre: usize, post: usize) -> Packed {
         leaf(&mut bits, suanpan::UBig::from((2 - i % 2) as u64)); // 2, 1, …
     }
     ev_leaf(&mut bits, 0); // the terminal leaf: every ancestor's minimum
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The tooth-tail pair `TT(g, m)`: two same-shape right spines of `m` flat unit
@@ -2241,11 +2230,11 @@ fn lone_freeze(pre: usize, post: usize) -> Packed {
 ///
 /// Panics if `g == 0` (no spike) or `m < 2` (the spike rides the
 /// second leaf).
-fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
+fn tooth_tail(g: usize, m: usize) -> (Encoding, Encoding) {
     assert!(g >= 1, "the tooth-tail spike needs at least one digit");
     assert!(m >= 2, "the tooth-tail spike rides the second leaf");
     let spike = pow2(32 * g);
-    let build = |base_h: u64| -> Packed {
+    let build = |base_h: u64| -> Encoding {
         let mut bits = BitsBuf::with_capacity((6 * m + 64 * g) as u64);
         for i in 0..m {
             bits.push(true); // chain node: leaf left, chain right, base 0
@@ -2257,7 +2246,7 @@ fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
             }
         }
         ev_leaf(&mut bits, 0); // the shared terminal: every minimum
-        Packed::from_bits(bits)
+        Encoding::from_bits(bits)
     };
     (build(1), build(2))
 }
@@ -2283,14 +2272,14 @@ fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
 /// reaches a trailing 0-leaf, and the only sibling leaf pair is the bottom `(1,
 /// 0)`.
 ///
-/// The packed construction spells the plateau once per turn, so the *packed*
+/// The encoded construction spells the plateau once per turn, so the *encoded*
 /// size is `Θ(popcount(y) · bits(x) + bits(y))` even though the stored version
 /// is `Θ(bits(x) + bits(y))`.
 ///
 /// # Panics
 ///
 /// Panics if `x` or `y` is zero.
-fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Packed {
+fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Encoding {
     use dashu_int::ops::BitTest;
     assert!(
         *x != suanpan::UBig::ZERO,
@@ -2319,7 +2308,7 @@ fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Packed {
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// Digit `i` of the deterministic pseudorandom content stream `seed`: the
@@ -2429,7 +2418,7 @@ pub fn plateau_puncture_factors(w: usize, d: usize) -> (suanpan::UBig, suanpan::
 /// [`puncture_product`] is the same embedding over arbitrary factors, which is
 /// what makes the floor a reduction from arbitrary integer multiplication
 /// rather than a bet on one shape. The stored skyline operand is `Θ(w + d)`
-/// bits (the packed construction spells the plateau per turn, but the deltas
+/// bits (the encoded construction spells the plateau per turn, but the deltas
 /// the version stores collapse to one climb and one plunge). The fold's cost on
 /// this family is the close-time settle `P · segment` — parked `−(x − 1)`
 /// against the punctured trailing mass — with no promotion ever firing: the
@@ -2441,7 +2430,7 @@ pub fn plateau_puncture_factors(w: usize, d: usize) -> (suanpan::UBig, suanpan::
 ///
 /// Panics if `w < 10` (the plunge must trip the freeze allowance past
 /// a unit code) or `d == 0`.
-fn plateau_puncture(w: usize, d: usize) -> Packed {
+fn plateau_puncture(w: usize, d: usize) -> Encoding {
     assert!(
         w >= 10,
         "the plateau must out-span the freeze allowance past a unit code"
@@ -2469,7 +2458,7 @@ fn plateau_puncture(w: usize, d: usize) -> Packed {
 /// parked sums; without it, every aggregate keeps the full arming width against
 /// every dense window to its right. All wide leaves live in one gamma band
 /// (`band = 32w + ⌈log₂ n⌉ + 2` headroom bits over the swings and kickers), so
-/// the packed size is the closed form `n(g(2·band + 132) + 8·band + 16) + 2`
+/// the encoded size is the closed form `n(g(2·band + 132) + 8·band + 16) + 2`
 /// bits; the tests mirror the leaf recurrence for the `min_ticks` leg. Normal
 /// form: all bases 0 — every subtree reaches a 0-leaf (the gap leans' trailing
 /// siblings; the bottom 0 under the last block's wide leaf) and no sibling leaf
@@ -2480,7 +2469,7 @@ fn plateau_puncture(w: usize, d: usize) -> Packed {
 /// Panics if `n == 0` or `g == 0`, or if `w < 19` (an arming must
 /// out-span the `2^288` kicker drift by more than the freeze
 /// allowance, or promotion never fires).
-fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
+fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
     assert!(n >= 1, "the arming train needs at least one block");
     assert!(g >= 1, "the arming train needs at least one gap per window");
     assert!(
@@ -2531,7 +2520,7 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The ascending-cliff id over [`ascend_cliff`]: a right-descent `(0, ·)` chain
@@ -2544,7 +2533,7 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-fn ascend_cliff_id(k: usize) -> Packed {
+fn ascend_cliff_id(k: usize) -> Encoding {
     assert!(
         k >= 1,
         "the ascending-cliff id needs at least one spine node"
@@ -2558,7 +2547,7 @@ fn ascend_cliff_id(k: usize) -> Packed {
     bits.push(false);
     bits.push(false); // ... whose left child is the terminal
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The raise value of every [`dominated_undercut`] site: each site's raised
@@ -2604,7 +2593,7 @@ const DOMINATED_UNDERCUT_EXIT_RISE: u64 = 1;
 ///
 /// Panics if `k == 0`, or if `b < 128` (the closed-form decidability bound
 /// above).
-fn dominated_undercut(k: usize, b: usize) -> Packed {
+fn dominated_undercut(k: usize, b: usize) -> Encoding {
     assert!(
         k >= 1,
         "the dominated-undercut spine needs at least one site"
@@ -2632,7 +2621,7 @@ fn dominated_undercut(k: usize, b: usize) -> Packed {
         ev_leaf_wide(&mut bits, &rise); // the exit, one above the minimum
     }
     ev_leaf(&mut bits, 0); // the spine terminal (the right-full raise's leaf)
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The dominated-undercut id over [`dominated_undercut`]: per site a `(1, 0)`
@@ -2648,7 +2637,7 @@ fn dominated_undercut(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-fn dominated_undercut_id(k: usize) -> Packed {
+fn dominated_undercut_id(k: usize) -> Encoding {
     assert!(k >= 1, "the dominated-undercut id needs at least one site");
     let mut bits = BitsBuf::with_capacity((6 * k + 2) as u64);
     for _ in 0..k {
@@ -2661,7 +2650,7 @@ fn dominated_undercut_id(k: usize) -> Packed {
     }
     bits.push(false); // the spine terminus: full
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The narrow rung of the propagate-seam shapes: `5·2^64`.
@@ -2722,7 +2711,7 @@ fn seam_wide(w: usize) -> Base {
 /// Panics if `k == 0`, `r < 5` (two-digit clearance over a three-digit
 /// boundary needs a top index of at least 4), or `k > 2^28` (the rung sum
 /// must stay three digits, below the plunge base's own bit length).
-fn seam_plunge(k: usize, r: usize) -> Packed {
+fn seam_plunge(k: usize, r: usize) -> Encoding {
     assert!(
         k >= 1,
         "the seam plunge needs at least one stacked boundary"
@@ -2747,7 +2736,7 @@ fn seam_plunge(k: usize, r: usize) -> Packed {
         ev_leaf_wide(&mut bits, &value); // the ascending arming leaf
     }
     ev_leaf(&mut bits, 0); // the plunge: the whole tree's floor
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The seam-plunge control `SPC(k, r)`: the same spine, arming schedule, and
@@ -2773,7 +2762,7 @@ fn seam_plunge(k: usize, r: usize) -> Packed {
 /// # Panics
 ///
 /// As [`seam_plunge`].
-fn seam_plunge_control(k: usize, r: usize) -> Packed {
+fn seam_plunge_control(k: usize, r: usize) -> Encoding {
     assert!(
         k >= 1,
         "the seam plunge needs at least one stacked boundary"
@@ -2797,7 +2786,7 @@ fn seam_plunge_control(k: usize, r: usize) -> Packed {
         ev_leaf(&mut bits, 0);
     }
     ev_leaf_wide(&mut bits, &rung); // the terminal: one more rung up
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The seam-stop spine `SS(k)`: one five-digit boundary absorbing `k`
@@ -2833,13 +2822,13 @@ fn seam_plunge_control(k: usize, r: usize) -> Packed {
 ///
 /// Panics if `k == 0` or `k > 2^11` (the descending leaves must share one
 /// bit length and stay strictly positive under the shared base).
-fn seam_stop(k: usize) -> Packed {
+fn seam_stop(k: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((164 * k + 266) as u64);
     bits.push(true); // the root, base 0
     codec::encode_int(&mut bits, &Base::ZERO);
     ev_leaf(&mut bits, 0); // the floor leaf: arms the root at 0
     seam_stop_descent(&mut bits, k);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The seam-stop control `SSC(k)`: [`seam_stop`]'s descent subtree standing
@@ -2855,10 +2844,10 @@ fn seam_stop(k: usize) -> Packed {
 /// # Panics
 ///
 /// As [`seam_stop`].
-fn seam_stop_control(k: usize) -> Packed {
+fn seam_stop_control(k: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((164 * k + 262) as u64);
     seam_stop_descent(&mut bits, k);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// Append the seam-stop descent subtree: the based node over `k` descending
@@ -2924,7 +2913,7 @@ fn seam_stop_descent(bits: &mut BitsBuf, k: usize) {
 /// Panics if `w < 3` (domination over a one-digit gap needs a top index of
 /// at least 2), `k == 0`, or `k > 2^20` (the ladder leaves must stay one
 /// word-scale step apart below the anchor, sharing one bit length).
-fn latent_ladder(w: usize, k: usize) -> Packed {
+fn latent_ladder(w: usize, k: usize) -> Encoding {
     assert!(
         w >= 3,
         "the parked latent must decide domination over a word-scale gap"
@@ -2954,7 +2943,7 @@ fn latent_ladder(w: usize, k: usize) -> Packed {
         let value = anchor.clone() - &Base::from(j as u64);
         ev_leaf_wide(&mut bits, &value);
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// Shared-spine levels per isolated position digit in [`jump_pair`].
@@ -3025,7 +3014,7 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 ///
 /// Panics if `k < 3` (the closed form needs `γ(2^k + 3)` at `2k + 1` bits), `m
 /// == 0`, or `d == 0`.
-fn jump_pair(k: usize, m: usize, d: usize) -> (Packed, Packed) {
+fn jump_pair(k: usize, m: usize, d: usize) -> (Encoding, Encoding) {
     (
         jump_pair_operand(k, m, d, false),
         jump_pair_operand(k, m, d, true),
@@ -3034,7 +3023,7 @@ fn jump_pair(k: usize, m: usize, d: usize) -> (Packed, Packed) {
 
 /// One [`jump_pair`] operand: the teeth stream, or the band stream with
 /// `band`.
-fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Packed {
+fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Encoding {
     assert!(k >= 3, "the jump pair needs a wide tooth magnitude");
     assert!(m >= 1, "the jump pair needs at least one comb level");
     assert!(d >= 1, "the jump pair needs at least one position digit");
@@ -3085,7 +3074,7 @@ fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Packed {
     for _ in 0..trailing {
         ev_leaf(&mut bits, 0); // the left turns' siblings, innermost first
     }
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The concurrent pair `CP(n)`: two organically built versions over one
@@ -3185,7 +3174,7 @@ fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
 ///
 /// Panics if `n` is not a power of two at least 2, `m` is not a power
 /// of two, or `i ≥ n`.
-fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
+fn stagger_comb(n: usize, m: usize, i: usize) -> Encoding {
     assert!(
         n >= 2 && n.is_power_of_two(),
         "the staggered comb needs a power-of-two operand count"
@@ -3230,7 +3219,7 @@ fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
     }
     let mut bits = BitsBuf::with_capacity((m * (4 * levels as usize + 6) - 2) as u64);
     top(&mut bits, levels, i, m);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The staggered id `SI(n, m, i)`: [`stagger_comb`]'s party twin — operand `i`
@@ -3251,7 +3240,7 @@ fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
 ///
 /// Panics if `n` is not a power of two at least 2, `m` is not a power
 /// of two, or `i ≥ n`.
-fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
+fn stagger_id(n: usize, m: usize, i: usize) -> Encoding {
     assert!(
         n >= 2 && n.is_power_of_two(),
         "the staggered id needs a power-of-two operand count"
@@ -3285,7 +3274,7 @@ fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
     }
     let mut bits = BitsBuf::with_capacity((m * (2 * levels as usize + 4) - 2) as u64);
     top(&mut bits, levels, i, m);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The staggered fold population `(versions, ids)`: all `n`
@@ -3303,7 +3292,7 @@ fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
 /// # Panics
 ///
 /// [`stagger_comb`]'s parameter contract.
-fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
+fn stagger_population(n: usize, m: usize) -> (Vec<Encoding>, Vec<Encoding>) {
     assert!(
         n >= 2 && n.is_power_of_two(),
         "the staggered population needs a power-of-two operand count"
@@ -3323,7 +3312,7 @@ fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
 /// fold's hazard is an accumulator that *grows* without coalescing, a meet
 /// fold's is one that never *shrinks*. The carrier is [`dense`]`(d)` (heights 0
 /// and 1, the node-density maximizer); each shade is [`hugeleaf`]`(2)` — the
-/// constant-3 skyline, one leaf, 6 packed bits — sitting strictly above the
+/// constant-3 skyline, one leaf, 6 encoded bits — sitting strictly above the
 /// carrier everywhere. The running meet is therefore the carrier,
 /// byte-identical, at every step: `acc ∧ shade` re-walks the whole carrier (the
 /// emission sweep visits every boundary of the overlay and the carrier supplies
@@ -3387,7 +3376,7 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
 ///
 /// Panics if `k == 0`, or `n` is not an even count of at least 2 (the
 /// mask owns every other tooth).
-fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
+fn mask_drift_triple(k: usize, n: usize) -> (Encoding, Encoding, Encoding) {
     assert!(k >= 1, "the mask-drift triple needs a nonzero magnitude");
     assert!(
         n >= 2 && n.is_multiple_of(2),
@@ -3398,7 +3387,7 @@ fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
     (
         cliff_comb(k, n),
         scattered_id(n / 2),
-        Packed::from_bits(plateau),
+        Encoding::from_bits(plateau),
     )
 }
 
@@ -3424,7 +3413,7 @@ fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
 /// # Panics
 ///
 /// Panics if `k == 0`, or `n` is not an even count of at least 2.
-fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, Packed)) {
+fn mask_drift_quadruple(k: usize, n: usize) -> ((Encoding, Encoding), (Encoding, Encoding)) {
     assert!(k >= 1, "the mask-drift quadruple needs a nonzero magnitude");
     assert!(
         n >= 2 && n.is_multiple_of(2),
@@ -3445,7 +3434,7 @@ fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, Packe
 /// leaf). Normal form holds as the comb's: every spine node's zero-base leaf
 /// child carries its subtree minimum, and the only sibling leaf pairs are the
 /// teeth's `(0, 1)`.
-fn sparse_cliff_comb(k: usize, n: usize) -> Packed {
+fn sparse_cliff_comb(k: usize, n: usize) -> Encoding {
     debug_assert!(k >= 1 && n >= 2 && n.is_multiple_of(2));
     let mut bits = BitsBuf::with_capacity(((n / 2) * (2 * k + 14) + 2) as u64);
     let tooth = pow2_minus_1(k);
@@ -3462,7 +3451,7 @@ fn sparse_cliff_comb(k: usize, n: usize) -> Packed {
         }
     }
     ev_leaf(&mut bits, 0); // terminal spine leaf
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The offset scattered id: [`scattered_id`]'s alternation shifted one level
@@ -3475,7 +3464,7 @@ fn sparse_cliff_comb(k: usize, n: usize) -> Packed {
 /// tooth, of [`scattered_id`]'s even-level fragments. Normal form: no node has
 /// two fully-owned children (each `11` node's right child is a gap node or the
 /// final gap level) and no node has two absent children.
-fn scattered_id_offset(e: usize) -> Packed {
+fn scattered_id_offset(e: usize) -> Encoding {
     debug_assert!(e >= 1);
     let mut bits = BitsBuf::with_capacity((6 * e + 4) as u64);
     for _ in 0..e {
@@ -3490,7 +3479,7 @@ fn scattered_id_offset(e: usize) -> Packed {
     bits.push(true);
     bits.push(false); // ... whose right child is the owned tip
     bits.push(false);
-    Packed::from_bits(bits)
+    Encoding::from_bits(bits)
 }
 
 /// The masked-hole triple `MH(d, h)`: a deep dense spine under a shallow
@@ -3514,7 +3503,7 @@ fn scattered_id_offset(e: usize) -> Packed {
 ///
 /// Panics if `h < 2` (the mask needs a unary run to divert from) or if
 /// `d <= h` (the spine must outrun the mask, or no deep run exists).
-fn masked_hole(d: usize, h: usize) -> (Packed, Packed, Packed) {
+fn masked_hole(d: usize, h: usize) -> (Encoding, Encoding, Encoding) {
     assert!(
         h >= 2,
         "the masked hole's mask needs a unary run to divert from"
@@ -3522,7 +3511,7 @@ fn masked_hole(d: usize, h: usize) -> (Packed, Packed, Packed) {
     assert!(d > h, "the masked hole's spine must outrun its mask");
     let mut plateau = BitsBuf::with_capacity(4_u64);
     ev_leaf(&mut plateau, 2); // dominates every spine height (they are 0 or 1)
-    (dense(d), id_spine(h, true), Packed::from_bits(plateau))
+    (dense(d), id_spine(h, true), Encoding::from_bits(plateau))
 }
 
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
@@ -3563,7 +3552,7 @@ pub fn reset_stack_segments() {
 /// a widening left shift records its output width, operand plus shifted-in
 /// limbs, so a shift-and-discard loop cannot read near-zero) plus one
 /// value-width record per wide-gamma decode, so an amortized-linear algorithm
-/// counts linearly in packed input bits and a magnitude-quadratic one counts
+/// counts linearly in encoded input bits and a magnitude-quadratic one counts
 /// quadratically. Process-global, same isolation requirement as
 /// [`stack_segments`]; only compiled under the `limb-meter` feature, which adds
 /// the counting to the arithmetic itself.
@@ -3635,7 +3624,7 @@ pub fn reset_touch_ops() {
 /// emitting walk) is a property of the caller's pairs, and it decides which
 /// kernel regime the consumer actually pays. Counts every pair-hull
 /// construction: every [`Version::span`](crate::Version::span), every leaf
-/// combine of `span_all`, and every point-combine of the span union doors
+/// combine of `span_all`, and every point-combine of the span union entry points
 /// (`Span | Span` and [`Span::union_all`](crate::Span::union_all) on coincident
 /// operands), which derive their hull through the same kernel. Process-global,
 /// same isolation requirement as [`stack_segments`].
@@ -3694,14 +3683,14 @@ pub fn reset_pool_misses() {
     crate::version::skyline::pool_traffic::reset()
 }
 
-/// The packed-stream bits scanned and written since the last
+/// The encoded bits scanned and written since the last
 /// [`reset_scan_bits`].
 ///
-/// The deterministic stand-in for traversal work over the packed forms, which
+/// The deterministic stand-in for traversal work over the encoded forms, which
 /// every other meter can miss at once: an id-tree fold allocates little (no
 /// heap delta), loops rather than recurses (no segments), and does no `Base`
 /// arithmetic (no limb operations) — the work is *reading and writing stream
-/// bits*, and this counter records exactly those, at the packed-stream
+/// bits*, and this counter records exactly those, at the encoded
 /// primitives (id tag reads and skip steps, id-builder bit writes and splice
 /// lengths, event topology cursor advances and gamma code-skips, every
 /// sequential decoder/validator bit read). Unit: bits. Process-global, same

@@ -18,22 +18,20 @@
 //!
 //! The ranking pin defends **relative structure**: which family names hold the
 //! argmax within each operation × currency cell. That is the whole of its
-//! jurisdiction. Absolute deterministic counter readings are the envelope
-//! tests' domain (the pinned ceilings and liveness floors in the meter suites),
-//! and absolute performance is the benchmarks' — a change that moves every
-//! family's reading in proportion leaves this pin green by design, because the
-//! fact it holds (which shape is worst, per cell) has not moved.
+//! jurisdiction. Absolute deterministic counter readings belong to the
+//! envelope tests. A change that moves every family's reading in proportion
+//! leaves this pin green by design because the fact it holds—which shape is
+//! worst—has not moved.
 //!
 //! # The reading and its denominator
 //!
 //! Each cell contributes the board's normalized constant of record at the
 //! cell's larger sample (`Score::per_unit`, exactly the number the matrix
-//! prints): heap bytes net of the flat allowance per denominator byte, limb ops
-//! per denominator byte (text rows: per radix-work unit `R`), scan bits and
-//! touches per denominator byte. The denominator is the cell's own denominator
-//! of record — packed input, or total I/O where the board re-denominates (the
-//! `cell` module's Denomination rules) — so the map ranks cost *density*, and a
-//! row may mix denominators exactly where the board does.
+//! prints): heap bytes net of the flat allowance per denominator byte, limb
+//! ops, scan bits, and touches per denominator byte. The denominator is the
+//! cell's own denominator of record — input, or total I/O where the board
+//! re-denominates (the `cell` module's Denomination rules) — so the map ranks
+//! cost *density*, and a row may mix denominators exactly where the board does.
 //!
 //! Segments is deliberately absent from the map: it is an absolute,
 //! ceiling-only count by policy (the target is walks that never grow the
@@ -70,9 +68,8 @@ pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance",
 /// the rendered table.
 ///
 /// The band is the constant-factor headroom the board's family-stated ceilings
-/// grant a single reading (a ratified ceiling is the worst reading ×1.25, as at
-/// [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`](super::ceilings::MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT)):
-/// two families inside it are one reading apart, not two classes, so their rank
+/// grant a single reading (a ratified ceiling is the worst reading ×1.25): two
+/// families inside it are one reading apart, not two classes, so their rank
 /// order is a fact about the chosen scale's constants, not about the shapes —
 /// the flag stops a reader from over-reading rank 1 vs rank 2. The flag never
 /// enters the pin: the pin records the exact deterministic argmax, and a flip
@@ -108,9 +105,6 @@ pub(super) struct CurrencyWorst {
     /// True when the counter is not compiled into this run (the
     /// feature-gated columns without `limb-meter`/`scan-meter`).
     pub(super) off: bool,
-    /// Whether the readings are per radix-work unit `R` (the text rows'
-    /// limb constant) rather than per denominator byte.
-    pub(super) per_r: bool,
     /// Every family at the maximum reading, sorted by name; empty when no
     /// committed shape drives the currency on this row.
     pub(super) worst: Vec<Entry>,
@@ -159,12 +153,12 @@ pub(super) fn rank(mut candidates: Vec<Entry>) -> (Vec<Entry>, Option<Entry>) {
 /// model (the `ceilings` module's declared-models section).
 ///
 /// The models by currency: the capacity-chain band and family-stated heap
-/// ceilings on heap, the family-stated limb models on limb, and the fold rows'
-/// `O(D log k)` model on limb, scan, and touch.
+/// ceilings on heap and the fold rows' `O(D log k)` model on limb, scan, and
+/// touch.
 fn modeled(r: &CellResult, currency: Currency) -> bool {
     match currency {
         Currency::Heap => r.s2.declared_heap.is_some() || r.s2.heap_model.is_some(),
-        Currency::Limb => r.s2.declared_limb.is_some() || r.s2.fold_arity.is_some(),
+        Currency::Limb => r.s2.fold_arity.is_some(),
         Currency::Scan | Currency::Touch => r.s2.fold_arity.is_some(),
         Currency::Segments => false,
     }
@@ -181,12 +175,6 @@ pub(super) fn fold(results: &[CellResult]) -> Vec<OpWorst> {
             end += 1;
         }
         let row = &results[start..end];
-        // A row's denomination rule is the operation's, so the text-row marker
-        // cannot vary across a row's families.
-        assert!(
-            row.iter().all(|r| r.s2.text_row == row[0].s2.text_row),
-            "worst-case map: {op}: text denomination differs across families"
-        );
         let per_currency = MAP_CURRENCIES
             .iter()
             .map(|&currency| {
@@ -207,7 +195,6 @@ pub(super) fn fold(results: &[CellResult]) -> Vec<OpWorst> {
                 CurrencyWorst {
                     currency,
                     off,
-                    per_r: currency == Currency::Limb && row[0].s2.text_row,
                     worst,
                     runner_up,
                 }
@@ -243,7 +230,7 @@ fn fmt_worst(c: &CurrencyWorst) -> String {
     format!(
         "{names} {value}{unit}",
         value = fmt_value(value.value),
-        unit = if c.per_r { "/R" } else { "/B" },
+        unit = "/B",
     )
 }
 
@@ -262,7 +249,7 @@ pub(super) fn row(out: &mut dyn Write, op: &str, c: &CurrencyWorst) -> io::Resul
             "{lead}  worst -  (no committed shape drives this currency on this row)"
         );
     }
-    let unit = if c.per_r { "/R" } else { "/B" };
+    let unit = "/B";
     let tail = match &c.runner_up {
         None => "  runner-up -  (every other shape reads 0)".to_string(),
         Some(ru) => {
@@ -319,7 +306,7 @@ pub(super) fn render_map(
         "  reading: the board's normalized constant of record at the cell's larger sample: heap \
          bytes net of the {HEAP_FLAT_ALLOWANCE_BYTES} B flat allowance per denominator byte, \
          limb ops per denominator byte (text rows: per radix-work unit R), scan bits and touches \
-         per denominator byte; the denominator is the cell's own denominator of record (packed \
+         per denominator byte; the denominator is the cell's own denominator of record (encoded \
          input, or total I/O where the board re-denominates), so readings rank cost density and \
          a row may mix denominators exactly where the board does."
     )?;
@@ -383,12 +370,10 @@ pub(super) fn render_map(
 ///   that pack the widest magnitude behind the fewest bytes (hugeleaf,
 ///   plateau-puncture, wide-arming), and the contests between those
 ///   families are hairline near-ties inside the flat-allowance band.
-/// - **Accumulator-running walks rank by nonzero-delta density.**
-///   Comparison sweeps, query folds, and text parses land on the
-///   streams with the most stored deltas per packed or text byte
-///   (staircase, lone-freeze, dense-suffix, and the organic pairs).
+/// - **Accumulator walks rank by nonzero-delta density.** Comparison and query
+///   walks cost most on streams with many stored deltas per encoded byte.
 /// - **Saturated scans tie exactly.** Whole-stream reads saturate at
-///   8 bits per packed byte (16 on the two-walk projections), so a
+///   8 bits per encoded byte (16 on the two-walk projections), so a
 ///   scan argmax among saturated families is a hairline deterministic
 ///   constant, and a rejection defect that scans every byte identically
 ///   pins the whole tied set.
@@ -432,8 +417,6 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "own_version_to_version", ["hugeleaf", "freeze-pos", "promo-rearm", "lone-freeze"]),
     ("default", "own_version_cmp", ["hugeleaf", "freeze-pos", "promo-rearm", "lone-freeze"]),
     ("default", "own_version_pair_cmp", ["hugeleaf", "jump-pair", "jump-pair", "dense"]),
-    ("default", "version_display", ["mirror-narrow", "mirror-wide", "dominated-undercut", "-"]),
-    ("default", "version_from_str", ["mirror-narrow", "concurrent-pair", "dominated-undercut", "reveal-comb"]),
     ("default", "version_hash", ["-", "-", "-", "-"]),
     ("default", "causally_contains", ["hugeleaf", "dense-suffix", "dense-suffix", "ascend-plateau"]),
     ("default", "span_place", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
@@ -450,8 +433,6 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "party_covers", ["-", "-", "id-pair", "-"]),
     ("default", "party_disjoint", ["-", "-", "id-pair", "-"]),
     ("default", "party_without", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "party_display", ["pure-comb", "-", "mirror-narrow,nested-full", "-"]),
-    ("default", "party_from_str", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "party_hash", ["-", "-", "-", "-"]),
     ("default", "clock_decode", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
     ("default", "clock_encode", ["id-pair", "-", "-", "-"]),
@@ -461,25 +442,18 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "clock_sync", ["hugeleaf", "jump-pair", "benign", "lone-freeze"]),
     ("default", "clock_recv", ["id-pair", "hugeleaf", "hugeleaf", "lone-freeze"]),
     ("default", "clock_own_version_to_version", ["id-pair", "dominated-undercut", "nested-wide", "staircase"]),
-    ("default", "clock_display", ["tooth-tail", "mirror-wide", "jump-pair", "-"]),
-    ("default", "clock_from_str", ["tooth-tail", "concurrent-pair", "jump-pair", "comb-scatter"]),
     ("default", "clock_hash", ["-", "-", "-", "-"]),
     ("default", "version_decode_truncated", ["wide-arming", "freeze-pos", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
     ("default", "version_decode_trailing", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
     ("default", "version_decode_noncanon", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "version_parse_trailing", ["tooth-tail", "concurrent-pair", "dominated-undercut", "comb-scatter"]),
-    ("default", "version_parse_noncanon", ["tooth-tail", "concurrent-pair", "dominated-undercut", "comb-scatter"]),
     ("default", "span_decode_truncated", ["wide-arming", "jump-pair", "jump-pair", "staircase"]),
     ("default", "span_decode_trailing", ["hugeleaf", "freeze-pos", "weight-comb", "staircase"]),
     ("default", "span_decode_crossed", ["hugeleaf", "freeze-pos", "hugeleaf", "ascend-plateau"]),
     ("default", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,dominated-undercut,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
     ("default", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
     ("default", "party_decode_noncanon", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "party_parse_trailing", ["id-pair", "-", "-", "-"]),
-    ("default", "party_parse_noncanon", ["id-pair", "-", "-", "-"]),
     ("default", "clock_decode_truncated", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
     ("default", "clock_decode_trailing", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("default", "clock_parse_trailing", ["tooth-tail", "concurrent-pair", "jump-pair", "comb-scatter"]),
     ("default", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("default", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
     ("default", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),
@@ -517,8 +491,6 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "own_version_to_version", ["hugeleaf", "freeze-pos", "dense-suffix", "lone-freeze"]),
     ("acceptance", "own_version_cmp", ["hugeleaf", "freeze-pos", "promo-rearm", "lone-freeze"]),
     ("acceptance", "own_version_pair_cmp", ["hugeleaf", "jump-pair", "jump-pair", "dense"]),
-    ("acceptance", "version_display", ["mirror-narrow", "mirror-wide", "dominated-undercut", "-"]),
-    ("acceptance", "version_from_str", ["mirror-narrow", "concurrent-pair", "dominated-undercut", "comb-scatter"]),
     ("acceptance", "version_hash", ["-", "-", "-", "-"]),
     ("acceptance", "causally_contains", ["hugeleaf", "dense-suffix", "dense-suffix", "ascend-plateau"]),
     ("acceptance", "span_place", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
@@ -535,8 +507,6 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_covers", ["-", "-", "id-pair", "-"]),
     ("acceptance", "party_disjoint", ["-", "-", "id-pair", "-"]),
     ("acceptance", "party_without", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "party_display", ["pure-comb", "-", "mirror-narrow,nested-full", "-"]),
-    ("acceptance", "party_from_str", ["comb-scatter", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "party_hash", ["-", "-", "-", "-"]),
     ("acceptance", "clock_decode", ["id-pair", "freeze-pos", "dense-suffix", "lone-freeze"]),
     ("acceptance", "clock_encode", ["id-pair", "-", "-", "-"]),
@@ -546,25 +516,18 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "clock_sync", ["hugeleaf", "jump-pair", "benign", "lone-freeze"]),
     ("acceptance", "clock_recv", ["id-pair", "hugeleaf", "hugeleaf", "lone-freeze"]),
     ("acceptance", "clock_own_version_to_version", ["id-pair", "dominated-undercut", "nested-wide", "staircase"]),
-    ("acceptance", "clock_display", ["tooth-tail", "mirror-wide", "dominated-undercut", "-"]),
-    ("acceptance", "clock_from_str", ["tooth-tail", "concurrent-pair", "dominated-undercut", "comb-scatter"]),
     ("acceptance", "clock_hash", ["-", "-", "-", "-"]),
     ("acceptance", "version_decode_truncated", ["wide-arming", "freeze-pos", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
     ("acceptance", "version_decode_trailing", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
     ("acceptance", "version_decode_noncanon", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("acceptance", "version_parse_trailing", ["mirror-narrow", "concurrent-pair", "dominated-undercut", "comb-scatter"]),
-    ("acceptance", "version_parse_noncanon", ["tooth-tail", "concurrent-pair", "dominated-undercut", "comb-scatter"]),
     ("acceptance", "span_decode_truncated", ["wide-arming", "jump-pair", "jump-pair", "staircase"]),
     ("acceptance", "span_decode_trailing", ["hugeleaf", "freeze-pos", "weight-comb", "staircase"]),
     ("acceptance", "span_decode_crossed", ["hugeleaf", "freeze-pos", "hugeleaf", "ascend-plateau"]),
     ("acceptance", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,dominated-undercut,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
     ("acceptance", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "party_decode_noncanon", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "party_parse_trailing", ["comb-scatter", "-", "-", "-"]),
-    ("acceptance", "party_parse_noncanon", ["comb-scatter", "-", "-", "-"]),
     ("acceptance", "clock_decode_truncated", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
     ("acceptance", "clock_decode_trailing", ["id-pair", "freeze-pos", "dense-suffix", "lone-freeze"]),
-    ("acceptance", "clock_parse_trailing", ["tooth-tail", "concurrent-pair", "dominated-undercut", "comb-scatter"]),
     ("acceptance", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("acceptance", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),

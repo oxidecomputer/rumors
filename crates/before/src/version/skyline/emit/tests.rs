@@ -22,7 +22,7 @@ use suanpan::Accumulator;
 use crate::codec::Base;
 use crate::codec::{BitsBuf, BitsView};
 use crate::meter::registry::Shape;
-use crate::meter::Packed;
+use crate::meter::Encoding;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
@@ -33,8 +33,8 @@ use crate::{Clock, Version};
 
 use super::{hull, join, meet};
 
-/// Decode a meter-generated packed shape as a [`Version`].
-fn version_of(p: &Packed) -> Version {
+/// Decode a meter-generated encoded shape as a [`Version`].
+fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
@@ -53,26 +53,26 @@ fn assert_emits(a: &Version, b: &Version) {
     for (x, y) in [(&ea, &eb), (&eb, &ea)] {
         let (vx, vy) = (crate::codec::built_view(x), crate::codec::built_view(y));
         let out = join(vx, vy);
-        assert_eq!(out, joined, "join must match the oracle: {a} vs {b}");
+        assert_eq!(out, joined, "join must match the oracle: {a:?} vs {b:?}");
         validate(crate::codec::built_view(&out)).expect("an emitted join is canonical");
         assert_pointwise(vx, vy, crate::codec::built_view(&out), false);
         let out = meet(vx, vy);
-        assert_eq!(out, met, "meet must match the oracle: {a} vs {b}");
+        assert_eq!(out, met, "meet must match the oracle: {a:?} vs {b:?}");
         validate(crate::codec::built_view(&out)).expect("an emitted meet is canonical");
         assert_pointwise(vx, vy, crate::codec::built_view(&out), true);
         let hulled = hull(crate::codec::built_view(x), crate::codec::built_view(y));
         assert_eq!(
             hulled.relation,
             oracle_relation(&met, x, y),
-            "the fused verdict must match the oracle's lattice reading: {a} vs {b}"
+            "the fused verdict must match the oracle's lattice reading: {a:?} vs {b:?}"
         );
         assert_eq!(
             hulled.lo, met,
-            "the fused hull's meet must match: {a} vs {b}"
+            "the fused hull's meet must match: {a:?} vs {b:?}"
         );
         assert_eq!(
             hulled.hi, joined,
-            "the fused hull's join must match: {a} vs {b}"
+            "the fused hull's join must match: {a:?} vs {b:?}"
         );
     }
 }
@@ -201,21 +201,21 @@ fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
 fn family_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&Shape::Dense.packed1(1)),
-        version_of(&Shape::Dense.packed1(2)),
-        version_of(&Shape::Dense.packed1(64)),
-        version_of(&Shape::Bigroot.packed2(7, 3)),
-        version_of(&Shape::Bigroot.packed2(64, 16)),
-        version_of(&Shape::Hugeleaf.packed1(1)),
-        version_of(&Shape::Hugeleaf.packed1(64)),
-        version_of(&Shape::CliffComb.packed2(3, 2)),
-        version_of(&Shape::CliffComb.packed2(16, 16)),
-        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
-        version_of(&Shape::CliffFan.packed2(16, 8)),
-        version_of(&Shape::CancellingChain.packed2(16, 8)),
-        version_of(&Shape::AltSpine.packed1(3)),
-        version_of(&Shape::AltSpine.packed1(64)),
-        version_of(&Shape::Harmonic.packed1(16)),
+        version_of(&Shape::Dense.build1(1)),
+        version_of(&Shape::Dense.build1(2)),
+        version_of(&Shape::Dense.build1(64)),
+        version_of(&Shape::Bigroot.build2(7, 3)),
+        version_of(&Shape::Bigroot.build2(64, 16)),
+        version_of(&Shape::Hugeleaf.build1(1)),
+        version_of(&Shape::Hugeleaf.build1(64)),
+        version_of(&Shape::CliffComb.build2(3, 2)),
+        version_of(&Shape::CliffComb.build2(16, 16)),
+        version_of(&Shape::WideToothComb.build3(16, 8, 8)),
+        version_of(&Shape::CliffFan.build2(16, 8)),
+        version_of(&Shape::CancellingChain.build2(16, 8)),
+        version_of(&Shape::AltSpine.build1(3)),
+        version_of(&Shape::AltSpine.build1(64)),
+        version_of(&Shape::Harmonic.build1(16)),
     ]
 }
 
@@ -246,8 +246,8 @@ fn family_pairs_emit_identically() {
 /// quadratic.
 #[test]
 fn flat_over_deep_collapses_totally() {
-    let deep = version_of(&Shape::Dense.packed1(512));
-    let flat = version_of(&Shape::Hugeleaf.packed1(600));
+    let deep = version_of(&Shape::Dense.build1(512));
+    let flat = version_of(&Shape::Hugeleaf.build1(600));
     assert_emits(&deep, &flat);
     let joined = join(
         crate::codec::built_view(&encode(&deep)),
@@ -284,23 +284,23 @@ fn exhaustive_small_scope_emits_identically() {
             assert_eq!(
                 join(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 joined,
-                "join must match the oracle: {va} vs {vb}"
+                "join must match the oracle: {va:?} vs {vb:?}"
             );
             assert_eq!(
                 meet(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 met,
-                "meet must match the oracle: {va} vs {vb}"
+                "meet must match the oracle: {va:?} vs {vb:?}"
             );
             let hulled = hull(crate::codec::built_view(ea), crate::codec::built_view(eb));
             assert_eq!(
                 hulled.relation,
                 oracle_relation(&met, ea, eb),
-                "the fused verdict must match the oracle's lattice reading: {va} vs {vb}"
+                "the fused verdict must match the oracle's lattice reading: {va:?} vs {vb:?}"
             );
             assert_eq!(
                 (hulled.lo, hulled.hi),
                 (met, joined),
-                "the fused hull must match both single-op outputs: {va} vs {vb}"
+                "the fused hull must match both single-op outputs: {va:?} vs {vb:?}"
             );
         }
     });
@@ -452,23 +452,23 @@ proptest! {
                 prop_assert_eq!(
                     join(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     joined.clone(),
-                    "join must match the oracle: {} vs {}", va, vb
+                    "join must match the oracle: {:?} vs {:?}", va, vb
                 );
                 prop_assert_eq!(
                     meet(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     met.clone(),
-                    "meet must match the oracle: {} vs {}", va, vb
+                    "meet must match the oracle: {:?} vs {:?}", va, vb
                 );
                 let hulled = hull(crate::codec::built_view(ea), crate::codec::built_view(eb));
                 prop_assert_eq!(
                     hulled.relation,
                     oracle_relation(&met, ea, eb),
-                    "the fused verdict must match the oracle's lattice reading: {} vs {}", va, vb
+                    "the fused verdict must match the oracle's lattice reading: {:?} vs {:?}", va, vb
                 );
                 prop_assert_eq!(
                     (hulled.lo, hulled.hi),
                     (met, joined),
-                    "the fused hull must match both single-op outputs: {} vs {}", va, vb
+                    "the fused hull must match both single-op outputs: {:?} vs {:?}", va, vb
                 );
             }
         }

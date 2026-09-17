@@ -14,8 +14,8 @@
 # `ci` is the recipe GitHub CI's `ci` job runs: the gate's lints and tests
 # plus the artifacts the gate doesn't reach (the feature matrix, wasm, bench
 # builds, the viz bundle). `all` adds the coverage legs (CI's `coverage`
-# job) and what CI cannot run (the fuzz smoke, the formal tier, the bench
-# judge). Neither sweep repeats the gate's instrument legs -- the fuel
+# job) and what CI cannot run (the fuzz smoke and formal tier). Neither sweep
+# repeats the gate's instrument legs -- the fuel
 # bands, the board verdicts and pins, and surface totality run in
 # `just gate`, and GitHub CI's `instruments` job re-runs the counter-based
 # subset (the workflow file says which legs stay local and why). The
@@ -79,17 +79,6 @@ fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/release/fuzzfit_
 
 wasm32pins_target := justfile_directory() + "/target/wasm32-pins"
 wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/release/wasm32_pins_guest.wasm"
-
-# Criterion's output root: the bench-judge recipes save baselines and
-# denominator sidecars here, honoring CARGO_TARGET_DIR so a fresh or
-# redirected target directory keeps the baselines and the sidecars together.
-
-criterion_dir := env("CARGO_TARGET_DIR", justfile_directory() + "/target") + "/criterion"
-
-# The bench judge's committed expected-verdict roster (membership by cell
-# name; tools/benchjudge documents the classes and the enforcement).
-
-benchjudge_roster := justfile_directory() + "/tools/benchjudge-expected.json"
 
 # List recipes.
 default:
@@ -390,14 +379,9 @@ fuzz-build:
 # learn about. Then `gate-streams`, which is every leg that builds
 # something, run concurrently.
 #
-# What makes the concurrency safe is that nothing in the parallel tier
-# judges a nondeterministic quantity: the board's counters, the wasmtime
-# fuel bands, the fuelscape sampler pins, and the protocol suites'
-# virtual-time assertions all read the same under any machine load, so a
-# neighbor stream cannot flake a verdict. The one leg that does judge wall
-# time, the bench judge, is deliberately absent — it lives at
-# `just bench-judge` / `just all` cadence, where it can have the machine
-# to itself.
+# What makes the concurrency safe is that every verdict is deterministic:
+# the board's counters, Wasmtime fuel bands, fuelscape sampler pins, and the
+# protocol suites' virtual-time assertions are unaffected by machine load.
 #
 # The stream grouping is not arbitrary. Two cargo invocations sharing a
 # target directory serialize on its build lock, so every leg reaching the
@@ -569,12 +553,11 @@ fuzz secs=fuzz_smoke_secs:
     # libFuzzer requires its write-corpus directory to exist, and the
     # discovery corpus is deliberately untracked (fuzz/.gitignore), so a
     # fresh checkout must create the directories before the first run.
-    mkdir -p corpus/fuzz_decode corpus/fuzz_decode_differential corpus/fuzz_decode_ops corpus/fuzz_laws corpus/fuzz_parse
+    mkdir -p corpus/fuzz_decode corpus/fuzz_decode_differential corpus/fuzz_decode_ops corpus/fuzz_laws
     cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_laws corpus/fuzz_laws seeds/fuzz_laws -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_parse corpus/fuzz_parse seeds/fuzz_parse -- -max_total_time={{ secs }}
 
 # The fuzz-fit asymptotics harness lives in a detached workspace
 # (crates/before/fuzzfit, the fuzz-target idiom), so workspace-wide builds
@@ -624,23 +607,11 @@ fuzzfit: fuzzfit-build
 fuzzfit-calibrate: fuzzfit-build
     FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo run --release -p fuzzfit-harness --bin calibrate
 
-# The 32-bit boundary pins live in their own detached workspace
-# (crates/before/wasm32-pins, the fuzz-fit idiom: workspace-wide builds
-# never compile it, and wasmtime stays out of the production crates'
-# graph); the gate reaches it only through these recipes by name.
-# `wasm-check` proves before *compiles* for a 32-bit target; this leg is
-# the tree's one place 32-bit code *executes*: the guest drives the
-# public surface — the byte and borsh decode doors, the semantic walks
-# and emitters, and rank arithmetic — at the exact sizes where 32-bit
-# arithmetic has coordinates (the 2^29-bit and 2^29-byte marks where a
-# usize spelling of bit counts or positions would bind, the big-integer
-# backend's word cap on decoded values and on the rank fold's numerator,
-# the rank exponent's usize seam, the rank alignment-gap seam), and the
-# harness pins each coordinate's exact outcome, with adjacency witnesses
-# beside each boundary so a failure is attributable to its seam. Pins
-# land red-first when a seam is found; each pin's history lives in git.
-# The guest uses ordinary release overflow semantics, so only explicit checks
-# stand between a 32-bit wrap and the wrong value the pins would observe.
+# The detached wasm32 workspace executes `before` at the 32-bit boundaries
+# where `usize` conversions or backend capacity can change behavior. Each
+# boundary has adjacent cases so a failure identifies the exact transition.
+# The guest uses release overflow semantics, so explicit checks must prevent a
+# 32-bit wrap from changing the observed result.
 
 # Build the 32-bit boundary-pin wasm guest and its harness (both halves).
 [working-directory("crates/before/wasm32-pins")]
@@ -791,12 +762,9 @@ window-tradeoff:
     cargo run --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
     mv src/tree/mirror/streaming/window/tradeoff.md.tmp src/tree/mirror/streaming/window/tradeoff.md
 
-# Full sampling is required for any quoted number. The filter matches
-# criterion IDs (`group/function`), so one
-# operation or one cell is a run: `just bench board version_rank`,
-# `just bench board version_rank/harmonic`, `just bench version merge`,
-# `just bench gossip_grid`. The board target's IDs mirror the amplification
-# board's op x family names cell for cell.
+# Full sampling is required for any quoted number. The filter matches Criterion
+# IDs (`group/function`), for example `just bench version merge` or
+# `just bench gossip_grid`.
 
 # Run one bench target through a criterion filter, at full sampling.
 bench target *filter:
@@ -806,81 +774,19 @@ bench target *filter:
 bench-quick target *filter:
     cargo bench --workspace --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
-# One allocation-strategy A/B run (benches/presize.rs):
-# compiles the named arm into the library — "shipped" compiles no cfg (the
-# shipped library, byte-identical); any other arm goes in through
-# `--cfg before_alloc_ab="<arm>"`, so expect a full rebuild per arm switch —
-# and saves the criterion baseline `<target>-<arm>`, which is where the
-# side's label lives (nothing in-process distinguishes the sides; each
-# binary also prints its compiled arm as provenance). Record protocol: one
-# "shipped" run per target at full sampling, then one run per site arm
-# filtered to that site's cells; compare baselines pairwise per site. The
-# recipe validates the arm name (a mistyped arm sets a cfg nothing queries,
-# which would silently benchmark the shipped code under a mislabeled
-# baseline); the same roster is registered as check-cfg values in
-# crates/before/Cargo.toml, whose `deny` keeps roster and seams in sync.
-# Reduced-sampling smoke: append `--sample-size 10 --measurement-time 1`
-# (never quoted).
+# Compile one alternative projection allocation strategy and save its
+# Criterion baseline. "shipped" selects the normal implementation.
 
 # Run one allocation-strategy A/B arm of a bench target, saving its criterion baseline.
 bench-alloc-ab target arm="shipped" *filter:
-    @case "{{ arm }}" in (shipped|projection_growth|projection_shrink|display_growth) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
+    @case "{{ arm }}" in (shipped|projection_growth|projection_shrink) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
     RUSTFLAGS='{{ if arm == "shipped" { "" } else { '--cfg before_alloc_ab="' + arm + '"' } }}' cargo bench -p before --bench {{ target }} -- --save-baseline {{ target }}-{{ arm }} {{ filter }}
-
-# The amplification board's time leg: the board itself judges deterministic
-# counters and floors only (its output is byte-identical under any machine
-# load), so the time-exponent judgment runs here, over criterion medians.
-# One parameterized recipe names both judge axes at the call site — no
-# implicit default hides in a bare name. `sampling`: "quick" (10 samples x
-# 1 s; the iteration default — like `bench-quick`, never quoted) or
-# "record" (criterion's full sampling, required for any quoted number).
-# `cells`: "pinned" (the rule-derived subset: each shape's designed-stress
-# pairings, the organic control, and the declared-model riders) or "full"
-# (the whole shape x operation product; final verdicts, slow — expect full
-# runs only at acceptance points, at record sampling). Each run benches the
-# board at the default scale and the acceptance scale (x4), saves a
-# criterion baseline and a stamped denominator sidecar per scale (the
-# stamp binds sidecar to run: scale, profile, sampling, git tip — the
-# judge refuses mismatched pairs), and tools/benchjudge fits every cell's
-# exponent across the two (denominated against the board's own per-cell
-# bytes) at the cell's own ceiling — general 1.3 for the board rows, text
-# 1.7 for the conversion-dominated text-IO cells (the wide-display pair,
-# the hugeleaf display pair, and the hugeleaf parse trio), the class
-# declared per cell by the bench sidecar, never by the roster — red/green
-# table. Every run judges through
-# the committed roster (tools/benchjudge-expected.json: expected reds by
-# cell name — exactly the permanent schoolbook tripwire, required RED at
-# its text ceiling; tests/bench_judge_roster.rs pins the exact
-# membership; the sampling pin covers both modes — the expectations are
-# exponent classes, which hold under either regime), so it passes on the
-# honest tree and fails on any unexpected red OR unexpected green.
-
-# Judge the board bench exponents across both scales through the roster.
-bench-judge sampling="quick" cells="pinned":
-    @case "{{ sampling }}:{{ cells }}" in (quick:pinned|quick:full|record:pinned|record:full) ;; (*) echo 'bench-judge: sampling is "quick"|"record", cells is "pinned"|"full"' >&2; exit 2;; esac
-    ./tools/benchjudge --self-test
-    {{ if cells == "full" { "BOARD_BENCH_MODE=full" } else { "" } }} BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- {{ if sampling == "quick" { "--sample-size 10 --measurement-time 1" } else { "" } }} --save-baseline board-judge-lo
-    {{ if cells == "full" { "BOARD_BENCH_MODE=full" } else { "" } }} BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=acceptance BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- {{ if sampling == "quick" { "--sample-size 10 --measurement-time 1" } else { "" } }} --save-baseline board-judge-hi
-    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
-
-# An unmetered machine-word quadratic (green on every board counter column)
-# must read RED through the judge; the recipe succeeds exactly when it does.
-# The same measured shape is pinned in tools/benchjudge --self-test, which
-# every bench-judge recipe runs first.
-
-# The judge's live tripwire: a known quadratic must read red, or the sweep fails.
-bench-judge-tripwire:
-    ./tools/benchjudge --self-test
-    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-lo.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-lo
-    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=acceptance BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-hi.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-hi
-    ./tools/benchjudge --expect-red --criterion-dir {{ criterion_dir }} --lo tripwire-judge-lo --hi tripwire-judge-hi --denoms-lo {{ criterion_dir }}/tripwire-denoms-lo.json --denoms-hi {{ criterion_dir }}/tripwire-denoms-hi.json --tip $(git rev-parse HEAD)
 
 # Each board cell judges deterministic work counters (limbs, scans,
 # segments, heap) against a pinned proportionality envelope: green means
 # work scaled with the input, red is an amplification finding. The board
-# reads no clock, so its output is byte-identical under any machine load
-# (the time leg lives in bench-judge). Optional scale multiplies the input
-# sizes, e.g. `just amp-board 4`.
+# reads no clock, so its output is byte-identical under any machine load.
+# Optional scale multiplies the input sizes, e.g. `just amp-board 4`.
 #
 # The board runs at the release profile, the profile of record: debug
 # assertions perform metered work (Base comparisons through the limb shim,
@@ -1007,21 +913,14 @@ worst-cases-pin:
 # coverage section below): too slow for the gate, judged against the
 # curated kernel pin.
 #
-# `all` is `ci` plus the coverage legs (so the local ladder cannot pass
-# while CI's `coverage` job fails) and what CI cannot run: a short
-# libFuzzer smoke (poor per-commit spend), the formal tier (the runner has
-# no Lean toolchain) -- the kernel-checked proofs, the eventdag
-# oracle/schedule gate, and the muxprobe matrix gate -- and the bench
-# judge's two legs: the roster-mode judgment (minutes of criterion runs at
-# two scales; quick mode, so its exponents are judged but never quoted)
-# and the seconds-scale live tripwire, so the judge's red path rides every
-# sweep.
+# `all` is `ci` plus the coverage legs and work CI cannot run: a short
+# libFuzzer smoke and the formal and model-based gates.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all future-size citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
-# Everything: the no-rot sweep, the coverage legs, the fuzz smoke, the formal tier, and the bench judge.
-all: ci coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire
+# Everything: the no-rot sweep, coverage, fuzz smoke, and formal/model gates.
+all: ci coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe
 
 # ── the coverage legs (`all` and CI cadence; the gate never runs them) ───────
 # GOAL: no skyline-kernel arm goes silently unexercised — every uncovered

@@ -17,7 +17,7 @@ use wasm32_pins_harness::{call0, call1, call2, Outcome, Trap};
 ///
 /// This is the coordinate of the boundary class this suite exists to catch:
 /// a `usize`-denominated bit count binding or wrapping on a 32-bit target.
-/// Every surface is exact across it — the walks and doors read stored
+/// Every surface is exact across it — the walks and entry points read stored
 /// streams through the crate-owned view, and the emitters build into the
 /// crate-owned buffer, both `u64`-denominated — and the pins straddle it
 /// (below, at, and past) on every surface class to hold that exactness
@@ -61,7 +61,7 @@ fn version_decode_below_build_cap() {
 /// wasm32, returning its exact live bit length.
 ///
 /// The size is exactly 2^29 bits: the first size past the straddle
-/// coordinate, so this pin holds the doors to a walk on which no 32-bit
+/// coordinate, so this pin holds the entry points to a walk on which no 32-bit
 /// length encoding binds.
 #[test]
 fn version_decode_at_build_cap() {
@@ -75,7 +75,7 @@ fn version_decode_at_build_cap() {
 /// returning its exact live bit length.
 ///
 /// One byte past the straddle coordinate's silent-wrap size; together
-/// with the pin one byte below, this holds the doors clear of both failure
+/// with the pin one byte below, this holds the entry points clear of both failure
 /// genres a 2^29-bit length encoding would produce (a silently empty view,
 /// then an element-count guard panic).
 #[test]
@@ -109,7 +109,7 @@ fn version_decode_at_usize_positions_coordinate() {
 /// correctly on wasm32 with its exact live bit length.
 ///
 /// Streams are bounded only by allocatable memory: the stored form, the
-/// doors, and the walks denominate bit positions in `u64` on every
+/// entry points, and the walks denominate bit positions in `u64` on every
 /// target, so no size below memory has a structural cap to trip. This
 /// pin and the deep witnesses below hold that upward exactness.
 #[test]
@@ -124,7 +124,7 @@ fn version_decode_past_usize_positions_coordinate() {
 /// ~3.2-gigabit value, half again as wide as any 32-bit position quantity
 /// — decodes correctly on wasm32 with its exact live bit length.
 ///
-/// The decode doors' deep upward witness: input, materialized height, and
+/// The decode entry points' deep upward witness: input, materialized height, and
 /// the validator's running-height fold are priced only by memory, deep
 /// past every 32-bit position coordinate.
 #[test]
@@ -136,7 +136,7 @@ fn version_decode_deep_in_memory_bounded_range() {
 }
 
 /// PINNED AS FOUND: a valid ~1 GiB (1073741817-byte) version encoding
-/// aborts on allocation failure — the doors' one terminal here.
+/// aborts on allocation failure — the entry points' one terminal here.
 ///
 /// The memory bound fires as a loud abort, never a silent wrong value.
 /// The working set at the abort (the input, its read copy, the ~512 MiB
@@ -145,9 +145,9 @@ fn version_decode_deep_in_memory_bounded_range() {
 /// attributes the trap to the accumulator's buffer growth inside the
 /// height fold. This size's height is one flush nibble under the
 /// big-integer backend's 2^32 - 32-bit capacity, so the capacity itself
-/// is unreachable through the doors on this target: a wide value's gamma
+/// is unreachable through the entry points on this target: a wide value's gamma
 /// code alone costs a quarter of the address space, and the decode's
-/// working set exhausts memory first. (The rank wire door reaches the
+/// working set exhausts memory first. (The rank wire entry point reaches the
 /// same coordinate with no fold transients and crosses it exactly — it
 /// is the numerator's arm seam there, pinned by
 /// `rank_decode_past_backend_bit_capacity`.) A leaner working set — not
@@ -238,7 +238,7 @@ fn rank_decode_at_backend_bit_capacity() {
 /// ~512 MiB numerator both fit the 4 GiB address space, and past the
 /// backend's structural word cap the decoder assembles the numerator
 /// into the rank's own limb vector — bounded only by memory — so the
-/// wire door is exact on both sides of the backend's capacity.
+/// wire entry point is exact on both sides of the backend's capacity.
 #[test]
 fn rank_decode_past_backend_bit_capacity() {
     assert_eq!(
@@ -310,10 +310,10 @@ fn rank_roundtrip_past_backend_bit_capacity() {
 }
 
 /// A valid composite key — the rank stream, then the version whose rank it
-/// is — decodes through the byte door `Ranked::decode` at the largest
+/// is — decodes through the byte entry point `Ranked::decode` at the largest
 /// version size below the straddle coordinate.
 ///
-/// The door re-derives the version's rank to verify the key, and that fold
+/// The entry point re-derives the version's rank to verify the key, and that fold
 /// walks the version through the crate-owned view: the lower adjacency
 /// witness of the boundary straddle the two pins above it complete.
 #[test]
@@ -325,12 +325,12 @@ fn ranked_decode_below_build_cap() {
 }
 
 /// A valid composite key whose version component is 67108864 bytes —
-/// exactly 2^29 bits — decodes through the byte door `Ranked::decode` on
+/// exactly 2^29 bits — decodes through the byte entry point `Ranked::decode` on
 /// wasm32.
 ///
-/// The door's rank re-derivation walks the version through the crate-owned
+/// The entry point's rank re-derivation walks the version through the crate-owned
 /// view, whose `u64` live length is exact at every storable size, so the
-/// composite door admits every storable key: the boundary straddle's
+/// composite entry point admits every storable key: the boundary straddle's
 /// middle witness, beside `ranked_decode_below_build_cap`.
 #[test]
 fn ranked_decode_at_build_cap() {
@@ -351,11 +351,11 @@ fn ranked_decode_past_build_cap() {
     );
 }
 
-/// A valid composite key decodes through the byte door `Ranked::decode`
+/// A valid composite key decodes through the byte entry point `Ranked::decode`
 /// with a 256 MiB version component, checking the decoded version's bytes
 /// round-trip.
 ///
-/// The upward exactness spot-check on the composite door's rank
+/// The upward exactness spot-check on the composite entry point's rank
 /// re-derivation: the fold's numerator (~128 MiB of value bits) sits well
 /// inside the big-integer backend's 32-bit capacity, so the whole key is
 /// priced by its own size, hundreds of megabytes into the storable range.
@@ -366,11 +366,11 @@ fn ranked_decode_deep_in_storable_range() {
 
 /// PINNED AS FOUND: a valid composite key whose version component is one
 /// byte past the 2^29-byte coordinate aborts on allocation failure in the
-/// byte door `Ranked::decode`.
+/// byte entry point `Ranked::decode`.
 ///
 /// The component is 536870913 bytes, one past where a 32-bit `usize`
-/// runs out of bit positions. No denomination binds here: the door's own straddle pins hold it exact
-/// across the 2^29-bit coordinate, and the version door crosses this very
+/// runs out of bit positions. No denomination binds here: the entry point's own straddle pins hold it exact
+/// across the 2^29-bit coordinate, and the version entry point crosses this very
 /// coordinate green (`version_decode_past_usize_positions_coordinate`).
 /// What fires is the memory bound: the composite's working set — the key,
 /// its read copy, and the rank re-derivation's fold and ~2^31-bit
@@ -386,11 +386,11 @@ fn ranked_decode_memory_terminal_traps() {
     );
 }
 
-/// A valid composite key decodes through the borsh door
+/// A valid composite key decodes through the borsh entry point
 /// `Ranked::deserialize_reader` at the largest version size below the
 /// straddle coordinate, consuming exactly its own bytes.
 ///
-/// The streaming door runs the same rank re-derivation as the byte door:
+/// The streaming entry point runs the same rank re-derivation as the byte entry point:
 /// the boundary straddle's lower witness.
 #[test]
 fn ranked_borsh_below_build_cap() {
@@ -401,7 +401,7 @@ fn ranked_borsh_below_build_cap() {
 }
 
 /// A valid composite key whose version component is 67108864 bytes —
-/// exactly 2^29 bits — deserializes through the borsh door
+/// exactly 2^29 bits — deserializes through the borsh entry point
 /// `Ranked::deserialize_reader` on wasm32, consuming exactly its own
 /// bytes.
 ///
@@ -417,7 +417,7 @@ fn ranked_borsh_at_build_cap() {
 }
 
 /// A valid composite key whose version component is 67108865 bytes
-/// deserializes through the borsh door on wasm32: the boundary straddle's
+/// deserializes through the borsh entry point on wasm32: the boundary straddle's
 /// upper witness.
 #[test]
 fn ranked_borsh_past_build_cap() {
@@ -427,8 +427,8 @@ fn ranked_borsh_past_build_cap() {
     );
 }
 
-/// A valid composite key deserializes through the borsh door with a
-/// 128 MiB version component: the streaming door's upward exactness
+/// A valid composite key deserializes through the borsh entry point with a
+/// 128 MiB version component: the streaming entry point's upward exactness
 /// spot-check, deep in the storable range.
 #[test]
 fn ranked_borsh_deep_in_storable_range() {
@@ -436,12 +436,12 @@ fn ranked_borsh_deep_in_storable_range() {
 }
 
 /// A valid coincident span — two byte-equal version streams — decodes
-/// through the borsh door `Span::deserialize_reader` at the largest `lo`
+/// through the borsh entry point `Span::deserialize_reader` at the largest `lo`
 /// size below the straddle coordinate.
 ///
-/// The door consumes exactly its own bytes.
+/// The entry point consumes exactly its own bytes.
 /// It validates the second stream against `lo`'s view in one fused
-/// admission walk: the boundary straddle's lower witness. (The byte door
+/// admission walk: the boundary straddle's lower witness. (The byte entry point
 /// `Span::decode` runs the same admission, exact at every size memory
 /// admits.)
 #[test]
@@ -450,7 +450,7 @@ fn span_borsh_below_build_cap() {
 }
 
 /// A valid coincident span whose `lo` component is 67108864 bytes —
-/// exactly 2^29 bits — deserializes through the borsh door
+/// exactly 2^29 bits — deserializes through the borsh entry point
 /// `Span::deserialize_reader` on wasm32, consuming exactly its own bytes.
 ///
 /// The dominance re-walk reads `lo` through the crate-owned view, exact at
@@ -464,7 +464,7 @@ fn span_borsh_at_build_cap() {
 }
 
 /// A valid coincident span whose `lo` component is 67108865 bytes
-/// deserializes through the borsh door on wasm32: the boundary straddle's
+/// deserializes through the borsh entry point on wasm32: the boundary straddle's
 /// upper witness.
 #[test]
 fn span_borsh_past_build_cap() {
@@ -474,7 +474,7 @@ fn span_borsh_past_build_cap() {
     );
 }
 
-/// A valid coincident span deserializes through the borsh door with
+/// A valid coincident span deserializes through the borsh entry point with
 /// 128 MiB components: the admission walk's upward exactness spot-check,
 /// a quarter-gigabyte composite deep in the storable range.
 #[test]
@@ -487,7 +487,7 @@ fn span_borsh_deep_in_storable_range() {
 /// strictly greater both ways around.
 ///
 /// The comparison-class walk's boundary straddle, lower witness: ordering
-/// reads each operand through the crate-owned view, with no decode door in
+/// reads each operand through the crate-owned view, with no decode entry point in
 /// front.
 #[test]
 fn version_cmp_below_build_cap() {
@@ -536,7 +536,7 @@ fn version_cmp_at_usize_positions_coordinate() {
 ///
 /// The comparison class's upward witness past the coordinate: stored
 /// streams and their walks are bounded only by allocatable memory, so
-/// ordering reads stay exact wherever the doors can admit an operand.
+/// ordering reads stay exact wherever the entry points can admit an operand.
 #[test]
 fn version_cmp_past_usize_positions_coordinate() {
     assert_eq!(call1("pin_version_cmp", 536_870_913), Outcome::Value(0),);
@@ -735,7 +735,7 @@ fn version_rank_deep_in_memory_bounded_range() {
 /// target: a numerator of `W` bits needs a stream of at least `2W` bits
 /// alive underneath it (heights pay their own width in code bits, depth
 /// pays five stream bits per level), and that plus the fold's transients
-/// exhausts memory just below the capacity — the rank wire door, which
+/// exhausts memory just below the capacity — the rank wire entry point, which
 /// assembles its numerator from bytes with no fold transients, is where
 /// the capacity is reachable, and it crosses exactly there onto the
 /// numerator's limb arm (`rank_decode_past_backend_bit_capacity`). A

@@ -2,7 +2,7 @@
 //!
 //! The targets' assertions catch wrong *answers*; this harness catches wrong
 //! *costs*. A resource amplifier — an input whose computation materializes
-//! transient state grossly disproportionate to its packed size — produces no
+//! transient state grossly disproportionate to its encoded size — produces no
 //! wrong answer, so without a ceiling it stays latent. Running every input
 //! through [`under_heap_cap`] turns one into an ordinary crash finding: the
 //! fuzzer minimizes and archives the offending input like any panic.

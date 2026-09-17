@@ -243,7 +243,7 @@ impl Code {
 
 // ─── the skyline stream walker ──────────────────────────────────────────────
 
-/// Read bit `i` of an Msb0 packed stream.
+/// Read bit `i` of an Msb0 encoded stream.
 fn bit(bytes: &[u8], i: u64) -> bool {
     // An in-range byte index fits `usize`: it indexes an allocated buffer.
     (bytes[(i / 8) as usize] >> (7 - i % 8)) & 1 == 1

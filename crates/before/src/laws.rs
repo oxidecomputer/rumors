@@ -95,7 +95,7 @@ pub type Law<F> = (&'static str, F);
 /// consumer: each consumer keys its expansion arms on the input
 /// signature, so a new group with a known signature is driven with no
 /// further wiring, and one with a novel signature refuses to compile
-/// until every consumer says how to feed it. The reverse door — a
+/// until every consumer says how to feed it. The reverse entry point — a
 /// `pub static` law group missing from this roster, which nothing would
 /// ever execute — is closed by the totality pin in this module's tests,
 /// which holds the roster equal to a source scan of the `pub static`
@@ -338,8 +338,8 @@ laws! {
     }
 
     /// The coincident constructors are the singleton hull: `Span::at`,
-    /// the consuming `From<Version>` door, and the lending
-    /// `From<&Version>` door all build exactly the pair hull `a.span(&a)`.
+    /// the consuming `From<Version>` entry point, and the lending
+    /// `From<&Version>` entry point all build exactly the pair hull `a.span(&a)`.
     fn at_is_the_coincident_hull {
         let hull = a.span(a);
         Span::at(a.clone()) == hull && Span::from(a.clone()) == hull && Span::from(a) == hull
@@ -407,13 +407,6 @@ laws! {
     fn version_codec_roundtrip {
         let bytes = a.encode();
         Version::decode(&bytes[..]).is_ok_and(|decoded| decoded == *a && decoded.encode() == bytes)
-    }
-
-    /// `FromStr ∘ Display == id`: the paper notation round-trips.
-    fn version_text_roundtrip {
-        a.to_string()
-            .parse::<Version>()
-            .is_ok_and(|parsed| parsed == *a)
     }
 
     /// The borrowed byte view is the encoding: `as_bytes == encode`.
@@ -643,7 +636,7 @@ laws! {
     /// `a <= b` (concurrent and strictly reversed pairs alike are refused,
     /// with the payload-free [`Crossed`] as the whole verdict), and an
     /// admitted span's endpoints are byte-identical to the arguments — the
-    /// validating door adds nothing and reorders nothing.
+    /// validating entry point adds nothing and reorders nothing.
     fn span_gate_admits_exactly_the_ordered {
         match Span::new(a, b) {
             Ok(span) => le(a, b) && span.lo() == a && span.hi() == b,
@@ -1073,7 +1066,7 @@ laws! {
 
     /// Coverage of a coincident span is membership: `Full` for a member,
     /// `Empty` otherwise — `Partial` is unreachable when the segment is one
-    /// version — through both the span door and the version door.
+    /// version — through both the span entry point and the version entry point.
     fn coverage_matches_membership_on_points {
         /// One family's point-degeneracy check.
         macro_rules! check {
@@ -1198,7 +1191,7 @@ laws! {
     /// byte-equal coincident endpoints in distinct buffers (the general
     /// arm). A span argument is contained iff both its endpoints place
     /// within — the containment order — with the borrowed and owned span
-    /// doors agreeing.
+    /// entry points agreeing.
     fn span_contains_matches_place {
         let meet = b & c;
         for (lo, hi) in &span_candidates(b, c) {
@@ -1217,10 +1210,10 @@ laws! {
                 // walk).
                 let redecoded =
                     Version::decode(&probe.encode()[..]).expect("a stored stream re-decodes");
-                let doors = span.contains(probe.clone()) == inside
+                let consistent = span.contains(probe.clone()) == inside
                     && span.contains(Span::at(probe)) == inside
                     && span.contains(Span::new(probe, &redecoded).unwrap()) == inside;
-                if !doors {
+                if !consistent {
                     return false;
                 }
             }
@@ -1720,8 +1713,8 @@ fn within(span: &Span<'_>, probe: &Version) -> bool {
 laws! {
     /// Laws over a list of versions, at any arity.
     ///
-    /// The seedless iterator join doors (`Sum` and `FromIterator`, owned and
-    /// borrowed) against their sequential pair-operator oracle, and their
+    /// The seedless iterator join entry points (`Sum` and `FromIterator`, owned
+    /// and borrowed) against their sequential pair-operator oracle, and their
     /// order-independence. The list length is the quantified variable no
     /// fixed-arity group can reach: the drivers sweep it across every
     /// structural boundary of the balanced counter the folds run on — the
@@ -1732,15 +1725,15 @@ laws! {
     pub static VERSION_LIST: (xs: &[Version]);
 
     /// `sum`/`collect` are the sequential pair fold: at every arity, every
-    /// seedless iterator door equals `|` folded left-to-right from the
+    /// seedless iterator entry point equals `|` folded left-to-right from the
     /// identity ([`Version::new`]).
     ///
-    /// The right-hand side is the bound pair operator, never a fold door, so
-    /// the two sides cannot share a broken combine arm; the balanced
-    /// regrouping inside the doors is exactly what the equation quantifies
-    /// away. At arity zero the equation *is* the empty edge (the empty sum is
-    /// the empty version), at one the lone input, at two the pair operator
-    /// itself.
+    /// The right-hand side is the bound pair operator, never a fold entry
+    /// point, so the two sides cannot share a broken combine arm; the balanced
+    /// regrouping inside the entry points is exactly what the equation
+    /// quantifies away. At arity zero the equation *is* the empty edge (the
+    /// empty sum is the empty version), at one the lone input, at two the pair
+    /// operator itself.
     fn version_sum_is_the_sequential_pair_fold {
         let sequential = xs.iter().fold(Version::new(), |acc, x| &acc | x);
         xs.iter().sum::<Version>() == sequential
@@ -1749,7 +1742,7 @@ laws! {
             && xs.iter().cloned().collect::<Version>() == sequential
     }
 
-    /// The seedless join doors are order-independent at every arity: every
+    /// The seedless join entry points are order-independent at every arity: every
     /// rotation and the reversal of the list fold to the same join.
     ///
     /// Each rotation hands the balanced counter a different grouping of the
@@ -1779,12 +1772,12 @@ laws! {
     /// laws', the reach no fixed-arity group has.
     pub static VERSION_AND_LIST: (receiver: &Version, items: &[Version]);
 
-    /// `join_all` is the sequential pair fold: at every arity, the n-ary door
+    /// `join_all` is the sequential pair fold: at every arity, the operation
     /// equals `|` folded left-to-right from the receiver.
     ///
-    /// The right-hand side is the bound pair operator, never the n-ary door,
+    /// The right-hand side is the bound pair operator, not `join_all`,
     /// so the two sides cannot share a broken combine arm; the balanced
-    /// regrouping inside the door is exactly what the equation quantifies
+    /// regrouping inside the entry point is exactly what the equation quantifies
     /// away. At zero items the equation *is* the lone-input edge (the join of
     /// the receiver alone is the receiver), at one item the pair operator
     /// itself.
@@ -1792,7 +1785,7 @@ laws! {
         receiver.join_all(items) == items.iter().fold(receiver.clone(), |acc, x| &acc | x)
     }
 
-    /// `meet_all` is the sequential pair fold: at every arity, the n-ary door
+    /// `meet_all` is the sequential pair fold: at every arity, the operation
     /// equals `&` folded left-to-right from the receiver — total at every
     /// arity, because the receiver seeds the identityless meet.
     fn meet_all_is_the_sequential_pair_fold {
@@ -1836,7 +1829,7 @@ laws! {
     /// and the join from above. At zero items the family is the receiver alone
     /// and the hull is the coincident `[receiver, receiver]`; at one item it is
     /// the pair hull ([`span_is_the_pair_hull`] pins those same edges from the
-    /// binary door's side). The hull fold carries both lattice directions
+    /// binary entry point's side). The hull fold carries both lattice directions
     /// through one balanced counter, so a combine arm that reads the wrong
     /// endpoint of a merged group breaks exactly one side of this equation at
     /// exactly the arities that reach the arm.
@@ -1873,24 +1866,24 @@ laws! {
         rotations && reversed
     }
 
-    /// The n-ary span doors are their binary operators folded left-to-right
+    /// The n-ary span entry points are their binary operators folded left-to-right
     /// over `{seed} ∪ items`, at every arity.
     ///
-    /// The balanced regrouping inside each door is exactly what the equation
+    /// The balanced regrouping inside each entry point is exactly what the equation
     /// quantifies away, and the right-hand sides are the bound binary
-    /// operators, never the doors.
+    /// operators, never the entry points.
     ///
-    /// The containment doors run from the receiver's coincident span (union)
+    /// The containment entry points run from the receiver's coincident span (union)
     /// and from the family hull (intersection — a wide seed keeps the nonempty
     /// path exercised deep into the fold, while disjoint item spans still reach
-    /// [`None`]); the pointwise doors run from the coincident seed.
+    /// [`None`]); the pointwise entry points run from the coincident seed.
     fn span_folds_match_the_sequential_operators {
         let seed = receiver.span(receiver);
         let hull = receiver.span_all(items);
         let spans = item_spans(items);
         let union = seed.union_all(&spans) == spans.iter().fold(seed.clone(), |acc, s| &acc + s);
         // The sequential reference folds *through* `Option` with no early exit,
-        // deliberately: the door defers its verdict to the end, and the
+        // deliberately: the entry point defers its verdict to the end, and the
         // equation quantifies over the same completed fold (`try_fold` would
         // exit at the first `None` — a different reference).
         #[allow(clippy::manual_try_fold)]
@@ -1903,13 +1896,13 @@ laws! {
         union && intersect && join && meet
     }
 
-    /// The n-ary span doors are item-order-independent at every arity: every
+    /// The n-ary span entry points are item-order-independent at every arity: every
     /// rotation and the reversal of the item list fold to the same span (or the
     /// same [`None`]).
     ///
-    /// Each rotation regroups every door's balanced counter differently, so a
+    /// Each rotation regroups every entry point's balanced counter differently, so a
     /// combine arm wrong under one grouping diverges from the orbit — the
-    /// span-door instance of `fold_all_is_rotation_invariant`.
+    /// span-entry point instance of `fold_all_is_rotation_invariant`.
     fn span_folds_are_rotation_invariant {
         let seed = receiver.span(receiver);
         let hull = receiver.span_all(items);
@@ -1930,8 +1923,8 @@ laws! {
     }
 
     /// A union of coincident spans is the version hull: on points the
-    /// containment door restricts to [`Version::span_all`] exactly, so the two
-    /// doors can never drift apart on the shapes both serve.
+    /// containment entry point restricts to [`Version::span_all`] exactly, so
+    /// the two entry points can never drift apart on the shapes both serve.
     fn span_union_of_points_is_span_all {
         let points: Vec<Span<'static>> = items.iter().map(|v| v.span(v)).collect();
         receiver.span(receiver).union_all(&points) == receiver.span_all(items)
@@ -1970,8 +1963,8 @@ laws! {
 
     /// Multiplying out an iterator of spans is the intersection fold.
     ///
-    /// The `Product` door equals the receiver-seeded n-ary intersection over
-    /// the same inputs, owned and borrowed alike, and the empty iterator
+    /// The `Product` entry point equals the receiver-seeded n-ary intersection
+    /// over the same inputs, owned and borrowed alike, and the empty iterator
     /// yields [`None`] (intersection has no identity span).
     fn span_product_is_the_intersect_fold {
         let hull = receiver.span_all(items);
@@ -1985,10 +1978,10 @@ laws! {
     }
 }
 
-/// The item spans the fold-door laws quantify over: a deterministic mix of
+/// The item spans the fold-entry point laws quantify over: a deterministic mix of
 /// coincident and wide spans over the items.
 ///
-/// The mix drives the doors' point and wide combine arms alike, at every
+/// The mix drives the entry points' point and wide combine arms alike, at every
 /// counter boundary the list sweep reaches.
 fn item_spans(items: &[Version]) -> Vec<Span<'static>> {
     items
@@ -2142,13 +2135,6 @@ laws! {
     fn party_codec_roundtrip {
         let bytes = p.encode();
         Party::decode(&bytes[..]).is_ok_and(|decoded| decoded == *p && decoded.encode() == bytes)
-    }
-
-    /// `FromStr ∘ Display == id`: the paper notation round-trips.
-    fn party_text_roundtrip {
-        p.to_string()
-            .parse::<Party>()
-            .is_ok_and(|parsed| parsed == *p)
     }
 
     /// The borrowed byte view is the encoding: `as_bytes == encode`.
@@ -2623,19 +2609,30 @@ laws! {
     /// materializes, exactly as the eagerly projected span.
     ///
     /// Endpoints, the placement verdicts, the dominance and precedence
-    /// coarsenings, membership, and both materialization doors —
-    /// quantified over the pair's hull and the coincident span, with
-    /// probes at the operands and the projected endpoints (reaching the
-    /// at-endpoint corners). Every probe built
-    /// from the operands dominates the projected start (projection only
-    /// shrinks a version), so the concurrent-to-start placements are this
-    /// law's negative space: the committed
+    /// coarsenings, membership, and both materialization entry points —
+    /// quantified over the pair's hull and the coincident span, with probes at
+    /// the operands and the projected endpoints (reaching the at-endpoint
+    /// corners). Every probe built from the operands dominates the projected
+    /// start (projection only shrinks a version), so the concurrent-to-start
+    /// placements are this law's negative space: the committed law's negative
+    /// space, and overlapping arbitrary parties keep them inhabited under mass.
+    /// When `q` carves nothing out of `p` (it covers `p`, or is disjoint from
+    /// it — every pair in a one-world population, whose parties are pairwise
+    /// disjoint), the law constructs the decomposition from `p`'s own fork half
+    /// through the same `without` entry points instead: the additivity equation
+    /// runs on every call, so no population can leave this law vacuous.
     /// `own_span_place_reaches_every_concurrent_corner` witness beside
     /// the span tests constructs them.
     ///
     /// The eager side exists at all because projection is monotone
     /// (`projection_monotone_in_version`), which this law re-witnesses by
-    /// validating the projected pair through [`Span::new`].
+    /// validating the projected pair through [`Span::new`]. law's negative
+    /// space, and overlapping arbitrary parties keep them inhabited under mass.
+    /// When `q` carves nothing out of `p` (it covers `p`, or is disjoint from
+    /// it — every pair in a one-world population, whose parties are pairwise
+    /// disjoint), the law constructs the decomposition from `p`'s own fork half
+    /// through the same `without` entry points instead: the additivity equation
+    /// runs on every call, so no
     fn own_span_matches_the_projected_span(a, b, party) {
         let hull = a.span(b);
         let coincident = a.span(a);
@@ -2726,12 +2723,12 @@ laws! {
     /// [`projection_additive_over_fork`] states additivity for the balanced
     /// fork geometry; the ragged region pairs `without` carves are that
     /// law's negative space, and overlapping arbitrary parties keep them
-    /// inhabited under mass. When `q` carves nothing out of `p` (it covers
-    /// `p`, or is disjoint from it — every pair in a one-world population,
-    /// whose parties are pairwise disjoint), the law constructs the
-    /// decomposition from `p`'s own fork half through the same `without`
-    /// doors instead: the additivity equation runs on every call, so no
-    /// population can leave this law vacuous.
+    /// inhabited under mass. When `q` carves nothing out of `p` (it covers `p`,
+    /// or is disjoint from it — every pair in a one-world population, whose
+    /// parties are pairwise disjoint), the law constructs the decomposition
+    /// from `p`'s own fork half through the same `without`
+
+
     fn projection_additive_over_carved_regions {
         let carved = p
             .dangerously_alias()
@@ -2741,7 +2738,7 @@ laws! {
             Some(pair) => pair,
             None => {
                 // The constructed decomposition: carve p by its own fork
-                // half, still through the without doors under law.
+                // half, still through the without entry points under law.
                 let mut keeper = p.dangerously_alias();
                 let half = keeper.fork();
                 let Some(r) = p.dangerously_alias().without(&half) else {
@@ -3032,13 +3029,6 @@ laws! {
     fn clock_codec_roundtrip {
         let bytes = c.encode();
         Clock::decode(&bytes[..]).is_ok_and(|decoded| decoded == *c && decoded.encode() == bytes)
-    }
-
-    /// `FromStr ∘ Display == id`: the paper notation round-trips.
-    fn clock_text_roundtrip {
-        c.to_string()
-            .parse::<Clock>()
-            .is_ok_and(|parsed| parsed == *c)
     }
 
     /// The clock's encoding is its party's bytes then its version's, exactly

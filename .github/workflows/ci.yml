@@ -120,7 +120,6 @@ jobs:
   # counter-based legs ride here: their readings are byte-identical under
   # any machine load, so a shared runner cannot flake them. What stays
   # local, and why:
-  #   - the judged wall-time legs (bench-judge and its tripwire): criterion
   #     exponent fits need the quiet-machine regime a shared runner cannot
   #     promise;
   #   - the wasmtime fuel tier (the fuzzfit bands and the fuelscape pins):

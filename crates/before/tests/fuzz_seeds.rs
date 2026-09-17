@@ -6,9 +6,8 @@
 //! `fuzz/seeds/` byte-identical to the live derivation
 //! (`tests/support/fuzz_seed_set.rs`) and hold every seed to the
 //! contract it seeds — the decode targets' round-trips, the
-//! differential target's per-genre rejection witnesses, the parse
-//! target's display round-trips — so format drift is a red gate with a
-//! one-command fix (`cargo run -p before --example fuzz_seeds`).
+//! differential target's per-genre rejection witnesses — so format drift is a
+//! red gate with a one-command fix (`cargo run -p before --example fuzz_seeds`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -108,7 +107,7 @@ fn decode_seeds_decode_as_named_and_round_trip() {
         // the exact error its genre pronounces (never fail an earlier
         // parse), so the corpus keeps seeding the validator arm it was
         // written for — the fused span walk cannot reach these arms, so
-        // these version-door seeds are their only corpus coverage.
+        // these version-entry point seeds are their only corpus coverage.
         match seed.name {
             "version_negative_height" => {
                 assert!(
@@ -245,45 +244,6 @@ fn differential_seeds_exercise_their_genre_seams() {
     }
 }
 
-/// Every `fuzz_parse` seed parses as named and round-trips through its display.
-///
-/// The seeds actually exercise the text parsers they were written for,
-/// and the wide seed really is wide (a magnitude past `u64::MAX`, the
-/// tier random text never reaches).
-#[test]
-fn parse_seeds_parse_as_named_and_round_trip() {
-    let mut saw_wide = false;
-    for seed in fuzz_seed_set::seed_set() {
-        if seed.target != "fuzz_parse" {
-            continue;
-        }
-        let text = std::str::from_utf8(&seed.bytes).expect("parse seeds are UTF-8");
-        match seed.name {
-            "clock_display" => {
-                let clock: Clock = text.parse().expect("the clock seed parses");
-                assert_eq!(clock.to_string(), text, "clock display round-trip");
-            }
-            "version_nested_text" => {
-                let version: Version = text.parse().expect("the nested version seed parses");
-                assert_eq!(version.to_string(), text, "version display round-trip");
-            }
-            "party_nested_text" => {
-                let party: Party = text.parse().expect("the party seed parses");
-                assert_eq!(party.to_string(), text, "party display round-trip");
-            }
-            "version_wide" => {
-                let version: Version = text.parse().expect("the wide version seed parses");
-                assert_eq!(version.to_string(), text, "wide display round-trip");
-                // A version leaf displays as its bare magnitude; 21+ digits
-                // is past u64::MAX (20 digits), i.e. the wide-gamma tier.
-                saw_wide |= text.len() >= 21;
-            }
-            other => panic!("unknown parse seed {other}"),
-        }
-    }
-    assert!(saw_wide, "no fuzz_parse seed reaches the wide-decimal tier");
-}
-
 /// Carve the next length-prefixed chunk off a `fuzz_laws` seed, exactly as
 /// the target's framing does (part of the wire contract the seed set
 /// documents).
@@ -375,9 +335,7 @@ fn laws_seeds_decode_per_framing_and_stay_wide() {
             seed.name
         );
 
-        // A version leaf displays as its bare magnitude; 21+ digits is past
-        // u64::MAX (20 digits), i.e. the wide-gamma decode tier.
-        saw_wide |= versions[0].to_string().len() >= 21;
+        saw_wide |= u64::try_from(&versions[0].min_ticks()).is_err();
         saw_carry |= (4..=9).contains(&version_arity);
         saw_second_octave |= version_arity >= 15;
     }

@@ -106,18 +106,6 @@
 //! diff. Its adequacy kernels are also the tripwires proving the
 //! criteria can fail at all.
 //!
-//! **The bench judge** (`tools/benchjudge` over `benches/board.rs`;
-//! `just bench-judge`). The wall-time exponent leg: criterion medians at
-//! the two board scales, fitted per cell, judged through the committed
-//! expected-verdict roster (`tools/benchjudge-expected.json`, membership
-//! pinned by `tests/bench_judge_roster.rs`). What it alone catches:
-//! **work invisible to every deterministic counter** — cost in layers
-//! the meters do not instrument (backend multiplication below the limb
-//! shim, container bookkeeping between metered primitives). It is the
-//! one nondeterministic instrument, so it is judged as an exponent class
-//! over medians (quick sampling for iteration, full sampling for any
-//! quoted number, on a quiet machine) and never byte-pinned.
-//!
 //! **The fuzz-fit bands** (the `fuzzfit` workspace under this crate).
 //! Public operations compiled to wasm and metered in wasmtime *fuel*
 //! (deterministic, host-independent), with log-log fuel-vs-size bands
@@ -144,7 +132,7 @@
 //! # The documentation instruments
 //!
 //! **The asymptotics liveness pins** ([`super::asymptotics`]). One pin
-//! per documented non-linear mechanism — the fold doors' log factor,
+//! per documented non-linear mechanism — the fold entry points' log factor,
 //! the render merge's superlinear growth, the settle's answer-embedded
 //! product — each reading a deterministic counter or exact value
 //! identity on a committed family. What they alone catch: **a

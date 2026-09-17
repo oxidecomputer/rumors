@@ -174,7 +174,7 @@ fn aggregate_bins_identically_on_every_platform() {
     let data = AtlasData {
         op_name: "platform_pin".into(),
         unary: true,
-        size_measure: "packed bytes".into(),
+        size_measure: "encoded bytes".into(),
         samples,
         overlay,
     };

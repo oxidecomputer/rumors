@@ -42,10 +42,6 @@ cargo install cargo-fuzz
   collection the in-tree law proptests drive, here fed hostile-but-canonical
   values. A violated law panics with the law's name, so the fuzzer minimizes
   straight to the algebraic defect.
-- **`fuzz_parse`** feeds arbitrary UTF-8 to every public `FromStr` (the
-  paper-notation parsers for `Party`, `Version`, and `Clock`, and the decimal
-  `Ticks` parser). An accepted value's display must re-parse to the same
-  value.
 
 ## Run
 
@@ -57,7 +53,6 @@ cargo +nightly fuzz run fuzz_decode              corpus/fuzz_decode             
 cargo +nightly fuzz run fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time=20
 cargo +nightly fuzz run fuzz_decode_ops          corpus/fuzz_decode_ops          seeds/fuzz_decode_ops          -- -max_total_time=20
 cargo +nightly fuzz run fuzz_laws                corpus/fuzz_laws                seeds/fuzz_laws                -- -max_total_time=20
-cargo +nightly fuzz run fuzz_parse               corpus/fuzz_parse               seeds/fuzz_parse               -- -max_total_time=20
 ```
 
 Drop `-max_total_time` to fuzz indefinitely. Crashes land in `artifacts/<target>/`;
@@ -66,8 +61,8 @@ reproduce with `cargo +nightly fuzz run <target> artifacts/<target>/<crash-file>
 ## Seeds
 
 `seeds/<target>/` holds a small committed seed corpus (canonical encodings of every
-wire type, decode-then-ops scripts, law-target chunk inputs, display notation for the
-parse target, and the differential target's per-genre rejection witnesses — including
+wire type, decode-then-ops scripts, law-target chunk inputs, and the differential
+target's per-genre rejection witnesses — including
 wide-gamma bases, whose 64+-zero unary prefixes random bytes essentially never
 produce). Nothing consumes it
 implicitly: a run reads it only when the seed directory is named as an extra corpus

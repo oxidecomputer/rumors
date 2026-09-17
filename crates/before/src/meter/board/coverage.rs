@@ -179,28 +179,6 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         &["clock_recv", "clock_hash"],
     ),
     (
-        "Party Display / FromStr / TryFrom literals",
-        &[
-            "party_display",
-            "party_from_str",
-            "party_parse_trailing",
-            "party_parse_noncanon",
-        ],
-    ),
-    (
-        "Version Display / FromStr / TryFrom literals",
-        &[
-            "version_display",
-            "version_from_str",
-            "version_parse_trailing",
-            "version_parse_noncanon",
-        ],
-    ),
-    (
-        "Clock Display / FromStr / TryFrom",
-        &["clock_display", "clock_from_str", "clock_parse_trailing"],
-    ),
-    (
         "serde / borsh impls (feature-gated, strict-decode pinned)",
         &[
             "version_encode",
@@ -556,15 +534,15 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          clock child); a mid-run drop rejoins in O(log n) measured joins",
     ),
     (
-        "Ticks ZERO / From / TryFrom / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
         "an opaque count carrier: word-to-width-scale arithmetic with no \
-         packed-input axis; the operations denominated in it are celled at \
+         encoded-input axis; the operations denominated in it are celled at \
          their own rows (version_ticks, version_min_ticks)",
     ),
     (
         "Ticks::limbs",
         "a borrowing view of the stored count: word-scale construction, one \
-         word per step, no packed-input axis",
+         word per step, no encoded-input axis",
     ),
     (
         "Version::shape",
@@ -608,13 +586,12 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     (
         "meter instrumentation plumbing",
         "the measurement apparatus itself, feature-gated out of production \
-         builds; no packed-input computation of its own",
+         builds; no encoded-input computation of its own",
     ),
     (
-        "error verdict types (Decode / Parse / Crossed)",
-        "verdict carriers of the paper ops' rejection arms, with no \
-         packed-input computation; the producing doors' board rows price \
-         the walks that mint them",
+        "error verdict types (Decode / Crossed)",
+        "verdict carriers with no encoded-input computation; the operations \
+         that produce them are measured directly",
     ),
 ];
 

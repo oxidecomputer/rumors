@@ -47,7 +47,7 @@ const GROWTH_BOUND: f64 = 1.35;
 #[test]
 fn span_all_flat_on_shared_deep_skeleton() {
     let build = |lvl: u32| -> Vec<Version> {
-        let base = Shape::Dense.packed1(2000 << lvl).version();
+        let base = Shape::Dense.build1(2000 << lvl).version();
         let mut parties = vec![Party::seed()];
         while parties.len() < 16 {
             let mut next = Vec::new();

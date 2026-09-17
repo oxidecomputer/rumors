@@ -12,9 +12,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-# The borsh feature lights the composite streaming doors
+# The borsh feature enables the composite streaming operations
 # (`Ranked`/`Span::deserialize_reader`), whose walk boundaries the guest
-# pins beside the byte doors'; the borsh crate itself names the trait the
+# pins beside the byte operations; the borsh crate itself names the trait the
 # exports drive. The meter feature lights the instrument surface: the
 # exact-bit-length observation (`encoded_bits`) the pins report through.
 before = { path = "../..", features = ["borsh", "meter"] }

@@ -49,7 +49,7 @@ proptest! {
             prop_assert!(step.expect("checked").denom_bits >= 1);
         }
         // Every live register's canonical bytes round-trip through the
-        // codec: the constructed values are honest packed values.
+        // codec: the constructed values are honest encoded values.
         for (reg, tag) in mirror.live_regs() {
             let bytes = mirror.snapshot(reg).expect("live");
             match tag {
@@ -134,8 +134,6 @@ fn bands_and_op_roster_name_the_same_kernels() {
         },
         Op::VersionEncode { src: 0 },
         Op::VersionDecode { dst: 0 },
-        Op::VersionDisplay { src: 0 },
-        Op::VersionFromstr { dst: 0 },
         Op::PartySeed { dst: 0 },
         Op::PartyFork { dst: 0, src: 0 },
         Op::PartyForks {
@@ -149,8 +147,6 @@ fn bands_and_op_roster_name_the_same_kernels() {
         Op::PartyWithout { dst: 0, a: 0, b: 0 },
         Op::PartyEncode { src: 0 },
         Op::PartyDecode { dst: 0 },
-        Op::PartyDisplay { src: 0 },
-        Op::PartyFromstr { dst: 0 },
         Op::RankAdd { dst: 0, a: 0, b: 0 },
         Op::RankCmp { a: 0, b: 0 },
         Op::RankCheckedSub { dst: 0, a: 0, b: 0 },

@@ -1,4 +1,4 @@
-//! Public-door witnesses over combined shapes, plus the unit pins on the
+//! Public-entry point witnesses over combined shapes, plus the unit pins on the
 //! walks' edges.
 //!
 //! The witnesses hold the lattice to pointwise extrema and the causal
@@ -14,7 +14,7 @@
 
 use proptest::prelude::*;
 
-use crate::testing::bridge::from_oracle_version;
+use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators;
 use crate::testing::shape_rows::fold_cells;
 use crate::{Clock, Version};
@@ -26,7 +26,7 @@ proptest! {
     /// minimum, in every cell of the pair combined with its own join
     /// and meet.
     ///
-    /// The public-door witness of the join/meet kernel, through nothing
+    /// The public-entry point witness of the join/meet kernel, through nothing
     /// but item streams.
     #[test]
     fn join_and_meet_are_pointwise_extrema(
@@ -44,7 +44,7 @@ proptest! {
 
     /// The causal order agrees with the pointwise order over combined
     /// shapes: `a <= b` iff no cell's height crosses, in each direction —
-    /// the public-door witness of the comparison kernel.
+    /// the public-entry point witness of the comparison kernel.
     #[test]
     fn comparison_agrees_with_pointwise_order(
         a in generators::arb_oracle_version(),
@@ -84,7 +84,12 @@ fn empty_combine_is_the_trivial_cell() {
 /// each: the refinement of one tiling is that tiling.
 #[test]
 fn single_input_combine_is_the_shape() {
-    let version: Version = "(1, 1, (0, 0, 2))".parse().unwrap();
+    use crate::oracle::Version as V;
+    let version = from_oracle_version(&V::node(
+        1u8,
+        V::leaf(1u8),
+        V::node(0u8, V::leaf(0u8), V::leaf(2u8)),
+    ));
     let cells: Vec<(u64, [Option<Rise>; 1])> = combine([&version])
         .map(|cell| (cell.depth, cell.rises))
         .collect();
@@ -97,8 +102,16 @@ fn single_input_combine_is_the_shape() {
 /// `None`.
 #[test]
 fn shape_walks_fuse() {
-    let version: Version = "(1, 1, (0, 0, 2))".parse().unwrap();
-    let clock = Clock::from_parts("(1, 0)".parse().unwrap(), version.clone());
+    use crate::oracle::{Party as P, Version as V};
+    let version = from_oracle_version(&V::node(
+        1u8,
+        V::leaf(1u8),
+        V::node(0u8, V::leaf(0u8), V::leaf(2u8)),
+    ));
+    let clock = Clock::from_parts(
+        from_oracle_party(&P::node(P::Leaf(true), P::Leaf(false))),
+        version.clone(),
+    );
 
     let mut plateaus = version.shape();
     assert_eq!(plateaus.by_ref().count(), 3);

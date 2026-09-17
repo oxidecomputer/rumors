@@ -34,7 +34,7 @@
 //!   a close can *count* (one count on the web's reigning record, the
 //!   record settling once when it dies) is the `web` submodule's module
 //!   doc, which carries the accounting and its funding certificate.
-//! - [`project`](fn@project) overlays the skyline against a packed *id* stream
+//! - [`project`](fn@project) overlays the skyline against a party's binary stream
 //!   and re-emits the masked skyline through the collapsing output
 //!   builder: owned regions keep their plateaus, unowned regions emit
 //!   zero, and the absolute height is materialized only at ownership
@@ -482,7 +482,7 @@ pub fn min_ticks(bits: BitsView<'_>) -> Base {
     Base::from(magnitude)
 }
 
-/// Project the version a skyline stream denotes onto a packed id's owned
+/// Project the version a skyline stream denotes onto a party's owned
 /// region, as a canonical skyline stream.
 ///
 /// One overlay of the skyline leaf cursor against the id's constant regions:

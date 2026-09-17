@@ -113,22 +113,6 @@ proptest! {
     }
 }
 
-// ───────────────────────── paper-notation TryFrom ─────────────────────────
-
-/// `TryFrom` numeric/tuple literals build parties via the same paper notation
-/// as the string parser.
-///
-/// The seed `1`, a flat `(1, 0)`, and a nested `((0, 1), (1, (1, 0)))` all
-/// construct, while the anonymous bare `0` is rejected (a standalone id must
-/// own some region).
-#[test]
-fn parse_bare_notation() {
-    let _party: Party = 1.try_into().unwrap();
-    assert!(Party::try_from(0).is_err());
-    let _party: Party = (1, 0).try_into().unwrap();
-    let _party: Party = ((0, 1), (1, (1, 0))).try_into().unwrap();
-}
-
 // ───────────── arbitrary normal-form ids (decoupled from the op pipeline) ─────────────
 //
 // The op-trace differentials above only ever compare ids that descend from one
@@ -145,7 +129,7 @@ proptest! {
     /// matches the oracle's `split`, structurally — on shapes the seed pipeline
     /// never forks.
     ///
-    /// The two halves are read straight off the impl's packed `IdReader::split`
+    /// The two halves are read straight off the impl's encoded `IdReader::split`
     /// output and lowered for comparison.
     #[test]
     fn split_arbitrary(op in arb_oracle_party_nonempty()) {

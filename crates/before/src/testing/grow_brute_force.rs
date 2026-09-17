@@ -4,7 +4,7 @@
 //! *minimal* inflation: `e < e'` and `e'` dominates no more than needed. `grow`
 //! delivers this by a dynamic-programming search that, at every branch node,
 //! greedily descends the cheaper child. Both the recursive oracle and the
-//! packed impl realize that *same* DP — so the op-trace and arbitrary-tree
+//! encoded impl realize that *same* DP — so the op-trace and arbitrary-tree
 //! differentials (impl == oracle) can only confirm the two agree, never that
 //! the shared DP is actually optimal. That is this module's job, and it is
 //! independent of the DP: it enumerates the *entire* feasible single-region

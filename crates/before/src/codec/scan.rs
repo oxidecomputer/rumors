@@ -1,25 +1,10 @@
-//! Process-global counter of packed-stream bits scanned and written.
+//! Process-global count of encoded bits read and written.
 //!
-//! Traversal work over the packed bit streams is invisible to every other meter
-//! when it allocates nothing (no heap delta), recurses through an iterative
-//! loop (no grown segments), and touches no `Base` arithmetic (no limb
-//! operations) — the id-side walks and folds are exactly that shape. The proxy
-//! counted here is **bits**, at the packed-stream primitives:
-//!
-//! - id tag reads and skip steps (`idbits::IdReader`), 2 bits per node;
-//! - id-builder bit writes and verbatim splice lengths
-//!   (`party::ops`' builder);
-//! - event topology cursor advances and gamma code-skips (the skyline
-//!   walks' word-parallel `codec::DsiCursor` — unary runs and code
-//!   skips record their full bit widths, however the reads batch);
-//! - every sequential decoder/validator bit read (`codec::SliceCursor`
-//!   and `codec::DsiCursor`, which carry `decode`, the gamma decoder,
-//!   and the skyline validator/decoder cursors).
-//!
-//! An amortized-linear walk therefore counts O(1) bits per packed input or
-//! output bit, and a fold that re-scans its accumulator counts quadratically.
-//! Relaxed ordering suffices: the metering binaries run one scenario per
-//! process and read the counter only after the metered call returns.
+//! This meter observes traversal that performs no allocation or arithmetic.
+//! Recording happens at the primitive bit reads, writes, and skips, independent
+//! of whether an implementation processes one bit or a machine word at a time.
+//! Relaxed ordering suffices because each measurement runs in one process and
+//! reads the counter after the operation completes.
 
 #[cfg(feature = "scan-meter")]
 mod counter {
@@ -46,7 +31,7 @@ mod counter {
 #[cfg(feature = "scan-meter")]
 pub(crate) use counter::{reset, scan_bits};
 
-/// Record `n` packed-stream bits scanned or written.
+/// Record `n` encoded bits read or written.
 ///
 /// Compiles to nothing without the `scan-meter` feature, so every primitive
 /// can call it unconditionally.
@@ -58,11 +43,7 @@ pub(crate) fn record_bits(n: usize) {
     let _ = n;
 }
 
-/// [`record_bits`] at the counter's own width, for the word-parallel cursor.
-///
-/// A byte decode door's walk spans up to `8 · bytes.len()` bit positions,
-/// which exceeds a 32-bit `usize` on the largest buffers a door admits, so
-/// its run and tail records stay `u64` end to end.
+/// Record a count already expressed at the meter's `u64` width.
 #[inline(always)]
 pub(crate) fn record_bits_u64(n: u64) {
     #[cfg(feature = "scan-meter")]

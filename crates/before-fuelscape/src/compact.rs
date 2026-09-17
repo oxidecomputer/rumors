@@ -35,7 +35,7 @@
 //! complexity statements its doc island shows: the rustdoc *contract*
 //! (structure-size variables, e.g. `O(|self| + |party|)`) and the
 //! *claim* in the widget's expression grammar, denominated in total
-//! packed input bytes (e.g. `n log n`). Compaction stamps both into the
+//! encoded input bytes (e.g. `n log n`). Compaction stamps both into the
 //! operation's document, and rejects a dump whose recorded
 //! `size_measure` differs from the roster row's current one: measurements
 //! drawn from an input space the roster no longer declares must not
@@ -134,11 +134,11 @@ pub struct WidgetOp {
     /// (e.g. `O(|self| + |party|)`).
     pub contract: String,
     /// The claimed growth in the widget's expression grammar,
-    /// denominated in total packed input bytes (e.g. `n log n`).
+    /// denominated in total encoded input bytes (e.g. `n log n`).
     pub claim: String,
     /// Octaves of fuel per histogram bin ([`RES`] at compaction time).
     pub res: f64,
-    /// The size axis: total packed input bytes per column, strictly
+    /// The size axis: total encoded input bytes per column, strictly
     /// ascending.
     pub sizes: Vec<usize>,
     /// One fuel histogram per entry of `sizes`.

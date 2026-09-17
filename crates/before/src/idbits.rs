@@ -1,6 +1,6 @@
-//! A read-only cursor over the packed id encoding, shared by the party
+//! A read-only cursor over the party encoding, shared by the party
 //! operations (`split`/`sum`/`is_disjoint`/`compare`) and the event operations
-//! (`fill`/`grow` walk the packed id alongside the working event tree).
+//! (`fill`/`grow` walk the party alongside the working event tree).
 //!
 //! Each node is a 2-bit tag whose bits report **child presence**: bit 0 is "a
 //! left child follows", bit 1 is "a right child follows". So `00` is a terminal
@@ -51,13 +51,13 @@ pub(crate) enum IdNode {
     Internal { left: bool, right: bool },
 }
 
-/// A cursor into a packed id tree, or a synthetic leaf.
+/// A cursor into a party tree, or a synthetic leaf.
 ///
 /// A consuming cursor: [`read`](IdReader::read) decodes the node at the cursor
 /// and advances it in place, so operations thread `&mut` readers and read as
 /// the paper's `match`.
 ///
-/// - `At`: a bit offset into the packed id stream.
+/// - `At`: a bit offset into the party stream.
 /// - `Empty`: a synthetic `0` leaf that consumes nothing. Because a `0` is
 ///   absence rather than a node, every walk that descends into an absent child
 ///   hands one of these in its place, so the `(Empty, …)` match arms fire
@@ -169,7 +169,7 @@ impl<'a> IdReader<'a> {
         }
     }
 
-    /// The underlying packed bit stream, or the empty slice for a synthetic
+    /// The underlying encoded bit stream, or the empty slice for a synthetic
     /// reader (which addresses no bits).
     ///
     /// Used for `sum`/`diff` capacity hints, where an anonymous (`0`) operand
@@ -205,7 +205,7 @@ impl<'a> IdReader<'a> {
 /// the id encoding uses; a full binary encoding only ever reports `0` or `2`.
 ///
 /// The single shared spelling of this scan: [`IdReader::skip`] runs it on the
-/// packed id encoding, and the skyline `grow` walks run it to skip event
+/// party encoding, and the skyline `grow` walks run it to skip event
 /// subtrees (one topology flag plus one skipped payload code per node).
 pub(crate) fn skip_subtree(mut at: u64, mut header: impl FnMut(u64) -> (u64, u64)) -> u64 {
     let mut pending: i64 = 1;

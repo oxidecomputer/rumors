@@ -26,7 +26,7 @@ use super::{
 };
 
 /// Render a payload code into live bits by [`Code`]'s own representation
-/// contract (a small code sits value-packed at the register's low end, first
+/// contract (a small code sits value-encoded at the register's low end, first
 /// bit most significant) — independent of both coders under comparison.
 fn bits_of(code: &Code) -> BitsBuf {
     match code {

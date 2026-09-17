@@ -61,7 +61,7 @@ const POOL_SLOTS: u32 = 512;
 /// A pooled slot must declare its maximum (the on-demand allocator
 /// grew unboundedly); the reservation is virtual, so the value buys
 /// address space, not memory. The guest's appetite is the register
-/// file plus packed value buffers — tens of megabytes at the deepest
+/// file plus encoded value buffers — tens of megabytes at the deepest
 /// committed plans — so a 256 MiB ceiling is slack, and exhaustion is
 /// loud (`memory.grow` fails and the kernel call traps) rather than a
 /// silent cap.

@@ -205,21 +205,16 @@ fn assert_unframed(text: &str) {
 fn emit_sample(out: &mut dyn Write, s: &Sample) -> io::Result<()> {
     write!(
         out,
-        "\t{denom}\t{exp_denom}\t{limb_denom}\t{text}",
+        "\t{denom}\t{exp_denom}",
         denom = s.denom_bytes,
         exp_denom = s.exp_denom_bytes,
-        limb_denom = s.limb_denom,
-        text = if s.text_row { "t" } else { "f" },
     )?;
     write!(
         out,
-        "\t{arity}\t{model}\t{declared_heap}\t{declared_limb}",
+        "\t{arity}\t{model}\t{declared_heap}",
         arity = opt(s.fold_arity),
         model = opt(s.heap_model.map(bits)),
         declared_heap = opt(s.declared_heap.map(bits)),
-        declared_limb = opt(s
-            .declared_limb
-            .map(|(e, k)| format!("{},{}", bits(e), bits(k)))),
     )?;
     for (_, reading) in s.readings.each() {
         write!(out, "\t{}", opt(*reading))?;
@@ -310,12 +305,6 @@ fn parse_liveness(text: &str, line: &str) -> Liveness {
 fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> Sample {
     let denom_bytes = number(field(fields, line), line);
     let exp_denom_bytes = number(field(fields, line), line);
-    let limb_denom = number(field(fields, line), line);
-    let text_row = match field(fields, line) {
-        "t" => true,
-        "f" => false,
-        other => panic!("amp-board shard merge: malformed text-row flag {other:?} in {line:?}"),
-    };
     let fold_arity = opt_number(field(fields, line), line);
     let heap_model = {
         let text = field(fields, line);
@@ -324,15 +313,6 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
     let declared_heap = {
         let text = field(fields, line);
         (text != "-").then(|| from_bits(text, line))
-    };
-    let declared_limb = {
-        let text = field(fields, line);
-        (text != "-").then(|| {
-            let (e, k) = text.split_once(',').unwrap_or_else(|| {
-                panic!("amp-board shard merge: malformed limb model {text:?} in {line:?}")
-            });
-            (from_bits(e, line), from_bits(k, line))
-        })
     };
     let mut reading = || opt_number(field(fields, line), line);
     let readings = ByCurrency {
@@ -353,13 +333,10 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
     Sample {
         denom_bytes,
         exp_denom_bytes,
-        limb_denom,
-        text_row,
         floors,
         fold_arity,
         heap_model,
         declared_heap,
-        declared_limb,
         readings,
     }
 }

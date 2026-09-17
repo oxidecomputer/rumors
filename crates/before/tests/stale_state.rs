@@ -81,7 +81,7 @@ fn restored_pre_tick_clock_conflates_without_any_fork() {
 ///
 /// Valid by the model: the party is the moved, latest state of the
 /// identity, and the version it is paired with is knowledge, free to
-/// duplicate — the pairing door is a version-duplication site.
+/// duplicate — the pairing entry point is a version-duplication site.
 #[test]
 fn from_parts_over_an_earlier_version_re_mints_its_successor() {
     let mut c = Clock::seed();

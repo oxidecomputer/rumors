@@ -367,12 +367,12 @@ impl Version {
     /// iterator.
     ///
     /// The reference for [`Version::meet_all`](crate::Version::meet_all),
-    /// whose differential feeds the production door's `{receiver} ∪ items`
+    /// whose differential feeds the production entry point's `{receiver} ∪ items`
     /// family here as one list.
     ///
     /// The sequential fold of the binary meet; `None` because the
     /// meet-semilattice has no identity (no version dominates all others) —
-    /// the same missing top that makes the production door seed its fold
+    /// the same missing top that makes the production entry point seed its fold
     /// with the receiver.
     pub fn meet_all(iter: impl IntoIterator<Item = Version>) -> Option<Version> {
         iter.into_iter().reduce(|acc, v| acc & v)

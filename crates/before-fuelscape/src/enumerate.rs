@@ -1,4 +1,4 @@
-//! Exhaustive enumeration of the packed grammars at small sizes.
+//! Exhaustive enumeration of the encoded grammars at small sizes.
 //!
 //! The adequacy pins need ground truth the samplers cannot supply about
 //! themselves: every member of an exact-size input space, listed by brute
@@ -13,7 +13,7 @@
 
 /// One enumerated version-grammar member.
 pub struct VersionMember {
-    /// The packed bit stream (unpadded).
+    /// The encoded bit stream (unpadded).
     pub bits: Vec<bool>,
     /// Whether the member is a single bare leaf (the enclosing split
     /// enumeration needs it for the sibling rule).

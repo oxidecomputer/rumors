@@ -10,7 +10,7 @@
 //! [`Rank::encode`] emits a *prefix-ascending* bit stream — one whose
 //! lexicographic order equals the ranks' numeric order even when each stream is
 //! followed by arbitrary further bits, because two distinct ranks' streams
-//! always differ at a bit position inside both — packed MSB-first into
+//! always differ at a bit position inside both — encoded MSB-first into
 //! zero-padded bytes:
 //!
 //! 1. **The integral part** `I = ⌊r⌋`, as the Elias delta code of
@@ -35,7 +35,7 @@
 //!    gamma-coded, so a gamma integral part would pay that doubled
 //!    width *again* and drive the worst committed provenance family
 //!    (the lone wide counter, measured at 0.56 encoded bits per
-//!    packed input bit) up against the 1.0-per-family
+//!    encoded input bit) up against the 1.0-per-family
 //!    provenance-linearity pin; delta's `N + O(log N)` is what keeps
 //!    the canonical form a mild compression of its provenance. Omega,
 //!    one rung further, trims the header by only `O(log w)` bits —
@@ -266,10 +266,11 @@ impl Rank {
     /// # Example
     ///
     /// ```
-    /// use before::{Rank, Version};
+    /// use before::{Party, Rank, Version};
     /// assert_eq!(Version::new().rank(), Rank::ZERO);
-    /// assert_eq!(Version::try_from(7).unwrap().rank() + Rank::ZERO,
-    ///            Version::try_from(7).unwrap().rank());
+    /// let mut seven = Version::new();
+    /// Party::seed().ticks(&mut seven, 7u8);
+    /// assert_eq!(seven.rank() + Rank::ZERO, seven.rank());
     /// ```
     pub const ZERO: Rank = Rank {
         num: Num::ZERO,
@@ -294,9 +295,12 @@ impl Rank {
     /// # Example
     ///
     /// ```
-    /// use before::Version;
-    /// let five = Version::try_from(5).unwrap().rank();
-    /// let three = Version::try_from(3).unwrap().rank();
+    /// use before::{Party, Version};
+    /// let mut five = Version::new();
+    /// Party::seed().ticks(&mut five, 5u8);
+    /// let mut three = Version::new();
+    /// Party::seed().ticks(&mut three, 3u8);
+    /// let (five, three) = (five.rank(), three.rank());
     /// assert_eq!(five.checked_sub(&three).unwrap().to_string(), "2");
     /// assert!(three.checked_sub(&five).is_none()); // 3 - 5 has no nonnegative value
     /// ```
@@ -354,9 +358,12 @@ impl Rank {
     /// # Example
     ///
     /// ```
-    /// use before::{Rank, Version};
-    /// let five = Version::try_from(5).unwrap().rank();
-    /// let three = Version::try_from(3).unwrap().rank();
+    /// use before::{Party, Rank, Version};
+    /// let mut five = Version::new();
+    /// Party::seed().ticks(&mut five, 5u8);
+    /// let mut three = Version::new();
+    /// Party::seed().ticks(&mut three, 3u8);
+    /// let (five, three) = (five.rank(), three.rank());
     /// assert_eq!(five.saturating_sub(&three).to_string(), "2");
     /// assert_eq!(three.saturating_sub(&five), Rank::ZERO); // 3 - 5 floors at zero
     /// ```
@@ -395,9 +402,11 @@ impl Rank {
     /// # Example
     ///
     /// ```
-    /// use before::{Rank, Version};
-    /// let half: Version = "(0, 1, 0)".parse().unwrap();
-    /// let one = Version::try_from(1).unwrap();
+    /// use before::{Clock, Rank};
+    /// let mut half_clock = Clock::seed();
+    /// let _other_half = half_clock.fork();
+    /// let half = half_clock.tick().clone();
+    /// let one = Clock::seed().tick().clone();
     /// let (ka, kb) = (half.rank().encode(), one.rank().encode());
     /// assert!(ka < kb); // byte order is rank order: 1/2 < 1
     /// assert_eq!(Rank::decode(&ka[..]).unwrap(), half.rank());
@@ -429,8 +438,10 @@ impl Rank {
     /// # Example
     ///
     /// ```
-    /// use before::Version;
-    /// let rank = Version::try_from(5).unwrap().rank();
+    /// use before::{Party, Version};
+    /// let mut version = Version::new();
+    /// Party::seed().ticks(&mut version, 5u8);
+    /// let rank = version.rank();
     /// let mut buf = Vec::new();
     /// rank.encode_to(&mut buf).unwrap();
     /// assert_eq!(buf, rank.encode());
@@ -472,8 +483,10 @@ impl Rank {
     /// # Example
     ///
     /// ```
-    /// use before::{error::Decode, Rank, Version};
-    /// let key = Version::try_from(5).unwrap().rank().encode();
+    /// use before::{error::Decode, Party, Rank, Version};
+    /// let mut version = Version::new();
+    /// Party::seed().ticks(&mut version, 5u8);
+    /// let key = version.rank().encode();
     /// assert_eq!(Rank::decode(&key[..]).unwrap().to_string(), "5");
     /// // A trailing zero byte is not the minimal packing: rejected.
     /// let padded = [key.clone(), vec![0]].concat();
@@ -494,10 +507,10 @@ impl Rank {
 
     /// The rank's value content in bits: `bits(num) + exp`.
     ///
-    /// The meter denominator of record for `Rank` operands, which have no
-    /// packed encoding to charge against: the numerator's bit width plus the
+    /// The meter denominator for `Rank` operands, which have no byte encoding:
+    /// the numerator's bit width plus the
     /// exponent bounds the information the value carries, and every public
-    /// construction path emits ranks whose content is linear in the packed bits
+    /// construction path emits ranks whose content is linear in the encoded bits
     /// it read, so a cost linear in this quantity is linear in wire terms too.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn content_bits(&self) -> u64 {
@@ -1100,9 +1113,13 @@ impl Default for Rank {
 /// # Example
 ///
 /// ```
-/// use before::Version;
-/// assert_eq!(Version::try_from(5).unwrap().rank().to_string(), "5");
-/// let half: Version = "(0, 1, 0)".parse().unwrap();
+/// use before::{Clock, Party, Version};
+/// let mut five = Version::new();
+/// Party::seed().ticks(&mut five, 5u8);
+/// assert_eq!(five.rank().to_string(), "5");
+/// let mut half_clock = Clock::seed();
+/// let _other_half = half_clock.fork();
+/// let half = half_clock.tick().clone();
 /// assert_eq!(half.rank().to_string(), "1/2");
 /// ```
 impl Display for Rank {

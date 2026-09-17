@@ -1,7 +1,7 @@
 //! The region difference `self \ other`, as a boolean-skyline sweep with
 //! covered-block early exits.
 //!
-//! Under the packed coding an id *is* a boolean skyline: a dyadic tiling of the
+//! Under the encoded coding an id *is* a boolean skyline: a dyadic tiling of the
 //! unit interval into owned (`1`) and unowned (`0`) plateaus, listed left to
 //! right in preorder, with an absent child standing for an unowned plateau that
 //! occupies no bits. Region difference is pointwise `a ∧ ¬b` over that
@@ -226,7 +226,7 @@ enum Enter {
     Absent,
 }
 
-/// A cursor at the current item of one packed id, read as a boolean
+/// A cursor at the current item of one party, read as a boolean
 /// skyline.
 ///
 /// The id-side sibling of the event sweep's leaf cursor: the tag stream is

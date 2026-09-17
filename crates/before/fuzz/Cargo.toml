@@ -6,7 +6,6 @@
 #   cargo +nightly fuzz run fuzz_decode_differential -- -max_total_time=20
 #   cargo +nightly fuzz run fuzz_decode_ops -- -max_total_time=20
 #   cargo +nightly fuzz run fuzz_laws -- -max_total_time=20
-#   cargo +nightly fuzz run fuzz_parse -- -max_total_time=20
 [workspace]
 
 [package]
@@ -82,16 +81,6 @@ bench = false
 [[bin]]
 name = "fuzz_laws"
 path = "fuzz_targets/fuzz_laws.rs"
-test = false
-doc = false
-bench = false
-
-# Text-parse target: feed arbitrary UTF-8 to every public `FromStr` (the paper-notation
-# parsers and the decimal tick count); an accepted value's display must re-parse to the
-# same value.
-[[bin]]
-name = "fuzz_parse"
-path = "fuzz_targets/fuzz_parse.rs"
 test = false
 doc = false
 bench = false

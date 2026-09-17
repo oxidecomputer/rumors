@@ -16,7 +16,7 @@ use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
 };
 use crate::testing::bridge::from_oracle_version;
-use crate::testing::bridge::{packed_bits_of, to_oracle_version};
+use crate::testing::bridge::{encoded_bits_of, to_oracle_version};
 use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::{generators, optrace};
 use crate::version::skyline;
@@ -39,21 +39,21 @@ const JOIN_MEET_BOUNDARY_SLACK_BITS: u64 = 4;
 /// Assert the join/meet 1-Lipschitz coding pin on one operand pair,
 /// under every emitter of record.
 ///
-/// The statement the board's input denomination of the packed-output mutators
+/// The statement the board's input denomination of the encoded-output mutators
 /// rests on: the output's coded size is at most the inputs' plus O(1) bits per
 /// boundary — boundaries (leaves) contained in the union of the inputs', and
 /// total Tier 2 bits within [`JOIN_MEET_BOUNDARY_SLACK_BITS`] per input leaf of
 /// the inputs' sum.
 fn check_join_meet_lipschitz(a: &Version, b: &Version) {
-    let sa = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let sa = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(a),
     )));
-    let sb = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let sb = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(b),
     )));
     for (name, emit) in EMITTERS {
         let out = emit(a, b);
-        let so = tier2_size(crate::codec::built_view(&packed_bits_of(
+        let so = tier2_size(crate::codec::built_view(&encoded_bits_of(
             &to_oracle_version(&out),
         )));
         assert!(
@@ -84,7 +84,7 @@ fn check_join_meet_lipschitz(a: &Version, b: &Version) {
 #[test]
 fn empty_version_is_two_bits() {
     let v = Version::new();
-    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let size = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(&v),
     )));
     assert_eq!(
@@ -101,12 +101,12 @@ fn empty_version_is_two_bits() {
 }
 
 /// A single ticked leaf (value 1) is one topology bit plus `gamma(1) = 3`, 4
-/// bits in both codings (stored Tier 2 and the packed spelling alike).
+/// bits in both codings (stored Tier 2 and the encoded spelling alike).
 #[test]
 fn single_small_leaf_matches_current_size() {
     let mut v = Version::new();
     v.tick(&Party::seed());
-    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let size = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(&v),
     )));
     assert_eq!(size.total_bits, 4);
@@ -115,24 +115,24 @@ fn single_small_leaf_matches_current_size() {
 }
 
 /// A single huge leaf `2^b - 1` is one topology bit plus `gamma(2^b - 1) = 2b +
-/// 1`: Tier 2 equals the min-lifted packed spelling's `2b + 2` bits exactly, at
+/// 1`: Tier 2 equals the min-lifted encoded spelling's `2b + 2` bits exactly, at
 /// a magnitude wide enough to spill machine-word arithmetic.
 #[test]
 fn single_big_leaf_matches_current_size() {
     for b in [7, 200] {
-        let packed = hugeleaf(b);
-        let size = tier2_size(packed.as_bits());
+        let encoded = hugeleaf(b);
+        let size = tier2_size(encoded.as_bits());
         assert_eq!(size.total_bits as usize, 2 * b + 2);
         assert_eq!((size.nodes, size.leaves), (1, 1));
         assert_eq!(size.first_leaf_bits as usize, 2 * b + 1);
-        assert_eq!(size.total_bits, packed.version().encoded_bits());
+        assert_eq!(size.total_bits, encoded.version().encoded_bits());
     }
 }
 
 /// One fork `(1, 0, 2)` sizes to 11 Tier 2 bits, hand-derived.
 ///
 /// Leaves are 1 and 3 absolute: 3 topology bits + `gamma(1) = 3` + `zigzag(+2)
-/// = 4 -> gamma(4) = 5`, against the min-lifted packed spelling's 10 (`3 +
+/// = 4 -> gamma(4) = 5`, against the min-lifted encoded spelling's 10 (`3 +
 /// gamma(1) + gamma(0) + gamma(2) = 3 + 3 + 1 + 3`).
 #[test]
 fn one_fork_matches_hand_computation() {
@@ -141,9 +141,9 @@ fn one_fork_matches_hand_computation() {
         oracle::Version::leaf(0u64),
         oracle::Version::leaf(2u64),
     ));
-    assert_eq!(packed_bits_of(&to_oracle_version(&v)).len(), 10);
+    assert_eq!(encoded_bits_of(&to_oracle_version(&v)).len(), 10);
     assert_eq!(v.encoded_bits(), 11, "the stored coding is Tier 2 itself");
-    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let size = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(&v),
     )));
     assert_eq!(
@@ -160,12 +160,12 @@ fn one_fork_matches_hand_computation() {
 
 /// The dense spine `S(2)` has preorder leaves 0, 1, 0: Tier 2 is 5 topology
 /// bits + `gamma(0) = 1` + `zigzag(+1) = 2 -> 3` + `zigzag(-1) = 1 -> 3`, 12
-/// bits, exactly the min-lifted packed spelling’s `4d + 4 = 12`.
+/// bits, exactly the min-lifted encoded spelling’s `4d + 4 = 12`.
 #[test]
 fn dense_spine_matches_hand_computation() {
-    let packed = crate::meter::dense(2);
-    assert_eq!(packed.bits, 12);
-    let size = tier2_size(packed.as_bits());
+    let encoded = crate::meter::dense(2);
+    assert_eq!(encoded.bits, 12);
+    let size = tier2_size(encoded.as_bits());
     assert_eq!(
         size,
         Tier2Size {
@@ -176,14 +176,14 @@ fn dense_spine_matches_hand_computation() {
             delta_bits: 6,
         }
     );
-    assert_eq!(size.total_bits, packed.version().encoded_bits());
+    assert_eq!(size.total_bits, encoded.version().encoded_bits());
 }
 
 /// The boundary comb's Tier 2 size is exactly `10n + 4k + 2` bits against the
-/// min-lifted packed spelling's `n(2k + 10) + 2`: Tier 2 wire bits do not bound
+/// min-lifted encoded spelling's `n(2k + 10) + 2`: Tier 2 wire bits do not bound
 /// value content.
 ///
-/// `cliff_comb(k, n)` codes each `±1` leaf delta in 3 bits where the packed
+/// `cliff_comb(k, n)` codes each `±1` leaf delta in 3 bits where the encoded
 /// spelling's form stores a fresh `gamma(2^k − 1)` per tooth, so the
 /// current/Tier 2 size ratio grows without bound in `k` — the `≤ 2×`
 /// compactness envelope holds in the useless direction while the comb's `2n +
@@ -196,8 +196,8 @@ fn dense_spine_matches_hand_computation() {
 #[test]
 fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
     for (k, n) in [(3, 2), (64, 64), (200, 50), (1024, 1024), (4096, 4096)] {
-        let packed = cliff_comb(k, n);
-        let size = tier2_size(packed.as_bits());
+        let encoded = cliff_comb(k, n);
+        let size = tier2_size(encoded.as_bits());
         assert_eq!(
             size,
             Tier2Size {
@@ -208,7 +208,7 @@ fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
                 delta_bits: (6 * n + 2 * k) as u64,
             }
         );
-        assert_eq!(packed.bits, n * (2 * k + 10) + 2);
+        assert_eq!(encoded.bits, n * (2 * k + 10) + 2);
     }
     for (n, ratio_floor) in [(64, 9.83), (1024, 146.97), (4096, 585.83)] {
         let current = (n * (2 * n + 10) + 2) as f64;
@@ -345,13 +345,13 @@ fn adversarial_crosses_hold_the_lipschitz_pin() {
 /// loosen.
 const JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS: u64 = 2;
 
-/// The emitters of record, named: join and meet, packed-form and
+/// The emitters of record, named: join and meet, encoded and
 /// skyline emission kernel.
 ///
 /// The pins are statements about an emitter's actual output, so every
 /// check takes the emitter as a parameter and the suites below iterate
 /// this table — the skyline kernel re-instantiates each pin the
-/// packed-form operators established.
+/// encoded operators established.
 #[allow(clippy::type_complexity)]
 const EMITTERS: [(&str, fn(&Version, &Version) -> Version); 4] = [
     ("operator join", operator_join),
@@ -386,7 +386,7 @@ fn skyline_join(a: &Version, b: &Version) -> Version {
         skyline::decode(crate::codec::built_view(&out)).expect("an emitted join is canonical");
     assert_eq!(
         out.len(),
-        tier2_size(crate::codec::built_view(&packed_bits_of(
+        tier2_size(crate::codec::built_view(&encoded_bits_of(
             &to_oracle_version(&decoded)
         )))
         .total_bits,
@@ -405,7 +405,7 @@ fn skyline_meet(a: &Version, b: &Version) -> Version {
         skyline::decode(crate::codec::built_view(&out)).expect("an emitted meet is canonical");
     assert_eq!(
         out.len(),
-        tier2_size(crate::codec::built_view(&packed_bits_of(
+        tier2_size(crate::codec::built_view(&encoded_bits_of(
             &to_oracle_version(&decoded)
         )))
         .total_bits,
@@ -425,13 +425,13 @@ fn check_subadditive(
     a: &Version,
     b: &Version,
 ) {
-    let sa = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let sa = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(a),
     )));
-    let sb = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let sb = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(b),
     )));
-    let so = tier2_size(crate::codec::built_view(&packed_bits_of(
+    let so = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(&emit(a, b)),
     )));
     assert!(
@@ -497,16 +497,16 @@ fn magnitude_bits() -> impl Strategy<Value = usize> {
 fn empty_pair_is_the_subadditivity_equality_case() {
     let (a, b) = (Version::new(), Version::new());
     for (name, emit) in EMITTERS {
-        let so = tier2_size(crate::codec::built_view(&packed_bits_of(
+        let so = tier2_size(crate::codec::built_view(&encoded_bits_of(
             &to_oracle_version(&emit(&a, &b)),
         )));
         assert_eq!(
             so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS,
-            tier2_size(crate::codec::built_view(&packed_bits_of(
+            tier2_size(crate::codec::built_view(&encoded_bits_of(
                 &to_oracle_version(&a)
             )))
             .total_bits
-                + tier2_size(crate::codec::built_view(&packed_bits_of(
+                + tier2_size(crate::codec::built_view(&encoded_bits_of(
                     &to_oracle_version(&b)
                 )))
                 .total_bits,
@@ -718,8 +718,8 @@ fn cross_boundary_equal_leaves_are_smaller_in_tier2() {
         ),
         oracle::Version::leaf(1u64),
     ));
-    assert_eq!(packed_bits_of(&to_oracle_version(&v)).len(), 14);
-    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+    assert_eq!(encoded_bits_of(&to_oracle_version(&v)).len(), 14);
+    let size = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(&v),
     )));
     assert_eq!(

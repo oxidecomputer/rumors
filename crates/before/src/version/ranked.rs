@@ -58,18 +58,16 @@ use crate::error::Decode;
 /// # Example
 ///
 /// ```
-/// use before::{Ranked, Version};
-/// let half: Version = "(0, 1, 0)".parse().unwrap();
-/// let one = Version::try_from(1).unwrap();
+/// use before::{Clock, Ranked};
+/// let mut half_clock = Clock::seed();
+/// let _other_half = half_clock.fork();
+/// let half = half_clock.tick().clone();
+/// let one = Clock::seed().tick().clone();
 /// // Borrowing views: no fold has run yet.
 /// let (rh, ro) = (Ranked::from(&half), Ranked::from(&one));
 /// assert!(rh < ro); // one fused co-walk, no Rank built
 /// // The rank question is explicit: materialize, then compare ranks.
 /// assert!(rh.rank() < one.rank());
-/// // Equal rank, distinct concurrent versions: ordered, never equal.
-/// let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
-/// assert_eq!(half.rank(), peaks.rank());
-/// assert_ne!(Ranked::from(&half), Ranked::from(&peaks));
 /// // The composite key sorts exactly as the views compare.
 /// let (kh, ko) = (rh.encode(), ro.encode());
 /// assert!(kh < ko);
@@ -108,8 +106,9 @@ impl<'a> Ranked<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Ranked, Version};
-    /// let v = Version::try_from(3).unwrap();
+    /// use before::{Party, Ranked, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().ticks(&mut v, 3u8);
     /// assert_eq!(Ranked::from(&v).rank(), v.rank());
     /// ```
     pub fn rank(&self) -> Rank {
@@ -126,9 +125,10 @@ impl<'a> Ranked<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Ranked, Version};
+    /// use before::{Party, Ranked, Version};
     /// let owned: Ranked<'static> = {
-    ///     let v = Version::try_from(2).unwrap();
+    ///     let mut v = Version::new();
+    ///     Party::seed().ticks(&mut v, 2u8);
     ///     Ranked::from(&v).into_owned() // outlives the borrow
     /// };
     /// assert_eq!(owned.rank().to_string(), "2");
@@ -159,8 +159,9 @@ impl<'a> Ranked<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Ranked, Version};
-    /// let v = Version::try_from(5).unwrap();
+    /// use before::{Party, Ranked, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().ticks(&mut v, 5u8);
     /// let key = Ranked::from(&v).encode();
     /// // The composite is the rank stream, then the version's bytes.
     /// let mut expect = v.rank().encode();
@@ -189,8 +190,9 @@ impl<'a> Ranked<'a> {
     /// # Example
     ///
     /// ```
-    /// use before::{Ranked, Version};
-    /// let v = Version::try_from(5).unwrap();
+    /// use before::{Party, Ranked, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().ticks(&mut v, 5u8);
     /// let mut buf = Vec::new();
     /// Ranked::from(&v).encode_to(&mut buf).unwrap();
     /// assert_eq!(buf, Ranked::from(&v).encode());
@@ -216,13 +218,16 @@ impl<'a> Ranked<'a> {
         doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
     )]
     ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
+    /// Typical inputs run far below the worst case; `M` is the complexity of
+    /// unbounded-integer multiplication (about `O(n log n)` in this
+    /// implementation).
     ///
     /// # Example
     ///
     /// ```
-    /// use before::{Ranked, Version};
-    /// let v = Version::try_from(5).unwrap();
+    /// use before::{Party, Ranked, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().ticks(&mut v, 5u8);
     /// assert_eq!(Ranked::from(&v).encode_rank(), v.rank().encode());
     /// ```
     pub fn encode_rank(&self) -> Vec<u8> {
@@ -241,13 +246,16 @@ impl<'a> Ranked<'a> {
         doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
     )]
     ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
+    /// Typical inputs run far below the worst case; `M` is the complexity of
+    /// unbounded-integer multiplication (about `O(n log n)` in this
+    /// implementation).
     ///
     /// # Example
     ///
     /// ```
-    /// use before::{Ranked, Version};
-    /// let v = Version::try_from(5).unwrap();
+    /// use before::{Party, Ranked, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().ticks(&mut v, 5u8);
     /// let mut buf = Vec::new();
     /// Ranked::from(&v).encode_rank_to(&mut buf).unwrap();
     /// assert_eq!(buf, Ranked::from(&v).encode_rank());
@@ -275,18 +283,23 @@ impl<'a> Ranked<'a> {
         doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
     )]
     ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
+    /// Typical inputs run far below the worst case; `M` is the complexity of
+    /// unbounded-integer multiplication (about `O(n log n)` in this
+    /// implementation).
     ///
     /// # Example
     ///
     /// ```
-    /// use before::{error::Decode, Ranked, Version};
-    /// let v = Version::try_from(5).unwrap();
+    /// use before::{error::Decode, Party, Ranked, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().ticks(&mut v, 5u8);
     /// let key = Ranked::from(&v).encode();
     /// let decoded = Ranked::decode(&key[..]).unwrap();
     /// assert_eq!(decoded.version(), &v);
     /// // A rank prefix the version does not measure is non-canonical.
-    /// let mut forged = Version::try_from(6).unwrap().rank().encode();
+    /// let mut other = Version::new();
+    /// Party::seed().ticks(&mut other, 6u8);
+    /// let mut forged = other.rank().encode();
     /// forged.extend_from_slice(v.as_bytes());
     /// assert!(matches!(
     ///     Ranked::decode(&forged[..]),
@@ -353,7 +366,7 @@ impl core::fmt::Debug for Ranked<'_> {
 /// The total comparison: the fused rank co-sweep, then the version-byte
 /// tiebreak on rank ties.
 ///
-/// The co-sweep is one signed walk over both packed streams, no `Rank`
+/// The co-sweep is one signed walk over both encoded streams, no `Rank`
 /// materialized; the tiebreak runs only on rank ties, where the two sides are
 /// never causally ordered, so it is causally free.
 fn total_cmp(a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {

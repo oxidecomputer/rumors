@@ -11,7 +11,7 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
-use crate::{error::Parse, Clock, Party, Version};
+use crate::{Clock, Party, Version};
 
 /// `join_all` matches sequential oracle joins for disjoint and overlapping
 /// clocks.
@@ -140,7 +140,7 @@ proptest! {
     ///
     /// Pairwise disjointness means `join`/`sync` never error in correct usage.
     /// Agreement is by structural lowering — `to_oracle_clock` rebuilds the
-    /// oracle's tree shape from the impl's internal packed bits — not via the
+    /// oracle's tree shape from the impl's internal encoded bits — not via the
     /// byte codec, which the per-trace round-trip below exercises separately.
     #[test]
     fn master_differential(ops in world_strategy()) {
@@ -246,9 +246,9 @@ proptest! {
     /// normalizing `join` once left stale bits in the stored buffer, so that
     /// `as_bytes` (the borsh wire form) diverged from the canonical `encode`.
     ///
-    /// For each clock reached by the trace this asserts the three packed views
-    /// coincide — `as_bytes == encode`, and `decode` of *either* recovers the
-    /// value — and the textual [`Display`]/[`FromStr`] view round-trips.
+    /// For each clock reached by the trace this asserts the encoded views
+    /// coincide — `as_bytes == encode`, and `decode` of either recovers the
+    /// value.
     #[test]
     fn encoding_views_agree_over_impl_history(ops in world_strategy()) {
         let mut imp = vec![Clock::seed()];
@@ -258,7 +258,7 @@ proptest! {
         for c in &imp {
             let (p, v) = (c.party(), c.version());
 
-            // The raw stored bytes are canonical: identical to the re-packed
+            // The raw stored bytes are canonical: identical to the re-encoded
             // encoding, and decodable as either.
             let (pe, ve) = (p.encode(), v.encode());
             prop_assert_eq!(p.as_bytes(), pe.as_slice());
@@ -269,16 +269,9 @@ proptest! {
             prop_assert_eq!(&Version::decode(v.as_bytes()).unwrap(), v);
             prop_assert_eq!(&Version::decode(&ve[..]).unwrap(), v);
 
-            // The textual view round-trips for both components and the pair.
-            prop_assert_eq!(&p.to_string().parse::<Party>().unwrap(), p);
-            prop_assert_eq!(&v.to_string().parse::<Version>().unwrap(), v);
-
             let back = Clock::decode(&c.encode()[..]).unwrap();
             prop_assert_eq!(back.party(), p);
             prop_assert_eq!(back.version(), v);
-            let parsed: Clock = c.to_string().parse().unwrap();
-            prop_assert_eq!(parsed.party(), p);
-            prop_assert_eq!(parsed.version(), v);
         }
     }
 }
@@ -597,7 +590,7 @@ fn deep_tree_stack_safety() {
 /// Driven here: rank, distance, lag, `Ranked` ordering, the `Rank` wire
 /// round-trip at a 100k exponent, span hulls (pair and n-ary), `Span`
 /// validation, decode, placement, and dominance, the span algebra (all four
-/// operators, the n-ary door, the quotient view), query membership and
+/// operators, multi-clock joins, the quotient view), query membership and
 /// coverage, and projection through a deep id.
 ///
 /// `deep_tree_stack_safety` above proves the clock ops at this depth; this is
@@ -645,9 +638,9 @@ fn deep_tree_query_and_causal_stack_safety() {
     assert_eq!(hull.hi(), &late);
 
     // The span algebra at depth: each operator's legs run the join and meet
-    // kernels over the deep endpoints, the n-ary door drives the balanced
+    // kernels over the deep endpoints, the multi-clock join drives the balanced
     // fold's combine arms, and the quotient view runs the masked co-walks —
-    // every constituent iterative, pinned here at the door.
+    // every constituent iterative, pinned here at the entry point.
     let head = Span::new(&early, &early).expect("coincident");
     assert_eq!(&head + &span, span);
     assert_eq!(&head * &span, Some(head.clone()));
@@ -669,36 +662,16 @@ fn deep_tree_query_and_causal_stack_safety() {
     assert_eq!(own.to_version(), late);
 }
 
-/// The text mirror and the tick-floor fold survive depth 100k: a deep clock
-/// renders to paper notation and parses back equal, and `min_ticks` runs its
-/// epoch-ledger/min-web walk over the deep event tree.
-///
-/// `codec::tests::deep_id_text_roundtrip` proves the *id* text parser at this
-/// depth; the event tree's text walk is a separate parser (its parked-stack
-/// frames live in `version::skyline::text`), and nothing else drives it or
-/// `min_ticks` past proptest depths. Both are iterative walks on explicit heap
-/// stacks, exercised here at a depth no program stack could carry.
+/// `min_ticks` handles a version 100,000 levels deep without using the call
+/// stack.
 #[test]
-fn deep_tree_text_and_min_ticks_stack_safety() {
+fn deep_tree_min_ticks_stack_safety() {
     const DEPTH: usize = 100_000;
     let party = deep_left_spine_party(DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
     clock.tick();
     let version = clock.version().clone();
 
-    // The version text mirror: render the deep event tree, parse it
-    // back, and land on the same version.
-    let text = version.to_string();
-    let parsed: Version = text.parse().expect("a deep rendered version parses");
-    assert_eq!(parsed, version);
-
-    // The clock text mirror carries both deep components at once.
-    let text = clock.to_string();
-    let parsed: Clock = text.parse().expect("a deep rendered clock parses");
-    assert_eq!(parsed.version(), &version);
-
-    // The tick floor: one tick raised one leaf, so the minimal
-    // construction is that single tick.
     assert_eq!(version.min_ticks(), crate::Ticks::from(1u64));
 }
 
@@ -735,7 +708,7 @@ proptest! {
 // `Clock::encode` lays the id directly before the event, so the event begins at
 // a generally non-byte-aligned bit offset. A `decode` that extracts the event
 // as an offset slice of the clock's buffer (rather than copying it down to
-// bit 0) leaves the recovered `Version`'s packed stream non-canonical:
+// bit 0) leaves the recovered `Version`'s encoded stream non-canonical:
 // `version().encode()` mis-packs it and `Version::decode` then disagrees.
 // Whole-clock round-trips hide this, because `Clock::encode` re-aligns each
 // component as it copies it in; the bug only shows when a component
@@ -849,106 +822,6 @@ fn worked_example() {
         matches!(to_oracle_version(whole.version()), oracle::Version::Leaf(_)),
         "post-join event should collapse to a single integer, got {:?}",
         whole.version()
-    );
-}
-
-// ───────────────────── Display / FromStr / TryFrom (paper notation) ─────────────────────
-
-// `FromStr ∘ Display == id` is one law per type
-// (version_/party_/clock_text_roundtrip in `crate::laws`), driven on the
-// three law populations; the *rendering* pin — Display is the paper's
-// notation exactly — stays below.
-
-/// Display renders the paper's notation exactly (id `0/1/(l, r)`, event `n/(n,
-/// e1, e2)`, stamp `(i, e)`), matching the paper's §5 examples.
-#[test]
-fn display_matches_paper_notation() {
-    assert_eq!(Party::seed().to_string(), "1");
-    assert_eq!(Version::new().to_string(), "0");
-    assert_eq!(Clock::seed().to_string(), "(1, 0)");
-
-    let id: Party = "((0, (1, 0)), (1, 0))".parse().unwrap();
-    assert_eq!(id.to_string(), "((0, (1, 0)), (1, 0))");
-
-    let ev: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
-    assert_eq!(ev.to_string(), "(1, 2, (0, (1, 0, 2), 0))");
-
-    // Arbitrary-precision bases round-trip: a base past `u64::MAX` (2^64)
-    // parses, re-renders, and decodes unchanged — there is no integer-width
-    // cap.
-    let wide: Version = "(18446744073709551616, 0, 1)".parse().unwrap();
-    assert_eq!(wide.to_string(), "(18446744073709551616, 0, 1)");
-    assert_eq!(Version::decode(&wide.encode()[..]).unwrap(), wide);
-
-    // Debug is the same as Display.
-    assert_eq!(format!("{id:?}"), "((0, (1, 0)), (1, 0))");
-    assert_eq!(format!("{ev:?}"), "(1, 2, (0, (1, 0, 2), 0))");
-    assert_eq!(
-        format!("{:?}", Clock::seed()),
-        "Clock { party: 1, version: 0 }"
-    );
-}
-
-/// `TryFrom` literals build the same values as the equivalent paper-notation
-/// strings, grounding out in the `bool`/`u8`/`u64` base cases.
-#[test]
-fn tryfrom_literals_build_values() {
-    let p = Party::try_from((1, (0, 1))).unwrap();
-    assert_eq!(p, "(1, (0, 1))".parse::<Party>().unwrap());
-
-    let p = Party::try_from((true, false)).unwrap();
-    assert_eq!(p, "(1, 0)".parse::<Party>().unwrap());
-
-    let v = Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64))).unwrap();
-    assert_eq!(v, "(1, 0, (2, 0, 1))".parse::<Version>().unwrap());
-
-    let c = Clock::try_from(((1u8, 0u8), 5u64)).unwrap();
-    assert_eq!(c.encode(), "((1, 0), 5)".parse::<Clock>().unwrap().encode());
-
-    // Base cases. `1` is a valid party; `0` is anonymous on its own but fine as
-    // a sub-tree (see the `(0, 1)` cases above).
-    assert_eq!(Party::try_from(1u8).unwrap().to_string(), "1");
-    assert_eq!(Party::try_from(0u8), Err(Parse::Anonymous));
-    assert_eq!(Party::try_from(false), Err(Parse::Anonymous));
-    assert_eq!(Version::try_from(7u64).unwrap().to_string(), "7");
-}
-
-/// `FromStr` and `TryFrom` reject both malformed input and
-/// well-formed-but-denormal input, mirroring `decode`'s strictness.
-#[test]
-fn fromstr_tryfrom_reject_denormal_and_syntax() {
-    // Denormal (well-formed but not canonical).
-    assert_eq!("(1, 1)".parse::<Party>(), Err(Parse::NotCanonical));
-    assert_eq!(Party::try_from((1u8, 1u8)), Err(Parse::NotCanonical));
-    assert_eq!("(5, 3, 3)".parse::<Version>(), Err(Parse::NotCanonical));
-    assert_eq!("(1, 2, 3)".parse::<Version>(), Err(Parse::NotCanonical));
-    assert_eq!(
-        Version::try_from((1u64, 2u64, 3u64)),
-        Err(Parse::NotCanonical)
-    );
-
-    // Syntax (malformed).
-    assert_eq!("(1, 2".parse::<Party>(), Err(Parse::Syntax)); // unbalanced
-    assert_eq!("2".parse::<Party>(), Err(Parse::Syntax)); // id leaves are only 0/1
-    assert_eq!(Party::try_from(2u8), Err(Parse::Syntax));
-    assert_eq!("".parse::<Version>(), Err(Parse::Syntax)); // empty
-    assert_eq!("(1, 0)".parse::<Version>(), Err(Parse::Syntax)); // event needs 3 parts
-    assert_eq!("(café, 0)".parse::<Clock>().err(), Some(Parse::Syntax)); // non-ASCII byte
-
-    // Anonymous identity `0` is rejected as a standalone party (but allowed as
-    // a sub-tree, exercised in `tryfrom_literals_build_values`).
-    assert_eq!("0".parse::<Party>(), Err(Parse::Anonymous));
-    assert_eq!(Party::try_from(0u8), Err(Parse::Anonymous));
-    assert_eq!("(0, 1)".parse::<Party>().unwrap().to_string(), "(0, 1)"); // 0 as sub-tree: ok
-
-    // Clock has no `PartialEq`, so compare the error directly.
-    assert_eq!("(0, 5)".parse::<Clock>().err(), Some(Parse::Anonymous)); // anonymous party
-    assert_eq!(Clock::try_from((0u8, 5u64)).err(), Some(Parse::Anonymous));
-
-    // Whitespace is tolerated.
-    assert_eq!(
-        " ( 1 , ( 0 , 1 ) ) ".parse::<Party>().unwrap().to_string(),
-        "(1, (0, 1))"
     );
 }
 
@@ -1254,7 +1127,11 @@ fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
             "version bits after round {k}"
         );
     }
-    let expected: Version = "(0, 0, 512)".parse().expect("test literals parse");
+    let expected = from_oracle_version(&crate::oracle::Version::node(
+        0u8,
+        crate::oracle::Version::leaf(0u8),
+        crate::oracle::Version::leaf(512u64),
+    ));
     assert_eq!(
         c.version(),
         &expected,

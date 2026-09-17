@@ -48,7 +48,7 @@ fn bench(name: &str, iters: u32, mut f: impl FnMut() -> usize) {
 }
 
 /// A minimal word-buffered MSB-first bit writer: the staging discipline
-/// the crate's own `PackedBuilder` ships, reproduced standalone so the
+/// the crate's own `EncodingBuilder` ships, reproduced standalone so the
 /// comparison needs no crate internals.
 struct WordWriter {
     words: Vec<u64>,

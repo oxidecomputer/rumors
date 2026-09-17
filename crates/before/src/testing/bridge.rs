@@ -1,15 +1,14 @@
 //! The oracle⇄impl bridge for differential structural agreement.
 //!
 //! [`from_oracle_party`]/[`from_oracle_version`] build an impl value by
-//! emitting its canonical stored bits from an oracle tree directly (NOT via
-//! the public codec), keeping algorithm correctness decoupled from codec
+//! emitting its canonical stored bits from an oracle tree directly (NOT via the
+//! public codec), keeping algorithm correctness decoupled from codec
 //! correctness. The inverse `to_oracle_*` rebuild the oracle's tree shape from
-//! the impl's *internal* stored bits — the packed id bits, the version's
-//! skyline stream — so a differential test can compare structures with `==`
-//! without round-tripping the byte codec (which is exercised separately).
-//! Both forms are normalized, so structural `==` ⇔ semantic equality.
-//! Recursive over bounded test trees (the impl's own traversals are
-//! iterative).
+//! the impl's *internal* stored bits — the party bits, the version's skyline
+//! stream — so a differential test can compare structures with `==` without
+//! round-tripping the byte codec (which is exercised separately). Both forms
+//! are normalized, so structural `==` ⇔ semantic equality. Recursive over
+//! bounded test trees (the impl's own traversals are iterative).
 
 use std::sync::Arc;
 
@@ -59,9 +58,9 @@ fn emit_ev(out: &mut BitsBuf, t: &oracle::Version) {
     }
 }
 
-/// The min-lifted packed preorder stream of an oracle tree: the
+/// The min-lifted preorder stream of an oracle tree: the
 /// construction language the generators and the skyline transcoder share.
-pub(crate) fn packed_bits_of(t: &oracle::Version) -> BitsBuf {
+pub(crate) fn encoded_bits_of(t: &oracle::Version) -> BitsBuf {
     let mut bits = BitsBuf::new();
     emit_ev(&mut bits, t);
     bits
@@ -78,7 +77,7 @@ pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
 /// Build the impl `Version` whose canonical bits encode `t`.
 ///
 /// Recursive over a bounded oracle tree (test-only; the impl's own
-/// traversals are iterative): emits the min-lifted packed preorder stream,
+/// traversals are iterative): emits the min-lifted preorder stream,
 /// then transcodes it into the skyline coding the version stores.
 pub(crate) fn from_oracle_version(t: &oracle::Version) -> Version {
     let mut bits = BitsBuf::new();
@@ -97,13 +96,13 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 // ───────────────────────────── impl → oracle ─────────────────────────────
 //
 // Structural lowering for differential agreement: rebuild the oracle's tree
-// shape from the impl's *internal* stored bits (the packed id bits; the
-// version's skyline stream), then compare with `==`. This is the inverse of
+// shape from the impl's *internal* stored bits (the party bits; the version's
+// skyline stream), then compare with `==`. This is the inverse of
 // `from_oracle_*`. It walks the stored bits directly — the impl's at-rest
 // storage — rather than round-tripping the public `encode`/`decode`, so the
 // master harness checks algorithm correctness without sharing a failure mode
-// with the byte codec (which is exercised separately). Recursive over a
-// bounded tree (test-only; the impl's own traversals are iterative). Both
+// with the byte codec (which is exercised separately). Recursive over a bounded
+// tree (test-only; the impl's own traversals are iterative). Both
 // forms are normalized, so structural `==` ⇔ semantic equality.
 
 fn read_id(bits: codec::BitsView<'_>, pos: u64) -> (oracle::Party, u64) {
@@ -171,7 +170,7 @@ fn read_ev(
     (oracle::Version::Leaf(value), after_n)
 }
 
-/// Lower an impl `Party` to the oracle's structural tree by reading its packed bits.
+/// Lower an impl `Party` to the oracle's structural tree by reading its encoded bits.
 pub(crate) fn to_oracle_party(p: &Party) -> oracle::Party {
     if p.as_bits().is_empty() {
         return oracle::Party::Leaf(false); // the anonymous `0` id

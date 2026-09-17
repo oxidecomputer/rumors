@@ -19,7 +19,14 @@ use proptest::prelude::*;
 use super::OwnVersion;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
-use crate::{Clock, Party, Version};
+use crate::{Clock, Party, Ticks, Version};
+
+/// Build a uniform version through the public tick operation.
+fn uniform(ticks: impl Into<Ticks>) -> Version {
+    let mut version = Version::new();
+    Party::seed().ticks(&mut version, ticks);
+    version
+}
 
 /// Equality on the view is semantic, not representational: `view == w` requires
 /// `w` to be zero outside the party's region.
@@ -70,17 +77,17 @@ fn assert_mirror_cells(w: &Version, v: &Version, p: &Party) {
     assert_eq!(
         w.partial_cmp(&view),
         w.partial_cmp(&materialized),
-        "w vs view must match w vs the materialized projection: {w} vs {v} / {p}"
+        "w vs view must match w vs the materialized projection: {w:?} vs {v:?} / {p:?}"
     );
     assert_eq!(
         view.partial_cmp(w),
         w.partial_cmp(&view).map(Ordering::reverse),
-        "the two orientations must be antisymmetric: {w} vs {v} / {p}"
+        "the two orientations must be antisymmetric: {w:?} vs {v:?} / {p:?}"
     );
     assert_eq!(
         *w == view,
         *w == materialized,
-        "equality on the view is semantic: {w} vs {v} / {p}"
+        "equality on the view is semantic: {w:?} vs {v:?} / {p:?}"
     );
 }
 
@@ -112,9 +119,9 @@ fn mirror_cells_agree_on_deep_unowned_spines() {
     let owns_left = from_oracle_party(&P::node(P::seed(), P::Leaf(false)));
     let v = deep_right_spine(24, 40);
     // Above: w carries the projection's owned plateau and more.
-    assert_mirror_cells(&Version::try_from(41u64).unwrap(), &v, &owns_left);
+    assert_mirror_cells(&uniform(41u8), &v, &owns_left);
     // Below: the projection's owned plateau exceeds w.
-    assert_mirror_cells(&Version::try_from(1u64).unwrap(), &v, &owns_left);
+    assert_mirror_cells(&uniform(1u8), &v, &owns_left);
     // Concurrent: w is live where the projection is zero and behind where it
     // is live.
     let w = from_oracle_version(&{

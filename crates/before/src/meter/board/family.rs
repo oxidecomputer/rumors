@@ -2,10 +2,10 @@
 //!
 //! The roster is the registry's ([`FamilyId::board`], the render-order filter
 //! over [`FamilyId::ALL`]); every shape is built through the registry's
-//! [`Shape`] door, and the bundle post-pass in [`FamilyData::build`] derives
-//! uniformly every slot a shape does not natively fill, so a shape reaches
-//! every operation its bundle supplies (the board module doc's product section)
-//! without naming any.
+//! [`Shape`] entry point, and the bundle post-pass in [`FamilyData::build`]
+//! derives uniformly every slot a shape does not natively fill, so a shape
+//! reaches every operation its bundle supplies (the board module doc's product
+//! section) without naming any.
 
 use crate::codec;
 use crate::meter::registry::{FamilyId, Shape};
@@ -15,43 +15,33 @@ use super::operand::value_content_bytes;
 
 // ─── family sizes at scale 1.0 ──────────────────────────────────────────────
 
-/// Dense event spine depth at scale 1.0 (packed size ~4 KiB).
+/// Dense event spine depth at scale 1.0 (encoded size ~4 KiB).
 const DENSE_BASE_DEPTH: usize = 8_000;
 
 /// Bigroot root magnitude in bits at scale 1.0.
 const BIGROOT_BASE_MAGNITUDE_BITS: usize = 8_000;
 
-/// Bigroot spine depth at scale 1.0 (packed size ~3 KiB with the magnitude).
+/// Bigroot spine depth at scale 1.0 (encoded size ~3 KiB with the magnitude).
 const BIGROOT_BASE_DEPTH: usize = 2_000;
 
-/// Hugeleaf magnitude in bits at scale 1.0 (packed size ~4 KiB).
-///
-/// Sized so the level doubling stays inside one backend decimal-conversion
-/// regime: the backend's divide-and-conquer parser switches algorithm between
-/// 16,000 and 20,000 value bits (its parse transient steps from ~1× to ~4× the
-/// value bytes there, by measurement), and a probe pair straddling that switch
-/// reads the step as a heap exponent — a 16,000-bit base fits e 1.41 on the
-/// noncanon parse cell from a flat 2 B/B constant, while this base's pair and
-/// every deeper one fit e ≤ 1.0. A two-point fit prices scaling only with both
-/// probes on one side of the backend's own threshold, and the larger base is
-/// strictly more adversarial for the shape's purpose (maximal bits per node).
+/// Hugeleaf magnitude in bits at scale 1.0 (encoded size ~4 KiB).
 const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 32_000;
 
-/// Id spine depth at scale 1.0 (packed pair ~6 KiB).
+/// Id spine depth at scale 1.0 (encoded pair ~6 KiB).
 const ID_BASE_DEPTH: usize = 12_000;
 
-/// Boundary-comb tooth magnitude (bits) and tooth count at scale 1.0 (packed
+/// Boundary-comb tooth magnitude (bits) and tooth count at scale 1.0 (encoded
 /// size ~4 KiB); one parameter drives both, mirroring the meter suite's `k = n`
 /// convention.
 ///
 /// Scaling `k` with `n` is the separating choice: it keeps the comb's absolute
-/// value content growing quadratically in the packed input, so a sweep that
+/// value content growing quadratically in the encoded input, so a sweep that
 /// materializes running leaf values in a plain big integer reads a superlinear
 /// exponent here instead of hiding a `k`-sized constant under a fixed
 /// magnitude.
 const CLIFF_BASE_SCALE: usize = 128;
 
-/// Comb-scatter tooth count at scale 1.0 (packed cross ~32 KiB).
+/// Comb-scatter tooth count at scale 1.0 (encoded cross ~32 KiB).
 ///
 /// Scale drives the tooth count (and with it the scattered party's fragment
 /// count, half the teeth); the tooth magnitude stays at
@@ -62,15 +52,15 @@ const CROSS_BASE_TEETH: usize = 128;
 /// Comb-scatter tooth magnitude in bits (fixed across scales).
 const CROSS_TOOTH_MAGNITUDE_BITS: usize = 1_000;
 
-/// Harmonic spine depth at scale 1.0 (packed size ~6 KiB, matching the
+/// Harmonic spine depth at scale 1.0 (encoded size ~6 KiB, matching the
 /// dense spine's depth).
 const HARMONIC_BASE_DEPTH: usize = 8_000;
 
 /// Scatter population at scale 1.0: balanced-forked parties, one tick
-/// each (~10 KiB of packed single-tick versions).
+/// each (~10 KiB of encoded single-tick versions).
 const SCATTER_BASE_CLOCKS: usize = 1_024;
 
-/// Nested-full-sibling depth at scale 1.0 (packed pair ~1.5 KiB).
+/// Nested-full-sibling depth at scale 1.0 (encoded pair ~1.5 KiB).
 ///
 /// Deep enough that a per-level re-scan genre reads its exponent across the
 /// level doubling, small enough that the quadratic pin stays inside the board's
@@ -79,7 +69,7 @@ const NESTED_BASE_DEPTH: usize = 1_500;
 
 /// Nested-wide depth and root-magnitude bits at scale 1.0 (equal, so the
 /// doubling scales width and depth together — the cross's cost genre is their
-/// product; packed pair ~1.5 KiB).
+/// product; encoded pair ~1.5 KiB).
 ///
 /// Small enough that even a width × depth kernel stays inside the
 /// acceptance-scale runtime budget; the red reading rides the exponent leg, not
@@ -87,22 +77,22 @@ const NESTED_BASE_DEPTH: usize = 1_500;
 const NESTED_WIDE_BASE: usize = 1_000;
 
 /// Mirror-wide depth and tail-magnitude bits at scale 1.0 (equal, as above;
-/// packed pair ~1 KiB). The memo arm's chains grow steeper than the right-full
+/// encoded pair ~1 KiB). The memo arm's chains grow steeper than the right-full
 /// arm's, so the base sits lower.
 const MIRROR_WIDE_BASE: usize = 500;
 
-/// Mirror-narrow depth at scale 1.0 (packed pair ~1.5 KiB): the nested-full
+/// Mirror-narrow depth at scale 1.0 (encoded pair ~1.5 KiB): the nested-full
 /// base, mirrored — the memo machinery at the same depth the right-full cells
 /// walk.
 const MIRROR_NARROW_BASE_DEPTH: usize = 1_500;
 
-/// Staircase depth at scale 1.0 (packed pair ~2 KiB): deep enough that
+/// Staircase depth at scale 1.0 (encoded pair ~2 KiB): deep enough that
 /// per-level minimum bookkeeping would read its exponent across the doubling,
 /// all values word-scale.
 const STAIRCASE_BASE_DEPTH: usize = 1_500;
 
 /// Reveal-comb site count and plateau-magnitude bits at scale 1.0
-/// (equal; packed pair ~1 KiB).
+/// (equal; encoded pair ~1 KiB).
 ///
 /// One parameter drives both, so the doubling scales the site count and the
 /// circulated width together — the cycle's cost genre is their product. The
@@ -111,7 +101,7 @@ const STAIRCASE_BASE_DEPTH: usize = 1_500;
 const REVEAL_COMB_BASE: usize = 500;
 
 /// Pure-comb level count and leaf-magnitude bits at scale 1.0 (equal,
-/// as above; packed pair ~1 KiB).
+/// as above; encoded pair ~1 KiB).
 ///
 /// The watermark web's own cycle runs at ~2 wide folds per level — a
 /// tenth of the reveal comb's constant — so the base sits higher for comparable
@@ -120,7 +110,7 @@ const PURE_COMB_BASE: usize = 1_000;
 
 /// Ascending-cliff spine length and leaf-magnitude bits at scale 1.0 (equal, so
 /// the doubling scales the hop count and the residue width together — the
-/// cascade's cost genre is their product; packed pair ~1 KiB).
+/// cascade's cost genre is their product; encoded pair ~1 KiB).
 ///
 /// The cascade runs at ~4 touches per input byte on the cured fold direction —
 /// the leveled control's constant — so the base sits at the pure-comb level for
@@ -139,11 +129,11 @@ const PURE_COMB_BASE: usize = 1_000;
 const ASCEND_CLIFF_BASE: usize = 992;
 
 /// Dominated-undercut site count and wide-width bits at scale 1.0 (equal;
-/// packed pair ~13 KiB).
+/// encoded pair ~13 KiB).
 ///
 /// One knob drives both, so the doubling scales the emission count and the
 /// per-site climb width together — every site's climb is its own input-funded
-/// wide code, so the packed pair grows with their product.
+/// wide code, so the encoded pair grows with their product.
 ///
 /// The base is a multiple of 32 deliberately: the family's dominant rank
 /// summand rides the `5 · 2^s` climb, and `rank_sum` lands its small summands
@@ -160,14 +150,14 @@ const DOMINATED_UNDERCUT_BASE: usize = 160;
 /// small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
-/// Two-operand jump-comb teeth at scale 1.0 (packed pair ~35 KiB, the teeth
+/// Two-operand jump-comb teeth at scale 1.0 (encoded pair ~35 KiB, the teeth
 /// operand's per-level wide codes dominating).
 ///
 /// One knob drives the tooth count and, through [`JUMP_PAIR_DIGIT_DIVISOR`],
 /// the isolated-position digit count, at the fixed tooth magnitude
 /// [`JUMP_PAIR_MAGNITUDE_BITS`]: an absolute-position freeze accounting pays
 /// teeth × digits × magnitude here, so the doubling scales the crest count and
-/// the position density together while the packed pair grows linearly — the
+/// the position density together while the encoded pair grows linearly — the
 /// separating choice that makes any such accounting read on the exponent leg
 /// rather than hide in a constant.
 const JUMP_PAIR_BASE_TEETH: usize = 256;
@@ -182,11 +172,11 @@ const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
 ///
 /// The digit count scales with the teeth at an eighth: deep enough that any
 /// per-freeze absolute-position work reads its exponent across the doubling,
-/// shallow enough that the shared spine stays a small fraction of the packed
+/// shallow enough that the shared spine stays a small fraction of the encoded
 /// pair.
 const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 
-/// Freeze-position blocks at scale 1.0 (packed version ~74 KiB, the per-block
+/// Freeze-position blocks at scale 1.0 (encoded version ~74 KiB, the per-block
 /// wide drop codes dominating).
 ///
 /// The scale of the `skyline_flatness` freeze-position band's small run: the
@@ -205,7 +195,7 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// preserves the remainder and the exponent leg compares like against like.
 const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 
-/// Promotion re-arm blocks at scale 1.0 (packed version ~128 KiB, the per-block
+/// Promotion re-arm blocks at scale 1.0 (encoded version ~128 KiB, the per-block
 /// wide arming codes dominating).
 ///
 /// Half the `skyline_flatness` promotion re-arm band's small run: the committed
@@ -220,7 +210,7 @@ const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 /// so every doubling compares like against like.
 const PROMO_REARM_BASE_BLOCKS: usize = 512;
 
-/// Weight-comb block pairs at scale 1.0 (packed version ~7 KiB, the spine's
+/// Weight-comb block pairs at scale 1.0 (encoded version ~7 KiB, the spine's
 /// unit codes dominating), rounded up to a power of two at every scale.
 ///
 /// The rounding is the complete-subtree relation's call-site repair, and the
@@ -235,7 +225,7 @@ const PROMO_REARM_BASE_BLOCKS: usize = 512;
 /// derivation carries the mechanism).
 const WEIGHT_COMB_BASE_BLOCKS: usize = 512;
 
-/// Freeze-parade blocks at scale 1.0 (packed version ~49 KiB, the blocks' wide
+/// Freeze-parade blocks at scale 1.0 (encoded version ~49 KiB, the blocks' wide
 /// drop codes dominating), rounded up to a power of two at every scale (the
 /// parade block is one complete subtree).
 ///
@@ -258,7 +248,7 @@ const CONCURRENT_BASE_LEAVES: usize = 1_024;
 const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 
 /// Dense-suffix blocks (and gap digits: one knob drives both, the `DS(p, p)`
-/// diagonal) at scale 1.0 (packed version ~122 KiB, the blocks' wide climb
+/// diagonal) at scale 1.0 (encoded version ~122 KiB, the blocks' wide climb
 /// codes dominating).
 ///
 /// The scale of the `skyline_flatness` dense-suffix bands' small run: the
@@ -274,29 +264,20 @@ const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 const DENSE_SUFFIX_BASE_BLOCKS: usize = 512;
 
 /// Wide-arming digits (arming digits and gap digits together: the `WA(w, d)`
-/// diagonal at `w = d`) at scale 1.0 (packed version ~13 KiB).
+/// diagonal at `w = d`) at scale 1.0 (encoded version ~13 KiB).
 ///
-/// The scale sits beside the two committed bands that price the family's seams
-/// (`ledger_wide_arming`'s small run is 500, the `parse_wide_arming` band's
-/// 256): the committed schoolbook settle reads ~×1.9 per byte and the committed
-/// schoolbook parse ×2.00 per byte across those regimes' doublings (the query
-/// fold's and the text kernel's committed tripwires), so the board's default
-/// pair straddles what the family exists to catch on both seams. No remainder
-/// alignment is needed: the family's rank exponent is `32s`, a multiple of 32
-/// at every knob, so `rank_sum` lands its small summands at bit remainder 0 at
-/// both scales (the freeze-position base's derivation carries the mechanism).
-/// The build arm floors the knob at the generator's minimum width (the parked
-/// component must clear the settling drift's ten digits), which binds only
-/// under extreme scale-down.
+/// Its rank exponent is `32s`, so doubling the scale preserves the exponent's
+/// word alignment. The builder enforces the minimum width needed for the large
+/// counter change.
 const WIDE_ARMING_BASE_DIGITS: usize = 512;
 
 /// Plateau-puncture digits (plateau digits and turn count together: the `PP(w,
-/// d)` diagonal at `w = d`) at scale 1.0 (packed version ~15 KiB).
+/// d)` diagonal at `w = d`) at scale 1.0 (encoded version ~15 KiB).
 ///
 /// The smallest knob at which the board's default pair still separates the
 /// family's genre from a conforming fold, at the board's own cost: the family's
-/// packed construction spells the plateau once per turn, so every bundle build
-/// pays `Θ(s²)` packed bits, and this knob owns the board's dominant build
+/// encoded construction spells the plateau once per turn, so every bundle build
+/// pays `Θ(s²)` encoded bits, and this knob owns the board's dominant build
 /// cost. Calibration (dev profile, exact counters, the query fold's committed
 /// schoolbook kernel): across the level doubling PP(384, 384) → PP(768, 768)
 /// the known-bad settle reads ×1.879 touch and ×1.579 limb per byte — above the
@@ -314,7 +295,7 @@ const PLATEAU_PUNCTURE_BASE_DIGITS: usize = 384;
 
 /// Lone-freeze oscillation pairs per axis (the `LF(s, s)` diagonal: one knob
 /// drives the never-freezing plateau prefix and the frozen tail together) at
-/// scale 1.0 (packed version ~2.6 KiB).
+/// scale 1.0 (encoded version ~2.6 KiB).
 ///
 /// The scale of the `skyline_flatness` lone-freeze bands' small runs (each band
 /// isolates one axis at the generator minimum; the board column scales both, so
@@ -395,19 +376,19 @@ const BENIGN_RNG_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 pub(super) struct FamilyData {
     pub(super) kind: FamilyId,
     pub(super) name: &'static str,
-    /// The shape's primary packed version (a cross shape's event side).
+    /// The shape's primary encoded version (a cross shape's event side).
     pub(super) version: Option<Vec<u8>>,
-    /// The comparison counterpart: `version` plus one seed tick, packed.
+    /// The comparison counterpart: `version` plus one seed tick, encoded.
     ///
     /// Derived uniformly by the post-pass — except on the pair shapes
     /// (jump-pair, concurrent-pair), whose build arms fill it with the pairing
     /// the shape was constructed around and the post-pass leaves in place.
     pub(super) version2: Option<Vec<u8>>,
-    /// A disjoint packed party pair within one universe: natural for the id
+    /// A disjoint encoded party pair within one universe: natural for the id
     /// pair and the benign halves, minted by the disjoint-mount adapter from a
     /// cross shape's id side.
     pub(super) parties: Option<(Vec<u8>, Vec<u8>)>,
-    /// The designated packed (event version, id party) cross: the pairing the
+    /// The designated encoded (event version, id party) cross: the pairing the
     /// shape was built around, driving the tick rows' walk floors and the clock
     /// rows' operand choice.
     ///
@@ -423,15 +404,15 @@ pub(super) struct FamilyData {
     /// shape (comb-scatter).
     ///
     /// The denominator every input-denominated cell's *exponent* is fitted
-    /// against; constants and floors stay per packed byte (the `cell` module
+    /// against; constants and floors stay per encoded byte (the `cell` module
     /// doc derives the split).
     pub(super) content_bytes: Option<usize>,
-    /// The packed fold operands (versions, parties), consumed by the two fold
+    /// The encoded fold operands (versions, parties), consumed by the two fold
     /// rows alone: the scatter, weave, and stagger populations' adversarial
     /// orderings and the benign shape's organic control.
     #[allow(clippy::type_complexity)]
     pub(super) fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
-    /// An overlapping packed party pair within one universe: the rejection
+    /// An overlapping encoded party pair within one universe: the rejection
     /// rows' operands.
     ///
     /// Minted by the overlap-mount adapter from the same id source as
@@ -485,21 +466,21 @@ impl FamilyData {
             FamilyId::Dense => Self::event(
                 kind,
                 Shape::Dense
-                    .packed1(size(DENSE_BASE_DEPTH))
+                    .build1(size(DENSE_BASE_DEPTH))
                     .version()
                     .encode(),
             ),
             FamilyId::Bigroot => Self::event(
                 kind,
                 Shape::Bigroot
-                    .packed2(size(BIGROOT_BASE_MAGNITUDE_BITS), size(BIGROOT_BASE_DEPTH))
+                    .build2(size(BIGROOT_BASE_MAGNITUDE_BITS), size(BIGROOT_BASE_DEPTH))
                     .version()
                     .encode(),
             ),
             FamilyId::Hugeleaf => Self::event(
                 kind,
                 Shape::Hugeleaf
-                    .packed1(size(HUGELEAF_BASE_MAGNITUDE_BITS))
+                    .build1(size(HUGELEAF_BASE_MAGNITUDE_BITS))
                     .version()
                     .encode(),
             ),
@@ -507,17 +488,17 @@ impl FamilyData {
                 let scale = size(CLIFF_BASE_SCALE);
                 Self::event(
                     kind,
-                    Shape::CliffComb.packed2(scale, scale).version().encode(),
+                    Shape::CliffComb.build2(scale, scale).version().encode(),
                 )
             }
             FamilyId::IdPair => {
                 let mut data = Self::bare(kind);
                 data.parties = Some((
                     Shape::IdSpine
-                        .packed_flagged(size(ID_BASE_DEPTH), false)
+                        .build_flagged(size(ID_BASE_DEPTH), false)
                         .bytes,
                     Shape::IdSpine
-                        .packed_flagged(size(ID_BASE_DEPTH), true)
+                        .build_flagged(size(ID_BASE_DEPTH), true)
                         .bytes,
                 ));
                 data
@@ -527,10 +508,10 @@ impl FamilyData {
                 let mut data = Self::bare(kind);
                 data.cross = Some((
                     Shape::CliffComb
-                        .packed2(CROSS_TOOTH_MAGNITUDE_BITS, teeth)
+                        .build2(CROSS_TOOTH_MAGNITUDE_BITS, teeth)
                         .version()
                         .encode(),
-                    Shape::ScatteredId.packed1(teeth / 2).bytes,
+                    Shape::ScatteredId.build1(teeth / 2).bytes,
                 ));
                 data.output_dominated = true;
                 let (v, p) = data.cross.as_ref().expect("just set");
@@ -540,7 +521,7 @@ impl FamilyData {
             FamilyId::Harmonic => Self::event(
                 kind,
                 Shape::Harmonic
-                    .packed1(size(HARMONIC_BASE_DEPTH))
+                    .build1(size(HARMONIC_BASE_DEPTH))
                     .version()
                     .encode(),
             ),
@@ -554,48 +535,48 @@ impl FamilyData {
                 let d = size(NESTED_BASE_DEPTH);
                 Self::cross_family(
                     kind,
-                    Shape::Dense.packed1(d).version().encode(),
-                    Shape::NestedFullId.packed1(d).bytes,
+                    Shape::Dense.build1(d).version().encode(),
+                    Shape::NestedFullId.build1(d).bytes,
                 )
             }
             FamilyId::NestedWide => {
                 let s = size(NESTED_WIDE_BASE);
                 Self::cross_family(
                     kind,
-                    Shape::Bigroot.packed2(s, s).version().encode(),
-                    Shape::NestedFullId.packed1(s).bytes,
+                    Shape::Bigroot.build2(s, s).version().encode(),
+                    Shape::NestedFullId.build1(s).bytes,
                 )
             }
             FamilyId::MirrorWide => {
                 let s = size(MIRROR_WIDE_BASE);
                 Self::cross_family(
                     kind,
-                    Shape::WideTail.packed2(s, s).version().encode(),
-                    Shape::NestedLeftFullId.packed1(s).bytes,
+                    Shape::WideTail.build2(s, s).version().encode(),
+                    Shape::NestedLeftFullId.build1(s).bytes,
                 )
             }
             FamilyId::MirrorNarrow => {
                 let d = size(MIRROR_NARROW_BASE_DEPTH);
                 Self::cross_family(
                     kind,
-                    Shape::WideTail.packed2(1, d).version().encode(),
-                    Shape::NestedLeftFullId.packed1(d).bytes,
+                    Shape::WideTail.build2(1, d).version().encode(),
+                    Shape::NestedLeftFullId.build1(d).bytes,
                 )
             }
             FamilyId::Staircase => {
                 let d = size(STAIRCASE_BASE_DEPTH);
                 Self::cross_family(
                     kind,
-                    Shape::Staircase.packed1(d).version().encode(),
-                    Shape::IdSpine.packed_flagged(d, false).bytes,
+                    Shape::Staircase.build1(d).version().encode(),
+                    Shape::IdSpine.build_flagged(d, false).bytes,
                 )
             }
             FamilyId::RevealComb => {
                 let s = size(REVEAL_COMB_BASE);
                 let mut data = Self::cross_family(
                     kind,
-                    Shape::RevealComb.packed2(s, s).version().encode(),
-                    Shape::RevealCombId.packed1(s).bytes,
+                    Shape::RevealComb.build2(s, s).version().encode(),
+                    Shape::RevealCombId.build1(s).bytes,
                 );
                 // Projecting the shared-wide-plateau event through its
                 // site-owning comb id re-materializes a wide absolute value per
@@ -610,8 +591,8 @@ impl FamilyData {
                 let s = size(REVEAL_COMB_BASE);
                 let mut data = Self::cross_family(
                     kind,
-                    Shape::RevealCombHifloor.packed2(s, s).version().encode(),
-                    Shape::RevealCombId.packed1(s).bytes,
+                    Shape::RevealCombHifloor.build2(s, s).version().encode(),
+                    Shape::RevealCombId.build1(s).bytes,
                 );
                 // The raised floor changes the consume-time gap, not the
                 // projection's re-materialized wide sites: the same output
@@ -623,8 +604,8 @@ impl FamilyData {
                 let s = size(PURE_COMB_BASE);
                 let mut data = Self::cross_family(
                     kind,
-                    Shape::PureComb.packed2(s, s).version().encode(),
-                    Shape::PureCombId.packed1(s).bytes,
+                    Shape::PureComb.build2(s, s).version().encode(),
+                    Shape::PureCombId.build1(s).bytes,
                 );
                 // Bare wide leaves under the site-owning id: the masked skyline
                 // spells a wide code per owned site, the same output domination
@@ -636,16 +617,16 @@ impl FamilyData {
                 let s = size(ASCEND_CLIFF_BASE);
                 Self::cross_family(
                     kind,
-                    Shape::AscendCliff.packed2(s, s).version().encode(),
-                    Shape::AscendCliffId.packed1(s).bytes,
+                    Shape::AscendCliff.build2(s, s).version().encode(),
+                    Shape::AscendCliffId.build1(s).bytes,
                 )
             }
             FamilyId::AscendPlateau => {
                 let s = size(ASCEND_CLIFF_BASE);
                 Self::cross_family(
                     kind,
-                    Shape::AscendCliffPlateau.packed2(s, s).version().encode(),
-                    Shape::AscendCliffId.packed1(s).bytes,
+                    Shape::AscendCliffPlateau.build2(s, s).version().encode(),
+                    Shape::AscendCliffId.build1(s).bytes,
                 )
             }
             FamilyId::DominatedUndercut => {
@@ -656,14 +637,14 @@ impl FamilyData {
                 let s = size(DOMINATED_UNDERCUT_BASE).max(128);
                 Self::cross_family(
                     kind,
-                    Shape::DominatedUndercut.packed2(s, s).version().encode(),
-                    Shape::DominatedUndercutId.packed1(s).bytes,
+                    Shape::DominatedUndercut.build2(s, s).version().encode(),
+                    Shape::DominatedUndercutId.build1(s).bytes,
                 )
             }
             FamilyId::JumpPair => {
                 let m = size(JUMP_PAIR_BASE_TEETH);
                 let d = (m / JUMP_PAIR_DIGIT_DIVISOR).max(1);
-                let (a, b) = Shape::JumpPair.packed_pair3(JUMP_PAIR_MAGNITUDE_BITS, m, d);
+                let (a, b) = Shape::JumpPair.build_pair3(JUMP_PAIR_MAGNITUDE_BITS, m, d);
                 let mut data = Self::event(kind, a.version().encode());
                 data.version2 = Some(b.version().encode());
                 data
@@ -671,28 +652,28 @@ impl FamilyData {
             FamilyId::FreezePos => Self::event(
                 kind,
                 Shape::FreezePosition
-                    .packed1(size(FREEZE_POS_BASE_BLOCKS))
+                    .build1(size(FREEZE_POS_BASE_BLOCKS))
                     .version()
                     .encode(),
             ),
             FamilyId::PromoRearm => Self::event(
                 kind,
                 Shape::PromotionRearm
-                    .packed1(size(PROMO_REARM_BASE_BLOCKS))
+                    .build1(size(PROMO_REARM_BASE_BLOCKS))
                     .version()
                     .encode(),
             ),
             FamilyId::WeightComb => Self::event(
                 kind,
                 Shape::WeightComb
-                    .packed1(size(WEIGHT_COMB_BASE_BLOCKS).next_power_of_two())
+                    .build1(size(WEIGHT_COMB_BASE_BLOCKS).next_power_of_two())
                     .version()
                     .encode(),
             ),
             FamilyId::FreezeParade => Self::event(
                 kind,
                 Shape::FreezeParade
-                    .packed1(size(FREEZE_PARADE_BASE_BLOCKS).next_power_of_two())
+                    .build1(size(FREEZE_PARADE_BASE_BLOCKS).next_power_of_two())
                     .version()
                     .encode(),
             ),
@@ -702,8 +683,8 @@ impl FamilyData {
                 // unit bases, the pair the distance band prices.
                 let p = size(DENSE_SUFFIX_BASE_BLOCKS);
                 let mut data =
-                    Self::event(kind, Shape::DenseSuffix.packed2(p, p).version().encode());
-                data.version2 = Some(Shape::DenseSuffixMate.packed2(p, p).version().encode());
+                    Self::event(kind, Shape::DenseSuffix.build2(p, p).version().encode());
+                data.version2 = Some(Shape::DenseSuffixMate.build2(p, p).version().encode());
                 data
             }
             FamilyId::WideArming => {
@@ -712,7 +693,7 @@ impl FamilyData {
                 // width; the floor binds only under extreme scale-down (the
                 // base constant's rustdoc).
                 let s = size(WIDE_ARMING_BASE_DIGITS).max(10);
-                Self::event(kind, Shape::WideArming.packed2(s, s).version().encode())
+                Self::event(kind, Shape::WideArming.build2(s, s).version().encode())
             }
             FamilyId::PlateauPuncture => {
                 // One knob drives the plateau width and the turn count (the
@@ -720,10 +701,7 @@ impl FamilyData {
                 // width; the floor binds only under extreme scale-down (the
                 // base constant's rustdoc).
                 let s = size(PLATEAU_PUNCTURE_BASE_DIGITS).max(10);
-                Self::event(
-                    kind,
-                    Shape::PlateauPuncture.packed2(s, s).version().encode(),
-                )
+                Self::event(kind, Shape::PlateauPuncture.build2(s, s).version().encode())
             }
             FamilyId::LoneFreeze => {
                 // One knob drives the plateau prefix and the frozen tail (the
@@ -731,7 +709,7 @@ impl FamilyData {
                 // at every scale — the generator counts whole oscillation
                 // pairs, and MIN_SIZE_PARAM keeps the masked value at least 4.
                 let s = size(LONE_FREEZE_BASE_PAIRS) & !1;
-                Self::event(kind, Shape::LoneFreeze.packed2(s, s).version().encode())
+                Self::event(kind, Shape::LoneFreeze.build2(s, s).version().encode())
             }
             FamilyId::ConcurrentPair => {
                 let n = size(CONCURRENT_BASE_LEAVES).next_power_of_two();
@@ -745,7 +723,7 @@ impl FamilyData {
                 // at the committed band ratio (the generator needs g >= 1 and m
                 // >= 2; the size floor guarantees both).
                 let m = size(TOOTH_TAIL_BASE_BOUNDARIES);
-                let (a, b) = Shape::ToothTail.packed_pair((m / TOOTH_TAIL_SPIKE_DIVISOR).max(1), m);
+                let (a, b) = Shape::ToothTail.build_pair((m / TOOTH_TAIL_SPIKE_DIVISOR).max(1), m);
                 let mut data = Self::event(kind, a.version().encode());
                 data.version2 = Some(b.version().encode());
                 data
@@ -790,9 +768,9 @@ impl FamilyData {
                 w.tick(&Party::seed());
                 data.version2 = Some(w.encode());
             }
-            let b = Version::try_from(RANK_PAIR_INTEGER_TICKS)
-                .expect("a small integer version is valid")
-                .rank();
+            let mut b = Version::new();
+            b.ticks(&Party::seed(), RANK_PAIR_INTEGER_TICKS);
+            let b = b.rank();
             data.rank_pair = Some((v.rank(), b));
         }
         // A cross shape's id side becomes a disjoint party pair through
@@ -900,7 +878,7 @@ impl FamilyData {
         // pass each operand through `O(log k)` merges of similarly sized
         // operands instead. The built value is the same either way — a group's
         // version is one event at each of its leaves, its party their disjoint
-        // union — and both are canonical, so the packed bytes are too.
+        // union — and both are canonical, so the encoded bytes are too.
         let mut versions = Vec::with_capacity(WEAVE_GROUPS);
         let mut parties = Vec::with_capacity(WEAVE_GROUPS);
         for leaves in dealt {
@@ -940,8 +918,7 @@ impl FamilyData {
         data
     }
 
-    /// Wrap a cross shape: a packed (event, id) pair built as one
-    /// adversarial pairing.
+    /// Wrap an adversarial `(version, party)` pair.
     ///
     /// The cross drives the tick rows' walk floors and the clock rows' operand
     /// choice directly; the post-pass derives the shape's version (the event
@@ -1008,13 +985,13 @@ impl FamilyData {
         data
     }
 
-    /// The primary version, decoded fresh, with its packed byte length.
+    /// The primary version, decoded fresh, with its encoded byte length.
     pub(super) fn version(&self) -> Option<(Version, usize)> {
         let bytes = self.version.as_ref()?;
         Some((decode_version(bytes), bytes.len()))
     }
 
-    /// Both versions decoded fresh, with their combined packed byte length.
+    /// Both versions decoded fresh, with their combined encoded byte length.
     pub(super) fn version_pair(&self) -> Option<(Version, Version, usize)> {
         let (v, n) = self.version()?;
         let bytes2 = self.version2.as_ref()?;
@@ -1028,7 +1005,7 @@ impl FamilyData {
     }
 
     /// The designated cross decoded fresh (event version, id party), with
-    /// combined packed byte length.
+    /// combined encoded byte length.
     pub(super) fn cross(&self) -> Option<(Version, Party, usize)> {
         let (v, p) = self.cross.as_ref()?;
         Some((decode_version(v), decode_party(p), v.len() + p.len()))
@@ -1084,7 +1061,7 @@ impl FamilyData {
     }
 }
 
-/// The disjoint-mount adapter: lift one packed id shape into a disjoint party
+/// The disjoint-mount adapter: lift one party shape into a disjoint party
 /// pair inside a single universe.
 ///
 /// The pair mounts the shape under opposite children of a fresh root — `(shape,
@@ -1114,7 +1091,7 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     (a, b)
 }
 
-/// The overlap-mount adapter: lift one packed id shape into an *overlapping*
+/// The overlap-mount adapter: lift one party shape into an *overlapping*
 /// party pair whose single shared region sits at both operands' preorder ends —
 /// the disjoint-mount adapter's counterpart, for the rejection rows.
 ///
@@ -1197,12 +1174,12 @@ fn rightmost_terminal_path(bits: codec::BitsView<'_>) -> Vec<bool> {
     }
 }
 
-/// Decode packed bytes the board itself generated.
+/// Decode encoded bytes the board itself generated.
 pub(super) fn decode_version(bytes: &[u8]) -> Version {
     Version::decode(bytes).expect("board-generated version bytes are canonical")
 }
 
-/// Decode packed party bytes the board itself generated.
+/// Decode encoded party bytes the board itself generated.
 pub(super) fn decode_party(bytes: &[u8]) -> Party {
     Party::decode(bytes).expect("board-generated party bytes are canonical")
 }
@@ -1221,7 +1198,7 @@ impl XorShift {
     }
 }
 
-/// Every packed version in each board family's operand bundle at `scale`, level
+/// Every encoded version in each board family's operand bundle at `scale`, level
 /// 0, named per family: the shape corpus exactly as the board builds it.
 ///
 /// A measure-only study surface for offline payload analysis — the `code_study`

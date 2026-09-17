@@ -5,10 +5,9 @@
 use core::fmt;
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
-use core::str::FromStr;
 
 use crate::codec::Base;
-use crate::error::{Parse, TooWide};
+use crate::error::TooWide;
 
 /// An unbounded natural-number count.
 ///
@@ -29,13 +28,8 @@ use crate::error::{Parse, TooWide};
 /// summands' total numeric size.
 ///
 /// Construction is `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
-/// ‖b‖)`, `Sum` `O(N)`; text I/O is superlinear but subquadratic in the count's
-/// width (because it requires decimal conversion).
-///
-/// Parsing ([`FromStr`]) and rendering ([`Display`](fmt::Display)) are `O(d)`
-/// space in the `d` decimal digits (`d = Θ(‖n‖)`), but their time additionally
-/// pays decimal↔binary conversion, so it is superlinear (though subquadratic)
-/// in the count's width past a machine word.
+/// ‖b‖)`, `Sum` `O(N)`. Decimal rendering is superlinear but subquadratic in
+/// the count's width.
 ///
 /// # Example
 ///
@@ -44,9 +38,6 @@ use crate::error::{Parse, TooWide};
 /// let mut clock = Clock::seed();
 /// clock.ticks(3u64); // literals convert in
 /// assert_eq!(clock.version().min_ticks(), Ticks::from(3u64));
-/// // Counts wider than any machine integer parse from decimal text.
-/// let wide: Ticks = "340282366920938463463374607431768211456".parse().unwrap();
-/// assert_eq!(wide.to_string(), "340282366920938463463374607431768211456");
 /// ```
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ticks(pub(crate) Base);
@@ -82,8 +73,7 @@ impl Ticks {
     /// first, then ascending.
     ///
     /// For a count known to be within machine range, `u64::try_from(&count)`
-    /// skips the limbs entirely; for text, [`Display`](fmt::Display) renders
-    /// decimal directly.
+    /// skips the limbs entirely.
     ///
     /// # Complexity
     ///
@@ -94,8 +84,7 @@ impl Ticks {
     ///
     /// ```
     /// use before::Ticks;
-    /// let wide: Ticks = "340282366920938463463374607431768211457".parse().unwrap();
-    /// // 2^128 + 1: three limbs, least significant first.
+    /// let wide = Ticks::from(u128::MAX) + Ticks::from(2u8);
     /// assert_eq!(wide.limbs().collect::<Vec<u64>>(), vec![1, 0, 1]);
     /// assert_eq!(Ticks::ZERO.limbs().len(), 0);
     /// ```
@@ -169,7 +158,7 @@ ticks_from_unsigned!(u8, u16, u32, u64, u128);
 /// ```
 /// use before::Ticks;
 /// assert_eq!(u64::try_from(&Ticks::from(42u64)), Ok(42));
-/// let wide: Ticks = "340282366920938463463374607431768211456".parse().unwrap();
+/// let wide = Ticks::from(u128::MAX);
 /// assert!(u64::try_from(&wide).is_err());
 /// ```
 impl TryFrom<&Ticks> for u64 {
@@ -186,23 +175,7 @@ impl From<usize> for Ticks {
     }
 }
 
-/// Parses a decimal digit run, e.g. `"340282366920938463463374607431768211456"`.
-///
-/// Strict about shape, permissive about value: any nonempty run of ASCII
-/// digits parses (leading zeros are value-preserving), anything else —
-/// signs, whitespace, radix prefixes — is [`Parse::Syntax`]. There is no
-/// width ceiling to reject against.
-impl FromStr for Ticks {
-    type Err = Parse;
-    fn from_str(s: &str) -> Result<Self, Parse> {
-        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(Parse::Syntax);
-        }
-        Ok(Ticks(Base::parse_decimal(s)))
-    }
-}
-
-/// The count in decimal, the notation [`FromStr`] parses.
+/// The count in decimal.
 ///
 /// # Example
 ///

@@ -30,9 +30,7 @@ fn witnesses() -> Witnesses {
     }
 }
 
-/// The number of holes a query renders, read through the `Debug`
-/// window (each hole renders as one `!`-prefixed atom; nothing else
-/// in the expression vocabulary or paper notation prints `!`).
+/// The number of holes in a query's debug output.
 fn rendered_holes<P: Polarity>(q: &Query<'_, P>) -> usize {
     format!("{q:?}").matches('!').count()
 }
@@ -381,14 +379,14 @@ fn conversions_denote() {
 fn debug_renders_expressions() {
     let w = witnesses();
     assert_eq!(format!("{:?}", all()), "all()");
-    assert_eq!(format!("{:?}", since(&w.bottom)), "!before(0)");
+    assert_eq!(format!("{:?}", since(&w.bottom)), "!before(Version(0b11))");
     assert_eq!(
         format!("{:?}", after(&w.bottom) & before(&w.bottom)),
-        "after(0) & before(0)"
+        "after(Version(0b11)) & before(Version(0b11))"
     );
     assert_eq!(
         format!("{:?}", after(&w.bottom).or_concurrent()),
-        "!strictly_before(0)"
+        "!strictly_before(Version(0b11))"
     );
-    assert_eq!(format!("{:?}", !after(&w.bottom)), "!after(0)");
+    assert_eq!(format!("{:?}", !after(&w.bottom)), "!after(Version(0b11))");
 }

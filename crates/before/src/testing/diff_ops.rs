@@ -11,7 +11,7 @@
 //! (`for_each_diff_group!`), so a descriptor added to a group with a known
 //! signature is driven over every population with no further wiring, and a
 //! group with a novel signature refuses to compile until each consumer says
-//! how to feed it. The reverse door — a `pub(crate) static` group missing
+//! how to feed it. The reverse entry point — a `pub(crate) static` group missing
 //! from the roster, which nothing would execute — is closed by the totality
 //! pin in this module's tests.
 //!

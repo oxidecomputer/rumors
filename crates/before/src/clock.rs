@@ -1,14 +1,13 @@
 //! A [`Clock`] is a [`Party`] paired with a [`Version`].
 
 use core::borrow::Borrow;
-use core::fmt::{Debug, Display};
+use core::fmt::Debug;
 use core::ops::{BitOr, BitOrAssign};
-use core::str::FromStr;
 use std::io::{Read, Write};
 
 use crate::{
     codec,
-    error::{Decode, Overlap, Parse},
+    error::{Decode, Overlap},
     OwnVersion, Party, Ticks, Version,
 };
 
@@ -702,17 +701,18 @@ impl Clock {
     /// use before::shape::{Plateau, Rise};
     /// use before::{Clock, Ticks};
     ///
-    /// let clock = Clock::from_parts(
-    ///     "(1, 0)".parse().unwrap(),          // owns the left half
-    ///     "(1, 1, (0, 0, 2))".parse().unwrap(),
-    /// );
+    /// let mut clock = Clock::seed();
+    /// let mut right = clock.fork();
+    /// clock.tick();
+    /// clock.tick();
+    /// right.tick();
+    /// clock.sync(&mut right).unwrap();
     /// let overlay: Vec<(Plateau, bool)> = clock.shape().collect();
     /// assert_eq!(
     ///     overlay,
     ///     vec![
     ///         (Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 1 }, true),
-    ///         (Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 2 }, false),
-    ///         (Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 2 }, false),
+    ///         (Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 1 }, false),
     ///     ],
     /// );
     /// ```
@@ -907,98 +907,13 @@ impl Clock {
     }
 }
 
-/// Notation from the original paper: `(<id>, <event>)`, e.g. `(1, 0)` for
-/// [`Clock::seed`].
-///
-/// # Complexity
-///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_display.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic time; `O(|self|)` space"
-)]
-///
-/// # Example
-///
-/// ```
-/// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
-/// ```
-impl Display for Clock {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "({}, {})", self.party, self.version)
-    }
-}
-
+/// Shows the clock's party and version using their encoded forms.
 impl Debug for Clock {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Clock")
             .field("party", &self.party)
             .field("version", &self.version)
             .finish()
-    }
-}
-
-/// Parses a stamp `(i, e)` in the notation from the original paper, strictly
-/// rejecting non-normal-form input and any anonymous (id `0`) party.
-///
-/// Parsing *creates* the clock's party, tied to no existing handle: `"(1,
-/// 0)".parse()` yields a clock whose party overlaps every seed's whole region.
-///
-/// # Complexity
-///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fromstr.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic time; `O(|s|)` space"
-)]
-///
-/// # Example
-///
-/// ```
-/// use before::Clock;
-/// let clock: Clock = "(1, 0)".parse().unwrap();
-/// assert_eq!(clock.to_string(), "(1, 0)");
-/// ```
-impl FromStr for Clock {
-    type Err = Parse;
-    fn from_str(s: &str) -> Result<Self, Parse> {
-        let (id, ev) = codec::parse_clock_str(s)?;
-        let version: Version = ev.parse()?;
-        if codec::id_is_empty(codec::built_view(&id)) {
-            return Err(Parse::Anonymous);
-        }
-        Ok(Clock::from_parts(Party::from_bits(id), version))
-    }
-}
-
-/// A clock from a `(party, version)` literal, e.g. `Clock::try_from(((1, 0),
-/// 5))`.
-///
-/// Creates the clock's party tied to no existing handle, like parsing it from
-/// text via [`FromStr`].
-///
-/// # Complexity
-///
-/// `O(n)`, `n` the built clock's size in bytes.
-///
-/// # Example
-///
-/// ```
-/// use before::Clock;
-/// let clock = Clock::try_from((1, 0)).unwrap();
-/// assert_eq!(clock.to_string(), "(1, 0)");
-/// ```
-impl<I, E> TryFrom<(I, E)> for Clock
-where
-    Party: TryFrom<I, Error = Parse>,
-    Version: TryFrom<E, Error = Parse>,
-{
-    type Error = Parse;
-    fn try_from((i, e): (I, E)) -> Result<Self, Parse> {
-        Ok(Clock::from_parts(
-            Party::try_from(i)?,
-            Version::try_from(e)?,
-        ))
     }
 }
 

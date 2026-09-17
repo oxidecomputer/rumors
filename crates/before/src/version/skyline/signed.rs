@@ -128,6 +128,7 @@ impl Signed {
 
 /// Map the signed difference `cur − prev` to its zigzag magnitude:
 /// `k >= 0 -> 2k`, `k < 0 -> 2|k| − 1`.
+#[cfg(any(test, feature = "meter"))]
 pub(super) fn zigzag(prev: &Base, cur: &Base) -> Base {
     if cur >= prev {
         (cur.clone() - prev) << 1u32

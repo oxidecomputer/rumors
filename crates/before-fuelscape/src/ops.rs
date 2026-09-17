@@ -5,7 +5,7 @@
 //! entry. Each row names its input space (which picks the samplers and
 //! the size measure — the row's `size_measure` string is stamped on its
 //! render), the coverage roster rows it covers, and a `measure` function
-//! that stages the sampled packed inputs into the guest and runs exactly
+//! that stages the sampled encoded inputs into the guest and runs exactly
 //! one measured kernel, returning that call's fuel. Register loading and
 //! all other staging happen before the measured call, so a reading prices
 //! one public operation (plus the guest's constant dispatch overhead,
@@ -27,32 +27,32 @@
 //! their operand from a sampled party and version (`Clock::from_parts`
 //! in unmeasured preparation); a clock's canonical encoding is exactly
 //! its party's bytes followed by its version's, so the constituents'
-//! total packed size is the clock's own packed size.
+//! total encoded size is the clock's own encoded size.
 
 use fuzzfit_harness::wasm::{Guest, Measured};
 
 #[cfg(test)]
 mod tests;
 
-/// The packed input type an operand position takes.
+/// The encoded input type an operand position takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
-    /// A canonical packed `Version`.
+    /// A canonical encoded `Version`.
     Version,
-    /// A canonical packed `Party`.
+    /// A canonical encoded `Party`.
     Party,
 }
 
 /// How one row's inputs are drawn at a column's total size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Inputs {
-    /// A fixed operand list; the column's total packed size splits
+    /// A fixed operand list; the column's total encoded size splits
     /// uniformly over the compositions into one exact size per operand.
-    Packed(&'static [Operand]),
-    /// [`Packed`](Inputs::Packed), with byte-identical operand pairs
+    Operands(&'static [Operand]),
+    /// [`Operands`](Inputs::Operands), with byte-identical operand pairs
     /// rejected at draw time (whole-sample rejection, so the measure is
     /// exactly uniform on the distinct pairs).
-    PackedDistinct(&'static [Operand]),
+    DistinctOperands(&'static [Operand]),
     /// A version slice: arity drawn uniformly from every count the
     /// column's budget can feed (`1..=size`, one byte per operand), then
     /// the total split uniformly over the compositions into one exact
@@ -77,7 +77,7 @@ pub enum Inputs {
     /// stay inside it, and the row's size measure stamps the sampled
     /// population.
     VersionSliceCapped(u32),
-    /// One packed party followed by a version slice: the n-ary clock
+    /// One encoded party followed by a version slice: the n-ary clock
     /// rows' input space, composed in each row's own preparation.
     ///
     /// The fold and reconcile rows build disjoint clocks; the
@@ -97,7 +97,7 @@ pub enum Inputs {
     /// [`VersionSlice`](Inputs::VersionSlice)'s arity: a panel can read
     /// a fold's arity factor only if the arity varies across samples.
     ClockSlice,
-    /// One packed party of exactly the column's size, split into a
+    /// One encoded party of exactly the column's size, split into a
     /// drawn number of balanced shares in the guest: the party-fold
     /// row's input space.
     ///
@@ -108,7 +108,7 @@ pub enum Inputs {
     /// envelope so the fold panels read comparably. Any party admits
     /// any share count (a balanced split subdivides leaves as far as it
     /// needs), so the draw never rejects, and the size axis stays the
-    /// one party's own packed bytes.
+    /// one party's own encoded bytes.
     PartyShares,
 }
 
@@ -117,7 +117,9 @@ impl Inputs {
     /// have: one byte per operand.
     pub fn min_bytes(&self) -> usize {
         match self {
-            Inputs::Packed(operands) | Inputs::PackedDistinct(operands) => operands.len().max(1),
+            Inputs::Operands(operands) | Inputs::DistinctOperands(operands) => {
+                operands.len().max(1)
+            }
             // One one-byte operand: the smallest slice is unary.
             Inputs::VersionSlice | Inputs::VersionSliceCapped(_) => 1,
             // One byte for the party, one for the smallest slice.
@@ -129,7 +131,7 @@ impl Inputs {
 }
 
 /// The share count of the `party_forks` row: the size axis is the
-/// party's packed bytes, the arity a declared constant.
+/// party's encoded bytes, the arity a declared constant.
 const FORKS_SHARES: u32 = 8;
 
 /// The tick count the `version_ticks` row drives, a declared constant
@@ -167,7 +169,7 @@ pub struct OpSpec {
     pub contract: &'static str,
     /// The claimed worst-case growth, in the widget's expression grammar.
     ///
-    /// The contract's asymptote denominated in total packed input bytes
+    /// The contract's asymptote denominated in total encoded input bytes
     /// (e.g. `"n"`, `"n log n"`): the island's pre-selected compensation
     /// hypothesis, so summary and chart always assert the same bound.
     /// Uniform sampling shows the *bulk*, so an early-exit operation
@@ -176,7 +178,7 @@ pub struct OpSpec {
     /// click away. The envelope suite and the fuzz-fit bands own
     /// worst-case enforcement; this string routes a reader's first look.
     pub claim: &'static str,
-    /// Stage `inputs` (one packed encoding per operand) and run the one
+    /// Stage `inputs` (one canonical byte sequence per operand) and run the
     /// measured kernel, returning its fuel.
     ///
     /// The last argument is the sample's drawn arity. Every host-drawn
@@ -188,13 +190,13 @@ pub struct OpSpec {
     pub measure: fn(&mut Guest, &[Vec<u8>], usize) -> Measured,
 }
 
-/// The size measure of a one-operand packed row.
-const M_UNARY: &str = "exact packed bytes, uniform per size";
-/// The size measure of a two-operand packed row.
-const M_BINARY: &str = "total packed bytes; split uniform across the two operands";
+/// The size measure of a one-operand encoded row.
+const M_UNARY: &str = "exact encoded bytes, uniform per size";
+/// The size measure of a two-operand encoded row.
+const M_BINARY: &str = "total encoded bytes; split uniform across the two operands";
 /// The size measure of a slice row.
 const M_SLICE: &str =
-    "total packed bytes; arity uniform over 1..=size, split uniform over the compositions";
+    "total encoded bytes; arity uniform over 1..=size, split uniform over the compositions";
 /// The `shape_combine` row's arity cap.
 ///
 /// The public combiner's arity is a compile-time constant, so the guest
@@ -202,45 +204,45 @@ const M_SLICE: &str =
 /// own cap, kept equal by the pipeline smoke test's combine case).
 const COMBINE_ARITY_CAP: u32 = 16;
 /// The size measure of the capped-arity slice row.
-const M_SLICE_CAPPED: &str = "total packed bytes; arity uniform over 1..=min(16, size) \
+const M_SLICE_CAPPED: &str = "total encoded bytes; arity uniform over 1..=min(16, size) \
      (the combiner's compile-time arity, capped at the guest's dispatch table), split \
      uniform over the compositions";
 /// The size measure of a composed-clock unary row.
-const M_CLOCK: &str = "total packed bytes of the clock's party and version parts, split uniform";
+const M_CLOCK: &str = "total encoded bytes of the clock's party and version parts, split uniform";
 /// The size measure of the fork-split disjoint-clock rows.
-const M_CLOCK_PAIR: &str = "total packed bytes of one party and two versions, split uniform \
+const M_CLOCK_PAIR: &str = "total encoded bytes of one party and two versions, split uniform \
      three ways; the party fork-split into the clocks' disjoint parties";
 /// The size measure of the span rows whose span is composed in
 /// preparation as two sampled operands' pair hull.
-const M_SPAN_HULL: &str = "total packed bytes of the two operands whose pair hull is the \
+const M_SPAN_HULL: &str = "total encoded bytes of the two operands whose pair hull is the \
      span (hull composed in unmeasured preparation; the endpoints' sizes are on the \
      operands' scale, not exactly their sum)";
 /// The size measure of the span placement rows: a hulled pair plus a
 /// probe.
-const M_SPAN_PROBE: &str = "total packed bytes of the two hull operands and the probe, \
+const M_SPAN_PROBE: &str = "total encoded bytes of the two hull operands and the probe, \
      split uniform three ways (the span composed in unmeasured preparation as the \
      operands' pair hull, so the measured fused walk reads the probe against the \
      hull's meet and join)";
 /// The size measure of the binary span-operator rows: two spans, each
 /// composed in preparation as a sampled pair's hull.
-const M_SPAN_PAIR: &str = "total packed bytes of the four operands whose pair hulls are \
+const M_SPAN_PAIR: &str = "total encoded bytes of the four operands whose pair hulls are \
      the two spans, split uniform four ways (hulls composed in unmeasured preparation; \
      the endpoints' sizes are on the operands' scale, not exactly their sum)";
-/// The size measure of the n-ary span-door rows: drawn versions
+/// The size measure of span folds: drawn versions
 /// composed into spans as cyclically adjacent pair hulls.
-const M_SPAN_FOLD: &str = "total packed bytes; arity uniform over 1..=size, split \
+const M_SPAN_FOLD: &str = "total encoded bytes; arity uniform over 1..=size, split \
      uniform over the compositions, the k drawn versions composed in unmeasured \
      preparation into k spans (span i the pair hull of versions i and i+1, \
      cyclically, so each operand rides in two adjacent hulls), the first span \
      riding as the fold's receiver";
 /// The size measure of the masked span placement rows: a hulled pair,
 /// the masking party, and the probe.
-const M_OWN_SPAN_PROBE: &str = "total packed bytes of the two hull operands, the \
+const M_OWN_SPAN_PROBE: &str = "total encoded bytes of the two hull operands, the \
      masking party, and the probe, split uniform four ways (the span composed in \
      unmeasured preparation as the operands' pair hull; the measured verdict runs \
      the masked co-walks against the projected endpoints, no materialization)";
 
-/// Stage packed bytes and decode them into a version register
+/// Stage encoded bytes and decode them into a version register
 /// (unmeasured preparation; the decode's own fuel is discarded).
 fn load_version(guest: &mut Guest, reg: u32, bytes: &[u8]) {
     guest.stage_write(bytes);
@@ -248,7 +250,7 @@ fn load_version(guest: &mut Guest, reg: u32, bytes: &[u8]) {
     assert_eq!(r.ret, 0, "prep: guest rejected a sampled version");
 }
 
-/// Stage packed bytes and decode them into a party register (unmeasured).
+/// Stage encoded bytes and decode them into a party register (unmeasured).
 fn load_party(guest: &mut Guest, reg: u32, bytes: &[u8]) {
     guest.stage_write(bytes);
     let r = guest.call("ff_party_decode", &[reg]);
@@ -262,7 +264,7 @@ fn prep(guest: &mut Guest, kernel: &str, args: &[u32]) {
     assert_eq!(r.ret, 0, "prep: {kernel} reported {}", r.ret);
 }
 
-/// Compose a clock into register 0 from packed party and version
+/// Compose a clock into register 0 from encoded party and version
 /// encodings (registers 1 and 2 hold the consumed parts; unmeasured).
 fn compose_clock(guest: &mut Guest, party: &[u8], version: &[u8]) {
     load_party(guest, 1, party);
@@ -297,7 +299,7 @@ pub const ROSTER: &[OpSpec] = &[
     // ───────────────────────────── Version ─────────────────────────────
     OpSpec {
         name: "version_decode",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version::decode"],
         size_measure: M_UNARY,
         variant: "",
@@ -310,7 +312,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_encode",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version::encode"],
         size_measure: M_UNARY,
         variant: "",
@@ -322,38 +324,8 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
-        name: "version_display",
-        inputs: Inputs::Packed(&[Operand::Version]),
-        covers: &["Version Display / FromStr / TryFrom literals"],
-        size_measure: "exact packed bytes, uniform per size (fuel includes writing the \
-             text output)",
-        variant: "",
-        contract: "superlinear, subquadratic time; `O(|self|)` space",
-        claim: "n log n",
-        measure: |g, inputs, _| {
-            load_version(g, 0, &inputs[0]);
-            g.call("ff_version_display", &[0])
-        },
-    },
-    OpSpec {
-        name: "version_fromstr",
-        inputs: Inputs::Packed(&[Operand::Version]),
-        covers: &["Version Display / FromStr / TryFrom literals"],
-        size_measure: "packed bytes of the sampled value, rendered to text by Display \
-             (the value measure pushed through rendering — not uniform over text; the \
-             adversarial text families keep the corner coverage)",
-        variant: "",
-        contract: "superlinear, subquadratic time; `O(|s|)` space",
-        claim: "n log n",
-        measure: |g, inputs, _| {
-            load_version(g, 0, &inputs[0]);
-            prep(g, "ff_version_display", &[0]);
-            g.call("ff_version_fromstr", &[1])
-        },
-    },
-    OpSpec {
         name: "version_rank",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version::rank"],
         size_measure: M_UNARY,
         variant: "",
@@ -366,7 +338,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_min_ticks",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version::min_ticks"],
         size_measure: M_UNARY,
         variant: "",
@@ -379,7 +351,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_shape",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version::shape"],
         size_measure: M_UNARY,
         variant: "",
@@ -406,7 +378,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_tick",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Party]),
         covers: &["Version::tick"],
         size_measure: M_BINARY,
         variant: "",
@@ -420,9 +392,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_ticks",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Party]),
         covers: &["Version::ticks"],
-        size_measure: "total packed bytes; split uniform across the two operands (tick \
+        size_measure: "total encoded bytes; split uniform across the two operands (tick \
              count a declared constant, 10⁹: the fused multi-tick walk is flat in the \
              count — at most two fused passes and one splice — so one panel at one \
              large count is the whole n-dependence)",
@@ -437,14 +409,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_project",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Party]),
         covers: &[
             "&Version / &Party (Div — the lazy projection view)",
             "Version::project",
             "OwnVersion::to_version",
             "From<OwnVersion> for Version (explicit materialization)",
         ],
-        size_measure: "total packed bytes; split uniform across the two operands (the \
+        size_measure: "total encoded bytes; split uniform across the two operands (the \
              projection view materialized via to_version)",
         variant: "",
         contract: "the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
@@ -457,11 +429,11 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "own_version_cmp",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Party, Operand::Version]),
         covers: &[
             "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
         ],
-        size_measure: "total packed bytes of the projected version, its masking party, \
+        size_measure: "total encoded bytes of the projected version, its masking party, \
              and the compared version, split uniform three ways (the fused \
              three-stream co-walk, no materialization; view construction is O(1) \
              preparation, and the equality entry runs the same fused mechanism)",
@@ -477,14 +449,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "own_version_pair_cmp",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Party,
             Operand::Version,
             Operand::Party,
         ]),
         covers: &["OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)"],
-        size_measure: "total packed bytes of the two views' versions and masking \
+        size_measure: "total encoded bytes of the two views' versions and masking \
              parties, split uniform four ways (the fused four-stream co-walk, no \
              materialization; view construction is O(1) preparation, and the equality \
              entry runs the same fused mechanism)",
@@ -501,7 +473,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_cmp",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Version PartialOrd (the comparison matrix, owned and borrowed)"],
         size_measure: M_BINARY,
         variant: "comparison",
@@ -515,7 +487,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_concurrent",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Version::concurrent"],
         size_measure: M_BINARY,
         variant: "",
@@ -529,9 +501,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_eq",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version Eq / Hash (canonical byte compare)"],
-        size_measure: "packed bytes of one sampled version, decoded twice into \
+        size_measure: "encoded bytes of one sampled version, decoded twice into \
              distinct buffers and compared equal: the byte compare \
              short-circuits at the first differing byte, so the equal pair is \
              the linear worst case (random distinct pairs would measure the \
@@ -547,9 +519,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_hash",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version Eq / Hash (canonical byte compare)"],
-        size_measure: "packed bytes of the hashed version (std's DefaultHasher \
+        size_measure: "encoded bytes of the hashed version (std's DefaultHasher \
              over the canonical bytes)",
         variant: "",
         contract: "`O(|self|)`: one pass over the canonical bytes",
@@ -561,7 +533,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_join",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &[
             "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
             "Version::join",
@@ -578,7 +550,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_meet",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &[
             "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
             "Version::meet",
@@ -595,7 +567,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_distance",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Version::distance"],
         size_measure: M_BINARY,
         variant: "",
@@ -609,7 +581,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_lag",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Version::lag"],
         size_measure: M_BINARY,
         variant: "",
@@ -649,7 +621,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "version_span",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &[
             "Version::span",
             "Version ^ Version (BitXor, owned and borrowed — the pair hull)",
@@ -668,7 +640,7 @@ pub const ROSTER: &[OpSpec] = &[
         name: "version_span_all",
         inputs: Inputs::VersionSlice,
         covers: &["Version::span_all"],
-        size_measure: "total packed bytes; arity uniform over 1..=size, split uniform \
+        size_measure: "total encoded bytes; arity uniform over 1..=size, split uniform \
              over the compositions (the first drawn operand rides as the hull fold's \
              receiver, feed order preserved)",
         variant: "",
@@ -682,7 +654,7 @@ pub const ROSTER: &[OpSpec] = &[
     // ───────────────────────────── Party ─────────────────────────────
     OpSpec {
         name: "party_shape",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party]),
         covers: &["Party::shape"],
         size_measure: M_UNARY,
         variant: "",
@@ -695,7 +667,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_decode",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party]),
         covers: &["Party::decode"],
         size_measure: M_UNARY,
         variant: "",
@@ -708,7 +680,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_encode",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party]),
         covers: &["Party::encode"],
         size_measure: M_UNARY,
         variant: "",
@@ -720,38 +692,8 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
-        name: "party_display",
-        inputs: Inputs::Packed(&[Operand::Party]),
-        covers: &["Party Display / FromStr / TryFrom literals"],
-        size_measure: "exact packed bytes, uniform per size (fuel includes writing the \
-             text output)",
-        variant: "",
-        contract: "`O(|self|)` time and space",
-        claim: "n",
-        measure: |g, inputs, _| {
-            load_party(g, 0, &inputs[0]);
-            g.call("ff_party_display", &[0])
-        },
-    },
-    OpSpec {
-        name: "party_fromstr",
-        inputs: Inputs::Packed(&[Operand::Party]),
-        covers: &["Party Display / FromStr / TryFrom literals"],
-        size_measure: "packed bytes of the sampled value, rendered to text by Display \
-             (the value measure pushed through rendering — not uniform over text; the \
-             adversarial text families keep the corner coverage)",
-        variant: "",
-        contract: "`O(|s|)` time and space, accepted or rejected",
-        claim: "n",
-        measure: |g, inputs, _| {
-            load_party(g, 0, &inputs[0]);
-            prep(g, "ff_party_display", &[0]);
-            g.call("ff_party_fromstr", &[1])
-        },
-    },
-    OpSpec {
         name: "party_fork",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party]),
         covers: &["Party::fork"],
         size_measure: M_UNARY,
         variant: "",
@@ -764,9 +706,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_forks",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party]),
         covers: &["Party::forks"],
-        size_measure: "exact packed bytes, uniform per size (share count a declared \
+        size_measure: "exact encoded bytes, uniform per size (share count a declared \
              constant, 8)",
         variant: "",
         contract: "a full drain costs `O(|self| + k (|self| + log k))`",
@@ -778,9 +720,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_join",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party]),
         covers: &["Party::join"],
-        size_measure: "packed bytes of one uniform party; the operands are its two \
+        size_measure: "encoded bytes of one uniform party; the operands are its two \
              fork halves (independent uniform pairs are almost never disjoint, so the \
              partial domain is reached by re-merging a split)",
         variant: "",
@@ -796,7 +738,7 @@ pub const ROSTER: &[OpSpec] = &[
         name: "party_join_all",
         inputs: Inputs::PartyShares,
         covers: &["Party::join_all"],
-        size_measure: "packed bytes of one uniform party; share count uniform over \
+        size_measure: "encoded bytes of one uniform party; share count uniform over \
              1..=size (drawn per sample; the balanced split is minted in the guest, \
              so the size axis stays the party's own bytes), and the measured fold \
              re-merges the shares into the residual — independent uniform parties \
@@ -814,7 +756,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_is_disjoint",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Party]),
         covers: &["Party::is_disjoint"],
         size_measure: M_BINARY,
         variant: "",
@@ -828,7 +770,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_covers",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Party]),
         covers: &["Party::covers"],
         size_measure: M_BINARY,
         variant: "",
@@ -842,9 +784,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_without",
-        inputs: Inputs::PackedDistinct(&[Operand::Party, Operand::Party]),
+        inputs: Inputs::DistinctOperands(&[Operand::Party, Operand::Party]),
         covers: &["Party::without"],
-        size_measure: "total packed bytes; split uniform; byte-equal pairs rejected \
+        size_measure: "total encoded bytes; split uniform; byte-equal pairs rejected \
              and operand order chosen so the difference exists",
         variant: "",
         contract: "`O(|self| + |other|)`",
@@ -871,9 +813,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "party_hash",
-        inputs: Inputs::Packed(&[Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Party]),
         covers: &["Party Eq / Hash (canonical byte compare)"],
-        size_measure: "packed bytes of the hashed party (std's DefaultHasher \
+        size_measure: "encoded bytes of the hashed party (std's DefaultHasher \
              over the canonical bytes; equality is the same canonical byte \
              compare the version_eq panel prices on its equal pair)",
         variant: "",
@@ -887,7 +829,7 @@ pub const ROSTER: &[OpSpec] = &[
     // ───────────────────────────── Clock ─────────────────────────────
     OpSpec {
         name: "clock_decode",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::decode"],
         size_measure: M_CLOCK,
         variant: "",
@@ -903,7 +845,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_encode",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::encode"],
         size_measure: M_CLOCK,
         variant: "",
@@ -915,41 +857,8 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
-        name: "clock_display",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
-        covers: &["Clock Display / FromStr / TryFrom"],
-        size_measure: "total packed bytes of the clock's party and version \
-             parts, split uniform (fuel includes writing the text output)",
-        variant: "",
-        contract: "superlinear, subquadratic time; `O(|self|)` space",
-        claim: "n log n",
-        measure: |g, inputs, _| {
-            compose_clock(g, &inputs[0], &inputs[1]);
-            g.call("ff_clock_display", &[0])
-        },
-    },
-    OpSpec {
-        name: "clock_fromstr",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
-        covers: &["Clock Display / FromStr / TryFrom"],
-        size_measure: "packed bytes of the sampled clock parts, rendered to \
-             text by Display (the value measure pushed through rendering — \
-             not uniform over text; the adversarial text families keep the \
-             corner coverage); the measured parse runs the stamp's delimiter \
-             scan over the same per-part literal doors the TryFrom literal \
-             composes",
-        variant: "",
-        contract: "superlinear, subquadratic time; `O(|s|)` space",
-        claim: "n log n",
-        measure: |g, inputs, _| {
-            compose_clock(g, &inputs[0], &inputs[1]);
-            prep(g, "ff_clock_display", &[0]);
-            g.call("ff_clock_fromstr", &[1])
-        },
-    },
-    OpSpec {
         name: "clock_tick",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::tick"],
         size_measure: M_CLOCK,
         variant: "",
@@ -962,7 +871,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_fork",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::fork"],
         size_measure: M_CLOCK,
         variant: "",
@@ -975,9 +884,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_forks",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::forks"],
-        size_measure: "total packed bytes of the clock's party and version \
+        size_measure: "total encoded bytes of the clock's party and version \
              parts, split uniform (share count a declared constant, 8; the \
              measured full drain pays the balanced party split plus one \
              refcount-bump version clone per child)",
@@ -991,7 +900,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_send",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::send"],
         size_measure: M_CLOCK,
         variant: "",
@@ -1004,9 +913,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_recv",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version, Operand::Version]),
         covers: &["Clock::recv"],
-        size_measure: "total packed bytes of the clock's parts and the received \
+        size_measure: "total encoded bytes of the clock's parts and the received \
              version, split uniform three ways",
         variant: "",
         contract: "`O(|self| + |version|)`",
@@ -1019,7 +928,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_join",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version, Operand::Version]),
         covers: &["Clock::join"],
         size_measure: M_CLOCK_PAIR,
         variant: "",
@@ -1034,7 +943,7 @@ pub const ROSTER: &[OpSpec] = &[
         name: "clock_join_all",
         inputs: Inputs::ClockSlice,
         covers: &["Clock::join_all"],
-        size_measure: "total packed bytes of one party and the drawn versions, split \
+        size_measure: "total encoded bytes of one party and the drawn versions, split \
              uniform over the compositions; clock count uniform over 1..=size−1 \
              (every count the budget can feed), the party fork-split in preparation \
              so the parties partition one region, and the measured fold reunites the \
@@ -1063,7 +972,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_sync",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version, Operand::Version]),
         covers: &["Clock::sync"],
         size_measure: M_CLOCK_PAIR,
         variant: "",
@@ -1078,7 +987,7 @@ pub const ROSTER: &[OpSpec] = &[
         name: "clock_sync_all",
         inputs: Inputs::ClockSlice,
         covers: &["Clock::sync_all"],
-        size_measure: "total packed bytes of one party and the drawn versions, split \
+        size_measure: "total encoded bytes of one party and the drawn versions, split \
              uniform over the compositions; clock count uniform over 1..=size−1 \
              (every count the budget can feed), the party fork-split in preparation \
              so the parties partition one region, and the measured reconcile folds \
@@ -1106,7 +1015,7 @@ pub const ROSTER: &[OpSpec] = &[
         name: "clock_recv_all",
         inputs: Inputs::ClockSlice,
         covers: &["Clock::recv_all"],
-        size_measure: "total packed bytes of one party and the drawn versions, split \
+        size_measure: "total encoded bytes of one party and the drawn versions, split \
              uniform over the compositions; version count uniform over 1..=size−1, \
              the first version paired with the party as the receiving clock and the \
              rest received as the message batch (a one-version draw receives the \
@@ -1127,7 +1036,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_from_parts",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::from_parts"],
         size_measure: M_CLOCK,
         variant: "",
@@ -1141,7 +1050,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_into_parts",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::into_parts"],
         size_measure: M_CLOCK,
         variant: "",
@@ -1154,9 +1063,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_own_version",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::own_version"],
-        size_measure: "total packed bytes of the clock's party and version parts, \
+        size_measure: "total encoded bytes of the clock's party and version parts, \
              split uniform (the view materialized via to_version)",
         variant: "",
         contract: "the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
@@ -1168,7 +1077,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "clock_shape",
-        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Party, Operand::Version]),
         covers: &["Clock::shape"],
         size_measure: M_CLOCK,
         variant: "",
@@ -1182,9 +1091,9 @@ pub const ROSTER: &[OpSpec] = &[
     // ───────────────────────────── Rank ─────────────────────────────
     OpSpec {
         name: "rank_add",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
-        size_measure: "total packed bytes of the two versions whose ranks are added, \
+        size_measure: "total encoded bytes of the two versions whose ranks are added, \
              split uniform (ranks derived by Version::rank in preparation)",
         variant: "",
         contract: "`O(‖self‖ + ‖rhs‖)`",
@@ -1199,9 +1108,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "rank_cmp",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
-        size_measure: "total packed bytes of the two versions whose ranks are compared, \
+        size_measure: "total encoded bytes of the two versions whose ranks are compared, \
              split uniform (ranks derived by Version::rank in preparation)",
         variant: "",
         contract: "`O(‖self‖ + ‖other‖)`",
@@ -1216,9 +1125,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "rank_checked_sub",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Rank::checked_sub"],
-        size_measure: "total packed bytes of the two versions whose ranks are \
+        size_measure: "total encoded bytes of the two versions whose ranks are \
              subtracted, split uniform; operands ordered by rank so the difference \
              exists",
         variant: "",
@@ -1242,9 +1151,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "rank_display",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
-        size_measure: "packed bytes of the version whose rank is rendered (rank \
+        size_measure: "encoded bytes of the version whose rank is rendered (rank \
              derived by Version::rank in preparation; fuel includes writing the text \
              output)",
         variant: "",
@@ -1258,12 +1167,12 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "rank_encode",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Rank::encode"],
-        size_measure: "packed bytes of the version whose rank is encoded (rank \
+        size_measure: "encoded bytes of the version whose rank is encoded (rank \
              derived by Version::rank in preparation; the measured emission is \
              linear in the rank's numeric size, which the fold keeps linear in \
-             the packed input)",
+             the encoded input)",
         variant: "",
         contract: "`O(‖self‖)` time and space",
         claim: "n",
@@ -1275,9 +1184,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "rank_decode",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Rank::decode"],
-        size_measure: "packed bytes of the version whose rank's canonical \
+        size_measure: "encoded bytes of the version whose rank's canonical \
              stream is parsed (rank derived and encoded in unmeasured \
              preparation; the measured strict parse is linear in the stream)",
         variant: "",
@@ -1292,9 +1201,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "ranked_encode",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Ranked::encode"],
-        size_measure: "packed bytes of the viewed version (the composite key: \
+        size_measure: "encoded bytes of the viewed version (the composite key: \
              one rank fold, the rank stream emission, and one copy of the \
              version's canonical bytes; view construction is O(1))",
         variant: "",
@@ -1307,9 +1216,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "ranked_encode_rank",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Ranked::encode_rank", "Version::encode_rank"],
-        size_measure: "packed bytes of the viewed version (the composite key's \
+        size_measure: "encoded bytes of the viewed version (the composite key's \
              rank component alone: one fused rank fold and emission; view \
              construction is O(1))",
         variant: "",
@@ -1322,9 +1231,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "ranked_decode",
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Ranked::decode"],
-        size_measure: "packed bytes of the version whose composite key is \
+        size_measure: "encoded bytes of the version whose composite key is \
              parsed (key produced in unmeasured preparation; the measured \
              decode runs the strict parse plus the verifying rank fold)",
         variant: "",
@@ -1338,9 +1247,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "ranked_cmp",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Ranked comparisons and the Ranked / Rank From conversions (the total order)"],
-        size_measure: "total packed bytes of the two viewed versions, split \
+        size_measure: "total encoded bytes of the two viewed versions, split \
              uniform (the fused signed rank co-sweep, one byte compare on \
              rank ties; equal operands exit at the canonical-equality probe, \
              so the co-sweep's axis reads from the distinct pairs; view \
@@ -1358,7 +1267,7 @@ pub const ROSTER: &[OpSpec] = &[
     // ───────────────────────────────── Span ─────────────────────────────────
     OpSpec {
         name: "span_place",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::place"],
         size_measure: M_SPAN_PROBE,
         variant: "",
@@ -1374,7 +1283,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_dominance",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::dominance"],
         size_measure: M_SPAN_PROBE,
         variant: "",
@@ -1390,7 +1299,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_precedence",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::precedence"],
         size_measure: M_SPAN_PROBE,
         variant: "",
@@ -1406,7 +1315,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_contains",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["Span::contains"],
         size_measure: M_SPAN_PROBE,
         variant: "",
@@ -1422,7 +1331,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_encode",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Span::encode"],
         size_measure: M_SPAN_HULL,
         variant: "",
@@ -1437,7 +1346,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_decode",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["Span::decode"],
         size_measure: M_SPAN_HULL,
         variant: "",
@@ -1455,7 +1364,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_union",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
@@ -1481,7 +1390,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_intersect",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
@@ -1509,7 +1418,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_join",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
@@ -1535,7 +1444,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_meet",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
@@ -1627,14 +1536,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "span_project",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Party]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Party]),
         covers: &[
             "&Span / &Party (Div — the lazy span projection view)",
             "Span::project",
             "OwnSpan::to_span",
             "From<OwnSpan> for Span (explicit materialization)",
         ],
-        size_measure: "total packed bytes of the two hull operands and the projecting \
+        size_measure: "total encoded bytes of the two hull operands and the projecting \
              party, split uniform three ways (the span composed in unmeasured \
              preparation as the operands' pair hull; the view is O(1) preparation, \
              and the measured kernel materializes both projected endpoints)",
@@ -1651,7 +1560,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "own_span_place",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Party,
@@ -1673,7 +1582,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "own_span_dominance",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Party,
@@ -1695,7 +1604,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "own_span_precedence",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Party,
@@ -1717,7 +1626,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "own_span_contains",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Party,
@@ -1746,9 +1655,9 @@ pub const ROSTER: &[OpSpec] = &[
     // every panel prices one observation of one shape.
     OpSpec {
         name: "floor_contains",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["causally::Floor::contains"],
-        size_measure: "total packed bytes of the atom's bound and the probe, \
+        size_measure: "total encoded bytes of the atom's bound and the probe, \
              split uniform (one pair sweep under an O(1) verdict fold; the \
              atom view is O(1) construction)",
         variant: "",
@@ -1762,9 +1671,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "ceiling_contains",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["causally::Ceiling::contains"],
-        size_measure: "total packed bytes of the atom's bound and the probe, \
+        size_measure: "total encoded bytes of the atom's bound and the probe, \
              split uniform (the order dual of floor_contains: one pair sweep \
              under an O(1) verdict fold; the atom view is O(1) construction)",
         variant: "",
@@ -1778,9 +1687,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_contains_floor",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["causally::Query::contains"],
-        size_measure: "total packed bytes of the floor bound and the probe, \
+        size_measure: "total encoded bytes of the floor bound and the probe, \
              split uniform (query composed in unmeasured preparation as \
              after(f) & all(); the measured verdict is the fused membership \
              walk over the probe and the one bound)",
@@ -1796,9 +1705,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_contains_ceiling",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["causally::Query::contains"],
-        size_measure: "total packed bytes of the ceiling bound and the probe, \
+        size_measure: "total encoded bytes of the ceiling bound and the probe, \
              split uniform (query composed in unmeasured preparation as \
              before(c) & all(); the measured verdict is the fused membership \
              walk over the probe and the one bound)",
@@ -1814,9 +1723,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_contains_floor_ceiling",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Query::contains"],
-        size_measure: "total packed bytes of the floor, the ceiling, and the \
+        size_measure: "total encoded bytes of the floor, the ceiling, and the \
              probe, split uniform three ways (query composed in unmeasured \
              preparation as after(f) & before(c); the measured verdict is the \
              fused membership walk over the probe and both bounds)",
@@ -1833,9 +1742,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_contains_hole",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["causally::Query::contains"],
-        size_measure: "total packed bytes of the hole bound and the probe, \
+        size_measure: "total encoded bytes of the hole bound and the probe, \
              split uniform (query composed in unmeasured preparation as \
              since(s) — the lone-hole shape; the measured verdict is the \
              fused membership walk over the probe and the one hole stream)",
@@ -1851,9 +1760,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_contains_floor_hole",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Query::contains"],
-        size_measure: "total packed bytes of the floor, the hole bound, and \
+        size_measure: "total encoded bytes of the floor, the hole bound, and \
              the probe, split uniform three ways (query composed in unmeasured \
              preparation as toward(s, t) — floor plus one hole; the measured \
              verdict is the fused membership walk over the probe and both \
@@ -1871,9 +1780,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_contains_ceiling_hole",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Query::contains"],
-        size_measure: "total packed bytes of the hole bound, the ceiling, and \
+        size_measure: "total encoded bytes of the hole bound, the ceiling, and \
              the probe, split uniform three ways (query composed in unmeasured \
              preparation as delta(s, e) — ceiling plus one hole; the measured \
              verdict is the fused membership walk over the probe and both \
@@ -1891,9 +1800,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_contains_floor_ceiling_hole",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Query::contains"],
-        size_measure: "total packed bytes of the strict-lower bound, the \
+        size_measure: "total encoded bytes of the strict-lower bound, the \
              ceiling, and the probe, split uniform three ways (query composed \
              in unmeasured preparation as strictly_after(a) & before(c) — \
              floor, ceiling, and the hole at the floor, the fullest one-hole \
@@ -1912,9 +1821,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_coverage_floor",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Query::coverage"],
-        size_measure: "total packed bytes of the floor bound and the two hull \
+        size_measure: "total encoded bytes of the floor bound and the two hull \
              operands, split uniform three ways (query composed in unmeasured \
              preparation as after(f) & all(), the span probe as the hull \
              operands' pair hull; the measured verdict runs the fused \
@@ -1933,9 +1842,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_coverage_ceiling",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Query::coverage"],
-        size_measure: "total packed bytes of the ceiling bound and the two \
+        size_measure: "total encoded bytes of the ceiling bound and the two \
              hull operands, split uniform three ways (query composed in \
              unmeasured preparation as before(c) & all(), the span probe as \
              the hull operands' pair hull; the measured verdict runs the \
@@ -1954,14 +1863,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_coverage_floor_ceiling",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
             Operand::Version,
         ]),
         covers: &["causally::Query::coverage"],
-        size_measure: "total packed bytes of the floor, the ceiling, and the \
+        size_measure: "total encoded bytes of the floor, the ceiling, and the \
              two hull operands, split uniform four ways (query composed in \
              unmeasured preparation as after(f) & before(c), the span probe \
              as the hull operands' pair hull; the measured verdict runs the \
@@ -1981,9 +1890,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_coverage_hole",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
         covers: &["causally::Query::coverage"],
-        size_measure: "total packed bytes of the hole bound and the two hull \
+        size_measure: "total encoded bytes of the hole bound and the two hull \
              operands, split uniform three ways (query composed in unmeasured \
              preparation as since(s) — the lone-hole shape — and the span \
              probe as the hull operands' pair hull; the measured verdict runs \
@@ -2002,14 +1911,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_coverage_floor_hole",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
             Operand::Version,
         ]),
         covers: &["causally::Query::coverage"],
-        size_measure: "total packed bytes of the floor, the hole bound, and \
+        size_measure: "total encoded bytes of the floor, the hole bound, and \
              the two hull operands, split uniform four ways (query composed \
              in unmeasured preparation as toward(s, t) — floor plus one hole \
              — and the span probe as the hull operands' pair hull; the \
@@ -2030,14 +1939,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_coverage_ceiling_hole",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
             Operand::Version,
         ]),
         covers: &["causally::Query::coverage"],
-        size_measure: "total packed bytes of the hole bound, the ceiling, and \
+        size_measure: "total encoded bytes of the hole bound, the ceiling, and \
              the two hull operands, split uniform four ways (query composed \
              in unmeasured preparation as delta(s, e) — ceiling plus one hole \
              — and the span probe as the hull operands' pair hull; the \
@@ -2058,14 +1967,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_coverage_floor_ceiling_hole",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
             Operand::Version,
         ]),
         covers: &["causally::Query::coverage"],
-        size_measure: "total packed bytes of the strict-lower bound, the \
+        size_measure: "total encoded bytes of the strict-lower bound, the \
              ceiling, and the two hull operands, split uniform four ways \
              (query composed in unmeasured preparation as strictly_after(a) & \
              before(c) — floor, ceiling, and the hole at the floor, the \
@@ -2092,9 +2001,9 @@ pub const ROSTER: &[OpSpec] = &[
     // preparation; the measured call is the `&` merge itself.
     OpSpec {
         name: "query_conjoin_floors",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["causally & conjunction (atoms and queries, every admitted pairing)"],
-        size_measure: "total packed bytes of the two floor bounds, split uniform \
+        size_measure: "total encoded bytes of the two floor bounds, split uniform \
              (each composed in unmeasured preparation as after(f) & all(); \
              the measured merge joins the floors — one version join walk)",
         variant: "",
@@ -2110,9 +2019,9 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_conjoin_ceilings",
-        inputs: Inputs::Packed(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
         covers: &["causally & conjunction (atoms and queries, every admitted pairing)"],
-        size_measure: "total packed bytes of the two ceiling bounds, split \
+        size_measure: "total encoded bytes of the two ceiling bounds, split \
              uniform (each composed in unmeasured preparation as before(c) & \
              all(); the measured merge meets the ceilings — one version meet \
              walk, the order dual of query_conjoin_floors)",
@@ -2129,14 +2038,14 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "query_conjoin_bounded_holes",
-        inputs: Inputs::Packed(&[
+        inputs: Inputs::Operands(&[
             Operand::Version,
             Operand::Version,
             Operand::Version,
             Operand::Version,
         ]),
         covers: &["causally & conjunction (atoms and queries, every admitted pairing)"],
-        size_measure: "total packed bytes of the two strict-lower bounds and the \
+        size_measure: "total encoded bytes of the two strict-lower bounds and the \
              two ceilings, split uniform four ways (each operand composed in \
              unmeasured preparation as strictly_after(a) & before(c) — \
              floor, ceiling, and the hole at the floor; the measured merge \
@@ -2193,18 +2102,18 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "Version::is_empty",
         "an O(1) bit test against the canonical 2-bit empty stream",
     ),
-    ("Party::as_bytes", "O(1) borrow of the stored packed bytes"),
+    ("Party::as_bytes", "O(1) borrow of the stored encoded bytes"),
     (
         "Version::as_bytes",
-        "O(1) borrow of the stored packed bytes",
+        "O(1) borrow of the stored encoded bytes",
     ),
     (
         "Party::encoded_bits",
-        "stored-length accessor over the packed form",
+        "stored-length accessor over the encoded form",
     ),
     (
         "Version::encoded_bits",
-        "stored-length accessor over the packed form",
+        "stored-length accessor over the encoded form",
     ),
     (
         "Clock::encoded_bits",
@@ -2352,13 +2261,13 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     // ── representation mechanics ──
     (
-        "Ticks ZERO / From / TryFrom / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
         "the opaque count carrier's own arithmetic and text, not a tree walk; its \
          semantics are priced at the min_ticks panel",
     ),
     (
         "Ticks::limbs",
-        "a borrowing limb view of the count carrier, not a packed-input walk: \
+        "a borrowing limb view of the count carrier, not an input walk: \
          construction is O(1) and the drain is one word per stored limb",
     ),
     (
@@ -2369,7 +2278,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     (
         "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
         "value carriers of the shape walks' items: word-scale fields plus one \
-         count held at its own width — no packed-input axis",
+         count held at its own width — no encoded-input axis",
     ),
     // ── linearity escape hatches ──
     (
@@ -2385,7 +2294,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     // ── codec shims ──
     (
         "serde / borsh impls (feature-gated, strict-decode pinned)",
-        "feature-gated shims over the packed codecs: a panel would re-measure the \
+        "feature-gated shims over the encoded codecs: a panel would re-measure the \
          identical encode/decode walks the codec panels price, under framing that \
          adds no size-dependent work",
     ),
@@ -2502,8 +2411,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "the measurement apparatus itself, not an ITC operation",
     ),
     (
-        "error verdict types (Decode / Parse / Crossed)",
-        "verdict carriers of the paper ops' rejection arms; the producing \
-         doors' panels price the walks that mint them",
+        "error verdict types (Decode / Crossed)",
+        "verdict carriers; the operations that produce them are measured directly",
     ),
 ];

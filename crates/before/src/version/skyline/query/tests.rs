@@ -22,7 +22,7 @@
 use proptest::prelude::*;
 
 use crate::meter::registry::Shape;
-use crate::meter::{dense_factor, factor_digit, Packed};
+use crate::meter::{dense_factor, factor_digit, Encoding};
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
 use crate::testing::generators::arb_oracle_version;
@@ -32,8 +32,8 @@ use crate::{Clock, Party, Version};
 
 use super::{distance, lag, min_ticks, project, rank, rank_cmp};
 
-/// Decode a meter-generated packed shape as a [`Version`].
-fn version_of(p: &Packed) -> Version {
+/// Decode a meter-generated encoded shape as a [`Version`].
+fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
@@ -45,12 +45,12 @@ fn assert_single(v: &Version) {
     assert_eq!(
         rank(crate::codec::built_view(&enc)),
         tree.rank(),
-        "rank kernel disagrees with the tree-fold oracle: {v}"
+        "rank kernel disagrees with the tree-fold oracle: {v:?}"
     );
     assert_eq!(
         crate::Ticks(min_ticks(crate::codec::built_view(&enc))),
         tree.min_ticks(),
-        "min_ticks kernel disagrees with the tree-fold oracle: {v}"
+        "min_ticks kernel disagrees with the tree-fold oracle: {v:?}"
     );
 }
 
@@ -62,7 +62,7 @@ fn assert_projection(v: &Version, p: &Party) {
     assert_eq!(
         project(crate::codec::built_view(&enc), p),
         encode(&masked),
-        "projection must match the oracle mask: {v} / {p}"
+        "projection must match the oracle mask: {v:?} / {p:?}"
     );
 }
 
@@ -93,12 +93,12 @@ fn assert_pair(a: &Version, b: &Version) {
     assert_eq!(
         rank_cmp(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         order,
-        "rank_cmp: {a} vs {b}"
+        "rank_cmp: {a:?} vs {b:?}"
     );
     assert_eq!(
         rank_cmp(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         order.reverse(),
-        "rank_cmp reversed: {b} vs {a}"
+        "rank_cmp reversed: {b:?} vs {a:?}"
     );
     let join_rank = (ta.clone() | tb.clone()).rank();
     let meet_rank = (ta.clone() & tb.clone()).rank();
@@ -108,12 +108,12 @@ fn assert_pair(a: &Version, b: &Version) {
     assert_eq!(
         distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         dist,
-        "distance: {a} vs {b}"
+        "distance: {a:?} vs {b:?}"
     );
     assert_eq!(
         distance(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         dist,
-        "distance: {b} vs {a}"
+        "distance: {b:?} vs {a:?}"
     );
     let lag_a = join_rank
         .checked_sub(&ta.rank())
@@ -124,12 +124,12 @@ fn assert_pair(a: &Version, b: &Version) {
     assert_eq!(
         lag(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         lag_a,
-        "lag: {a} vs {b}"
+        "lag: {a:?} vs {b:?}"
     );
     assert_eq!(
         lag(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         lag_b,
-        "lag: {b} vs {a}"
+        "lag: {b:?} vs {a:?}"
     );
     // The composed forms, on this crate's own kernels.
     let kernel_join = rank(crate::codec::built_view(&emit::join(
@@ -146,7 +146,7 @@ fn assert_pair(a: &Version, b: &Version) {
     assert_eq!(
         distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         composed_dist,
-        "distance vs the composed rank-of-meet arithmetic: {a} vs {b}"
+        "distance vs the composed rank-of-meet arithmetic: {a:?} vs {b:?}"
     );
     let composed_lag_a = kernel_join
         .checked_sub(&rank(crate::codec::built_view(&ea)))
@@ -154,7 +154,7 @@ fn assert_pair(a: &Version, b: &Version) {
     assert_eq!(
         lag(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         composed_lag_a,
-        "lag vs the composed rank-of-join arithmetic: {a} vs {b}"
+        "lag vs the composed rank-of-join arithmetic: {a:?} vs {b:?}"
     );
 }
 
@@ -162,28 +162,28 @@ fn assert_pair(a: &Version, b: &Version) {
 fn family_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&Shape::Dense.packed1(1)),
-        version_of(&Shape::Dense.packed1(2)),
-        version_of(&Shape::Dense.packed1(64)),
-        version_of(&Shape::Bigroot.packed2(7, 3)),
-        version_of(&Shape::Bigroot.packed2(64, 16)),
-        version_of(&Shape::Hugeleaf.packed1(1)),
-        version_of(&Shape::Hugeleaf.packed1(64)),
-        version_of(&Shape::CliffComb.packed2(3, 2)),
-        version_of(&Shape::CliffComb.packed2(16, 16)),
-        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
+        version_of(&Shape::Dense.build1(1)),
+        version_of(&Shape::Dense.build1(2)),
+        version_of(&Shape::Dense.build1(64)),
+        version_of(&Shape::Bigroot.build2(7, 3)),
+        version_of(&Shape::Bigroot.build2(64, 16)),
+        version_of(&Shape::Hugeleaf.build1(1)),
+        version_of(&Shape::Hugeleaf.build1(64)),
+        version_of(&Shape::CliffComb.build2(3, 2)),
+        version_of(&Shape::CliffComb.build2(16, 16)),
+        version_of(&Shape::WideToothComb.build3(16, 8, 8)),
         // Wide teeth over the freeze allowance: bounded oscillation that
         // must ride the live component without freezing.
-        version_of(&Shape::WideToothComb.packed3(320, 300, 6)),
+        version_of(&Shape::WideToothComb.build3(320, 300, 6)),
         // The stale-drift shape: the mid-stream jump is wide enough that
         // the first cheap delta behind it fires a freeze.
-        version_of(&Shape::JumpComb.packed2(16, 8)),
-        version_of(&Shape::JumpComb.packed2(320, 4)),
-        version_of(&Shape::CliffFan.packed2(16, 8)),
-        version_of(&Shape::CancellingChain.packed2(16, 8)),
-        version_of(&Shape::AltSpine.packed1(3)),
-        version_of(&Shape::AltSpine.packed1(64)),
-        version_of(&Shape::Harmonic.packed1(16)),
+        version_of(&Shape::JumpComb.build2(16, 8)),
+        version_of(&Shape::JumpComb.build2(320, 4)),
+        version_of(&Shape::CliffFan.build2(16, 8)),
+        version_of(&Shape::CancellingChain.build2(16, 8)),
+        version_of(&Shape::AltSpine.build1(3)),
+        version_of(&Shape::AltSpine.build1(64)),
+        version_of(&Shape::Harmonic.build1(16)),
     ]
 }
 
@@ -197,9 +197,9 @@ fn party_pool() -> Vec<Party> {
         seed,
         half,
         quarter,
-        Party::decode(&Shape::ScatteredId.packed1(1).bytes[..])
+        Party::decode(&Shape::ScatteredId.build1(1).bytes[..])
             .expect("scattered id is strict normal form"),
-        Party::decode(&Shape::ScatteredId.packed1(9).bytes[..])
+        Party::decode(&Shape::ScatteredId.build1(9).bytes[..])
             .expect("scattered id is strict normal form"),
     ]
 }
@@ -215,7 +215,7 @@ fn party_pool() -> Vec<Party> {
 /// height-tracking or freeze bookkeeping error surfaces here before any
 /// envelope moves.
 #[test]
-fn families_agree_with_the_packed_forms() {
+fn families_agree_with_the_encodings() {
     let pool = family_pool();
     let parties = party_pool();
     for v in &pool {
@@ -242,32 +242,32 @@ fn families_agree_with_the_packed_forms() {
 /// are the only ones that arm it more than once per sweep or with mixed signs.
 fn promoting_pool() -> Vec<Version> {
     vec![
-        version_of(&Shape::PromotionRearm.packed1(1)),
-        version_of(&Shape::PromotionRearm.packed1(3)),
-        version_of(&Shape::PromotionRearmMate.packed1(3)),
-        version_of(&Shape::DenseSuffix.packed2(1, 2)),
-        version_of(&Shape::DenseSuffix.packed2(3, 1)),
-        version_of(&Shape::DenseSuffixMate.packed2(3, 1)),
-        version_of(&Shape::WideArming.packed2(10, 2)),
-        version_of(&Shape::WideArming.packed2(13, 3)),
-        version_of(&Shape::FreezePosition.packed1(3)),
-        version_of(&Shape::PlateauPuncture.packed2(10, 3)),
-        version_of(&Shape::PlateauPuncture.packed2(12, 1)),
+        version_of(&Shape::PromotionRearm.build1(1)),
+        version_of(&Shape::PromotionRearm.build1(3)),
+        version_of(&Shape::PromotionRearmMate.build1(3)),
+        version_of(&Shape::DenseSuffix.build2(1, 2)),
+        version_of(&Shape::DenseSuffix.build2(3, 1)),
+        version_of(&Shape::DenseSuffixMate.build2(3, 1)),
+        version_of(&Shape::WideArming.build2(10, 2)),
+        version_of(&Shape::WideArming.build2(13, 3)),
+        version_of(&Shape::FreezePosition.build1(3)),
+        version_of(&Shape::PlateauPuncture.build2(10, 3)),
+        version_of(&Shape::PlateauPuncture.build2(12, 1)),
         // The first-freeze-gate straddles: the sweep's one freeze fired
         // arbitrarily late (a long never-freezing plateau prefix) and fired
         // early ahead of a long never-freezing tail — the settle's smallest
         // nonempty configuration, one parked drift against one final segment,
         // from both sides of the gate.
-        version_of(&Shape::LoneFreeze.packed2(2, 2)),
-        version_of(&Shape::LoneFreeze.packed2(6, 2)),
-        version_of(&Shape::LoneFreeze.packed2(2, 6)),
+        version_of(&Shape::LoneFreeze.build2(2, 2)),
+        version_of(&Shape::LoneFreeze.build2(6, 2)),
+        version_of(&Shape::LoneFreeze.build2(2, 6)),
         // The multi-arming trains: same-sign and alternating, so the settle's
         // parked sums are exercised both accumulating and cancelling across
         // aggregate seams.
-        version_of(&Shape::ArmingTrain.packed_train(1, 19, 1, false)),
-        version_of(&Shape::ArmingTrain.packed_train(3, 19, 1, false)),
-        version_of(&Shape::ArmingTrain.packed_train(4, 19, 2, true)),
-        version_of(&Shape::ArmingTrain.packed_train(5, 20, 1, true)),
+        version_of(&Shape::ArmingTrain.build_train(1, 19, 1, false)),
+        version_of(&Shape::ArmingTrain.build_train(3, 19, 1, false)),
+        version_of(&Shape::ArmingTrain.build_train(4, 19, 2, true)),
+        version_of(&Shape::ArmingTrain.build_train(5, 20, 1, true)),
     ]
 }
 
@@ -430,12 +430,12 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
         assert_eq!(
             rank_cmp(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
             want,
-            "rank_cmp: {a} vs {b}"
+            "rank_cmp: {a:?} vs {b:?}"
         );
         assert_eq!(
             rank_cmp(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
             want.reverse(),
-            "rank_cmp reversed: {a} vs {b}"
+            "rank_cmp reversed: {a:?} vs {b:?}"
         );
     };
     let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
@@ -451,7 +451,7 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
         "liveness: the promoting-pool cross must run freezes under rank_cmp"
     );
     let t = to_oracle_version(&version_of(
-        &Shape::ArmingTrain.packed_train(3, 19, 1, false),
+        &Shape::ArmingTrain.build_train(3, 19, 1, false),
     ));
     let zero = crate::oracle::Version::leaf(0u64);
     let left = from_oracle_version(&crate::oracle::Version::node(0u64, t.clone(), zero.clone()));
@@ -486,7 +486,7 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
 #[test]
 fn pair_families_agree() {
     for (k, m, d) in [(3, 1, 1), (16, 4, 2), (320, 6, 3), (512, 8, 2)] {
-        let (pa, pb) = Shape::JumpPair.packed_pair3(k, m, d);
+        let (pa, pb) = Shape::JumpPair.build_pair3(k, m, d);
         assert_pair(&version_of(&pa), &version_of(&pb));
     }
     for n in [2, 4, 16, 64] {
@@ -583,12 +583,12 @@ proptest! {
         prop_assert_eq!(
             semantic_oracle::rank(&ev, g),
             rank(crate::codec::built_view(&encode(&a))),
-            "the Riemann sum disagrees with the rank kernel: {}", a
+            "the Riemann sum disagrees with the rank kernel: {:?}", a
         );
         prop_assert_eq!(
             semantic_oracle::min_ticks(&ev, g),
             min_ticks(crate::codec::built_view(&encode(&a))),
-            "the semantic tick floor disagrees with the min_ticks kernel: {}", a
+            "the semantic tick floor disagrees with the min_ticks kernel: {:?}", a
         );
     }
 
@@ -622,7 +622,7 @@ proptest! {
     /// at varying comb depth `m` and spine density `d`.
     #[test]
     fn arbitrary_jump_pairs_agree(k in 3usize..400, m in 1usize..8, d in 1usize..4) {
-        let (pa, pb) = Shape::JumpPair.packed_pair3(k, m, d);
+        let (pa, pb) = Shape::JumpPair.build_pair3(k, m, d);
         assert_pair(&version_of(&pa), &version_of(&pb));
     }
 
@@ -653,8 +653,8 @@ proptest! {
         g in 1usize..4,
         alternate: bool,
     ) {
-        let a = version_of(&Shape::ArmingTrain.packed_train(n, w, g, alternate));
-        let b = version_of(&Shape::ArmingTrain.packed_train(n, w, g, !alternate));
+        let a = version_of(&Shape::ArmingTrain.build_train(n, w, g, alternate));
+        let b = version_of(&Shape::ArmingTrain.build_train(n, w, g, !alternate));
         assert_single(&a);
         assert_pair(&a, &b);
     }
@@ -677,7 +677,7 @@ proptest! {
         g in 1usize..4,
         alternate: bool,
     ) {
-        let t = to_oracle_version(&version_of(&Shape::ArmingTrain.packed_train(n, w, g, alternate)));
+        let t = to_oracle_version(&version_of(&Shape::ArmingTrain.build_train(n, w, g, alternate)));
         let zero = crate::oracle::Version::leaf(0u64);
         let left = from_oracle_version(&crate::oracle::Version::node(0u64, t.clone(), zero.clone()));
         let right = from_oracle_version(&crate::oracle::Version::node(0u64, zero, t));
@@ -692,12 +692,12 @@ proptest! {
         prop_assert_eq!(
             rank_cmp(crate::codec::built_view(&el), crate::codec::built_view(&er)),
             core::cmp::Ordering::Equal,
-            "rank_cmp on the mirrored pair: {} vs {}", left, right
+            "rank_cmp on the mirrored pair: {:?} vs {:?}", left, right
         );
         prop_assert_eq!(
             rank_cmp(crate::codec::built_view(&er), crate::codec::built_view(&el)),
             core::cmp::Ordering::Equal,
-            "rank_cmp on the mirrored pair reversed: {} vs {}", right, left
+            "rank_cmp on the mirrored pair reversed: {:?} vs {:?}", right, left
         );
         prop_assert!(
             super::integral::FREEZE_HITS.with(|hits| hits.get()) > hits_before,
@@ -744,7 +744,7 @@ proptest! {
             if v == UBig::ZERO { UBig::ONE } else { v }
         };
         let (x, y) = (nonzero(&x_bytes), nonzero(&y_bytes));
-        let v = Shape::PunctureProduct.packed_product(&x, &y).version();
+        let v = Shape::PunctureProduct.build_product(&x, &y).version();
         let wire = v.encode();
         prop_assert_eq!(
             &Version::decode(&wire[..]).expect("a stored version's wire bytes decode"),
@@ -755,7 +755,7 @@ proptest! {
         // constructed: the STORED stream is Θ(bits(x) + bits(y)) — the deltas
         // collapse to one climb (≤ 2·bits(x) + 1 code bits) and one plunge (≤
         // 2·bits(x) + 3), and each of the `bits(2y)` levels costs O(1) topology
-        // and payload bits — even though the packed construction spells the
+        // and payload bits — even though the encoded construction spells the
         // plateau per turn. Without this bound the floor argument would rest on
         // a stored size nothing checks: a fold could be charged M(|v|) against
         // an operand secretly as large as the product itself.
@@ -1143,7 +1143,7 @@ fn densify_tap_prices_the_cluster_span() {
 /// simple/Karatsuba and Karatsuba/Toom-3 boundaries of dashu-int 0.5.0's
 /// THRESHOLD constants, dispatched on the product's smaller side), the mass `y`
 /// spans 16 digits past the factor with every digit populated — fully dense at
-/// 24/25, four pseudorandom bits per digit at 96/97 (the packed construction
+/// 24/25, four pseudorandom bits per digit at 96/97 (the encoded construction
 /// pays one plateau code per mass bit, so popcount is the test's whole budget;
 /// per-digit population is what the product's carry chains see) — so the
 /// close-time settle's one product meets the boundary width with dense content
@@ -1153,7 +1153,7 @@ fn densify_tap_prices_the_cluster_span() {
 ///
 /// The Toom-3/NTT boundary (4,000/4,001 words) rides the same construction with
 /// the mass thinned to one jittered turn every 400 digits: a
-/// per-digit-populated NTT-scale mass would build a packed operand in the
+/// per-digit-populated NTT-scale mass would build an operand in the
 /// hundreds of megabits, and the recursive oracle's fold over the ~256,000-leaf
 /// tree is likewise out of test budget — the punctured trailing run still
 /// densifies to one cluster image spanning the full smaller-side width the
@@ -1185,7 +1185,7 @@ fn dense_factor_tier_legs() {
     /// One puncture-product leg: the public rank against the closed form, and
     /// (where the tree fits the budget) the recursive oracle.
     fn assert_leg(x: &UBig, y: &UBig, oracle: bool, label: &str) {
-        let v = Shape::PunctureProduct.packed_product(x, y).version();
+        let v = Shape::PunctureProduct.build_product(x, y).version();
         let numerator = ((x * y) << 1usize) + 1u8;
         assert_eq!(
             v.rank().to_string(),
@@ -1355,7 +1355,7 @@ proptest! {
             let mid = super::integral::mass_split(prefix, lo, hi);
             assert!(
                 lo < mid && mid < hi,
-                "both halves must be nonempty: lo {lo}, mid {mid}, hi {hi}"
+                "both halves must be nonempty: lo {lo:?}, mid {mid:?}, hi {hi:?}"
             );
             1 + depth_by_recursion(prefix, lo, mid).max(depth_by_recursion(prefix, mid, hi))
         }
@@ -1464,10 +1464,10 @@ mod adequacy {
         Rank::from_raw(Base::from(num), scale)
     }
 
-    /// One tripwire run: packed bytes and the touch count over the known-bad
+    /// One tripwire run: encoded bytes and the touch count over the known-bad
     /// fold, value-pinned against the shipped kernel.
     fn run(k: usize) -> (u64, u64) {
-        let v = Shape::FreezePosition.packed1(k).version();
+        let v = Shape::FreezePosition.build1(k).version();
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
@@ -1489,7 +1489,7 @@ mod adequacy {
     /// holds the same family at x1.25.
     ///
     /// [measured in the dev profile, exact counters: touches 124,368 -> 372,859
-    /// across FP(1,000) -> FP(2,000), packed 73,328B -> 146,579B: per-byte
+    /// across FP(1,000) -> FP(2,000), encoded 73,328B -> 146,579B: per-byte
     /// growth x1.50.]
     #[test]
     fn absolute_position_accounting_reads_superlinear_on_freeze_position() {
@@ -1754,10 +1754,10 @@ mod adequacy {
         integral.finish(overlay_depth)
     }
 
-    /// One rank tripwire run over `PR(p)`: packed bytes and the touch count
+    /// One rank tripwire run over `PR(p)`: encoded bytes and the touch count
     /// over the known-bad fold, value-pinned against the shipped kernel.
     fn span_rank_run(p: usize) -> (u64, u64) {
-        let v = Shape::PromotionRearm.packed1(p).version();
+        let v = Shape::PromotionRearm.build1(p).version();
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
@@ -1771,12 +1771,12 @@ mod adequacy {
         (enc.len().div_ceil(8), touches)
     }
 
-    /// One pair tripwire run over `(PR(p), PRM(p))`: the pair's packed bytes
+    /// One pair tripwire run over `(PR(p), PRM(p))`: the pair's encoded bytes
     /// and the touch count over the known-bad co-sweep, value-pinned against
     /// the shipped kernel.
     fn span_pair_run(p: usize) -> (u64, u64) {
-        let a = Shape::PromotionRearm.packed1(p).version();
-        let b = Shape::PromotionRearmMate.packed1(p).version();
+        let a = Shape::PromotionRearm.build1(p).version();
+        let b = Shape::PromotionRearmMate.build1(p).version();
         let ea = encode(&a);
         let eb = encode(&b);
         let expected = a.distance(&b);
@@ -1800,7 +1800,7 @@ mod adequacy {
     /// flatness band holds the same family at x1.25.
     ///
     /// [measured in the dev profile, exact counters: touches 1,440,756 ->
-    /// 5,006,506 across PR(1,000) -> PR(2,000), packed 246,501B -> 493,001B:
+    /// 5,006,506 across PR(1,000) -> PR(2,000), encoded 246,501B -> 493,001B:
     /// per-byte growth x1.74.]
     #[test]
     fn span_promotion_accounting_reads_superlinear_on_rearm_spine() {
@@ -1827,7 +1827,7 @@ mod adequacy {
     /// co-sweep, not just freezes.
     ///
     /// [measured in the dev profile, exact counters: touches 1,504,885 ->
-    /// 5,134,635 across p = 1,000 -> 2,000, packed pair 269,001B -> 538,001B:
+    /// 5,134,635 across p = 1,000 -> 2,000, encoded pair 269,001B -> 538,001B:
     /// per-byte growth x1.71; the floor 1.36 sits midway between linear and the
     /// measured growth, as the rank tripwire's.]
     #[test]
@@ -2118,10 +2118,10 @@ mod adequacy {
         integral.finish(overlay_depth)
     }
 
-    /// One rank tripwire run over `DS(p, p)`: packed bytes and the touch count
+    /// One rank tripwire run over `DS(p, p)`: encoded bytes and the touch count
     /// over the known-bad fold, value-pinned against the shipped kernel.
     fn suffix_walk_rank_run(p: usize) -> (u64, u64) {
-        let v = Shape::DenseSuffix.packed2(p, p).version();
+        let v = Shape::DenseSuffix.build2(p, p).version();
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
@@ -2135,12 +2135,12 @@ mod adequacy {
         (enc.len().div_ceil(8), touches)
     }
 
-    /// One pair tripwire run over `(DS(p, p), DSM(p, p))`: the pair's packed
+    /// One pair tripwire run over `(DS(p, p), DSM(p, p))`: the pair's encoded
     /// bytes and the touch count over the known-bad co-sweep, value-pinned
     /// against the shipped kernel.
     fn suffix_walk_pair_run(p: usize) -> (u64, u64) {
-        let a = Shape::DenseSuffix.packed2(p, p).version();
-        let b = Shape::DenseSuffixMate.packed2(p, p).version();
+        let a = Shape::DenseSuffix.build2(p, p).version();
+        let b = Shape::DenseSuffixMate.build2(p, p).version();
         let ea = encode(&a);
         let eb = encode(&b);
         let expected = a.distance(&b);
@@ -2163,7 +2163,7 @@ mod adequacy {
     /// band holds the same family at x1.25.
     ///
     /// [measured in the dev profile, exact counters: touches 698,584 ->
-    /// 2,449,356 across DS(500, 500) -> DS(1,000, 1,000), packed 119,593B ->
+    /// 2,449,356 across DS(500, 500) -> DS(1,000, 1,000), encoded 119,593B ->
     /// 239,030B: per-byte growth x1.75.]
     #[test]
     fn suffix_walk_settle_reads_superlinear_on_dense_suffix() {
@@ -2190,7 +2190,7 @@ mod adequacy {
     /// through the co-sweep, not just freezes.
     ///
     /// [measured in the dev profile, exact counters: touches 810,227 ->
-    /// 2,749,954 across p = 500 -> 1,000, packed pair 127,033B -> 253,909B:
+    /// 2,749,954 across p = 500 -> 1,000, encoded pair 127,033B -> 253,909B:
     /// per-byte growth x1.70; the floor 1.48 sits between linear and the
     /// measured growth, as the rank tripwire's.]
     #[test]
@@ -2372,14 +2372,14 @@ mod adequacy {
         per_digit_finish(integral, max_depth)
     }
 
-    /// One tripwire run over `DS(p, p)`: packed bytes and the limb
+    /// One tripwire run over `DS(p, p)`: encoded bytes and the limb
     /// count over the known-bad fold, value-pinned against the shipped
     /// kernel.
     ///
     /// The limb currency is the point: the bad absorb's excess is pure
     /// window-digit traffic, which only the combine tap meters.
     fn per_digit_run(p: usize) -> (u64, u64) {
-        let v = Shape::DenseSuffix.packed2(p, p).version();
+        let v = Shape::DenseSuffix.build2(p, p).version();
         let enc = encode(&v);
         let expected = v.rank();
         reset_limb_ops();
@@ -2402,7 +2402,7 @@ mod adequacy {
     /// currency.
     ///
     /// [measured in the dev profile, exact counters: limb ops 725,957 ->
-    /// 2,702,714 across DS(500, 500) -> DS(1,000, 1,000), packed 119,593B ->
+    /// 2,702,714 across DS(500, 500) -> DS(1,000, 1,000), encoded 119,593B ->
     /// 239,030B: per-byte growth x1.86 — against the shipped settle's 97,381 ->
     /// 195,491 (x1.00/byte) on the same operands.]
     #[test]
@@ -2605,10 +2605,10 @@ mod adequacy {
         schoolbook_finish(integral, max_depth)
     }
 
-    /// One schoolbook tripwire run: packed bytes and both counters over
+    /// One schoolbook tripwire run: encoded bytes and both counters over
     /// the known-bad fold, value-pinned against the shipped kernel.
-    fn schoolbook_run(packed: crate::meter::Packed) -> (u64, u64, u64) {
-        let v = packed.version();
+    fn schoolbook_run(encoded: crate::meter::Encoding) -> (u64, u64, u64) {
+        let v = encoded.version();
         let enc = encode(&v);
         let expected = v.rank();
         touch_meter::reset();
@@ -2635,14 +2635,14 @@ mod adequacy {
     ///
     /// [measured in the dev profile, exact counters: touches 285,747 ->
     /// 1,079,383 and limb ops 293,119 -> 1,094,191 across WA(500, 500) ->
-    /// WA(1,000, 1,000), packed 14,263B -> 28,451B: per-byte growth x1.89 touch
+    /// WA(1,000, 1,000), encoded 14,263B -> 28,451B: per-byte growth x1.89 touch
     /// and x1.87 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_wide_arming() {
         let (small_bytes, small_touches, small_limbs) =
-            schoolbook_run(Shape::WideArming.packed2(500, 500));
+            schoolbook_run(Shape::WideArming.build2(500, 500));
         let (large_bytes, large_touches, large_limbs) =
-            schoolbook_run(Shape::WideArming.packed2(1_000, 1_000));
+            schoolbook_run(Shape::WideArming.build2(1_000, 1_000));
         eprintln!(
             "MEASURED adequacy_schoolbook_wide_arming: small={small_touches}/{small_bytes}B \
              (limb {small_limbs}) large={large_touches}/{large_bytes}B (limb {large_limbs})"
@@ -2674,14 +2674,14 @@ mod adequacy {
     ///
     /// [measured in the dev profile, exact counters: touches 482,968 ->
     /// 1,843,181 and limb ops 198,320 -> 653,131 across PP(500, 500) ->
-    /// PP(1,000, 1,000), packed 20,376B -> 40,751B: per-byte growth x1.91 touch
+    /// PP(1,000, 1,000), encoded 20,376B -> 40,751B: per-byte growth x1.91 touch
     /// and x1.65 limb.]
     #[test]
     fn schoolbook_settle_reads_superlinear_on_plateau_puncture() {
         let (small_bytes, small_touches, small_limbs) =
-            schoolbook_run(Shape::PlateauPuncture.packed2(500, 500));
+            schoolbook_run(Shape::PlateauPuncture.build2(500, 500));
         let (large_bytes, large_touches, large_limbs) =
-            schoolbook_run(Shape::PlateauPuncture.packed2(1_000, 1_000));
+            schoolbook_run(Shape::PlateauPuncture.build2(1_000, 1_000));
         eprintln!(
             "MEASURED adequacy_schoolbook_plateau_puncture: small={small_touches}/{small_bytes}B \
              (limb {small_limbs}) large={large_touches}/{large_bytes}B (limb {large_limbs})"

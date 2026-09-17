@@ -26,7 +26,6 @@ assert_impl_all!(crate::causally::Query<'static, crate::causally::Up>: Send, Syn
 assert_impl_all!(crate::error::Crossed: Send, Sync, Unpin);
 assert_impl_all!(crate::error::Decode: Send, Sync, Unpin);
 assert_impl_all!(crate::error::Overlap: Send, Sync, Unpin);
-assert_impl_all!(crate::error::Parse: Send, Sync, Unpin);
 
 assert_impl_all!(crate::iter::Party<'static>: Send, Sync, Unpin);
 assert_impl_all!(crate::iter::Clock<'static>: Send, Sync, Unpin);

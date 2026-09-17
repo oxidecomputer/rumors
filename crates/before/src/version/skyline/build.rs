@@ -7,7 +7,7 @@
 //! tree, so the builder derives every topology flag itself, and the one
 //! normalization the coding leaves (an internal node whose two children are
 //! equal-height leaves — a zero right-sibling delta) it performs as it closes
-//! each node. Both collapse repairs are subtractive, on the [`PackedBuilder`]
+//! each node. Both collapse repairs are subtractive, on the [`BitBuilder`]
 //! move set:
 //!
 //! - **Absorb** (the pair's right leaf arrives): the incoming delta code
@@ -53,7 +53,7 @@
 //! `skyline_join_*` rows) pins the whole emission's transient against these
 //! bounds.
 
-use crate::codec::{BitStack, BitsBuf, BitsView, Code, PackedBuilder, PopStack};
+use crate::codec::{BitBuilder, BitStack, BitsBuf, BitsView, Code, PopStack};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -77,7 +77,7 @@ const ZERO_DELTA_CODE_BITS: u64 = 1;
 /// [`finish`](Self::finish). The module doc carries the collapse discipline and
 /// the cost argument.
 pub(super) struct SkylineBuilder {
-    out: PackedBuilder,
+    out: BitBuilder,
     /// The held leaf's payload code (the module doc's *held leaf*); `None` only
     /// before the first leaf arrives.
     held: Option<Code>,
@@ -100,7 +100,7 @@ impl SkylineBuilder {
     /// Create a builder with room for `capacity` output bits.
     pub(super) fn with_capacity(capacity: u64) -> Self {
         SkylineBuilder {
-            out: PackedBuilder::with_capacity(capacity),
+            out: BitBuilder::with_capacity(capacity),
             held: None,
             path: BitStack::new(),
             left_leaf: BitStack::new(),

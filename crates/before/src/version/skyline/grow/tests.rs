@@ -24,7 +24,7 @@ use rayon::prelude::*;
 use crate::codec::BitsBuf;
 use crate::codec::BitsView;
 use crate::meter::registry::Shape;
-use crate::meter::Packed;
+use crate::meter::Encoding;
 use crate::recurse::descend;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -36,18 +36,43 @@ use crate::testing::grow_brute_force::best_inflation;
 use crate::testing::{generators, optrace};
 use crate::version::skyline::fill::{fused_fill, tick, FillOutcome};
 use crate::version::skyline::{encode, validate};
-use crate::{Clock, Party, Version};
+use crate::{Clock, Party, Ticks, Version};
 
 use super::{id_tag, Cost, EvScan, Route};
 
-/// Lift a meter-generated packed event shape into a [`Version`].
-fn version_of(p: &Packed) -> Version {
+/// Lift a meter-generated encoded event shape into a [`Version`].
+fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
-/// Decode a meter-generated packed id shape as a [`Party`].
-fn party_of(p: &Packed) -> Party {
+/// Decode a meter-generated party shape as a [`Party`].
+fn party_of(p: &Encoding) -> Party {
     Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+}
+
+/// Build a uniform version through the public tick operation.
+fn uniform(ticks: impl Into<Ticks>) -> Version {
+    let mut version = Version::new();
+    Party::seed().ticks(&mut version, ticks);
+    version
+}
+
+/// Select one dyadic region by following `left`/`right` directions.
+fn path_party(path: impl IntoIterator<Item = bool>) -> Party {
+    let mut party = Party::seed();
+    for left in path {
+        let right = party.fork();
+        if !left {
+            party = right;
+        }
+    }
+    party
+}
+
+/// Build a version that is one on one dyadic region and zero elsewhere.
+fn spike(path: impl IntoIterator<Item = bool>) -> Version {
+    let party = path_party(path);
+    (&uniform(1u8) / &party).to_version()
 }
 
 /// Assert the grow branch on one pair when the pair takes it.
@@ -64,7 +89,7 @@ fn assert_grow(v: &Version, p: &Party) -> bool {
             assert_eq!(
                 out,
                 encode(&from_oracle_version(&raw.normalized_for_test())),
-                "grow must register the recursive oracle's inflation: {v} with {p}"
+                "grow must register the recursive oracle's inflation: {v:?} with {p:?}"
             );
             true
         }
@@ -90,7 +115,7 @@ fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsBuf> {
                 route.dirs(),
                 reference.dirs(),
                 "the fused walk's route must match the recursive reference bit for bit: \
-                 {v} with {p}"
+                 {v:?} with {p:?}"
             );
             let out = tick(crate::codec::built_view(&enc), p);
             validate(crate::codec::built_view(&out)).expect("a grown stream is canonical");
@@ -212,21 +237,21 @@ fn combine(route: &mut Route, expand: bool, key: u64, left: Cost, right: Cost) -
 fn event_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&Shape::Dense.packed1(1)),
-        version_of(&Shape::Dense.packed1(2)),
-        version_of(&Shape::Dense.packed1(64)),
-        version_of(&Shape::Bigroot.packed2(7, 3)),
-        version_of(&Shape::Bigroot.packed2(64, 16)),
-        version_of(&Shape::Hugeleaf.packed1(1)),
-        version_of(&Shape::Hugeleaf.packed1(64)),
-        version_of(&Shape::CliffComb.packed2(3, 2)),
-        version_of(&Shape::CliffComb.packed2(16, 16)),
-        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
-        version_of(&Shape::CliffFan.packed2(16, 8)),
-        version_of(&Shape::CancellingChain.packed2(16, 8)),
-        version_of(&Shape::AltSpine.packed1(3)),
-        version_of(&Shape::AltSpine.packed1(64)),
-        version_of(&Shape::Harmonic.packed1(16)),
+        version_of(&Shape::Dense.build1(1)),
+        version_of(&Shape::Dense.build1(2)),
+        version_of(&Shape::Dense.build1(64)),
+        version_of(&Shape::Bigroot.build2(7, 3)),
+        version_of(&Shape::Bigroot.build2(64, 16)),
+        version_of(&Shape::Hugeleaf.build1(1)),
+        version_of(&Shape::Hugeleaf.build1(64)),
+        version_of(&Shape::CliffComb.build2(3, 2)),
+        version_of(&Shape::CliffComb.build2(16, 16)),
+        version_of(&Shape::WideToothComb.build3(16, 8, 8)),
+        version_of(&Shape::CliffFan.build2(16, 8)),
+        version_of(&Shape::CancellingChain.build2(16, 8)),
+        version_of(&Shape::AltSpine.build1(3)),
+        version_of(&Shape::AltSpine.build1(64)),
+        version_of(&Shape::Harmonic.build1(16)),
     ]
 }
 
@@ -235,13 +260,13 @@ fn event_pool() -> Vec<Version> {
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
         Party::seed(),
-        party_of(&Shape::IdSpine.packed_flagged(1, false)),
-        party_of(&Shape::IdSpine.packed_flagged(3, false)),
-        party_of(&Shape::IdSpine.packed_flagged(3, true)),
-        party_of(&Shape::IdSpine.packed_flagged(64, false)),
-        party_of(&Shape::IdSpine.packed_flagged(64, true)),
-        party_of(&Shape::ScatteredId.packed1(1)),
-        party_of(&Shape::ScatteredId.packed1(16)),
+        party_of(&Shape::IdSpine.build_flagged(1, false)),
+        party_of(&Shape::IdSpine.build_flagged(3, false)),
+        party_of(&Shape::IdSpine.build_flagged(3, true)),
+        party_of(&Shape::IdSpine.build_flagged(64, false)),
+        party_of(&Shape::IdSpine.build_flagged(64, true)),
+        party_of(&Shape::ScatteredId.build1(1)),
+        party_of(&Shape::ScatteredId.build1(16)),
     ];
     for oid in all_normal_ids(2) {
         let p = from_oracle_party(&oid);
@@ -320,7 +345,7 @@ fn exhaustive_small_scope_grows_identically() {
                 assert_eq!(
                     out,
                     encode(&from_oracle_version(&raw.normalized_for_test())),
-                    "grow must register the recursive oracle's inflation: {v} with {p}"
+                    "grow must register the recursive oracle's inflation: {v:?} with {p:?}"
                 );
                 let (best, _) = best_inflation(&to_oracle_party(p), &to_oracle_version(v))
                     .expect("an owning id always inflates");
@@ -328,7 +353,7 @@ fn exhaustive_small_scope_grows_identically() {
                 assert_eq!(
                     out,
                     encode(&minimal),
-                    "grow must register the brute-force minimal inflation: {v} with {p}"
+                    "grow must register the brute-force minimal inflation: {v:?} with {p:?}"
                 );
             }
         }
@@ -353,24 +378,41 @@ fn exhaustive_small_scope_grows_identically() {
 /// holds every *reachable* pair to the oracle either way.
 #[test]
 fn worked_examples_grow_exactly() {
-    let cases: [(&str, &str, &str); 4] = [
+    use crate::oracle::{Party as P, Version as V};
+    let cases = [
         // The id owns the left half: the free increment.
-        ("(1, 0)", "(0, 1, 0)", "(0, 2, 0)"),
+        (
+            P::node(P::Leaf(true), P::Leaf(false)),
+            V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
+            V::node(0u8, V::leaf(2u8), V::leaf(0u8)),
+        ),
         // An id node over a leaf: one expansion, grown side left.
-        ("(1, 0)", "3", "(3, 1, 0)"),
+        (
+            P::node(P::Leaf(true), P::Leaf(false)),
+            V::leaf(3u8),
+            V::node(3u8, V::leaf(1u8), V::leaf(0u8)),
+        ),
         // Mirrored: grown side right.
-        ("(0, 1)", "3", "(3, 0, 1)"),
+        (
+            P::node(P::Leaf(false), P::Leaf(true)),
+            V::leaf(3u8),
+            V::node(3u8, V::leaf(0u8), V::leaf(1u8)),
+        ),
         // A two-level chain, all left.
-        ("((1, 0), 0)", "0", "(0, (0, 1, 0), 0)"),
+        (
+            P::node(P::node(P::Leaf(true), P::Leaf(false)), P::Leaf(false)),
+            V::leaf(0u8),
+            V::node(0u8, V::node(0u8, V::leaf(1u8), V::leaf(0u8)), V::leaf(0u8)),
+        ),
     ];
     for (party, before, after) in cases {
-        let p: Party = party.parse().expect("test party literals parse");
-        let v: Version = before.parse().expect("test version literals parse");
-        let expected: Version = after.parse().expect("test version literals parse");
+        let p = from_oracle_party(&party);
+        let v = from_oracle_version(&before);
+        let expected = from_oracle_version(&after);
         assert_eq!(
             tick(crate::codec::built_view(&encode(&v)), &p),
             encode(&expected),
-            "grow of {before} with {party} must yield {after}"
+            "grow of {before:?} with {party:?} must yield {after:?}"
         );
         assert!(
             assert_grow(&v, &p),
@@ -386,10 +428,7 @@ fn worked_examples_grow_exactly() {
 /// Built as a text literal — the parser is iterative — so the expected tree
 /// shares no walk with grow.
 fn left_spike(depth: usize) -> Version {
-    let mut text = "(0, ".repeat(depth - 1);
-    text.push_str("(0, 1, 0)");
-    text.push_str(&", 0)".repeat(depth - 1));
-    text.parse().expect("the spike literal is normal form")
+    spike(std::iter::repeat_n(true, depth))
 }
 
 /// Deep spines in the grow branch stay correct at depths that would overflow a
@@ -410,7 +449,7 @@ fn left_spike(depth: usize) -> Version {
 /// along.
 #[test]
 fn deep_spines_grow_identically() {
-    let deep_id = party_of(&Shape::IdSpine.packed_flagged(4096, false));
+    let deep_id = party_of(&Shape::IdSpine.build_flagged(4096, false));
     let spike = left_spike(4096);
     let out = assert_grow_depth_safe(&Version::new(), &deep_id)
         .expect("a leaf under a node id is a grow-branch pair");
@@ -420,7 +459,7 @@ fn deep_spines_grow_identically() {
         "grow expands the chain to the owned tip"
     );
 
-    let deep_ev = version_of(&Shape::AltSpine.packed1(4096));
+    let deep_ev = version_of(&Shape::AltSpine.build1(4096));
     let out = assert_grow_depth_safe(&deep_ev, &deep_id)
         .expect("no full-id region meets a subdividable subtree: a grow-branch pair");
     assert_eq!(
@@ -454,7 +493,7 @@ proptest! {
             prop_assert_eq!(
                 tick(crate::codec::built_view(&encode(&v)), &p),
                 encode(&minimal),
-                "grow must register the brute-force minimal inflation: {} with {}", v, p
+                "grow must register the brute-force minimal inflation: {:?} with {:?}", v, p
             );
         }
     }

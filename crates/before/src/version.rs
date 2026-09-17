@@ -2,15 +2,14 @@
 
 use core::borrow::Borrow;
 use core::cmp::Ordering;
-use core::fmt::{Debug, Display};
+use core::fmt::Debug;
 use core::hash::Hash;
 use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
-use core::str::FromStr;
 use std::io::{self, Read, Write};
 
 use crate::codec;
-use crate::error::{Decode, Parse};
+use crate::error::Decode;
 use crate::span::Span;
 use crate::Party;
 
@@ -139,8 +138,7 @@ impl Version {
         // even across separate `new()` calls). A `static`, not a
         // `const`: a const's promoted allocation has no guaranteed
         // unique address, and the cross-call sharing claim rests on one.
-        // The codec round-trip and text laws pin the constant against
-        // the built form.
+        // The codec round-trip pins the constant against the built form.
         static EMPTY_STREAM: &[u8] = &[0b1110_0000];
         Version::from_frozen(codec::Bits::from_canonical(bytes::Bytes::from_static(
             EMPTY_STREAM,
@@ -211,7 +209,7 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::{Party, Ticks, Version};
+    /// use before::{Party, Version};
     /// let party = Party::seed();
     /// let mut v = Version::new();
     /// v.ticks(&party, 5u64);
@@ -220,10 +218,6 @@ impl Version {
     ///     w.tick(&party);
     /// }
     /// assert_eq!(v, w); // one call, same version as five sequential ticks
-    /// // One call skips forward by a count no iteration could reach.
-    /// let wide: Ticks = "100000000000000000000000000".parse().unwrap();
-    /// v.ticks(&party, wide.clone());
-    /// assert_eq!(v.min_ticks(), wide + Ticks::from(5u64));
     /// ```
     pub fn ticks(&mut self, party: &Party, k: impl Into<Ticks>) {
         let k = k.into();
@@ -799,22 +793,26 @@ impl Version {
     ///
     /// ```
     /// use before::shape::{Plateau, Rise};
-    /// use before::{Ticks, Version};
+    /// use before::{Clock, Ticks};
     ///
-    /// let version: Version = "(1, 1, (0, 0, 2))".parse().unwrap();
+    /// let mut left = Clock::seed();
+    /// let mut right = left.fork();
+    /// left.tick();
+    /// left.tick();
+    /// right.tick();
+    /// left.sync(&mut right).unwrap();
+    /// let version = left.version();
     /// let plateaus: Vec<Plateau> = version.shape().collect();
     /// assert_eq!(
     ///     plateaus,
     ///     vec![
-    ///         // The left half at height 2 (the first rise is absolute:
-    ///         // the walk enters at height 0)...
+    ///         // The left half is at height 2; the first rise is absolute.
     ///         Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 1 },
-    ///         // ...then quarters at heights 1 and 3.
-    ///         Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 2 },
-    ///         Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 2 },
+    ///         // The right half is at height 1.
+    ///         Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 1 },
     ///     ],
     /// );
-    /// // Widths tile the unit interval: 1/2 + 1/4 + 1/4 = 1.
+    /// // Widths tile the unit interval: 1/2 + 1/2 = 1.
     /// let total: f64 = plateaus.iter().map(|p| 0.5f64.powi(p.depth as i32)).sum();
     /// assert_eq!(total, 1.0);
     /// ```
@@ -1048,7 +1046,7 @@ impl Version {
         let hull = skyline::emit::hull(a.0.live(), b.0.live());
         // The fused walk folds the pair relation beside its emissions (an O(1)
         // flag pair riding sign reads the walk performs anyway), so the
-        // ladder's classification is cross-checked at the only door that emits.
+        // ladder's classification is cross-checked at the only entry point that emits.
         debug_assert!(
             hull.relation.is_none(),
             "the comparison rung admits only concurrent pairs to the emitting walk"
@@ -1482,117 +1480,10 @@ impl<'a> FromIterator<&'a Version> for Version {
     }
 }
 
-/// Paper notation: `n` leaves, `(n, e1, e2)` nodes. E.g. `(1, 2, (0, (1, 0, 2),
-/// 0))`.
-///
-/// # Complexity
-///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_display.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic time; `O(|self|)` space"
-)]
-///
-/// # Example
-///
-/// ```
-/// use before::Version;
-/// let v: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
-/// assert_eq!(v.to_string(), "(1, 2, (0, (1, 0, 2), 0))");
-/// ```
-impl Display for Version {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&skyline::text::render(self.0.live()))
-    }
-}
-
-/// The same format as `Display`.
-///
-/// # Example
-///
-/// ```
-/// assert_eq!(format!("{:?}", before::Version::new()), "0");
-/// ```
+/// Shows the version as `Version(0b…)` using its binary encoding.
 impl Debug for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        <Self as Display>::fmt(self, f)
-    }
-}
-
-/// Parses paper notation (`n` or `(n, e1, e2)`), strictly rejecting
-/// non-normal-form input.
-///
-/// # Complexity
-///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_fromstr.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic time; `O(|s|)` space"
-)]
-///
-/// # Example
-///
-/// ```
-/// use before::Version;
-/// let v: Version = "(1, 0, 1)".parse().unwrap();
-/// assert_eq!(v.to_string(), "(1, 0, 1)");
-/// ```
-impl FromStr for Version {
-    type Err = Parse;
-    fn from_str(s: &str) -> Result<Self, Parse> {
-        Ok(Version::from_bits(skyline::text::parse(s)?))
-    }
-}
-
-/// An event leaf from its base value, e.g. `Version::try_from(3u64)`.
-///
-/// # Complexity
-///
-/// `O(1)`.
-///
-/// # Example
-///
-/// ```
-/// use before::Version;
-/// assert_eq!(Version::try_from(3).unwrap().to_string(), "3");
-/// ```
-impl TryFrom<u64> for Version {
-    type Error = Parse;
-    fn try_from(n: u64) -> Result<Self, Parse> {
-        Ok(Version::from_bits(skyline::literal::leaf(n)))
-    }
-}
-
-/// A [`Version`] from an `(n, left, right)` literal, e.g.
-/// `Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64)))`.
-///
-/// Rejects non-normal-form nodes (no zero-base child, or a collapsible `(n, m,
-/// m)`).
-///
-/// # Complexity
-///
-/// `O(m)`, with `m` the built version's size in bytes.
-///
-/// # Example
-///
-/// ```
-/// use before::Version;
-/// let v = Version::try_from((1, 0, 1)).unwrap();
-/// assert_eq!(v.to_string(), "(1, 0, 1)");
-/// ```
-impl<T, S> TryFrom<(u64, T, S)> for Version
-where
-    Version: TryFrom<T, Error = Parse> + TryFrom<S, Error = Parse>,
-{
-    type Error = Parse;
-    fn try_from((n, l, r): (u64, T, S)) -> Result<Self, Parse> {
-        let l = Version::try_from(l)?;
-        let r = Version::try_from(r)?;
-        Ok(Version::from_bits(skyline::literal::node(
-            n,
-            l.0.live(),
-            r.0.live(),
-        )?))
+        write!(f, "Version({:#b})", self.0)
     }
 }
 

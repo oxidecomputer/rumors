@@ -6,8 +6,7 @@ use super::ceilings::{
     fold_exponent_ceiling, CAPACITY_MODEL_CEILING, CAPACITY_MODEL_FLOOR,
     FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS,
     MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_LIMB_OPS_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
-    MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, MAX_TOUCHES_PER_INPUT_BYTE,
-    MIN_EXPONENT_DENOM_GROWTH,
+    MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::currency::{ByCurrency, Currency, Liveness};
 use super::measure::Sample;
@@ -168,7 +167,7 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
 /// Resolved from the declared models (the `ceilings` module's
 /// declared-models section): the fold rows' predicted-marginal ceiling on
 /// the fold currencies, a family-stated limb exponent where one is
-/// declared, the global bound everywhere else.
+/// declared, and the global bound everywhere else.
 fn exp_ceilings(first: &Sample, last: &Sample) -> ByCurrency<f64> {
     let spans =
         last.exp_denom_bytes as f64 >= first.exp_denom_bytes as f64 * MIN_EXPONENT_DENOM_GROWTH;
@@ -184,11 +183,7 @@ fn exp_ceilings(first: &Sample, last: &Sample) -> ByCurrency<f64> {
     ByCurrency {
         heap: MAX_SCALING_EXPONENT,
         segments: MAX_SCALING_EXPONENT,
-        limb: last
-            .declared_limb
-            .map(|(exponent, _)| exponent)
-            .or(fold)
-            .unwrap_or(MAX_SCALING_EXPONENT),
+        limb: fold.unwrap_or(MAX_SCALING_EXPONENT),
         scan: fold.unwrap_or(MAX_SCALING_EXPONENT),
         touch: fold.unwrap_or(MAX_SCALING_EXPONENT),
     }
@@ -225,13 +220,9 @@ pub(super) struct CellResult {
 /// point the run measured, which for a single-scale run is exactly this
 /// window and for the acceptance judgment spans the whole ladder.
 ///
-/// Every exponent — the limb column's included — is judged against the
-/// denominator bytes (packed input, or `n_io` on the I/O-denominated cells),
-/// never against `R`: `R` is the schoolbook cost law, so a limb exponent
-/// against it reads a flat ~1 on exactly the quadratic converters the bound
-/// exists to catch. Constants are judged per denominator byte, except segments
-/// (an absolute count: the target is walks that never grow the stack) and the
-/// text rows' limb constant, which is per `R` unit under the κ ceiling. The
+/// Every exponent and proportional constant is judged against the denominator
+/// bytes. Segments use an absolute count because the target is walks that never
+/// grow the stack. The
 /// loops run over the currency axis itself ([`ByCurrency::each`]), so a
 /// currency added to the axis is judged on every cell or the destructuring
 /// fails to compile.
@@ -258,7 +249,7 @@ fn judge_window(
                 m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64
             }
             Currency::Segments => m2 as f64,
-            Currency::Limb => m2 as f64 / s2.limb_denom as f64,
+            Currency::Limb => m2 as f64 / s2.denom_bytes as f64,
             Currency::Scan | Currency::Touch => m2 as f64 / s2.denom_bytes as f64,
         };
         Score {
@@ -289,11 +280,7 @@ fn judge_window(
                 "segments count",
             ),
             Currency::Limb => (
-                if s2.text_row {
-                    MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT
-                } else {
-                    MAX_LIMB_OPS_PER_INPUT_BYTE
-                },
+                MAX_LIMB_OPS_PER_INPUT_BYTE,
                 "limb exponent",
                 "limb constant",
             ),
@@ -341,16 +328,6 @@ fn judge_window(
         if c == Currency::Heap {
             if let Some(declared) = s2.declared_heap {
                 ceiling = declared;
-            }
-        }
-        // A family-stated limb model replaces both limb legs on the cells that
-        // declare one (the ceilings module's declared-models section): the
-        // stated constant in place of the global (or text) ceiling, the stated
-        // exponent in place of the global bound (resolved in the ceilings
-        // argument).
-        if c == Currency::Limb {
-            if let Some((_, per_radix_unit)) = s2.declared_limb {
-                ceiling = per_radix_unit;
             }
         }
         // The fold rows' declared scan-constant model at this window's arity.

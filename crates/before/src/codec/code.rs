@@ -11,9 +11,9 @@
 
 use super::{BitsBuf, BitsView};
 
-/// One complete payload code, value-packed when it fits a word.
+/// One complete payload code, stored inline when it fits a word.
 pub(crate) enum Code {
-    /// A code of `len` bits (1..=63), value-packed at the low end of
+    /// A code of `len` bits (1..=63), right-aligned in
     /// `bits` (the code's first bit is the register's most significant
     /// live bit; bits above `len` are zero).
     Small { bits: u64, len: u8 },

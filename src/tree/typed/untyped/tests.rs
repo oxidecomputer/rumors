@@ -843,8 +843,8 @@ mod memo_fold_cost {
     /// population drift cannot flake it.
     #[test]
     fn bounds_memo_undercuts_sequential_folds_on_the_stagger_population() {
-        let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
-        let versions: Vec<Version> = packed.iter().map(meter::Packed::version).collect();
+        let (encoded, _) = Shape::StaggerPopulation.population(FANOUT, 16);
+        let versions: Vec<Version> = encoded.iter().map(meter::Encoding::version).collect();
         let (node, children) = wide_branch(versions);
 
         let (join, meet, _, seq_scan, seq_touch) = sequential_bounds(&children);
@@ -876,7 +876,7 @@ mod memo_fold_cost {
     ///
     /// The meet-shade population keeps the sequential running meet
     /// carrier-sized at every step — a meet shrinks the value, never
-    /// necessarily the packed size — so the left fold re-sweeps the
+    /// necessarily the encoded size — so the left fold re-sweeps the
     /// deep carrier once per child where the memo's balanced fold
     /// sweeps it once per level; the pinned x4 margin is conservative
     /// against the measured gap so population drift cannot flake it.
@@ -936,8 +936,8 @@ mod memo_fold_cost {
     /// against a measured ~3.2x.
     #[test]
     fn interior_bounds_memo_undercuts_sequential_folds() {
-        let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
-        let mut versions = packed.iter().map(|packed| packed.version());
+        let (encoded, _) = Shape::StaggerPopulation.population(FANOUT, 16);
+        let mut versions = encoded.iter().map(|encoded| encoded.version());
         let children: Fan = (0..FANOUT / 2)
             .map(|radix| {
                 let pair: Fan = [0u8, 1u8]

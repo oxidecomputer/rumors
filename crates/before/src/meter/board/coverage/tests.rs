@@ -3,15 +3,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
-use crate::meter::board::{bench_cells, BenchMode};
 use crate::testing::surface_coverage;
 
 /// Every board operation name, from the board's own axis declarations at a tiny
 /// build-only scale.
 fn board_ops() -> BTreeSet<String> {
-    bench_cells(0.02, BenchMode::Full)
+    super::super::ops::ops()
         .into_iter()
-        .map(|cell| cell.op.to_owned())
+        .map(|op| op.name.to_owned())
         .collect()
 }
 

@@ -322,14 +322,9 @@ proptest! {
 
 // ───────────────────────────── unit anchors ─────────────────────────────
 
-/// The embedding reproduces the paper's worked function value: `⟦(1, 2, (0, (1,
-/// 0, 2), 0))⟧` (§4, event tree graphical-notation example) samples to `[3, 3,
-/// 3, 3, 2, 4, 1, 1]` at depth 3.
-///
-/// Pins the embedding + sampling against a value the paper states, with no tree
-/// recursion in the comparison.
+/// A nested version embeds to `[3, 3, 3, 3, 2, 4, 1, 1]` at depth 3.
 #[test]
-fn embedding_matches_paper_worked_value() {
+fn embedding_matches_known_values() {
     use oracle::Version as V;
     let e = V::Node(
         1u64.into(),
@@ -482,7 +477,7 @@ fn mirrored_lift_ev(t: oracle::Version) -> Event {
 fn worked_value_anchor_convicts_the_mirrored_embedding() {
     use oracle::Version as V;
     // The worked tree the committed anchor pins
-    // ([`embedding_matches_paper_worked_value`]'s fixture).
+    // ([`embedding_matches_known_values`]' fixture).
     let e = V::Node(
         1u64.into(),
         Arc::new(V::Leaf(2u64.into())),

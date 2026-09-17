@@ -283,7 +283,7 @@ fn check_ev_pairs(evs: &[oracle::Version], imp: &[Version]) {
 ///
 /// When the pair takes the `grow` branch, the impl's inflation is additionally
 /// pinned to the brute-force cost-minimal, right-favoring region
-/// ([`best_inflation`]) — holding the packed `grow`'s DP to the global optimum
+/// ([`best_inflation`]) — holding the encoded `grow`'s DP to the global optimum
 /// directly, not merely to the oracle that realizes the same DP — and the
 /// metamorphic minimality condition (no feasible candidate sits strictly
 /// between `e` and `e'`) is checked on the impl's own causal order.

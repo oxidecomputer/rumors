@@ -1,4 +1,4 @@
-use crate::codec::{BitStack, BitsBuf, BitsView, PackedBuilder, PopStack};
+use crate::codec::{BitBuilder, BitStack, BitsBuf, BitsView, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -6,11 +6,10 @@ use crate::idbits::{IdNode, IdReader};
 /// A node reserves a 2-bit tag placeholder before its children are emitted;
 /// [`close_node`](Self::close_node) patches the tag from which children turned
 /// out present, collapsing `(1, 1) → 1` (both terminal) and `(0, 0) → 0` (both
-/// empty). The id instantiation of the crate's append-truncate discipline
-/// ([`PackedBuilder`] carries the shared move set): the per-node payload is
-/// only the tag bits, and both collapses are pure truncations.
+/// empty). The per-node payload is only the tag bits, and both collapses are
+/// pure truncations.
 pub(super) struct IdBuilder {
-    out: PackedBuilder,
+    out: BitBuilder,
 }
 
 /// What an emitted child turned out to be, so its parent's
@@ -49,7 +48,7 @@ const TERMINAL_PAIR_BITS: u64 = 3 * TAG_BITS as u64;
 impl IdBuilder {
     pub(super) fn with_capacity(capacity: u64) -> Self {
         IdBuilder {
-            out: PackedBuilder::with_capacity(capacity),
+            out: BitBuilder::with_capacity(capacity),
         }
     }
 
@@ -235,7 +234,7 @@ impl IdSkylineBuilder {
     /// splice: the block form of [`leaf`](Self::leaf), for a region whose
     /// plateaus are one operand's own tiling unchanged.
     ///
-    /// `src` must be the complete packed encoding of one *internal* subtree in
+    /// `src` must encode one complete *internal* subtree in
     /// normal form (a fully-owned region is a [`leaf`](Self::leaf), and an
     /// unowned one contributes no bits). The splice preserves the builder's
     /// normalization invariants at its boundary: the interior needs no repair

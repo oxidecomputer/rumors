@@ -16,6 +16,29 @@ use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
 use crate::{Clock, Party, Ticks};
 
+/// Build a uniform version through the public tick operation.
+fn uniform(ticks: impl Into<Ticks>) -> Version {
+    let mut version = Version::new();
+    Party::seed().ticks(&mut version, ticks);
+    version
+}
+
+/// Builds a version whose left half is one tick ahead.
+fn half() -> Version {
+    use crate::oracle::Version as V;
+    from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)))
+}
+
+/// Builds two opposite quarter-height peaks with the same rank as [`half`].
+fn peaks() -> Version {
+    use crate::oracle::Version as V;
+    from_oracle_version(&V::node(
+        0u8,
+        V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
+        V::node(0u8, V::leaf(0u8), V::leaf(1u8)),
+    ))
+}
+
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
@@ -352,85 +375,22 @@ proptest! {
 /// correctly.
 ///
 /// With arbitrary-precision leaf heights there is no overflow class, so the
-/// answer is `Greater` in every build profile (no debug panic, no release wrap
-/// that would invert the causal order). `decode`/`try_from` admit such trees,
-/// so the comparison must thread the heights at full precision.
+/// answer is `Greater` in every build profile, so comparison must thread the
+/// heights at full precision.
 #[test]
 fn path_sum_beyond_u64_compares_greater() {
+    use crate::oracle::Version as V;
     let big = 1u64 << 63;
     // Normal form: the outer min(big, 0) child is the right `0` leaf; the inner
     // node's min(0, 1) child is its left `0` leaf. The left half's true value
     // is big + big + 1 = 2^64 + 1, past `u64::MAX`.
-    let a = Version::try_from((big, (big, 0u64, 1u64), 0u64)).unwrap();
-    let b = Version::try_from(big).unwrap(); // constant 2^63
+    let a = from_oracle_version(&V::node(
+        big,
+        V::node(big, V::leaf(0u64), V::leaf(1u64)),
+        V::leaf(0u64),
+    ));
+    let b = uniform(big);
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Greater));
-}
-
-proptest! {
-    /// A node literal over two equal-height leaves is refused at every base
-    /// and every height.
-    ///
-    /// `(n, m, m)` collapses to the leaf `n + m`, so the leaf is the one
-    /// canonical spelling and the `TryFrom` surface rejects the node form.
-    /// The collapse check precedes min-lifting, so the collapse rejection
-    /// owns every equal pair, whatever `m` — and the accepted neighbors on
-    /// either side (the unequal pairs that stay min-lifted) pin that the
-    /// rejection is the equality, not the shape.
-    #[test]
-    fn equal_leaf_literals_are_refused(
-        n in 0u64..=u64::MAX / 2,
-        m in 0u64..=1u64 << 40,
-        z in 1u64..=1u64 << 40,
-    ) {
-        prop_assert_eq!(
-            Version::try_from((n, m, m)),
-            Err(crate::error::Parse::NotCanonical),
-            "(n, m, m) must collapse-reject"
-        );
-        prop_assert!(Version::try_from((n, 0u64, z)).is_ok());
-        prop_assert!(Version::try_from((n, z, 0u64)).is_ok());
-    }
-
-    /// Nested literals whose leaf heights descend build exactly the oracle's
-    /// tree.
-    ///
-    /// The composer re-derives each child's absolute heights from the
-    /// child's own stream, and a later-lower leaf rides the negative half of
-    /// that scan's zigzag decode — swept over descending runs in the left
-    /// child, the right child, and both at once.
-    #[test]
-    fn descending_literals_build_the_oracle_tree(
-        w in 0u64..=6,
-        k in 1u64..=1u64 << 40,
-        z in 1u64..=1u64 << 40,
-        z2 in 1u64..=1u64 << 40,
-    ) {
-        use crate::oracle::Version as V;
-        let expect = |t: &V| from_oracle_version(t);
-        // Descent inside the left child: leaves (k + z, k), strictly falling.
-        let left: Version = Version::try_from((w, (k, z, 0u64), 0u64)).unwrap();
-        prop_assert_eq!(
-            &left,
-            &expect(&V::node(w, V::node(k, V::leaf(z), V::leaf(0u64)), V::leaf(0u64)))
-        );
-        // Descent inside the right child.
-        let right: Version = Version::try_from((w, 0u64, (k, z, 0u64))).unwrap();
-        prop_assert_eq!(
-            &right,
-            &expect(&V::node(w, V::leaf(0u64), V::node(k, V::leaf(z), V::leaf(0u64))))
-        );
-        // Descents in both children, the right anchored at base zero so the
-        // node stays min-lifted.
-        let both: Version = Version::try_from((w, (k, z, 0u64), (0u64, z2, 0u64))).unwrap();
-        prop_assert_eq!(
-            &both,
-            &expect(&V::node(
-                w,
-                V::node(k, V::leaf(z), V::leaf(0u64)),
-                V::node(0u64, V::leaf(z2), V::leaf(0u64)),
-            ))
-        );
-    }
 }
 
 /// A stored leaf height above `u64::MAX` stays exact across mutation and merge.
@@ -438,11 +398,17 @@ proptest! {
 /// boundary, not only path sums made from individually-small nodes.
 #[test]
 fn stored_base_beyond_u64_ticks_and_merges() {
-    let big: Version = "18446744073709551616".parse().unwrap();
+    let height = crate::codec::Base::from(1u8) << 64u32;
+    let big = from_oracle_version(&crate::oracle::Version::leaf(height.clone()));
     let mut ticked = big.clone();
     ticked.tick(&Party::seed());
 
-    assert_eq!(ticked.to_string(), "18446744073709551617");
+    assert_eq!(
+        ticked,
+        from_oracle_version(&crate::oracle::Version::leaf(
+            height + crate::codec::Base::from(1u8),
+        ))
+    );
     assert_eq!(big.clone() | ticked.clone(), ticked);
     assert_eq!(Version::decode(&ticked.encode()[..]).unwrap(), ticked);
 }
@@ -531,7 +497,7 @@ proptest! {
 //
 // The defining causality property (§3, §5.3.4): an event registers a *minimal*
 // inflation. The oracle's `grow` is pinned to a brute-force search over the
-// entire feasible inflation space in `oracle::tests`; these hold the packed
+// entire feasible inflation space in `oracle::tests`; these hold the encoded
 // impl to the same standard. `tick = fill else grow`, so when `fill` already
 // simplifies the tree the grow path is not taken — `grow_matches_brute_force`
 // filters to the grow case (fill a no-op) and asserts the impl's inflation
@@ -543,7 +509,7 @@ proptest! {
     /// the impl inflates exactly the brute-force cost-minimal, right-favoring
     /// region: `tick` lowered to the oracle equals `best_inflation` normalized.
     ///
-    /// This holds the packed `grow`'s dynamic program to the full-enumeration
+    /// This holds the encoded `grow`'s dynamic program to the full-enumeration
     /// global optimum directly — not merely to the recursive oracle (which
     /// realizes the same DP). Large bases are threaded losslessly, so the cost
     /// comparison is exact regardless of magnitude.
@@ -625,8 +591,8 @@ proptest! {
 proptest! {
     /// `as_bytes` returns exactly the canonical `encode` bytes.
     ///
-    /// The stored form keeps its padding sealed (the marker, then zeros), so
-    /// the raw storage slice is byte-identical to the packed encoding.
+    /// The stored form includes canonical padding, so its bytes are identical
+    /// to the encoder's output.
     /// Exercises the literal/`extend` construction path over arbitrary
     /// normal-form trees.
     #[test]
@@ -676,8 +642,13 @@ fn trace_ticks(ops: &[Op]) -> u64 {
 #[test]
 fn min_ticks_known_values() {
     assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
-    assert_eq!(Version::try_from(5).unwrap().min_ticks(), Ticks::from(5u64));
-    let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    assert_eq!(uniform(5u8).min_ticks(), Ticks::from(5u64));
+    use crate::oracle::Version as V;
+    let peaks = from_oracle_version(&V::node(
+        0u8,
+        V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
+        V::node(0u8, V::leaf(0u8), V::leaf(1u8)),
+    ));
     assert_eq!(peaks.min_ticks(), Ticks::from(2u64));
 }
 
@@ -737,11 +708,7 @@ fn no_maximum_tick_count() {
             whole.join(c).expect("seed-derived parties are disjoint");
         }
         let v = whole.version();
-        assert_eq!(
-            v,
-            &Version::try_from(1).unwrap(),
-            "n={n}: rejoins to leaf 1"
-        );
+        assert_eq!(v, &uniform(1u8), "n={n}: rejoins to leaf 1");
         assert_eq!(
             v.min_ticks(),
             Ticks::from(1u64),
@@ -762,16 +729,21 @@ fn no_maximum_tick_count() {
 #[test]
 fn rank_known_values() {
     assert_eq!(Version::new().rank().to_string(), "0");
-    assert_eq!(Version::try_from(5).unwrap().rank().to_string(), "5");
+    assert_eq!(uniform(5u8).rank().to_string(), "5");
 
-    let half: Version = "(0, 1, 0)".parse().unwrap();
-    let one = Version::try_from(1).unwrap();
+    use crate::oracle::Version as V;
+    let half = from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)));
+    let one = uniform(1u8);
     assert!(half < one, "strict containment in the causal order");
     assert!(half.rank() < one.rank(), "so strictly smaller rank");
     assert_eq!(half.min_ticks(), one.min_ticks(), "the floor ties them");
     assert_eq!(half.rank().to_string(), "1/2");
 
-    let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    let peaks = from_oracle_version(&V::node(
+        0u8,
+        V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
+        V::node(0u8, V::leaf(0u8), V::leaf(1u8)),
+    ));
     assert!(half.concurrent(&peaks), "different halves of the interval");
     assert_eq!(
         half.rank(),
@@ -960,8 +932,10 @@ fn seeded_rank(seed: u64) -> super::Rank {
 /// ascending in rank order.
 #[test]
 fn rank_encoding_known_values() {
-    let rank_of = |text: &str| text.parse::<Version>().unwrap().rank();
-    let int = |n: u64| Version::try_from(n).unwrap().rank();
+    let fraction = |numerator: u8, exponent| {
+        super::Rank::from_raw(crate::codec::Base::from(numerator), exponent)
+    };
+    let int = |n: u64| uniform(n).rank();
     // (value, its pinned canonical bytes), in strictly ascending order.
     let battery: Vec<(super::Rank, Vec<u8>)> = vec![
         // Zero = "0" ++ "0": the smallest header, an empty fraction's
@@ -969,12 +943,12 @@ fn rank_encoding_known_values() {
         (super::Rank::ZERO, vec![0x00]),
         // 1/4 = "0" ++ "1 01000000 0": one group framing the
         // expansion ".01", zero-padded past its last set bit.
-        (rank_of("(0, (0, 1, 0), 0)"), vec![0x50, 0x00]),
+        (fraction(1, 2), vec![0x50, 0x00]),
         // 1/2 = "0" ++ "1 10000000 0".
-        (rank_of("(0, 1, 0)"), vec![0x60, 0x00]),
+        (fraction(1, 1), vec![0x60, 0x00]),
         // 3/4 = "0" ++ "1 11000000 0": splits from 1/2 inside the
         // shared group, at the second expansion bit.
-        (rank_of("(0, 1, (0, 1, 0))"), vec![0x70, 0x00]),
+        (fraction(3, 2), vec![0x70, 0x00]),
         // 1 = "1000" ++ "0": the first integral header step.
         (int(1), vec![0x80]),
         // 3/2 = 1's integral code, then one group framing ".1": integral-only
@@ -1178,12 +1152,12 @@ fn rank_decoding_rejects_each_genre() {
 
 /// The provenance size bound, measured and pinned per committed family: every
 /// rank reachable through a version fold encodes linearly in the version's
-/// packed bytes.
+/// stored bytes.
 ///
 /// The families white-box the encoder's two axes — numerator width (wide
 /// counters, answer-embedding products) and exponent depth (spines), plus the
 /// dense-fraction staircase that maximizes set bits per level — and the pin
-/// holds each family's encoded size at or under 1.0 bit per packed input bit.
+/// holds each family's encoded size at or under 1.0 bit per input bit.
 /// Measured \[by this test's own instrumentation\]: wide counter 0.56 (the
 /// worst — a lone counter's version pays gamma's doubled width where the
 /// encoding pays the width once), deep spine 0.38, dense staircase 0.38, deep
@@ -1192,46 +1166,50 @@ fn rank_decoding_rejects_each_genre() {
 /// in-memory ranks can reach.
 #[test]
 fn rank_encoding_size_is_provenance_linear() {
+    use crate::oracle::Version as V;
     // A deep spine holding one unit leaf: rank 2⁻ᵏ, the exponent axis.
     fn spine(depth: usize) -> Version {
-        let mut text = String::from("1");
+        use crate::oracle::Version as V;
+        let mut tree = V::leaf(1u8);
         for _ in 0..depth {
-            text = format!("(0, {text}, 0)");
+            tree = V::node(0u8, tree, V::leaf(0u8));
         }
-        text.parse().unwrap()
+        from_oracle_version(&tree)
     }
     // The dense staircase: one new unit plateau per level, so every level
     // contributes a set fraction bit — the set-bits-per-level maximum the
     // white-box attack found.
     fn staircase(depth: usize) -> Version {
-        let mut text = String::from("(0, 1, 0)");
+        use crate::oracle::Version as V;
+        let mut tree = V::node(0u8, V::leaf(1u8), V::leaf(0u8));
         for _ in 0..depth {
-            text = format!("(0, {text}, 1)");
+            tree = V::node(0u8, tree, V::leaf(1u8));
         }
-        text.parse().unwrap()
+        from_oracle_version(&tree)
     }
     // A wide counter behind a spine: both axes at once.
-    fn deep_counter(depth: usize, counter: &str) -> Version {
-        let mut text = String::from(counter);
+    fn deep_counter(depth: usize, counter: &crate::codec::Base) -> Version {
+        use crate::oracle::Version as V;
+        let mut tree = V::leaf(counter.clone());
         for _ in 0..depth {
-            text = format!("(0, {text}, 0)");
+            tree = V::node(0u8, tree, V::leaf(0u8));
         }
-        text.parse().unwrap()
+        from_oracle_version(&tree)
     }
-    let wide = "340282366920938463463374607431768211455"; // 2¹²⁸ − 1
+    let wide = crate::codec::Base((dashu_int::UBig::ONE << 128usize) - 1u8);
     let families: [(&str, Version); 5] = [
-        ("wide counter", wide.parse().unwrap()),
+        ("wide counter", from_oracle_version(&V::leaf(wide.clone()))),
         ("deep spine", spine(800)),
         ("dense staircase", staircase(800)),
-        ("deep wide counter", deep_counter(400, wide)),
+        ("deep wide counter", deep_counter(400, &wide)),
         // The answer-embedding shape's essence at test scale: a wide plateau
         // over dense puncturing turns, keeping the numerator wide *and* dense.
         ("plateau puncture", {
-            let mut text = String::from(wide);
+            let mut tree = V::leaf(wide.clone());
             for _ in 0..100 {
-                text = format!("(0, (1, {text}, 0), 0)");
+                tree = V::node(0u8, V::node(1u8, tree, V::leaf(0u8)), V::leaf(0u8));
             }
-            text.parse().unwrap()
+            from_oracle_version(&tree)
         }),
     ];
     for (name, version) in families {
@@ -1240,7 +1218,7 @@ fn rank_encoding_size_is_provenance_linear() {
         assert!(
             encoded_bits <= input_bits,
             "{name}: encoded rank ({encoded_bits} bits) exceeds the pinned \
-             1.0 ratio over packed input ({input_bits} bits)"
+             1.0 ratio over input ({input_bits} bits)"
         );
     }
 }
@@ -1262,7 +1240,7 @@ fn rank_encoding_is_suffix_safe_at_the_padding_seam() {
     let pairs: [(super::Rank, super::Rank); 3] = [
         // 5 against 5 + 2⁻⁴⁰: equal integral parts, one fraction empty.
         (
-            Version::try_from(5).unwrap().rank(),
+            uniform(5u8).rank(),
             super::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40),
         ),
         // Zero against 2⁻⁹: the empty stream tail against a fraction
@@ -1350,11 +1328,11 @@ proptest! {
 // ~2³² bits, on 32-bit targets, from hundreds of megabytes of input — so
 // these suites lower the arm ceiling (`rank::arm_ceiling::force`, a
 // test-only routing override that moves no values) and drive the same
-// public doors production serves: every rank built under the lowered
+// public entry points production serves: every rank built under the lowered
 // ceiling straddles or crosses the seam at host-friendly sizes, while the
 // host backend — whose real capacity is astronomically higher — remains an
 // exact oracle for every value. The wasm32 boundary pins hold the same
-// doors at the production coordinate itself.
+// entry points at the production coordinate itself.
 
 /// The lowered arm ceiling the wide-regime suites run under: four limbs.
 ///
@@ -1513,7 +1491,7 @@ proptest! {
     ///
     /// The oracle aligns both numerators to the common exponent with
     /// materialized shifts, adds or subtracts, and strips shared factors
-    /// of two; the door values must match it exactly, and land canonical.
+    /// of two; the entry point values must match it exactly, and land canonical.
     #[test]
     fn rank_wide_arm_arithmetic_matches_the_backend_oracle(sa in any::<u64>(), sb in any::<u64>()) {
         let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
@@ -1587,7 +1565,7 @@ proptest! {
     ///
     /// Known-arm constructions — wide integral parts, wide fractions, and
     /// base-arm controls — encode, decode to the same value on the same
-    /// arm, and re-encode to identical bytes through the public doors.
+    /// arm, and re-encode to identical bytes through the public entry points.
     ///
     /// This drives the encoder's wide-arm emission (the biased integral
     /// re-dispatch included: `width` may sit exactly at the ceiling) and
@@ -1638,10 +1616,10 @@ proptest! {
 ///
 /// A version whose rank numerator crosses the lowered ceiling encodes
 /// through `Ranked::encode` (the fused emission from the fold's raw
-/// parts) and decodes through `Ranked::decode` (the streaming rank door
+/// parts) and decodes through `Ranked::decode` (the streaming rank entry point
 /// plus the fold re-derivation), byte-identically.
 ///
-/// This is the one door pair whose rank wire form is produced and
+/// This is the one entry point pair whose rank wire form is produced and
 /// consumed *around* a version fold, so it pins the fold-output
 /// re-dispatch (`from_raw` crossing to the wide arm) against the wire.
 #[test]
@@ -1650,7 +1628,7 @@ fn rank_wide_arm_ranked_composite_roundtrips() {
     // A lone leaf of height 2^400 + 1: its rank is the height itself,
     // 401 bits — past the 256-bit ceiling.
     let height = (dashu_int::UBig::ONE << 400usize) + 1u8;
-    let version: Version = format!("{height}").parse().expect("a leaf parses");
+    let version = from_oracle_version(&crate::oracle::Version::leaf(height));
     let rank = version.rank();
     assert!(
         rank.numerator_is_wide(),
@@ -1666,7 +1644,7 @@ fn rank_wide_arm_ranked_composite_roundtrips() {
 
 // ─────────────────────────────── the join fold ───────────────────────────────
 
-// The n-ary fold doors against the sequential pair fold — `join_all`,
+// The n-ary fold entry points against the sequential pair fold — `join_all`,
 // `meet_all`, both `Sum` forms, both `FromIterator` forms, in every feed
 // order — are the `laws::VERSION_LIST` / `VERSION_AND_LIST` fold laws
 // (version_sum_is_the_sequential_pair_fold, version_sum_is_order_invariant,
@@ -1678,7 +1656,7 @@ proptest! {
     /// `meet_all` matches the recursive oracle's fold over arbitrary
     /// normal-form pools.
     ///
-    /// The production door folds the receiver and its items; the oracle folds
+    /// The production entry point folds the receiver and its items; the oracle folds
     /// the same family as one list. Independent arbitrary shapes (not just
     /// op-trace populations) are the corner where meets restructure most.
     #[test]
@@ -1750,8 +1728,8 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 /// `rank` — still answers a tie.
 #[test]
 fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
-    let half: Version = "(0, 1, 0)".parse().unwrap();
-    let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    let half = half();
+    let peaks = peaks();
     assert!(half.concurrent(&peaks), "the tie under test is concurrent");
     assert_eq!(half.rank(), peaks.rank(), "the pair shares a rank");
 
@@ -1799,22 +1777,22 @@ proptest! {
 // `laws::VERSION_SOLO::ranked_carries_own_rank` — both driven on all three
 // law populations, a strict superset of the arbitrary pairs alone.
 
-/// The staircase: one new unit plateau per level over the given core, mass
-/// leaning left (`(0, t, 1)`) or right (`(0, 1, t)`).
+/// Adds one unit plateau per level, leaning the previous tree left or right.
 ///
 /// The two leans are mirror images — their areas agree level for level, so they
 /// share a rank by symmetry. The extreme-depth genre no generator reaches,
 /// shared by the deep-cancellation and composite-key suites.
-fn stairs(depth: usize, lean_left: bool, core: &str) -> Version {
-    let mut text = String::from(core);
+fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
+    use crate::oracle::Version as V;
+    let mut tree = to_oracle_version(core);
     for _ in 0..depth {
-        text = if lean_left {
-            format!("(0, {text}, 1)")
+        tree = if lean_left {
+            V::node(0u8, tree, V::leaf(1u8))
         } else {
-            format!("(0, 1, {text})")
+            V::node(0u8, V::leaf(1u8), tree)
         };
     }
-    text.parse().unwrap()
+    from_oracle_version(&tree)
 }
 
 /// The fused comparison's hard genres, constructed: deep total cancellation,
@@ -1833,12 +1811,19 @@ fn stairs(depth: usize, lean_left: bool, core: &str) -> Version {
 /// shapes.
 #[test]
 fn ranked_fused_walk_survives_deep_cancellation() {
-    let left = stairs(800, true, "(0, 1, 0)");
-    let right = stairs(800, false, "(0, 1, 0)");
+    let half = half();
+    let left = stairs(800, true, &half);
+    let right = stairs(800, false, &half);
     // The same mirror with its deepest step split: a rank-3/8 core instead of
     // 1/2, so the total drops by exactly 2⁻⁸⁰³ after 800 levels of
     // cancellation.
-    let shallower = stairs(800, false, "(0, (0, 1, (0, 1, 0)), 0)");
+    use crate::oracle::Version as V;
+    let shallower_core = from_oracle_version(&V::node(
+        0u8,
+        V::node(0u8, V::leaf(1u8), V::node(0u8, V::leaf(1u8), V::leaf(0u8))),
+        V::leaf(0u8),
+    ));
+    let shallower = stairs(800, false, &shallower_core);
     assert_ne!(left, right, "the mirrors are distinct versions");
     assert!(left.concurrent(&right), "and concurrent");
     for (a, b) in [(&left, &right), (&left, &shallower), (&right, &shallower)] {
@@ -1892,19 +1877,20 @@ fn version_encoding_is_prefix_free_on_growth_chains() {
         b = clock.fork();
     }
     for depth in [0usize, 1, 2, 3, 8, 200, 201, 800] {
-        let mut text = String::from("1");
+        use crate::oracle::Version as V;
+        let mut tree = V::leaf(1u8);
         for _ in 0..depth {
-            text = format!("(0, {text}, 0)");
+            tree = V::node(0u8, tree, V::leaf(0u8));
         }
-        battery.push(text.parse().unwrap());
+        battery.push(from_oracle_version(&tree));
     }
     // The 800-level staircase and its mirror: extreme depth past any
     // generator's reach, sharing a rank by symmetry — the deep genre whose
     // streams extend structure level by level.
-    battery.push(stairs(800, true, "(0, 1, 0)"));
-    battery.push(stairs(800, false, "(0, 1, 0)"));
-    battery.push("(0, 1, 0)".parse().unwrap());
-    battery.push("(0, (0, 1, 0), (0, 0, 1))".parse().unwrap());
+    battery.push(stairs(800, true, &half()));
+    battery.push(stairs(800, false, &half()));
+    battery.push(half());
+    battery.push(peaks());
     battery.push(Version::new());
     for (i, a) in battery.iter().enumerate() {
         for b in &battery[i + 1..] {
@@ -1913,7 +1899,7 @@ fn version_encoding_is_prefix_free_on_growth_chains() {
             }
             assert!(
                 !a.as_bytes().starts_with(b.as_bytes()) && !b.as_bytes().starts_with(a.as_bytes()),
-                "prefix-free: {a} vs {b}"
+                "prefix-free: {a:?} vs {b:?}"
             );
         }
     }
@@ -1946,14 +1932,14 @@ proptest! {
         if a != b {
             prop_assert!(
                 !eb.starts_with(&ea) && !ea.starts_with(&eb),
-                "prefix-free: {} vs {}", a, b
+                "prefix-free: {:?} vs {:?}", a, b
             );
         }
         let key_a = [ea, suffix_a].concat();
         let key_b = [eb, suffix_b].concat();
         match ra.cmp(&rb) {
-            Ordering::Less => prop_assert!(key_a < key_b, "{} vs {}", a, b),
-            Ordering::Greater => prop_assert!(key_a > key_b, "{} vs {}", a, b),
+            Ordering::Less => prop_assert!(key_a < key_b, "{:?} vs {:?}", a, b),
+            Ordering::Greater => prop_assert!(key_a > key_b, "{:?} vs {:?}", a, b),
             Ordering::Equal => {}
         }
     }
@@ -1974,14 +1960,14 @@ proptest! {
 /// key, `0x00` on the larger) cannot flip it.
 #[test]
 fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
-    let half: Version = "(0, 1, 0)".parse().unwrap();
-    let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    let half = half();
+    let peaks = peaks();
     assert_eq!(half.rank(), peaks.rank(), "the seam pair shares a rank");
     let mut clock = Clock::seed();
     let one = clock.tick().clone();
     let two = clock.tick().clone();
-    let deep_left = stairs(800, true, "(0, 1, 0)");
-    let deep_right = stairs(800, false, "(0, 1, 0)");
+    let deep_left = stairs(800, true, &half);
+    let deep_right = stairs(800, false, &half);
     assert_eq!(
         deep_left.rank(),
         deep_right.rank(),
@@ -2003,14 +1989,17 @@ fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
         let (es, el) = (Ranked::from(small).encode(), Ranked::from(large).encode());
         assert!(
             !el.starts_with(&es) && !es.starts_with(&el),
-            "prefix-free: {small} vs {large}"
+            "prefix-free: {small:?} vs {large:?}"
         );
-        assert!(es < el, "byte order is the total order: {small} vs {large}");
+        assert!(
+            es < el,
+            "byte order is the total order: {small:?} vs {large:?}"
+        );
         let key_small = [es, vec![0xFF; 4]].concat();
         let key_large = [el, vec![0x00; 4]].concat();
         assert!(
             key_small < key_large,
-            "no suffix flips the order: {small} vs {large}"
+            "no suffix flips the order: {small:?} vs {large:?}"
         );
     }
 }
@@ -2032,7 +2021,7 @@ fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
 #[test]
 fn ranked_decode_rejects_each_genre() {
     use crate::error::Decode;
-    let half: Version = "(0, 1, 0)".parse().unwrap();
+    let half = half();
     let key = Ranked::from(&half).encode();
     assert!(
         matches!(Ranked::decode(&[][..]), Err(Decode::Truncated)),
@@ -2064,7 +2053,7 @@ fn ranked_decode_rejects_each_genre() {
     // A rank the version does not measure, from both sides of the true rank
     // (the verification is an equality, not an ordering): rank(5) over half's
     // bytes, and half's rank (1/2) over five's bytes.
-    let five = Version::try_from(5).unwrap();
+    let five = uniform(5u8);
     let above = [five.rank().encode(), half.as_bytes().to_vec()].concat();
     assert!(
         matches!(Ranked::decode(&above[..]), Err(Decode::NotCanonical)),
@@ -2104,7 +2093,7 @@ proptest! {
                     prop_assert_eq!(
                         view.encode(),
                         mutated,
-                        "accepted mutation must re-encode to itself: {} byte {} bit {}",
+                        "accepted mutation must re-encode to itself: {:?} byte {} bit {}",
                         v, byte, bit
                     );
                 }
@@ -2174,7 +2163,7 @@ fn div_can_fragment_and_raise_min_ticks() {
     q0.join(q2).unwrap(); // q0 now owns two quarters, one per half
     let comb = q0.party();
 
-    let v = Version::try_from(1).unwrap();
+    let v = uniform(1u8);
     assert_eq!(v.min_ticks(), Ticks::from(1u64)); // one tick covers the whole interval
 
     let frag = (&v / comb).to_version();
@@ -2383,13 +2372,11 @@ fn boundary_arity_fan_folds_match_the_sequential_fold() {
 #[test]
 fn deep_spine_marginal_cost_is_three_bits_per_level() {
     let spine = |depth: usize| -> usize {
-        let mut text = String::new();
+        let mut party = Party::seed();
         for _ in 0..depth {
-            text.push_str("(0, 1, ");
+            let _ = party.fork();
         }
-        text.push('0');
-        text.push_str(&")".repeat(depth));
-        let v: Version = text.parse().expect("the unit-leaf deep spine is canonical");
+        let v = (&uniform(1u8) / &party).to_version();
         v.encode().len() * 8
     };
     let (small, large) = (spine(1_000), spine(2_000));

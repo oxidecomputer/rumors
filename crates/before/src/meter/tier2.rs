@@ -9,7 +9,7 @@
 //! bases are derivable from the absolute leaf values and store nothing. The
 //! compactness ratio between this size and today's encoded size is the evidence
 //! the representation decision turns on, so the walk here is written for
-//! obvious correctness over economy: one preorder pass over the packed form,
+//! obvious correctness over economy: one preorder pass over the encoded form,
 //! absolute leaf values accumulated as root-to-leaf path sums in
 //! arbitrary-precision arithmetic (the crate's `Base`, so no magnitude
 //! saturates or overflows the measurement).
@@ -46,13 +46,13 @@ pub struct Tier2Size {
 
 /// Compute the exact Tier 2 encoded bit length of a canonical [`Version`](crate::Version).
 ///
-/// One preorder pass over the packed form. The traversal is iterative over a
+/// One preorder pass over the encoded form. The traversal is iterative over a
 /// heap stack of inherited path sums (no stack-depth recursion), so it needs no
 /// stack-growth guard at any input depth.
 ///
 /// # Panics
 ///
-/// Panics if the packed form does not parse cleanly; callers hand in
+/// Panics if the encoded form does not parse cleanly; callers hand in
 /// generator-built canonical streams.
 pub fn tier2_size(bits: BitsView<'_>) -> Tier2Size {
     let mut pos = 0u64;
@@ -89,7 +89,7 @@ pub fn tier2_size(bits: BitsView<'_>) -> Tier2Size {
     assert_eq!(
         pos,
         bits.len(),
-        "canonical Version walk consumes every packed bit"
+        "canonical Version walk consumes every encoded bit"
     );
 
     Tier2Size {

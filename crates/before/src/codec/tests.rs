@@ -21,9 +21,7 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{
-    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
-};
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, versions, world_strategy};
 use crate::{error::Decode, Clock, Party, Rank, Ranked, Version};
 
@@ -159,17 +157,12 @@ fn flush_stream_carries_a_whole_marker_byte() {
     assert!(super::padding_is_canonical(&frozen));
 }
 
-/// `Bits::ptr_eq` implies value equality, and clones are its nonempty
-/// source.
+/// `Bits::ptr_eq` implies value equality, and nonempty clones share storage.
 ///
 /// A clone shares the frozen buffer (`ptr_eq` true), while two independent
 /// freezes of the same *nonempty* content are equal (`canonical_eq`) but not
-/// pointer-identical — so `ptr_eq` is a fast path *into* byte equality, never a
-/// substitute for it. The empty stream is the deliberate exception the
-/// predicate's docs carry: every zero-byte allocation shares one dangling
-/// pointer, so two independent empty freezes read `ptr_eq` true *without* clone
-/// provenance — which is why a rung may derive from `ptr_eq` only what value
-/// equality gives it, never a clone-history fact.
+/// pointer-identical. Independent empty streams may share the same dangling
+/// pointer, so pointer identity proves equality but not clone provenance.
 #[test]
 fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
     let build = || super::Bits::freeze(bits_buf![1, 0, 1, 1, 0]);
@@ -188,11 +181,7 @@ fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
     assert!(super::canonical_eq(&e1, &e2));
 }
 
-/// The two freeze doors agree.
-///
-/// Adopting already-canonical bytes (`from_canonical`, the decode side) yields
-/// a stream equal to the build-side freeze of the same bits, and the empty
-/// constructor is the freeze of the empty buffer.
+/// Freezing built bits and adopting their canonical bytes produce equal streams.
 #[test]
 fn from_canonical_matches_freeze() {
     let frozen = super::Bits::freeze(bits_buf![1, 0, 1]);
@@ -211,8 +200,8 @@ fn from_canonical_matches_freeze() {
 
 // ───────────── build-history family (the buffer's invariants) ─────────────
 //
-// The build buffer promises that its byte image — and therefore the sealed
-// spelling the freeze door emits — is a function of the bit *content* alone,
+// The build buffer promises that its byte image — and therefore its sealed
+// encoding — is a function of the bit *content* alone,
 // whatever mutation history produced it. The family below drives arbitrary
 // interleavings of the buffer's whole mutating move set (single-bit pushes,
 // word-wide appends, verbatim view copies, truncations aimed at byte
@@ -946,23 +935,12 @@ fn reject_intra_byte_padding() {
     }
 }
 
-/// The `Version` and `Clock` decode doors reject a set padding bit *inside* the
-/// final byte, functionally (an `Err`, not a debug assert).
+/// `Version` and `Clock` decoding reject every set bit within their padding.
 ///
-/// The shared padding validator is bit-granular, and the `Party` door
-/// pins that at its own byte ([`reject_intra_byte_padding`]); these are
-/// the per-door witnesses for the two doors whose other committed
-/// rejection tests perturb only whole spurious bytes — which the
-/// validator's *length* arm rejects on its own. A perturbed bit within
-/// the final byte's padding is the one defect only the bit arm sees,
-/// and the buffer-adopting representation makes round-trip checks blind
-/// to it (an accepted dirty buffer re-encodes to itself, and byte
-/// equality is what `Eq`/`Hash` rest on), so the rejection must be
-/// asserted directly at each door. The clock gets the defect in both
-/// components: the party's byte-aligned padding mid-stream and the
-/// version's final byte.
+/// The clock cases corrupt both its interior party padding and its final
+/// version padding.
 #[test]
-fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
+fn version_and_clock_decoding_rejects_intra_byte_padding() {
     // The empty version is the 2-bit stream `11`, marker-padded in one
     // byte: the marker at bit 2, zeros at 3..8. Set each zero in turn;
     // every one must reject.
@@ -1001,17 +979,10 @@ fn version_and_clock_doors_reject_intra_byte_padding_functionally() {
     }
 }
 
-/// Non-normal event spellings are refused where they can be spelled at all.
-///
-/// The skyline wire coding is a function of the step function alone, so a
-/// hoarded liftable minimum *cannot be spelled on the wire*: transcoding a
-/// non-min-lifted tree lands on the same stream as its normalized form. The
-/// literal surface can still spell both non-normal shapes, and rejects them;
-/// the one wire-expressible non-canonicality (a collapsible sibling pair, a
-/// zero right delta) is rejected by strict decode — the skyline suite's reject
-/// corpus holds that pin.
+/// Transcoding a non-normal recursive tree produces the canonical stream for
+/// the same step function.
 #[test]
-fn reject_noncanonical_event() {
+fn transcoding_normalizes_noncanonical_event() {
     use oracle::Version::{Leaf, Node};
 
     // No child has base 0: unspellable on the wire — the transcoding
@@ -1031,97 +1002,6 @@ fn reject_noncanonical_event() {
         from_oracle_version(&normalized).encode(),
         "the wire coding admits exactly one spelling per value",
     );
-    // The literal surface rejects the non-normal spelling outright.
-    assert!(matches!(
-        Version::try_from((0u64, 1u64, 2u64)),
-        Err(crate::error::Parse::NotCanonical)
-    ));
-
-    // Two equal-valued leaf children: collapsible, rejected at the literal
-    // surface and (as a zero sibling delta) by strict wire decode.
-    assert!(matches!(
-        Version::try_from((0u64, 5u64, 5u64)),
-        Err(crate::error::Parse::NotCanonical)
-    ));
-}
-
-/// The text grammar reads a base as one ASCII digit run: value-preserving under
-/// leading zeros, ended by the first non-digit, unbounded in width.
-///
-/// The digit run is handed whole to the delegated radix conversion, so this
-/// pins the run-level grammar the delegation must preserve: exactly what
-/// digit-at-a-time accumulation accepts, nothing more — ASCII digits only (a
-/// Unicode digit is a syntax error wherever it touches a run), exact across the
-/// `u64` and `u128` representation boundaries, at any width, and identically at
-/// every syntax position of the event grammar.
-#[test]
-fn parse_base_digit_run_grammar() {
-    use dashu_int::UBig;
-
-    use crate::error::Parse;
-
-    // Leading zeros are value-preserving, not canonical-form violations.
-    let v: Version = "007".parse().expect("leading zeros are value-preserving");
-    assert_eq!(v.to_string(), "7");
-    // A digit run ends at the first non-digit: "1 2" is a leaf `1` with
-    // trailing junk, never a two-digit value.
-    assert_eq!("1 2".parse::<Version>(), Err(Parse::Syntax));
-    // An absent digit run where a base is required is a syntax error.
-    assert_eq!("(, 0, 1)".parse::<Version>(), Err(Parse::Syntax));
-    // Width is unbounded: a 201-bit magnitude round-trips exactly.
-    let wide = "1606938044258990275541962092341162602522202993782792835301376"; // 2^200
-    let v: Version = wide.parse().expect("an arbitrary-width base parses");
-    assert_eq!(v.to_string(), wide);
-
-    // A run is ASCII digits only: a Unicode digit (here arabic-indic ٧,
-    // U+0667) never joins a run — before, inside, or after one, at leaf
-    // and at node-base position alike, it is a syntax error.
-    for text in ["٧", "٧7", "1٧", "1٧2", "(٧, 0, 1)", "(1٧, 0, 1)"] {
-        assert_eq!(
-            text.parse::<Version>(),
-            Err(Parse::Syntax),
-            "a Unicode digit must not extend or form a run: {text:?}"
-        );
-    }
-
-    // The u64 and u128 representation boundaries: 2^64 ± 1 and 2^128 ± 1
-    // (with the powers themselves) round-trip exactly on both sides.
-    for boundary in [
-        "18446744073709551615",                    // 2^64 − 1
-        "18446744073709551616",                    // 2^64
-        "18446744073709551617",                    // 2^64 + 1
-        "340282366920938463463374607431768211455", // 2^128 − 1
-        "340282366920938463463374607431768211456", // 2^128
-        "340282366920938463463374607431768211457", // 2^128 + 1
-    ] {
-        let v: Version = boundary.parse().expect("a boundary magnitude parses");
-        assert_eq!(v.to_string(), boundary, "exact across the width boundary");
-    }
-
-    // A huge run: 10^10_000 spelled as 10_001 digits, value-checked
-    // against the backend's independent power construction and unchanged
-    // by a run of leading zeros.
-    let huge = format!("1{}", "0".repeat(10_000));
-    assert_eq!(
-        huge,
-        Base(UBig::from(10u8).pow(10_000)).to_string(),
-        "the spelled digits are the independently constructed 10^10000"
-    );
-    let v: Version = huge.parse().expect("a 10k-digit run parses");
-    assert_eq!(v.to_string(), huge);
-    let zero_padded: Version = format!("000{huge}")
-        .parse()
-        .expect("leading zeros on a huge run are value-preserving");
-    assert_eq!(zero_padded, v);
-
-    // The same wide run embedded at every syntax position of the event
-    // grammar at once: root base, nested node base, and leaf.
-    let b = "18446744073709551616"; // 2^64
-    let embedded = format!("({b}, ({b}, 0, {b}), 0)");
-    let v: Version = embedded
-        .parse()
-        .expect("wide bases parse at every position");
-    assert_eq!(v.to_string(), embedded);
 }
 
 /// Zero bytes is exhausted input to every raw decoder, rejected as `Truncated`
@@ -1375,7 +1255,12 @@ fn malformed_padding_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)`: the 9-bit stream
     // `0 1 011 1 011` — internal root (flag 0), leaf flag 1 + gamma(2),
     // leaf flag 1 + zigzag(+1) = gamma(2) — then the marker and pad.
-    let canonical = Version::try_from((2u64, 0u64, 1u64)).unwrap().encode();
+    let canonical = from_oracle_version(&oracle::Version::node(
+        2u8,
+        oracle::Version::leaf(0u8),
+        oracle::Version::leaf(1u8),
+    ))
+    .encode();
     assert_eq!(
         canonical,
         vec![93, 0b1100_0000],
@@ -1393,7 +1278,11 @@ fn malformed_padding_rejected_witness() {
 
     // An id whose 8 live bits fill its first byte exactly: `(1, (0, 1))`
     // owes its marker in a whole second byte.
-    let party = "(1, (0, 1))".parse::<Party>().unwrap().encode();
+    let party = from_oracle_party(&oracle::Party::node(
+        oracle::Party::Leaf(true),
+        oracle::Party::node(oracle::Party::Leaf(false), oracle::Party::Leaf(true)),
+    ))
+    .encode();
     assert_eq!(
         party,
         vec![196, 0b1000_0000],
@@ -1473,7 +1362,7 @@ proptest! {
 // A canonical encoding whose live bits end flush against a byte boundary
 // carries its padding in a whole final `1000_0000` byte; cutting the input
 // just before that byte leaves a complete tree with its required padding
-// missing entirely — the truncation genre, through every decode door. The
+// missing entirely. The
 // family spans the five marker-padded wire types (`Party`, `Version`,
 // `Clock`, `Ranked`, `Span`); `Rank` has no marker padding (its stream is
 // self-delimiting within its final byte), so no flush-cut input exists for
@@ -1502,13 +1391,13 @@ fn arb_flush_party() -> impl Strategy<Value = Party> {
 /// The 1-byte flush-cut witness reads [`Decode::Truncated`], never the
 /// trailing-bits genre.
 ///
-/// `Version::try_from(7)` encodes to eight live bits (leaf flag `1`,
+/// A uniform version at height 7 encodes to eight live bits (leaf flag `1`,
 /// gamma(7) `0001000`) plus a whole `1000_0000` padding byte, so its first
 /// byte alone is a complete tree whose required padding byte is absent
 /// entirely: missing required data.
 #[test]
 fn flush_version_cut_before_its_marker_byte_is_truncated() {
-    let bytes = Version::try_from(7).unwrap().encode();
+    let bytes = from_oracle_version(&oracle::Version::leaf(7u8)).encode();
     assert_eq!(
         bytes,
         vec![0b1000_1000, 0b1000_0000],
@@ -1522,7 +1411,7 @@ fn flush_version_cut_before_its_marker_byte_is_truncated() {
 
 proptest! {
     /// A stream cut exactly at a flush byte boundary reads
-    /// [`Decode::Truncated`] through every version-tailed decode door.
+    /// [`Decode::Truncated`] from every encoding with a version tail.
     ///
     /// Live bits end on the boundary and the whole `1000_0000` padding byte
     /// is absent: required data is missing, not malformed. Exercised at the
@@ -1530,7 +1419,7 @@ proptest! {
     /// `Ranked`, and `Span`) and at the interior seam (`Span`'s meet cut
     /// short of its own padding byte, the join then missing entirely).
     #[test]
-    fn flush_cut_version_reads_truncated_at_every_door(
+    fn flush_cut_version_reads_truncated_for_every_version_tail(
         v in arb_flush_version(),
         pa in arb_oracle_party_nonempty(),
     ) {
@@ -1573,14 +1462,14 @@ proptest! {
 
 proptest! {
     /// A party stream cut exactly at a flush byte boundary reads
-    /// [`Decode::Truncated`] through the party and clock doors.
+    /// [`Decode::Truncated`] from both party and clock decoding.
     ///
     /// Live bits end on the boundary and the whole `1000_0000` padding byte
     /// is absent: missing required data at the end of the input (`Party`)
-    /// and at the clock door's interior seam (the id section cut short of
+    /// and at the clock's interior seam (the party section cut short of
     /// its own padding byte, the version then missing entirely).
     #[test]
-    fn flush_cut_party_reads_truncated_at_every_door(p in arb_flush_party()) {
+    fn flush_cut_party_reads_truncated_for_party_and_clock(p in arb_flush_party()) {
         let bytes = p.encode();
         prop_assert_eq!(
             bytes.len() as u64 * 8,
@@ -1591,386 +1480,4 @@ proptest! {
         prop_assert!(matches!(Party::decode(cut), Err(Decode::Truncated)));
         prop_assert!(matches!(Clock::decode(cut), Err(Decode::Truncated)));
     }
-}
-
-// ───────────────────────────── parse stacks ─────────────────────────────
-
-/// Trees far deeper than any real id or event tree validate, decode, and
-/// round-trip exactly, with the parse frames grown on the heap.
-///
-/// The tree parsers keep one explicit frame per unfinished ancestor, so a deep
-/// spine grows its frame stack through several doublings while every ancestor
-/// is still open — and the grown frames must survive to complete the
-/// normal-form checks on the way back up. A right-spine event tree and a
-/// left-spine id tree exercise both parsers.
-#[test]
-fn parse_stacks_handle_deep_spines() {
-    // Deep enough that the frame stack regrows several times mid-parse; vastly
-    // deeper than any organic tree (the 100k-level extreme lives in
-    // `clock::tests::deep_tree_stack_safety`).
-    const DEPTH: usize = 48;
-
-    // Event tree: a right spine `(1, 0, (1, 0, … 2))`. Every node has a base-0
-    // left leaf, and the innermost pair of leaves differ, so the whole spine is
-    // canonical.
-    let mut spine = String::from("2");
-    for _ in 0..DEPTH {
-        spine = format!("(1, 0, {spine})");
-    }
-    let version: Version = spine.parse().expect("a deep right spine is canonical");
-    assert_eq!(
-        Version::decode(&version.encode()[..]).expect("deep event tree decodes"),
-        version,
-    );
-
-    // Id tree: a left spine, one frame per level in `parse_id_from`.
-    let party = deep_left_spine_party(DEPTH);
-    assert_eq!(
-        Party::decode(&party.encode()[..]).expect("deep id tree decodes"),
-        party,
-    );
-}
-
-// ───────────────────────────── id text parser pin ─────────────────────────────
-//
-// A recursive reference transcription of the id grammar (`0 | 1 | (i1, i2)`)
-// pins `parse_id_str`'s whole behavior surface — accepted language, emitted
-// canonical bits, and error variants with their precedence (a structural
-// `Syntax` defect outranks the `(0, 0)`/`(1, 1)` canonicality check at the same
-// node). The reference recurses on native frames, so the differential runs at
-// small scope; the production parser's depth behavior is pinned by
-// `parse_stacks_handle_deep_spines` and the deep board families.
-
-/// The reference mirror of the production parser's subtree classification:
-/// what a parsed id subtree turned out to be.
-#[derive(Clone, Copy, PartialEq)]
-enum RefIdKind {
-    /// A `0`: no bits emitted (absence).
-    Empty,
-    /// A `1`: the terminal tag `00`.
-    Terminal,
-    /// An internal node.
-    Node,
-}
-
-/// The reference cursor: byte-level, skipping ASCII whitespace before every
-/// token, exactly the grammar's tokenization.
-struct RefCur<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl RefCur<'_> {
-    fn skip_ws(&mut self) {
-        while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_whitespace() {
-            self.pos += 1;
-        }
-    }
-
-    fn peek(&mut self) -> Option<u8> {
-        self.skip_ws();
-        self.bytes.get(self.pos).copied()
-    }
-
-    fn bump(&mut self) -> Option<u8> {
-        self.skip_ws();
-        let c = self.bytes.get(self.pos).copied();
-        if c.is_some() {
-            self.pos += 1;
-        }
-        c
-    }
-}
-
-/// One reference id subtree: append its canonical bits, report its kind.
-///
-/// The recursive image of the grammar with the production parser's exact error
-/// precedence: each token defect is a `Syntax` error at the point the token is
-/// demanded, and a node's collapsible-children check (`(0, 0)` / `(1, 1)` →
-/// `NotCanonical`) runs only after its closing paren parsed.
-fn ref_parse_id_node(
-    cur: &mut RefCur,
-    bits: &mut BitsBuf,
-) -> Result<RefIdKind, crate::error::Parse> {
-    use crate::error::Parse;
-    match cur.bump() {
-        Some(b'(') => {
-            let tag = bits.len();
-            bits.push(false);
-            bits.push(false);
-            let left = ref_parse_id_node(cur, bits)?;
-            if cur.bump() != Some(b',') {
-                return Err(Parse::Syntax);
-            }
-            let right = ref_parse_id_node(cur, bits)?;
-            if cur.bump() != Some(b')') {
-                return Err(Parse::Syntax);
-            }
-            match (left, right) {
-                (RefIdKind::Empty, RefIdKind::Empty) => Err(Parse::NotCanonical),
-                (RefIdKind::Terminal, RefIdKind::Terminal) => Err(Parse::NotCanonical),
-                _ => {
-                    bits.set(tag, left != RefIdKind::Empty);
-                    bits.set(tag + 1, right != RefIdKind::Empty);
-                    Ok(RefIdKind::Node)
-                }
-            }
-        }
-        Some(b'0') => Ok(RefIdKind::Empty),
-        Some(b'1') => {
-            bits.push(false);
-            bits.push(false);
-            Ok(RefIdKind::Terminal)
-        }
-        _ => Err(crate::error::Parse::Syntax),
-    }
-}
-
-/// The reference id-string parser: one tree, no trailing input, normal form
-/// revalidated on the emitted bits — `parse_id_str`'s exact contract.
-fn ref_parse_id_str(s: &str) -> Result<BitsBuf, crate::error::Parse> {
-    let mut cur = RefCur {
-        bytes: s.as_bytes(),
-        pos: 0,
-    };
-    let mut bits = BitsBuf::new();
-    ref_parse_id_node(&mut cur, &mut bits)?;
-    if cur.peek().is_some() {
-        return Err(crate::error::Parse::Syntax);
-    }
-    super::validate_id(crate::codec::built_view(&bits))?;
-    Ok(bits)
-}
-
-/// Assert the production parser and the recursive reference agree on one input:
-/// same acceptance, same canonical bits, same error variant.
-fn assert_id_parse_matches_reference(s: &str) -> Result<(), TestCaseError> {
-    let prod = super::parse_id_str(s);
-    let reference = ref_parse_id_str(s);
-    prop_assert_eq!(
-        &prod,
-        &reference,
-        "parser disagrees with the recursive reference on {:?}",
-        s
-    );
-    Ok(())
-}
-
-/// The production id parser matches the recursive reference on every string up
-/// to length 7 over the grammar alphabet (plus a space).
-///
-/// Identical accept/reject verdicts, identical canonical bits, identical error
-/// variants — the exhaustive small-scope leg of the parser pin.
-#[test]
-fn id_text_parser_matches_reference_exhaustively() {
-    const ALPHABET: &[u8] = b"()01, ";
-    const MAX_LEN: usize = 7;
-    let mut buf = [0u8; MAX_LEN];
-    for len in 0..=MAX_LEN {
-        let mut idx = vec![0usize; len];
-        loop {
-            for (i, &j) in idx.iter().enumerate() {
-                buf[i] = ALPHABET[j];
-            }
-            let s = core::str::from_utf8(&buf[..len]).expect("ASCII alphabet");
-            assert_id_parse_matches_reference(s).expect("differential holds");
-            // Odometer over the alphabet.
-            let mut k = len;
-            loop {
-                if k == 0 {
-                    break;
-                }
-                k -= 1;
-                idx[k] += 1;
-                if idx[k] < ALPHABET.len() {
-                    break;
-                }
-                idx[k] = 0;
-            }
-            if idx.iter().all(|&j| j == 0) {
-                break;
-            }
-        }
-        if len == 0 {
-            continue;
-        }
-    }
-}
-
-/// Splice pseudo-random ASCII whitespace between the characters of a rendered
-/// id, deterministically from `seed` (xorshift64).
-fn inject_whitespace(s: &str, seed: u64) -> String {
-    const WS: &[u8] = b" \t\n\r";
-    let mut rng = seed | 1;
-    let mut step = || {
-        rng ^= rng << 13;
-        rng ^= rng >> 7;
-        rng ^= rng << 17;
-        rng
-    };
-    let mut out = String::new();
-    for c in s.chars() {
-        if step() % 4 == 0 {
-            out.push(WS[(step() % WS.len() as u64) as usize] as char);
-        }
-        out.push(c);
-    }
-    if step() % 4 == 0 {
-        out.push(' ');
-    }
-    out
-}
-
-proptest! {
-    /// On rendered arbitrary normal-form ids — whitespace-injected in
-    /// pseudo-random positions — the parser matches the reference.
-    ///
-    /// Both recover the party's exact canonical bits: the round-trip leg of the
-    /// parser pin.
-    #[test]
-    fn id_text_parser_matches_reference_on_rendered_ids(
-        op in arb_oracle_party_nonempty(),
-        seed in any::<u64>(),
-    ) {
-        let party = from_oracle_party(&op);
-        let rendered = party.to_string();
-        let spaced = inject_whitespace(&rendered, seed);
-        assert_id_parse_matches_reference(&rendered)?;
-        assert_id_parse_matches_reference(&spaced)?;
-        let bits = super::parse_id_str(&spaced).expect("a rendered id parses");
-        prop_assert_eq!(bits, party.as_bits().to_buf());
-    }
-}
-
-proptest! {
-    /// On rendered ids perturbed by random single-character edits, the
-    /// production parser and the recursive reference return the identical
-    /// verdict.
-    ///
-    /// Edits insert, delete, or replace characters drawn from the grammar
-    /// alphabet — the rejection-surface leg of the parser pin.
-    #[test]
-    fn id_text_parser_matches_reference_on_mutations(
-        op in arb_oracle_party_nonempty(),
-        edits in proptest::collection::vec((any::<u32>(), any::<u32>(), 0u8..3), 1..4),
-    ) {
-        const ALPHABET: &[u8] = b"()01, x";
-        let mut s: Vec<u8> = from_oracle_party(&op).to_string().into_bytes();
-        for (pos, ch, kind) in edits {
-            let c = ALPHABET[ch as usize % ALPHABET.len()];
-            match kind {
-                0 => {
-                    let at = pos as usize % (s.len() + 1);
-                    s.insert(at, c);
-                }
-                1 if !s.is_empty() => {
-                    let at = pos as usize % s.len();
-                    s.remove(at);
-                }
-                _ if !s.is_empty() => {
-                    let at = pos as usize % s.len();
-                    s[at] = c;
-                }
-                _ => {}
-            }
-        }
-        let s = String::from_utf8(s).expect("ASCII edits of an ASCII render");
-        assert_id_parse_matches_reference(&s)?;
-    }
-}
-
-/// Point pins for the parser's error precedence and token tolerance.
-///
-/// A structural defect is `Syntax` even when a canonicality defect is also
-/// present ("(0, 0" truncated), a well-formed collapsible node is
-/// `NotCanonical`, trailing input is `Syntax`, whitespace is skipped between
-/// any two tokens, and the bare `0` parses to the empty bit stream (rejecting
-/// anonymity is the caller's job, not the grammar's).
-#[test]
-fn id_text_parser_error_precedence_pins() {
-    use crate::error::Parse;
-    assert_eq!(super::parse_id_str("(0, 0"), Err(Parse::Syntax));
-    assert_eq!(super::parse_id_str("(0, 0)"), Err(Parse::NotCanonical));
-    assert_eq!(super::parse_id_str("(1, 1)"), Err(Parse::NotCanonical));
-    assert_eq!(super::parse_id_str("((1, 1), 0)"), Err(Parse::NotCanonical));
-    assert_eq!(super::parse_id_str("(1, 0) 1"), Err(Parse::Syntax));
-    assert_eq!(super::parse_id_str(""), Err(Parse::Syntax));
-    assert_eq!(super::parse_id_str("(1 0)"), Err(Parse::Syntax));
-    assert_eq!(super::parse_id_str("(1, 0"), Err(Parse::Syntax));
-    assert_eq!(super::parse_id_str("1"), Ok(bits_buf![0, 0]));
-    assert_eq!(super::parse_id_str("0"), Ok(BitsBuf::new()));
-    let spaced = super::parse_id_str(" ( 1 ,\t( 0 ,\n1 ) )\r").expect("whitespace between tokens");
-    assert_eq!(
-        spaced,
-        super::parse_id_str("(1, (0, 1))").expect("compact form")
-    );
-}
-
-/// A 100k-deep id in paper notation renders and parses without native
-/// recursion.
-///
-/// The text parser's explicit frame stack carries the nesting (the text mirror
-/// of `clock::tests::deep_tree_stack_safety`'s packed-codec leg), so parse
-/// depth can never overflow the call stack.
-#[test]
-fn deep_id_text_roundtrip() {
-    const DEPTH: usize = 100_000;
-    let party = deep_left_spine_party(DEPTH);
-    let text = party.to_string();
-    let parsed: Party = text.parse().expect("a deep rendered id parses");
-    assert_eq!(parsed, party);
-}
-
-// ──────────────────────────── stamp text split ────────────────────────────
-
-proptest! {
-    /// Clock text parsing never panics on any input.
-    ///
-    /// Stamp texts of arbitrary paren nesting depth — balanced, over-closed,
-    /// or under-closed, with a comma placed at any depth or absent — always
-    /// draw a graceful `Ok`/`Err` verdict from `Clock::from_str`.
-    ///
-    /// The assertion is the call itself: proptest reports any panic as a
-    /// failure, so every generated text exercising the split scanner's depth
-    /// counter must return, never abort.
-    #[test]
-    fn clock_text_deep_nesting_never_panics(
-        opens in 1usize..3_000,
-        closes in 0usize..3_000,
-        comma_at in proptest::option::of(0usize..3_000),
-        core in prop_oneof![Just(""), Just("1, 0"), Just("0"), Just(",")],
-    ) {
-        let mut s = String::from("(");
-        for i in 0..opens {
-            if comma_at == Some(i) {
-                s.push(',');
-            }
-            s.push('(');
-        }
-        s.push_str(core);
-        for _ in 0..closes {
-            s.push(')');
-        }
-        s.push(')');
-        let _ = s.parse::<Clock>();
-    }
-}
-
-/// A paren nesting deeper than `i32::MAX` is rejected gracefully.
-///
-/// 2³¹ + 1 opening parens fed through `Clock::from_str` return
-/// `Parse::Syntax` (no top-level comma), never a panic, pinning the split
-/// scanner's depth counter as wide enough for any physically representable
-/// input.
-///
-/// Ignored because the witness string alone costs ~2 GiB of memory; run it
-/// deliberately with `--run-ignored all`.
-#[test]
-#[ignore = "allocates ~2 GiB to push the depth counter past i32::MAX"]
-fn clock_text_split_survives_two_gib_of_parens() {
-    use crate::error::Parse;
-    const OPENS: usize = (1 << 31) + 1;
-    let mut s = "(".repeat(OPENS);
-    s.push(')');
-    assert!(matches!(s.parse::<Clock>(), Err(Parse::Syntax)));
 }

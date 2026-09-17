@@ -8,8 +8,8 @@
 //!
 //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
 //! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes to
-//! their source, so their linearity notes apply verbatim at this door ([Safety
-//! rules](crate#safety-rules)).
+//! their source, so their linearity notes apply verbatim at this entry point
+//! ([Safety rules](crate#safety-rules)).
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

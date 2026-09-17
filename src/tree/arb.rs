@@ -690,9 +690,7 @@ mod test {
     /// This is the invariant every strategy here relies on: trees built on
     /// different indices must have causally-concurrent (joinable) histories,
     /// never one containing the other. `nth_party` walks a left-leaning fork
-    /// chain, so its string form looks nested — `(0, 1)`, `((0, 1), 0)`, … —
-    /// but each owns a disjoint dyadic sub-interval, which `Party::is_disjoint`
-    /// confirms.
+    /// chain whose results own disjoint dyadic intervals.
     #[test]
     fn distinct_indices_are_pairwise_disjoint() {
         const N: usize = 16;
@@ -702,7 +700,7 @@ mod test {
                     let (a, b) = (nth_party(i), nth_party(j));
                     assert!(
                         a.is_disjoint(&b),
-                        "nth_party({i}) = {a} and nth_party({j}) = {b} are not disjoint",
+                        "nth_party({i}) = {a:?} and nth_party({j}) = {b:?} are not disjoint",
                     );
                 }
             }

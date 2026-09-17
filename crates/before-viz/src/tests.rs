@@ -11,13 +11,13 @@ fn seed_is_the_only_node() {
     let nodes = e.descriptors();
     assert_eq!(nodes.len(), 1);
     assert_eq!(
-        (
-            nodes[0].party.as_str(),
-            nodes[0].event.as_str(),
-            nodes[0].stamp.as_str()
-        ),
-        ("1", "0", "(1, 0)")
+        nodes[0].party,
+        vec![PartyRegion {
+            owned: true,
+            depth: 0,
+        }]
     );
+    assert_eq!(nodes[0].version, vec![VersionPlateau { rise: 0, depth: 0 }]);
     assert_eq!(e.live_indices(), vec![0]);
 }
 
@@ -26,7 +26,10 @@ fn seed_is_the_only_node() {
 fn tick_advances_the_event_component() {
     let mut e = Engine::new();
     e.load(vec![Op::Tick { x: 0 }]).unwrap();
-    assert_eq!(e.descriptors()[1].stamp, "(1, 1)");
+    assert_eq!(
+        e.descriptors()[1].version,
+        vec![VersionPlateau { rise: 1, depth: 0 }]
+    );
 }
 
 /// A fork emits two clocks owning disjoint, complementary halves of the id space.
@@ -36,11 +39,29 @@ fn fork_splits_into_two_disjoint_halves() {
     e.load(vec![Op::Fork { x: 0 }]).unwrap();
     let nodes = e.descriptors();
     assert_eq!(nodes.len(), 3);
-    let halves: std::collections::BTreeSet<&str> = [1usize, 2]
-        .iter()
-        .map(|&i| nodes[i].party.as_str())
-        .collect();
-    assert_eq!(halves, ["(0, 1)", "(1, 0)"].into_iter().collect());
+    let left = vec![
+        PartyRegion {
+            owned: true,
+            depth: 1,
+        },
+        PartyRegion {
+            owned: false,
+            depth: 1,
+        },
+    ];
+    let right = vec![
+        PartyRegion {
+            owned: false,
+            depth: 1,
+        },
+        PartyRegion {
+            owned: true,
+            depth: 1,
+        },
+    ];
+    assert!(nodes[1].party == left || nodes[1].party == right);
+    assert!(nodes[2].party == left || nodes[2].party == right);
+    assert_ne!(nodes[1].party, nodes[2].party);
     assert!(e.is_disjoint(1, 2));
 }
 
@@ -50,7 +71,13 @@ fn join_reunites_disjoint_halves() {
     let mut e = Engine::new();
     e.load(vec![Op::Fork { x: 0 }, Op::Join { a: 1, b: 2 }])
         .unwrap();
-    assert_eq!(e.descriptors()[3].stamp, "(1, 0)");
+    assert_eq!(
+        e.descriptors()[3].party,
+        vec![PartyRegion {
+            owned: true,
+            depth: 0,
+        }]
+    );
 }
 
 /// Joining clocks whose ids overlap is rejected, leaving prior state intact.
@@ -76,7 +103,7 @@ fn send_transfers_history_without_ticking() {
     let nodes = e.descriptors();
     assert_eq!(nodes.len(), 5);
     assert_eq!(nodes[4].party, nodes[2].party);
-    assert_eq!(nodes[4].event, nodes[3].event);
+    assert_eq!(nodes[4].version, nodes[3].version);
 }
 
 /// The op-log round-trips through its URL fragment.

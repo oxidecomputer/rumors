@@ -35,7 +35,7 @@ use super::super::{
     decode::{decode_reply_one_slot, fan_probe},
     decode_reply, early_supplies,
 };
-use super::{codec, reply_frames, unbounded};
+use super::{codec, reply_frames, unbounded, uniform_version};
 
 /// Leaf records per supply frame.
 const PER_FRAME: usize = 16;
@@ -45,7 +45,7 @@ const PER_FRAME: usize = 16;
 fn leaves(count: u64) -> Vec<(Version, Message)> {
     let mut leaves: Vec<(Version, Message)> = (0..count)
         .map(|index| {
-            let version = Version::try_from(index + 1).expect("small linear versions are valid");
+            let version = uniform_version(index + 1);
             (version, Message::new(index))
         })
         .collect();

@@ -1,7 +1,7 @@
 # Benchmark results: optimized impl vs. reference oracle
 
 Per-operation timing comparison of this crate's optimized implementation
-(`before` — packed bit-stream storage with a transient working form) against the
+(`before` — encoded bit-stream storage with a transient working form) against the
 naive recursive reference (`oracle`, `src/oracle.rs`), on identical randomized
 inputs. The inputs are built through the public API by the
 fork-a-universe / preserve-a-subset / join-each-group recipe in
@@ -27,7 +27,7 @@ largest `n`.
 Two panels read a different axis:
 
 - **codec** (`encode`/`decode`) — impl-only. The oracle omits the byte codec by
-  design, so these panels show the packed codec's two directions alone, with no
+  design, so these panels show the encoded codec's two directions alone, with no
   oracle curve.
 - **`version` k-ticks** — repeated mutation. Tree size is fixed at 64
   and the x-axis is `k`, the number of ticks applied: `before` per-tick
@@ -36,10 +36,10 @@ Two panels read a different axis:
 
 ## How to read the speedups
 
-The impl is **not** uniformly faster, and the plots show where the packed
+The impl is **not** uniformly faster, and the plots show where the encoded
 representation pays off and where its unpack/repack overhead costs:
 
-- **Big wins** come from operations where the packed form prunes whole subtrees
+- **Big wins** come from operations where the encoded form prunes whole subtrees
   cheaply or avoids redundant traversal: `clock/fork` (~15×), `party/fork`
   (~6×), and the `partial_cmp` *equal* case (`version` ~31×, `party` ~12×),
   where the single-pass compare beats a two-pass containment formulation that

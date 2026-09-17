@@ -209,7 +209,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
     from_oracle_party(&t)
 }
 
-/// Build a depth-`depth` left-spine [`Party`] directly as canonical packed
+/// Build a depth-`depth` left-spine [`Party`] directly as canonical encoded
 /// bits, with a single owned region at the deep-left tip.
 ///
 /// Used by the stack-safety test, which needs structures far deeper than the
@@ -219,7 +219,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// children take no bits), and the deep-left tip is a terminal (`00`). The
 /// result `(((…(1, 0)…), 0), 0)` is normal form (no node has two terminal
 /// children). Built with a flat loop: no recursion at any depth, in the builder
-/// or in `Drop` (the packed forms are flat buffers).
+/// or in `Drop` (the encoded forms are flat buffers).
 pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
     let mut bits = codec::BitsBuf::with_capacity(2 * depth as u64 + 2);
     for _ in 0..depth {

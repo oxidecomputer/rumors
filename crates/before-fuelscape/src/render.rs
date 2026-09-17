@@ -102,7 +102,7 @@ pub struct AtlasData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SampleData {
-    /// The column's total input size in packed bytes.
+    /// The column's total input size in encoded bytes.
     pub size: usize,
     /// The sample's drawn arity.
     pub arity: usize,
@@ -119,7 +119,7 @@ pub struct SampleData {
 pub struct OverlayData {
     /// The family generator's name.
     pub family: String,
-    /// Total packed input bytes.
+    /// Total encoded input bytes.
     pub size: usize,
     /// Fuel consumed by the one measured kernel call.
     pub fuel: u64,
@@ -134,7 +134,7 @@ impl AtlasData {
         // row's single party included: its shares are guest-minted, not
         // input bytes); everything else plots a total (the stamp carries
         // the row's exact measure declaration).
-        let unary = matches!(atlas.op.inputs, crate::ops::Inputs::Packed(operands) if operands.len() == 1)
+        let unary = matches!(atlas.op.inputs, crate::ops::Inputs::Operands(operands) if operands.len() == 1)
             || matches!(atlas.op.inputs, crate::ops::Inputs::PartyShares);
         AtlasData {
             op_name: atlas.op.name.to_string(),
@@ -193,7 +193,7 @@ pub struct HeatGrid {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeatColumn {
-    /// The column's total input size in packed bytes.
+    /// The column's total input size in encoded bytes.
     pub size: usize,
     /// The column's median fuel, in raw fuel units (the reference-slope
     /// anchor).

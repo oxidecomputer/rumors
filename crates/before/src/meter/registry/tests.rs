@@ -96,8 +96,7 @@ fn roster_order_is_committed() {
     }
 }
 
-/// Family names are unique: the name is the board column header and the bench
-/// cell key, so a collision would silently merge two columns.
+/// Family names are unique so reports cannot merge two families.
 #[test]
 fn family_names_are_unique() {
     let names: BTreeSet<&str> = FamilyId::ALL.iter().map(|f| f.name()).collect();
@@ -112,7 +111,7 @@ fn family_names_are_unique() {
 ///
 /// The named parity survivor for shape citation: membership of a [`Shape`] in a
 /// family's `shapes` row is data, not types, so this pin is what keeps a
-/// constructor from riding the registry door with no family answering for it.
+/// constructor from riding the registry entry point with no family answering for it.
 #[test]
 fn every_shape_is_cited_by_a_family() {
     let cited: BTreeSet<Shape> = FamilyId::ALL

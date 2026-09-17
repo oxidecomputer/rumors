@@ -16,7 +16,7 @@ use rayon::prelude::*;
 
 use crate::codec::BitsBuf;
 use crate::meter::registry::Shape;
-use crate::meter::Packed;
+use crate::meter::Encoding;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
@@ -25,8 +25,8 @@ use crate::{oracle, Clock, Version};
 
 use super::{causal_cmp, concurrent, eq, le};
 
-/// Decode a meter-generated packed shape as a [`Version`].
-fn version_of(p: &Packed) -> Version {
+/// Decode a meter-generated encoded shape as a [`Version`].
+fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
@@ -46,38 +46,38 @@ fn assert_verdicts(a: &Version, b: &Version) {
     assert_eq!(
         causal_cmp(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         want,
-        "causal_cmp disagrees with the recursive oracle: {a} vs {b}"
+        "causal_cmp disagrees with the recursive oracle: {a:?} vs {b:?}"
     );
     assert_eq!(
         causal_cmp(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         want.map(Ordering::reverse),
-        "causal_cmp breaks antisymmetry against the recursive oracle: {b} vs {a}"
+        "causal_cmp breaks antisymmetry against the recursive oracle: {b:?} vs {a:?}"
     );
     let equal = want == Some(Ordering::Equal);
     assert_eq!(
         eq(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         equal,
-        "eq disagrees: {a} vs {b}"
+        "eq disagrees: {a:?} vs {b:?}"
     );
     assert_eq!(
         eq(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         equal,
-        "eq disagrees: {b} vs {a}"
+        "eq disagrees: {b:?} vs {a:?}"
     );
     assert_eq!(
         concurrent(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         want.is_none(),
-        "concurrent disagrees: {a} vs {b}"
+        "concurrent disagrees: {a:?} vs {b:?}"
     );
     assert_eq!(
         le(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         matches!(want, Some(Ordering::Less | Ordering::Equal)),
-        "le disagrees: {a} vs {b}"
+        "le disagrees: {a:?} vs {b:?}"
     );
     assert_eq!(
         le(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         matches!(want, Some(Ordering::Greater | Ordering::Equal)),
-        "le disagrees: {b} vs {a}"
+        "le disagrees: {b:?} vs {a:?}"
     );
 }
 
@@ -138,9 +138,9 @@ fn flush_right_ties_agree() {
 #[test]
 fn deep_versus_empty_agrees() {
     for deep in [
-        version_of(&Shape::Dense.packed1(1_000)),
-        version_of(&Shape::CliffComb.packed2(64, 64)),
-        version_of(&Shape::Bigroot.packed2(64, 32)),
+        version_of(&Shape::Dense.build1(1_000)),
+        version_of(&Shape::CliffComb.build2(64, 64)),
+        version_of(&Shape::Bigroot.build2(64, 32)),
     ] {
         assert_verdicts(&deep, &Version::new());
     }
@@ -156,21 +156,21 @@ fn deep_versus_empty_agrees() {
 fn family_pairs_agree() {
     let pool: Vec<Version> = vec![
         Version::new(),
-        version_of(&Shape::Dense.packed1(1)),
-        version_of(&Shape::Dense.packed1(2)),
-        version_of(&Shape::Dense.packed1(64)),
-        version_of(&Shape::Bigroot.packed2(7, 3)),
-        version_of(&Shape::Bigroot.packed2(64, 16)),
-        version_of(&Shape::Hugeleaf.packed1(1)),
-        version_of(&Shape::Hugeleaf.packed1(64)),
-        version_of(&Shape::CliffComb.packed2(3, 2)),
-        version_of(&Shape::CliffComb.packed2(16, 16)),
-        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
-        version_of(&Shape::CliffFan.packed2(16, 8)),
-        version_of(&Shape::CancellingChain.packed2(16, 8)),
-        version_of(&Shape::AltSpine.packed1(3)),
-        version_of(&Shape::AltSpine.packed1(64)),
-        version_of(&Shape::Harmonic.packed1(16)),
+        version_of(&Shape::Dense.build1(1)),
+        version_of(&Shape::Dense.build1(2)),
+        version_of(&Shape::Dense.build1(64)),
+        version_of(&Shape::Bigroot.build2(7, 3)),
+        version_of(&Shape::Bigroot.build2(64, 16)),
+        version_of(&Shape::Hugeleaf.build1(1)),
+        version_of(&Shape::Hugeleaf.build1(64)),
+        version_of(&Shape::CliffComb.build2(3, 2)),
+        version_of(&Shape::CliffComb.build2(16, 16)),
+        version_of(&Shape::WideToothComb.build3(16, 8, 8)),
+        version_of(&Shape::CliffFan.build2(16, 8)),
+        version_of(&Shape::CancellingChain.build2(16, 8)),
+        version_of(&Shape::AltSpine.build1(3)),
+        version_of(&Shape::AltSpine.build1(64)),
+        version_of(&Shape::Harmonic.build1(16)),
     ];
     for a in &pool {
         for b in &pool {
@@ -205,22 +205,22 @@ fn exhaustive_small_scope_agrees() {
             assert_eq!(
                 causal_cmp(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 want,
-                "causal_cmp disagrees: {va} vs {vb}"
+                "causal_cmp disagrees: {va:?} vs {vb:?}"
             );
             assert_eq!(
                 eq(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 want == Some(Ordering::Equal),
-                "eq disagrees: {va} vs {vb}"
+                "eq disagrees: {va:?} vs {vb:?}"
             );
             assert_eq!(
                 concurrent(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 want.is_none(),
-                "concurrent disagrees: {va} vs {vb}"
+                "concurrent disagrees: {va:?} vs {vb:?}"
             );
             assert_eq!(
                 le(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 matches!(want, Some(Ordering::Less | Ordering::Equal)),
-                "le disagrees: {va} vs {vb}"
+                "le disagrees: {va:?} vs {vb:?}"
             );
         }
     });
@@ -260,21 +260,21 @@ proptest! {
         for (ta, va, ea) in &pool {
             for (tb, vb, eb) in &pool {
                 let want = ta.partial_cmp(tb);
-                prop_assert_eq!(causal_cmp(crate::codec::built_view(ea), crate::codec::built_view(eb)), want, "causal_cmp disagrees: {} vs {}", va, vb);
+                prop_assert_eq!(causal_cmp(crate::codec::built_view(ea), crate::codec::built_view(eb)), want, "causal_cmp disagrees: {:?} vs {:?}", va, vb);
                 prop_assert_eq!(
                     eq(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     want == Some(Ordering::Equal),
-                    "eq disagrees: {} vs {}", va, vb
+                    "eq disagrees: {:?} vs {:?}", va, vb
                 );
                 prop_assert_eq!(
                     concurrent(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     want.is_none(),
-                    "concurrent disagrees: {} vs {}", va, vb
+                    "concurrent disagrees: {:?} vs {:?}", va, vb
                 );
                 prop_assert_eq!(
                     le(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     matches!(want, Some(Ordering::Less | Ordering::Equal)),
-                    "le disagrees: {} vs {}", va, vb
+                    "le disagrees: {:?} vs {:?}", va, vb
                 );
             }
         }

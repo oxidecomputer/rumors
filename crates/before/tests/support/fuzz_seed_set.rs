@@ -14,7 +14,24 @@
 //! integration test (the checker), so the two cannot drift from each
 //! other; both build against the public API only.
 
-use before::{Clock, Party, Ranked, Span, Version};
+use before::{Clock, Party, Ranked, Span, Ticks, Version};
+
+/// Returns `2^exponent` as an unbounded tick count.
+fn power_of_two(exponent: u32) -> Ticks {
+    let mut count = Ticks::from(1u8);
+    for _ in 0..exponent {
+        count = &count + &count;
+    }
+    count
+}
+
+/// A uniform version at `count`.
+fn uniform(count: impl Into<Ticks>) -> Version {
+    let party = Party::seed();
+    let mut version = Version::new();
+    party.ticks(&mut version, count);
+    version
+}
 
 /// One committed seed file: its fuzz target, file name, and exact bytes.
 pub struct Seed {
@@ -103,7 +120,7 @@ pub fn seed_set() -> Vec<Seed> {
         bytes: x.version().encode(),
     });
     // The decode target's non-canonical frontier: one committed witness
-    // per skyline-validator arm, driven through the version door (the
+    // per skyline-validator arm, driven through the version entry point (the
     // span differential's fused admission walk subsumes both genres
     // under its dominance refutation, so only a version-kind seed
     // reaches these arms). Neither stream is derivable from the API —
@@ -227,37 +244,16 @@ pub fn seed_set() -> Vec<Seed> {
         bytes: [newer.rank().encode(), older.encode()].concat(),
     });
     // A canonical encoding cut exactly at a flush byte boundary: the live
-    // bits of `Version::try_from(7)` (leaf flag `1`, gamma(7) `0001000`)
+    // bits of the uniform version at 7 (leaf flag `1`, gamma(7) `0001000`)
     // fill its first byte, so its whole `1000_0000` padding byte is the
     // second — and the first byte alone is a complete tree whose required
     // padding is missing entirely. It seeds the truncation-genre agreement
-    // between the reader and slice doors (`UnexpectedEof` is exactly raw
+    // between the reader and slice entry points (`UnexpectedEof` is exactly raw
     // `Truncated`).
     seeds.push(Seed {
         target: "fuzz_decode_differential",
         name: "version_flush_cut",
-        bytes: Version::try_from(7)
-            .expect("a small leaf constructs")
-            .encode()[..1]
-            .to_vec(),
-    });
-
-    // Text-parse seeds: the display notation of known values, including
-    // the nested tuple form and wide decimal magnitudes.
-    seeds.push(Seed {
-        target: "fuzz_parse",
-        name: "clock_display",
-        bytes: x.to_string().into_bytes(),
-    });
-    seeds.push(Seed {
-        target: "fuzz_parse",
-        name: "version_nested_text",
-        bytes: newer.to_string().into_bytes(),
-    });
-    seeds.push(Seed {
-        target: "fuzz_parse",
-        name: "party_nested_text",
-        bytes: quarter.party().to_string().into_bytes(),
+        bytes: uniform(7u8).encode()[..1].to_vec(),
     });
 
     // Decode-then-ops scripts, in fuzz_decode_ops framing: flavour byte,
@@ -356,12 +352,15 @@ pub fn seed_set() -> Vec<Seed> {
     // These seeds fix that thin tail. The parties nest a level deeper than
     // the family seed's, and the clock pairs a wide history with a quarter
     // share.
-    let wide_leaf: Version = "340282366920938463463374607431768211456" // 2^128
-        .parse()
-        .expect("a bare wide integer parses as a version leaf");
-    let wide_nested: Version = "(18446744073709551616, 1, (0, 2, 0))" // 2^64 base at the root
-        .parse()
-        .expect("a nested wide event tree parses");
+    let wide_leaf = uniform(power_of_two(128));
+    let mut wide_owner = Party::seed();
+    let mut wide_right = wide_owner.fork();
+    let wide_tail = wide_right.fork();
+    let mut wide_nested = Version::new();
+    let wide_base = power_of_two(64);
+    wide_owner.ticks(&mut wide_nested, &wide_base + Ticks::from(1u8));
+    wide_right.ticks(&mut wide_nested, &wide_base + Ticks::from(2u8));
+    wide_tail.ticks(&mut wide_nested, wide_base);
     let mut quarter_owner = Clock::seed();
     let mut half = quarter_owner.fork();
     let quarter = half.fork();
@@ -387,12 +386,10 @@ pub fn seed_set() -> Vec<Seed> {
     // `quarter_owner` exists to nest the parties; only its party is read.
     let _ = quarter_owner.version();
 
-    // The wide tier for the rank-bearing and text decoders: rank streams
+    // The wide tier for the rank-bearing decoders: rank streams
     // with mantissas past the machine word, a span whose endpoints carry
-    // wide bases, and the wide decimal display (which parses as both a
-    // version leaf and a tick count) — shapes random bytes essentially
-    // never reach (the same ~2^-64 unary-prefix argument as the laws
-    // seeds above).
+    // wide bases — shapes random bytes essentially never reach (the same
+    // ~2^-64 unary-prefix argument as the laws seeds above).
     seeds.push(Seed {
         target: "fuzz_decode",
         name: "rank_wide",
@@ -410,11 +407,5 @@ pub fn seed_set() -> Vec<Seed> {
             .expect("the nested wide tree sits below the 2^128 leaf")
             .encode(),
     });
-    seeds.push(Seed {
-        target: "fuzz_parse",
-        name: "version_wide",
-        bytes: wide_leaf.to_string().into_bytes(),
-    });
-
     seeds
 }

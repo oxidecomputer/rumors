@@ -12,13 +12,23 @@ export function asNodeIdx(n: number): NodeIdx {
   return n as NodeIdx;
 }
 
-/// A materialized node, as returned by the engine. Every node is a clock: an id share
-/// plus its history, with the combined stamp.
+/// One constant-ownership region in the unit interval.
+export type PartyRegion = {
+  readonly owned: boolean;
+  readonly depth: number;
+};
+
+/// One constant-height plateau in the unit interval.
+export type VersionPlateau = {
+  readonly rise: number;
+  readonly depth: number;
+};
+
+/// A materialized clock node returned by the engine.
 export type NodeDescriptor = {
   readonly idx: NodeIdx;
-  readonly party: string;
-  readonly event: string;
-  readonly stamp: string;
+  readonly party: readonly PartyRegion[];
+  readonly version: readonly VersionPlateau[];
 };
 
 /// The three kinds of causal edge. A `message` edge runs from a sender to the receiver's
@@ -37,15 +47,4 @@ export type State = {
   readonly nodes: readonly NodeDescriptor[];
   readonly edges: readonly Edge[];
   readonly live: readonly NodeIdx[];
-};
-
-/// A parsed id tree: a leaf (owned `1` / unowned `0`) or an internal split.
-export type IdTree = { readonly leaf: 0 | 1 } | { readonly l: IdTree; readonly r: IdTree };
-
-/// A parsed event tree: a base height plus optional left/right subtrees over the
-/// halved interval.
-export type EventTree = {
-  readonly base: number;
-  readonly l?: EventTree;
-  readonly r?: EventTree;
 };

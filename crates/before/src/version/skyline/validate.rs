@@ -3,7 +3,7 @@
 //! One forward pass enforcing the module doc's canonical-form conditions. The
 //! transient state is exactly:
 //!
-//! - a packed bit stack holding two bits per open ancestor —
+//! - a bit stack holding two bits per open ancestor —
 //!   *left-complete* ("is my left child done") and *left-was-leaf* ("was
 //!   that child a leaf", the fact the sibling-collapse check needs) —
 //!   where machine-word parse frames would cost tens of bytes per level;
@@ -52,7 +52,7 @@ pub(crate) fn validate_bits(bits: BitsView<'_>) -> Result<(), Decode> {
 ///
 /// The wire decoder's entry: a version's skyline stream is bit-self-delimiting
 /// (one complete tree), so the returned end position is where any zero padding
-/// must begin. The end is `u64`, the view's own width: a byte door's
+/// must begin. The end is `u64`, the view's own width: a byte entry point's
 /// whole-buffer view holds more bit positions than a 32-bit `usize`.
 pub(crate) fn validate_prefix(bits: BitsView<'_>) -> Result<u64, Decode> {
     let mut cursor = DsiCursor::new(bits);
@@ -71,7 +71,7 @@ where
     Decode: From<C::Error>,
 {
     // Two bits per open ancestor, pushed [left-complete, left-was-leaf] and
-    // popped in reverse order below. A packed bit stack, so depth costs bits,
+    // popped in reverse order below. A bit stack, so depth costs bits,
     // not frames.
     let mut open: BitsBuf = BitsBuf::new();
     // The running leaf height. Only its sign is ever read, and only after a

@@ -43,9 +43,15 @@
 //!
 //! ```
 //! use before::shape::Rise;
-//! use before::Version;
+//! use before::Clock;
 //!
-//! let version: Version = "(1, 1, (0, 0, 2))".parse().unwrap();
+//! let mut left = Clock::seed();
+//! let mut right = left.fork();
+//! left.tick();
+//! left.tick();
+//! right.tick();
+//! left.sync(&mut right).unwrap();
+//! let version = left.version();
 //! // Reconstruct absolute heights from the rises (u64 is enough here;
 //! // `Ticks` itself has no ceiling, and converts out fallibly).
 //! let mut height = 0u64;
@@ -58,8 +64,8 @@
 //!     }
 //!     heights.push((height, plateau.depth));
 //! }
-//! // Left half at height 2, then quarters at heights 1 and 3.
-//! assert_eq!(heights, vec![(2, 1), (1, 2), (3, 2)]);
+//! // Left half at height 2, then right half at height 1.
+//! assert_eq!(heights, vec![(2, 1), (1, 1)]);
 //! ```
 //!
 //! # The shape is an exact rendering of the value
@@ -322,14 +328,21 @@ impl FusedIterator for Overlay<'_> {}
 /// # Example
 ///
 /// ```
-/// use before::{shape::combine, Version};
+/// use before::{shape::combine, Clock, Party, Version};
 ///
-/// let a: Version = "(0, 1, (0, 0, 2))".parse().unwrap();
-/// let b: Version = "2".parse().unwrap();
+/// let mut left = Clock::seed();
+/// let mut right = left.fork();
+/// left.tick();
+/// right.tick();
+/// right.tick();
+/// left.sync(&mut right).unwrap();
+/// let a = left.version().clone();
+/// let mut b = Version::new();
+/// Party::seed().ticks(&mut b, 2u8);
 /// let cells: Vec<_> = combine([&a, &b]).collect();
-/// // Three cells: `a` subdivides the right half, `b`'s single plateau
+/// // Two cells: `a` has one plateau per half, while `b`'s single plateau
 /// // spans everything (its rise enters at the first cell only).
-/// assert_eq!(cells.len(), 3);
+/// assert_eq!(cells.len(), 2);
 /// assert_eq!(cells[0].depth, 1);
 /// assert!(cells[0].rises[1].is_some()); // b's absolute height, once
 /// assert!(cells[1].rises[1].is_none()); // b continues level

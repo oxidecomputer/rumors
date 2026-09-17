@@ -3,7 +3,9 @@
 use insta::assert_snapshot;
 
 use crate::codec::{encode_int, Base, BitsBuf, BitsView};
-use crate::error::{Crossed, Decode, Overlap, Parse};
+use crate::error::{Crossed, Decode, Overlap};
+use crate::oracle;
+use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`, the same
@@ -81,23 +83,21 @@ fn gamma_bit_layout_table() {
     );
 }
 
-/// One canonical-form block: the value's `Display`, its unpadded preorder bit stream
-/// (what byte-equality `Eq`/`Hash` compares), and the zero-padded `encode()` bytes.
+/// Render a party's debug form and binary encoding.
 fn party_block(p: &Party) -> String {
     format!(
-        "display: {}\nbits:    {} ({} bits)\nbytes:   {}",
-        p,
+        "debug:   {p:?}\nbits:    {} ({} bits)\nbytes:   {}",
         bits_to_string(p.as_bits()),
         p.as_bits().len(),
         bytes_to_hex(&p.encode()),
     )
 }
 
+/// Render a version's debug form and binary encoding.
 fn version_block(v: &Version) -> String {
     let bits = v.as_bits();
     format!(
-        "display: {}\nbits:    {} ({} bits)\nbytes:   {}",
-        v,
+        "debug:   {v:?}\nbits:    {} ({} bits)\nbytes:   {}",
         bits_to_string(bits),
         bits.len(),
         bytes_to_hex(&v.encode()),
@@ -113,21 +113,25 @@ fn version_block(v: &Version) -> String {
 fn party_canonical_forms() {
     let seed = Party::seed();
     assert_snapshot!(party_block(&seed), @"
-    display: 1
+    debug:   Party(0b00)
     bits:    00 (2 bits)
     bytes:   20
     ");
 
-    let half: Party = "(1, 0)".parse().unwrap();
+    let mut half = Party::seed();
+    drop(half.fork());
     assert_snapshot!(party_block(&half), @"
-    display: (1, 0)
+    debug:   Party(0b1000)
     bits:    1000 (4 bits)
     bytes:   88
     ");
 
-    let deep: Party = "(1, (0, 1))".parse().unwrap();
+    let deep = from_oracle_party(&oracle::Party::node(
+        oracle::Party::Leaf(true),
+        oracle::Party::node(oracle::Party::Leaf(false), oracle::Party::Leaf(true)),
+    ));
     assert_snapshot!(party_block(&deep), @"
-    display: (1, (0, 1))
+    debug:   Party(0b11000100)
     bits:    11000100 (8 bits)
     bytes:   c4 80
     ");
@@ -142,29 +146,32 @@ fn party_canonical_forms() {
 fn version_canonical_forms() {
     let zero = Version::new();
     assert_snapshot!(version_block(&zero), @"
-    display: 0
+    debug:   Version(0b11)
     bits:    11 (2 bits)
     bytes:   e0
     ");
 
-    let leaf = Version::try_from(5u64).unwrap();
+    let mut leaf = Version::new();
+    Party::seed().ticks(&mut leaf, 5u8);
     assert_snapshot!(version_block(&leaf), @"
-    display: 5
+    debug:   Version(0b100110)
     bits:    100110 (6 bits)
     bytes:   9a
     ");
 
-    let node: Version = "(1, 0, (0, 1, 0))".parse().unwrap();
+    let node = from_oracle_version(&oracle::Version::node(
+        1u8,
+        oracle::Version::leaf(0u8),
+        oracle::Version::node(0u8, oracle::Version::leaf(1u8), oracle::Version::leaf(0u8)),
+    ));
     assert_snapshot!(version_block(&node), @"
-    display: (1, 0, (0, 1, 0))
+    debug:   Version(0b01010010111010)
     bits:    01010010111010 (14 bits)
     bytes:   52 ea
     ");
 }
 
-/// Canonical encoded form of a representative `Clock` (`Party` then `Version`, preorder),
-/// plus its `Display`/`Debug`. A `Clock` is just its two halves concatenated, so this
-/// pins the boundary between them in the byte stream.
+/// A clock's binary encoding preserves the boundary between party and version.
 #[test]
 fn clock_canonical_form() {
     let mut c = Clock::seed();
@@ -175,14 +182,13 @@ fn clock_canonical_form() {
     let mut bits = c.party().as_bits().to_buf();
     bits.extend_from_buf(&c.version().as_bits().to_buf());
     let fields = format!(
-        "display: {c}\ndebug:   {c:?}\nbits:    {} ({} bits)\nbytes:   {}",
+        "debug:   {c:?}\nbits:    {} ({} bits)\nbytes:   {}",
         bits_to_string(crate::codec::built_view(&bits)),
         bits.len(),
         bytes_to_hex(&c.encode()),
     );
     assert_snapshot!(fields, @"
-    display: (1, 1)
-    debug:   Clock { party: 1, version: 1 }
+    debug:   Clock { party: Party(0b00), version: Version(0b1010) }
     bits:    001010 (6 bits)
     bytes:   20 a8
     ");
@@ -204,18 +210,24 @@ fn rank_row(label: &str, r: &Rank) -> String {
 /// integral, fractional, normalized-after-subtraction, and a numerator
 /// spilled past `u64`.
 ///
-/// `Rank` has no packed, serde, or borsh surface — its externally
-/// observable representation is exactly this text (and the `Ord`
-/// contract) — so this block is the type's representation pin, and every
-/// row also witnesses `Debug ≡ Display`. The spilled row's digits are the
+/// This block pins the type's decimal rendering, and every row also
+/// witnesses `Debug ≡ Display`. The spilled row's digits are the
 /// literal decimal of `2^100 + 1`: the rendering of a numerator wider
 /// than `u64` must not differ from the machine-word rendering in anything
 /// but length.
 #[test]
 fn rank_rendered_forms() {
-    let integral = Version::try_from(5u64).unwrap().rank();
-    let half: Version = "(0, 1, 0)".parse().unwrap();
-    let three_halves: Version = "(0, 3, 0)".parse().unwrap();
+    let integral = from_oracle_version(&oracle::Version::leaf(5u8)).rank();
+    let half = from_oracle_version(&oracle::Version::node(
+        0u8,
+        oracle::Version::leaf(1u8),
+        oracle::Version::leaf(0u8),
+    ));
+    let three_halves = from_oracle_version(&oracle::Version::node(
+        0u8,
+        oracle::Version::leaf(3u8),
+        oracle::Version::leaf(0u8),
+    ));
     // 3/2 − 1/2 = 2/2: the raw difference is even over 2^1, so the
     // subtraction's output normalizes back to the integral 1.
     let normalized = three_halves
@@ -223,7 +235,12 @@ fn rank_rendered_forms() {
         .checked_sub(&half.rank())
         .expect("3/2 dominates 1/2");
     // 2^100 + 1: odd, so the numerator stays spilled after normalization.
-    let spilled: Version = "(0, 1267650600228229401496703205377, 0)".parse().unwrap();
+    let wide = (Base::from(1u8) << 100u32) + Base::from(1u8);
+    let spilled = from_oracle_version(&oracle::Version::node(
+        0u8,
+        oracle::Version::leaf(wide),
+        oracle::Version::leaf(0u8),
+    ));
 
     let block = [
         rank_row("zero", &Rank::ZERO),
@@ -257,9 +274,6 @@ fn error_display_strings() {
         format!("Decode::Truncated     {}", Decode::Truncated),
         format!("Decode::TrailingBits  {}", Decode::TrailingBits),
         format!("Decode::NotCanonical  {}", Decode::NotCanonical),
-        format!("Parse::Syntax         {}", Parse::Syntax),
-        format!("Parse::NotCanonical   {}", Parse::NotCanonical),
-        format!("Parse::Anonymous      {}", Parse::Anonymous),
     ]
     .join("\n");
     assert_snapshot!(block, @"
@@ -268,9 +282,6 @@ fn error_display_strings() {
     Decode::Truncated     unexpected end of input
     Decode::TrailingBits  malformed or spurious trailing padding
     Decode::NotCanonical  input is not canonical
-    Parse::Syntax         input is not well-formed paper notation
-    Parse::NotCanonical   input is not canonical
-    Parse::Anonymous      party is anonymous
     ");
 
     let io = Decode::Io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
@@ -278,65 +289,4 @@ fn error_display_strings() {
         io.to_string().starts_with("read error: "),
         "Decode::Io renders with the crate-owned prefix: {io}"
     );
-}
-
-/// The paper's §5.1 worked example, rendered step by step as `Clock` `Display`.
-///
-/// The same
-/// run the clock-level `worked_example` correctness test drives, but here the *concrete
-/// clock states* (id region + event tree) are pinned as a readable trace, so the example in the
-/// paper has a literal counterpart in the test suite. (`Party`/`Clock` are not `Clone`,
-/// so each line snapshots a value before it is consumed/mutated by the next step.)
-#[test]
-fn worked_example_5_1_states() {
-    let mut log: Vec<String> = Vec::new();
-    let mut note = |label: &str, c: &Clock| log.push(format!("{label:<24} {c}"));
-
-    // seed, then fork into two participants.
-    let mut p1 = Clock::seed();
-    note("seed", &p1);
-    let mut p2 = p1.fork();
-    note("p1 after fork", &p1);
-    note("p2 after fork", &p2);
-
-    // p1 ticks, then forks again.
-    p1.tick();
-    note("p1 tick", &p1);
-    let p1a = p1.fork();
-    let mut p1b = p1;
-    note("p1a (fork of p1)", &p1a);
-    note("p1b (fork of p1)", &p1b);
-
-    // p2 ticks twice.
-    p2.tick();
-    p2.tick();
-    note("p2 tick x2", &p2);
-
-    // p1b and p2 sync; their event trees reconcile to a common history.
-    p1b.sync(&mut p2).expect("disjoint");
-    note("p1b after sync", &p1b);
-    note("p2 after sync", &p2);
-
-    // Rejoin all three (recovering the whole-space id) and tick: the event tree collapses
-    // to a single integer.
-    let mut whole = p1a;
-    whole.join(p1b).expect("disjoint");
-    whole.join(p2).expect("disjoint");
-    note("rejoined whole", &whole);
-    whole.tick();
-    note("whole after tick", &whole);
-
-    assert_snapshot!(log.join("\n"), @"
-    seed                     (1, 0)
-    p1 after fork            ((1, 0), 0)
-    p2 after fork            ((0, 1), 0)
-    p1 tick                  ((1, 0), (0, 1, 0))
-    p1a (fork of p1)         (((0, 1), 0), (0, 1, 0))
-    p1b (fork of p1)         (((1, 0), 0), (0, 1, 0))
-    p2 tick x2               ((0, 1), (0, 0, 2))
-    p1b after sync           (((1, 0), 0), (1, 0, 1))
-    p2 after sync            ((0, 1), (1, 0, 1))
-    rejoined whole           (1, (1, 0, 1))
-    whole after tick         (1, 2)
-    ");
 }

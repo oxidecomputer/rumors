@@ -290,7 +290,7 @@ impl<'a> EvScan<'a> {
 /// Decode the 2-bit id tag at `pos`: `(left_present, right_present)`.
 ///
 /// Neither present is the full `1` terminal; a canonical id has no `(0, 0)`
-/// node. `O(1)` random access into the packed id.
+/// node. `O(1)` random access into the party.
 fn id_tag(bits: BitsView<'_>, pos: u64) -> (bool, bool) {
     codec::scan::record_bits(2);
     (bits.bit(pos), bits.bit(pos + 1))

@@ -10,7 +10,7 @@
 //! pairs are mostly comparable pays comparison sweeps, one whose pairs are
 //! mostly concurrent pays emissions, and no per-operation envelope can see the
 //! mix. These counters record it, so a consumer workload (a tree's bounds
-//! memos, a reconciliation run) can be measured at the door it actually
+//! memos, a reconciliation run) can be measured at the entry point it actually
 //! exercises.
 //!
 //! The recording compiles to nothing without the `meter` feature — the

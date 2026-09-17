@@ -1,9 +1,9 @@
-//! Exact counting tables over the packed codec grammars.
+//! Exact counting tables over the encoded codec grammars.
 //!
 //! Uniform sampling from an exact-size input space needs, at every choice
 //! point, the exact number of canonical completions each choice admits.
 //! This module builds those numbers: for each exact bit length, the count
-//! of packed subtrees the strict decoders accept, as arbitrary-precision
+//! of encoded subtrees the strict decoders accept, as arbitrary-precision
 //! integers (the counts grow like `2^(0.96 n)`, so machine words overflow
 //! within one cache line of stream).
 //!
@@ -182,7 +182,7 @@ impl VersionCounts {
         &self.subtree[bits]
     }
 
-    /// The number of whole packed versions of exactly `bits` bits: the
+    /// The number of whole encoded versions of exactly `bits` bits: the
     /// root is an unconstrained subtree position.
     pub fn whole(&self, bits: usize) -> &BigUint {
         self.subtree(bits)
@@ -264,7 +264,7 @@ impl PartyCounts {
         &self.subtree[bits]
     }
 
-    /// The number of whole packed parties of exactly `bits` bits. The
+    /// The number of whole encoded parties of exactly `bits` bits. The
     /// empty (anonymous) id is rejected by `Party::decode`, so the root
     /// is any nonzero subtree: the same count.
     pub fn whole(&self, bits: usize) -> &BigUint {
@@ -277,8 +277,8 @@ impl PartyCounts {
     }
 }
 
-/// The exact live bit lengths a packed encoding of exactly `bytes` bytes
-/// can carry.
+/// The live bit lengths a canonical encoding of exactly `bytes` bytes can
+/// carry.
 ///
 /// The padding marker claims one bit, and `decode` bounds the whole
 /// padding to one byte, so the window is `[8 (bytes - 1), 8 bytes - 1]`,

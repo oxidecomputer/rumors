@@ -16,7 +16,6 @@ import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior } fro
 import type { Edge } from "./types";
 import { renderStamp, stampHeight, type StampStyle } from "./glyph";
 import type { Point } from "./layout";
-import { parseEvent, parseId } from "./notation";
 import { asNodeIdx, type NodeDescriptor, type NodeIdx } from "./types";
 
 const DURATION = 280;
@@ -235,9 +234,8 @@ export class GraphView {
         entering.add(d.idx);
         this.dataset["idx"] = `${d.idx}`;
         const g = select(this);
-        g.append("title").text(d.desc.stamp);
         g.append("rect").attr("class", "node__hit").attr("x", 0).attr("y", 0).attr("width", self.style.width).attr("height", stampHeight(self.style));
-        this.appendChild(renderStamp(parseId(d.desc.party), parseEvent(d.desc.event), self.style));
+        this.appendChild(renderStamp(d.desc.party, d.desc.version, self.style));
         g.append("text").attr("class", "node__index").attr("x", 1).attr("y", -3).text(`${d.idx}`);
       })
       .call(this.makeDrag());
@@ -275,7 +273,7 @@ export class GraphView {
     if (this.ghost !== null) return;
     const el = document.createElement("div");
     el.className = "version-ghost";
-    el.appendChild(renderStamp(null, parseEvent(d.desc.event), this.style));
+    el.appendChild(renderStamp(null, d.desc.version, this.style));
     document.body.appendChild(el);
     this.ghost = el;
   }

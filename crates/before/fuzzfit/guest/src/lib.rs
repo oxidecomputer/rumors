@@ -2,13 +2,13 @@
 //! register machine.
 //!
 //! The host (the `fuzzfit-harness` crate) drives this module under wasmtime
-//! fuel metering: every export prefixed `ff_` is callable with u32/i64
-//! scalars, values live in a register file inside the guest, and bulk bytes
-//! (canonical encodings, display text) cross the boundary through a staging
-//! buffer in linear memory. Each *measured* export performs exactly one
-//! public `before` operation on registers, so the fuel consumed by one call
-//! is the instruction count of one public operation (plus a constant
-//! register-machine dispatch overhead the calibration's intercept absorbs).
+//! fuel metering: every export prefixed `ff_` is callable with u32/i64 scalars,
+//! values live in a register file inside the guest, and bulk bytes (canonical
+//! encodings) cross the boundary through a staging buffer in linear memory.
+//! Each *measured* export performs exactly one public `before` operation on
+//! registers, so the fuel consumed by one call is the instruction count of one
+//! public operation (plus a constant register-machine dispatch overhead the
+//! calibration's intercept absorbs).
 //!
 //! Contract with the harness (which is the only caller):
 //!
@@ -24,12 +24,12 @@
 //!   construct programs that are valid by construction.
 //! - Staging (`ff_stage_prepare` plus a host-side memory write,
 //!   `ff_stage_ptr` plus a host-side read) executes no measured code; the
-//!   measured kernels (`*_decode`, `*_encode`, `*_display`, `*_fromstr`)
+//!   measured kernels (`*_decode`, `*_encode`)
 //!   then read or write the staged bytes inside the fuel window.
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::fmt::Write as _;
+use std::fmt::Write;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use before::causally::{self, Coverage, Down, Neutral, Query, Up};
@@ -374,99 +374,6 @@ pub extern "C" fn ff_clock_encode(src: u32) -> i32 {
             OK
         }
         _ => ERR_REG,
-    })
-}
-
-// ─── text I/O (measured) ─────────────────────────────────────────────────────
-
-/// Render the `Version` in `src` to text in the staging buffer.
-#[no_mangle]
-pub extern "C" fn ff_version_display(src: u32) -> i32 {
-    code(with_v(src, |v| {
-        let mut s = String::new();
-        write!(s, "{v}").expect("Display into String cannot fail");
-        STAGE.with_borrow_mut(|stage| *stage = s.into_bytes());
-        OK
-    }))
-}
-
-/// Render the `Party` in `src` to text in the staging buffer.
-#[no_mangle]
-pub extern "C" fn ff_party_display(src: u32) -> i32 {
-    code(with_p(src, |p| {
-        let mut s = String::new();
-        write!(s, "{p}").expect("Display into String cannot fail");
-        STAGE.with_borrow_mut(|stage| *stage = s.into_bytes());
-        OK
-    }))
-}
-
-/// Parse the staged text as a `Version` into `dst`.
-#[no_mangle]
-pub extern "C" fn ff_version_fromstr(dst: u32) -> i32 {
-    STAGE.with_borrow(|stage| {
-        let Ok(text) = std::str::from_utf8(stage) else {
-            return ERR_CODEC;
-        };
-        match text.parse::<Version>() {
-            Ok(v) => {
-                put(dst, Val::V(v));
-                OK
-            }
-            Err(_) => ERR_CODEC,
-        }
-    })
-}
-
-/// Parse the staged text as a `Party` into `dst`.
-#[no_mangle]
-pub extern "C" fn ff_party_fromstr(dst: u32) -> i32 {
-    STAGE.with_borrow(|stage| {
-        let Ok(text) = std::str::from_utf8(stage) else {
-            return ERR_CODEC;
-        };
-        match text.parse::<Party>() {
-            Ok(p) => {
-                put(dst, Val::P(p));
-                OK
-            }
-            Err(_) => ERR_CODEC,
-        }
-    })
-}
-
-/// Render the `Clock` in `src` to text in the staging buffer.
-#[no_mangle]
-pub extern "C" fn ff_clock_display(src: u32) -> i32 {
-    REGS.with_borrow(|regs| match regs.get(src as usize) {
-        Some(Some(Val::C(c))) => {
-            let mut s = String::new();
-            write!(s, "{c}").expect("Display into String cannot fail");
-            STAGE.with_borrow_mut(|stage| *stage = s.into_bytes());
-            OK
-        }
-        _ => ERR_REG,
-    })
-}
-
-/// Parse the staged text as a `Clock` into `dst`.
-///
-/// The text door mints the clock's party from the literal; the atlas
-/// only replays text a staged clock rendered, so no minted party ever
-/// meets a live handle.
-#[no_mangle]
-pub extern "C" fn ff_clock_fromstr(dst: u32) -> i32 {
-    STAGE.with_borrow(|stage| {
-        let Ok(text) = std::str::from_utf8(stage) else {
-            return ERR_CODEC;
-        };
-        match text.parse::<Clock>() {
-            Ok(c) => {
-                put(dst, Val::C(c));
-                OK
-            }
-            Err(_) => ERR_CODEC,
-        }
     })
 }
 
@@ -1650,7 +1557,7 @@ pub extern "C" fn ff_span_meet(dst: u32, a: u32, b: u32) -> i32 {
 }
 
 /// Borrow the spans in `src..src + n` as (receiver, items) and run
-/// one n-ary span door over them.
+/// one n-ary span entry point over them.
 ///
 /// The span in `src` is the receiver, the rest ride as the iterator,
 /// feed order preserved; every operand is borrowed — the balanced
@@ -1658,7 +1565,7 @@ pub extern "C" fn ff_span_meet(dst: u32, a: u32, b: u32) -> i32 {
 fn span_fold<T>(
     src: u32,
     n: u32,
-    door: impl FnOnce(&Span<'static>, Vec<&Span<'static>>) -> T,
+    combine: impl FnOnce(&Span<'static>, Vec<&Span<'static>>) -> T,
 ) -> Option<T> {
     if n == 0 {
         return None;
@@ -1670,7 +1577,7 @@ fn span_fold<T>(
         };
         let receiver = span(src)?;
         let others: Vec<&Span<'static>> = (1..n).map(|i| span(src + i)).collect::<Option<_>>()?;
-        Some(door(receiver, others))
+        Some(combine(receiver, others))
     })
 }
 

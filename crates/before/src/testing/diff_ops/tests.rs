@@ -141,12 +141,12 @@ fn every_bespoke_genre_is_inhabited() {
 ///
 /// Every consumer derives from the roster by macro expansion, so a rostered
 /// group is executed by construction and needs no per-consumer pin. The one
-/// door that leaves open is a group static missing from the roster, which
-/// nothing would run; this pin closes it against a source scan of the
+/// entry point that leaves open is a group static missing from the roster,
+/// which nothing would run; this pin closes it against a source scan of the
 /// declarations in the module (its only `pub(crate) static`s are descriptor
-/// groups). The known-bad groups deliberately live in this test file, out
-/// of the scan's reach, since registering them would drive them as if they
-/// were real.
+/// groups). The known-bad groups deliberately live in this test file, out of
+/// the scan's reach, since registering them would drive them as if they were
+/// real.
 #[test]
 fn every_descriptor_group_is_registered() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/testing/diff_ops.rs");
@@ -202,7 +202,7 @@ fn every_descriptor_group_is_registered() {
 /// The upper end is set by the recursive oracle, which iterates its
 /// `ticks` literally — one whole-tree rewrite per tick — so a count the
 /// differential can afford is a count that loop can afford, not one the
-/// production door can. Wide counts ride the composition law and the
+/// production entry point can. Wide counts ride the composition law and the
 /// closed-form witnesses instead.
 const DRIVEN_TICK_COUNTS: std::ops::Range<u64> = 0..24;
 

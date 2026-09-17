@@ -1,8 +1,6 @@
-//! Pins for [`Ticks`]' construction, text, ordering, and addition.
+//! Properties of [`Ticks`] construction, ordering, limbs, and addition.
 
 use proptest::prelude::*;
-
-use crate::error::Parse;
 
 use super::Ticks;
 
@@ -27,42 +25,20 @@ fn zero_forms_agree() {
     assert_eq!(Ticks::ZERO.to_string(), "0");
 }
 
-/// `FromStr` accepts exactly nonempty ASCII digit runs: signs, whitespace,
-/// radix prefixes, embedded junk, and the empty string are all `Parse::Syntax`;
-/// leading zeros are value-preserving.
+/// Addition constructs counts wider than `u128`, which retain their order and
+/// decimal rendering.
 #[test]
-fn from_str_is_strict_about_shape() {
-    for bad in ["", "-1", "+1", " 1", "1 ", "0x10", "1_000", "12a", "①"] {
-        assert_eq!(bad.parse::<Ticks>(), Err(Parse::Syntax), "input {bad:?}");
-    }
-    assert_eq!("007".parse::<Ticks>().unwrap(), Ticks::from(7u64));
-}
-
-/// A count wider than `u128` parses, renders back to the same text, and
-/// orders above every machine-width count.
-#[test]
-fn wide_counts_round_trip_and_order() {
+fn wide_counts_order_and_render() {
     let text = "115792089237316195423570985008687907853269984665640564039457584007913129639936"; // 2^256
-    let wide: Ticks = text.parse().expect("a digit run parses");
+    let mut wide = Ticks::from(1u8);
+    for _ in 0..256 {
+        wide = &wide + &wide;
+    }
     assert_eq!(wide.to_string(), text);
     assert!(wide > Ticks::from(u128::MAX));
 }
 
 proptest! {
-    /// `FromStr ∘ Display == id`: the decimal text round-trips at any
-    /// width (two u128 words spliced to exceed one).
-    #[test]
-    fn text_round_trips(hi in any::<u128>(), lo in any::<u128>()) {
-        let n = Ticks::from(hi) + Ticks::from(u128::MAX) + Ticks::from(1u8);
-        let n = {
-            let mut wide = n;
-            wide += Ticks::from(lo);
-            wide
-        };
-        let parsed: Ticks = n.to_string().parse().expect("rendered counts parse");
-        prop_assert_eq!(parsed, n);
-    }
-
     /// Addition is commutative, associative, and monotone, `ZERO` is the
     /// identity, and `Sum` equals the pairwise fold — the naturals' laws on
     /// the opaque carrier.

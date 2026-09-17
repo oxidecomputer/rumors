@@ -1,7 +1,7 @@
 //! Empirical ITC space-consumption simulation, reproducing the experiment in
 //! §6 ("Exercising ITCs") and Figure 1 of the ITC 2008 paper.
 //!
-//! Unlike the paper, this measures *this crate's* packed encoding rather
+//! Unlike the paper, this measures *this crate's* binary encoding rather
 //! than the paper's Appendix A encoding.
 //!
 //! # What the paper measured
@@ -34,7 +34,7 @@
 //! # Encoding note
 //!
 //! The paper sizes stamps with the Appendix A bit encoding. This crate uses its
-//! own canonical packed encoding ([`Clock::encode`]). We deliberately measure
+//! own canonical binary encoding ([`Clock::encode`]). We deliberately measure
 //! *ours*: the byte counts here run below the paper's in the process/static
 //! regime and within the paper's charted band in the data/dynamic regime, and
 //! the curve shapes — rapid early growth followed by stabilization with only a
@@ -327,7 +327,7 @@ fn build_population(n: usize) -> Vec<Clock> {
 }
 
 /// Mean encoded size over all live stamps, as `(bits, bytes)` — this crate's
-/// packed encoding, not the paper's Appendix A encoding.
+/// binary encoding, not the paper's Appendix A encoding.
 ///
 /// Bits are the exact
 /// pre-pad length ([`Clock::encoded_bits`]); bytes are `encode().len()`, i.e.

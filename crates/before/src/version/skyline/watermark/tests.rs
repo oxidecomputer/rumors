@@ -1,5 +1,5 @@
-//! Direct pins on the web's latent-ladder gates that no packed-stream walk
-//! reaches, and on the seam contracts no packed stream drives.
+//! Direct pins on the web's latent-ladder gates that no encoded walk
+//! reaches, and on the seam contracts no encoded stream drives.
 //!
 //! Deliberate internal-entry tests, driving [`MinWeb`] at its own seam. The
 //! worked pins read a live latent only immediately behind a raise-decision
@@ -9,7 +9,7 @@
 //! restore and the undercut's latent annihilation in `drop_below` execute on
 //! no input either walk can be handed. The third latent-ladder arm, a
 //! dominating latent refusing a drop that never reaches the minimum, is
-//! reachable from a packed stream in principle but only grazed by generated
+//! reachable from an encoded stream in principle but only grazed by generated
 //! populations, and nondeterministically — a directed pin holds it here so the
 //! arm's coverage does not depend on the draw. The public-surface family
 //! (`fill/tests.rs`'s latent-ladder suite) pins every walk-reachable arm

@@ -6,8 +6,7 @@
 import { Engine } from "./engine";
 import { computeStampStyle, stampHeight } from "./glyph";
 import { layeredLayout, tableauLayout, type Point } from "./layout";
-import { parseEvent, parseId } from "./notation";
-import type { IdTree, NodeIdx, State } from "./types";
+import type { NodeIdx, State } from "./types";
 import { GraphView, type GestureHandlers } from "./view";
 
 const GAP_X = 48; // horizontal space between stamp columns (room for edges to bow)
@@ -81,12 +80,10 @@ async function main(): Promise<void> {
   function render(): void {
     const live = new Set<NodeIdx>(state.live);
 
-    const ids: IdTree[] = [];
-    const events = state.nodes.map((n) => {
-      ids.push(parseId(n.party));
-      return parseEvent(n.event);
-    });
-    const style = computeStampStyle(ids, events);
+    const style = computeStampStyle(
+      state.nodes.map((node) => node.party),
+      state.nodes.map((node) => node.version),
+    );
     const cellW = style.width + GAP_X;
     const cellH = stampHeight(style) + EXTRA_V;
 

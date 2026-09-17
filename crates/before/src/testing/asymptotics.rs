@@ -2,85 +2,33 @@
 //! the public rustdoc's `# Complexity` sections claim, held alive
 //! against the deterministic meters.
 //!
-//! A documented non-linear cost is a claim about a mechanism — the
-//! balanced fold's log factor, the render merge's superlinear growth,
-//! the settle's multiplication-bound worst case — and a cure or rewiring
-//! that removes the mechanism must reach the documentation. Each pin
-//! here reads a deterministic counter (or an exact value identity) on a
-//! committed input family and asserts the documented behavior still
-//! exists, so the change that removes it flips a pin red and the rustdoc
-//! moves in the same commit. Floors sit midway between the linear
-//! reference and the measured reading; both endpoints are exact
-//! counters, so a crossing is a class change, never noise.
+//! A documented non-linear cost is a claim about a mechanism — the balanced
+//! fold's log factor and the settle's multiplication-bound worst case—and a
+//! cure or rewiring that removes the mechanism must reach the documentation.
+//! Each pin here reads a deterministic counter (or an exact value identity) on
+//! a committed input family and asserts the documented behavior still exists,
+//! so the change that removes it flips a pin red and the rustdoc moves in the
+//! same commit. Floors sit midway between the linear reference and the measured
+//! reading; both endpoints are exact counters, so a crossing is a class change,
+//! never noise.
 //!
-//! Three pin families:
-//!
-//! - **Fold doors** (`scan-meter`): one pin per public door whose
-//!   rustdoc claims the balanced reduction's `O(D log k)`, each measured
-//!   at its own door — the doors share the balanced core, but a door's
-//!   wiring (short-circuit arms, per-component walks, the hull's
-//!   two-direction carry) can drop the factor without touching the core.
-//! - **The render merge** (`limb-meter`): `Display`'s superlinear
-//!   summary-merge growth on the wide left-full shape.
-//! - **The answer-embedded product** (`meter`): the value structure
-//!   behind the `Ω(M(·))` floor the rank, pair (distance/lag), and key
-//!   (`Ranked`) rustdoc states — through each family of doors
-//!   separately, since each enters the settle by its own path.
+//! The scan-meter pins cover balanced folds. Meter-only pins cover the
+//! value-dependent work in rank, distance, lag, and ranked keys.
 
 use crate::meter::registry::Shape;
 
-/// Big-integer limb work of one full render of the wide left-full shape
-/// (the board's mirror-wide event side) at spine scale `s`.
-#[cfg(feature = "limb-meter")]
-fn render_limb_ops(s: usize) -> u64 {
-    let version = Shape::WideTail.packed2(s, s).version();
-    crate::meter::reset_limb_ops();
-    std::hint::black_box(version.to_string());
-    crate::meter::limb_ops()
-}
-
-/// The render merge's superlinearity is alive.
-///
-/// `Display` limb work on the wide left-full shape grows super-linearly
-/// across a doubling, which is exactly what the rustdoc's "summary-merge
-/// cost that grows faster than the operand" sentence describes. When the
-/// render-merge cure lands this pin reads red, and the rustdoc and this
-/// floor must move in one change.
-///
-/// Deterministic counter, dev profile; linear rendering reads ~x2.0
-/// across the doubling, and the merge's measured growth sits well above
-/// it. The floor sits midway in that gap, so only a class change (never
-/// noise — the counter is exact) crosses it; the failure message prints
-/// both endpoints, and the readings of record live in the pin commit.
-#[cfg(feature = "limb-meter")]
-#[test]
-fn render_merge_superlinearity_is_alive() {
-    /// Halfway between the ~x2.0 linear reference and the measured
-    /// growth (the reading of record lives in the pin commit).
-    const MIN_GROWTH: f64 = 2.45;
-    let (lo, hi) = (render_limb_ops(500), render_limb_ops(1000));
-    let growth = hi as f64 / lo.max(1) as f64;
-    assert!(
-        growth >= MIN_GROWTH,
-        "the render merge's limb work grew only x{growth:.2} across a doubling \
-         ({lo} -> {hi} ops; superlinear read >= x{MIN_GROWTH}, linear ~x2.0): \
-         the documented superlinearity is gone, so update the Display \
-         `# Complexity` sections and this pin together"
-    );
-}
-
-// ─── the fold doors' log-factor liveness ───────────────────────────────
+// ─── the fold entry points' log-factor liveness ───────────────────────────────
 //
-// One witness per public fold door, each over a committed registry
-// population whose balanced merges swell to near the sum of their
-// inputs (coalescing intermediates are the enemy of visibility), so
-// the reduction's log factor separates measurably from a linear fold.
-// Every floor is measured at its own door — the doors share the
-// balanced core, but a door's wiring (short-circuit arms,
-// per-component walks, the hull's two-direction carry) can drop the
-// factor without touching the core, so each pin binds its door.
+// One witness per public fold entry point, each over a committed registry
+// population whose balanced merges swell to near the sum of their inputs
+// (coalescing intermediates are the enemy of visibility), so the reduction's
+// log factor separates measurably from a linear fold. Every floor is measured
+// at its own entry point — the entry points share the balanced core, but a
+// entry point's wiring (short-circuit arms, per-component walks, the hull's
+// two-direction carry) can drop the factor without touching the core, so each
+// pin binds its entry point.
 
-/// Operand block count of the fold-door populations.
+/// Operand block count of the fold-entry point populations.
 ///
 /// The board's stagger family at its band scale, held fixed while the
 /// arity quadruples so the population's bytes grow (near-)linearly and
@@ -110,7 +58,7 @@ fn stagger_parties(n: usize) -> Vec<crate::Party> {
         .collect()
 }
 
-/// One door run's packed-stream scan bits, with the population's total
+/// One entry point run's encoded scan bits, with the population's total
 /// encoded bytes printed beside it so a re-pin can restate each floor's
 /// linear reference without editing the harness.
 #[cfg(feature = "scan-meter")]
@@ -152,7 +100,8 @@ fn join_all_scan_bits(n: usize) -> u64 {
 /// hold.)
 #[cfg(feature = "scan-meter")]
 fn stagger_notch_versions(n: usize) -> Vec<crate::Version> {
-    let full = crate::Version::try_from(1u64).expect("the unit plateau is a valid version");
+    let mut full = crate::Version::new();
+    crate::Party::seed().tick(&mut full);
     stagger_parties(n)
         .iter()
         .map(|p| {
@@ -224,35 +173,34 @@ fn clock_join_all_scan_bits(n: usize) -> u64 {
     })
 }
 
-/// Assert one fold door's scan growth across a x4 population reaches
-/// its measured floor, naming the door on failure.
+/// Assert one fold entry point's scan growth across a x4 population reaches
+/// its measured floor, naming the entry point on failure.
 #[cfg(feature = "scan-meter")]
-fn assert_log_factor_alive(door: &str, lo: u64, hi: u64, min_growth: f64) {
+fn assert_log_factor_alive(operation: &str, lo: u64, hi: u64, min_growth: f64) {
     let growth = hi as f64 / lo.max(1) as f64;
     assert!(
         growth >= min_growth,
-        "{door}'s scan work grew only x{growth:.2} across a x4 population \
+        "{operation}'s scan work grew only x{growth:.2} across a x4 population \
          growth ({lo} -> {hi} bits; the log factor reads >= x{min_growth}): \
-         the documented `O(D log k)` overstates for this door, so update \
+         the documented `O(D log k)` overstates for this operation, so update \
          its `# Complexity` section and this pin together"
     );
 }
 
-/// `Version::join_all`'s log factor is alive at its public door.
+/// `Version::join_all`'s log factor is alive at its public entry point.
 ///
-/// Scan work on the scatter population grows faster than its input
-/// across a x4 population growth — the balanced reduction's
-/// `O(D log k)`, which is what the door's `# Complexity` section
-/// documents. If a linear fold lands behind this door, this pin reads
-/// red, and the rustdoc and this floor must move in one change.
+/// Scan work on the scatter population grows faster than its input across a x4
+/// population growth — the balanced reduction's `O(D log k)`, which is what the
+/// entry point's `# Complexity` section documents. If a linear fold lands
+/// behind this entry point, this pin reads red, and the rustdoc and this floor
+/// must move in one change.
 ///
-/// Deterministic counter, dev profile. The linear reference is the
-/// population's own byte growth across the n = 256 -> 1,024
-/// quadrupling at `FOLD_DOOR_TEETH` blocks (the harness prints each
-/// run's total encoded bytes beside its scan bits; leaf paths deepen
-/// with the slot count, so bytes grow slightly faster than arity) — a
-/// scan-linear fold reads that ratio, and the door reads above it, the
-/// log factor's marginal. The floor sits midway between the two
+/// Deterministic counter, dev profile. The linear reference is the population's
+/// own byte growth across the n = 256 -> 1,024 quadrupling at `FOLD_DOOR_TEETH`
+/// blocks (the harness prints each run's total encoded bytes beside its scan
+/// bits; leaf paths deepen with the slot count, so bytes grow slightly faster
+/// than arity) — a scan-linear fold reads that ratio, and the entry point reads
+/// above it, the log factor's marginal. The floor sits midway between the two
 /// measured endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
@@ -266,20 +214,19 @@ fn version_join_all_log_factor_is_alive() {
     );
 }
 
-/// `Version::meet_all`'s log factor is alive at its public door.
+/// `Version::meet_all`'s log factor is alive at its public entry point.
 ///
-/// Scan work on the notch population — the meet dual of the scatter
-/// ticks, where meets grow instead of shrinking — grows faster than
-/// its input across a x4 population growth, per the door's
-/// `# Complexity` section. If a linear fold lands behind this door,
-/// this pin reads red, and the rustdoc and this floor must move in
-/// one change.
+/// Scan work on the notch population — the meet dual of the scatter ticks,
+/// where meets grow instead of shrinking — grows faster than its input across a
+/// x4 population growth, per the entry point's `# Complexity` section. If a
+/// linear fold lands behind this entry point, this pin reads red, and the
+/// rustdoc and this floor must move in one change.
 ///
-/// Deterministic counter, dev profile. The linear reference is the
-/// population's own byte growth across the n = 256 -> 1,024
-/// quadrupling (the harness prints it beside each run's scan bits);
-/// the door reads above it. The floor sits midway between the two
-/// measured endpoints; the readings of record live in the pin commit.
+/// Deterministic counter, dev profile. The linear reference is the population's
+/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
+/// it beside each run's scan bits); the entry point reads above it. The floor
+/// sits midway between the two measured endpoints; the readings of record live
+/// in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn version_meet_all_log_factor_is_alive() {
@@ -292,20 +239,19 @@ fn version_meet_all_log_factor_is_alive() {
     );
 }
 
-/// `Version::span_all`'s log factor is alive at its public door.
+/// `Version::span_all`'s log factor is alive at its public entry point.
 ///
-/// Scan work on the scatter population grows faster than its input
-/// across a x4 population growth: the hull fold carries both lattice
-/// directions through one balanced counter, and the join direction
-/// grows on scatter exactly as `join_all`'s does. If a linear hull
-/// lands behind this door, this pin reads red, and the rustdoc and
-/// this floor must move in one change.
+/// Scan work on the scatter population grows faster than its input across a x4
+/// population growth: the hull fold carries both lattice directions through one
+/// balanced counter, and the join direction grows on scatter exactly as
+/// `join_all`'s does. If a linear hull lands behind this entry point, this pin
+/// reads red, and the rustdoc and this floor must move in one change.
 ///
-/// Deterministic counter, dev profile. The linear reference is the
-/// population's own byte growth across the n = 256 -> 1,024
-/// quadrupling (the harness prints it beside each run's scan bits);
-/// the door reads above it. The floor sits midway between the two
-/// measured endpoints; the readings of record live in the pin commit.
+/// Deterministic counter, dev profile. The linear reference is the population's
+/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
+/// it beside each run's scan bits); the entry point reads above it. The floor
+/// sits midway between the two measured endpoints; the readings of record live
+/// in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn version_span_all_log_factor_is_alive() {
@@ -318,23 +264,21 @@ fn version_span_all_log_factor_is_alive() {
     );
 }
 
-/// `Party::join_all`'s log factor is alive at its public door.
+/// `Party::join_all`'s log factor is alive at its public entry point.
 ///
-/// Scan work folding the scattered shares of a balanced fork grows
-/// faster than its input across a x4 population growth: scattered
-/// sibling unions cannot collapse, so intermediates grow exactly as
-/// version scatter joins do. If a linear fold lands behind this door,
-/// this pin reads red, and the rustdoc and this floor must move in
-/// one change.
+/// Scan work folding the scattered shares of a balanced fork grows faster than
+/// its input across a x4 population growth: scattered sibling unions cannot
+/// collapse, so intermediates grow exactly as version scatter joins do. If a
+/// linear fold lands behind this entry point, this pin reads red, and the
+/// rustdoc and this floor must move in one change.
 ///
-/// Deterministic counter, dev profile. The linear reference is the
-/// population's own byte growth across the n = 256 -> 1,024
-/// quadrupling (the harness prints it beside each run's scan bits);
-/// the door reads above it — the factor's expression is weaker on ids
-/// than on versions (denser unions spell fewer bits per block,
-/// thinning the upper levels), so this floor holds the narrowest gap
-/// of the doors here; both endpoints are exact counters, so the gap
-/// is stable, not noisy. The floor sits midway between the two
+/// Deterministic counter, dev profile. The linear reference is the population's
+/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
+/// it beside each run's scan bits); the entry point reads above it — the
+/// factor's expression is weaker on ids than on versions (denser unions spell
+/// fewer bits per block, thinning the upper levels), so this floor holds the
+/// narrowest gap of the entry points here; both endpoints are exact counters,
+/// so the gap is stable, not noisy. The floor sits midway between the two
 /// measured endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
@@ -348,21 +292,19 @@ fn party_join_all_log_factor_is_alive() {
     );
 }
 
-/// `Clock::join_all`'s log factor is alive at its public door.
+/// `Clock::join_all`'s log factor is alive at its public entry point.
 ///
-/// Scan work folding scattered fork-share clocks (each ticked once,
-/// so both components carry per-line history) grows faster than its
-/// input across a x4 population growth — the party union and the
-/// version join both ride the balanced reduction. If a linear fold
-/// lands behind this door, this pin reads red, and the rustdoc and
-/// this floor must move in one change.
+/// Scan work folding scattered fork-share clocks (each ticked once, so both
+/// components carry per-line history) grows faster than its input across a x4
+/// population growth — the party union and the version join both ride the
+/// balanced reduction. If a linear fold lands behind this entry point, this pin
+/// reads red, and the rustdoc and this floor must move in one change.
 ///
-/// Deterministic counter, dev profile. The linear reference is the
-/// population's own byte growth across the n = 256 -> 1,024
-/// quadrupling (the harness prints it beside each run's scan bits);
-/// the door reads above it, the two components' factors blended. The
-/// floor sits midway between the two measured endpoints; the readings
-/// of record live in the pin commit.
+/// Deterministic counter, dev profile. The linear reference is the population's
+/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
+/// it beside each run's scan bits); the entry point reads above it, the two
+/// components' factors blended. The floor sits midway between the two measured
+/// endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn clock_join_all_log_factor_is_alive() {
@@ -437,7 +379,7 @@ fn mul_bound_embedding_is_alive() {
     }
 
     let (w, d) = (64usize, 48usize);
-    let v = Shape::PlateauPuncture.packed2(w, d).version();
+    let v = Shape::PlateauPuncture.build2(w, d).version();
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
     assert_eq!(
         (x.bit_len(), y.bit_len()),
@@ -482,32 +424,29 @@ fn mul_bound_embedding_is_alive() {
     );
 }
 
-/// The pair door's answer-embedded-product liveness.
+/// The pair entry point's answer-embedded-product liveness.
 ///
-/// The multiplication-bound pair claims (distance, lag) enter the
-/// settle through the pair co-sweep — a distinct entry point from
-/// rank's single-stream fold, which the single-stream embedding and
-/// schoolbook witnesses exercise — so the `Ω(M(a + b))` floor needs
-/// its embedding family constructed through the pair operations' own
-/// doors, not inferred from rank alone.
+/// The multiplication-bound pair claims (distance, lag) enter the settle
+/// through the pair co-sweep — a distinct entry point from rank's single-stream
+/// fold, which the single-stream embedding and schoolbook witnesses exercise —
+/// so the `Ω(M(a + b))` floor needs its embedding family constructed through
+/// the pair operations' own entry points, not inferred from rank alone.
 ///
-/// Against the empty version, the valuation identities collapse to
-/// `distance(v, ∅) = lag(∅, v) = rank(v)` and `lag(v, ∅) = 0`, so the
-/// plateau-puncture closed form (the factors' scaling and
-/// incompressibility are [`mul_bound_embedding_is_alive`]'s
-/// preconditions, asserted there at the same dimensions) must
-/// reproduce exactly through `Version::distance` and `Version::lag`.
-/// The co-operand is empty, *not equal*: the pair entries' only fast
-/// path is canonical equality, so both directed calls and the
-/// symmetric one run the pair integrator whole. An answer that stops
-/// embedding the product — or a pair-door rewiring that stops
-/// reaching the shared integrator exactly — loses the pair claims
-/// their floor witness here.
+/// Against the empty version, the valuation identities collapse to `distance(v,
+/// ∅) = lag(∅, v) = rank(v)` and `lag(v, ∅) = 0`, so the plateau-puncture
+/// closed form (the factors' scaling and incompressibility are
+/// [`mul_bound_embedding_is_alive`]'s preconditions, asserted there at the same
+/// dimensions) must reproduce exactly through `Version::distance` and
+/// `Version::lag`. The co-operand is empty, *not equal*: the pair entries' only
+/// fast path is canonical equality, so both directed calls and the symmetric
+/// one run the pair integrator whole. An answer that stops embedding the
+/// product — or a pair-entry point rewiring that stops reaching the shared
+/// integrator exactly — loses the pair claims their floor witness here.
 #[cfg(feature = "meter")]
 #[test]
 fn mul_bound_pair_embedding_is_alive() {
     let (w, d) = (64usize, 48usize);
-    let v = Shape::PlateauPuncture.packed2(w, d).version();
+    let v = Shape::PlateauPuncture.build2(w, d).version();
     let empty = crate::Version::new();
     assert!(
         !v.is_empty() && empty.is_empty(),
@@ -520,14 +459,14 @@ fn mul_bound_pair_embedding_is_alive() {
         v.distance(&empty).to_string(),
         closed,
         "distance against the empty version must be the plateau times the \
-         punctured turn mass: the pair door's answer no longer embeds the \
+         punctured turn mass: the pair operation's answer no longer embeds the \
          product, so the pair claims lost their floor witness"
     );
     assert_eq!(
         empty.lag(&v).to_string(),
         closed,
         "the dominated side's lag must be the whole plateau-puncture rank: \
-         the pair door's answer no longer embeds the product"
+         the pair operation's answer no longer embeds the product"
     );
     assert_eq!(
         v.lag(&empty),
@@ -537,30 +476,28 @@ fn mul_bound_pair_embedding_is_alive() {
     );
 }
 
-/// The key doors' answer-embedded-product liveness.
+/// The key entry points' answer-embedded-product liveness.
 ///
 /// The multiplication-bound key claims (`Ranked::encode_rank`,
-/// `Ranked::encode`, `Ranked::decode`) emit or verify the rank through
-/// their own fused entry points — distinct doors from
-/// `Version::rank`'s, which [`mul_bound_embedding_is_alive`] pins — so
-/// the embedding family must reproduce through them directly, not by
-/// composing the committed `encode_rank == rank().encode()` law
-/// (whose sampled generators do not reach this family) with rank's
-/// pin.
+/// `Ranked::encode`, `Ranked::decode`) emit or verify the rank through their
+/// own fused entry points — distinct entry points from `Version::rank`'s, which
+/// [`mul_bound_embedding_is_alive`] pins — so the embedding family must
+/// reproduce through them directly, not by composing the committed `encode_rank
+/// == rank().encode()` law (whose sampled generators do not reach this family)
+/// with rank's pin.
 ///
-/// On the plateau-puncture instance the key's rank component must
-/// decode back to the closed-form product rank, and the composite key
-/// must survive its own strict decode — whose verifying rank fold is
-/// the `Ranked::decode` claim's multiplication-bound term, here
-/// demonstrated firing on the embedding family itself. An encode door
-/// that stops emitting the product's digits, or a decode door that
-/// stops verifying them, loses the key claims their floor witness
-/// here.
+/// On the plateau-puncture instance the key's rank component must decode back
+/// to the closed-form product rank, and the composite key must survive its own
+/// strict decode — whose verifying rank fold is the `Ranked::decode` claim's
+/// multiplication-bound term, here demonstrated firing on the embedding family
+/// itself. An encode entry point that stops emitting the product's digits, or a
+/// decode entry point that stops verifying them, loses the key claims their
+/// floor witness here.
 #[cfg(feature = "meter")]
 #[test]
 fn mul_bound_key_embedding_is_alive() {
     let (w, d) = (64usize, 48usize);
-    let v = Shape::PlateauPuncture.packed2(w, d).version();
+    let v = Shape::PlateauPuncture.build2(w, d).version();
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
     let closed = format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d);
     let rank_key = crate::Ranked::from(&v).encode_rank();
@@ -570,7 +507,7 @@ fn mul_bound_key_embedding_is_alive() {
             .to_string(),
         closed,
         "the fused rank-key emission must carry the plateau times the \
-         punctured turn mass: the key door's answer no longer embeds the \
+         punctured turn mass: the key operation's answer no longer embeds the \
          product, so the key claims lost their floor witness"
     );
     let decoded = crate::Ranked::decode(&crate::Ranked::from(&v).encode()[..])

@@ -8,7 +8,7 @@
 
 use std::{collections::BTreeMap, ops::Range};
 
-use before::Version;
+use before::{Party, Version};
 
 use crate::{
     message::{Message, PayloadCodec, PayloadDepthLimit},
@@ -60,6 +60,13 @@ fn unbounded() -> SupplyLedger {
 /// Construct the payload codec shared by adapter fixtures.
 fn codec() -> PayloadCodec {
     PayloadCodec::new::<u64>(PayloadDepthLimit::default())
+}
+
+/// Build a version with the same event count everywhere.
+fn uniform_version(ticks: u64) -> Version {
+    let mut version = Version::new();
+    Party::seed().ticks(&mut version, ticks);
+    version
 }
 
 /// Build a supply run from borrowed leaf records, in the given order.
@@ -153,8 +160,7 @@ impl LeafCase {
     fn new(value: u64, ticks: u8) -> Self {
         Self {
             value,
-            version: Version::try_from((value << 8) | u64::from(ticks))
-                .expect("every u64 scalar is a valid linear version"),
+            version: uniform_version(value.wrapping_shl(8) | u64::from(ticks)),
             message: Message::new(value),
         }
     }

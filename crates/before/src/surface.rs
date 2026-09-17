@@ -1091,9 +1091,6 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::LinearityMechanics { pins: &[] }),
     },
-    codec_row("Party Display / FromStr / TryFrom literals"),
-    codec_row("Version Display / FromStr / TryFrom literals"),
-    codec_row("Clock Display / FromStr / TryFrom"),
     codec_row("serde / borsh impls (feature-gated, strict-decode pinned)"),
     SurfaceRow {
         op: "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display",
@@ -1102,8 +1099,8 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::rank", pins: &[] }),
     },
     SurfaceRow {
-        op: "Ticks ZERO / From / TryFrom / FromStr / Display / Add / Sum / Ord / Eq / Hash",
-        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &["addition_behaves_like_the_naturals", "text_round_trips", "ticks_agrees_with_iterated_ticks", "ticks_composes", "u64_conversion_matches_the_range"] }),
+        op: "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
+        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &["addition_behaves_like_the_naturals", "ticks_agrees_with_iterated_ticks", "ticks_composes", "u64_conversion_matches_the_range"] }),
         prod_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &[] }),
         tree_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &[] }),
     },
@@ -1165,14 +1162,13 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         }),
     },
     SurfaceRow {
-        op: "error verdict types (Decode / Parse / Crossed)",
+        op: "error verdict types (Decode / Crossed)",
         prod_tree: Leg::Excluded(Exclusion::NotAPaperObject {
             bound_at: "Version::decode",
             pins: &[
                 "span_gate_admits_exactly_the_ordered",
                 "rank_decoding_rejects_each_genre",
                 "span_decode_rejects_each_genre",
-                "from_str_is_strict_about_shape",
             ],
         }),
         prod_fs: Leg::Excluded(Exclusion::NotAPaperObject {

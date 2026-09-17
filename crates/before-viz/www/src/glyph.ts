@@ -1,12 +1,11 @@
-// The stamp glyph: the paper's interval + skyline notation. The id (Party) is a thin
-// bar along [0,1) — owned leaves filled, unowned hollow, the interval halved per tree
-// node. The event (Version) is a stacked skyline over the same interval.
+// A clock glyph: the party is a thin ownership bar over [0,1), and the version is a
+// skyline over the same interval.
 //
 // Geometry is pure (unit-space); rendering maps it to SVG at a *shared* style so all
 // stamps use one interval width and one baseline, making subdivisions and heights
 // comparable across the whole figure. Colors come from CSS classes.
 
-import type { EventTree, IdTree } from "./types";
+import type { PartyRegion, VersionPlateau } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -46,51 +45,52 @@ export interface GlyphGeometry {
   readonly maxHeight: number;
 }
 
-function collectId(t: IdTree, x0: number, x1: number, out: IdSegment[]): void {
-  if ("leaf" in t) {
-    out.push({ x0, x1, owned: t.leaf === 1 });
-    return;
+function collectParty(regions: readonly PartyRegion[]): IdSegment[] {
+  const out: IdSegment[] = [];
+  let x = 0;
+  for (const region of regions) {
+    const next = x + 2 ** -region.depth;
+    out.push({ x0: x, x1: next, owned: region.owned });
+    x = next;
   }
-  const mid = (x0 + x1) / 2;
-  collectId(t.l, x0, mid, out);
-  collectId(t.r, mid, x1, out);
+  return out;
 }
 
-function collectEvent(t: EventTree, x0: number, x1: number, floor: number, out: EventSlab[]): number {
-  const top = floor + t.base;
-  if (t.base > 0) out.push({ x0, x1, y0: floor, y1: top });
-  let max = top;
-  if (t.l !== undefined && t.r !== undefined) {
-    const mid = (x0 + x1) / 2;
-    max = Math.max(max, collectEvent(t.l, x0, mid, top, out));
-    max = Math.max(max, collectEvent(t.r, mid, x1, top, out));
-  }
-  return max;
-}
-
-/// Compute a glyph's geometry. `id` is null for message nodes (history only).
-export function glyphGeometry(id: IdTree | null, event: EventTree): GlyphGeometry {
-  const idSegments: IdSegment[] = [];
-  if (id !== null) collectId(id, 0, 1, idSegments);
+function collectVersion(plateaus: readonly VersionPlateau[]): { slabs: EventSlab[]; maxHeight: number } {
   const slabs: EventSlab[] = [];
-  const maxHeight = collectEvent(event, 0, 1, 0, slabs);
+  let x = 0;
+  let height = 0;
+  let maxHeight = 0;
+  for (const plateau of plateaus) {
+    height += plateau.rise;
+    const next = x + 2 ** -plateau.depth;
+    if (height > 0) slabs.push({ x0: x, x1: next, y0: 0, y1: height });
+    maxHeight = Math.max(maxHeight, height);
+    x = next;
+  }
+  return { slabs, maxHeight };
+}
+
+/// Compute a glyph's geometry. `party` is null for message nodes.
+export function glyphGeometry(party: readonly PartyRegion[] | null, version: readonly VersionPlateau[]): GlyphGeometry {
+  const idSegments = party === null ? [] : collectParty(party);
+  const { slabs, maxHeight } = collectVersion(version);
   return { idSegments, slabs, maxHeight };
 }
 
-/// Depth of the id tree (0 for a leaf). The deepest tree fixes the shared width.
-export function idDepth(t: IdTree): number {
-  if ("leaf" in t) return 0;
-  return 1 + Math.max(idDepth(t.l), idDepth(t.r));
+/// The deepest party region, which fixes the shared width.
+export function partyDepth(regions: readonly PartyRegion[]): number {
+  return regions.reduce((depth, region) => Math.max(depth, region.depth), 0);
 }
 
-/// Derive a shared style from all stamps' id/event trees: width wide enough that the
+/// Derive a shared style from all clocks: width wide enough that the
 /// finest leaf stays legible (clamped), and the global tallest skyline for a common
 /// baseline.
-export function computeStampStyle(ids: readonly IdTree[], events: readonly EventTree[]): StampStyle {
+export function computeStampStyle(parties: readonly (readonly PartyRegion[])[], versions: readonly (readonly VersionPlateau[])[]): StampStyle {
   let maxDepth = 0;
-  for (const id of ids) maxDepth = Math.max(maxDepth, idDepth(id));
+  for (const party of parties) maxDepth = Math.max(maxDepth, partyDepth(party));
   let maxHeight: number = METRICS.minHeightUnits;
-  for (const ev of events) maxHeight = Math.max(maxHeight, glyphGeometry(null, ev).maxHeight);
+  for (const version of versions) maxHeight = Math.max(maxHeight, glyphGeometry(null, version).maxHeight);
   const wanted = METRICS.minLeafPx * 2 ** maxDepth;
   const width = Math.min(METRICS.maxWidth, Math.max(METRICS.minWidth, wanted));
   // Compress the per-level unit so even a tall tower's skyline stays bounded (all
@@ -114,11 +114,11 @@ function rect(x: number, y: number, w: number, h: number, className: string): SV
   return r;
 }
 
-/// Build an `<svg>` stamp sized to the shared style. A null `id` (a bare version, as
-/// used by the send ghost) omits the id bar. Liveness desaturation is driven by the
+/// Build an `<svg>` stamp sized to the shared style. A null `party` (a bare version, as
+/// used by the send ghost) omits the ownership bar. Liveness desaturation is driven by the
 /// node group's class in CSS.
-export function renderStamp(id: IdTree | null, event: EventTree, style: StampStyle): SVGSVGElement {
-  const geo = glyphGeometry(id, event);
+export function renderStamp(party: readonly PartyRegion[] | null, version: readonly VersionPlateau[], style: StampStyle): SVGSVGElement {
+  const geo = glyphGeometry(party, version);
   const W = style.width;
   const H = stampHeight(style);
   const baseline = H - METRICS.idBarHeight - METRICS.gap;
@@ -137,7 +137,7 @@ export function renderStamp(id: IdTree | null, event: EventTree, style: StampSty
     svg.appendChild(rect(x, yTop, w, h, "glyph__slab"));
   }
 
-  if (id !== null) {
+  if (party !== null) {
     const y = H - METRICS.idBarHeight;
     for (const seg of geo.idSegments) {
       const x = seg.x0 * W;

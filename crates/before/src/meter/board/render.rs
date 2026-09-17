@@ -11,7 +11,7 @@ use super::ceilings::{
     CAPACITY_MODEL_CEILING, CAPACITY_MODEL_FLOOR, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
     HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,
     MAX_LIMB_OPS_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE,
-    MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
+    MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::currency::Liveness;
 use super::family::FamilyData;
@@ -63,10 +63,8 @@ fn mechanism(red: &[&'static str]) -> String {
 
 /// Render one result row.
 ///
-/// The byte range is the cell's denominator (packed input, or `n_io` on the
-/// I/O-denominated cells); a text row's limb constant reads `/R` (its exponent,
-/// like every exponent, is against the denominator bytes), everything else
-/// `/B`. The `flr` column shows the larger scale's committed liveness floors
+/// The byte range is the cell's denominator. The `flr` column shows the larger
+/// scale's committed liveness floors
 /// per judged column (`-` where not applicable; derivations in the legend above
 /// the matrix).
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
@@ -82,8 +80,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     };
     let limb = match (r.scores.limb.exp, r.scores.limb.per_unit) {
         (Some(_), Some(c)) => {
-            let unit = if r.s2.text_row { "/R" } else { "/B" };
-            format!("limb[e{} {c:>10.1}{unit}]", exp_text(&r.scores.limb))
+            format!("limb[e{} {c:>10.1}/B]", exp_text(&r.scores.limb))
         }
         _ => "limb[      off      ]".to_string(),
     };
@@ -119,10 +116,6 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         _ if r.s2.declared_heap.is_some() => {
             let d = r.s2.declared_heap.expect("just matched");
             format!("  decl[heap {d:.0} B/B family-stated]")
-        }
-        _ if r.s2.declared_limb.is_some() => {
-            let (e, k) = r.s2.declared_limb.expect("just matched");
-            format!("  decl[limb e {e:.2} {k:.2}/R family-stated]")
         }
         (Some(m1), Some(m2), _) => {
             format!("  decl[heap cap-chain {m1:.0}->{m2:.0} B]")
@@ -196,7 +189,7 @@ pub(super) fn measure_cell(
 pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io::Result<Summary> {
     writeln!(
         out,
-        "amplification board: transient cost vs denominator bytes (packed input; total I/O on \
+        "amplification board: transient cost vs denominator bytes (encoded input; total I/O on \
          the text and cross cells), each cell at its window's two sizes"
     )?;
     writeln!(
@@ -205,7 +198,6 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
          heap <= {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B over {HEAP_FLAT_ALLOWANCE_BYTES} B flat, \
          segments <= {MAX_GROWN_STACK_SEGMENTS}, \
          limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B \
-         (text rows: <= {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT} ops/R), \
          scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B, \
          touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B; \
          and every committed liveness floor met (flr[...]: a counter below its floor is red: \
@@ -215,8 +207,7 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
          clear the flat allowance the constant leg already forgives (a base inside the \
          forgiven zone manufactures an exponent at the boundary); an unjudged exponent \
          renders -.-- and the cell rides its constants and floors. every judged quantity is \
-         a deterministic counter: the time-exponent leg lives in the bench judge \
-         (just bench-judge)"
+         deterministic"
     )?;
     writeln!(out)?;
     writeln!(out, "liveness declarations on this board:")?;
@@ -259,16 +250,6 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
              constant is judged at the stated flat ceiling in place of the global \
              {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B; the exponent leg stays at the global bound \
              (each declaration's derivation lives at its constant)"
-        )?;
-    }
-    if results.iter().any(|r| r.s2.declared_limb.is_some()) {
-        writeln!(
-            out,
-            "  family-stated limb models (decl[limb e ... .../R family-stated] rows): the limb \
-             exponent and per-radix-unit constant are judged at the stated ceilings in place \
-             of the global exponent bound and the text ceiling — the documented superlinear \
-             render class, intended and modeled (each declaration's derivation lives at its \
-             constants)"
         )?;
     }
     writeln!(out)?;

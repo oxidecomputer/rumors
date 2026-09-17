@@ -209,7 +209,7 @@ fn bench_receive(c: &mut Criterion) {
     g.finish();
 }
 
-/// `encode`/`decode`: the packed byte codec. No oracle equivalent; impl alone.
+/// `encode`/`decode`: the encoded byte codec. No oracle equivalent; impl alone.
 fn bench_codec(c: &mut Criterion) {
     let mut g = c.benchmark_group("clock/codec");
     let mut r = rng(10);

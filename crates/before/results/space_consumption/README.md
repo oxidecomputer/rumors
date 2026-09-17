@@ -36,6 +36,6 @@ operation model and how it maps to the paper.
 The curve shapes — rapid early growth then stabilization with a faint
 logarithmic creep — reproduce the paper's result. On absolute byte counts,
 the process/static case runs well below the paper's (event-component growth
-dominates there, and this crate's packed event coding is where it wins); the
+dominates there, and this crate's encoded event coding is where it wins); the
 data/dynamic case lands within the paper's charted band, slightly above its
 quoted floor.

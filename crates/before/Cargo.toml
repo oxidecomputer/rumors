@@ -2,7 +2,7 @@
 name = "before"
 version = "0.1.0"
 edition = "2021"
-description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed bit-stream storage, transient fixed-width working form, linear-typed API."
+description = "Interval Tree Clocks with canonical binary storage and a linear-typed API."
 license = "MPL-2.0"
 readme = "README.md"
 
@@ -84,10 +84,10 @@ laws = ["meter"]
 # self-dev-dependency above) and is lit by `--all-features` runs and the
 # metering envelopes that assert it.
 limb-meter = ["meter", "suanpan/touch-meter"]
-# Counts packed-stream bits scanned and written (id tag reads and skip steps,
+# Counts encoded-stream bits scanned and written (id tag reads and skip steps,
 # id-builder bit writes and splice lengths, event topology cursor advances and
 # gamma code-skips, every validator/decoder bit cursor) into a process-global
-# counter read via `before::meter`. Traversal work over the packed forms is
+# counter read via `before::meter`. Traversal work over the encoded forms is
 # invisible to the heap, segment, and limb meters when it allocates nothing,
 # recurses nothing, and does no `Base` arithmetic — the id-side walks are
 # exactly that — so this is the column that sees it. Additive and off by
@@ -97,16 +97,9 @@ limb-meter = ["meter", "suanpan/touch-meter"]
 scan-meter = ["meter"]
 
 [lints.rust]
-# The allocation-strategy bench (`benches/presize.rs`) compiles alternative
-# arms into library sites through this cfg, one value per site arm; each
-# seam's comment names its site. RUSTFLAGS-only by design — registering it
-# here guarantees no cargo feature can ever select an arm, and `deny` fails
-# the build of any seam or bench that queries an arm missing from this
-# roster, so the roster cannot drift from the code. (It cannot see a
-# mistyped RUSTFLAGS value nothing queries; the `bench-alloc-ab` recipe
-# validates the arm name at invocation for exactly that hole.)
+# Allocation experiments may compile alternative projection strategies.
 unexpected_cfgs = { level = "deny", check-cfg = [
-    'cfg(before_alloc_ab, values("projection_growth", "projection_shrink", "display_growth"))',
+    'cfg(before_alloc_ab, values("projection_growth", "projection_shrink"))',
 ] }
 
 # The board example judges limb, scan, and touch work against pinned
@@ -146,20 +139,4 @@ harness = false
 
 [[bench]]
 name = "clock"
-harness = false
-
-[[bench]]
-name = "amplify"
-harness = false
-
-[[bench]]
-name = "board"
-harness = false
-
-[[bench]]
-name = "tripwire"
-harness = false
-
-[[bench]]
-name = "presize"
 harness = false

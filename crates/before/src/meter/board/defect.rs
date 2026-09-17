@@ -42,7 +42,7 @@ pub(super) fn trailing_bytes(bytes: &[u8]) -> Vec<u8> {
 
 /// The bit position of a version stream's preorder-last leaf flag.
 ///
-/// Iterative over the packed form, outside any measurement; the last node of a
+/// Iterative over the encoded form, outside any measurement; the last node of a
 /// preorder event stream is always a leaf (an internal node's children would
 /// follow it).
 fn last_leaf_flag_pos(v: &Version) -> u64 {
@@ -108,50 +108,4 @@ pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
     }
     codec::seal_padding(&mut out);
     out.into_bytes()
-}
-
-/// `text` with junk appended after the complete valid notation: the parser
-/// consumes the whole text before the trailing defect is seen
-/// ([`Parse::Syntax`](crate::error::Parse)).
-pub(super) fn trailing_text(text: &str) -> String {
-    let mut out = text.to_owned();
-    out.push('x');
-    out
-}
-
-/// A clock's text with junk inserted before the closing paren, inside the
-/// version component.
-///
-/// The clock parser's outer-paren check rejects *appended* junk in O(1), so the
-/// deferred defect rides the version side, which parses in full first.
-pub(super) fn clock_trailing_text(text: &str) -> String {
-    let mut out = text.to_owned();
-    assert_eq!(out.pop(), Some(')'), "a clock renders as (id, event)");
-    out.push_str("x)");
-    out
-}
-
-/// `text` with its last spelled value `t` re-spelled `(0, t, t)`: equal sibling
-/// leaves, well-formed and judged non-canonical at that node's close — the
-/// text's end ([`Parse::NotCanonical`](crate::error::Parse)).
-pub(super) fn version_noncanonical_text(text: &str) -> String {
-    let end = text
-        .rfind(|c: char| c.is_ascii_digit())
-        .expect("a version's text spells at least one value")
-        + 1;
-    let start = text[..end]
-        .rfind(|c: char| !c.is_ascii_digit())
-        .map_or(0, |i| i + 1);
-    let t = &text[start..end];
-    format!("{}(0, {t}, {t}){}", &text[..start], &text[end..])
-}
-
-/// `text` with its last `1` token re-spelled `(1, 1)`: the collapsible pair,
-/// judged non-normal at the node's close, at the text's end
-/// ([`Parse::NotCanonical`](crate::error::Parse)).
-pub(super) fn party_noncanonical_text(text: &str) -> String {
-    let at = text
-        .rfind('1')
-        .expect("a party's text spells at least one owned leaf");
-    format!("{}(1, 1){}", &text[..at], &text[at + 1..])
 }

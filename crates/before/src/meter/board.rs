@@ -4,8 +4,8 @@
 //! families in [`meter`](crate::meter) (plus a benign pseudo-random control)
 //! and prints one verdict per operation × family cell. The target contract
 //! being scored: no operation materializes transient state asymptotically
-//! larger than its packed operands, and every operation is amortized `O(n + m)`
-//! in the packed input bits — with no bound on value magnitude, tree depth, or
+//! larger than its encoded operands, and every operation is amortized `O(n + m)`
+//! in the encoded input bits — with no bound on value magnitude, tree depth, or
 //! encoded size.
 //!
 //! # The product over three axes
@@ -34,8 +34,7 @@
 //!   site until each operation answers its floor-or-NA question
 //!   ([`Floors`]), so a meter can never be half-wired onto the board.
 //!
-//! The deterministic board always runs the whole product (the smoke test pins
-//! the count); the wall-clock mirror selects with [`BenchMode`].
+//! The board always runs the whole product; its smoke test pins the cell count.
 //!
 //! # The criterion
 //!
@@ -51,10 +50,10 @@
 //!   ([`limb_ops`](crate::meter::limb_ops)), only when the `limb-meter`
 //!   feature compiles the counter into the arithmetic; arithmetic-width
 //!   blowups are invisible to the other two meters;
-//! - **packed-stream scan bits**
+//! - **encoded-stream scan bits**
 //!   ([`scan_bits`](crate::meter::scan_bits)), only when the `scan-meter`
 //!   feature compiles the counter into the stream primitives; traversal
-//!   work over the packed forms — the id-side walks and folds above all —
+//!   work over the encoded forms — the id-side walks and folds above all —
 //!   allocates nothing, recurses nothing, and does no `Base` arithmetic, so
 //!   this is the one column that sees it;
 //! - **accumulator digit touches**
@@ -68,14 +67,12 @@
 //!
 //! Per meter the board derives a **scaling exponent** `log(m₂/m₁) / log(n₂/n₁)`
 //! (`n` = the cell's denominator bytes, below — every exponent, on every
-//! column) and a **per-denominator-byte constant** at the larger scale (the one
-//! constant not per denominator byte: the text rows' limb constant is per `R`
-//! unit, below). A cell is **GREEN** iff every meter's exponent is at most
+//! column) and a **per-denominator-byte constant** at the larger scale. A cell
+//! is **GREEN** iff every meter's exponent is at most
 //! [`MAX_SCALING_EXPONENT`], every constant is under its pinned ceiling
 //! ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over [`HEAP_FLAT_ALLOWANCE_BYTES`],
 //! [`MAX_GROWN_STACK_SEGMENTS`], [`MAX_LIMB_OPS_PER_INPUT_BYTE`],
-//! [`MAX_SCAN_BITS_PER_INPUT_BYTE`], [`MAX_TOUCHES_PER_INPUT_BYTE`] — or, on
-//! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]), and every
+//! [`MAX_SCAN_BITS_PER_INPUT_BYTE`], [`MAX_TOUCHES_PER_INPUT_BYTE`]), and every
 //! committed liveness floor is met; **RED** otherwise, with the offending
 //! meters named.
 //!
@@ -108,33 +105,23 @@
 //! that routes exactly the floor through metered primitives and the rest around
 //! them still reads green. That is the derivation rule's designed limit — a
 //! floor states what the operation *must* do, and partial rerouting still does
-//! it — so the floors are a bypass tripwire, never a full-liveness proof; the
-//! leg that bounds work no counter sees is the time exponent judged over the
-//! bench suite (below).
+//! it — so the floors are a bypass tripwire, never a full-liveness proof.
 //!
 //! # Determinism and the time leg
 //!
 //! Every quantity the board judges or renders is a deterministic counter, so
 //! two board runs at the same scale are byte-identical under any machine load:
 //! the board reads no clock, conditions nothing on timing, and comparing runs
-//! needs no exclusion rules. Time still has its own judged leg — wall time is
-//! the one implementation-agnostic witness for *time*, exactly as heap is for
-//! space: a kernel doing quadratic work in plain machine-word arithmetic (no
-//! allocation, no recursion, no metered reads) is invisible to all four
-//! counters and visible only to a clock — but the clock lives where timing
-//! discipline does. The bench judge (`tools/benchjudge`, `just bench-judge`)
-//! fits each cell's time exponent across two scales of the board benches'
-//! criterion medians (warmup, sampling, and outlier rejection are criterion's),
-//! denominated against the same per-cell bytes as the board's own exponents
-//! ([`BenchCell::denominator_bytes`]), and holds every judged cell to a ceiling
-//! generous to scheduler noise and impassable for a quadratic's ~2.0.
+//! needs no exclusion rules. Wasmtime fuel provides the implementation-wide
+//! time signal, including work outside these internal counters, without
+//! scheduler noise.
 //!
 //! # The measurement ladder and the profile of record
 //!
 //! Every cell runs at a size scale; the inner loop uses the ladder's base
 //! ([`DEFAULT_SCALE`], seconds of runtime). Acceptance measures the whole
 //! ladder — [`LADDER_TOP_SCALE`] owns the ×4 calibration argument for its
-//! top — plus the bench judge green across the same two sampling scales; the
+//! top; the
 //! enforced per-operation record remains the process-isolated envelope suite
 //! in `tests/meter.rs` throughout.
 //!
@@ -151,19 +138,17 @@
 //!
 //! # Denomination
 //!
-//! Most cells charge cost against **packed input bytes** alone. Two cell
-//! classes have *mandatory* output asymptotically larger than any constant
-//! times their input, so an input-only ceiling on them is unsatisfiable by
-//! construction — and an unsatisfiable criterion degenerates into exemption
-//! holes. Those cells are denominated against **total I/O bytes** `n_io`, with
-//! the output side read back from the operation's actual result, never assumed
-//! from its inputs. The re-denominated classes are the text rows (limb constant
-//! per radix-work unit `R`), the output-dominated projection crosses (packed
-//! I/O), and — exponents alone — the flat-denominator comb-scatter shape,
-//! fitted against value content; each class's derivation, the
-//! do-not-re-denominate list, the output-honesty ceiling, and the rank rows'
-//! value-content denominator live in the `cell` module, on the denomination
-//! rule itself.
+//! Most cells charge cost against **encoded input bytes** alone. Some cells
+//! have *mandatory* output asymptotically larger than any constant times their
+//! input, so an input-only ceiling on them is unsatisfiable by construction —
+//! and an unsatisfiable criterion degenerates into exemption holes. Those cells
+//! are denominated against **total I/O bytes** `n_io`, with the output side
+//! read back from the operation's actual result, never assumed from its inputs.
+//! The re-denominated classes are the output-dominated projection crosses
+//! (encoded I/O) and — for exponents alone — the flat-denominator comb-scatter
+//! shape, fitted against value content; each class's derivation, the
+//! do-not-re-denominate list and the rank rows' value-content denominator live
+//! in the `cell` module, on the denomination rule itself.
 //!
 //! # Declared per-cell models
 //!
@@ -181,22 +166,19 @@
 //! where the model predicts a quantity, committed liveness pins where it
 //! declares a class — so an improved kernel forces a deliberate re-declaration,
 //! and tripwired in the test suite by a wrong artifact reading red. The
-//! ratified models — the fold rows' `O(D log k)` reduction, the capacity-chain
-//! heap band, the family-stated heap ceilings, and the mirror-wide render limb
-//! model — are each derived and priced in the `ceilings` module, at their
-//! declaring constants.
+//! ratified models are derived and priced at their declaring constants.
 //!
 //! # The rejection surface
 //!
 //! Cost claims are total: rejecting an input is an outcome with a cost, bounded
 //! like any other, whether or not the caller honored the usage invariants. The
 //! rejection rows price the fallible surface — overlap, the empty difference,
-//! strict decode, and text parse — with the defect **maximally deferred** in
-//! every shape: an early-exit-only measurement would be the cheapest artifact
-//! that passes. The `defect` module builds each placed defect and derives its
-//! placement; rejections produce no output, so every rejection row is
-//! denominated against the fed stream alone, and the `coverage` module records
-//! the fallible surface's bounded-or-delegated remainder.
+//! and strict decode — with the defect **maximally deferred** in every shape:
+//! an early-exit-only measurement would be the cheapest artifact that passes.
+//! The `defect` module builds each placed defect and derives its placement;
+//! rejections produce no output, so every rejection row is denominated against
+//! the fed stream alone, and the `coverage` module records the fallible
+//! surface's bounded-or-delegated remainder.
 //!
 //! # Reading the numbers
 //!
@@ -250,20 +232,14 @@
 //! test beside the tables (`board_coverage_tiles_the_public_surface`), so a new
 //! public operation cannot land unpriced and unexcused.
 //!
-//! The wall-time mirror rides the same axes: the bench suite's criterion IDs
-//! are exactly the board's op × family cell names ([`bench_cells`] is the
-//! board's own table), so board coverage is bench coverage cell for cell, with
-//! no second enumeration (the `export` module derives the judged subset). Which
-//! surface rows ride which delegated mechanisms, and the error-path
-//! dispositions the table cannot carry, are recorded in the `coverage` module
-//! beside the table itself.
+//! Delegated mechanisms and error-path dispositions are recorded beside the
+//! coverage table.
 
 mod ceilings;
 mod cell;
 mod coverage;
 mod currency;
 mod defect;
-mod export;
 mod family;
 mod floors;
 mod judge;
@@ -282,14 +258,11 @@ pub use ceilings::{
     FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES, LADDER_TOP_SCALE,
     MACHINE_WORD_MAGNITUDE_BITS, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,
     MAX_LIMB_OPS_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE,
-    MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
-    MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING, MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT,
-    SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TEXT_BYTES_PER_RADIX_UNIT,
-    TEXT_PIPELINE_LIMB_OPS_PER_VALUE, TICKS_BOARD_COUNT,
+    MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH, SCAN_FLOOR_BITS_PER_INPUT_BYTE,
+    SCAN_TOUCH_FLOOR_BITS, TICKS_BOARD_COUNT,
 };
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
-pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
 pub use family::study_family_versions;
 pub use measure::HeapMeter;
 pub use render::Summary;

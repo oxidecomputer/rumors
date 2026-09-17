@@ -1,4 +1,4 @@
-//! `Party` benchmarks: the optimized packed-bit-stream implementation against the naive
+//! `Party` benchmarks: the optimized binary implementation against the naive
 //! recursive oracle, on the same randomized trees (see `common`). Codec ops have no
 //! oracle counterpart and are timed for the impl alone.
 
@@ -98,7 +98,7 @@ fn bench_is_disjoint(c: &mut Criterion) {
     g.finish();
 }
 
-/// `encode`/`decode`: the packed byte codec. No oracle equivalent (the oracle omits the
+/// `encode`/`decode`: the encoded byte codec. No oracle equivalent (the oracle omits the
 /// codec by design), so these are timed for the impl alone.
 fn bench_codec(c: &mut Criterion) {
     let mut g = c.benchmark_group("party/codec");

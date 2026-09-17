@@ -7,12 +7,8 @@ use crate::Ticks;
 /// `u128`, and each yielded share decrements that exact count once.
 #[test]
 fn unbounded_remainder_stays_exact() {
-    let count: Ticks = "340282366920938463463374607431768211456"
-        .parse()
-        .expect("2^128 is a natural-number count");
-    let after_one: Ticks = "340282366920938463463374607431768211455"
-        .parse()
-        .expect("2^128 - 1 is a natural-number count");
+    let count = Ticks::from(u128::MAX) + Ticks::from(1u8);
+    let after_one = Ticks::from(u128::MAX);
     let mut keeper = Party::seed();
     let mut forks = Forks::new(&mut keeper, count.clone());
 

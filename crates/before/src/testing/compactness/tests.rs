@@ -18,9 +18,9 @@ use crate::{meter, Clock, Version};
 
 use super::{arb_comb_params, check_sample, comb};
 
-/// Decode a meter-generated packed shape into a `Version`.
-fn decode(packed: &meter::Packed) -> Version {
-    packed.version()
+/// Decode a meter-generated encoded shape into a `Version`.
+fn decode(encoded: &meter::Encoding) -> Version {
+    encoded.version()
 }
 
 proptest! {
@@ -73,14 +73,14 @@ proptest! {
 #[test]
 fn adversarial_shapes_hold_the_envelope() {
     for d in [1, 2, 3, 8, 64, 512, 4096] {
-        check_sample(&decode(&Shape::Dense.packed1(d)));
+        check_sample(&decode(&Shape::Dense.build1(d)));
     }
     for b in [1, 2, 8, 64, 512, 4096] {
-        check_sample(&decode(&Shape::Hugeleaf.packed1(b)));
+        check_sample(&decode(&Shape::Hugeleaf.build1(b)));
     }
     for b in [1, 8, 64, 512] {
         for d in [1, 8, 64, 512] {
-            check_sample(&decode(&Shape::Bigroot.packed2(b, d)));
+            check_sample(&decode(&Shape::Bigroot.build2(b, d)));
         }
     }
 }

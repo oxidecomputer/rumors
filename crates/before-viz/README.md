@@ -1,14 +1,13 @@
 # before-viz — an interactive Interval Tree Clocks visualizer
 
-A browser visualizer for the `before` crate, compiled to WebAssembly. You build up an
-ITC execution by mouse, starting from the seed clock, and watch the causal history
-grow as an immutable DAG drawn in the paper's interval + skyline notation (Almeida,
-Baquero & Fonte, 2008).
+A browser visualizer for the `before` crate, compiled to WebAssembly. Starting from
+the seed clock, you build an execution with the mouse and watch its causal history
+grow as an immutable graph. Each clock shows party ownership below its version
+skyline.
 
-The crate is a thin, deterministic **replay engine**: the browser holds the
-operation log (the source of truth), and `Engine::replay` turns it into materialized
-clock values. Everything else — the causal edges, liveness, layout, undo — is derived
-from the log on the TypeScript side.
+The operation log is the source of truth. The Rust engine replays it into clocks and
+derives their causal edges and live frontier; the TypeScript front end handles layout,
+interaction, and rendering.
 
 ## Gestures
 
@@ -50,13 +49,5 @@ python3 -m http.server --directory www 8000
 
 Any static file server works; the site is fully static and self-contained.
 
-## Layout
-
-- `src/lib.rs` — the wasm replay engine (`Engine`, the `Op` log, descriptors).
-- `src/tests.rs` — host-target engine tests (`cargo test -p before-viz`).
-- `www/src/*.ts` — strict TypeScript: `engine` (typed wasm bridge), `oplog` (URL
-  codec), `dag` (edges / liveness / cone / rewrite), `notation` (paper-notation
-  parsers), `glyph` (stamp geometry + SVG), `layout` (layered + force), `view` (D3
-  scene, transitions, drag, zoom), `main` (controller).
-- `www/fonts/` — Newsreader and IBM Plex Mono, both under the SIL Open Font License
-  1.1 (license texts alongside the `woff2` files).
+The bundled fonts are Newsreader and IBM Plex Mono, both under the SIL Open Font
+License 1.1; their license texts are included beside the font files.

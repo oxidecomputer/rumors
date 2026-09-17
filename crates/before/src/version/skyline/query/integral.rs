@@ -47,7 +47,7 @@
 //! shape: a shared descent spine planting isolated position bits, then an
 //! `m`-level comb where one operand's wide teeth cross the other's near-flat
 //! band — every crest of `|D|` would pay a drift-width × position-density
-//! product, superlinear in the packed pair while each operand alone stays
+//! product, superlinear in the encoded pair while each operand alone stays
 //! flat.) The integral therefore works in *anchored segments*: no correction,
 //! at any point of the sweep or its close, multiplies by an absolute position.
 //!
@@ -221,7 +221,7 @@
 //! sides (~32 KiB parked sums per side). Past that its quasilinear tier's
 //! per-level costs stop telescoping, and the settle pays at most one extra
 //! tree-depth factor, `O(M(|v|) · log |v|)` — and the log factor is tight there
-//! [derived; a committed witness at this scale would need 65 KiB+ packed
+//! [derived; a committed witness at this scale would need 65 KiB+ encoded
 //! operands]: `Θ(log |v|)` armings whose parked widths grow as `4,000 · 2^i`
 //! words, each banked ahead of a trailing window span `Θ(|v|)`, keep `Θ(log
 //! |v|)` tree levels' products in the quasilinear tier at `Θ(M(|v|))` each,

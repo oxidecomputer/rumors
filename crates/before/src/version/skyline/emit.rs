@@ -172,7 +172,7 @@ pub struct Hull {
 /// two output builders are doubled. Each output is byte-identical to its
 /// single-op entry point: the differential proptest beside this module pins the
 /// identity stream-level, and the `span_is_the_pair_hull` law pins it through
-/// the public door on every law consumer.
+/// the public entry point on every law consumer.
 ///
 /// The relation rides for free: the per-interval sign the side picks read is
 /// exactly what the comparison sweep folds, so one surviving-directions fold

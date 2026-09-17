@@ -31,7 +31,7 @@
 //! Every generator runs under a [`Budget`]: hard caps on emitted ops, ticks,
 //! forks, and fold width, enforced by the builder no matter what parameters
 //! the strategy draws. The caps bound total constructed size a priori
-//! (packed growth per public op is amortized constant per tick/fork), which
+//! (encoded growth per public op is amortized constant per tick/fork), which
 //! keeps iterated joins from compounding exponentially and doubles as the
 //! honesty bound for composed cases: a program's total denominated work is
 //! within a constant of its op budget. Most families run under [`BUDGET`];
@@ -48,10 +48,9 @@
 //!   this instrument's envelope is the region reachable by paying for
 //!   values one operation at a time.
 //! - **Codec rejection.** The staged bytes are always the canonical
-//!   encoding (or rendering) the immediately preceding encode/display step
-//!   produced, so `decode`/`FromStr` rejection paths are never measured
-//!   here; malformed-input cost is the decode fuzz targets' and the meter
-//!   board's territory. The rejection arms this harness *does* measure are
+//!   encoding produced by the immediately preceding encode step, so decode
+//!   rejection paths are never measured here; malformed-input cost is the
+//!   decode fuzz targets' territory. The rejection arms this harness *does* measure are
 //!   the operation-level ones (`join`/`sync`/`without`/`checked_sub` on
 //!   overlap, emptiness, or underflow), predicted per case by the mirror.
 //! - **Empty folds.** `join_all`/`meet_all` operands come from clock
@@ -720,13 +719,8 @@ impl B {
                     }
                 }
                 1 => {
-                    // Text round-trip on a random version.
                     if let Some(&v) = pick(&mut self.rng, &pools.versions) {
-                        self.push(Op::VersionDisplay { src: v });
-                        if self.room() {
-                            let dst = self.alloc(Ty::V);
-                            self.push(Op::VersionFromstr { dst });
-                        }
+                        self.push(Op::VersionMinTicks { src: v });
                     }
                 }
                 2 => {
@@ -810,13 +804,6 @@ impl B {
                         if self.room() {
                             let dst = self.alloc(Ty::P);
                             self.push(Op::PartyDecode { dst });
-                        }
-                        if self.room() {
-                            self.push(Op::PartyDisplay { src: p });
-                            if self.room() {
-                                let dst = self.alloc(Ty::P);
-                                self.push(Op::PartyFromstr { dst });
-                            }
                         }
                     }
                 }
@@ -1475,7 +1462,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
             };
             // The dense-spine shape at seed scale: each round forks a
             // child (halving the seed's interval, so the seed's next
-            // tick lands at a fresh position and its packed bits grow
+            // tick lands at a fresh position and its encoded bits grow
             // with the rounds) and folds the child into a sink — a
             // *success* join whose operands grow round over round. A
             // fork-and-rejoin schedule would not do: rejoining restores
@@ -1539,7 +1526,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 let Some(child) = b.fork(seed) else { break };
                 // One tick per level: the seed's id deepens every fork, so
                 // each tick lands at a fresh position and the event tree's
-                // packed bits grow linearly with depth (repeat ticks at one
+                // encoded bits grow linearly with depth (repeat ticks at one
                 // position would only bump a counter).
                 if !b.tick(seed) {
                     break;

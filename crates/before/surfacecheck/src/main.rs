@@ -14,8 +14,8 @@
 //! - function-like items (free functions, inherent methods,
 //!   public-trait-declared methods): a roster row in `METHOD_SURFACE`, or
 //!   a named, dated exception in [`check`];
-//! - trait impls (operators, `Display`/`FromStr`, serde/borsh, derives):
-//!   a pinned row in [`census::TRAIT_IMPLS`], reconciled both ways, so a
+//! - trait implementations: a pinned row in [`census::TRAIT_IMPLS`],
+//!   reconciled both ways, so a
 //!   new impl and a vanished pin both read red — the mechanical jaw
 //!   behind `FAMILY_SURFACE`'s per-family dispositions;
 //! - associated consts and types, module consts, statics, and macros: a

@@ -12,7 +12,7 @@
 //! source files. Demonstrated: with `pub use bytes::Bytes;` added at
 //! the crate root, the surface-totality leg reads the same 197 items
 //! and exits clean. `pub extern crate <dep>` and a `pub type` alias of
-//! a foreign type open the same door through different spellings, so
+//! a foreign type open the same entry point through different spellings, so
 //! the scan matches all three. This pin closes the channel: the
 //! committed roster below names every dependency re-export in the
 //! library source (today: none), so adding one is a reviewable diff

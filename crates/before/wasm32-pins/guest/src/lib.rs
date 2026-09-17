@@ -26,6 +26,22 @@ use before::{Clock, Party, Rank, Ranked, Span, Ticks, Version};
 use borsh::BorshDeserialize;
 use suanpan::Accumulator;
 
+/// A version with the same event count everywhere.
+fn uniform(ticks: impl Into<Ticks>) -> Version {
+    let mut version = Version::new();
+    Party::seed().ticks(&mut version, ticks);
+    version
+}
+
+/// The rank halfway between zero and one.
+fn half() -> Rank {
+    let mut keeper = Party::seed();
+    let child = keeper.fork();
+    let mut version = Version::new();
+    child.tick(&mut version);
+    version.rank()
+}
+
 /// The canonical encoding of a valid single-leaf `Version` padded to exactly
 /// `n` bytes: one leaf flag, then the Elias-gamma code of the leaf height
 /// `2^k - 1` with `k = 4n - 5`, then the marker byte.
@@ -145,7 +161,7 @@ pub extern "C" fn pin_forks_past_usize(k: u64) -> i64 {
 /// 32-bit target), the 2^29-byte coordinate where a `usize` spelling of
 /// bit positions would wrap, and — through the synthesized single wide
 /// leaf — the sizes where the decode's working set meets the 4 GiB
-/// address space, the doors' one terminal on this target.
+/// address space, the entry points' one terminal on this target.
 #[no_mangle]
 pub extern "C" fn pin_version_decode(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -244,10 +260,7 @@ pub extern "C" fn pin_rank_decode(exp: u64) -> i64 {
     if r <= Rank::ZERO {
         return -2;
     }
-    let one = match Version::try_from(1) {
-        Ok(v) => v.rank(),
-        Err(_) => return -3,
-    };
+    let one = uniform(1u8).rank();
     if r >= one {
         return -4;
     }
@@ -379,12 +392,12 @@ fn synth_ranked(n: usize) -> (Vec<u8>, usize) {
     (composite, rank_len)
 }
 
-/// Decode a valid `n`-byte-version composite key through the byte door
+/// Decode a valid `n`-byte-version composite key through the byte entry point
 /// `Ranked::decode`, checking the decoded version's bytes round-trip.
 ///
-/// The door re-derives the version's rank to verify the key's rank
+/// The entry point re-derives the version's rank to verify the key's rank
 /// component — a whole-stream fold over the version's stored view — so this
-/// export observes the composite door's walk surface at any size memory
+/// export observes the composite entry point's walk surface at any size memory
 /// admits.
 #[no_mangle]
 pub extern "C" fn pin_ranked_decode(n_bytes: u64) -> i64 {
@@ -403,7 +416,7 @@ pub extern "C" fn pin_ranked_decode(n_bytes: u64) -> i64 {
     0
 }
 
-/// Decode a valid `n`-byte-version composite key through the borsh door
+/// Decode a valid `n`-byte-version composite key through the borsh entry point
 /// `Ranked::deserialize_reader`, checking full consumption and byte
 /// round-trip.
 ///
@@ -431,10 +444,10 @@ pub extern "C" fn pin_ranked_borsh(n_bytes: u64) -> i64 {
 }
 
 /// Decode a valid coincident span (two byte-equal `n`-byte version streams)
-/// through the borsh door `Span::deserialize_reader`, checking full
+/// through the borsh entry point `Span::deserialize_reader`, checking full
 /// consumption and that both endpoints are the parsed version.
 ///
-/// The door validates the second stream against the first component's
+/// The entry point validates the second stream against the first component's
 /// stored view in one fused admission walk, so this export observes that
 /// walk on the `lo` component; the endpoint checks are byte compares,
 /// exact at any size memory admits.
@@ -569,7 +582,7 @@ pub extern "C" fn pin_version_join_emit(k: u64, j: u64) -> i64 {
 /// each leaf by `2^(d - depth)`, so the rank numerator is exactly `b + d`
 /// bits wide — depth converts into numerator width that no decoded value
 /// ever had, which is what lets the harness aim `b + d` at the fold's own
-/// coordinates independently of the doors'.
+/// coordinates independently of the entry points'.
 fn synth_rank_ladder(b: u64, d: u64) -> Vec<u8> {
     assert!(
         b >= 3 && d >= 1,
@@ -623,10 +636,7 @@ pub extern "C" fn pin_version_rank(b: u64, d: u64) -> i64 {
     drop(bytes);
     let r = v.rank();
     drop(v);
-    let one = match Version::try_from(1) {
-        Ok(v) => v.rank(),
-        Err(_) => return -2,
-    };
+    let one = uniform(1u8).rank();
     if r <= one {
         return -3;
     }
@@ -655,10 +665,7 @@ pub extern "C" fn pin_rank_integral_decode(k: u64) -> i64 {
         Err(_) => return -1,
     };
     drop(bytes);
-    let one = match Version::try_from(1) {
-        Ok(v) => v.rank(),
-        Err(_) => return -2,
-    };
+    let one = uniform(1u8).rank();
     if r <= one {
         return -3;
     }
@@ -695,14 +702,8 @@ pub extern "C" fn pin_rank_roundtrip(exp: u64) -> i64 {
 /// larger value is [`synth_rank`]'s fraction at that depth.
 fn small_rank(exp: u64) -> Result<Rank, i64> {
     match exp {
-        0 => match Version::try_from(1u64) {
-            Ok(v) => Ok(v.rank()),
-            Err(_) => Err(-101),
-        },
-        1 => match "(0, 1, 0)".parse::<Version>() {
-            Ok(v) => Ok(v.rank()),
-            Err(_) => Err(-102),
-        },
+        0 => Ok(uniform(1u8).rank()),
+        1 => Ok(half()),
         exp => Rank::decode(&synth_rank(exp)[..]).map_err(|_| -103),
     }
 }

@@ -24,8 +24,6 @@
 
 #![cfg(all(feature = "meter", feature = "scan-meter", feature = "limb-meter"))]
 
-use std::str::FromStr;
-
 use before::{meter, Party, Ticks, Version};
 
 fn counters(f: impl FnOnce()) -> (u64, u64, u64) {
@@ -62,7 +60,14 @@ fn fork_parties_from(seed: Party, n: usize) -> Vec<Party> {
 
 /// `10^w` as a tick count.
 fn wide(w: usize) -> Ticks {
-    Ticks::from_str(&format!("1{}", "0".repeat(w))).expect("a digit run parses")
+    let mut count = Ticks::from(1u8);
+    for _ in 0..w {
+        let twice = &count + &count;
+        let four = &twice + &twice;
+        let eight = &four + &four;
+        count = &eight + &twice;
+    }
+    count
 }
 
 /// Wide-base tiny-tail: one wide raise over the whole space, then `n`
@@ -95,7 +100,7 @@ fn wl(n: usize, w: usize) -> Version {
 }
 
 /// One grid cell: (scan, limb, touch) for both measure folds plus the
-/// packed size.
+/// encoded size.
 fn measure(v: &Version) -> ((u64, u64, u64), (u64, u64, u64), usize) {
     let mt = counters(|| {
         let _ = v.min_ticks();
@@ -159,7 +164,7 @@ fn measure_folds_are_additive_on_wide_base_tiny_tail() {
 /// Near-equal wide subtree minima are each discriminated within the
 /// input bits that spelled them. Unlike the wide-base family, here the
 /// *input itself* carries the n x w product (every rung stores its own
-/// wide count), so the honest check is flatness per packed byte across
+/// wide count), so the honest check is flatness per encoded byte across
 /// all four grid cells.
 #[test]
 fn measure_folds_are_flat_per_byte_on_wide_ladder() {

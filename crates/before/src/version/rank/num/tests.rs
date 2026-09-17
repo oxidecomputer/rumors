@@ -7,7 +7,7 @@
 //! exact oracle for the arm that exists because the backend (on 32-bit
 //! targets, at production widths) cannot hold the value. The value-level
 //! rank suites (`version/tests.rs`) drive the same arms through the public
-//! doors; these tests pin the arm mechanics — dispatch, assembly, shifts,
+//! entry points; these tests pin the arm mechanics — dispatch, assembly, shifts,
 //! bias steps, windows, and rendering — one operation at a time.
 
 use dashu_int::ops::BitTest;

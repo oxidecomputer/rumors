@@ -10,14 +10,14 @@
 //!
 //! **The size measure, declared per row.** A unary operation's column at
 //! size `N` draws its one input uniformly from the canonical inputs of
-//! exactly `N` packed bytes. A k-operand operation's column at *total*
+//! exactly `N` encoded bytes. A k-operand operation's column at *total*
 //! size `N` draws a split uniformly from the compositions of `N` into
 //! `k` positive parts, then each operand uniformly at its exact size; a
 //! slice row first draws its arity uniformly from every count the budget
 //! can feed (`1..=N`), the clock-fold row does the same with one part
 //! reserved for its party (`1..=N − 1` clocks), and the party-fold row
 //! draws the share count its guest-side split mints (`1..=N`, the one
-//! party keeping the whole budget). So the x-axis is total packed input
+//! party keeping the whole budget). So the x-axis is total encoded input
 //! bytes everywhere, and every rendered plot carries its row's exact
 //! declaration ([`crate::ops::OpSpec`]'s `size_measure`).
 
@@ -40,7 +40,7 @@ pub struct Plan {
     /// Samples per size column, on average: [`samples_for`](Plan::samples_for)
     /// splits each row's budget across its columns by expected spread.
     pub samples_per_column: usize,
-    /// The top of the geometric size grid, in packed bytes.
+    /// The top of the geometric size grid, in encoded bytes.
     pub max_bytes: usize,
 }
 
@@ -85,7 +85,7 @@ impl Plan {
 
 /// One measured bulk sample.
 pub struct CellSample {
-    /// The column's total input size in packed bytes.
+    /// The column's total input size in encoded bytes.
     pub size: usize,
     /// The sample's drawn arity: the fold's operand count for the
     /// variable-arity rows, the signature's operand count otherwise.
@@ -102,7 +102,7 @@ pub struct CellSample {
 pub struct OverlayPoint {
     /// The family generator's name.
     pub family: &'static str,
-    /// Total packed input bytes.
+    /// Total encoded input bytes.
     pub size: usize,
     /// Fuel consumed by the one measured kernel call.
     pub fuel: u64,
@@ -210,7 +210,7 @@ fn split_budget(total: usize, parts: usize, rng: &mut rand_chacha::ChaChaRng) ->
 /// The split draw precedes the member draws so the stream is stable
 /// however the samplers consume randomness. Returns the encodings
 /// (operand order) and the version rejections spent.
-fn draw_packed(
+fn draw_encoded(
     operands: &[Operand],
     samplers: &Samplers,
     size: usize,
@@ -242,7 +242,7 @@ fn draw_packed(
     (inputs, rejected)
 }
 
-/// Draw one operation's packed inputs for a column of total size `size`.
+/// Draw one operation's encoded inputs for a column of total size `size`.
 ///
 /// Returns the encodings (operand order), the sample's drawn arity (the
 /// signature's operand count for the fixed-signature rows), and the
@@ -254,16 +254,16 @@ fn draw_inputs(
     rng: &mut rand_chacha::ChaChaRng,
 ) -> (Vec<Vec<u8>>, usize, u64) {
     match op.inputs {
-        Inputs::Packed(operands) => {
-            let (inputs, rejected) = draw_packed(operands, samplers, size, rng);
+        Inputs::Operands(operands) => {
+            let (inputs, rejected) = draw_encoded(operands, samplers, size, rng);
             (inputs, operands.len(), rejected)
         }
-        Inputs::PackedDistinct(operands) => {
+        Inputs::DistinctOperands(operands) => {
             // Whole-sample rejection of byte-identical pairs: restricting
             // the uniform pair measure to the distinct pairs, exactly.
             let mut rejected = 0;
             loop {
-                let (inputs, r) = draw_packed(operands, samplers, size, rng);
+                let (inputs, r) = draw_encoded(operands, samplers, size, rng);
                 rejected += r;
                 if inputs.iter().any(|i| *i != inputs[0]) {
                     return (inputs, operands.len(), rejected);

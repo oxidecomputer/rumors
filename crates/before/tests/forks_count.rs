@@ -40,9 +40,7 @@ proptest! {
 /// standard unbounded `size_hint`, and returns every untaken region on drop.
 #[test]
 fn party_forks_accept_an_unbounded_count() {
-    let count: Ticks = "340282366920938463463374607431768211456"
-        .parse()
-        .expect("2^128 is a natural-number count");
+    let count = Ticks::from(u128::MAX) + Ticks::from(1u8);
     let mut keeper = Party::seed();
     let share = {
         let mut forks = keeper.forks(count.clone());
@@ -61,9 +59,7 @@ fn party_forks_accept_an_unbounded_count() {
 /// carries the parent's version.
 #[test]
 fn clock_forks_accept_an_unbounded_count() {
-    let count: Ticks = "340282366920938463463374607431768211456"
-        .parse()
-        .expect("2^128 is a natural-number count");
+    let count = Ticks::from(u128::MAX) + Ticks::from(1u8);
     let mut keeper = Clock::seed();
     let child = {
         let mut forks = keeper.forks(count.clone());
@@ -74,5 +70,5 @@ fn clock_forks_accept_an_unbounded_count() {
     assert!(keeper.party().is_disjoint(child.party()));
     assert_eq!(keeper.version(), child.version());
     keeper.join(child).expect("disjoint children rejoin");
-    assert_eq!(keeper.party().to_string(), "1");
+    assert!(keeper.party().is_seed());
 }

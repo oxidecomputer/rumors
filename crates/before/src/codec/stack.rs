@@ -78,7 +78,7 @@ impl BitStack {
     }
 
     /// Pop `len <= 63` bits at once, returned exactly as
-    /// [`push_bits`](Self::push_bits) packed them: the inverse, equal to `len`
+    /// [`push_bits`](Self::push_bits) stored them: the inverse, equal to `len`
     /// single pops assembled low bit first.
     ///
     /// # Panics

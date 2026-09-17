@@ -12,7 +12,7 @@ use super::{draw_arity, run_op, split_budget, Plan, Samplers};
 /// collected samples land in. This is the atlas's stamped determinism
 /// contract; a construction change that leaks state between samples or
 /// re-derives a cell's RNG from execution order fails it. The op list
-/// walks every input space: unary and binary packed draws (both
+/// walks every input space: unary and binary encoded draws (both
 /// samplers, the split rule, the version rejection path), the slice
 /// arity-and-composition draw, the distinct-pair rejection, the
 /// three-way split with in-guest fork preparation, and both

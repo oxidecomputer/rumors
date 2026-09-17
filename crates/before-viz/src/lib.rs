@@ -14,6 +14,7 @@
 //! Because `encode`/`decode` round-trips canonically and `fork`/`join` are
 //! deterministic, replaying the same log always reconstructs byte-identical nodes.
 
+use before::shape::Rise;
 use before::{Clock, Version};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -25,13 +26,33 @@ mod tests;
 use oplog::{analyze, decode, descendant_cone, encode, rewind_and_apply, MAX_OPS};
 pub use oplog::{Edge, EdgeKind, Op};
 
-/// A materialized node returned to the front-end: the clock's paper-notation strings.
+/// A materialized node returned to the front-end.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Descriptor {
+    /// The node's creation-order index.
     pub idx: usize,
-    pub party: String,
-    pub event: String,
-    pub stamp: String,
+    /// The party's constant-ownership regions, from left to right.
+    pub party: Vec<PartyRegion>,
+    /// The version's constant-height plateaus, from left to right.
+    pub version: Vec<VersionPlateau>,
+}
+
+/// One constant-ownership region in the unit interval.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct PartyRegion {
+    /// Whether the party owns the region.
+    pub owned: bool,
+    /// The region's width is `2^-depth`.
+    pub depth: u64,
+}
+
+/// One constant-height plateau in the unit interval.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct VersionPlateau {
+    /// The signed height change on entering the plateau.
+    pub rise: i64,
+    /// The plateau's width is `2^-depth`.
+    pub depth: u64,
 }
 
 /// The full derived state handed to the front-end after each change.
@@ -89,13 +110,10 @@ impl core::fmt::Display for EngineError {
 
 impl std::error::Error for EngineError {}
 
-/// A node in the arena: canonical bytes plus its precomputed notation.
+/// A node's canonical clock bytes.
 #[derive(Clone, Debug)]
 struct Node {
     bytes: Vec<u8>,
-    party: String,
-    event: String,
-    stamp: String,
 }
 
 /// The host-testable engine: owns the op-log and the arena it replays to. Carries no
@@ -173,11 +191,10 @@ impl Engine {
         self.arena
             .iter()
             .enumerate()
-            .map(|(idx, n)| Descriptor {
-                idx,
-                party: n.party.clone(),
-                event: n.event.clone(),
-                stamp: n.stamp.clone(),
+            .map(|(idx, node)| {
+                let clock = Clock::decode(&node.bytes[..])
+                    .expect("the arena stores only canonical clock bytes");
+                descriptor(idx, &clock)
             })
             .collect()
     }
@@ -233,11 +250,45 @@ fn clock_at(arena: &[Node], i: usize) -> Result<Clock, EngineError> {
 
 fn push_clock(arena: &mut Vec<Node>, clock: Clock) {
     arena.push(Node {
-        party: clock.party().to_string(),
-        event: clock.version().to_string(),
-        stamp: clock.to_string(),
         bytes: clock.encode(),
     });
+}
+
+/// Converts a clock into the flat shape data consumed by the renderer.
+fn descriptor(idx: usize, clock: &Clock) -> Descriptor {
+    let party = clock
+        .party()
+        .shape()
+        .map(|region| PartyRegion {
+            owned: region.owned,
+            depth: region.depth,
+        })
+        .collect();
+    let version = clock
+        .version()
+        .shape()
+        .map(|plateau| VersionPlateau {
+            rise: match plateau.rise {
+                None => 0,
+                Some(Rise::Up(ticks)) => i64::try_from(
+                    u64::try_from(&ticks)
+                        .expect("the operation budget keeps visualized heights within u64"),
+                )
+                .expect("the operation budget keeps visualized heights within i64"),
+                Some(Rise::Down(ticks)) => -i64::try_from(
+                    u64::try_from(&ticks)
+                        .expect("the operation budget keeps visualized heights within u64"),
+                )
+                .expect("the operation budget keeps visualized heights within i64"),
+            },
+            depth: plateau.depth,
+        })
+        .collect();
+    Descriptor {
+        idx,
+        party,
+        version,
+    }
 }
 
 fn apply_to_arena(arena: &mut Vec<Node>, op: Op) -> Result<(), EngineError> {

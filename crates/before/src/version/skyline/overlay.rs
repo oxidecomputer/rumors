@@ -2,7 +2,7 @@
 //! over aligned dyadic streams is built on.
 //!
 //! A skyline stream lists its version's plateaus left to right — a leaf at
-//! depth `d` is a constant run of width `2^-d` — and a packed id stream lists
+//! depth `d` is a constant run of width `2^-d` — and a party stream lists
 //! its constant-ownership regions the same way: each stream is a dyadic tiling
 //! of the unit id interval, read in preorder. Every multi-stream walk in this
 //! crate overlays such tilings, consuming their boundaries in position order.
@@ -16,8 +16,8 @@
 //! inside each slot's step; the boundary bookkeeping below is their shared
 //! correctness argument. Above them sit the two cursor instances.
 //! [`LeafCursor`] walks a skyline stream, its crossings the signed height
-//! deltas ([`Step`]). [`IdLeafCursor`] walks a packed id stream, whose
-//! ownership is per-region state read between boundaries. Beside them sits the
+//! deltas ([`Step`]). [`IdLeafCursor`] walks a party stream, whose ownership is
+//! per-region state read between boundaries. Beside them sits the
 //! pair-difference algebra every two-skyline walk shares: [`OpenedPair`] seeds
 //! `D = height_a − height_b` from the two absolute opening heights, and
 //! [`Side`], [`fold`], and [`advance_diff`] orient every later crossing into
@@ -457,12 +457,12 @@ impl PlateauCursor for LeafCursor<'_> {
     }
 }
 
-/// A cursor at the current constant-ownership region of a packed id stream.
+/// A cursor at the current constant-ownership region of a party stream.
 ///
 /// The id-side mirror of the skyline [`LeafCursor`]: the same root-to-leaf path
 /// bits and the same flip bookkeeping, entering every overlay through
 /// [`PlateauCursor`] with a state payload (owned or not, read between
-/// boundaries) instead of a height delta. Absent children in the packed form
+/// boundaries) instead of a height delta. Absent children in the encoded form
 /// (the 2-bit presence-tag coding [`crate::idbits`]'s module doc specifies) are
 /// unowned regions, so the cursor synthesizes an empty leaf wherever a
 /// present-child flag is clear without consuming stream bits; exhaustion is
@@ -485,15 +485,15 @@ pub(super) struct IdLeafCursor<'a> {
 }
 
 impl<'a> IdLeafCursor<'a> {
-    /// Open a packed id stream at its first constant region.
+    /// Open a party stream at its first constant region.
     ///
     /// The empty stream is the empty id — one unowned region over the whole
-    /// interval — mirroring the packed coding, where absence *is* the empty
+    /// interval — mirroring the encoded coding, where absence *is* the empty
     /// region.
     ///
     /// # Panics
     ///
-    /// The stream must be a canonical packed id. The one violation this walk
+    /// The stream must be a canonical party. The one violation this walk
     /// structurally notices — truncation (the stream exhausting mid-descent) —
     /// panics; the rest (a collapsible pair of full children, bits past the
     /// walked tree) walk silently with unspecified ownership readings (the
@@ -523,7 +523,7 @@ impl<'a> IdLeafCursor<'a> {
     ///
     /// # Panics
     ///
-    /// The stream must be a canonical packed id. The one violation this walk
+    /// The stream must be a canonical party. The one violation this walk
     /// structurally notices — truncation (the stream exhausting mid-descent) —
     /// panics; the rest walk silently with unspecified ownership readings (the
     /// mask-operand contract of [`causal_cmp`](super::masked::causal_cmp),
@@ -574,7 +574,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
     ///
     /// # Panics
     ///
-    /// The stream must be a canonical packed id. The one violation this walk
+    /// The stream must be a canonical party. The one violation this walk
     /// structurally notices — truncation (the stream exhausting mid-descent) —
     /// panics; the rest walk silently with unspecified ownership readings (the
     /// mask-operand contract of [`causal_cmp`](super::masked::causal_cmp),

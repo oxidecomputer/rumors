@@ -23,39 +23,9 @@
 //!   `k`-bit-position mantissa) and the decoder's window fast path carry
 //!   over unchanged.
 //!
-//! This coding is the stored and wire form of a [`Version`]:
-//! [`Version::encode`] and [`Version::decode`] carry these streams, and every
-//! operation runs on them directly. The submodules:
-//!
-//! - [`sweep`] decides comparisons on skyline streams — the merge form
-//!   the coding exists to enable.
-//! - `masked` decides the same comparisons over *projected* streams
-//!   (event × id overlays) without materializing any projection.
-//! - `place` places one stream against a range's or an
-//!   interval's bound streams in a single fused merge, generic over the
-//!   verdict (`causally`'s placement kernel).
-//! - [`emit`] runs the same merge as join and meet, re-delta-coding
-//!   pointwise max/min into a canonical stream through the collapsing
-//!   output builder (the private `build` submodule, which the tick
-//!   splice drives too).
-//! - [`query`] answers the linear functionals (rank, distance, lag,
-//!   min_ticks) and projection from the same leaf sweeps.
-//! - `fill` registers an event — the fused tick: one fill
-//!   walk deciding in-pass whether raising full regions changed the
-//!   stream, else the cheapest inflation along the route the walk
-//!   recorded — with the `grow` submodule's splice emit
-//!   rebuilding the one chosen root-to-leaf path.
-//! - [`text`] renders and parses the paper's text notation directly on
-//!   the streams.
-//!
-//! Machinery layers sit under the operations, each with its own essay:
-//! `overlay` (the tiling cursors and the advance law every merge steps by),
-//! `walk` (the leaf-walk driver the single-stream scanning passes share),
-//! `watermark` (the anchored-minimum web the fill walk and the min-ticks fold
-//! share), and `signed` (the sign-magnitude currency: the zigzag maps, the
-//! signed folds and sums, the gamma codes). A submodule is public exactly where
-//! the meter integration suite path-names it; the machinery stays
-//! crate-private.
+//! This is both the stored form and the wire form of a [`Version`]. Operations
+//! read it directly and emit another canonical stream; they do not first build
+//! a recursive tree.
 //!
 //! Every kernel is differentially pinned against the recursive oracle
 //! (`crate::oracle`), and the meter surface re-exports the module
@@ -86,14 +56,14 @@
 //! minimal topology makes the tree unique, and heights are function-determined.
 //! Byte-equality is therefore semantic equality on this coding, and the
 //! construction-language transcoder (`encode_bits`, from the generators'
-//! min-lifted packed preorder streams) lands exactly on the one canonical
+//! min-lifted preorder streams) lands exactly on the one canonical
 //! stream per value.
 //!
 //! # Validation cost
 //!
 //! [`validate`](fn@validate) runs one forward pass holding, per open ancestor,
 //! two bits — "is my left child complete" and "was that child a leaf" — on a
-//! packed bit stack, plus one [`Accumulator`](suanpan::Accumulator) carrying
+//! bit stack, plus one [`Accumulator`](suanpan::Accumulator) carrying
 //! the running leaf height for the nonnegativity check. The bit stack costs ~2
 //! bits per level where machine-word parse frames would cost tens of bytes; the
 //! resource-envelope suite (`tests/meter.rs`) pins both that transient and the
@@ -118,7 +88,7 @@
 //! height, base, or node is materialized beyond validation's one payload in
 //! flight. The construction-language transcoder (`encode_bits`, test- and
 //! meter-only) is the one walk that materializes path sums, priced by the
-//! packed stream it reads.
+//! encoded stream it reads.
 //!
 //! # Testing
 //!
@@ -176,9 +146,6 @@ pub mod emit;
 mod encode;
 pub(crate) mod fill;
 pub(crate) mod grow;
-// Literal skyline construction from paper-notation event trees: the doctest
-// and unit-test vocabulary's builder.
-pub(crate) mod literal;
 pub(crate) mod masked;
 // The overlay cursors and the advance law: crate-private walk machinery shared
 // by every merge.
@@ -189,7 +156,6 @@ pub mod query;
 pub(crate) mod shape;
 mod signed;
 pub mod sweep;
-pub mod text;
 mod validate;
 // The leaf-walk driver: the descend/backtrack skeleton and shared leaf
 // actions of the single-stream scanning passes.

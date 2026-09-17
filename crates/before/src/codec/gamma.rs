@@ -33,7 +33,7 @@ pub(crate) fn encode_int(out: &mut BitsBuf, n: &Base) {
     match m.to_u64() {
         // Word case: the mantissa fits a machine word, so append the whole code
         // word-wise — the `k`-zero prefix in one append, then the `k+1`-bit
-        // mantissa (`m` value-packed, its leading 1 included) in another —
+        // mantissa (`m` right-aligned, its leading 1 included) in another —
         // instead of one `push` per bit. Byte-identical to the per-bit emit
         // below.
         Some(m) => {
@@ -64,7 +64,7 @@ pub(crate) fn encode_int(out: &mut BitsBuf, n: &Base) {
 ///
 /// [`encode_int`]'s value form: the same code bit for bit, carried as two
 /// machine words whenever it fits [`Code::Small`] — the whole gamma code of `m
-/// = n + 1` *is* `m` value-packed under its `k` leading zeros, so the fast path
+/// = n + 1` *is* `m` right-aligned under its `k` leading zeros, so the fast path
 /// is two shifts — and as an owned buffer past that.
 pub(crate) fn code_int(n: &Base) -> Code {
     if let Some(m) = n.to_u64().and_then(|n| n.checked_add(1)) {
@@ -157,7 +157,7 @@ pub(crate) fn decode_int_window(bits: BitsView<'_>, pos: u64) -> Option<(u64, u6
 
 /// The one-window decoder's body over raw parts: `len` live bits across
 /// `body` plus the masked partial `tail` byte, positions in `u64` (a byte
-/// door's whole-buffer view holds more bit positions than a 32-bit `usize`).
+/// input buffer can hold more bit positions than a 32-bit `usize`).
 fn window_int(body: &[u8], tail: Option<u8>, len: u64, pos: u64) -> Option<(u64, u64)> {
     // Bits of real stream between `pos` and the window's end.
     let proven = len.checked_sub(pos)?.min(WINDOW_BITS);

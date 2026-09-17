@@ -1,7 +1,12 @@
 # `before` review checklist
 
-**Active:** remove the Party fold index while preserving collection-join
-semantics and bounds.
+**Active:** remove paper-notation text I/O and literal construction, including
+their instruments and fixtures; dissolve the bench judge in favor of the
+deterministic WASM fuel measurements.
+
+This outcome includes a repository-wide documentation and doctest sweep:
+no prose, example, diagnostic, generated README source, or sibling crate may
+depend on or describe the paper notation.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -36,6 +41,8 @@ triage's dispositions and branches are leads only.
       verification architecture.
       Sources: `crate-root-*`, `module-graph-*`, `prose-hygiene-*`;
       `crates/before/AGENTS.md` and the current crate docs.
+      Ready for review: the guidepost now states the traversal rule without a
+      stale module inventory.
 
 ## 02. Width and platform correctness
 
@@ -65,11 +72,11 @@ triage's dispositions and branches are leads only.
       its adjacency. Rumors has no `forks` caller to update; the all-feature
       workspace suite and clippy pass with the new surface.
 
-- [ ] Remove fixed `u32` caps from fill, query, and fold bookkeeping where the
+- [x] Remove fixed `u32` caps from fill, query, and fold bookkeeping where the
       public contract is bounded only by memory.
       Sources: `inventory-1`, `skyline-fill-grow-23`, `recursion-5`,
       `skyline-query-24`, `party-23`.
-      Fill and query are complete; the Party fold path is active.
+      Complete in `f61f3fed`.
 
 - [ ] Reject wide gamma values at the backend's real capacity and keep the
       wasm guest's own arithmetic from becoming the tested failure.
@@ -128,10 +135,13 @@ triage's dispositions and branches are leads only.
       Sources: `span-causally-24`, `span-causally-36`,
       `skyline-sweep-place-masked-21`.
 
-- [ ] Make tuple/literal construction and the render merge avoid per-level
-      recopying.
+- [ ] Remove paper-notation text I/O and literal construction instead of
+      maintaining their parsers, renderers, and complexity instruments.
       Sources: `party-11`, `clock-14`, `version-core-16`,
       `codec-base-text-tree-13`, `skyline-coding-20`, `skyline-coding-29`.
+      Ready for review: the APIs, implementations, fixtures, and dedicated
+      instruments are gone; semantic tests construct values through public
+      operations and binary decoding.
 
 - [ ] Bound tick's memo and suspended-level storage by a small constant multiple
       of input size without introducing a second representation solely for a
@@ -199,10 +209,14 @@ triage's dispositions and branches are leads only.
       `board-families-floors-judge-*`, `board-ops-render-*`,
       `meter-adequacy-*`.
 
-- [ ] Reassess the bench judge, worst-case rankings, asymptotic liveness pins,
-      and superlinear tripwires. Consolidate or retire overlapping claims.
+- [ ] Remove the bench judge; use deterministic WASM fuel measurements for
+      general time and complexity verification. Reassess worst-case rankings,
+      asymptotic liveness pins, and superlinear tripwires separately.
       Sources: `benches-examples-*`, `tests-other-*`, `suite-economics-*`,
       `tools-*`.
+      Ready for review: the judge, sidecar benchmarks, CI wiring, and roster
+      tests are gone. The actual wrong-implementation tests remain, without a
+      filesystem roster that duplicates the compiler.
 
 - [ ] Reassess fuzz-fit and fuelscape separately: retain enforcement that
       catches unchosen worst-case shapes; retire decorative charts, copied

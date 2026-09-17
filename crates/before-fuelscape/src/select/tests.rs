@@ -6,7 +6,7 @@ use crate::ops::{Inputs, OpSpec, Operand, ROSTER};
 fn spec(name: &'static str) -> OpSpec {
     OpSpec {
         name,
-        inputs: Inputs::Packed(&[Operand::Version]),
+        inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["unused"],
         size_measure: "unused",
         variant: "",

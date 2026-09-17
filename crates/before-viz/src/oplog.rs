@@ -296,11 +296,9 @@ pub fn encode(log: &[Op]) -> String {
 /// The most ops a log may carry: the op budget.
 ///
 /// A log is caller input (any shared link carries one as a fragment), and
-/// every accepted op costs a replay: arena nodes whose notation strings
-/// grow with fork depth (a chain of forks makes total arena memory
-/// quadratic in op count), and the front-end's per-tree-level work is
-/// bounded by the same count, since each op deepens a tree by at most one
-/// level. A teaching figure needs at most a few dozen ops, so 512 is an
+/// every accepted op costs a replay. A clock can grow linearly with the log,
+/// and retaining every historical clock can therefore consume quadratic
+/// space. A teaching figure needs at most a few dozen ops, so 512 is an
 /// order of magnitude of headroom. [`decode`] enforces the budget as early
 /// rejection on the wire; the engine owns the same budget at replay, so
 /// every entry is covered.

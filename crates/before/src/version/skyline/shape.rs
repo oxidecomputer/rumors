@@ -2,7 +2,7 @@
 //! public step-function iterators in [`crate::shape`].
 //!
 //! Each walk drives one overlay cursor — [`LeafCursor`] for a skyline
-//! stream, [`IdLeafCursor`] for a packed id stream — and exposes exactly
+//! stream, [`IdLeafCursor`] for a party stream — and exposes exactly
 //! what the public vocabulary needs. The event side converts crossings
 //! into pending rises (the rise entering the current plateau, held until
 //! the public iterator consumes it); the id side needs no conversion at
@@ -71,7 +71,7 @@ impl<'a> VersionWalk<'a> {
     }
 }
 
-/// A shape walk over one packed id stream: a thin visibility shim over
+/// A shape walk over one party stream: a thin visibility shim over
 /// [`IdLeafCursor`] (whose per-region ownership state is already the
 /// public item's payload).
 pub(crate) struct PartyWalk<'a> {
@@ -79,7 +79,7 @@ pub(crate) struct PartyWalk<'a> {
 }
 
 impl<'a> PartyWalk<'a> {
-    /// Open a canonical packed id stream at its first constant region.
+    /// Open a canonical party stream at its first constant region.
     pub(crate) fn open(bits: BitsView<'a>) -> Self {
         PartyWalk {
             cursor: IdLeafCursor::open(bits),

@@ -20,7 +20,7 @@
 //! (grow) branch costs one walk plus one splice, with fill's discarded output
 //! never built at all.
 //!
-//! The walk pairs the packed id (`IdReader`) against the skyline topology and
+//! The walk pairs the party (`IdReader`) against the skyline topology and
 //! streams one `(depth, payload code)` plateau per output leaf to the
 //! collapsing builder, which derives the union topology and performs the
 //! equal-sibling normalization. A child is *full* when the id owns it entirely
@@ -62,7 +62,7 @@
 //!
 //! # Cost
 //!
-//! Scan: `O(n + m)` bits in the two packed streams [measured: e 1.00 on every
+//! Scan: `O(n + m)` bits in the two encoded streams [measured: e 1.00 on every
 //! committed board family at both scales]. The walk consumes every position
 //! once; the left-full pre-scan reads a position at most once more (the memo
 //! turns every interior left-full site into a lookup, and distinct fresh scans
@@ -73,7 +73,7 @@
 //! is one more bounded pass: a divergence replays the matched prefix once, and
 //! the unchanged branch's splice emit reads both streams once.
 //!
-//! Limb: accumulator digit touches are amortized linear in the two packed
+//! Limb: accumulator digit touches are amortized linear in the two encoded
 //! streams [measured: exponent 1.00 with flat constants across the committed
 //! families — the `width_circulation_cost` and memo modules of
 //! `tests/meter.rs` name each family, state its shape, and pin the readings
@@ -188,7 +188,7 @@ const _: () = assert!(
 );
 
 /// Register one event on the version a skyline stream denotes, from the
-/// perspective of a packed id.
+/// perspective of a party.
 ///
 /// The event is `fill` if it simplifies the tree, else the
 /// [`grow`](super::grow) inflation — one fused walk, then at most one splice
@@ -216,7 +216,7 @@ pub fn tick(event: BitsView<'_>, id: &crate::Party) -> BitsBuf {
 }
 
 /// Register `n` events on the version a skyline stream denotes, from the
-/// perspective of a packed id — byte-identical to `n` sequential [`tick`]s, in
+/// perspective of a party — byte-identical to `n` sequential [`tick`]s, in
 /// at most two fused walks plus one `+n` splice.
 ///
 /// The branch structure compounds the paper's `event = fill if it
@@ -342,7 +342,7 @@ pub(super) fn fused_fill(event_bits: BitsView<'_>, id: &crate::Party) -> FillOut
 
 /// The fill walk: input cursor, relative-height state, the fused changed-flag
 /// output, and the route probe. The `&mut` [`IdReader`] threads alongside as
-/// the recursion argument, exactly as the packed walks thread theirs.
+/// the recursion argument, exactly as the encoded walks thread theirs.
 struct FillWalk<'a> {
     /// The input skyline stream (kept beside the cursor for the unmetered
     /// single-flag peek and the sub-scans' spawn positions).

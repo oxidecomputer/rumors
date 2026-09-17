@@ -1,7 +1,7 @@
 //! A third, semantically independent reference: the paper's §4 function-space
 //! construction, realized *literally as functions*.
 //!
-//! The recursive [`oracle`] and the packed impl both represent a stamp as a
+//! The recursive [`oracle`] and the encoded impl both represent a stamp as a
 //! *tree* and realize each operation as the same tree recursion, so "impl ==
 //! oracle" is blind to a bug the two share. This module shares no code and no
 //! structure with that recursion: a stamp's id *is* its characteristic function

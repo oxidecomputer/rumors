@@ -1,61 +1,27 @@
-//! The mutable build-side form of a packed bit stream: [`BitsBuf`], the one
-//! buffer every emitter, parser, and instrument writes into, and the sealing
-//! step that hands a finished stream to the frozen storage form.
-//!
-//! # Representation
+//! Mutable bit-stream storage.
 //!
 //! A [`BitsBuf`] is the stream's bytes beside a `u64` live bit length, under
-//! two invariants every mutation maintains:
+//! two invariants:
 //!
-//! - **Exact bytes**: the byte vector holds exactly the live bits' bytes
-//!   (`live.div_ceil(8)` of them), never a trailing byte of shed content.
-//! - **Zeroed dead bits**: the bits of the final partial byte at and past
-//!   the live length are zero. Truncation masks the new final byte in
-//!   `O(1)`; appends write into space the invariant already zeroed.
+//! - the vector contains exactly `live.div_ceil(8)` bytes;
+//! - unused bits in the final byte are zero.
 //!
-//! Together they make the byte image a function of the bit content alone:
-//! two buffers holding equal bits are byte-for-byte equal (so [`PartialEq`]
-//! is one length check and one `memcmp`), and sealing a finished stream
-//! ([`seal_padding`]) only appends the marker bit — the padding it completes
-//! is already canonical, so the freeze seam adopts the allocation whole,
-//! without a repair pass or a copy.
-//!
-//! # Widths
-//!
-//! Lengths and positions are `u64` on every target: the buffer is correct up
-//! to allocatable memory, and no `usize`-denominated bit count anywhere in
-//! the build path can wrap or bind on a 32-bit target. (A 32-bit `usize`
-//! spelling of `bytes.len() * 8` wraps from 512 MiB of buffer — sizes a
-//! 4 GiB address space allocates comfortably.) The frozen form (`Bits`)
-//! carries the same `u64` denomination, so the freeze seam is exact too:
-//! allocatable memory is the only bound anywhere on the build path.
-//!
-//! Byte *indexes* stay `usize`: an index into an allocated buffer fits the
-//! target's address width by construction.
+//! Consequently, equal buffers have equal bytes and [`seal_padding`] only
+//! needs to append the marker. Lengths and bit positions use `u64`; byte
+//! indexes use `usize`.
 
 use super::bits::BitsView;
 
-/// The mutable build-side form of a packed bit stream: bytes beside a `u64`
-/// live bit length, dead bits zeroed.
+/// Mutable bytes with an explicit live bit length.
 ///
-/// Every emitter and builder writes into one of these (the crate's
-/// packed-stream builder wraps one with the metered move set); a finished
-/// stream freezes into the at-rest `Bits` at the storage seam. The module doc
-/// carries the representation invariants and the width discipline.
-///
-/// Equality is bit-content equality, decided bytewise: the zeroed-dead-bits
-/// invariant makes the byte image injective on contents.
+/// Equality compares bit content bytewise because unused bits are always zero.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct BitsBuf {
-    /// The live bits' bytes, most-significant bit first:
-    /// `live.div_ceil(8)` bytes exactly, dead bits zero (the module doc's
-    /// invariants).
+    /// The live bits, most-significant bit first, with unused bits zeroed.
     bytes: Vec<u8>,
     /// The live bit length.
     ///
-    /// `u64` increments from an allocatable buffer cannot wrap: every
-    /// stored bit occupies real memory, so the length is bounded by the
-    /// address space times eight, orders of magnitude under `u64::MAX`.
+    /// Every stored bit occupies memory, so this cannot approach `u64::MAX`.
     live: u64,
 }
 
@@ -111,15 +77,12 @@ impl BitsBuf {
         self.live == 0
     }
 
-    /// The live bits' bytes: dead bits of the final partial byte read zero
-    /// (the module doc's invariant), so the image is the content's one
-    /// spelling.
+    /// The bytes containing the live bits.
     pub fn as_raw_slice(&self) -> &[u8] {
         &self.bytes
     }
 
-    /// The buffer's bytes, surrendered whole: the freeze seam's `O(1)`
-    /// hand-off into the frozen storage form.
+    /// Consume the buffer and return its bytes.
     pub(crate) fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
@@ -149,17 +112,6 @@ impl BitsBuf {
         }
     }
 
-    /// The live bits, oldest first.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = bool> + '_ {
-        (0..self.live).map(|pos| self.get(pos))
-    }
-
-    /// The number of set live bits: a bytewise popcount, exact because the
-    /// dead bits are zero (the module doc's invariant).
-    pub(crate) fn count_ones(&self) -> u64 {
-        self.bytes.iter().map(|b| u64::from(b.count_ones())).sum()
-    }
-
     /// Append one bit.
     pub(crate) fn push(&mut self, bit: bool) {
         let within = (self.live % 8) as u32;
@@ -180,8 +132,7 @@ impl BitsBuf {
         Some(bit)
     }
 
-    /// Append `len <= 64` bits, value-packed at the low end of `value` (bits
-    /// above `len` must be zero), most-significant first.
+    /// Append the low `len <= 64` bits of `value`, most-significant first.
     pub(crate) fn push_bits(&mut self, value: u64, len: u32) {
         debug_assert!(len <= 64, "an append stages at most one machine word");
         debug_assert!(
@@ -213,15 +164,12 @@ impl BitsBuf {
         self.live += u64::from(len);
     }
 
-    /// Append another buffer's bits, oldest first:
-    /// [`extend_from_view`] over the other buffer's whole view.
+    /// Append another buffer's live bits.
     pub(crate) fn extend_from_buf(&mut self, other: &BitsBuf) {
         extend_from_view(self, built_view(other), 0, other.len());
     }
 
-    /// Roll the buffer back to `len` bits, discarding everything after:
-    /// the byte vector sheds the freed bytes and the new final partial
-    /// byte's dead bits are zeroed, both `O(1)` past the deallocation.
+    /// Discard every bit at or after `len` and zero the new unused tail.
     ///
     /// # Panics
     ///

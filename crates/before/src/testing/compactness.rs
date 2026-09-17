@@ -75,13 +75,14 @@ pub(crate) struct Sample {
 /// C_leaf * leaves`, [`EULER_LEAF_CHARGE_BITS`], where the stored-base code
 /// bits are exactly `current_bits - nodes`).
 pub(crate) fn check_sample(version: &Version) -> Sample {
-    // The decision-era "current" coding is the min-lifted packed preorder
+    // The decision-era "current" coding is the min-lifted preorder
     // stream (one gamma-coded base per node), re-derived through the
     // oracle lowering; the stored coding is Tier 2 itself.
-    let packed =
-        crate::testing::bridge::packed_bits_of(&crate::testing::bridge::to_oracle_version(version));
-    let tier2 = tier2_size(crate::codec::built_view(&packed));
-    let current_bits = packed.len();
+    let encoded = crate::testing::bridge::encoded_bits_of(
+        &crate::testing::bridge::to_oracle_version(version),
+    );
+    let tier2 = tier2_size(crate::codec::built_view(&encoded));
+    let current_bits = encoded.len();
     let ratio = tier2.total_bits as f64 / current_bits as f64;
 
     let envelope = 2.0 * current_bits as f64 + TIER2_NODE_ENVELOPE_BITS * tier2.nodes as f64;
@@ -152,7 +153,7 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
         bits.push(false);
         codec::encode_int(&mut bits, &m);
     }
-    // The comb is hand-built in the min-lifted packed construction
+    // The comb is hand-built in the min-lifted encoded construction
     // language; the transcoding bridge lifts it into the stored coding.
     let version = Version::from_bits(crate::version::skyline::encode_bits(
         crate::codec::built_view(&bits),

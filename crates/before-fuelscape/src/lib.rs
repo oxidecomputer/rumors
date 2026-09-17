@@ -28,7 +28,7 @@
 //! an explicitly reasoned exemption.
 //!
 //! **The measure, and what it cannot see.** Inputs are drawn uniformly
-//! from the set of canonical inputs whose packed encoding is exactly `n`
+//! from the set of canonical inputs whose encoding is exactly `n`
 //! bytes (the crate's denominator of record), by counting-guided
 //! generation over the codec grammars ([`count`], [`sample`]). Uniform
 //! sampling audits the *bulk*: it shows where the mass of the input space

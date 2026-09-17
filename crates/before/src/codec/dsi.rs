@@ -1,33 +1,14 @@
-//! The word-parallel stream cursor: sequential bit, unary, and Elias-gamma
-//! reads over one packed stream, on `dsi-bitstream`'s buffered big-endian
-//! reader.
+//! Word-parallel bit, unary, and Elias-gamma reads.
 //!
-//! [`DsiCursor`] is the skyline walks' production reader. It reads the same
-//! bits and returns the same values as the per-bit [`BitCursor`] loop over a
-//! [`SliceCursor`](super::SliceCursor), while taking whole topology runs in one
-//! [`read_unary`](DsiCursor::read_unary) (a `leading_zeros` over a buffered
-//! window) and whole payload codes in `O(1)` word operations. The accept/reject
-//! boundary lives in this wrapper, not the library: `position`/`len` bound
-//! every read against the view's live bit length, so the reader's zero padding
-//! past the live bits is never surfaced as data.
+//! [`DsiCursor`] has the same behavior as the per-bit [`BitCursor`] loop but
+//! reads unary runs and small integer codes a word at a time. Explicit bounds
+//! prevent the reader's zero fill from becoming input data.
 //!
-//! Values are read through the in-house wide arm, never `dsi-bitstream`'s own
-//! `read_gamma`: that entry supports only values below `2^64` (guarded by a
-//! `debug_assert`, a silent mis-decode in release), while this crate's coding
-//! has no value cap, which is required because joins must be allowed to
-//! propagate arbitrary-width heights.
+//! Integer values may exceed 64 bits, so the cursor uses the crate's decoder
+//! instead of `dsi-bitstream`'s bounded gamma decoder.
 //!
-//! [`read_int`](DsiCursor::read_int) therefore composes the unary prefix and
-//! mantissa itself: a 9-bit table tier, a machine-word arm for `k < 64`, and a
-//! `UBig` wide arm for `k >= 64`, bit-identical to the per-bit loop's
-//! ([`decode_int_from`](super::decode_int_from)) wide fallback. The witnesses
-//! in `tests` pin the value and the consumed width at and across the word seam
-//! (`k = 63, 64, 65, ~100`).
-//!
-//! The writers stay in-house ([`PackedBuilder`](super::PackedBuilder) and the
-//! byte-backed append paths): `dsi-bitstream`'s writer wants a word sink, and
-//! adapting the byte-backed stores to one is a separate trade this module does
-//! not make.
+//! [`read_int`](DsiCursor::read_int) handles short codes by table or machine
+//! word and longer codes with [`UBig`].
 
 use core::fmt::Display;
 
@@ -41,7 +22,7 @@ use crate::error::Decode;
 use super::cursor::Truncated;
 use super::{Base, BitCursor, BitsView, Int};
 
-/// A word-parallel sequential cursor over an existing packed bit view.
+/// A word-parallel sequential cursor over a bit view.
 ///
 /// The skyline walks' reader: [`read_bit`](BitCursor::read_bit) for interleaved
 /// single flags, [`read_unary`](BitCursor::read_unary) for topology runs,
@@ -53,10 +34,7 @@ pub(crate) struct DsiCursor<'a> {
     reader: BufBitReader<BE, ByteWords<'a>>,
     /// The position immediately after the last live bit read.
     ///
-    /// `u64`, not `usize`: every walked buffer — a stored stream's or a
-    /// byte decode door's — holds `8 · bytes.len()` bit positions, which
-    /// exceeds a 32-bit `usize` from 512 MiB (a size a 4 GiB address space
-    /// allocates comfortably) while remaining exactly representable here.
+    /// `u64` keeps every bit in a large 32-bit allocation representable.
     position: u64,
     /// The stream's live bit length, in the same `u64` denomination.
     len: u64,
@@ -65,9 +43,8 @@ pub(crate) struct DsiCursor<'a> {
 impl<'a> DsiCursor<'a> {
     /// Open a cursor at bit 0 of a stream's view.
     ///
-    /// A stored stream's live view and a byte decode door's whole padded
-    /// buffer enter identically: padding bits are data to a door's walk,
-    /// and the door's marker check afterwards judges the remainder.
+    /// Decoding may pass a whole padded input; the marker is checked after the
+    /// value has been read.
     pub(crate) fn new(bits: BitsView<'a>) -> Self {
         DsiCursor::new_at(bits, 0)
     }
@@ -289,8 +266,7 @@ impl BitCursor for DsiCursor<'_> {
     }
 }
 
-/// Native-order `u32` words over one stored stream's packed bytes: the word
-/// source under the buffered reader.
+/// Native-order `u32` words over one encoded byte slice.
 ///
 /// The final partial word zero-fills past the stream's bytes (the tail byte
 /// arrives with its dead bits already masked, the view's `body_tail`

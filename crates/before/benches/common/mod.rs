@@ -1,8 +1,5 @@
 //! Shared input generation for the before differential benchmarks.
 //!
-//! The bench judge's shared knobs and denominator sidecar live in
-//! [`sidecar`].
-//!
 //! Every input is built through the *public* API. Fork a seed into a universe
 //! of pairwise-disjoint members, then preserve a random subset and `join` it
 //! back into a single tree. The members not preserved are simply dropped, so
@@ -24,8 +21,6 @@
 //! value per iteration.
 
 #![allow(dead_code)] // Each bench target compiles this module but uses only part of it.
-
-pub mod sidecar;
 
 use before::{oracle, Clock, Party, Version};
 use rand::seq::SliceRandom;
@@ -270,9 +265,6 @@ pub fn alloc_arms() -> String {
     }
     if cfg!(before_alloc_ab = "projection_shrink") {
         arms.push("projection_shrink");
-    }
-    if cfg!(before_alloc_ab = "display_growth") {
-        arms.push("display_growth");
     }
     if arms.is_empty() {
         arms.push("shipped");

@@ -303,10 +303,6 @@ body {
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
-.stamp__notation {
-  color: var(--ink-soft);
-}
-
 /* Glyph paint — role colors: teal id, orange event/version skyline. */
 .glyph__slab {
   fill: var(--version);

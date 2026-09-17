@@ -11,15 +11,12 @@
 //! identity move it linearly: `fork` and `join` mutate their receiver and
 //! `join` consumes its operand, so no share is ever in two hands, while `tick`
 //! merely (mutably) borrows. The type system enforces that linearity up to the
-//! documented escape hatches: the serialization and text/literal doors, which
-//! mint a second holder from bytes or notation, and
-//! [`dangerously_alias`](Party::dangerously_alias), the deliberate in-memory
-//! duplication.
-
-use core::fmt::Display;
+//! documented escape hatches: decoding can recreate a party from bytes, and
+//! [`dangerously_alias`](Party::dangerously_alias) deliberately duplicates one
+//! in memory.
 
 use crate::codec::{self, BitsView};
-use crate::error::{Decode, Parse};
+use crate::error::Decode;
 use crate::idbits::IdReader;
 use crate::{Ticks, Version};
 
@@ -462,14 +459,14 @@ impl Party {
     ///
     /// // Removing a disjoint share leaves `self` untouched.
     /// let keep = p.dangerously_alias();
-    /// assert_eq!(p.without(&q).unwrap().to_string(), keep.to_string());
+    /// assert_eq!(p.without(&q).unwrap(), keep);
     ///
     /// // Removing a covering share (here, itself) leaves nothing.
     /// assert!(Party::seed().without(&Party::seed()).is_none());
     /// ```
     pub fn without(self, other: &Party) -> Option<Party> {
         let bits = self.view().diff(other.view());
-        if codec::id_is_empty(codec::built_view(&bits)) {
+        if bits.is_empty() {
             None
         } else {
             Some(Party::from_bits(bits))
@@ -499,7 +496,10 @@ impl Party {
     /// use before::shape::Region;
     /// use before::Party;
     ///
-    /// let party: Party = "((1, 0), 1)".parse().unwrap();
+    /// let mut party = Party::seed();
+    /// let right = party.fork();
+    /// let _second_quarter = party.fork();
+    /// party.join(right).unwrap();
     /// let regions: Vec<Region> = party.shape().collect();
     /// assert_eq!(
     ///     regions,
@@ -672,7 +672,7 @@ impl Party {
         Party(codec::Bits::empty())
     }
 
-    /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.
+    /// A read-only [`IdReader`] cursor at the root of this party's party bits.
     pub(crate) fn view(&self) -> IdReader<'_> {
         IdReader::root(self.0.live())
     }
@@ -722,13 +722,13 @@ impl Party {
         self.0.as_raw_slice()
     }
 
-    /// The packed preorder bit stream, live bits only (the padding stays
+    /// The preorder bit stream, live bits only (the padding stays
     /// behind the view). Internal.
     pub(crate) fn as_bits(&self) -> BitsView<'_> {
         self.0.live()
     }
 
-    /// Freeze a normal-form packed bit stream as a `Party`, canonicalizing its
+    /// Freeze a normal-form encoded bit stream as a `Party`, canonicalizing its
     /// storage. The single build-side gate every built/parsed `Party` passes
     /// through.
     ///
@@ -751,190 +751,9 @@ impl Party {
     }
 }
 
-/// Paper notation: `0` / `1` leaves, `(l, r)` nodes. E.g. `(1, (0, 1))`.
-///
-/// # Complexity
-///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_display.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n)` in total input bytes; `O(|self|)` time and space"
-)]
-///
-/// The text spells `O(1)` bytes per id-tree node, so it is itself `O(|self|)` bytes.
-///
-/// # Example
-///
-/// ```
-/// use before::Party;
-/// let p: Party = "(1, (0, 1))".parse().unwrap();
-/// assert_eq!(p.to_string(), "(1, (0, 1))");
-/// ```
-impl core::fmt::Display for Party {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        codec::write_id(self.0.live(), f, ", ")
-    }
-}
-
-/// Same as `Display`.
+/// Shows the party as `Party(0b…)` using its binary encoding.
 impl core::fmt::Debug for Party {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        <Self as Display>::fmt(self, f)
-    }
-}
-
-/// Parses paper notation (`0 | 1 | (i1, i2)`), strictly rejecting
-/// non-normal-form input and the anonymous identity `0` (a standalone `Party`
-/// must be a nonzero share).
-///
-/// Parsing *creates* the party its text names, tied to no existing handle:
-/// `"1".parse()` yields a party overlapping every seed's whole region.
-///
-/// # Complexity
-///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fromstr.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n)` in total input bytes; `O(|s|)` time and space, accepted or rejected"
-)]
-///
-/// The parsed party is itself `O(|s|)` bytes.
-///
-/// # Example
-///
-/// ```
-/// use before::Party;
-/// let p: Party = "(1, 0)".parse().unwrap();
-/// assert_eq!(p.to_string(), "(1, 0)");
-/// assert!("0".parse::<Party>().is_err()); // the anonymous identity is rejected
-/// ```
-impl core::str::FromStr for Party {
-    type Err = Parse;
-    fn from_str(s: &str) -> Result<Self, Parse> {
-        finish_id(codec::parse_id_str(s)?)
-    }
-}
-
-/// Wrap validated id bits as a `Party`, rejecting the anonymous (empty)
-/// identity. The single gate through which every parsed/built top-level `Party`
-/// passes.
-fn finish_id(bits: codec::BitsBuf) -> Result<Party, Parse> {
-    if codec::id_is_empty(codec::built_view(&bits)) {
-        Err(Parse::Anonymous)
-    } else {
-        Ok(Party::from_bits(bits))
-    }
-}
-
-/// An id literal that can ground out a [`Party`] tuple: the `u8` leaves `0`/`1`
-/// and nested `(left, right)` tuples.
-///
-/// Sealed and hidden — an implementation detail enabling `Party::try_from(..)`
-/// literals. Unlike the public `TryFrom`, an `IdLit` leaf of `0` is allowed (it
-/// is a valid *sub-tree*); the anonymous check happens only once the whole id
-/// is assembled (see [`finish_id`]).
-mod sealed {
-    pub trait Sealed {}
-    impl Sealed for u8 {}
-    impl Sealed for bool {}
-    impl<T, S> Sealed for (T, S) {}
-}
-
-#[doc(hidden)]
-pub trait PartyLiteral: sealed::Sealed {
-    #[doc(hidden)]
-    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse>;
-}
-
-impl PartyLiteral for u8 {
-    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse> {
-        match self {
-            0 => Ok(codec::id_leaf(false)),
-            1 => Ok(codec::id_leaf(true)),
-            _ => Err(Parse::Syntax),
-        }
-    }
-}
-
-impl PartyLiteral for bool {
-    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse> {
-        Ok(codec::id_leaf(self))
-    }
-}
-
-impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
-    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse> {
-        let l = self.0.into_id_bits()?;
-        let r = self.1.into_id_bits()?;
-        codec::id_node(&l, &r) // assembles + validates normal form
-    }
-}
-
-/// An id leaf from a single bit: `1` (full) is a valid `Party`; `0` is the
-/// anonymous identity and is rejected here, though it is allowed as a sub-tree
-/// in the tuple form.
-///
-/// Like every literal door, this *creates* identity tied to no existing handle.
-///
-/// # Complexity
-///
-/// `O(1)`.
-///
-/// # Example
-///
-/// ```
-/// use before::Party;
-/// assert_eq!(Party::try_from(1).unwrap().to_string(), "1");
-/// assert!(Party::try_from(0).is_err());
-/// ```
-impl TryFrom<u8> for Party {
-    type Error = Parse;
-    fn try_from(v: u8) -> Result<Self, Parse> {
-        finish_id(v.into_id_bits()?)
-    }
-}
-
-/// An id leaf from a single boolean: `true` = `1`, `false` = `0`.
-///
-/// Mints identity exactly as the `u8` literal door does — a test and
-/// fresh-universe door ([Safety rules](crate#safety-rules)).
-///
-/// # Complexity
-///
-/// `O(1)`.
-///
-/// # Example
-///
-/// ```
-/// use before::Party;
-/// assert_eq!(Party::try_from(true).unwrap().to_string(), "1");
-/// assert!(Party::try_from(false).is_err()); // `0` is anonymous
-/// ```
-impl TryFrom<bool> for Party {
-    type Error = Parse;
-    fn try_from(v: bool) -> Result<Self, Parse> {
-        finish_id(v.into_id_bits()?)
-    }
-}
-
-/// An id node from a `(left, right)` literal, e.g. `Party::try_from((1u8, (0u8,
-/// 1u8)))`. Rejects a collapsible `(v, v)` (non-canonical) and an all-`0`
-/// (anonymous) result.
-///
-/// # Complexity
-///
-/// `O(n)`, `n` the built party's size in bytes.
-///
-/// # Example
-///
-/// ```
-/// use before::Party;
-/// let p = Party::try_from((1, (0, 1))).unwrap();
-/// assert_eq!(p.to_string(), "(1, (0, 1))");
-/// ```
-impl<T: PartyLiteral, S: PartyLiteral> TryFrom<(T, S)> for Party {
-    type Error = Parse;
-    fn try_from(t: (T, S)) -> Result<Self, Parse> {
-        finish_id(t.into_id_bits()?)
+        write!(f, "Party({:#b})", self.0)
     }
 }

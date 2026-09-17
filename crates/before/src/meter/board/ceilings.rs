@@ -14,7 +14,7 @@
 //!   predicted exponent plus the linear cells' slack, and the scan
 //!   constant [`FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL`] per reduction
 //!   level; a quadratic left fold still reads ~2 and stays red, and the
-//!   log factor's own liveness is held per public door by the claims
+//!   log factor's own liveness is held per public entry point by the claims
 //!   suite's `*_log_factor_is_alive` pins.
 //! - **The comb-scatter projection pair** (`own_version_to_version`,
 //!   `clock_own_version_to_version` on the output-domination cross): peak
@@ -37,17 +37,6 @@
 //!   constant carries its derivation; the measured profiles live in
 //!   the pin commits); the exponent leg stays at the global bound, so
 //!   a flat-constant declaration can never absorb growth.
-//! - **The mirror-wide display pair** (`version_display`,
-//!   `clock_display` on the mirror-wide cross): the render merge's
-//!   documented superlinear time class — the wall leg judges the display
-//!   rows' conversion-dominated cells at its text ceiling — honestly
-//!   reads a superlinear limb exponent and an over-κ limb constant on
-//!   exactly this cross. Both limb legs are judged at the
-//!   stated ceilings ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`],
-//!   [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`]); the class's
-//!   liveness is the asymptotics suite's
-//!   `render_merge_superlinearity_is_alive` pin, which forces this
-//!   declaration's re-derivation the day a render-merge cure lands.
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
 //
@@ -66,7 +55,7 @@
 /// these input sizes.
 pub const MAX_SCALING_EXPONENT: f64 = 1.15;
 
-/// Green requires peak transient heap at most this many bytes per packed input
+/// Green requires peak transient heap at most this many bytes per encoded input
 /// byte, over the flat allowance.
 ///
 /// Pinned at the worst honest cell without a declared model, with 25% headroom
@@ -83,25 +72,24 @@ pub const HEAP_FLAT_ALLOWANCE_BYTES: usize = 8_192;
 /// per-byte.
 pub const MAX_GROWN_STACK_SEGMENTS: u64 = 1;
 
-/// Green requires at most this many big-integer limb operations per packed
+/// Green requires at most this many big-integer limb operations per encoded
 /// input byte (asserted only when the `limb-meter` feature is lit).
 ///
 /// Calibrated against the benign control: an amortized-linear walk records a
-/// handful of unit-limb operations per node (tens per packed byte at ~2 bits
+/// handful of unit-limb operations per node (tens per encoded byte at ~2 bits
 /// per node, over a hundred for multi-walk operations like `distance`), and
 /// that per-node arithmetic is exactly the contract's linear regime. The
 /// ceiling sits above it; width blowups are caught by the exponent bound long
 /// before the constant.
 pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 
-/// Green requires at most this many packed-stream scan bits per denominator
+/// Green requires at most this many encoded bits scanned per denominator
 /// byte (asserted only when the `scan-meter` feature is lit).
 ///
 /// Calibrated against the benign control and the green adversarial families: a
-/// single walk over packed operands scans ~8 bits per byte, multi-walk
-/// operations (`distance` runs join, meet, and two rank folds) scan a small
-/// multiple, and the text parsers re-scan their packed output through the
-/// strict validator. The committed families all read under this ceiling with
+/// single walk over encoded operands scans ~8 bits per byte, while multi-walk
+/// operations such as `distance` scan a small multiple. The committed families
+/// all read under this ceiling with
 /// room to spare, so only a walk that re-scans state growing with the input
 /// — the fold genre — goes red on this column.
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
@@ -111,8 +99,8 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 ///
 /// Calibrated against the worst honest reader at the release profile of
 /// record: the delta-folding kernels (validate, sweep, emit, the query folds,
-/// the text parse) touch a handful of digits per delta code — single digits
-/// per packed byte on organic shapes — and the heaviest honest readers are
+/// the query folds) touch a handful of digits per delta code — single digits
+/// per encoded byte on organic shapes — and the heaviest honest readers are
 /// the cells where per-site resolution or the balanced reduction's per-level
 /// re-touching legitimately stacks; the board's worst-case map at both
 /// sampling scales identifies them, and the fold rows' touch constant is
@@ -127,8 +115,8 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// re-pin the constant, never absorbed slack.
 pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 22.0;
 
-/// Scan liveness floor: an operation that must examine its packed operands
-/// scans at least this many bits per packed input byte.
+/// Scan liveness floor: an operation that must examine its encoded operands
+/// scans at least this many bits per encoded input byte.
 ///
 /// One bit per byte is an eighth of the stored bits: far below any honest full
 /// walk (measured ~8 bits per byte across the board), and far above a counter
@@ -151,70 +139,12 @@ pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 
 /// The fixed count the `version_ticks` cell registers per measurement.
 ///
-/// Fixed so the cell's judged axis is the packed input alone: the count's whole
+/// Fixed so the cell's judged axis is the encoded input alone: the count's whole
 /// contribution is the boundary codes' gamma width (the flatness rows of
 /// `tests/meter.rs` pin that axis point to point), and 512 sits far enough past
 /// the single tick that an implementation iterating even a fraction of the
 /// count would blow the scaling ceiling rather than hide in a constant.
 pub const TICKS_BOARD_COUNT: u64 = 512;
-
-/// Text rows only: green requires at most this many limb operations per
-/// radix-work unit `R = n_io + Σᵢ (digitsᵢ × limbsᵢ +
-/// TEXT_PIPELINE_LIMB_OPS_PER_VALUE)` over the spelled event values (κ).
-///
-/// κ carries the text limb column's *constant* leg only; the *exponent* leg is
-/// judged against `n_io`, never against `R` — `R` is the honest text cost law
-/// itself (schoolbook conversion plus the per-value pipeline term), so an
-/// exponent against it reads a flat ~1 on exactly the quadratic converters the
-/// bound exists to catch. The legs exclude different converters, and a constant
-/// ceiling cannot enforce a complexity class: a `u32`-chunked schoolbook
-/// converter scores under κ — and wider chunks only lower its constant —
-/// while its limb work stays quadratic in the value bits and reads a
-/// quadratic exponent against `n_io` \[the chunked tripwire in the test
-/// suite pins both halves\]; the exponent leg is what excludes it. What κ
-/// excludes is a wasteful constant. It is pinned from the production
-/// kernels' observed meter at the ladder's top sampling scale (release, the
-/// profile of record), at the family-stated ×1.25 margin over the worst
-/// honest cell's reading rounded to a round constant (the reading lives in
-/// the pin commit), placed so a digit-by-digit schoolbook probe still
-/// exceeds it while the production parser — radix conversion delegated to
-/// the backend's divide-and-conquer parser, one width-proportional limb
-/// record per materialized value — stays under it on the
-/// conversion-dominated families \[the schoolbook and delegating-parser
-/// pins in the test suite\]. The test suite pins three legs — the schoolbook probe exceeds κ;
-/// the delegating parser stays under κ over a liveness floor; the chunked probe
-/// slips under κ and trips the exponent leg — so none can silently soften.
-pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.75;
-
-/// Radix units each spelled event value contributes to the text limb
-/// denominator beyond its conversion term: the delta⇄absolute pipeline's
-/// per-value arithmetic allowance.
-///
-/// The text kernels do mandatory per-value big-integer work that is not radix
-/// conversion — the render derives each printed base from delta-sized relative
-/// summaries, the parse re-derives delta codes from spelled bases — and `Σ
-/// digits × limbs` under-weights it to nothing on small-value trees (a
-/// one-digit value is one radix unit; the pipeline around it is not free). The
-/// allowance is pinned just above the production kernels' measured honest
-/// range across the small-value families, both directions (release, the
-/// record scale; the readings live in the pin commit). Id tokens contribute
-/// nothing: an id tree spells booleans and forces no arithmetic.
-pub const TEXT_PIPELINE_LIMB_OPS_PER_VALUE: u64 = 10;
-
-/// Any text stream entering a denominator must hold at most this many bytes per
-/// radix unit of the values it spells (the output-honesty ceiling).
-///
-/// Denominating against I/O bytes opens a door: pad the output, inflate the
-/// denominator, read green. The ceiling closes it \[derived\], and its basis is
-/// the radix-unit sum (`Σ digits × limbs`, computed from the values outside the
-/// render) rather than wire bits, because the skyline wire coding spends O(1)
-/// bits on a leaf whose spelled value is wide — no constant per wire bit bounds
-/// honest text. Per rendered value the grammar spends its exact decimal digits
-/// (`digits ≤ digits × limbs`, one radix unit minimum per value) plus at most 6
-/// syntax bytes (`(`, `)`, and two `, ` separators), and every value
-/// contributes at least one radix unit — so honest text stays under 7 bytes per
-/// radix unit and padding trips the assertion.
-pub const TEXT_BYTES_PER_RADIX_UNIT: f64 = 8.0;
 
 /// Exponent legs are fitted only where the denominator pair grows at least this
 /// much between the cell's two probes.
@@ -296,12 +226,12 @@ pub(super) fn capacity_chain_peak(input_bytes: usize, output_bytes: usize) -> f6
 /// factor's marginal, ~1.14–1.17 at the committed populations — so the ceiling
 /// is that prediction plus the same slack [`MAX_SCALING_EXPONENT`] grants
 /// linear cells (0.15). A quadratic fold reads ~2 against any committed arity
-/// pair and stays red; the model's own liveness is held per public door — one
-/// `*_log_factor_is_alive` pin in the asymptotics suite for each of
+/// pair and stays red; the model's own liveness is held per public entry point
+/// — one `*_log_factor_is_alive` pin in the asymptotics suite for each of
 /// `Version::join_all`, `Version::meet_all`, `Version::span_all`,
 /// `Party::join_all`, and `Clock::join_all`, each with its own measured floor —
-/// so a door whose wiring stops paying the reduction's log factor reads red at
-/// that door even while the shared core still pays it elsewhere.
+/// so a entry point whose wiring stops paying the reduction's log factor reads
+/// red at that entry point even while the shared core still pays it elsewhere.
 pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f64 {
     let levels1 = (2.0 * k1 as f64).log2();
     let levels2 = (2.0 * k2 as f64).log2();
@@ -310,7 +240,7 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
 }
 
 /// The ascending-cliff tick trio's family-stated heap ceiling, in bytes per
-/// packed input byte.
+/// encoded input byte.
 ///
 /// `version_tick`, `version_ticks`, and `clock_tick` on the ascend-cliff cross
 /// are judged at this flat constant in place of
@@ -339,7 +269,7 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
 pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 227.0;
 
 /// The ascending-cliff `version_min_ticks` cell's family-stated heap ceiling,
-/// in bytes per packed input byte (judged in place of
+/// in bytes per encoded input byte (judged in place of
 /// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`]; the exponent leg stays at the global
 /// bound).
 ///
@@ -357,42 +287,6 @@ pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 227.0;
 /// readings live in the pin commit). A reading over it is a genuine
 /// reign-state regression on the one shape that defeats batching.
 pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
-
-/// The mirror-wide display pair's declared render model: the limb *exponent*
-/// ceiling, judged in place of [`MAX_SCALING_EXPONENT`].
-///
-/// Declared on exactly the `version_display` and `clock_display` mirror-wide
-/// cells (the declared-models section; every other column stays at the global
-/// bounds).
-///
-/// Derivation: the render's summary merge on a deep tree of wide interior
-/// values is the documented superlinear time class (the display impls' `#
-/// Complexity` sections; judged at the wall leg's text ceiling), so on the
-/// mirror-wide cross the limb column honestly reads a superlinear exponent
-/// against `n_io` — intended and modeled, not a regression. The ceiling is
-/// the worst fitted exponent on the two cells at the release profile of
-/// record plus the linear cells' slack (the [`MAX_SCALING_EXPONENT`] margin,
-/// 0.15; the fitted exponents live in the pin commit), so a genuinely
-/// quadratic conversion (~2.0) still reads red. The model's under-side is not banded here: the class's
-/// liveness floor is the committed `render_merge_superlinearity_is_alive` pin,
-/// which reads red the day a render-merge cure lands and forces this
-/// declaration's re-derivation in the same change (owner-ratified: the display
-/// pair's superlinearity is the documented class the wall leg's text ceiling
-/// judges).
-pub const MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING: f64 = 1.96;
-
-/// The mirror-wide display pair's declared render model: the limb *constant*
-/// ceiling per radix unit, judged in place of
-/// [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`] on the same two cells.
-///
-/// κ is calibrated on conversion-honest cells; the mirror-wide render merge
-/// re-folds wide summaries beyond conversion, so its per-`R` constant honestly
-/// exceeds κ at the ladder's sizes — the same mechanism as the exponent
-/// ceiling above, priced on the constant leg. The ceiling is the worst
-/// reading on the two cells at the release profile of record ×1.25
-/// (owner-ratified, conditional on the render-merge mechanism the liveness
-/// pin holds; the readings live in the pin commit).
-pub const MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT: f64 = 1.75;
 
 /// The base sampling scale of the measurement ladder, and the size
 /// multiplier of a bare single-scale board run.

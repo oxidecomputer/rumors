@@ -56,7 +56,7 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     ),
     (
         "tree↔fs: the published example is reproduced",
-        "embedding_matches_paper_worked_value",
+        "embedding_matches_known_values",
     ),
     (
         "tree↔fs: events are constant within each leaf interval",

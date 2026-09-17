@@ -38,15 +38,14 @@ pub struct Crossed;
 /// converted into.
 ///
 /// Counts have no ceiling, so every conversion out to a fixed-width
-/// integer is fallible; a count past the range answers this. Spell a wide
-/// count with [`Ticks::limbs`](crate::Ticks::limbs) instead, or render it
-/// in decimal with `Display`.
+/// integer is fallible; a count past the range answers this. Read every limb
+/// with [`Ticks::limbs`](crate::Ticks::limbs) instead.
 ///
 /// # Example
 ///
 /// ```
 /// use before::Ticks;
-/// let wide: Ticks = "340282366920938463463374607431768211456".parse().unwrap();
+/// let wide = Ticks::from(u128::MAX);
 /// assert!(u64::try_from(&wide).is_err());
 /// ```
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, thiserror::Error)]
@@ -89,33 +88,4 @@ pub enum Decode {
     /// The underlying reader failed.
     #[error("read error: {0}")]
     Io(io::Error),
-}
-
-/// Why a string or Rust literal failed to parse into a [`Party`](crate::Party),
-/// [`Version`](crate::Version), or [`Clock`](crate::Clock).
-///
-/// Parsing uses the original paper's notation and strictly rejects
-/// non-canonical input.
-///
-/// # Example
-///
-/// ```
-/// use before::{error::Parse, Clock};
-/// assert_eq!("nonsense".parse::<Clock>().unwrap_err(), Parse::Syntax);
-/// ```
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
-pub enum Parse {
-    /// The input is not well-formed paper notation (bad token, unbalanced
-    /// parens, non-`0`/`1` id leaf, malformed integer, or trailing input).
-    #[error("input is not well-formed paper notation")]
-    Syntax,
-    /// The structure is well-formed but not in canonical normal form.
-    #[error("input is not canonical")]
-    NotCanonical,
-    /// The [`Party`](crate::Party) denotes the anonymous identity.
-    ///
-    /// A standalone [`Party`](crate::Party)/[`Clock`](crate::Clock) must own a
-    /// nonzero share of the unit interval `[0, 1)`.
-    #[error("party is anonymous")]
-    Anonymous,
 }

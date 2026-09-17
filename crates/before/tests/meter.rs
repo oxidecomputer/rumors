@@ -1,5 +1,5 @@
 //! Resource envelopes: each operation's peak transient heap, big-integer
-//! limb work, accumulator digit touches, and packed-stream bits scanned on
+//! limb work, accumulator digit touches, and encoded bits scanned on
 //! the adversarial input families, pinned as ceilings.
 //!
 //! A regression fails a pinned row loudly; an improvement tightens a
@@ -24,22 +24,13 @@
 //!   `limb-meter`): the cliff-free accumulator's own currency, where the
 //!   folds and the tick walk do their arithmetic.
 //! - **Scanned bits** ([`meter::scan_bits`], under `scan-meter`):
-//!   packed-stream bits read and written through the metered primitives,
+//!   encoded bits read and written through the metered primitives,
 //!   the column that sees traversal work that allocates nothing, recurses
 //!   nothing, and does no arithmetic.
 //!
-//! No column meters stack depth: library traversals are iterative by
-//! construction, and three tests in `clock::tests` prove it at depth 100k.
-//! `deep_tree_stack_safety` drives tick, fork, join, meet, the
-//! comparisons, encode, decode, send/recv, sync, `is_disjoint`, and
-//! Debug; `deep_tree_query_and_causal_stack_safety` drives rank,
-//! distance, lag, `Ranked` ordering, the span hulls, algebra, and
-//! quotient view (the masked co-walks), query membership and coverage,
-//! and projection through a deep id; and
-//! `deep_tree_text_and_min_ticks_stack_safety` drives render, parse, and
-//! `min_ticks`. The rows here on 125k-level spines and 250k-level id
-//! spines overflow the stack on a traversal regressed to recursion
-//! instead of moving a number.
+//! Stack depth is not a meter column. Dedicated deep-tree tests cover the
+//! library's iterative traversals at depths that would overflow a recursive
+//! implementation.
 //!
 //! The counters are process-global, so per-scenario readings are meaningful
 //! only under nextest's process-per-test isolation, this workspace's
@@ -92,11 +83,42 @@ use before::meter::registry::Shape;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Write as _};
 
-use before::{meter, Party, Version};
+use before::{meter, Party, Ticks, Version};
 use peak_alloc::PeakAlloc;
 
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
+
+/// Build a uniform version through the public clock operations.
+fn uniform_version(ticks: impl Into<Ticks>) -> Version {
+    let mut version = Version::new();
+    Party::seed().ticks(&mut version, ticks);
+    version
+}
+
+/// Convert a test oracle's integer without routing through decimal text.
+fn ticks_from_big(value: &dashu_int::UBig) -> Ticks {
+    value
+        .as_words()
+        .iter()
+        .rev()
+        .fold(Ticks::ZERO, |mut ticks, &word| {
+            for _ in 0..usize::BITS {
+                ticks += ticks.clone();
+            }
+            ticks += Ticks::from(word);
+            ticks
+        })
+}
+
+/// Construct `2^exponent` as an unbounded tick count.
+fn power_of_two(exponent: usize) -> Ticks {
+    let mut ticks = Ticks::from(1u8);
+    for _ in 0..exponent {
+        ticks += ticks.clone();
+    }
+    ticks
+}
 
 // ─── scenario sizes ─────────────────────────────────────────────────────────
 
@@ -210,10 +232,6 @@ const MASK_DRIFT_MAGNITUDE_BITS: usize = 512;
 /// Tooth count of the mask-drift families' envelope scenarios.
 const MASK_DRIFT_TEETH: usize = 1_024;
 
-/// Scale (magnitude bits and trail length) of the wide-arming render
-/// scenario: the parse direction's band shape at its small point.
-const WIDE_ARMING_RENDER_SCALE: usize = 512;
-
 /// Depth of the harmonic spine `H(d)` rank scenario: deep enough that the
 /// fold's per-level numerator re-shifts dominate every constant.
 const RANK_HARMONIC_DEPTH: usize = 65_536;
@@ -239,7 +257,7 @@ struct Envelope {
     limb: Bound,
     /// Accumulator digit touches.
     touch: Bound,
-    /// Packed-stream bits scanned.
+    /// encoded bits scanned.
     scan: Bound,
 }
 
@@ -402,21 +420,21 @@ fn heap_meter_registers_known_allocation() {
     drop(buf);
 }
 
-/// The dense-spine decode registers at least its packed input size.
+/// The dense-spine decode registers at least its encoded input size.
 ///
-/// The decoded version owns a copy of the packed bits, so the one big
+/// The decoded version owns a copy of the encoded bits, so the one big
 /// scenario here has a floor as well as a ceiling, and a dead heap meter
 /// cannot slide a big scenario under its envelope at zero.
 #[test]
 fn heap_meter_floor_on_decode_dense() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     HEAP.reset_peak_usage();
     let baseline = HEAP.current_usage();
     let v = version_of(&p);
     let peak = HEAP.peak_usage().saturating_sub(baseline);
     assert!(
         peak >= p.bytes.len(),
-        "decode_dense peak {peak} B is under its {} B packed input: \
+        "decode_dense peak {peak} B is under its {} B encoded input: \
          the decoded version alone must allocate at least that",
         p.bytes.len(),
     );
@@ -551,7 +569,7 @@ const HARNESS_PROBE_DEPTH: usize = 64;
 /// never moves shows up here as a probe that passes when it must not.
 #[test]
 fn harness_judges_every_column() {
-    let v = version_of(&Shape::Bigroot.packed2(HARNESS_PROBE_MAGNITUDE_BITS, HARNESS_PROBE_DEPTH));
+    let v = version_of(&Shape::Bigroot.build2(HARNESS_PROBE_MAGNITUDE_BITS, HARNESS_PROBE_DEPTH));
     let input = v.encode().len();
     let open = Envelope {
         peak_heap: usize::MAX,
@@ -616,12 +634,12 @@ fn harness_judges_every_column() {
 }
 
 /// Lift a generated shape into a [`Version`], outside any measurement.
-fn version_of(p: &meter::Packed) -> Version {
+fn version_of(p: &meter::Encoding) -> Version {
     p.version()
 }
 
 /// Decode a generated shape as a [`Party`], outside any measurement.
-fn party_of(p: &meter::Packed) -> Party {
+fn party_of(p: &meter::Encoding) -> Party {
     Party::decode(&p.bytes[..]).expect("generated shape is strict normal form")
 }
 
@@ -657,7 +675,7 @@ fn consumed<T: Debug>(v: T) -> String {
 /// validate plus the wrap, and the payloads ride the word-valued form.
 #[test]
 fn decode_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let wire = version_of(&p).encode();
     let v = metered("decode_dense", wire.len(), &envelope::DECODE_DENSE, || {
         Version::decode(&wire[..]).expect("a stored version's wire bytes decode")
@@ -670,7 +688,7 @@ fn decode_dense_envelope() {
 /// side consumed against one depth-0 plateau.
 #[test]
 fn cmp_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let v = version_of(&p);
     let r = metered("cmp_dense", p.bytes.len(), &envelope::CMP_DENSE, || {
         v.partial_cmp(&Version::new())
@@ -690,7 +708,7 @@ fn cmp_dense_envelope() {
 /// wholly consumed.
 #[test]
 fn cmp_dense_self_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let v = version_of(&p);
     let w = version_of(&p);
     let r = metered(
@@ -710,9 +728,9 @@ fn cmp_dense_self_envelope() {
 /// the emit kernel's stream, byte for byte.
 #[test]
 fn join_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let v = version_of(&p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let one = uniform_version(1u8);
     let joined = metered("join_dense", p.bytes.len(), &envelope::JOIN_DENSE, || {
         &v | &one
     });
@@ -739,18 +757,18 @@ fn ticks_flatness_holds_the_log_band() {
     let cases: Vec<(&str, Version, Party)> = vec![
         (
             "dense",
-            version_of(&Shape::Dense.packed1(DENSE_DEPTH)),
+            version_of(&Shape::Dense.build1(DENSE_DEPTH)),
             Party::seed(),
         ),
         (
             "nested-wide",
-            version_of(&Shape::Bigroot.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
-            party_of(&Shape::NestedFullId.packed1(TICK_CROSS_SCALE)),
+            version_of(&Shape::Bigroot.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&Shape::NestedFullId.build1(TICK_CROSS_SCALE)),
         ),
         (
             "mirror-wide",
-            version_of(&Shape::WideTail.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
-            party_of(&Shape::NestedLeftFullId.packed1(TICK_CROSS_SCALE)),
+            version_of(&Shape::WideTail.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&Shape::NestedLeftFullId.build1(TICK_CROSS_SCALE)),
         ),
     ];
     for (name, v, p) in &cases {
@@ -880,30 +898,23 @@ const TICKS_WIDE_GROWTH_DEN: u64 = 2;
 /// have happened before any cost is judged.
 #[test]
 fn ticks_wide_count_flatness_holds_the_width_band() {
-    use dashu_int::UBig;
-    let wide = |bits: usize| -> before::Ticks {
-        (UBig::ONE << bits)
-            .to_string()
-            .parse()
-            .expect("a power of two renders as a count")
-    };
-    let n1 = wide(TICKS_WIDE_COUNT_BITS);
-    let n2 = wide(2 * TICKS_WIDE_COUNT_BITS);
+    let n1 = power_of_two(TICKS_WIDE_COUNT_BITS);
+    let n2 = power_of_two(2 * TICKS_WIDE_COUNT_BITS);
     let cases: Vec<(&str, Version, Party)> = vec![
         (
             "dense",
-            version_of(&Shape::Dense.packed1(DENSE_DEPTH)),
+            version_of(&Shape::Dense.build1(DENSE_DEPTH)),
             Party::seed(),
         ),
         (
             "nested-wide",
-            version_of(&Shape::Bigroot.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
-            party_of(&Shape::NestedFullId.packed1(TICK_CROSS_SCALE)),
+            version_of(&Shape::Bigroot.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&Shape::NestedFullId.build1(TICK_CROSS_SCALE)),
         ),
         (
             "mirror-wide",
-            version_of(&Shape::WideTail.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
-            party_of(&Shape::NestedLeftFullId.packed1(TICK_CROSS_SCALE)),
+            version_of(&Shape::WideTail.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&Shape::NestedLeftFullId.build1(TICK_CROSS_SCALE)),
         ),
     ];
     for (name, v, p) in &cases {
@@ -969,7 +980,7 @@ const TICKS_FLATNESS_TOUCH_BAND: u64 = 8;
 /// parse stack).
 #[test]
 fn decode_bigroot_envelope() {
-    let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let p = Shape::Bigroot.build2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let wire = version_of(&p).encode();
     let v = metered(
         "decode_bigroot",
@@ -985,7 +996,7 @@ fn decode_bigroot_envelope() {
 /// its own code, and every later delta is small.
 #[test]
 fn cmp_bigroot_envelope() {
-    let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let p = Shape::Bigroot.build2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let v = version_of(&p);
     let r = metered("cmp_bigroot", p.bytes.len(), &envelope::CMP_BIGROOT, || {
         v.partial_cmp(&Version::new())
@@ -1003,9 +1014,9 @@ fn cmp_bigroot_envelope() {
 /// byte.
 #[test]
 fn join_bigroot_envelope() {
-    let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let p = Shape::Bigroot.build2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let v = version_of(&p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let one = uniform_version(1u8);
     let joined = metered(
         "join_bigroot",
         p.bytes.len(),
@@ -1026,7 +1037,7 @@ fn join_bigroot_envelope() {
 /// work, so a magnitude-superlinear regression fails this row first).
 #[test]
 fn decode_hugeleaf_envelope() {
-    let p = Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS);
+    let p = Shape::Hugeleaf.build1(HUGELEAF_MAGNITUDE_BITS);
     let wire = version_of(&p).encode();
     let v = metered(
         "decode_hugeleaf",
@@ -1044,9 +1055,9 @@ fn decode_hugeleaf_envelope() {
 /// spilled base runs the same linear wide-gamma decode.
 #[test]
 fn join_hugeleaf_envelope() {
-    let p = Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS);
+    let p = Shape::Hugeleaf.build1(HUGELEAF_MAGNITUDE_BITS);
     let v = version_of(&p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let one = uniform_version(1u8);
     let joined = metered(
         "join_hugeleaf",
         p.bytes.len(),
@@ -1064,8 +1075,8 @@ fn join_hugeleaf_envelope() {
 /// the held code. The join is the flat operand, byte for byte.
 #[test]
 fn join_absorb_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
-    let q = Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
+    let q = Shape::Hugeleaf.build1(HUGELEAF_MAGNITUDE_BITS);
     let v = version_of(&p);
     let flat = version_of(&q);
     let joined = metered(
@@ -1084,7 +1095,7 @@ fn join_absorb_envelope() {
 /// the parse's limb work stays linear per input bit).
 #[test]
 fn decode_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let p = Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE);
     let wire = version_of(&p).encode();
     let v = metered("decode_cliff", wire.len(), &envelope::DECODE_CLIFF, || {
         Version::decode(&wire[..]).expect("a stored version's wire bytes decode")
@@ -1101,7 +1112,7 @@ fn decode_cliff_envelope() {
 /// deltas per crossing.
 #[test]
 fn cmp_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let p = Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
     let r = metered("cmp_cliff", p.bytes.len(), &envelope::CMP_CLIFF, || {
         v.partial_cmp(&Version::new())
@@ -1122,9 +1133,9 @@ fn cmp_cliff_envelope() {
 /// emit kernel's stream, byte for byte.
 #[test]
 fn join_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let p = Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let one = uniform_version(1u8);
     let joined = metered("join_cliff", p.bytes.len(), &envelope::JOIN_CLIFF, || {
         &v | &one
     });
@@ -1143,9 +1154,9 @@ fn join_cliff_envelope() {
 /// accumulator. The meet is the emit kernel's stream, byte for byte.
 #[test]
 fn meet_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let p = Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let one = uniform_version(1u8);
     let met = metered("meet_cliff", p.bytes.len(), &envelope::MEET_CLIFF, || {
         &v & &one
     });
@@ -1167,7 +1178,7 @@ fn meet_cliff_envelope() {
 /// buffer prices the wide payloads.
 #[test]
 fn decode_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let p = Shape::WideToothComb.build3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let wire = version_of(&p).encode();
     let v = metered(
         "decode_wide_tooth",
@@ -1183,7 +1194,7 @@ fn decode_wide_tooth_envelope() {
 /// zigzag code.
 #[test]
 fn cmp_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let p = Shape::WideToothComb.build3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let v = version_of(&p);
     let r = metered(
         "cmp_wide_tooth",
@@ -1206,9 +1217,9 @@ fn cmp_wide_tooth_envelope() {
 /// byte.
 #[test]
 fn join_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let p = Shape::WideToothComb.build3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let v = version_of(&p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let one = uniform_version(1u8);
     let joined = metered(
         "join_wide_tooth",
         p.bytes.len(),
@@ -1230,9 +1241,9 @@ fn join_wide_tooth_envelope() {
 /// widths. The meet is the emit kernel's stream, byte for byte.
 #[test]
 fn meet_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let p = Shape::WideToothComb.build3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let v = version_of(&p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let one = uniform_version(1u8);
     let met = metered(
         "meet_wide_tooth",
         p.bytes.len(),
@@ -1253,7 +1264,7 @@ fn meet_wide_tooth_envelope() {
 /// bits, not a frame.
 #[test]
 fn decode_alt_spine_envelope() {
-    let p = Shape::AltSpine.packed1(DENSE_DEPTH);
+    let p = Shape::AltSpine.build1(DENSE_DEPTH);
     let wire = version_of(&p).encode();
     let v = metered(
         "decode_alt_spine",
@@ -1302,7 +1313,7 @@ mod rank_env {
 /// the skyline kernel's, exactly.
 #[test]
 fn rank_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let v = version_of(&p);
     let r = metered("rank_dense", p.bytes.len(), &rank_env::RANK_DENSE, || {
         v.rank()
@@ -1317,7 +1328,7 @@ fn rank_dense_envelope() {
 /// rank is the skyline kernel's, exactly.
 #[test]
 fn rank_bigroot_envelope() {
-    let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let p = Shape::Bigroot.build2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let v = version_of(&p);
     let r = metered(
         "rank_bigroot",
@@ -1337,7 +1348,7 @@ fn rank_bigroot_envelope() {
 /// sibling into it at the exponent gap instead of re-shifting it.
 #[test]
 fn rank_harmonic_envelope() {
-    let p = Shape::Harmonic.packed1(RANK_HARMONIC_DEPTH);
+    let p = Shape::Harmonic.build1(RANK_HARMONIC_DEPTH);
     let v = version_of(&p);
     let r = metered(
         "rank_harmonic",
@@ -1361,10 +1372,8 @@ fn rank_harmonic_envelope() {
 /// small integer rank at exponent zero.
 #[test]
 fn rank_pair_mismatch_envelope() {
-    let a = version_of(&Shape::Dense.packed1(RANK_PAIR_DEPTH)).rank();
-    let b = Version::try_from(3u64)
-        .expect("a small integer version is valid")
-        .rank();
+    let a = version_of(&Shape::Dense.build1(RANK_PAIR_DEPTH)).rank();
+    let b = uniform_version(3u8).rank();
     // Informational denominator: the pair's value content in bytes
     // (numerator bits + exponent, over eight).
     let content_bytes = RANK_PAIR_DEPTH / 8 + 1;
@@ -1403,13 +1412,9 @@ fn rank_pair_mismatch_envelope() {
 /// scenario of record.
 #[test]
 fn rank_sum_mixed_envelope() {
-    let high = version_of(&Shape::Dense.packed1(RANK_SUM_EXP_DEPTH)).rank();
+    let high = version_of(&Shape::Dense.build1(RANK_SUM_EXP_DEPTH)).rank();
     let ones: Vec<before::Rank> = (0..RANK_SUM_COUNT)
-        .map(|i| {
-            Version::try_from(i as u64 % 7 + 1)
-                .expect("a small integer version is valid")
-                .rank()
-        })
+        .map(|i| uniform_version(i as u64 % 7 + 1).rank())
         .collect();
     let content_bytes = RANK_SUM_EXP_DEPTH / 8 + RANK_SUM_COUNT;
     let ranks: Vec<before::Rank> = std::iter::once(high).chain(ones).collect();
@@ -1431,8 +1436,8 @@ fn rank_sum_mixed_envelope() {
 // validator is the piece that carries the wire-bit-linear claim, and the
 // public decode rows price the wrap beside it.
 
-/// The skyline stream of a packed family shape, built outside measurement.
-fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsBuf {
+/// The skyline stream of a generated family shape, built outside measurement.
+fn skyline_of(p: &meter::Encoding) -> meter::skyline::BitsBuf {
     meter::skyline::encode(&version_of(p))
 }
 
@@ -1442,7 +1447,7 @@ fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsBuf {
 /// reallocation growth): bits per level, not frames.
 #[test]
 fn skyline_validate_dense_envelope() {
-    let enc = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
+    let enc = skyline_of(&Shape::Dense.build1(DENSE_DEPTH));
     let r = metered(
         "skyline_validate_dense",
         enc.as_raw_slice().len(),
@@ -1460,7 +1465,7 @@ fn skyline_validate_dense_envelope() {
 /// witness; a plain big-integer accumulator is quadratic here).
 #[test]
 fn skyline_validate_cliff_envelope() {
-    let enc = skyline_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
+    let enc = skyline_of(&Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE));
     let r = metered(
         "skyline_validate_cliff",
         enc.as_raw_slice().len(),
@@ -1476,7 +1481,7 @@ fn skyline_validate_cliff_envelope() {
 #[test]
 fn skyline_validate_wide_tooth_envelope() {
     let enc =
-        skyline_of(&Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE));
+        skyline_of(&Shape::WideToothComb.build3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE));
     let r = metered(
         "skyline_validate_wide_tooth",
         enc.as_raw_slice().len(),
@@ -1494,7 +1499,7 @@ fn skyline_validate_wide_tooth_envelope() {
 /// linear in the code's own width.
 #[test]
 fn skyline_validate_hugeleaf_envelope() {
-    let enc = skyline_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
+    let enc = skyline_of(&Shape::Hugeleaf.build1(HUGELEAF_MAGNITUDE_BITS));
     let r = metered(
         "skyline_validate_hugeleaf",
         enc.as_raw_slice().len(),
@@ -1510,7 +1515,7 @@ fn skyline_validate_hugeleaf_envelope() {
 /// a frame.
 #[test]
 fn skyline_validate_alt_spine_envelope() {
-    let enc = skyline_of(&Shape::AltSpine.packed1(DENSE_DEPTH));
+    let enc = skyline_of(&Shape::AltSpine.build1(DENSE_DEPTH));
     let r = metered(
         "skyline_validate_alt_spine",
         enc.as_raw_slice().len(),
@@ -1531,8 +1536,8 @@ fn skyline_validate_alt_spine_envelope() {
 /// passes them and only a floor can catch them.
 #[test]
 fn stopped_validator_fails_the_validate_row() {
-    let whole = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
-    let half = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH / 2));
+    let whole = skyline_of(&Shape::Dense.build1(DENSE_DEPTH));
+    let half = skyline_of(&Shape::Dense.build1(DENSE_DEPTH / 2));
     let input = whole.as_raw_slice().len();
     // The row with its limb and touch bands opened, so the scan floor is
     // the one judge either known-bad validator can fail.
@@ -1569,11 +1574,11 @@ fn stopped_validator_fails_the_validate_row() {
 #[test]
 fn skyline_decode_round_trips_the_families() {
     for p in [
-        Shape::Dense.packed1(DENSE_DEPTH),
-        Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE),
-        Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE),
-        Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS),
-        Shape::AltSpine.packed1(DENSE_DEPTH),
+        Shape::Dense.build1(DENSE_DEPTH),
+        Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE),
+        Shape::WideToothComb.build3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE),
+        Shape::Hugeleaf.build1(HUGELEAF_MAGNITUDE_BITS),
+        Shape::AltSpine.build1(DENSE_DEPTH),
     ] {
         let v = version_of(&p);
         let enc = meter::skyline::encode(&v);
@@ -1583,221 +1588,6 @@ fn skyline_decode_round_trips_the_families() {
             "the transcode round-trips"
         );
     }
-}
-
-// ─── skyline text kernel scenarios ──────────────────────────────────────────
-//
-// The skyline-first text kernels (`meter::skyline::text`): rendering
-// derives every printed base in delta-sized relative coordinates and
-// sizes its output exactly before writing; parsing turns path-sum
-// movement into skyline payloads through the per-leaf delta accumulator
-// and the collapsing output builder. The columns carry the kernels'
-// contract: heap in the open-node stacks, the digit arena, and the output
-// itself, limb
-// work linear per I/O byte (radix conversion runs inside the backend;
-// the recorded ops are the delta algebra), and scan linear in the
-// skyline stream. The bigroot rows are the width separator: the 40k-bit
-// heights never materialize, so no summary or accumulator state carries
-// a copy of the wide magnitude per level. The render rows pin zero
-// accumulator touches: the renderer's relative-coordinate summaries carry
-// no running accumulator, so a render that adopts one, or parse-side
-// accumulator work leaking into the render path, moves a pinned constant
-// instead of arriving silently.
-
-// Pins per the file doc's convention; each row's trailing comment states
-// the mechanism that prices it.
-#[rustfmt::skip]
-mod text_env {
-    use super::{band, envelope, Envelope};
-    pub const SKYLINE_RENDER_DENSE: Envelope       = envelope(1_996_800, band(1_562_513, 937_507),             band(0, 0), band(468_758, 281_254)); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
-    pub const SKYLINE_RENDER_BIGROOT: Envelope     = envelope(  249_600,    band(127_368, 76_420),             band(0, 0),  band(137_512, 82_506)); // leaf-delta-sized summaries: no per-level copy of the wide root value
-    pub const SKYLINE_RENDER_HUGELEAF: Envelope    = envelope(  171_310,       band(7_330, 4_398),             band(0, 0), band(312_503, 187_501)); // one delegated decimal rendering plus the exact-sized output, no tree state
-    pub const SKYLINE_RENDER_WIDE_ARMING: Envelope = envelope(  558_320,   band(482_700, 289_620),             band(0, 0),  band(146_033, 87_619)); // the parse direction's dual: the wide swing then the dense trail walked through the summary merges, no accumulator work
-    pub const SKYLINE_RENDER_CLIFF: Envelope       = envelope(1_113_202,   band(243_385, 146_031),             band(0, 0),   band(17_923, 10_753)); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
-    pub const SKYLINE_PARSE_DENSE: Envelope        = envelope(4_041_052,   band(625_007, 375_003),  band(156_254, 93_752), band(468_758, 281_254)); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
-    pub const SKYLINE_PARSE_BIGROOT: Envelope      = envelope(  377_944,     band(51_574, 30_944),   band(18_754, 11_252),  band(137_512, 82_506)); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
-    pub const SKYLINE_PARSE_HUGELEAF: Envelope     = envelope(  152_480,       band(4_887, 2_931),   band(19_537, 11_721), band(312_503, 187_501)); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
-    pub const SKYLINE_PARSE_CLIFF: Envelope        = envelope(  344_152,     band(56_475, 33_885), band(172_839, 103_703),   band(17_923, 10_753)); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
-}
-
-/// Rendering the dense spine's skyline stays within its envelope.
-///
-/// 125k open-node levels and ~250k single-digit printed bases finalize
-/// through word-sized summaries, the output is sized exactly before one
-/// byte is written, and nothing recurses.
-#[test]
-fn skyline_render_dense_envelope() {
-    let v = version_of(&Shape::Dense.packed1(DENSE_DEPTH));
-    let a = meter::skyline::encode(&v);
-    let expected = v.to_string();
-    let out = metered(
-        "skyline_render_dense",
-        a.as_raw_slice().len(),
-        &text_env::SKYLINE_RENDER_DENSE,
-        || meter::skyline::text::render(meter::skyline::view(&a)),
-    );
-    assert_eq!(out, expected, "the kernel must render Display's bytes");
-}
-
-/// Rendering bigroot's skyline stays within its envelope — the width
-/// separator.
-///
-/// Every leaf height carries the 40k-bit root magnitude, but the finalize
-/// pass's summaries are leaf-delta-sized, so the deep spine's transient
-/// holds no per-level copy of the wide value and the one wide printed
-/// base is paid by its own rendered digits.
-#[test]
-fn skyline_render_bigroot_envelope() {
-    let v = version_of(&Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
-    let a = meter::skyline::encode(&v);
-    let expected = v.to_string();
-    let out = metered(
-        "skyline_render_bigroot",
-        a.as_raw_slice().len(),
-        &text_env::SKYLINE_RENDER_BIGROOT,
-        || meter::skyline::text::render(meter::skyline::view(&a)),
-    );
-    assert_eq!(out, expected, "the kernel must render Display's bytes");
-}
-
-/// Rendering hugeleaf's skyline stays within its envelope: one node, one
-/// 125k-bit magnitude, so the whole cost is the delegated decimal
-/// rendering plus the exact-sized output — no tree state at all.
-#[test]
-fn skyline_render_hugeleaf_envelope() {
-    let v = version_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
-    let a = meter::skyline::encode(&v);
-    let expected = v.to_string();
-    let out = metered(
-        "skyline_render_hugeleaf",
-        a.as_raw_slice().len(),
-        &text_env::SKYLINE_RENDER_HUGELEAF,
-        || meter::skyline::text::render(meter::skyline::view(&a)),
-    );
-    assert_eq!(out, expected, "the kernel must render Display's bytes");
-}
-
-/// Rendering the boundary comb's skyline stays within its envelope:
-/// every tooth's wide printed base re-derives from 3-bit `±1` deltas
-/// against the running relative floor, each merge paid by the tooth's
-/// own rendered digits.
-#[test]
-fn skyline_render_cliff_envelope() {
-    let v = version_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
-    let a = meter::skyline::encode(&v);
-    let expected = v.to_string();
-    let out = metered(
-        "skyline_render_cliff",
-        a.as_raw_slice().len(),
-        &text_env::SKYLINE_RENDER_CLIFF,
-        || meter::skyline::text::render(meter::skyline::view(&a)),
-    );
-    assert_eq!(out, expected, "the kernel must render Display's bytes");
-}
-
-/// Rendering the wide-arming stream's skyline stays within its envelope.
-///
-/// The wide swing and then the dense trail walk through the summary
-/// merges, and the touch cell pins the zero accumulator work doing it (the
-/// parse direction's dual).
-#[test]
-fn skyline_render_wide_arming_envelope() {
-    let v =
-        version_of(&Shape::WideArming.packed2(WIDE_ARMING_RENDER_SCALE, WIDE_ARMING_RENDER_SCALE));
-    let a = meter::skyline::encode(&v);
-    let expected = v.to_string();
-    let out = metered(
-        "skyline_render_wide_arming",
-        a.as_raw_slice().len(),
-        &text_env::SKYLINE_RENDER_WIDE_ARMING,
-        || meter::skyline::text::render(meter::skyline::view(&a)),
-    );
-    assert_eq!(out, expected, "the kernel must render Display's bytes");
-}
-
-/// Parsing the dense spine's text stays within its envelope: one frame
-/// per open node, single-digit bases through the delegated reader, and
-/// the per-leaf delta accumulator staying word-sized throughout.
-#[test]
-fn skyline_parse_dense_envelope() {
-    let v = version_of(&Shape::Dense.packed1(DENSE_DEPTH));
-    let s = v.to_string();
-    let expected = meter::skyline::encode(&v);
-    let out = metered(
-        "skyline_parse_dense",
-        s.len(),
-        &text_env::SKYLINE_PARSE_DENSE,
-        || meter::skyline::text::parse(&s).expect("canonical text parses"),
-    );
-    assert_eq!(
-        out, expected,
-        "the kernel must build the transcoder's stream"
-    );
-}
-
-/// Parsing bigroot's text stays within its envelope.
-///
-/// The 12k-digit root base converts once through the backend's
-/// divide-and-conquer parser, joins and leaves the delta accumulator
-/// exactly twice, and every spine base is word-sized — no per-level copy
-/// of the wide value.
-#[test]
-fn skyline_parse_bigroot_envelope() {
-    let v = version_of(&Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
-    let s = v.to_string();
-    let expected = meter::skyline::encode(&v);
-    let out = metered(
-        "skyline_parse_bigroot",
-        s.len(),
-        &text_env::SKYLINE_PARSE_BIGROOT,
-        || meter::skyline::text::parse(&s).expect("canonical text parses"),
-    );
-    assert_eq!(
-        out, expected,
-        "the kernel must build the transcoder's stream"
-    );
-}
-
-/// Parsing hugeleaf's text stays within its envelope: one ~37k-digit
-/// run through the delegated conversion, one absolute payload out — the
-/// shape where any superlinear parse-side arithmetic shows undiluted.
-#[test]
-fn skyline_parse_hugeleaf_envelope() {
-    let v = version_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
-    let s = v.to_string();
-    let expected = meter::skyline::encode(&v);
-    let out = metered(
-        "skyline_parse_hugeleaf",
-        s.len(),
-        &text_env::SKYLINE_PARSE_HUGELEAF,
-        || meter::skyline::text::parse(&s).expect("canonical text parses"),
-    );
-    assert_eq!(
-        out, expected,
-        "the kernel must build the transcoder's stream"
-    );
-}
-
-/// Parsing the boundary comb's text stays within its envelope.
-///
-/// Every tooth's wide base enters and leaves the cliff-free accumulator
-/// paid by its own digit run, so the `2^k` carry boundary costs amortized
-/// O(1) digit touches per crossing.
-#[test]
-fn skyline_parse_cliff_envelope() {
-    let v = version_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
-    let s = v.to_string();
-    let expected = meter::skyline::encode(&v);
-    let out = metered(
-        "skyline_parse_cliff",
-        s.len(),
-        &text_env::SKYLINE_PARSE_CLIFF,
-        || meter::skyline::text::parse(&s).expect("canonical text parses"),
-    );
-    assert_eq!(
-        out, expected,
-        "the kernel must build the transcoder's stream"
-    );
 }
 
 // ─── skyline cliff-freedom flatness ─────────────────────────────────────────
@@ -1816,6 +1606,7 @@ fn skyline_parse_cliff_envelope() {
 // witness rather than a tautology.
 #[cfg(feature = "limb-meter")]
 mod skyline_flatness {
+    use super::ticks_from_big;
     use before::meter;
     use before::meter::registry::Shape;
     use suanpan::touch_meter;
@@ -1847,8 +1638,8 @@ mod skyline_flatness {
     /// 1.6 touches per delta on this comb, so the one-touch floor is
     /// comfortable.
     fn comb_run(scale: usize) -> Run {
-        let packed = Shape::CliffComb.packed2(scale, scale);
-        let v = packed.version();
+        let encoded = Shape::CliffComb.build2(scale, scale);
+        let v = encoded.version();
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
@@ -1921,8 +1712,8 @@ mod skyline_flatness {
     /// difference state is not the metered accumulator fails loudly here
     /// instead of passing the flatness ratio vacuously at zero touches.
     fn comb_cmp_run(scale: usize) -> Run {
-        let packed = Shape::CliffComb.packed2(scale, scale);
-        let v = packed.version();
+        let encoded = Shape::CliffComb.build2(scale, scale);
+        let v = encoded.version();
         let a = meter::skyline::encode(&v);
         let b = meter::skyline::encode(&before::Version::new());
         touch_meter::reset();
@@ -1990,8 +1781,8 @@ mod skyline_flatness {
     /// fails loudly here instead of passing the flatness ratio vacuously
     /// at zero touches.
     fn comb_join_run(scale: usize) -> Run {
-        let packed = Shape::CliffComb.packed2(scale, scale);
-        let v = packed.version();
+        let encoded = Shape::CliffComb.build2(scale, scale);
+        let v = encoded.version();
         let a = meter::skyline::encode(&v);
         let mut one = before::Version::new();
         one.tick(&before::Party::seed());
@@ -2007,7 +1798,10 @@ mod skyline_flatness {
             touches: touch_meter::touches(),
             limb_ops: meter::limb_ops(),
         };
-        assert_eq!(out, expected, "the emitted join must match the packed join");
+        assert_eq!(
+            out, expected,
+            "the emitted join must match the encoded join"
+        );
         assert!(
             run.touches >= run.deltas,
             "skyline_comb_join scale {scale}: {} digit touches under the {}-delta floor: \
@@ -2047,72 +1841,6 @@ mod skyline_flatness {
         );
     }
 
-    /// Parse the `k = n = scale` boundary comb's rendered text and record
-    /// the touch counter over the parse body alone (the text is rendered
-    /// outside the metered window).
-    ///
-    /// Enforces the same touch-meter liveness floor as [`comb_run`]: the
-    /// parse extracts each leaf's delta from the running path-sum
-    /// accumulator, so a parse whose accumulator left the metered
-    /// representation fails loudly here instead of passing the flatness
-    /// ratio vacuously at zero touches.
-    fn comb_parse_run(scale: usize) -> Run {
-        let packed = Shape::CliffComb.packed2(scale, scale);
-        let v = packed.version();
-        let s = v.to_string();
-        let expected = meter::skyline::encode(&v);
-        touch_meter::reset();
-        meter::reset_limb_ops();
-        let out = meter::skyline::text::parse(&s).expect("rendered text parses back");
-        let run = Run {
-            // 2n + 1 leaves: 2n delta codes follow the first leaf.
-            deltas: 2 * scale as u64,
-            bytes: s.len() as u64,
-            touches: touch_meter::touches(),
-            limb_ops: meter::limb_ops(),
-        };
-        assert_eq!(
-            out, expected,
-            "the parse must build the transcoder's stream"
-        );
-        assert!(
-            run.touches >= run.deltas,
-            "skyline_comb_parse scale {scale}: {} digit touches under the {}-delta floor: \
-             the parse's path-sum accumulator is not running on the metered representation",
-            run.touches,
-            run.deltas,
-        );
-        run
-    }
-
-    /// The text parse's per-text-byte accumulator touches stay flat
-    /// across a `k = n` doubling of the boundary comb's rendered text:
-    /// the path-sum accumulator is cliff-free on the crate's canonical
-    /// untrusted-input surface.
-    ///
-    /// The parse extracts each leaf's delta from the running path-sum
-    /// accumulator, and its per-base ≤2× accumulator charge is what
-    /// this pin holds in the aggregate (the `SKYLINE_PARSE_*` envelopes
-    /// carry the other four columns). Text bytes are the row's honest denominator: each
-    /// parsed base's join costs digit touches proportional to the base's
-    /// own spelled width, so the comb's quadratically growing text pays
-    /// for its own accumulator work — per delta the same reading grows
-    /// with the tooth width and would misread as amplification. Each run
-    /// also carries the one-touch-per-delta liveness floor (in
-    /// [`comb_parse_run`]), so flatness is asserted over a meter proven
-    /// live.
-    #[test]
-    fn skyline_parse_cliff_touch_cost_is_flat_per_unit() {
-        let small = comb_parse_run(512);
-        let large = comb_parse_run(1_024);
-        assert_flat(
-            "parse_touches",
-            "text_byte",
-            (small.touches, small.bytes),
-            (large.touches, large.bytes),
-        );
-    }
-
     /// Tooth width (bits) one notch under the rank freeze threshold's
     /// 256-bit digit bound: the band's flat side.
     const FREEZE_BAND_UNDER_BITS: usize = 192;
@@ -2137,11 +1865,11 @@ mod skyline_flatness {
     /// delta code writes at least one accumulator digit, so a rank whose
     /// height state runs on anything but the metered accumulator fails
     /// loudly instead of passing a per-unit bound vacuously at zero
-    /// touches — and pins the result against the packed rank, so the
+    /// touches — and pins the result against the encoded rank, so the
     /// measured body is proven to compute the right answer.
     fn rank_wide_tooth_run(k: usize, w: usize, n: usize) -> Run {
-        let packed = Shape::WideToothComb.packed3(k, w, n);
-        let v = packed.version();
+        let encoded = Shape::WideToothComb.build3(k, w, n);
+        let v = encoded.version();
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
@@ -2153,7 +1881,7 @@ mod skyline_flatness {
             touches: touch_meter::touches(),
             limb_ops: meter::limb_ops(),
         };
-        assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+        assert_eq!(r, v.rank(), "the kernel must match the encoded rank");
         assert!(
             run.touches >= run.deltas,
             "skyline_rank_wide_tooth w={w}: {} digit touches under the {}-delta floor: \
@@ -2268,11 +1996,11 @@ mod skyline_flatness {
     /// One rank run over the jump comb `J(k, n)`'s skyline stream: the
     /// per-unit denominators and both counters over the rank body alone.
     ///
-    /// Carries the same liveness floor and packed-rank agreement as
+    /// Carries the same liveness floor and encoded-rank agreement as
     /// [`rank_wide_tooth_run`].
     fn rank_jump_run(k: usize, n: usize) -> Run {
-        let packed = Shape::JumpComb.packed2(k, n);
-        let v = packed.version();
+        let encoded = Shape::JumpComb.build2(k, n);
+        let v = encoded.version();
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
@@ -2284,7 +2012,7 @@ mod skyline_flatness {
             touches: touch_meter::touches(),
             limb_ops: meter::limb_ops(),
         };
-        assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+        assert_eq!(r, v.rank(), "the kernel must match the encoded rank");
         assert!(
             run.touches >= run.deltas,
             "skyline_rank_jump k={k}: {} digit touches under the {}-delta floor: \
@@ -2366,19 +2094,22 @@ mod skyline_flatness {
         );
     }
 
-    /// One public fold run over a packed family shape: the operand's
-    /// packed bytes and both counters over the metered body alone.
+    /// One public fold run over a generated family shape: the operand's
+    /// encoded bytes and both counters over the metered body alone.
     struct QueryRun {
         bytes: u64,
         touches: u64,
         limb_ops: u64,
     }
 
-    /// One `Version::min_ticks` run over a packed family shape, with
+    /// One `Version::min_ticks` run over a generated family shape, with
     /// the family's closed-form tick total as the semantic leg and the
     /// one-touch-per-operand-byte liveness floor.
-    fn min_ticks_family_run(packed: before::meter::Packed, expected: &dashu_int::UBig) -> QueryRun {
-        let v = packed.version();
+    fn min_ticks_family_run(
+        encoded: before::meter::Encoding,
+        expected: &dashu_int::UBig,
+    ) -> QueryRun {
+        let v = encoded.version();
         let bytes = v.encode().len() as u64;
         touch_meter::reset();
         meter::reset_limb_ops();
@@ -2390,10 +2121,7 @@ mod skyline_flatness {
         };
         assert_eq!(
             ticks,
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(expected),
             "min_ticks disagrees with the family's closed form"
         );
         assert!(
@@ -2429,14 +2157,14 @@ mod skyline_flatness {
     }
 
     /// Blocks of the min_ticks comb bands' small runs (the large runs
-    /// double both comb parameters, doubling the packed operand).
+    /// double both comb parameters, doubling the encoded operand).
     const MIN_TICKS_COMB_SMALL: usize = 1_000;
 
     /// Absolute two-scale (touch, limb) ceilings for min_ticks on the
     /// pure comb, measured ×1.25 (the record and every re-pin's
     /// movement live in the pin commits).
     ///
-    /// The anchor-web fold reads flat per packed byte across the
+    /// The anchor-web fold reads flat per encoded byte across the
     /// doubling; an accounting that circulates the full plateau width
     /// per closing node reads superlinear and exceeds these ceilings.
     const MIN_TICKS_PURE_COMB_CEILINGS: [(u64, u64); 2] = [(2_785, 2_588), (5_558, 5_168)];
@@ -2463,8 +2191,8 @@ mod skyline_flatness {
         use dashu_int::UBig;
         let k = MIN_TICKS_COMB_SMALL;
         let expected = |k: usize| (UBig::ONE << k) * UBig::from(k as u64);
-        let small = min_ticks_family_run(Shape::PureComb.packed2(k, k), &expected(k));
-        let large = min_ticks_family_run(Shape::PureComb.packed2(2 * k, 2 * k), &expected(2 * k));
+        let small = min_ticks_family_run(Shape::PureComb.build2(k, k), &expected(k));
+        let large = min_ticks_family_run(Shape::PureComb.build2(2 * k, 2 * k), &expected(2 * k));
         assert_ceilings(
             "skyline_min_ticks_pure_comb",
             &small,
@@ -2503,8 +2231,8 @@ mod skyline_flatness {
         use dashu_int::UBig;
         let k = MIN_TICKS_COMB_SMALL;
         let expected = |k: usize| (UBig::ONE << k) * UBig::from(k as u64);
-        let small = min_ticks_family_run(Shape::RevealComb.packed2(k, k), &expected(k));
-        let large = min_ticks_family_run(Shape::RevealComb.packed2(2 * k, 2 * k), &expected(2 * k));
+        let small = min_ticks_family_run(Shape::RevealComb.build2(k, k), &expected(k));
+        let large = min_ticks_family_run(Shape::RevealComb.build2(2 * k, 2 * k), &expected(2 * k));
         assert_ceilings(
             "skyline_min_ticks_reveal_comb",
             &small,
@@ -2634,11 +2362,11 @@ mod skyline_flatness {
     fn skyline_min_ticks_seam_plunge_is_flat_per_unit() {
         let run = |k: usize| {
             let plunge = min_ticks_family_run(
-                Shape::SeamPlunge.packed2(k, SEAM_CLEARANCE),
+                Shape::SeamPlunge.build2(k, SEAM_CLEARANCE),
                 &seam_plunge_ticks(k, SEAM_CLEARANCE),
             );
             let control = min_ticks_family_run(
-                Shape::SeamPlungeControl.packed2(k, SEAM_CLEARANCE),
+                Shape::SeamPlungeControl.build2(k, SEAM_CLEARANCE),
                 &seam_plunge_control_ticks(k, SEAM_CLEARANCE),
             );
             (plunge, control)
@@ -2713,11 +2441,11 @@ mod skyline_flatness {
     fn skyline_min_ticks_seam_plunge_clearance_band() {
         let k = 2 * SEAM_SMALL_K;
         let tight = min_ticks_family_run(
-            Shape::SeamPlunge.packed2(k, SEAM_CLEARANCE),
+            Shape::SeamPlunge.build2(k, SEAM_CLEARANCE),
             &seam_plunge_ticks(k, SEAM_CLEARANCE),
         );
         let wide = min_ticks_family_run(
-            Shape::SeamPlunge.packed2(k, SEAM_CLEARANCE_WIDE),
+            Shape::SeamPlunge.build2(k, SEAM_CLEARANCE_WIDE),
             &seam_plunge_ticks(k, SEAM_CLEARANCE_WIDE),
         );
         eprintln!(
@@ -2783,9 +2511,9 @@ mod skyline_flatness {
     #[test]
     fn skyline_min_ticks_seam_stop_is_flat_per_unit() {
         let run = |k: usize| {
-            let stop = min_ticks_family_run(Shape::SeamStop.packed1(k), &seam_stop_ticks(k));
+            let stop = min_ticks_family_run(Shape::SeamStop.build1(k), &seam_stop_ticks(k));
             let control =
-                min_ticks_family_run(Shape::SeamStopControl.packed1(k), &seam_stop_ticks(k));
+                min_ticks_family_run(Shape::SeamStopControl.build1(k), &seam_stop_ticks(k));
             (stop, control)
         };
         let (small, small_control) = run(SEAM_SMALL_K);
@@ -2893,11 +2621,11 @@ mod skyline_flatness {
     fn skyline_min_ticks_latent_ladder_is_flat_per_unit() {
         let marginal = |w: usize| {
             let base = min_ticks_family_run(
-                Shape::LatentLadder.packed2(w, LADDER_K),
+                Shape::LatentLadder.build2(w, LADDER_K),
                 &latent_ladder_ticks(w, LADDER_K),
             );
             let doubled = min_ticks_family_run(
-                Shape::LatentLadder.packed2(w, 2 * LADDER_K),
+                Shape::LatentLadder.build2(w, 2 * LADDER_K),
                 &latent_ladder_ticks(w, 2 * LADDER_K),
             );
             doubled
@@ -2941,8 +2669,8 @@ mod skyline_flatness {
     /// and the one-touch-per-operand-byte liveness floor.
     fn rank_freeze_position_run(k: usize) -> QueryRun {
         use dashu_int::UBig;
-        let packed = Shape::FreezePosition.packed1(k);
-        let v = packed.version();
+        let encoded = Shape::FreezePosition.build1(k);
+        let v = encoded.version();
         let bytes = v.encode().len() as u64;
         let band = 289 + (usize::BITS - k.leading_zeros()) as usize;
         let expected = (UBig::from(2 * k as u64) << band)
@@ -2950,10 +2678,7 @@ mod skyline_flatness {
             + UBig::from(k as u64);
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's leaf sum disagrees with min_ticks: the generator \
              does not build the tree this band reasons about"
         );
@@ -2976,14 +2701,14 @@ mod skyline_flatness {
     }
 
     /// Blocks of the freeze-position band's small run (the large run
-    /// doubles the block count, doubling the packed operand).
+    /// doubles the block count, doubling the encoded operand).
     const RANK_FREEZE_POSITION_SMALL: usize = 1_000;
 
     /// Absolute two-scale (touch, limb) ceilings for rank on the
     /// freeze-position family, measured ×1.25 (the record and every
     /// re-pin's movement live in the pin commits).
     ///
-    /// The anchored-segment integral reads flat per packed byte across
+    /// The anchored-segment integral reads flat per encoded byte across
     /// the doubling; an accounting that reads the position
     /// accumulator's whole written span per freeze reads superlinear
     /// and exceeds these ceilings.
@@ -3032,51 +2757,44 @@ mod skyline_flatness {
         );
     }
 
-    /// The freeze-position family's near-flat co-operand: the same
-    /// `2k`-node right spine with unit-descending small leaves
-    /// (`2k + 1 − j` at depth `j`) over the terminal zero.
-    ///
-    /// Overlaying it against `FP(k)` gives the co-sweep the many-freezes
-    /// genre in its two-operand form: the difference's deltas alternate
-    /// a wide drop and zero, so this operand's cheap codes fire `Θ(k)`
-    /// freezes of drift only the freeze-position operand's wide codes
-    /// deposited — at ever-deeper stream positions.
-    fn freeze_position_flat_mate(k: usize) -> before::Version {
-        let mut text = String::new();
-        for j in 0..2 * k {
-            text.push_str("(0, ");
-            text.push_str(&(2 * k - j).to_string());
-            text.push_str(", ");
-        }
-        text.push('0');
+    /// Build the freeze-position family's descending unit spine through public
+    /// party and version operations.
+    fn freeze_position_mate(k: usize) -> before::Version {
+        let mut tail = before::Party::seed();
+        let mut leaves = Vec::with_capacity(2 * k + 1);
         for _ in 0..2 * k {
-            text.push(')');
+            let right = tail.fork();
+            leaves.push(tail);
+            tail = right;
         }
-        text.parse()
-            .expect("the descending unit spine is canonical")
+        leaves.push(tail);
+
+        before::Version::new().join_all(leaves.into_iter().zip((0..=2 * k).rev()).filter_map(
+            |(party, ticks)| {
+                if ticks == 0 {
+                    return None;
+                }
+                let mut version = before::Version::new();
+                version.ticks(&party, ticks as u64);
+                Some(version)
+            },
+        ))
     }
 
-    /// One public distance-and-lag run over the two-operand
-    /// freeze-position analogue `(FP(k), unit spine)`: both counters
-    /// over the two query bodies together, with the pair's packed bytes
-    /// as the per-byte denominator.
-    ///
-    /// Value legs anchor both measures before the counters return: the
-    /// freeze-position operand dominates its mate pointwise, so
-    /// `distance = rank(a) − rank(b)`, `lag(a, b) = 0`, and
-    /// `lag(b, a) = distance` — three exact identities on `Rank`
-    /// arithmetic the sweeps share nothing with.
+    /// Measure distance and lag between the freeze-position family and its
+    /// descending unit spine.
     fn distance_freeze_position_run(k: usize) -> QueryRun {
-        let a = Shape::FreezePosition.packed1(k).version();
-        let b = freeze_position_flat_mate(k);
+        let a = Shape::FreezePosition.build1(k).version();
+        let b = freeze_position_mate(k);
         let bytes = (a.encode().len() + b.encode().len()) as u64;
         let gap = a
             .rank()
             .checked_sub(&b.rank())
-            .expect("the freeze-position operand dominates its mate");
+            .expect("the freeze-position version dominates its mate");
+
         touch_meter::reset();
         meter::reset_limb_ops();
-        let d = a.distance(&b);
+        let distance = a.distance(&b);
         let forward = a.lag(&b);
         let backward = b.lag(&a);
         let run = QueryRun {
@@ -3084,46 +2802,32 @@ mod skyline_flatness {
             touches: touch_meter::touches(),
             limb_ops: meter::limb_ops(),
         };
-        assert_eq!(d, gap, "distance must be the dominating rank gap");
+
+        assert_eq!(distance, gap, "distance is the rank difference");
         assert_eq!(
             forward,
             before::Rank::ZERO,
-            "the dominating side lags by nothing"
+            "the greater version has no lag"
         );
-        assert_eq!(backward, d, "the dominated side lags by the whole gap");
+        assert_eq!(
+            backward, distance,
+            "the lesser version lags by the distance"
+        );
         assert!(
             run.touches >= run.bytes,
-            "pair queries at {bytes} operand bytes: {} digit touches under \
-             the one-per-byte floor: the co-sweep's difference state is not \
-             running on the metered accumulator",
+            "pair queries at {bytes} encoded bytes recorded too few touches: {}",
             run.touches,
         );
         run
     }
 
-    /// Absolute two-scale (touch, limb) ceilings for the distance/lag
-    /// triple on the freeze-position analogue, measured ×1.25 (the
-    /// record and every re-pin's movement live in the pin commits).
-    ///
-    /// The ceilings price the three query bodies together — three
-    /// sweeps' worth — flat per packed byte across the doubling.
+    /// Absolute two-scale ceilings for distance and lag on the
+    /// freeze-position family and its mate.
     const DISTANCE_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
         [(323_345, 144_847), (646_895, 289_687)];
 
-    /// Distance and lag are linear on the freeze-position analogue: the
-    /// two-operand many-freezes genre reads flat (×1.25) per packed
-    /// byte across a block-count doubling, under absolute two-scale
-    /// ceilings.
-    ///
-    /// The review's residual risk: `Θ(k)` freezes where one operand's
-    /// cheap codes fire evictions of drift only the other operand's
-    /// wide codes deposited, at ever-deeper stream positions — the
-    /// jump-pair wedge covered crest freezes, not span growth. The
-    /// anchored-segment discipline settles each parked drift against
-    /// its own segment's written span, and the parked component's
-    /// monotone descent never triggers promotion, so no charge reads an
-    /// absolute position and the flatness bound holds in both
-    /// currencies.
+    /// Distance and lag remain linear as the number of freeze positions
+    /// doubles.
     #[test]
     fn skyline_distance_freeze_position_is_flat_per_unit() {
         let small = distance_freeze_position_run(RANK_FREEZE_POSITION_SMALL);
@@ -3158,17 +2862,14 @@ mod skyline_flatness {
     /// floor.
     fn rank_promotion_rearm_run(p: usize) -> QueryRun {
         use dashu_int::UBig;
-        let v = Shape::PromotionRearm.packed1(p).version();
+        let v = Shape::PromotionRearm.build1(p).version();
         let bytes = v.encode().len() as u64;
         let expected = UBig::from(16 * p as u64)
             + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
             + 1u8;
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's stored-code sum disagrees with min_ticks: the \
              generator does not build the tree this band reasons about"
         );
@@ -3198,7 +2899,7 @@ mod skyline_flatness {
     /// promotion re-arm spine, measured ×1.25 (the record and every
     /// re-pin's movement and attribution live in the pin commits).
     ///
-    /// The cluster-delegated settle reads flat per packed byte across
+    /// The cluster-delegated settle reads flat per encoded byte across
     /// the doubling, with the settle's window-digit traffic metered;
     /// the span-reading promotion — every promotion re-reading the
     /// position accumulator's whole written span — reads superlinear
@@ -3257,7 +2958,7 @@ mod skyline_flatness {
     /// about) and the one-touch-per-operand-byte liveness floor.
     fn rank_lone_freeze_run(pre: usize, post: usize) -> QueryRun {
         use dashu_int::UBig;
-        let v = Shape::LoneFreeze.packed2(pre, post).version();
+        let v = Shape::LoneFreeze.build2(pre, post).version();
         let bytes = v.encode().len() as u64;
         let expected = UBig::from(pre as u64) * ((UBig::ONE << 288usize) + UBig::from(2u8))
             + UBig::from((pre / 2) as u64)
@@ -3265,10 +2966,7 @@ mod skyline_flatness {
             + UBig::from(3u8);
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's leaf sum disagrees with min_ticks: the generator \
              does not build the tree this band reasons about"
         );
@@ -3299,7 +2997,7 @@ mod skyline_flatness {
     /// lone-freeze late axis, measured ×1.25 (the record lives in the
     /// pin commit).
     ///
-    /// Flat per packed byte across the doubling: the gate holds the
+    /// Flat per encoded byte across the doubling: the gate holds the
     /// segment feed shut across the whole never-freezing prefix.
     const RANK_LONE_FREEZE_LATE_CEILINGS: [(u64, u64); 2] = [(5_233, 7_648), (10_312, 15_228)];
 
@@ -3345,7 +3043,7 @@ mod skyline_flatness {
     /// lone-freeze frozen-tail axis, measured ×1.25 (the record lives
     /// in the pin commit).
     ///
-    /// Flat per packed byte across the doubling. The tail axis adds
+    /// Flat per encoded byte across the doubling. The tail axis adds
     /// the open-gate segment feed over the late axis — amortized O(1)
     /// touches per interval — and the close's one settle reads the
     /// whole tail's banked mass without moving the per-byte cost.
@@ -3394,7 +3092,7 @@ mod skyline_flatness {
     /// freeze-position spine, measured ×1.25 (the record lives in the
     /// pin commit).
     ///
-    /// Flat per packed byte across the doubling: `Θ(k)` epochs settle
+    /// Flat per encoded byte across the doubling: `Θ(k)` epochs settle
     /// at one funded-width product each.
     const MIN_TICKS_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
         [(129_988, 43_774), (259_988, 87_524)];
@@ -3424,8 +3122,8 @@ mod skyline_flatness {
                 + UBig::from(k as u64)
         };
         let k = RANK_FREEZE_POSITION_SMALL;
-        let small = min_ticks_family_run(Shape::FreezePosition.packed1(k), &expected(k));
-        let large = min_ticks_family_run(Shape::FreezePosition.packed1(2 * k), &expected(2 * k));
+        let small = min_ticks_family_run(Shape::FreezePosition.build1(k), &expected(k));
+        let large = min_ticks_family_run(Shape::FreezePosition.build1(2 * k), &expected(2 * k));
         assert_ceilings(
             "skyline_min_ticks_freeze_position",
             &small,
@@ -3450,7 +3148,7 @@ mod skyline_flatness {
     /// promotion re-arm spine, measured ×1.25 (the record lives in the
     /// pin commit).
     ///
-    /// Flat per packed byte across the doubling: `Θ(p)` wide-drift
+    /// Flat per encoded byte across the doubling: `Θ(p)` wide-drift
     /// epochs in both directions settle at one funded-width product
     /// each.
     const MIN_TICKS_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
@@ -3480,8 +3178,8 @@ mod skyline_flatness {
                 + 1u8
         };
         let p = PROMOTION_REARM_SMALL;
-        let small = min_ticks_family_run(Shape::PromotionRearm.packed1(p), &expected(p));
-        let large = min_ticks_family_run(Shape::PromotionRearm.packed1(2 * p), &expected(2 * p));
+        let small = min_ticks_family_run(Shape::PromotionRearm.build1(p), &expected(p));
+        let large = min_ticks_family_run(Shape::PromotionRearm.build1(2 * p), &expected(2 * p));
         assert_ceilings(
             "skyline_min_ticks_promotion_rearm",
             &small,
@@ -3504,7 +3202,7 @@ mod skyline_flatness {
 
     /// One public distance-and-lag run over the two-operand promotion
     /// re-arm analogue `(PR(p), PRM(p))`: both counters over the three
-    /// query bodies together, with the pair's packed bytes as the
+    /// query bodies together, with the pair's encoded bytes as the
     /// per-byte denominator.
     ///
     /// The mate is `PR(p)`'s unit-climb twin (same topology, every base
@@ -3519,8 +3217,8 @@ mod skyline_flatness {
     /// dominates its mate pointwise, so `distance = rank(a) − rank(b)`,
     /// `lag(a, b) = 0`, and `lag(b, a) = distance`.
     fn distance_promotion_rearm_run(p: usize) -> QueryRun {
-        let a = Shape::PromotionRearm.packed1(p).version();
-        let b = Shape::PromotionRearmMate.packed1(p).version();
+        let a = Shape::PromotionRearm.build1(p).version();
+        let b = Shape::PromotionRearmMate.build1(p).version();
         let bytes = (a.encode().len() + b.encode().len()) as u64;
         let gap = a
             .rank()
@@ -3559,7 +3257,7 @@ mod skyline_flatness {
     /// pin commits).
     ///
     /// The ceilings price the three query bodies together — three
-    /// sweeps' worth — flat per packed byte across the doubling, with
+    /// sweeps' worth — flat per encoded byte across the doubling, with
     /// the settle's window-digit traffic metered; the committed pair
     /// tripwire keeps the span-reading promotion failing on this same
     /// pair.
@@ -3567,7 +3265,7 @@ mod skyline_flatness {
         [(1_368_802, 1_083_031), (2_737_957, 2_167_143)];
 
     /// Distance and lag are linear on the promotion re-arm analogue:
-    /// the two-operand arming genre reads flat (×1.25) per packed byte
+    /// the two-operand arming genre reads flat (×1.25) per encoded byte
     /// across a block-count doubling, under absolute two-scale
     /// ceilings.
     ///
@@ -3602,14 +3300,14 @@ mod skyline_flatness {
 
     /// One public-distance run over the two-operand jump comb
     /// `JP(k, m, d)`: both counters over the distance body alone, with
-    /// the operands' packed bytes and stored delta codes as the per-unit
+    /// the operands' encoded bytes and stored delta codes as the per-unit
     /// denominators.
     ///
     /// Enforces the touch liveness floor (every stored delta lands in
     /// the metered accumulator) and anchors the result by rank
     /// modularity before returning.
     fn distance_jump_pair_run(k: usize, m: usize, d: usize) -> Run {
-        let (pa, pb) = Shape::JumpPair.packed_pair3(k, m, d);
+        let (pa, pb) = Shape::JumpPair.build_pair3(k, m, d);
         let a = pa.version();
         let b = pb.version();
         let bytes = (a.encode().len() + b.encode().len()) as u64;
@@ -3643,7 +3341,7 @@ mod skyline_flatness {
     /// One public-rank run over a single [`meter::jump_pair`] operand:
     /// the flat single-operand control for the jump-pair band below.
     fn rank_jump_pair_operand_run(k: usize, m: usize, d: usize, band: bool) -> Run {
-        let (pa, pb) = Shape::JumpPair.packed_pair3(k, m, d);
+        let (pa, pb) = Shape::JumpPair.build_pair3(k, m, d);
         let v = if band { pb.version() } else { pa.version() };
         let bytes = v.encode().len() as u64;
         let deltas = 33 * d as u64 + 3 * m as u64;
@@ -3676,7 +3374,7 @@ mod skyline_flatness {
     /// measured ×1.25 (the record and every re-pin's movement live in
     /// the pin commits).
     ///
-    /// The anchored-segment co-sweep reads flat per packed byte across
+    /// The anchored-segment co-sweep reads flat per encoded byte across
     /// the doubling; the composed form this family was built to expose
     /// reads superlinear, several times over these ceilings.
     const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (212_660, 425_320);
@@ -3684,7 +3382,7 @@ mod skyline_flatness {
     /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`].
     const DISTANCE_JUMP_PAIR_LIMB_CEILINGS: (u64, u64) = (67_382, 134_692);
 
-    /// The jump-pair distance is linear in the packed pair: per-byte
+    /// The jump-pair distance is linear in the encoded pair: per-byte
     /// touch and limb work stay flat (×1.25) across a (teeth, digits)
     /// doubling, under absolute two-scale ceilings.
     ///
@@ -3793,7 +3491,7 @@ mod skyline_flatness {
     /// at `scale` teeth: per-delta touches and per-byte limb work, with
     /// the one-touch-per-delta liveness floor enforced before returning.
     fn masked_cmp_run(scale: usize) -> Run {
-        let (comb, mask, plateau) = Shape::MaskDriftTriple.packed_triple(512, scale);
+        let (comb, mask, plateau) = Shape::MaskDriftTriple.build_triple(512, scale);
         let v = comb.version();
         let p = before::Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
         let w = plateau.version();
@@ -3859,7 +3557,7 @@ mod skyline_flatness {
     /// quadruple at `scale` teeth, as [`masked_cmp_run`].
     fn masked_pair_cmp_run(scale: usize) -> Run {
         let ((sparse, even_mask), (comb, odd_mask)) =
-            Shape::MaskDriftQuadruple.packed_quadruple(512, scale);
+            Shape::MaskDriftQuadruple.build_quadruple(512, scale);
         let v1 = sparse.version();
         let p1 =
             before::Party::decode(&even_mask.bytes[..]).expect("the mask is strict normal form");
@@ -3947,17 +3645,14 @@ mod skyline_flatness {
     /// one-touch-per-topology-byte liveness floor.
     fn rank_weight_comb_run(n: usize) -> QueryRun {
         use dashu_int::UBig;
-        let v = Shape::WeightComb.packed1(n).version();
+        let v = Shape::WeightComb.build1(n).version();
         let bytes = v.encode().len() as u64;
         // Σ stored bases: the spine's 32n − 1 unit leaves plus the
         // block's n twos.
         let expected = UBig::from((34 * n - 1) as u64);
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's base sum disagrees with min_ticks: the generator \
              does not build the tree this band reasons about"
         );
@@ -3989,7 +3684,7 @@ mod skyline_flatness {
     /// weight comb, measured ×1.25 (the record and every re-pin's
     /// movement live in the pin commits).
     ///
-    /// Flat per packed byte across the doubling: this family never
+    /// Flat per encoded byte across the doubling: this family never
     /// freezes, so no segment feed deposits, and its wide cycling pays
     /// one quick-register spill per lease epoch. With certificate
     /// consumption disabled (a local probe build whose scans step
@@ -4042,7 +3737,7 @@ mod skyline_flatness {
     /// comb's.
     fn rank_freeze_parade_run(k: usize) -> QueryRun {
         use dashu_int::UBig;
-        let v = Shape::FreezeParade.packed1(k).version();
+        let v = Shape::FreezeParade.build1(k).version();
         let bytes = v.encode().len() as u64;
         // Σ printed bases in closed form: the spine's 64k − 1 unit
         // leaves, the block's k left-leaf wide drops, its internal
@@ -4062,10 +3757,7 @@ mod skyline_flatness {
             - &w;
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's base sum disagrees with min_ticks: the generator \
              does not build the tree this band reasons about"
         );
@@ -4097,7 +3789,7 @@ mod skyline_flatness {
     /// freeze parade, measured ×1.25 (the record and every re-pin's
     /// movement live in the pin commits).
     ///
-    /// Flat per packed byte across the doubling: the segment feed
+    /// Flat per encoded byte across the doubling: the segment feed
     /// opens at the first freeze, so the deep pre-freeze spine
     /// deposits nothing while the freeze blocks' banked segments and
     /// settles are priced whole. With the write watermark disabled (a
@@ -4149,7 +3841,7 @@ mod skyline_flatness {
     /// alone, with the verdict as the semantic leg and a
     /// one-touch-per-boundary liveness floor.
     fn cmp_tooth_tail_run(g: usize, m: usize) -> QueryRun {
-        let (a, b) = Shape::ToothTail.packed_pair(g, m);
+        let (a, b) = Shape::ToothTail.build_pair(g, m);
         let (a, b) = (a.version(), b.version());
         let ea = meter::skyline::encode(&a);
         let eb = meter::skyline::encode(&b);
@@ -4182,7 +3874,7 @@ mod skyline_flatness {
     /// sweep on the tooth-tail pair, measured ×1.25 (the record lives
     /// in the pin commit).
     ///
-    /// Flat per packed byte across the doubling. With the settled top
+    /// Flat per encoded byte across the doubling. With the settled top
     /// replaced by the buffer's high water (a local probe build), the
     /// reading goes quadratic — `2(g + 1)` touches per boundary, the
     /// spike's dead digits re-walked per sign read — and fails the
@@ -4237,17 +3929,14 @@ mod skyline_flatness {
     /// one-touch-per-operand-byte liveness floor.
     fn rank_dense_suffix_run(p: usize) -> QueryRun {
         use dashu_int::UBig;
-        let v = Shape::DenseSuffix.packed2(p, p).version();
+        let v = Shape::DenseSuffix.build2(p, p).version();
         let bytes = v.encode().len() as u64;
         let expected = UBig::from(p as u64)
             + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
             + 1u8;
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's stored-code sum disagrees with min_ticks: the \
              generator does not build the tree this band reasons about"
         );
@@ -4277,7 +3966,7 @@ mod skyline_flatness {
     /// dense-suffix family, measured ×1.25 (the record and every
     /// re-pin's movement and attribution live in the pin commits).
     ///
-    /// The mass-balanced product-tree settle reads flat per packed
+    /// The mass-balanced product-tree settle reads flat per encoded
     /// byte across the doubling — each aggregate charge is one backend
     /// product per dense cluster, never a factor-wide product per
     /// window digit — where a per-arming suffix walk re-walks the
@@ -4331,7 +4020,7 @@ mod skyline_flatness {
 
     /// One public distance-and-lag run over `(DS(p, p), DSM(p, p))`:
     /// both counters over the three query bodies together, with the
-    /// pair's packed bytes as the per-byte denominator.
+    /// pair's encoded bytes as the per-byte denominator.
     ///
     /// The mate is `DS(p, p)`'s unit-block twin, so the co-sweep's
     /// freezes and promotions fire at boundaries where the mate's
@@ -4343,8 +4032,8 @@ mod skyline_flatness {
     /// `distance = rank(a) − rank(b)`, `lag(a, b) = 0`, and
     /// `lag(b, a) = distance`.
     fn distance_dense_suffix_run(p: usize) -> QueryRun {
-        let a = Shape::DenseSuffix.packed2(p, p).version();
-        let b = Shape::DenseSuffixMate.packed2(p, p).version();
+        let a = Shape::DenseSuffix.build2(p, p).version();
+        let b = Shape::DenseSuffixMate.build2(p, p).version();
         let bytes = (a.encode().len() + b.encode().len()) as u64;
         let gap = a
             .rank()
@@ -4383,7 +4072,7 @@ mod skyline_flatness {
     /// commits).
     ///
     /// The ceilings price the three query bodies together — three
-    /// sweeps' worth — flat per packed byte across the doubling, on
+    /// sweeps' worth — flat per encoded byte across the doubling, on
     /// the cluster-delegated settle; a per-arming suffix walk reads
     /// quadratic here.
     const DISTANCE_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] =
@@ -4455,7 +4144,7 @@ mod eq_early_exit {
     const EQ_EXIT_TOOTH_BITS: usize = 1_024;
 
     /// One `eq` run over the first-interval-refuted pair: the comb's
-    /// packed bytes (the refuted tail the exit must not read) and the
+    /// encoded bytes (the refuted tail the exit must not read) and the
     /// touch and scan counters over the sweep body alone.
     struct Run {
         bytes: u64,
@@ -4477,11 +4166,8 @@ mod eq_early_exit {
     /// metered representation fails loudly here instead of passing the
     /// absolute pins vacuously at zero.
     fn run(teeth: usize) -> Run {
-        let a = meter::skyline::encode(
-            &Shape::CliffComb
-                .packed2(EQ_EXIT_TOOTH_BITS, teeth)
-                .version(),
-        );
+        let a =
+            meter::skyline::encode(&Shape::CliffComb.build2(EQ_EXIT_TOOTH_BITS, teeth).version());
         let b = meter::skyline::encode(&before::Version::new());
         touch_meter::reset();
         #[cfg(feature = "scan-meter")]
@@ -4615,11 +4301,12 @@ mod eq_early_exit {
 // distance/lag claims ride the same band: one shared integrator.
 #[cfg(feature = "limb-meter")]
 mod ledger_wide_arming {
+    use super::ticks_from_big;
     use before::meter;
     use before::meter::registry::Shape;
     use suanpan::touch_meter;
 
-    /// One public `Version::rank` run over `WA(w, w)`: packed bytes
+    /// One public `Version::rank` run over `WA(w, w)`: encoded bytes
     /// and the touch, limb, and densify counters over the rank body
     /// alone.
     ///
@@ -4629,16 +4316,13 @@ mod ledger_wide_arming {
     /// liveness floor.
     fn run(w: usize) -> (u64, u64, u64, u64) {
         use dashu_int::UBig;
-        let v = Shape::WideArming.packed2(w, w).version();
+        let v = Shape::WideArming.build2(w, w).version();
         let bytes = v.encode().len() as u64;
         let expected =
             UBig::from(w as u64) + (UBig::ONE << (32 * w)) + (UBig::ONE << 288usize) + 3u8;
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's stored-code sum disagrees with min_ticks: the \
              generator does not build the tree this band reasons about"
         );
@@ -4667,7 +4351,7 @@ mod ledger_wide_arming {
     /// wide-arming family, measured ×1.25 (the record and every
     /// re-pin's movement live in the pin commits).
     ///
-    /// Flat per packed byte across the doubling; a schoolbook settle —
+    /// Flat per encoded byte across the doubling; a schoolbook settle —
     /// the aggregate product paying the parked width times the window
     /// density one digit at a time — reads quadratic here, and the
     /// committed schoolbook kernel keeps that mechanism failing.
@@ -4677,7 +4361,7 @@ mod ledger_wide_arming {
     /// family: the measured record ×1.25, rounded up (the record and every
     /// re-pin's movement live in the pin commits).
     ///
-    /// Flat per packed byte across the doubling: the settle's densified
+    /// Flat per encoded byte across the doubling: the settle's densified
     /// spans are the dense trailing window's, which scale with the knob
     /// exactly as the input does. An image sized by a cluster's absolute
     /// digit position instead reads the never-written scale prefix into
@@ -4765,6 +4449,7 @@ mod ledger_wide_arming {
 // knob instead.
 #[cfg(feature = "limb-meter")]
 mod hoisted_window {
+    use super::ticks_from_big;
     use before::meter;
     use before::meter::registry::Shape;
     use suanpan::touch_meter;
@@ -4787,7 +4472,7 @@ mod hoisted_window {
     const HOISTED_WINDOW_SMALL_TAIL: usize = 10_240;
 
     /// One public `Version::rank` run over `HW(w, d, t)` at the band's
-    /// fixed width and gap knobs: packed bytes and the touch, limb, and
+    /// fixed width and gap knobs: encoded bytes and the touch, limb, and
     /// densify counters over the rank body alone.
     ///
     /// Carries `min_ticks`' closed form as the cross-fold semantic leg —
@@ -4797,7 +4482,7 @@ mod hoisted_window {
     fn run(t: usize) -> (u64, u64, u64, u64) {
         use dashu_int::UBig;
         let v = Shape::HoistedWindow
-            .packed3(HOISTED_WINDOW_WIDTH, HOISTED_WINDOW_GAPS, t)
+            .build3(HOISTED_WINDOW_WIDTH, HOISTED_WINDOW_GAPS, t)
             .version();
         let bytes = v.encode().len() as u64;
         let expected = UBig::from(HOISTED_WINDOW_GAPS as u64)
@@ -4806,10 +4491,7 @@ mod hoisted_window {
             + 3u8;
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's stored-code sum disagrees with min_ticks: the \
              generator does not build the tree this band reasons about"
         );
@@ -4834,7 +4516,7 @@ mod hoisted_window {
     /// hoisted-window family, measured ×1.25 (the record and every re-pin's
     /// movement live in the pin commits).
     ///
-    /// Flat per packed byte across the tail doubling: the tail's leaves are
+    /// Flat per encoded byte across the tail doubling: the tail's leaves are
     /// unit-delta scan freight, so both walk columns grow linearly with the
     /// input while the settle's cluster spans do not grow at all.
     const HOISTED_WINDOW_CEILINGS: [(u64, u64); 2] = [(15_952, 720), (29_752, 1_120)];
@@ -4962,130 +4644,6 @@ mod hoisted_window {
     }
 }
 
-// ─── the wide-arming parse band ──────────────────────────────────────────────
-//
-// The parse-side exact-`top` genre, held flat at the text seam. The
-// family's rendered text funds one wide swing (the `2^(32w)` arming
-// climb) ahead of a `Θ(d)`-leaf trailing run whose deltas are all
-// zero; the parse extracts one signed magnitude per leaf from the
-// path-sum accumulator, so an extraction that pays a stale high-water
-// span instead of the settled top re-walks the swing's `w` dead digits
-// once per trailing leaf — `Θ(w·d)` touches on `Θ(w + d)` text,
-// quadratic at `w = d`. The shipped discipline resets the accumulator
-// at each extraction, so every read pays the span written since the
-// previous leaf and the trailing run stays O(1) per leaf. The
-// committed schoolbook kernel
-// (`schoolbook_parse_reads_superlinear_on_wide_arming`, the text
-// kernel's test suite) keeps the compensating-subtraction read failing
-// on this very family, value-exact, so this band is never decoration.
-// The board's wide-arming column prices the same mechanism through the
-// public from_str and parse entries at both acceptance scales.
-#[cfg(feature = "limb-meter")]
-mod parse_wide_arming {
-    use before::meter;
-    use before::meter::registry::Shape;
-    use suanpan::touch_meter;
-
-    /// One text-parse run over `Shape::WideArming.packed2(s, s)`'s rendered text:
-    /// text bytes and accumulator touches over the parse body alone
-    /// (the text renders outside the metered window).
-    ///
-    /// Carries `min_ticks`' closed form as the cross-fold semantic leg
-    /// (proving the generator builds the gap spine and the wide arming
-    /// this band reasons about), the one-touch-per-leaf liveness floor
-    /// (every leaf's delta extraction reads at least one accumulator
-    /// digit, so a parse whose path-sum state left the metered
-    /// representation fails loudly instead of passing the flatness
-    /// ratio vacuously at zero touches), and the value leg (the parse
-    /// lands on the stored stream byte for byte).
-    fn run(s: usize) -> (u64, u64) {
-        use dashu_int::UBig;
-        let v = Shape::WideArming.packed2(s, s).version();
-        let expected =
-            UBig::from(s as u64) + (UBig::ONE << (32 * s)) + (UBig::ONE << 288usize) + 3u8;
-        assert_eq!(
-            v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
-            "the family's stored-code sum disagrees with min_ticks: the \
-             generator does not build the tree this band reasons about"
-        );
-        let enc = meter::skyline::encode(&v);
-        let text = meter::skyline::text::render(meter::skyline::view(&enc));
-        let bytes = text.len() as u64;
-        touch_meter::reset();
-        let parsed = meter::skyline::text::parse(&text).expect("rendered text parses");
-        let touches = touch_meter::touches();
-        assert_eq!(
-            parsed, enc,
-            "the parse must land on the stored stream byte for byte"
-        );
-        // The gap spine alone holds 33s leaves (the whole family
-        // 33s + 5), and each leaf's delta extraction reads at least
-        // one accumulator digit.
-        let leaf_floor = 33 * s as u64;
-        assert!(
-            touches >= leaf_floor,
-            "parse at {bytes} text bytes: {touches} digit touches under the \
-             {leaf_floor}-leaf floor: the parse's path-sum accumulator is not \
-             running on the metered representation"
-        );
-        (bytes, touches)
-    }
-
-    /// Digit width (and gap count) of the band's small run; the large
-    /// run doubles both.
-    const WIDE_ARMING_SMALL: usize = 256;
-
-    /// Absolute two-scale touch ceilings: the measured record ×1.25
-    /// (the record and every re-pin's movement live in the pin
-    /// commits).
-    ///
-    /// Flat per rendered-text byte across the doubling; a
-    /// compensating-subtraction read — the high-water walk's quadratic
-    /// signature — reads ~×2 per byte per doubling, kept demonstrated
-    /// red by the committed schoolbook kernel.
-    const PARSE_WIDE_ARMING_TOUCH_CEILINGS: (u64, u64) = (24_388, 48_708);
-
-    /// The text parse is flat per byte on the wide-arming family:
-    /// per-byte touch work stays within ×1.25 across a `WA(s, s)`
-    /// doubling, under absolute two-scale ceilings.
-    ///
-    /// `WA(s, s)` scales the swing's width and the trailing run's
-    /// length together, so an extraction that pays the high-water span
-    /// again moves this band on the exponent leg (the schoolbook
-    /// kernel's quadratic signature), and a dark tap reads under the
-    /// liveness floor in [`run`].
-    #[test]
-    fn parse_wide_arming_touch_cost_is_flat_per_unit() {
-        let (small_bytes, small_touches) = run(WIDE_ARMING_SMALL);
-        let (large_bytes, large_touches) = run(2 * WIDE_ARMING_SMALL);
-        eprintln!(
-            "MEASURED parse_wide_arming: small={small_touches}/{small_bytes}B \
-             large={large_touches}/{large_bytes}B"
-        );
-        assert!(
-            small_touches <= PARSE_WIDE_ARMING_TOUCH_CEILINGS.0
-                && large_touches <= PARSE_WIDE_ARMING_TOUCH_CEILINGS.1,
-            "the parse's touch cost exceeds the pinned ceilings on the \
-             wide-arming family ({small_touches}/{small_bytes}B -> \
-             {large_touches}/{large_bytes}B against {} / {})",
-            PARSE_WIDE_ARMING_TOUCH_CEILINGS.0,
-            PARSE_WIDE_ARMING_TOUCH_CEILINGS.1,
-        );
-        assert!(
-            u128::from(large_touches) * u128::from(small_bytes) * 4
-                <= u128::from(small_touches) * u128::from(large_bytes) * 5,
-            "the parse's touch cost grew more than x1.25 per byte across the \
-             wide-arming doubling ({small_touches}/{small_bytes}B -> \
-             {large_touches}/{large_bytes}B): the extraction is paying a stale \
-             high-water span again"
-        );
-    }
-}
-
 // ─── the answer-embedded product band ────────────────────────────────────────
 //
 // The close-time settle's wide × dense genre — and the floor under
@@ -5119,11 +4677,12 @@ mod parse_wide_arming {
 // family, value-exact, so this band is never decoration.
 #[cfg(feature = "limb-meter")]
 mod answer_embedded_product {
+    use super::ticks_from_big;
     use before::meter;
     use before::meter::registry::Shape;
     use suanpan::touch_meter;
 
-    /// One public `Version::rank` run over `PP(s, s)`: packed bytes and
+    /// One public `Version::rank` run over `PP(s, s)`: encoded bytes and
     /// the touch, limb, and densify counters over the rank body alone.
     ///
     /// Carries the `min_ticks` closed form (`s · x + 1` over the
@@ -5133,16 +4692,13 @@ mod answer_embedded_product {
     /// one-touch-per-operand-byte liveness floor.
     fn run(s: usize) -> (u64, u64, u64, u64) {
         use dashu_int::UBig;
-        let v = Shape::PlateauPuncture.packed2(s, s).version();
+        let v = Shape::PlateauPuncture.build2(s, s).version();
         let bytes = v.encode().len() as u64;
         let (x, y) = meter::plateau_puncture_factors(s, s);
         let expected = UBig::from(s as u64) * &x + 1u8;
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&expected),
             "the family's stored-code sum disagrees with min_ticks: the \
              generator does not build the tree this band reasons about"
         );
@@ -5178,7 +4734,7 @@ mod answer_embedded_product {
     /// plateau-puncture family, measured ×1.25 (the record and every
     /// re-pin's movement live in the pin commits).
     ///
-    /// Flat per packed byte across the doubling, while the committed
+    /// Flat per encoded byte across the doubling, while the committed
     /// schoolbook kernel reads the same family red — the close-time
     /// settle paying the parked plateau's width once per trailing-mass
     /// digit.
@@ -5188,7 +4744,7 @@ mod answer_embedded_product {
     /// plateau-puncture family: the measured record ×1.25, rounded up (the
     /// record and every re-pin's movement live in the pin commits).
     ///
-    /// Flat per packed byte across the doubling: the close-time settle
+    /// Flat per encoded byte across the doubling: the close-time settle
     /// densifies the jittered punctured mass, whose span scales with the
     /// turn count exactly as the input does. The position axis — an image
     /// sized by a cluster's absolute digit index — is isolated (and
@@ -5284,6 +4840,7 @@ mod answer_embedded_product {
 // per-digit settle.
 #[cfg(feature = "limb-meter")]
 mod settle_flatness {
+    use super::ticks_from_big;
     use before::meter;
     use before::meter::registry::Shape;
     use suanpan::touch_meter;
@@ -5379,7 +4936,7 @@ mod settle_flatness {
     fn train_run(n: usize, alternate: bool) -> (u64, u64, u64) {
         use dashu_int::UBig;
         let v = Shape::ArmingTrain
-            .packed_train(n, TRAIN_WIDTH, TRAIN_GAPS, alternate)
+            .build_train(n, TRAIN_WIDTH, TRAIN_GAPS, alternate)
             .version();
         let band = 32 * TRAIN_WIDTH + (usize::BITS - n.leading_zeros()) as usize + 2;
         let arm = UBig::ONE << (32 * TRAIN_WIDTH);
@@ -5400,10 +4957,7 @@ mod settle_flatness {
         }
         assert_eq!(
             v.min_ticks(),
-            expected
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the mirrored sum parses"),
+            ticks_from_big(&expected),
             "the family's leaf-value sum disagrees with min_ticks: the \
              generator does not build the tree these probes reason about"
         );
@@ -5443,7 +4997,7 @@ mod settle_flatness {
     /// measured ×1.25 (the record and every re-pin's movement live in
     /// the pin commits).
     ///
-    /// Flat per packed byte across the committed doubling; the
+    /// Flat per encoded byte across the committed doubling; the
     /// committed schoolbook kernel keeps the plateau side's close-time
     /// settle — the site that dominates this pair — red on the same
     /// family in the query fold's test suite.
@@ -5464,15 +5018,15 @@ mod settle_flatness {
     #[test]
     fn pair_plateau_train_is_flat_per_unit() {
         let small = pair_run(
-            &Shape::PlateauPuncture.packed2(400, 400).version(),
+            &Shape::PlateauPuncture.build2(400, 400).version(),
             &Shape::ArmingTrain
-                .packed_train(8, TRAIN_WIDTH, TRAIN_GAPS, false)
+                .build_train(8, TRAIN_WIDTH, TRAIN_GAPS, false)
                 .version(),
         );
         let large = pair_run(
-            &Shape::PlateauPuncture.packed2(800, 800).version(),
+            &Shape::PlateauPuncture.build2(800, 800).version(),
             &Shape::ArmingTrain
-                .packed_train(16, TRAIN_WIDTH, TRAIN_GAPS, false)
+                .build_train(16, TRAIN_WIDTH, TRAIN_GAPS, false)
                 .version(),
         );
         assert_flat_step(
@@ -5542,7 +5096,7 @@ mod settle_flatness {
 // ─── id spine pair scenarios ────────────────────────────────────────────────
 
 /// The combined operand bytes of an id-spine pair scenario.
-fn id_pair_input_bytes(a: &meter::Packed, b: &meter::Packed) -> usize {
+fn id_pair_input_bytes(a: &meter::Encoding, b: &meter::Encoding) -> usize {
     a.bytes.len() + b.bytes.len()
 }
 
@@ -5555,8 +5109,8 @@ fn id_pair_input_bytes(a: &meter::Packed, b: &meter::Packed) -> usize {
 /// joined party is exactly the spine one level shorter, byte for byte.
 #[test]
 fn id_join_envelope() {
-    let pa = Shape::IdSpine.packed_flagged(ID_DEPTH, false);
-    let pb = Shape::IdSpine.packed_flagged(ID_DEPTH, true);
+    let pa = Shape::IdSpine.build_flagged(ID_DEPTH, false);
+    let pb = Shape::IdSpine.build_flagged(ID_DEPTH, true);
     let input = id_pair_input_bytes(&pa, &pb);
     let mut a = party_of(&pa);
     let b = party_of(&pb);
@@ -5567,7 +5121,7 @@ fn id_join_envelope() {
     );
     assert_eq!(
         a.encode(),
-        Shape::IdSpine.packed_flagged(ID_DEPTH - 1, false).bytes,
+        Shape::IdSpine.build_flagged(ID_DEPTH - 1, false).bytes,
         "the divert arms rejoin into the spine one level shorter"
     );
 }
@@ -5576,8 +5130,8 @@ fn id_join_envelope() {
 /// two-tree walk runs to full lockstep depth).
 #[test]
 fn id_covers_envelope() {
-    let pa = Shape::IdSpine.packed_flagged(ID_DEPTH, false);
-    let pb = Shape::IdSpine.packed_flagged(ID_DEPTH, true);
+    let pa = Shape::IdSpine.build_flagged(ID_DEPTH, false);
+    let pb = Shape::IdSpine.build_flagged(ID_DEPTH, true);
     let input = id_pair_input_bytes(&pa, &pb);
     let a = party_of(&pa);
     let b = party_of(&pb);
@@ -5592,8 +5146,8 @@ fn id_covers_envelope() {
 /// (the walk runs to completion: the pair is disjoint, so no early exit).
 #[test]
 fn id_disjoint_envelope() {
-    let pa = Shape::IdSpine.packed_flagged(ID_DEPTH, false);
-    let pb = Shape::IdSpine.packed_flagged(ID_DEPTH, true);
+    let pa = Shape::IdSpine.build_flagged(ID_DEPTH, false);
+    let pb = Shape::IdSpine.build_flagged(ID_DEPTH, true);
     let input = id_pair_input_bytes(&pa, &pb);
     let a = party_of(&pa);
     let b = party_of(&pb);
@@ -5613,7 +5167,7 @@ fn id_disjoint_envelope() {
 /// `(1, 1) → 1` repair, whose output is the seed's single-terminal encoding.
 #[test]
 fn id_join_spine_with_complement_collapses_to_seed() {
-    let pa = Shape::IdSpine.packed_flagged(ID_DEPTH, false);
+    let pa = Shape::IdSpine.build_flagged(ID_DEPTH, false);
     let mut a = party_of(&pa);
     let complement = Party::seed()
         .without(&a)
@@ -5636,7 +5190,7 @@ fn id_join_spine_with_complement_collapses_to_seed() {
 /// emitter copies non-overlapping subtrees without rewriting them.
 #[test]
 fn id_join_opposite_spines_splice_verbatim() {
-    let pa = Shape::IdSpine.packed_flagged(ID_DEPTH, false);
+    let pa = Shape::IdSpine.build_flagged(ID_DEPTH, false);
     let pb_tags = right_spine_tags(ID_DEPTH);
     let mut a = party_of(&pa);
     let b = Party::decode(&pack_bits(&pb_tags)[..])
@@ -5646,7 +5200,7 @@ fn id_join_opposite_spines_splice_verbatim() {
     // The expected bytes, assembled from the constructions: a both-children
     // root tag, then each operand's bits below its root node, verbatim.
     let mut expected = vec![true, true];
-    expected.extend((2..pa.bits).map(|i| packed_bit(&pa.bytes, i)));
+    expected.extend((2..pa.bits).map(|i| encoded_bit(&pa.bytes, i)));
     expected.extend_from_slice(&pb_tags[2..]);
     assert_eq!(
         a.encode(),
@@ -5681,8 +5235,8 @@ fn pack_bits(bits: &[bool]) -> Vec<u8> {
     bytes
 }
 
-/// Read live bit `i` of a packed stream (most significant bit first).
-fn packed_bit(bytes: &[u8], i: usize) -> bool {
+/// Read live bit `i` of an encoded stream (most significant bit first).
+fn encoded_bit(bytes: &[u8], i: usize) -> bool {
     bytes[i / 8] & (0x80 >> (i % 8)) != 0
 }
 
@@ -5690,7 +5244,7 @@ fn packed_bit(bytes: &[u8], i: usize) -> bool {
 /// envelope: the complement sweep runs the subtrahend's full depth.
 #[test]
 fn id_without_envelope() {
-    let pb = Shape::IdSpine.packed_flagged(ID_DEPTH, true);
+    let pb = Shape::IdSpine.build_flagged(ID_DEPTH, true);
     let input = pb.bytes.len();
     let b = party_of(&pb);
     let r = metered("id_without", input, &envelope::ID_WITHOUT, || {
@@ -5712,7 +5266,7 @@ fn id_without_envelope() {
 // stored tag of both operands exactly once, so the reading is
 // deterministic and two-sided: an undercounting tap and a re-scanning
 // walk both move it) over a full-examination liveness floor (one bit per
-// packed operand byte — the diverted pair forces both walks to full
+// encoded operand byte — the diverted pair forces both walks to full
 // lockstep depth), and to per-byte flatness (×1.25) across a depth
 // doubling, so a walk that leaves the metered primitives moves a
 // committed number instead of passing every near-zero column unchanged.
@@ -5722,7 +5276,7 @@ mod id_walk_scan_cost {
     use before::meter;
     use before::meter::registry::Shape;
 
-    /// One walk run: packed operand bytes and the bits scanned by the
+    /// One walk run: encoded operand bytes and the bits scanned by the
     /// walk body alone.
     struct Run {
         bytes: u64,
@@ -5734,7 +5288,7 @@ mod id_walk_scan_cost {
     ///
     /// Every stored tag of both operands is read exactly once through
     /// the metered primitives — [`SCAN_EXACT_BITS_SMALL`] on 62,502
-    /// packed bytes at the half depth, [`SCAN_EXACT_BITS_LARGE`] on
+    /// encoded bytes at the half depth, [`SCAN_EXACT_BITS_LARGE`] on
     /// 125,002 at the full depth, identical for the covers and disjoint
     /// walks (the same full lockstep walk). Pinned with equality, not a
     /// ceiling: a uniform tap undercount halves the reading yet clears
@@ -5752,8 +5306,8 @@ mod id_walk_scan_cost {
         depth: usize,
         body: impl FnOnce(&before::Party, &before::Party),
     ) -> Run {
-        let pa = Shape::IdSpine.packed_flagged(depth, false);
-        let pb = Shape::IdSpine.packed_flagged(depth, true);
+        let pa = Shape::IdSpine.build_flagged(depth, false);
+        let pb = Shape::IdSpine.build_flagged(depth, true);
         let bytes = id_pair_input_bytes(&pa, &pb) as u64;
         let a = party_of(&pa);
         let b = party_of(&pb);
@@ -5764,7 +5318,7 @@ mod id_walk_scan_cost {
         assert!(
             bits >= bytes,
             "id_walk_scan_{name}: {bits} scanned bits under the one-bit-per-byte floor over \
-             {bytes} packed bytes: the walk left the metered primitives"
+             {bytes} encoded bytes: the walk left the metered primitives"
         );
         Run { bytes, bits }
     }
@@ -5847,7 +5401,7 @@ mod id_walk_scan_cost {
 #[rustfmt::skip]
 mod fork_env {
     use super::{band, envelope, Envelope};
-    pub const ID_FORK: Envelope = envelope(156_253, band(0, 0), band(0, 0), band(3, 1)); // the heap column prices both halves' materialization (~2x the packed input); the scan ceiling pins the raw split path's near-zero reading
+    pub const ID_FORK: Envelope = envelope(156_253, band(0, 0), band(0, 0), band(3, 1)); // the heap column prices both halves' materialization (~2x the encoded input); the scan ceiling pins the raw split path's near-zero reading
 }
 
 /// Forking the deep id spine stays within its envelope, and the halves
@@ -5859,7 +5413,7 @@ mod fork_env {
 /// rejoin closes the semantic leg: fork then join is the identity.
 #[test]
 fn id_fork_envelope() {
-    let pa = Shape::IdSpine.packed_flagged(ID_DEPTH, false);
+    let pa = Shape::IdSpine.build_flagged(ID_DEPTH, false);
     let input = pa.bytes.len();
     let original = pa.bytes.clone();
     let mut a = party_of(&pa);
@@ -6164,7 +5718,7 @@ mod accum_streams {
 //
 // The query kernels over skyline streams: rank on the anchored-segment
 // height split, min_ticks on the range-minimum anchor web and its epoch
-// ledger, and projection against a packed id. Streams are transcoded
+// ledger, and projection against a party. Streams are transcoded
 // outside measurement. The kernels' arithmetic lives in digit touches (the
 // limb column alone reads a vacuous near-zero) and their stream work in
 // the scan column. The cliff
@@ -6198,7 +5752,7 @@ mod query_env {
     pub const SKYLINE_MIN_TICKS_CLIFF: Envelope      = envelope(  3_530,        band(180, 108),    band(12_000, 7_200),       band(17_923, 10_753)); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
     pub const SKYLINE_MIN_TICKS_ASCEND: Envelope     = envelope(553_660,          band(33, 19),   band(20_044, 12_026),        band(12_823, 7_693)); // the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads well over both the heap and touch ceilings
     pub const SKYLINE_PROJECT_COMB_SCATTER: Envelope = envelope(525_700, band(115_265, 69_159),   band(44_924, 26_954), band(2_652_165, 1_591_299)); // output-dominated: the pinned ceilings price input + output bytes; id tags are single records
-    pub const FOLD_VERSION_SCATTER: Envelope         = envelope(    323,            band(0, 0),   band(61_429, 36_857),     band(330_913, 198_547)); // the balanced reduction: near-linear in the population's packed bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
+    pub const FOLD_VERSION_SCATTER: Envelope         = envelope(    323,            band(0, 0),   band(61_429, 36_857),     band(330_913, 198_547)); // the balanced reduction: near-linear in the population's encoded bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
     pub const FOLD_PARTY_SCATTER: Envelope           = envelope(    780,            band(0, 0),             band(0, 0),     band(322_068, 193_240)); // pure stream scanning through the balanced merges; one refcount control block per frozen stream lives in the fold's groups
     // The tick rows: the tick walk's cost currency is accumulator digit
     // touches, with scanned bits beside it.
@@ -6250,7 +5804,7 @@ mod query_env {
 /// last leaf's single wide add, no freeze anywhere.
 #[test]
 fn skyline_rank_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let p = Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
     let enc = skyline_of(&p);
     let r = metered(
@@ -6259,7 +5813,7 @@ fn skyline_rank_cliff_envelope() {
         &query_env::SKYLINE_RANK_CLIFF,
         || meter::skyline::query::rank(meter::skyline::view(&enc)),
     );
-    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+    assert_eq!(r, v.rank(), "the kernel must match the encoded rank");
 }
 
 /// The rank kernel on the wide-tooth comb's skyline stays within its
@@ -6272,7 +5826,7 @@ fn skyline_rank_cliff_envelope() {
 /// freeze allowance).
 #[test]
 fn skyline_rank_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let p = Shape::WideToothComb.build3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let v = version_of(&p);
     let enc = skyline_of(&p);
     let r = metered(
@@ -6281,7 +5835,7 @@ fn skyline_rank_wide_tooth_envelope() {
         &query_env::SKYLINE_RANK_WIDE_TOOTH,
         || meter::skyline::query::rank(meter::skyline::view(&enc)),
     );
-    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+    assert_eq!(r, v.rank(), "the kernel must match the encoded rank");
 }
 
 /// The min_ticks kernel on the dense spine stays within its envelope:
@@ -6289,7 +5843,7 @@ fn skyline_rank_wide_tooth_envelope() {
 /// across 125k levels.
 #[test]
 fn skyline_min_ticks_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let v = version_of(&p);
     let enc = skyline_of(&p);
     let r = metered(
@@ -6301,7 +5855,7 @@ fn skyline_min_ticks_dense_envelope() {
     assert_eq!(
         r.to_string(),
         v.min_ticks().to_string(),
-        "the kernel must match the packed fold"
+        "the kernel must match the encoded fold"
     );
 }
 
@@ -6312,7 +5866,7 @@ fn skyline_min_ticks_dense_envelope() {
 /// so the comb's teeth cost narrow offsets only.
 #[test]
 fn skyline_min_ticks_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let p = Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
     let enc = skyline_of(&p);
     let r = metered(
@@ -6328,7 +5882,7 @@ fn skyline_min_ticks_cliff_envelope() {
     assert_eq!(
         r.to_string(),
         v.min_ticks().to_string(),
-        "the kernel must match the packed fold"
+        "the kernel must match the encoded fold"
     );
 }
 
@@ -6350,7 +5904,7 @@ fn skyline_min_ticks_cliff_envelope() {
 /// `MinWeb::compacting` cites.
 #[test]
 fn skyline_min_ticks_ascend_envelope() {
-    let p = Shape::AscendCliff.packed2(ASCEND_STACK_DEPTH, ASCEND_STACK_MAGNITUDE_BITS);
+    let p = Shape::AscendCliff.build2(ASCEND_STACK_DEPTH, ASCEND_STACK_MAGNITUDE_BITS);
     let v = version_of(&p);
     let enc = skyline_of(&p);
     let r = metered(
@@ -6373,7 +5927,7 @@ fn skyline_min_ticks_ascend_envelope() {
     assert_eq!(
         r.to_string(),
         v.min_ticks().to_string(),
-        "the kernel must match the packed fold"
+        "the kernel must match the encoded fold"
     );
 }
 
@@ -6386,13 +5940,13 @@ fn skyline_min_ticks_ascend_envelope() {
 /// board's criterion records for exactly this cross).
 #[test]
 fn skyline_project_comb_scatter_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let p = Shape::CliffComb.build2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
-    let party = before::Party::decode(&Shape::ScatteredId.packed1(CLIFF_SCALE / 2).bytes[..])
+    let party = before::Party::decode(&Shape::ScatteredId.build1(CLIFF_SCALE / 2).bytes[..])
         .expect("scattered id is strict normal form");
     let enc = skyline_of(&p);
     let io_bytes_in =
-        enc.as_raw_slice().len() + Shape::ScatteredId.packed1(CLIFF_SCALE / 2).bytes.len();
+        enc.as_raw_slice().len() + Shape::ScatteredId.build1(CLIFF_SCALE / 2).bytes.len();
     let out = metered(
         "skyline_project_comb_scatter",
         io_bytes_in,
@@ -6404,7 +5958,7 @@ fn skyline_project_comb_scatter_envelope() {
         out.as_raw_slice().len()
     );
     let expected = meter::skyline::encode(&(&v / &party).to_version());
-    assert_eq!(out, expected, "the kernel must match the packed quotient");
+    assert_eq!(out, expected, "the kernel must match the encoded quotient");
 }
 
 // ─── tick scenarios ─────────────────────────────────────────────────────────
@@ -6418,7 +5972,7 @@ fn skyline_project_comb_scatter_envelope() {
 /// collapse scan.
 #[test]
 fn tick_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let mut v = version_of(&p);
     let seed = Party::seed();
     metered("tick_dense", p.bytes.len(), &query_env::TICK_DENSE, || {
@@ -6433,8 +5987,8 @@ fn tick_dense_envelope() {
 /// level.
 #[test]
 fn tick_nested_wide_envelope() {
-    let ev = Shape::Bigroot.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
-    let id = Shape::NestedFullId.packed1(TICK_CROSS_SCALE);
+    let ev = Shape::Bigroot.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = Shape::NestedFullId.build1(TICK_CROSS_SCALE);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6453,8 +6007,8 @@ fn tick_nested_wide_envelope() {
 /// nothing is materialized per site.
 #[test]
 fn tick_mirror_wide_envelope() {
-    let ev = Shape::WideTail.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
-    let id = Shape::NestedLeftFullId.packed1(TICK_CROSS_SCALE);
+    let ev = Shape::WideTail.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = Shape::NestedLeftFullId.build1(TICK_CROSS_SCALE);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6479,8 +6033,8 @@ fn tick_mirror_wide_envelope() {
 /// bit is still read.
 #[test]
 fn tick_ownership_hole_envelope() {
-    let ev = Shape::Staircase.packed1(HOLE_STAIR_DEPTH);
-    let id = Shape::IdSpine.packed_flagged(HOLE_ID_DEPTH, true);
+    let ev = Shape::Staircase.build1(HOLE_STAIR_DEPTH);
+    let id = Shape::IdSpine.build_flagged(HOLE_ID_DEPTH, true);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6504,8 +6058,8 @@ fn tick_ownership_hole_envelope() {
 /// this envelope.
 #[test]
 fn tick_ownership_comb_envelope() {
-    let ev = Shape::AltSpine.packed1(DENSE_DEPTH);
-    let id = Shape::ScatteredId.packed1(COMB_FRAGMENTS);
+    let ev = Shape::AltSpine.build1(DENSE_DEPTH);
+    let id = Shape::ScatteredId.build1(COMB_FRAGMENTS);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6529,7 +6083,7 @@ fn tick_ownership_comb_envelope() {
 /// folded bit still read.
 #[test]
 fn tick_collapse_hole_envelope() {
-    let (ev, id) = Shape::CollapseHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
+    let (ev, id) = Shape::CollapseHole.build_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6553,7 +6107,7 @@ fn tick_collapse_hole_envelope() {
 /// column holds every folded bit still read.
 #[test]
 fn tick_copy_hole_envelope() {
-    let (ev, id) = Shape::CopyHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
+    let (ev, id) = Shape::CopyHole.build_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6575,7 +6129,7 @@ fn tick_copy_hole_envelope() {
 /// ranges, and the scan column holds every folded bit still read.
 #[test]
 fn tick_site_hole_envelope() {
-    let (ev, id) = Shape::SiteHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
+    let (ev, id) = Shape::SiteHole.build_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6596,7 +6150,7 @@ fn tick_site_hole_envelope() {
 /// read.
 #[test]
 fn tick_raise_hole_envelope() {
-    let (ev, id) = Shape::RaiseHole.packed_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
+    let (ev, id) = Shape::RaiseHole.build_pair(SCAN_HOLE_UNITS, SCAN_HOLE_STEPS);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6614,7 +6168,7 @@ fn tick_raise_hole_envelope() {
 /// only the count's gamma-width boundary codes.
 #[test]
 fn ticks_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let p = Shape::Dense.build1(DENSE_DEPTH);
     let mut v = version_of(&p);
     let seed = Party::seed();
     metered(
@@ -6631,8 +6185,8 @@ fn ticks_dense_envelope() {
 /// tick's does, and the wide first payload is still touched O(1) times.
 #[test]
 fn ticks_nested_wide_envelope() {
-    let ev = Shape::Bigroot.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
-    let id = Shape::NestedFullId.packed1(TICK_CROSS_SCALE);
+    let ev = Shape::Bigroot.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = Shape::NestedFullId.build1(TICK_CROSS_SCALE);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6650,8 +6204,8 @@ fn ticks_nested_wide_envelope() {
 /// tick's, count notwithstanding.
 #[test]
 fn ticks_mirror_wide_envelope() {
-    let ev = Shape::WideTail.packed2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
-    let id = Shape::NestedLeftFullId.packed1(TICK_CROSS_SCALE);
+    let ev = Shape::WideTail.build2(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = Shape::NestedLeftFullId.build1(TICK_CROSS_SCALE);
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
@@ -6676,14 +6230,13 @@ fn ticks_mirror_wide_envelope() {
 /// 1-leaf at the bottom left.
 ///
 /// This is what ticking a version that is zero over the owned region
-/// registers for a depth-`depth` unary id spine. Built as a text
-/// literal (the parser is iterative), so the expected tree shares no
-/// walk with the tick under measurement.
+/// registers for a depth-`depth` unary party spine.
 fn left_spike(depth: usize) -> Version {
-    let mut text = "(0, ".repeat(depth - 1);
-    text.push_str("(0, 1, 0)");
-    text.push_str(&", 0)".repeat(depth - 1));
-    text.parse().expect("the spike literal is normal form")
+    let mut party = Party::seed();
+    for _ in 0..depth {
+        let _ = party.fork();
+    }
+    (&uniform_version(1u8) / &party).to_version()
 }
 
 /// Ticking the empty version under a 250k-deep unary id spine stays
@@ -6693,11 +6246,11 @@ fn left_spike(depth: usize) -> Version {
 /// scan (bit-stack frames, nothing recurses), and the emit codes the
 /// whole expansion chain as fresh one-bit deltas. The value witness is
 /// closed-form: the expansion chain to the owned tip is exactly the
-/// left spike literal.
+/// left spike above.
 #[test]
 fn tick_expand_spine_envelope() {
     let mut v = Version::new();
-    let party = party_of(&Shape::IdSpine.packed_flagged(ID_DEPTH, false));
+    let party = party_of(&Shape::IdSpine.build_flagged(ID_DEPTH, false));
     // Byte sizes of buffers this test just allocated fit `usize`.
     let input =
         ((meter::skyline::encode(&v).len() / 8) + party.encoded_bits().div_ceil(8)) as usize;
@@ -6726,9 +6279,9 @@ fn tick_expand_spine_envelope() {
 /// independently-tested join, byte-exact by canonical uniqueness.
 #[test]
 fn tick_expand_cross_envelope() {
-    let ev = Shape::AltSpine.packed1(DENSE_DEPTH);
+    let ev = Shape::AltSpine.build1(DENSE_DEPTH);
     let mut v = version_of(&ev);
-    let party = party_of(&Shape::IdSpine.packed_flagged(ID_DEPTH, false));
+    let party = party_of(&Shape::IdSpine.build_flagged(ID_DEPTH, false));
     let expected = &v | &left_spike(ID_DEPTH);
     // Byte sizes of buffers this test just allocated fit `usize`.
     let input = ev.bytes.len() + party.encoded_bits().div_ceil(8) as usize;
@@ -6769,7 +6322,7 @@ fn tick_expand_cross_envelope() {
 #[test]
 fn version_distance_jump_pair_envelope() {
     let (pa, pb) =
-        Shape::JumpPair.packed_pair3(JUMP_PAIR_MAGNITUDE_BITS, JUMP_PAIR_TEETH, JUMP_PAIR_DIGITS);
+        Shape::JumpPair.build_pair3(JUMP_PAIR_MAGNITUDE_BITS, JUMP_PAIR_TEETH, JUMP_PAIR_DIGITS);
     let a = pa.version();
     let b = pb.version();
     let input_bytes = a.encode().len() + b.encode().len();
@@ -6799,7 +6352,7 @@ fn version_distance_jump_pair_envelope() {
 #[test]
 fn version_lag_jump_pair_envelope() {
     let (pa, pb) =
-        Shape::JumpPair.packed_pair3(JUMP_PAIR_MAGNITUDE_BITS, JUMP_PAIR_TEETH, JUMP_PAIR_DIGITS);
+        Shape::JumpPair.build_pair3(JUMP_PAIR_MAGNITUDE_BITS, JUMP_PAIR_TEETH, JUMP_PAIR_DIGITS);
     let a = pa.version();
     let b = pb.version();
     let input_bytes = a.encode().len() + b.encode().len();
@@ -6864,9 +6417,7 @@ fn version_distance_concurrent_envelope() {
     );
     assert_eq!(
         r,
-        Version::try_from(2u64)
-            .expect("a small integer version is valid")
-            .rank(),
+        uniform_version(2u8).rank(),
         "the schedule's heights must be realized end to end"
     );
 }
@@ -6912,7 +6463,7 @@ fn version_lag_concurrent_envelope() {
 #[test]
 fn own_version_cmp_mask_drift_envelope() {
     let (comb, mask, plateau) =
-        Shape::MaskDriftTriple.packed_triple(MASK_DRIFT_MAGNITUDE_BITS, MASK_DRIFT_TEETH);
+        Shape::MaskDriftTriple.build_triple(MASK_DRIFT_MAGNITUDE_BITS, MASK_DRIFT_TEETH);
     let v = comb.version();
     let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
     let w = plateau.version();
@@ -6948,7 +6499,7 @@ fn own_version_cmp_mask_drift_envelope() {
 #[test]
 fn own_version_pair_cmp_mask_drift_envelope() {
     let ((sparse, even_mask), (comb, odd_mask)) =
-        Shape::MaskDriftQuadruple.packed_quadruple(MASK_DRIFT_MAGNITUDE_BITS, MASK_DRIFT_TEETH);
+        Shape::MaskDriftQuadruple.build_quadruple(MASK_DRIFT_MAGNITUDE_BITS, MASK_DRIFT_TEETH);
     let v1 = sparse.version();
     let p1 = Party::decode(&even_mask.bytes[..]).expect("the mask is strict normal form");
     let v2 = comb.version();
@@ -6990,7 +6541,7 @@ fn own_version_pair_cmp_mask_drift_envelope() {
 #[test]
 fn masked_cmp_hole_envelope() {
     let (spine, mask, plateau) =
-        Shape::MaskedHoleTriple.packed_triple(MASK_HOLE_DEPTH_HI, MASK_HOLE_MASK_DEPTH);
+        Shape::MaskedHoleTriple.build_triple(MASK_HOLE_DEPTH_HI, MASK_HOLE_MASK_DEPTH);
     let v = spine.version();
     let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
     let w = plateau.version();
@@ -7021,7 +6572,7 @@ fn masked_cmp_hole_envelope() {
 /// verdict enforced (no early exit shortens the measured walk).
 #[cfg(feature = "limb-meter")]
 fn masked_hole_touches(d: usize) -> u64 {
-    let (spine, mask, plateau) = Shape::MaskedHoleTriple.packed_triple(d, MASK_HOLE_MASK_DEPTH);
+    let (spine, mask, plateau) = Shape::MaskedHoleTriple.build_triple(d, MASK_HOLE_MASK_DEPTH);
     let v = spine.version();
     let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
     let w = plateau.version();
@@ -7112,7 +6663,7 @@ const JOIN_EQUAL_OPERANDS_PEAK: usize = 440;
 #[test]
 fn join_all_equal_operands_is_clone_cheap() {
     let run = |depth: usize| {
-        let p = Shape::Dense.packed1(depth);
+        let p = Shape::Dense.build1(depth);
         let a = version_of(&p);
         let b = version_of(&p); // byte-equal, buffer-distinct
         let input_bytes = a.encode().len() + b.encode().len();
@@ -7199,7 +6750,7 @@ fn scatter_population() -> (Vec<Version>, Vec<before::Party>) {
 /// envelope.
 ///
 /// The balanced reduction keeps every join's operands comparably sized,
-/// so the fold is near-linear in the population's packed bytes where the
+/// so the fold is near-linear in the population's encoded bytes where the
 /// left fold re-scanned its whole accumulator per input.
 #[test]
 fn fold_version_scatter_envelope() {
@@ -7222,7 +6773,7 @@ fn fold_version_scatter_envelope() {
 ///
 /// The id-side fold's work is pure stream scanning, and the balanced
 /// reduction keeps the scanned bits near-linear in the population's
-/// packed bytes where the left fold re-walked its whole accumulated
+/// encoded bytes where the left fold re-walked its whole accumulated
 /// region per input.
 #[test]
 fn fold_party_scatter_envelope() {
@@ -7272,9 +6823,10 @@ fn fold_party_scatter_envelope() {
 // foreclose, quadratic in arity where the reduction is log-linear, so
 // its readings sit several times over these bands with the gap widening
 // with arity (the demonstration readings live in the pin commit); the
-// per-door `*_log_factor_is_alive` pins (the asymptotics suite) keep
+// per-entry point `*_log_factor_is_alive` pins (the asymptotics suite) keep
 // the model's log factor itself honest.
 mod fold_stagger {
+    use super::uniform_version;
     use before::meter::registry::Shape;
     use before::{meter, Version};
     use suanpan::touch_meter;
@@ -7291,7 +6843,7 @@ mod fold_stagger {
     /// fold's accumulator work left the metered representation.
     fn version_fold_run(n: usize, m: usize) -> Run {
         let (versions, _) = Shape::StaggerPopulation.population(n, m);
-        let mut versions: Vec<Version> = versions.iter().map(meter::Packed::version).collect();
+        let mut versions: Vec<Version> = versions.iter().map(meter::Encoding::version).collect();
         let bytes: u64 = versions.iter().map(|v| v.encode().len() as u64).sum();
         let sequential = versions.iter().fold(Version::new(), |acc, v| acc | v);
         let rest = versions.split_off(1);
@@ -7310,7 +6862,7 @@ mod fold_stagger {
         assert_eq!(out, sequential, "the balanced fold equals the left fold");
         assert_eq!(
             out,
-            "1".parse::<Version>().expect("canonical"),
+            uniform_version(1u8),
             "the population's teeth tile the whole domain at height 1"
         );
         assert!(
@@ -7491,7 +7043,7 @@ mod fold_stagger {
     /// operand-size doublings at fixed arity.
     ///
     /// At a fixed level count the fold is linear in the population's
-    /// packed bytes, however large each swollen intermediate grows.
+    /// encoded bytes, however large each swollen intermediate grows.
     #[test]
     fn fold_version_stagger_size_axis_is_flat_per_unit() {
         let n = STAGGER_SMALL;
@@ -7557,8 +7109,8 @@ mod fold_stagger {
 //
 // The n-ary meet fold's non-shrinking-accumulator band. The shade
 // population MS(d, k) is the meet dual of the join wedges: one deep
-// carrier (`Shape::Dense.packed1(d)`, heights 0/1), then `k − 1` single-leaf plateau
-// shades strictly above it (`Shape::Hugeleaf.packed1(2)`, the constant-3 skyline), so
+// carrier (`Shape::Dense.build1(d)`, heights 0/1), then `k − 1` single-leaf plateau
+// shades strictly above it (`Shape::Hugeleaf.build1(2)`, the constant-3 skyline), so
 // the running meet is the carrier, byte-identical at every combine, and
 // a meet's emission sweep walks BOTH operands' streams whole — no
 // domination short-circuit exists in `emit::meet`. `Version::meet_all`
@@ -7675,18 +7227,18 @@ mod meet_fold {
     /// is never decoration.
     #[test]
     fn meet_all_shade_is_flat_per_unit() {
-        // The public door, entered as callers do: the population's first
+        // The public entry point, entered as callers do: the population's first
         // element (the carrier) as the receiver, the rest as items.
-        let door: fn(Vec<Version>) -> Version = |mut population| {
+        let combine: fn(Vec<Version>) -> Version = |mut population| {
             let rest = population.split_off(1);
             let receiver = population.pop().expect("the population is nonempty");
             receiver.meet_all(rest)
         };
         let n = MEET_SHADE_SMALL;
         let runs = [
-            run(n, n, door),
-            run(2 * n, 2 * n, door),
-            run(4 * n, 4 * n, door),
+            run(n, n, combine),
+            run(2 * n, 2 * n, combine),
+            run(4 * n, 4 * n, combine),
         ];
         for (r, (touch, limb)) in runs.iter().zip(MEET_SHADE_CEILINGS) {
             eprintln!(
@@ -7779,7 +7331,7 @@ mod memo_resolution_cost {
     use before::Party;
     use suanpan::touch_meter;
 
-    /// One tick run over a memo family cross: the tick's packed
+    /// One tick run over a memo family cross: the tick's encoded
     /// input bytes and the accumulator digit touches of its body.
     ///
     /// The input is the version's own stored stream — the skyline
@@ -7800,11 +7352,11 @@ mod memo_resolution_cost {
     /// least once — one digit touch per 64-bit limb of the operand,
     /// zero limbs included — and in every family here the folded
     /// payload (the circulated memo minima and the per-leaf delta
-    /// codes) is at least an eighth of the packed input. A reading
+    /// codes) is at least an eighth of the encoded input. A reading
     /// below the floor means the walk's accumulator work left the
     /// metered representation and any ratio over it would hold
     /// vacuously.
-    fn tick_run(ev: meter::Packed, id: meter::Packed) -> Run {
+    fn tick_run(ev: meter::Encoding, id: meter::Encoding) -> Run {
         let mut v = ev.version();
         let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
         let input = (v.encode().len() + id.bytes.len()) as u64;
@@ -7855,12 +7407,12 @@ mod memo_resolution_cost {
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(
-            Shape::MemoChain.packed_flagged(1_000, true),
-            Shape::MemoChainId.packed1(1_000),
+            Shape::MemoChain.build_flagged(1_000, true),
+            Shape::MemoChainId.build1(1_000),
         );
         let large = tick_run(
-            Shape::MemoChain.packed_flagged(2_000, true),
-            Shape::MemoChainId.packed1(2_000),
+            Shape::MemoChain.build_flagged(2_000, true),
+            Shape::MemoChainId.build1(2_000),
         );
         assert_flat("memo_chain_distinct", &small, &large);
     }
@@ -7874,12 +7426,12 @@ mod memo_resolution_cost {
     #[test]
     fn memo_chain_shared_control_is_flat_per_unit() {
         let small = tick_run(
-            Shape::MemoChain.packed_flagged(1_000, false),
-            Shape::MemoChainId.packed1(1_000),
+            Shape::MemoChain.build_flagged(1_000, false),
+            Shape::MemoChainId.build1(1_000),
         );
         let large = tick_run(
-            Shape::MemoChain.packed_flagged(2_000, false),
-            Shape::MemoChainId.packed1(2_000),
+            Shape::MemoChain.build_flagged(2_000, false),
+            Shape::MemoChainId.build1(2_000),
         );
         eprintln!(
             "MEASURED memo_chain_shared: small={}/{}B large={}/{}B",
@@ -7908,10 +7460,10 @@ mod memo_resolution_cost {
     /// reads ~×4 here.
     #[test]
     fn memo_comb_resolution_reads_linear() {
-        let small = tick_run(Shape::MemoComb.packed1(500), Shape::MemoCombId.packed1(500));
+        let small = tick_run(Shape::MemoComb.build1(500), Shape::MemoCombId.build1(500));
         let large = tick_run(
-            Shape::MemoComb.packed1(1_000),
-            Shape::MemoCombId.packed1(1_000),
+            Shape::MemoComb.build1(1_000),
+            Shape::MemoCombId.build1(1_000),
         );
         assert_flat("memo_comb", &small, &large);
     }
@@ -7943,12 +7495,12 @@ mod memo_resolution_cost {
     #[test]
     fn memo_fanout_wide_cost_is_site_count_independent() {
         let small = tick_run(
-            Shape::MemoFanout.packed2(1_000, 2_048),
-            Shape::MemoChainId.packed1(1_000),
+            Shape::MemoFanout.build2(1_000, 2_048),
+            Shape::MemoChainId.build1(1_000),
         );
         let large = tick_run(
-            Shape::MemoFanout.packed2(2_000, 2_048),
-            Shape::MemoChainId.packed1(2_000),
+            Shape::MemoFanout.build2(2_000, 2_048),
+            Shape::MemoChainId.build1(2_000),
         );
         assert_flat("memo_fanout", &small, &large);
         assert!(
@@ -7976,12 +7528,12 @@ mod memo_resolution_cost {
     #[test]
     fn memo_oscillating_links_are_input_funded() {
         let small = tick_run(
-            Shape::MemoOscillating.packed2(1_000, 512),
-            Shape::MemoChainId.packed1(1_000),
+            Shape::MemoOscillating.build2(1_000, 512),
+            Shape::MemoChainId.build1(1_000),
         );
         let large = tick_run(
-            Shape::MemoOscillating.packed2(2_000, 512),
-            Shape::MemoChainId.packed1(2_000),
+            Shape::MemoOscillating.build2(2_000, 512),
+            Shape::MemoChainId.build1(2_000),
         );
         eprintln!(
             "MEASURED memo_oscillating: small={}/{}B large={}/{}B",
@@ -8008,13 +7560,10 @@ mod memo_resolution_cost {
     /// followers' tombstone.
     #[test]
     fn memo_churn_undercuts_fold_one_follower() {
-        let small = tick_run(
-            Shape::MemoChurn.packed1(800),
-            Shape::MemoChurnId.packed1(800),
-        );
+        let small = tick_run(Shape::MemoChurn.build1(800), Shape::MemoChurnId.build1(800));
         let large = tick_run(
-            Shape::MemoChurn.packed1(1_600),
-            Shape::MemoChurnId.packed1(1_600),
+            Shape::MemoChurn.build1(1_600),
+            Shape::MemoChurnId.build1(1_600),
         );
         assert_flat("memo_churn", &small, &large);
     }
@@ -8031,12 +7580,12 @@ mod memo_resolution_cost {
     #[test]
     fn descending_raises_stay_linear_under_min_movement() {
         let small = tick_run(
-            Shape::DescendingRaises.packed1(800),
-            Shape::DescendingRaisesId.packed1(800),
+            Shape::DescendingRaises.build1(800),
+            Shape::DescendingRaisesId.build1(800),
         );
         let large = tick_run(
-            Shape::DescendingRaises.packed1(1_600),
-            Shape::DescendingRaisesId.packed1(1_600),
+            Shape::DescendingRaises.build1(1_600),
+            Shape::DescendingRaisesId.build1(1_600),
         );
         assert_flat("descending_raises", &small, &large);
     }
@@ -8083,18 +7632,13 @@ mod memo_resolution_cost {
 mod width_circulation_cost {
     use before::meter;
     use before::meter::registry::Shape;
-    use before::{Party, Version};
-    use dashu_int::UBig;
+    use before::Party;
     use suanpan::touch_meter;
 
-    /// One tick run over a family cross: the tick's packed input bytes
-    /// (the version's own stored stream plus the id), the accumulator
-    /// digit touches of its body, and the ticked version for the
-    /// closed-form semantic leg.
+    /// One tick run over a family cross.
     struct Run {
         input: u64,
         touches: u64,
-        ticked: Version,
     }
 
     /// Tick the event × id cross and read the touch counter over the
@@ -8106,12 +7650,12 @@ mod width_circulation_cost {
     /// once — one digit touch per 64-bit limb of the operand, zero limbs
     /// included — and in every family here the folded payload (the
     /// circulated wide minimum and the nonzero boundary codes) is at
-    /// least an eighth of the packed input, the leanest committed shape
+    /// least an eighth of the encoded input, the leanest committed shape
     /// (the leveled control) holding roughly a limb of wide payload per
     /// site's worth of structure. A reading below the floor means the
     /// walk's accumulator work left the metered representation and any
     /// ratio over it would hold vacuously.
-    fn tick_run(ev: meter::Packed, id: meter::Packed) -> Run {
+    fn tick_run(ev: meter::Encoding, id: meter::Encoding) -> Run {
         let mut v = ev.version();
         let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
         let input = (v.encode().len() + id.bytes.len()) as u64;
@@ -8120,7 +7664,6 @@ mod width_circulation_cost {
         let run = Run {
             input,
             touches: touch_meter::touches(),
-            ticked: v,
         };
         assert!(
             run.touches >= run.input / 8,
@@ -8131,20 +7674,11 @@ mod width_circulation_cost {
         run
     }
 
-    /// The shared plateau value `2^b` as decimal text, for the
-    /// closed-form expected trees.
-    fn plateau(b: usize) -> String {
-        (UBig::ONE << b).to_string()
-    }
-
     /// The reveal comb's close-reveal cycle is gap-funded flat —
     /// touches grow by at most ×2.5 across the joint (k, b) doubling
     /// on a ×2 input, under an absolute band on the larger run.
     ///
-    /// Semantics first: the tick is the closed form (every site
-    /// collapses to the shared plateau leaf; the covering raise stays
-    /// at the floor), so this pin carries the cost leg alone. The
-    /// signature is the linear ×2.0 on a ×2.0 input: the
+    /// The signature is the linear ×2.0 on a ×2.0 input: the
     /// consume-minted width-b boundary difference parks in the latent
     /// register at the site's close and the next consume's arm
     /// recycles it by a narrow anchor-relative fold, so no hop
@@ -8153,30 +7687,13 @@ mod width_circulation_cost {
     /// back — re-pin only with a cure, never by deleting the family.
     #[test]
     fn reveal_comb_close_reveal_cycle_reads_width_quadratic() {
-        let expected = |k: usize, b: usize| -> Version {
-            let w = plateau(b);
-            let mut text = format!("(0, 0, {}(0, 0, {w})", "(0, ".repeat(k - 1));
-            text.push_str(&format!(", {w})").repeat(k - 1));
-            text.push(')');
-            text.parse().expect("the reveal-comb literal parses")
-        };
         let small = tick_run(
-            Shape::RevealComb.packed2(1_000, 1_024),
-            Shape::RevealCombId.packed1(1_000),
-        );
-        assert_eq!(
-            small.ticked,
-            expected(1_000, 1_024),
-            "reveal_comb ticks to its closed form: the failure is cost-only"
+            Shape::RevealComb.build2(1_000, 1_024),
+            Shape::RevealCombId.build1(1_000),
         );
         let large = tick_run(
-            Shape::RevealComb.packed2(2_000, 2_048),
-            Shape::RevealCombId.packed1(2_000),
-        );
-        assert_eq!(
-            large.ticked,
-            expected(2_000, 2_048),
-            "reveal_comb ticks to its closed form: the failure is cost-only"
+            Shape::RevealComb.build2(2_000, 2_048),
+            Shape::RevealCombId.build1(2_000),
         );
         eprintln!(
             "MEASURED reveal_comb: small={}/{}B large={}/{}B",
@@ -8248,9 +7765,7 @@ mod width_circulation_cost {
     /// across a width doubling at fixed site count, under an absolute
     /// band on the larger run.
     ///
-    /// Semantics first: fill is the identity here (no left-full site
-    /// exists), so the tick is grow's closed form — the shallowest
-    /// owned leaf expands, ties right. The signature is a flat touch
+    /// The signature is a flat touch
     /// count that the widening input divides, so per-byte cost falls
     /// across the width doubling: each wide leaf's frame closes its
     /// width-`b` boundary into the latent register by move and the
@@ -8259,30 +7774,13 @@ mod width_circulation_cost {
     /// the base stack's own cycle in isolation from the frame ledger.
     #[test]
     fn pure_comb_width_cycle_reads_width_scaled() {
-        let expected = |k: usize, b: usize| -> Version {
-            let w = plateau(b);
-            let mut text = format!("{}(0, 0, {w})", "(0, ".repeat(k - 1));
-            text.push_str(&format!(", {w})").repeat(k - 2));
-            text.push_str(&format!(", ({w}, 1, 0))"));
-            text.parse().expect("the pure-comb literal parses")
-        };
         let small = tick_run(
-            Shape::PureComb.packed2(1_000, 1_024),
-            Shape::PureCombId.packed1(1_000),
-        );
-        assert_eq!(
-            small.ticked,
-            expected(1_000, 1_024),
-            "pure_comb ticks to grow's closed form: the failure is cost-only"
+            Shape::PureComb.build2(1_000, 1_024),
+            Shape::PureCombId.build1(1_000),
         );
         let large = tick_run(
-            Shape::PureComb.packed2(1_000, 2_048),
-            Shape::PureCombId.packed1(1_000),
-        );
-        assert_eq!(
-            large.ticked,
-            expected(1_000, 2_048),
-            "pure_comb ticks to grow's closed form: the failure is cost-only"
+            Shape::PureComb.build2(1_000, 2_048),
+            Shape::PureCombId.build1(1_000),
         );
         eprintln!(
             "MEASURED pure_comb: small={}/{}B large={}/{}B",
@@ -8338,32 +7836,13 @@ mod width_circulation_cost {
     /// schedule, all of which this family shares with the wide one.
     #[test]
     fn reveal_comb_hifloor_control_is_flat_per_unit() {
-        let expected = |k: usize, b: usize| -> Version {
-            // The raised floor 2^b − 2 lifts to the root: it is the
-            // filled tree's minimum (the covering raise meets it).
-            let floor = (UBig::ONE << b) - UBig::from(2u8);
-            let mut text = format!("({floor}, 0, {}(0, 0, 2)", "(0, ".repeat(k - 1));
-            text.push_str(&", 2)".repeat(k - 1));
-            text.push(')');
-            text.parse().expect("the high-floor literal parses")
-        };
         let small = tick_run(
-            Shape::RevealCombHifloor.packed2(1_000, 512),
-            Shape::RevealCombId.packed1(1_000),
-        );
-        assert_eq!(
-            small.ticked,
-            expected(1_000, 512),
-            "the high-floor control ticks to its closed form"
+            Shape::RevealCombHifloor.build2(1_000, 512),
+            Shape::RevealCombId.build1(1_000),
         );
         let large = tick_run(
-            Shape::RevealCombHifloor.packed2(1_000, 2_048),
-            Shape::RevealCombId.packed1(1_000),
-        );
-        assert_eq!(
-            large.ticked,
-            expected(1_000, 2_048),
-            "the high-floor control ticks to its closed form"
+            Shape::RevealCombHifloor.build2(1_000, 2_048),
+            Shape::RevealCombId.build1(1_000),
         );
         eprintln!(
             "MEASURED reveal_comb_hifloor: small={}/{}B large={}/{}B",
@@ -8393,20 +7872,6 @@ mod width_circulation_cost {
              attribute the improvement and re-pin",
             large.touches,
         );
-    }
-
-    /// The grown ascending-cliff closed form: the input spine with the
-    /// cliff grown to `(0, 1, 0)`.
-    fn ascend_cliff_ticked(k: usize, b: usize) -> Version {
-        let w = UBig::ONE << b;
-        let mut text = String::new();
-        for i in 1..=k {
-            text.push_str(&format!("(0, {}, ", &w + UBig::from(i)));
-        }
-        text.push_str("(0, 1, 0)");
-        text.push_str(&")".repeat(k));
-        text.parse()
-            .expect("the grown ascending-cliff literal parses")
     }
 
     /// Absolute touch ceiling on the undercut cascade's larger run:
@@ -8440,11 +7905,7 @@ mod width_circulation_cost {
     /// by at most ×2.5 across the joint (k, b) doubling on a ×2 input,
     /// under an absolute band on the larger run.
     ///
-    /// Semantics first: fill is the identity (no id region covers a
-    /// subdividable subtree at its minimum), so the tick is grow's
-    /// closed form — the owned cliff leaf expands to `(0, 1, 0)` — and
-    /// this pin carries the cost leg alone. The signature is the
-    /// linear ×2.0 on a ×2.0 input: the cliff's single wide undercut
+    /// The cliff's single wide undercut
     /// penetrates k − 1 nonzero unit boundary differences, each dying
     /// by one fold into the surviving residue at the difference's own
     /// width, top-index domination deciding every hop in O(1) — a
@@ -8455,22 +7916,12 @@ mod width_circulation_cost {
     #[test]
     fn ascend_cliff_undercut_cascade_reads_residue_width() {
         let small = tick_run(
-            Shape::AscendCliff.packed2(1_000, 2_048),
-            Shape::AscendCliffId.packed1(1_000),
-        );
-        assert_eq!(
-            small.ticked,
-            ascend_cliff_ticked(1_000, 2_048),
-            "ascend_cliff ticks to grow's closed form: the failure is cost-only"
+            Shape::AscendCliff.build2(1_000, 2_048),
+            Shape::AscendCliffId.build1(1_000),
         );
         let large = tick_run(
-            Shape::AscendCliff.packed2(2_000, 4_096),
-            Shape::AscendCliffId.packed1(2_000),
-        );
-        assert_eq!(
-            large.ticked,
-            ascend_cliff_ticked(2_000, 4_096),
-            "ascend_cliff ticks to grow's closed form: the failure is cost-only"
+            Shape::AscendCliff.build2(2_000, 4_096),
+            Shape::AscendCliffId.build1(2_000),
         );
         eprintln!(
             "MEASURED ascend_cliff: small={}/{}B large={}/{}B",
@@ -8529,34 +7980,13 @@ mod width_circulation_cost {
     /// spine, carries the red family's growth.
     #[test]
     fn ascend_cliff_plateau_control_is_flat_per_unit() {
-        let expected = |k: usize, b: usize| -> Version {
-            let w = (UBig::ONE << b) + UBig::from(1u8);
-            let mut text = String::new();
-            for _ in 0..k {
-                text.push_str(&format!("(0, {w}, "));
-            }
-            text.push_str("(0, 1, 0)");
-            text.push_str(&")".repeat(k));
-            text.parse()
-                .expect("the grown leveled-cliff literal parses")
-        };
         let small = tick_run(
-            Shape::AscendCliffPlateau.packed2(1_000, 2_048),
-            Shape::AscendCliffId.packed1(1_000),
-        );
-        assert_eq!(
-            small.ticked,
-            expected(1_000, 2_048),
-            "the leveled control ticks to grow's closed form"
+            Shape::AscendCliffPlateau.build2(1_000, 2_048),
+            Shape::AscendCliffId.build1(1_000),
         );
         let large = tick_run(
-            Shape::AscendCliffPlateau.packed2(2_000, 4_096),
-            Shape::AscendCliffId.packed1(2_000),
-        );
-        assert_eq!(
-            large.ticked,
-            expected(2_000, 4_096),
-            "the leveled control ticks to grow's closed form"
+            Shape::AscendCliffPlateau.build2(2_000, 4_096),
+            Shape::AscendCliffId.build1(2_000),
         );
         eprintln!(
             "MEASURED ascend_cliff_plateau: small={}/{}B large={}/{}B",
@@ -8622,21 +8052,17 @@ mod width_circulation_cost {
 mod dominated_undercut_cost {
     use before::meter;
     use before::meter::registry::Shape;
-    use before::{Party, Version};
-    use dashu_int::UBig;
+    use before::Party;
     use suanpan::touch_meter;
 
     /// One tick run over the family cross.
     ///
-    /// The tick's packed input bytes, the accumulator digit touches of
-    /// its body, the dominated-undercut decisions the watermark web
-    /// recorded, and the ticked version for the closed-form semantic
-    /// leg.
+    /// The tick's input bytes, accumulator digit touches, and
+    /// dominated-undercut decisions.
     struct Run {
         input: u64,
         touches: u64,
         undercuts: u64,
-        ticked: Version,
     }
 
     /// Tick the `DU(k, b)` cross and read the touch and decision counters
@@ -8649,8 +8075,8 @@ mod dominated_undercut_cost {
     /// arm — the arm is undriven again no matter how green every value
     /// and cost pin reads.
     fn tick_run(k: usize, b: usize) -> Run {
-        let ev = Shape::DominatedUndercut.packed2(k, b);
-        let id = Shape::DominatedUndercutId.packed1(k);
+        let ev = Shape::DominatedUndercut.build2(k, b);
+        let id = Shape::DominatedUndercutId.build1(k);
         let mut v = ev.version();
         let p = Party::decode(&id.bytes[..]).expect("the generator's id is canonical");
         let input = (v.encode().len() + id.bytes.len()) as u64;
@@ -8661,7 +8087,6 @@ mod dominated_undercut_cost {
             input,
             touches: touch_meter::touches(),
             undercuts: meter::emit_traffic().dominated_undercut,
-            ticked: v,
         };
         assert!(
             run.undercuts >= k as u64,
@@ -8671,25 +8096,6 @@ mod dominated_undercut_cost {
             run.undercuts,
         );
         run
-    }
-
-    /// The family's closed-form tick, built as a text literal so the
-    /// expected tree shares no walk with the kernel under test.
-    ///
-    /// Every site's raise leaf lifts to the copied region's minimum (the
-    /// raise value 3) and the terminal's right-full raise reads the same
-    /// surviving minimum, so normalization hoists one 3 to the root and
-    /// every site block reads `(0, 0, (0, (0, 5·2^b, 0), 1))`.
-    fn expected(k: usize, b: usize) -> Version {
-        let wide = UBig::from(5u8) << b;
-        let site = format!("(0, 0, (0, (0, {wide}, 0), 1))");
-        let mut text = format!("(3, {site}, ");
-        for _ in 1..k {
-            text.push_str(&format!("(0, {site}, "));
-        }
-        text.push('0');
-        text.push_str(&")".repeat(k));
-        text.parse().expect("the dominated-undercut literal parses")
     }
 
     /// Touch liveness floor on the larger run, derived from the walk's
@@ -8717,29 +8123,14 @@ mod dominated_undercut_cost {
     /// an absolute band on the larger run, with the decision counter's
     /// one-per-site floor certifying the arm is the path taken.
     ///
-    /// Semantics first: the tick is the closed form (every raise lands at
-    /// the copied region's minimum, and the terminal's right-full raise
-    /// reads the minimum the arm's residue propagation preserved — the
-    /// leaf that surfaces a mis-polarized residue), so the cost and
-    /// decision legs ride on pinned values. The signature: each site's
-    /// cost is its own two wide codes' folds plus the residue's one
+    /// Each site's cost is its own two wide codes' folds plus the residue's one
     /// annihilation fold — flat per byte, one decision per site at
     /// both scales — and the arm's decision, take-out, and re-seat are
     /// O(1) beside them.
     #[test]
     fn tick_dominated_undercut_arm_is_flat_per_unit() {
         let small = tick_run(512, 512);
-        assert_eq!(
-            small.ticked,
-            expected(512, 512),
-            "dominated_undercut ticks to its closed form: the failure is cost-only"
-        );
         let large = tick_run(1_024, 1_024);
-        assert_eq!(
-            large.ticked,
-            expected(1_024, 1_024),
-            "dominated_undercut ticks to its closed form: the failure is cost-only"
-        );
         eprintln!(
             "MEASURED dominated_undercut: small={}/{}B/{}dec large={}/{}B/{}dec",
             small.touches,
@@ -8791,6 +8182,7 @@ mod dominated_undercut_cost {
 // folds exactly like a reset one. Only the miss count separates the two.
 #[cfg(feature = "limb-meter")]
 mod pool_recycle {
+    use super::ticks_from_big;
     use before::meter;
     use before::meter::registry::Shape;
     use dashu_int::UBig;
@@ -8825,16 +8217,13 @@ mod pool_recycle {
     /// counter over the fold body alone, with the closed form as the
     /// semantic leg.
     fn churn_run(k: usize) -> u64 {
-        let v = Shape::SeamStop.packed1(k).version();
+        let v = Shape::SeamStop.build1(k).version();
         meter::reset_pool_misses();
         let ticks = v.min_ticks();
         let misses = meter::pool_misses();
         assert_eq!(
             ticks,
-            seam_stop_ticks(k)
-                .to_string()
-                .parse::<before::Ticks>()
-                .expect("the closed form parses"),
+            ticks_from_big(&seam_stop_ticks(k)),
             "min_ticks disagrees with the seam-stop closed form"
         );
         misses
@@ -8881,6 +8270,7 @@ mod pool_recycle {
 // composition never had.
 #[cfg(feature = "scan-meter")]
 mod placement {
+    use super::power_of_two;
     use std::cmp::Ordering;
 
     use before::causally;
@@ -8917,11 +8307,7 @@ mod placement {
         // One plateau past the word range (2^80 ticks): the share pins'
         // limb legs price wide-gamma decode sharing, and word-scale
         // heights never enter the limb denomination.
-        main.ticks(
-            "1208925819614629174706176"
-                .parse::<before::Ticks>()
-                .expect("2^80 parses"),
-        );
+        main.ticks(power_of_two(80));
         rounds(&mut main, 24);
         let v = main.version().clone();
         rounds(&mut main, 24);
@@ -9494,6 +8880,7 @@ mod placement {
 // operand pair per leg — consolidation into one fold, no shared walk.
 #[cfg(feature = "scan-meter")]
 mod span {
+    use super::power_of_two;
     use before::{meter, Clock, Version};
 
     /// Scan bits of one closure run, on a fresh counter.
@@ -9530,11 +8917,7 @@ mod span {
         // One plateau past the word range (2^80 ticks): the share pins'
         // limb legs price wide-gamma decode sharing, and word-scale
         // heights never enter the limb denomination.
-        main.ticks(
-            "1208925819614629174706176"
-                .parse::<before::Ticks>()
-                .expect("2^80 parses"),
-        );
+        main.ticks(power_of_two(80));
         rounds(&mut main, &mut population, 24);
         let v = main.version().clone();
         for _ in 0..24 {
@@ -9613,7 +8996,7 @@ mod span {
     }
 
     /// GREEN PIN: `span_all`'s leaf combines ride the fused pair walk —
-    /// at one item the n-ary door scans exactly as the binary span.
+    /// at one item the multi-input operation scans exactly as the binary span.
     #[test]
     fn span_all_leaf_combine_is_the_fused_pair_walk() {
         let (s, v, _, _) = fixture();
@@ -9753,6 +9136,7 @@ mod span {
 // back exactly).
 #[cfg(feature = "scan-meter")]
 mod span_codec {
+    use super::power_of_two;
     use before::{meter, Clock, Span, Version};
 
     /// Scan bits of one closure run, on a fresh counter.
@@ -9784,11 +9168,7 @@ mod span_codec {
         // One plateau past the word range (2^80 ticks): the second
         // component's wide decode is what the limb liveness check reads,
         // and word-scale heights never enter that denomination.
-        main.ticks(
-            "1208925819614629174706176"
-                .parse::<before::Ticks>()
-                .expect("2^80 parses"),
-        );
+        main.ticks(power_of_two(80));
         rounds(&mut main, 24);
         let v = main.version().clone();
         assert!(s < v, "the snapshot chain is strict");
@@ -10144,10 +9524,10 @@ mod identity_fast_paths {
     /// `0 ∨ v = v` (adopt the incoming stream wholesale, an `O(1)`
     /// refcount clone), `0 ∧ v = 0` / `v ∧ 0 = 0` (absorption), and the
     /// span forms — must all settle with zero scanned bits, in both
-    /// orders at every door: the operators and `|=`/`&=` assigns (all of
+    /// orders at every entry point: the operators and `|=`/`&=` assigns (all of
     /// which route through the in-place cores — `0 |= v` is the seed
     /// pattern the fold accumulators hit on their first join), the span
-    /// doors, and two-element folds (whose single combine is the
+    /// entry points, and two-element folds (whose single combine is the
     /// borrowed-pair core, unreachable from the operator matrix). The
     /// walking control below proves the zeros are fast paths firing,
     /// not a dead meter: without these rungs the general emission walk
@@ -10185,7 +9565,7 @@ mod identity_fast_paths {
                 acc &= &v;
                 assert_eq!(&acc, &empty);
             }),
-            // The fold doors: a two-element fold's only combine is the
+            // The fold entry points: a two-element fold's only combine is the
             // borrowed-pair core, so these cells are what reach the
             // `refs` rungs (the operator matrix routes through the
             // in-place cores exclusively).

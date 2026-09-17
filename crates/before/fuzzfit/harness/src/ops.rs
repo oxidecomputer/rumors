@@ -9,18 +9,15 @@
 //! # Denomination
 //!
 //! Every measured step is judged against its *denominated size* in bits,
-//! following the parent crate's denomination criterion of record: packed
+//! following the parent crate's denomination criterion of record: encoded
 //! operand bits for every operation except the classes
 //! whose mandatory output is asymptotically larger than any constant times
 //! their input —
 //!
-//! - **text I/O** (`Display`/`FromStr`) is judged against packed input +
-//!   text output (or text input + packed output), output read from the
-//!   actual result;
 //! - **output-dominated projection** (`Version / Party`,
 //!   `Clock::own_version`) and **balanced share splitting**
-//!   (`Party::forks(n)`, whose output is `n` packed parties) are judged
-//!   against input + packed output (canonical coding cannot be padded);
+//!   (`Party::forks(n)`, whose output is `n` encoded parties) are judged
+//!   against input + encoded output (canonical coding cannot be padded);
 //! - **rank operations** denominate against value content
 //!   (`bits(num) + exp`), proxied here by the rank's rendering
 //!   (`num/2^exp`): the numerator term is proportional (its constant folds
@@ -111,10 +108,6 @@ pub enum Op {
     VersionEncode { src: Reg },
     /// `Version::decode` from the stage.
     VersionDecode { dst: Reg },
-    /// `Version` `Display` into the stage.
-    VersionDisplay { src: Reg },
-    /// `Version` `FromStr` from the stage.
-    VersionFromstr { dst: Reg },
     /// `Party::seed` (the party half of a fresh universe).
     PartySeed { dst: Reg },
     /// `Party::fork`.
@@ -134,18 +127,13 @@ pub enum Op {
     PartyEncode { src: Reg },
     /// `Party::decode` from the stage.
     PartyDecode { dst: Reg },
-    /// `Party` `Display` into the stage.
-    PartyDisplay { src: Reg },
-    /// `Party` `FromStr` from the stage.
-    PartyFromstr { dst: Reg },
     /// `Rank + &Rank` (consumes `a`).
     RankAdd { dst: Reg, a: Reg, b: Reg },
     /// `Ord` on ranks.
     RankCmp { a: Reg, b: Reg },
     /// `Rank::checked_sub` (underflow reports as a rejection).
     RankCheckedSub { dst: Reg, a: Reg, b: Reg },
-    /// `Rank` `Display` into the stage (the rank's only text direction:
-    /// `Rank` has no `FromStr` and no packed codec).
+    /// `Rank` `Display` into the stage.
     RankDisplay { src: Reg },
 }
 
@@ -180,8 +168,6 @@ impl Op {
             Op::VersionMeetAll { .. } => "ff_version_meet_all",
             Op::VersionEncode { .. } => "ff_version_encode",
             Op::VersionDecode { .. } => "ff_version_decode",
-            Op::VersionDisplay { .. } => "ff_version_display",
-            Op::VersionFromstr { .. } => "ff_version_fromstr",
             Op::PartySeed { .. } => "ff_party_seed",
             Op::PartyFork { .. } => "ff_party_fork",
             Op::PartyForks { .. } => "ff_party_forks",
@@ -191,8 +177,6 @@ impl Op {
             Op::PartyWithout { .. } => "ff_party_without",
             Op::PartyEncode { .. } => "ff_party_encode",
             Op::PartyDecode { .. } => "ff_party_decode",
-            Op::PartyDisplay { .. } => "ff_party_display",
-            Op::PartyFromstr { .. } => "ff_party_fromstr",
             Op::RankAdd { .. } => "ff_rank_add",
             Op::RankCmp { .. } => "ff_rank_cmp",
             Op::RankCheckedSub { .. } => "ff_rank_checked_sub",
@@ -235,16 +219,12 @@ impl Op {
             | Op::PartyForks { dst, src, n } => vec![dst, src, n],
             Op::VersionMinTicks { src }
             | Op::VersionEncode { src }
-            | Op::VersionDisplay { src }
             | Op::PartyEncode { src }
-            | Op::PartyDisplay { src }
             | Op::ClockEncode { src }
             | Op::RankDisplay { src } => vec![src],
-            Op::VersionDecode { dst }
-            | Op::VersionFromstr { dst }
-            | Op::PartyDecode { dst }
-            | Op::PartyFromstr { dst }
-            | Op::ClockDecode { dst } => vec![dst],
+            Op::VersionDecode { dst } | Op::PartyDecode { dst } | Op::ClockDecode { dst } => {
+                vec![dst]
+            }
         }
     }
 
@@ -533,7 +513,7 @@ impl Mirror {
                 // The explicit materialization: the view itself is O(1)
                 // and prices nothing.
                 let own = clock.own_version().to_version();
-                // Output-dominated row: input + packed output, output read
+                // Output-dominated row: input + encoded output, output read
                 // from the actual result.
                 let denom = input + own.encoded_bits();
                 self.put(dst, NVal::V(own));
@@ -632,7 +612,7 @@ impl Mirror {
                 // The explicit materialization: the view itself is O(1)
                 // and prices nothing.
                 let projected = (version / party).to_version();
-                // Output-dominated row: input + packed output.
+                // Output-dominated row: input + encoded output.
                 let denom = input + projected.encoded_bits();
                 self.put(dst, NVal::V(projected));
                 done(denom, OK)
@@ -746,25 +726,6 @@ impl Mirror {
                 self.put(dst, NVal::V(version));
                 done(denom, OK)
             }
-            Op::VersionDisplay { src } => {
-                let version = self.version(src).ok_or_else(malformed)?;
-                let input = version.encoded_bits();
-                let text = version.to_string();
-                // Text I/O: packed input + text output, output read from
-                // the actual result.
-                let denom = input + (text.len() as u64) * 8;
-                self.stage = text.into_bytes();
-                done(denom, OK)
-            }
-            Op::VersionFromstr { dst } => {
-                let text_bits = (self.stage.len() as u64) * 8;
-                let text = std::str::from_utf8(&self.stage).map_err(|_| malformed())?;
-                let version: Version = text.parse().map_err(|_| malformed())?;
-                // Text I/O: text input + packed output.
-                let denom = text_bits + version.encoded_bits() as u64;
-                self.put(dst, NVal::V(version));
-                done(denom, OK)
-            }
             Op::PartyFork { dst, src } => {
                 let denom = self.party(src).ok_or_else(malformed)?.encoded_bits();
                 let forked = match self.regs.get_mut(src as usize) {
@@ -780,7 +741,7 @@ impl Mirror {
                     Some(Some(NVal::P(party))) => party.forks(u64::from(n)).collect::<Vec<_>>(),
                     _ => return Err(malformed()),
                 };
-                // Share splitting: the output is n packed parties.
+                // Share splitting: the output is n encoded parties.
                 let denom = input + shares.iter().map(|s| s.encoded_bits()).sum::<u64>();
                 for (i, share) in shares.into_iter().enumerate() {
                     self.put(dst + i as u32, NVal::P(share));
@@ -840,22 +801,6 @@ impl Mirror {
             Op::PartyDecode { dst } => {
                 let denom = (self.stage.len() as u64) * 8;
                 let party = Party::decode(self.stage.as_slice()).map_err(|_| malformed())?;
-                self.put(dst, NVal::P(party));
-                done(denom, OK)
-            }
-            Op::PartyDisplay { src } => {
-                let party = self.party(src).ok_or_else(malformed)?;
-                let input = party.encoded_bits();
-                let text = party.to_string();
-                let denom = input + (text.len() as u64) * 8;
-                self.stage = text.into_bytes();
-                done(denom, OK)
-            }
-            Op::PartyFromstr { dst } => {
-                let text_bits = (self.stage.len() as u64) * 8;
-                let text = std::str::from_utf8(&self.stage).map_err(|_| malformed())?;
-                let party: Party = text.parse().map_err(|_| malformed())?;
-                let denom = text_bits + party.encoded_bits() as u64;
                 self.put(dst, NVal::P(party));
                 done(denom, OK)
             }

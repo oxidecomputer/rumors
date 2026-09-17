@@ -5,7 +5,16 @@
 // overlapping join); the caller declines to commit.
 
 import init, { Engine as WasmEngine } from "../pkg/before_viz.js";
-import { asNodeIdx, type Edge, type EdgeKind, type NodeDescriptor, type NodeIdx, type State } from "./types";
+import {
+  asNodeIdx,
+  type Edge,
+  type EdgeKind,
+  type NodeDescriptor,
+  type NodeIdx,
+  type PartyRegion,
+  type State,
+  type VersionPlateau,
+} from "./types";
 
 export class Engine {
   private constructor(private readonly wasm: WasmEngine) {}
@@ -70,11 +79,35 @@ function parseState(json: string): State {
 function parseNode(value: unknown, i: number): NodeDescriptor {
   if (typeof value !== "object" || value === null) throw new Error(`node ${i}: not an object`);
   const r = value as Record<string, unknown>;
-  const { idx, party, event, stamp } = r;
-  if (typeof idx !== "number" || typeof party !== "string" || typeof event !== "string" || typeof stamp !== "string") {
+  const { idx, party, version } = r;
+  if (typeof idx !== "number" || !Array.isArray(party) || !Array.isArray(version)) {
     throw new Error(`node ${i}: malformed descriptor`);
   }
-  return { idx: asNodeIdx(idx), party, event, stamp };
+  return {
+    idx: asNodeIdx(idx),
+    party: party.map((region, j) => parsePartyRegion(region, i, j)),
+    version: version.map((plateau, j) => parseVersionPlateau(plateau, i, j)),
+  };
+}
+
+function parsePartyRegion(value: unknown, node: number, i: number): PartyRegion {
+  if (typeof value !== "object" || value === null) throw new Error(`node ${node}, party region ${i}: malformed`);
+  const { owned, depth } = value as Record<string, unknown>;
+  if (typeof owned !== "boolean" || !isDepth(depth)) throw new Error(`node ${node}, party region ${i}: malformed`);
+  return { owned, depth };
+}
+
+function parseVersionPlateau(value: unknown, node: number, i: number): VersionPlateau {
+  if (typeof value !== "object" || value === null) throw new Error(`node ${node}, version plateau ${i}: malformed`);
+  const { rise, depth } = value as Record<string, unknown>;
+  if (typeof rise !== "number" || !Number.isSafeInteger(rise) || !isDepth(depth)) {
+    throw new Error(`node ${node}, version plateau ${i}: malformed`);
+  }
+  return { rise, depth };
+}
+
+function isDepth(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function parseEdge(value: unknown, i: number): Edge {
