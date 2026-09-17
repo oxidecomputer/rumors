@@ -14,9 +14,9 @@
 //!
 //! - [`Reply`] and [`Reaction`] are [`message::Reply`]'s and
 //!   [`message::Reaction`]'s erased twins, converted exactly at the
-//!   schedule boundary: [`erase_reply`] where a typed request stream
-//!   enters a walk worker, and [`reply_channel`]'s typed exit where a
-//!   worker's responses become the schedule's typed response stream.
+//!   schedule boundary: [`super::protocol::Requests::erase`] where a typed
+//!   request stream enters a walk worker, and [`reply_channel`]'s typed exit
+//!   where a worker's responses become the schedule's typed response stream.
 //!   Every conversion is a phantom-tag swap over values the program
 //!   already holds.
 //! - [`ops`] carries erased node operations back into the height-typed

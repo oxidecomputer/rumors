@@ -24,38 +24,38 @@
 //! precedes its dependent scopes. Each edge's capacity rationale lives at
 //! its constructor in [`queues`].
 
-use crate::message::PayloadCodec;
 use std::pin::Pin;
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
+use tokio::io::AsyncRead;
 
-use super::Work;
-use crate::link::{Acceptor, Connector};
-use crate::tree::{
-    mirror::streaming::{
-        Backend, Leaf,
-        channel::Receiver,
-        erased::{self, Reaction, Reply, ops},
-        materialized::SupplyLedger,
-        protocol::{BoxResponses, Requests},
-        remote::{
-            adapter::{
-                DecodeError, Decoded, Scope, decode_leaf_reply, decode_reply, early_supplies,
-                opening_reply,
+use super::{ControlRead, Work, encode, queues};
+use crate::{
+    link::{Acceptor, Connector},
+    message::PayloadCodec,
+    tree::{
+        mirror::streaming::{
+            Backend, Leaf,
+            channel::{Receiver, Sender},
+            erased::{Reaction, Reply, ops},
+            materialized::SupplyLedger,
+            protocol::{BoxResponses, Requests},
+            remote::{
+                adapter::{
+                    DecodeError, Decoded, Scope, decode_leaf_reply, decode_reply, early_supplies,
+                    opening_reply,
+                },
+                proxy::Error,
+                streams::{ReceiverFinish, StreamReceiver, StreamSender},
             },
-            proxy::Error,
-            streams::{ReceiverFinish, StreamReceiver, StreamSender},
+        },
+        typed::{
+            ErasedPrefix,
+            height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
         },
     },
-    typed::{
-        ErasedPrefix,
-        height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
-    },
 };
-
-use super::{ControlRead, encode, queues};
-use tokio::io::AsyncRead;
 
 /// Connect each protocol stage's encoder, decoder, and dependent scope queues.
 impl<B, R, W, A> Work<B, R, W, A>
@@ -97,8 +97,7 @@ where
         incoming: StreamReceiver,
         outgoing: StreamSender<C>,
     ) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
-        let requests: encode::Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, UnderRoot>));
+        let requests = requests.erase();
         let (local_questions, questions) =
             queues::local_questions(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
         let peer_listing = std::mem::take(&mut self.peer_listing);
@@ -146,8 +145,7 @@ where
         S<H>: Height,
         S<S<H>>: Height,
     {
-        let requests: encode::Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, S<S<H>>>));
+        let requests = requests.erase();
         let (local_questions, questions) =
             queues::local_questions(<S<H>>::HEIGHT, self.window.capacity(<S<H>>::HEIGHT));
         self.spawn(encode::replies(
@@ -190,42 +188,19 @@ where
         try_stream! {
             let mut early = Early::<B>::new(version_bytes, ledger.clone(), early, codec);
             while let Some(scope) = questions.recv().await {
-                if early.armed() && scope.is_request() {
-                    // A root-level request: its content crossed at the
-                    // opening, so the pairing reply here arrives empty and
-                    // the early stream carries the node — or neither does,
-                    // when pruning removed the whole subtree.
+                // A root-level request's content crossed at the opening. Its
+                // ordinary pairing reply arrives empty; after decoding that
+                // reply, supplement it with the opening stream's node, if
+                // pruning left one.
+                let early_key = (early.armed() && scope.is_request()).then(|| {
                     let parent = scope.parent();
-                    let Decoded { reply, questions: asked } = decode_reply::<B, _>(
-                        backend.clone(),
-                        version_bytes,
-                        ledger.clone(),
-                        scope,
-                        &mut incoming,
-                        codec,
-                    )
-                    .await?;
-                    debug_assert!(asked.is_empty(), "an empty request opens no lower scope");
                     let (root, radix) = parent.pop();
-                    let mut reactions = reply.reactions;
-                    if let Some(node) = early.advance_to(&backend, root, radix).await? {
-                        let children = ops::children_of(&backend, parent, node)
-                            .await
-                            .map_err(|error| Error::Decode(DecodeError::Backend(error)))?;
-                        reactions.extend(
-                            children
-                                .into_iter()
-                                .map(|(radix, child)| Reaction::Supply(radix, child)),
-                        );
-                    }
-                    yield_reply_scopes!(
-                        progress, height + 1, 0;
-                        yield Reply { reactions };
-                        next_scopes => Vec::<Scope>::new();
-                    );
-                    continue;
-                }
-                let Decoded { reply, questions } = decode_reply::<B, _>(
+                    (parent, root, radix)
+                });
+                let Decoded {
+                    mut reply,
+                    questions,
+                } = decode_reply::<B, _>(
                     backend.clone(),
                     version_bytes,
                     ledger.clone(),
@@ -234,6 +209,23 @@ where
                     codec,
                 )
                 .await?;
+                let early_node = match early_key {
+                    Some((parent, root, radix)) => early
+                        .advance_to(&backend, root, radix)
+                        .await?
+                        .map(|node| (parent, node)),
+                    None => None,
+                };
+                if let Some((parent, node)) = early_node {
+                    let children = ops::children_of(&backend, parent, node)
+                        .await
+                        .map_err(|error| Error::Decode(DecodeError::Backend(error)))?;
+                    reply.reactions.extend(
+                        children
+                            .into_iter()
+                            .map(|(radix, child)| Reaction::Supply(radix, child)),
+                    );
+                }
                 yield_reply_scopes!(
                     progress, height + 1, questions.len();
                     yield reply;
@@ -253,8 +245,7 @@ where
         incoming: StreamReceiver,
         outgoing: StreamSender<C>,
     ) -> (BoxResponses<B, Z, Error<B::Error>>, Receiver<Scope>) {
-        let requests: encode::Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, S<Z>>));
+        let requests = requests.erase();
         let (local_questions, questions) =
             queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
         self.spawn(encode::replies(
@@ -268,17 +259,19 @@ where
             Z::HEIGHT,
         ));
         let (next_scopes, scopes) = queues::next_scopes(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
-        let responses = self.leaf_decode_pump(questions, incoming, next_scopes);
+        let responses = self.leaf_decode_pump(questions, incoming, Some(next_scopes));
         (self.respond::<Z>(responses), scopes)
     }
 
-    /// The leaf-height decode loop: like [`decode_pump`](Self::decode_pump),
-    /// but every question is a terminal leaf request.
+    /// Decode leaf replies, optionally publishing their dependent scopes.
+    ///
+    /// Ordinary leaf replies pass a scope sender. The responder's terminal
+    /// stream passes `None`; the wire grammar excludes query reactions there.
     fn leaf_decode_pump(
         &mut self,
         mut questions: Receiver<Scope>,
         mut incoming: StreamReceiver,
-        next_scopes: crate::tree::mirror::streaming::channel::Sender<Scope>,
+        next_scopes: Option<Sender<Scope>>,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
         let progress = self.progress;
@@ -297,11 +290,16 @@ where
                     codec,
                 )
                 .await?;
-                yield_reply_scopes!(
-                    progress, Z::HEIGHT, questions.len();
+                if let Some(next_scopes) = &next_scopes {
+                    yield_reply_scopes!(
+                        progress, Z::HEIGHT, questions.len();
+                        yield reply;
+                        next_scopes => questions;
+                    );
+                } else {
+                    progress.decoded_reply(Z::HEIGHT, 0);
                     yield reply;
-                    next_scopes => questions;
-                );
+                }
             }
             reject_extra(&mut incoming).await?;
         }
@@ -317,8 +315,7 @@ where
     where
         R: AsyncRead + Unpin,
     {
-        let requests: encode::Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, Z>));
+        let requests = requests.erase();
         let finish = encode::terminal(
             self.backend(),
             self.budget,
@@ -348,8 +345,7 @@ where
         W: Send,
         A: Send,
     {
-        let requests: encode::Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, Z>));
+        let requests = requests.erase();
         let (local_questions, questions) =
             queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
         self.spawn(encode::terminal(
@@ -361,47 +357,13 @@ where
             Some(local_questions),
             self.progress,
         ));
-        let responses = self.terminal_decode_pump(questions, incoming);
+        let responses = self.leaf_decode_pump(questions, incoming, None);
         let responses = self.respond::<Z>(responses);
         let completion = async move {
             let ((), read, write) = self.execute(async { Ok(()) }).await?;
             Ok((read, write))
         };
         (responses, completion)
-    }
-
-    /// The responder terminal's decode loop: leaf replies that may open no
-    /// further scope.
-    fn terminal_decode_pump(
-        &mut self,
-        mut questions: Receiver<Scope>,
-        mut incoming: StreamReceiver,
-    ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
-    {
-        let progress = self.progress;
-        let backend = self.backend();
-        let version_bytes = self.peer_version_bytes;
-        let ledger = self.peer_supplies.clone();
-        let codec = self.codec;
-        try_stream! {
-            while let Some(scope) = questions.recv().await {
-                let Decoded { reply, questions } = decode_leaf_reply(
-                    backend.clone(),
-                    version_bytes,
-                    ledger.clone(),
-                    scope,
-                    &mut incoming,
-                    codec,
-                )
-                .await?;
-                if !questions.is_empty() {
-                    Err(Error::TerminalQuery)?;
-                }
-                progress.decoded_reply(Z::HEIGHT, 0);
-                yield reply;
-            }
-            reject_extra(&mut incoming).await?;
-        }
     }
 }
 

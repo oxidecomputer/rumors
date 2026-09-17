@@ -76,8 +76,8 @@ pub enum Error<E> {
     /// The local protocol ended a reply stream while a remote query remained.
     #[error("local protocol left a remote query unanswered")]
     UnansweredRemoteQuery,
-    /// The terminal responder attempted to ask another leaf question.
-    #[error("terminal responder reply contained another query")]
+    /// The local protocol asked another question in its terminal reply.
+    #[error("local terminal reply contained another query")]
     TerminalQuery,
 }
 

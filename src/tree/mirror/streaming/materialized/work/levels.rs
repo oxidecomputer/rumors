@@ -12,7 +12,7 @@ use std::pin::pin;
 
 use async_stream::try_stream;
 use before::Version;
-use futures::{Stream, StreamExt, future::BoxFuture, stream::BoxStream};
+use futures::{Stream, StreamExt, future::BoxFuture};
 use tokio::sync::oneshot;
 
 use super::{
@@ -35,7 +35,7 @@ use crate::tree::{
             unknown::{unknown, unknown_providing},
             violation,
         },
-        protocol::{BoxResponses, Requests},
+        protocol::{BoxRequests, BoxResponses, Requests},
         tasks::next_or_cancelled,
     },
     typed::{
@@ -43,11 +43,6 @@ use crate::tree::{
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
-
-/// A request stream already erased and boxed at the walk boundary: what
-/// every walk body consumes, so each body instantiates once per backend
-/// rather than once per concrete schedule stream.
-type Replies<E> = BoxStream<'static, Reply<E>>;
 
 impl<B> Work<B>
 where
@@ -193,8 +188,7 @@ where
     where
         B: Sync,
     {
-        let requests: Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, UnderRoot>));
+        let requests = requests.erase();
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) =
@@ -349,8 +343,7 @@ where
         S<H>: Height,
         S<S<H>>: Height,
     {
-        let requests: Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, S<S<H>>>));
+        let requests = requests.erase();
         let (responses, asked_rx, upper_rx, lower_rx) = self.internal_walk(
             their_version,
             ledger,
@@ -380,7 +373,7 @@ where
         ledger: SupplyLedger,
         early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
         early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
-        requests: Replies<B::Erased>,
+        requests: BoxRequests<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
         asked_height: usize,
     ) -> (
@@ -570,7 +563,7 @@ where
     where
         B: Sync,
     {
-        let requests: Replies<B::Erased> = Box::pin(requests.map(erased::erase_reply::<B, S<Z>>));
+        let requests = requests.erase();
         let (responses, asked_rx, upper_rx, lower_rx) =
             self.leaf_parent_walk(their_version, ledger, requests, queries);
         (self.respond::<Z>(responses), asked_rx, upper_rx, lower_rx)
@@ -582,7 +575,7 @@ where
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        requests: Replies<B::Erased>,
+        requests: BoxRequests<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
     ) -> (
         impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
@@ -682,7 +675,7 @@ where
         BoxResponses<B, Z, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     ) {
-        let requests: Replies<B::Erased> = Box::pin(requests.map(erased::erase_reply::<B, Z>));
+        let requests = requests.erase();
         let (responses, upper_rx) = self.leaf_walk(their_version, ledger, requests, queries);
         (self.respond::<Z>(responses), upper_rx)
     }
@@ -693,7 +686,7 @@ where
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        requests: Replies<B::Erased>,
+        requests: BoxRequests<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
     ) -> (
         impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,

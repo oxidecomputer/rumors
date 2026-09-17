@@ -19,6 +19,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::{Receiver, Sender},
         erased::Reply,
+        protocol::BoxRequests,
         remote::{
             adapter::{self, Encoded, Scope, encode_reply, opening_parts},
             codec::{ReplyFrame, RunBudget},
@@ -34,14 +35,11 @@ use crate::tree::{
 
 use super::progress::Progress;
 
-/// A local reply stream already erased and boxed at the proxy boundary.
-pub type Replies<E> = Pin<Box<dyn Stream<Item = Reply<E>> + Send>>;
-
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
 pub async fn terminal<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: Replies<B::Erased>,
+    requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
     questions: Option<Sender<Scope>>,
@@ -82,7 +80,7 @@ where
 pub async fn replies<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: Replies<B::Erased>,
+    requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
     questions: Sender<Scope>,
@@ -127,7 +125,7 @@ where
 pub async fn opening<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: Replies<B::Erased>,
+    requests: BoxRequests<B::Erased>,
     questions: Sender<Scope>,
     mut outgoing: StreamSender<C>,
     peer_listing: Vec<(u8, Hash)>,

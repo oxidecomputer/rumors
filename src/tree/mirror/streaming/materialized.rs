@@ -818,7 +818,7 @@ where
         let absorb = absorb::<B>(
             self.their_version,
             self.ledger,
-            requests.map(erased::erase_reply::<B, Z>),
+            requests.erase(),
             self.queries,
             self.returns,
             stats,

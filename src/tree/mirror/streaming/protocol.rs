@@ -9,10 +9,10 @@
 
 use std::pin::Pin;
 
-use futures::Stream;
+use futures::{Stream, StreamExt};
 
 use crate::tree::{
-    mirror::streaming::{Backend, Leaf, message},
+    mirror::streaming::{Backend, Leaf, erased, message},
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
@@ -30,16 +30,26 @@ pub trait Phase: Send {
     type Output: Send;
 }
 
-/// Trait synonym: non-erroring message streams, the shape of incoming streams.
+/// A non-erroring stream of replies consumed as protocol requests.
 pub trait Requests<B: Backend<Node<Z>: Leaf>, H: Height>:
     Stream<Item = message::Reply<B, H>> + Send + 'static
 {
+    /// Erase the height tag and box this stream for a walk or proxy worker.
+    fn erase(self) -> BoxRequests<B::Erased>
+    where
+        Self: Sized,
+    {
+        Box::pin(self.map(erased::erase_reply::<B, H>))
+    }
 }
 /// Any stream with the required item and lifetime bounds is a request stream.
 impl<X, B: Backend<Node<Z>: Leaf>, H: Height> Requests<B, H> for X where
     X: Stream<Item = message::Reply<B, H>> + Send + 'static
 {
 }
+
+/// A boxed request stream after its height tag has been erased.
+pub type BoxRequests<E> = Pin<Box<dyn Stream<Item = erased::Reply<E>> + Send>>;
 
 /// Trait synonym: fallible message streams, the shape of outgoing streams.
 pub trait Responses<B: Backend<Node<Z>: Leaf>, H: Height, E>:
