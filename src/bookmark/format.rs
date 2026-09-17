@@ -26,9 +26,9 @@ use crate::tree::mirror::cbor::{self, TAG_EMBEDDED_ITEM, TAG_SELF_DESCRIBED};
 
 /// The on-disk bookmark format version.
 ///
-/// Version 6 stores one write frontier per network, separate from identity
-/// entries, and preserves network and identity recency. Other versions are
-/// rejected with [`FormatError::VersionMismatch`].
+/// The current format stores one write frontier per network, separate from
+/// identity entries, and preserves network and identity recency. Other version
+/// numbers are rejected with [`FormatError::VersionMismatch`].
 pub const BOOKMARK_FORMAT_VERSION: u64 = 6;
 
 /// Width of the SHA3-256 integrity hash, in bytes.

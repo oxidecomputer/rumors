@@ -95,8 +95,8 @@ impl StreamObserver for Ordered {
     }
 }
 
-/// An unattached peer's session handle is inert: nothing is created and
-/// every invocation is a no-op, whatever the session kind.
+/// An unattached peer's session handle is inert: nothing is created and every
+/// invocation is a no-op.
 #[test]
 fn unattached_handles_are_inert() {
     let attachment = Attachment::default();

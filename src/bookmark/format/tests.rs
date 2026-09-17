@@ -329,16 +329,15 @@ fn unknown_version_is_rejected() {
     ));
 }
 
-/// Every earlier format version is strictly rejected: the earlier frame
-/// shapes share no decoder with this one, and there is deliberately no
-/// migration path.
+/// Every lower format version is rejected; this build decodes only the current
+/// format version.
 #[test]
-fn prior_versions_are_rejected() {
-    for prior in 0..BOOKMARK_FORMAT_VERSION {
-        let framed = frame_as(prior, b"payload");
+fn lower_versions_are_rejected() {
+    for lower in 0..BOOKMARK_FORMAT_VERSION {
+        let framed = frame_as(lower, b"payload");
         assert!(matches!(
             unframe(&framed),
-            Err(FormatError::VersionMismatch { found }) if found == prior,
+            Err(FormatError::VersionMismatch { found }) if found == lower,
         ));
     }
 }
@@ -471,8 +470,6 @@ fn invalid_atoms_are_rejected() {
 /// CBOR-parseable on disk" promise.
 #[test]
 fn file_is_rumors_blind_cbor() {
-    use ciborium::value::Value;
-
     let file = encode(&sample_record());
     let mut input = file.as_slice();
     let item: Value = ciborium::de::from_reader(&mut input).expect("the file parses as CBOR");

@@ -109,15 +109,11 @@ fn bytes_after_the_marker_stay_untouched() {
 /// messages leaves an empty root with an `events`-tick version.
 fn redacted_history_root(events: u64) -> tree::Root {
     let donor = Peer::<u64>::seed();
-    {
-        donor
-            .send_all(0..events)
-            .expect("flat test payloads are within any depth limit");
-    }
+    donor
+        .send_all(0..events)
+        .expect("flat test payloads are within any depth limit");
     let versions: Vec<_> = donor.snapshot().versions().cloned().collect();
-    {
-        donor.redact_all(&versions);
-    }
+    donor.redact_all(&versions);
     let snapshot = donor.snapshot();
     assert!(snapshot.is_empty(), "every message was redacted");
     assert!(
@@ -168,14 +164,12 @@ async fn claim_bootstrap_with_root(
     Ok((party, Tree::from_root(root.into())))
 }
 
-/// A provider holding `values`, plus its pre-session root hash.
+/// A seeded provider holding `values`.
 fn provider_with(values: &[u64]) -> Peer<u64> {
     let provider = Peer::<u64>::seed();
-    {
-        provider
-            .send_all(values.iter().copied())
-            .expect("flat test payloads are within any depth limit");
-    }
+    provider
+        .send_all(values.iter().copied())
+        .expect("flat test payloads are within any depth limit");
     provider
 }
 

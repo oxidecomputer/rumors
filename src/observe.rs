@@ -56,7 +56,14 @@
 //! [`Changes`](crate::Changes)) watch the **set**, asynchronously,
 //! from outside.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::{
+    fmt, io,
+    pin::Pin,
+    sync::{Arc, Mutex, PoisonError},
+    task::{Context, Poll},
+};
+
+use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::{Protocol, SessionStats, Version};
 
@@ -167,7 +174,7 @@ pub trait StreamObserver: Send {
     /// Invoked synchronously from the stream's own task, after the
     /// item was written and flushed (sent) or completely read and
     /// accepted (received). Blocking here stalls this directed stream;
-    /// see the module docs' back-pressure contract.
+    /// see the module docs' never-block rule.
     fn message(&mut self, bytes: &[u8]);
 }
 
@@ -181,7 +188,7 @@ pub trait StreamObserver: Send {
 /// synchronizes internally (an `AtomicU64` suffices), and the count
 /// means precisely what that observer defines it to mean.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SessionInfo {
     /// Which lifecycle operation entered the session.
     pub kind: SessionKind,
@@ -198,7 +205,7 @@ pub struct SessionInfo {
 /// from the remote's preamble — which its control-stream handler sees
 /// as bytes.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SessionKind {
     /// This side is joining the universe ([`Bootstrap::join`](crate::Bootstrap::join)).
     Bootstrap,
@@ -211,7 +218,7 @@ pub enum SessionKind {
 
 /// What identifies one observed directed stream.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StreamInfo {
     /// Which of the session's streams this is.
     pub id: StreamId,
@@ -221,7 +228,7 @@ pub struct StreamInfo {
 
 /// One session stream's identity.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StreamId {
     /// Session setup, network joins and departures, and completion confirmation.
     Control,
@@ -239,7 +246,7 @@ pub enum StreamId {
 }
 
 /// The direction of one observed stream, from this peer's perspective.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Direction {
     /// This side wrote the stream's messages.
     Sent,
@@ -251,7 +258,7 @@ pub enum Direction {
 ///
 /// Decided after the greetings are exchanged (the smaller advertised
 /// set initiates; see [`SessionObserver::elected`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Role {
     /// This role asks the opening question and absorbs the final
     /// leaves.
@@ -271,8 +278,11 @@ pub(crate) struct Attachment {
     handlers: Arc<[Arc<dyn Observer>]>,
 }
 
-impl std::fmt::Debug for Attachment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+/// Summarize an attachment without requiring observer implementations to be
+/// debuggable.
+impl fmt::Debug for Attachment {
+    /// Show the number of attached observers.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Attachment")
             .field("observers", &self.handlers.len())
             .finish()
@@ -520,19 +530,21 @@ impl<'a, R: ?Sized> CaptureRead<'a, R> {
     }
 }
 
-impl<R> tokio::io::AsyncRead for CaptureRead<'_, R>
+/// Forward reads while retaining the bytes delivered through them.
+impl<R> AsyncRead for CaptureRead<'_, R>
 where
-    R: tokio::io::AsyncRead + Unpin + ?Sized,
+    R: AsyncRead + Unpin + ?Sized,
 {
+    /// Poll the wrapped reader and append newly delivered bytes to the capture.
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         let before = buf.filled().len();
-        let poll = std::pin::Pin::new(&mut *this.inner).poll_read(cx, buf);
-        if let std::task::Poll::Ready(Ok(())) = &poll {
+        let poll = Pin::new(&mut *this.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &poll {
             this.captured.extend_from_slice(&buf.filled()[before..]);
         }
         poll
