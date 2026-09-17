@@ -105,6 +105,11 @@ that verify only their own fixture construction. Share generators and helpers
 when doing so makes the property clearer; do not centralize unrelated setup
 behind an abstraction that hides what a test proves.
 
+Test arbitrary-precision behavior at the mathematical and public-API level.
+Pin canonical values, accepted forms, observable costs, and complexity classes;
+do not pin a dependency's multiplication algorithm, allocation strategy, arm
+threshold, or other private implementation choice.
+
 ## Final prose pass
 
 Before presenting a batch, read changed code and prose together and ask:

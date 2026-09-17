@@ -1093,7 +1093,7 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     },
     codec_row("serde / borsh impls (feature-gated, strict-decode pinned)"),
     SurfaceRow {
-        op: "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display",
+        op: "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr",
         prod_tree: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::rank", pins: &["rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs", "rank_sum_equals_the_pairwise_fold"] }),
         prod_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::rank", pins: &[] }),
         tree_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::rank", pins: &[] }),

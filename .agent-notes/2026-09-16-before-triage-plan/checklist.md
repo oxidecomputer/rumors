@@ -1,12 +1,9 @@
 # `before` review checklist
 
-**Active:** remove paper-notation text I/O and literal construction, including
-their instruments and fixtures; dissolve the bench judge in favor of the
-deterministic WASM fuel measurements.
-
-This outcome includes a repository-wide documentation and doctest sweep:
-no prose, example, diagnostic, generated README source, or sibling crate may
-depend on or describe the paper notation.
+**Active:** give `Rank` one canonical binary-point text form, strict parsing,
+ordinary formatter behavior, and matching human-readable serde. Binary serde
+keeps the canonical bytes. Verify value semantics and linear scaling without
+binding tests to the integer backend's thresholds or algorithms.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -135,13 +132,11 @@ triage's dispositions and branches are leads only.
       Sources: `span-causally-24`, `span-causally-36`,
       `skyline-sweep-place-masked-21`.
 
-- [ ] Remove paper-notation text I/O and literal construction instead of
+- [x] Remove paper-notation text I/O and literal construction instead of
       maintaining their parsers, renderers, and complexity instruments.
       Sources: `party-11`, `clock-14`, `version-core-16`,
       `codec-base-text-tree-13`, `skyline-coding-20`, `skyline-coding-29`.
-      Ready for review: the APIs, implementations, fixtures, and dedicated
-      instruments are gone; semantic tests construct values through public
-      operations and binary decoding.
+      Complete in `c72c0e77b`.
 
 - [ ] Bound tick's memo and suspended-level storage by a small constant multiple
       of input size without introducing a second representation solely for a
@@ -175,7 +170,16 @@ triage's dispositions and branches are leads only.
       carries a clear contract.
       Sources: `suanpan-*`, `suanpan-tests-*`.
 
+- [ ] Eliminate `dashu` if the remaining rank and accumulator arithmetic can
+      be expressed more simply without it. The intended outcome is one
+      arbitrary-width representation, with no backend-capacity boundary or
+      small/wide `Num` split, while retaining input-proportionate memory use.
+      Sources: `rank-*`, `suanpan-*`, `deps-*`; owner handoff, 2026-09-16.
+
 ## 07. Semantic instruments and generators
+
+Broad test-suite cleanup follows the behavioral and API work; do not mix it
+into otherwise small feature increments.
 
 - [ ] Give the recursive oracle, function-space oracle, algebraic laws, and
       exhaustive enumeration distinct jobs; consolidate duplicated operation
@@ -209,18 +213,18 @@ triage's dispositions and branches are leads only.
       `board-families-floors-judge-*`, `board-ops-render-*`,
       `meter-adequacy-*`.
 
-- [ ] Remove the bench judge; use deterministic WASM fuel measurements for
+- [x] Remove the bench judge; use deterministic WASM fuel measurements for
       general time and complexity verification. Reassess worst-case rankings,
       asymptotic liveness pins, and superlinear tripwires separately.
       Sources: `benches-examples-*`, `tests-other-*`, `suite-economics-*`,
       `tools-*`.
-      Ready for review: the judge, sidecar benchmarks, CI wiring, and roster
-      tests are gone. The actual wrong-implementation tests remain, without a
-      filesystem roster that duplicates the compiler.
+      Complete in `c72c0e77b`.
 
-- [ ] Reassess fuzz-fit and fuelscape separately: retain enforcement that
-      catches unchosen worst-case shapes; retire decorative charts, copied
-      vocabularies, and generated artifacts that add no contract confidence.
+- [ ] Reassess fuzz-fit and fuelscape separately. Retain fuelscape's rustdoc
+      panels as explanatory views of cost distributions and edge families;
+      simplify their refresh pipeline where possible. Retain fuzz-fit
+      enforcement that catches unchosen worst-case shapes, while removing
+      copied vocabulary and generated artifacts that add no distinct signal.
       Sources: `fuzzfit-strategies-*`, `fuzzfit-bands-*`,
       `fuelscape-pipeline-*`, `fuelscape-render-*`.
 
@@ -253,6 +257,14 @@ triage's dispositions and branches are leads only.
       Sources: `deps-*`, `inventory-*`, `module-graph-*`.
 
 ## 10. Public API and contracts
+
+- [ ] Render and parse `Rank` as canonical binary-point text, with formatter
+      width and alignment behaving like other textual values. Human-readable
+      serde uses this text; binary serde retains canonical encoded bytes. Test
+      the mathematical value, accepted language, public formatting, and linear
+      scaling without pinning integer-backend implementation details.
+      Sources: prior rulings 85--86, critically reviewed against the current
+      code; owner handoff, 2026-09-16.
 
 - [ ] Review `#[must_use]`, fork iterator naming and count type, error source
       chains, error extensibility, missing trait symmetry, and human-readable

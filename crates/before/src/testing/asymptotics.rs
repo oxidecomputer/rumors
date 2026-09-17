@@ -415,9 +415,13 @@ fn mul_bound_embedding_is_alive() {
          shifts and one short division, and the instance stops witnessing \
          the floor"
     );
+    let expected = crate::Rank::from_raw(
+        crate::codec::Base::from(((&x * &y) << 1usize) + 1u8),
+        (66 * d) as u64,
+    );
     assert_eq!(
-        v.rank().to_string(),
-        format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d),
+        v.rank(),
+        expected,
         "the plateau-puncture rank must be the plateau times the punctured \
          turn mass: the answer no longer embeds the product, so the \
          documented Ω(M(·)) floor lost its witness"
@@ -454,17 +458,20 @@ fn mul_bound_pair_embedding_is_alive() {
          the canonical-equality rung without running the pair co-sweep"
     );
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
-    let closed = format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d);
+    let expected = crate::Rank::from_raw(
+        crate::codec::Base::from(((&x * &y) << 1usize) + 1u8),
+        (66 * d) as u64,
+    );
     assert_eq!(
-        v.distance(&empty).to_string(),
-        closed,
+        v.distance(&empty),
+        expected,
         "distance against the empty version must be the plateau times the \
          punctured turn mass: the pair operation's answer no longer embeds the \
          product, so the pair claims lost their floor witness"
     );
     assert_eq!(
-        empty.lag(&v).to_string(),
-        closed,
+        empty.lag(&v),
+        expected,
         "the dominated side's lag must be the whole plateau-puncture rank: \
          the pair operation's answer no longer embeds the product"
     );
@@ -499,13 +506,14 @@ fn mul_bound_key_embedding_is_alive() {
     let (w, d) = (64usize, 48usize);
     let v = Shape::PlateauPuncture.build2(w, d).version();
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
-    let closed = format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * d);
+    let expected = crate::Rank::from_raw(
+        crate::codec::Base::from(((&x * &y) << 1usize) + 1u8),
+        (66 * d) as u64,
+    );
     let rank_key = crate::Ranked::from(&v).encode_rank();
     assert_eq!(
-        crate::Rank::decode(&rank_key[..])
-            .expect("the fused rank key is canonical")
-            .to_string(),
-        closed,
+        crate::Rank::decode(&rank_key[..]).expect("the fused rank key is canonical"),
+        expected,
         "the fused rank-key emission must carry the plateau times the \
          punctured turn mass: the key operation's answer no longer embeds the \
          product, so the key claims lost their floor witness"

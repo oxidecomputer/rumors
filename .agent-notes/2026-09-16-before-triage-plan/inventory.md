@@ -130,10 +130,11 @@ early, but not yet decided:
   family-specific model would have preserved the old number rather than a
   distinct contract. The later board/envelope audit must apply this same test
   to the existing declarations.
-- **Fuelscape:** the population view may help exploration, but charts and
-  committed datasets do not automatically enforce worst-case contracts. Its
-  build hooks and generated-doc footprint must justify themselves separately
-  from fuzz-fit enforcement.
+- **Fuelscape:** retain the rustdoc panels as explanatory views of cost
+  distributions and named edge families; this is distinct from fuzz-fit's
+  enforcement role. The exact-count tables are shared by every panel in a run,
+  so a focused refresh pays setup that a full atlas amortizes. Full atlas runs
+  belong on the highly parallel Helios host when practical.
 - **Mutation roster (retired):** the gate only listed syntax and checked
   exclusion counts; it ran no mutation campaign and therefore provided no
   behavioral signal. A concise documentation edit broke an exclusion keyed to

@@ -29,7 +29,8 @@ suanpan = { workspace = true }
 dsi-bitstream = { workspace = true }
 static_assertions = { workspace = true }
 thiserror = { workspace = true }
-serde = { workspace = true, optional = true, features = ["derive", "alloc"] }
+serde = { workspace = true, optional = true, features = ["alloc"] }
+serde_bytes = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -38,6 +39,7 @@ borsh = { workspace = true, optional = true }
 bitvec = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
+serde_test = { workspace = true }
 criterion = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
@@ -53,7 +55,7 @@ surface-scan = { workspace = true }
 
 [features]
 default = []
-serde = ["dep:serde"]
+serde = ["dep:serde", "dep:serde_bytes"]
 borsh = ["dep:borsh"]
 # Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the
 # benchmark suite can time it against the optimized implementation.

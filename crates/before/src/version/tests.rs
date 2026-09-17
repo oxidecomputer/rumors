@@ -14,7 +14,7 @@ use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_v
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
-use crate::{Clock, Party, Ticks};
+use crate::{Clock, Party, Rank, Ticks};
 
 /// Build a uniform version through the public tick operation.
 fn uniform(ticks: impl Into<Ticks>) -> Version {
@@ -719,6 +719,33 @@ fn no_maximum_tick_count() {
 
 // ─────────────────────────────── rank ───────────────────────────────
 
+/// Canonical binary rank strings with varied integer and fractional widths.
+fn canonical_rank_text() -> impl Strategy<Value = String> {
+    let integer = prop_oneof![
+        Just(String::from("0")),
+        prop::collection::vec(any::<bool>(), 0..128).prop_map(|tail| {
+            let mut text = String::from("1");
+            text.extend(tail.into_iter().map(|bit| if bit { '1' } else { '0' }));
+            text
+        }),
+    ];
+    let fraction = prop::option::of(prop::collection::vec(any::<bool>(), 0..128).prop_map(
+        |middle| {
+            let mut text = String::new();
+            text.extend(middle.into_iter().map(|bit| if bit { '1' } else { '0' }));
+            text.push('1');
+            text
+        },
+    ));
+    (integer, fraction).prop_map(|(mut integer, fraction)| {
+        if let Some(fraction) = fraction {
+            integer.push('.');
+            integer.push_str(&fraction);
+        }
+        integer
+    })
+}
+
 /// `rank` known values.
 ///
 /// The empty version is zero; a leaf is its integer base; the pair `min_ticks`
@@ -729,7 +756,7 @@ fn no_maximum_tick_count() {
 #[test]
 fn rank_known_values() {
     assert_eq!(Version::new().rank().to_string(), "0");
-    assert_eq!(uniform(5u8).rank().to_string(), "5");
+    assert_eq!(uniform(5u8).rank().to_string(), "101");
 
     use crate::oracle::Version as V;
     let half = from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)));
@@ -737,7 +764,7 @@ fn rank_known_values() {
     assert!(half < one, "strict containment in the causal order");
     assert!(half.rank() < one.rank(), "so strictly smaller rank");
     assert_eq!(half.min_ticks(), one.min_ticks(), "the floor ties them");
-    assert_eq!(half.rank().to_string(), "1/2");
+    assert_eq!(half.rank().to_string(), "0.1");
 
     let peaks = from_oracle_version(&V::node(
         0u8,
@@ -750,6 +777,84 @@ fn rank_known_values() {
         peaks.rank(),
         "equal rank is fine when concurrent"
     );
+}
+
+/// Rank formatting applies width, fill, alignment, and precision to the whole
+/// binary value while ignoring numeric sign and zero-padding flags.
+#[test]
+fn rank_formatting_behaves_as_text() {
+    let rank: Rank = "101.01".parse().expect("canonical rank text parses");
+    assert_eq!(format!("{rank:10}"), "101.01    ");
+    assert_eq!(format!("{rank:>10}"), "    101.01");
+    assert_eq!(format!("{rank:^10}"), "  101.01  ");
+    assert_eq!(format!("{rank:*^10}"), "**101.01**");
+    assert_eq!(format!("{rank:.4}"), "101.");
+    assert_eq!(format!("{rank:+}"), "101.01");
+    assert_eq!(format!("{rank:010}"), "101.01    ");
+}
+
+/// Parsing preserves the binary value and rejects every malformed component
+/// of the text grammar.
+#[test]
+fn rank_text_known_values_and_boundaries() {
+    for (text, numerator, exponent) in [
+        ("0", 0u8, 0u64),
+        ("101", 5, 0),
+        ("0.01", 1, 2),
+        ("101.01", 21, 2),
+    ] {
+        assert_eq!(
+            text.parse::<Rank>(),
+            Ok(Rank::from_raw(
+                crate::codec::Base::from(numerator),
+                exponent
+            )),
+        );
+    }
+
+    for text in ["", ".", ".1", "1.", "00", "1.0", "2", "1.2", "1..1"] {
+        assert!(text.parse::<Rank>().is_err(), "accepted {text:?}");
+    }
+}
+
+proptest! {
+    /// Canonical binary rank text parses to its exact value, and every displayed
+    /// rank parses back to the same value.
+    #[test]
+    fn rank_text_roundtrips(
+        text in canonical_rank_text(),
+        version in arb_oracle_version(),
+    ) {
+        let parsed: Rank = text.parse().expect("generated canonical text parses");
+        prop_assert_eq!(parsed.to_string(), text);
+
+        let rank = from_oracle_version(&version).rank();
+        let rendered = rank.to_string();
+        prop_assert_eq!(rendered.parse::<Rank>(), Ok(rank));
+    }
+
+    /// Redundant digits and non-grammar characters are rejected for every
+    /// canonical rank form.
+    #[test]
+    fn rank_text_rejects_noncanonical_forms(text in canonical_rank_text()) {
+        let leading_zero = format!("0{text}");
+        prop_assert!(leading_zero.parse::<Rank>().is_err());
+        let trailing_zero = if text.contains('.') {
+            format!("{text}0")
+        } else {
+            format!("{text}.0")
+        };
+        prop_assert!(trailing_zero.parse::<Rank>().is_err());
+        for invalid in [
+            format!("+{text}"),
+            format!("-{text}"),
+            format!(" {text}"),
+            format!("{text} "),
+            format!("{text}..1"),
+        ] {
+            prop_assert!(invalid.parse::<Rank>().is_err(), "accepted {:?}", invalid);
+        }
+    }
 }
 
 // Strict rank monotonicity on the causal order is the
@@ -1596,20 +1701,6 @@ proptest! {
         prop_assert_eq!(decoded.encode(), bytes);
     }
 
-    /// The wide arm renders the exact decimal: `Display` against the
-    /// backend's own conversion, integral and fractional forms both.
-    #[test]
-    fn rank_wide_arm_display_matches_the_backend(seed in any::<u64>()) {
-        let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
-        let rank = seeded_rank(seed);
-        let (num, exp) = rank_parts(&rank);
-        let expected = match exp {
-            0 => format!("{num}"),
-            1 => format!("{num}/2"),
-            exp => format!("{num}/2^{exp}"),
-        };
-        prop_assert_eq!(rank.to_string(), expected);
-    }
 }
 
 /// The composite key survives the wide arm end to end.

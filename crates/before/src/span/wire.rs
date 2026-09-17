@@ -122,28 +122,14 @@ impl<'a> Span<'a> {
     pub fn decode<R: Read>(mut reader: R) -> Result<Span<'static>, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // Both components are validated against the borrowed buffer first; the
-        // endpoints then adopt slices of that one buffer, so the whole span
-        // shares a single allocation.
-        //
-        // The meet is the byte-aligned self-delimiting prefix: parse its tree
-        // to find the split and check its padding. The join's admission walk
-        // parses its stream while deciding, in the same pass, whether it
-        // dominates — or equals — the meet: never a parse and then a second
-        // comparison walk.
-        //
-        // The pair verdict is pronounced last, after the padding check, so a
-        // composite defective several ways rejects by its structural genre
-        // first, exactly as decoding the components would. Each component
-        // walk's input is its whole byte range as bits, padding included,
-        // judged by its marker check.
+        Self::decode_bytes(buf.into())
+    }
+
+    /// Validates an owned canonical encoding and shares its storage between
+    /// the endpoints.
+    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Span<'static>, Decode> {
         let (lo_bytes, admission) = {
             let lo_end = skyline::validate_prefix(codec::BitsView::whole(&buf))?;
-            // The meet's padding marker sits in its final byte — which an
-            // input cut right after a flush stream lacks. That cut is
-            // missing required data (the marker byte, and the whole join
-            // after it): the truncation genre, exactly as a byte-starved
-            // reader reports the same boundary.
             let lo_bytes = (lo_end + 1).div_ceil(8);
             if lo_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
@@ -151,8 +137,6 @@ impl<'a> Span<'a> {
             let lo_bytes =
                 usize::try_from(lo_bytes).expect("the meet's prefix ends within the read buffer");
             codec::require_marker_padding(&buf[..lo_bytes], lo_end)?;
-            // The meet re-walks beside the join's parse, viewed at its own
-            // validated live length.
             let lo = codec::BitsView::new(&buf[..lo_bytes], lo_end);
             let tail = &buf[lo_bytes..];
             let mut cursor = codec::DsiCursor::new(codec::BitsView::whole(tail));
@@ -164,13 +148,8 @@ impl<'a> Span<'a> {
             }
             (lo_bytes, admission)
         };
-        let buf = bytes::Bytes::from(buf);
         let lo = Version::from_frozen(codec::Bits::from_canonical(buf.slice(..lo_bytes)));
         let hi = match admission {
-            // The coincident span stores one buffer twice: the admission walk
-            // proved the second stream byte-equal to the first, so the join is
-            // the meet's clone: an `O(1)` refcount bump the ptr_eq fast paths
-            // then recognize.
             skyline::Admission::Equal => lo.clone(),
             skyline::Admission::Dominates => {
                 Version::from_frozen(codec::Bits::from_canonical(buf.slice(lo_bytes..)))

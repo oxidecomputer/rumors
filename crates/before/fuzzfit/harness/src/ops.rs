@@ -18,13 +18,9 @@
 //!   `Clock::own_version`) and **balanced share splitting**
 //!   (`Party::forks(n)`, whose output is `n` encoded parties) are judged
 //!   against input + encoded output (canonical coding cannot be padded);
-//! - **rank operations** denominate against value content
-//!   (`bits(num) + exp`), proxied here by the rank's rendering
-//!   (`num/2^exp`): the numerator term is proportional (its constant folds
-//!   into the fit's intercept) while `exp` enters as its digit count —
-//!   logarithmically compressed against the criterion. The compression
-//!   only under-counts the denominator, which reads as *more* fuel per
-//!   denominated bit, so the proxy can mask no superlinear growth.
+//! - **rank operations** use the rank's canonical encoded length. Display also
+//!   includes the text written, whose binary form is proportional to the same
+//!   value width.
 //!
 //! # The mirror
 //!
@@ -367,9 +363,9 @@ impl Mirror {
         }
     }
 
-    /// A rank's value-content proxy: bits of its decimal rendering.
+    /// A rank's canonical encoded length in bits.
     fn rank_bits(r: &Rank) -> u64 {
-        (r.to_string().len() as u64) * 8
+        (r.encode().len() as u64) * 8
     }
 
     /// Read a register's canonical bytes (ranks render as text), for the
@@ -841,9 +837,7 @@ impl Mirror {
                 let rank = self.rank(src).ok_or_else(malformed)?;
                 let input = Self::rank_bits(rank);
                 let text = rank.to_string();
-                // Text I/O: value-content input + text output. For ranks
-                // the input proxy is itself the rendering, so the two
-                // halves coincide up to the constant the intercept absorbs.
+                // Charge both the encoded input and the text written.
                 let denom = input + (text.len() as u64) * 8;
                 self.stage = text.into_bytes();
                 done(denom, OK)

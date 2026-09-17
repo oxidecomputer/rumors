@@ -119,15 +119,6 @@ proptest! {
         prop_assert_eq!(Num::msb_cmp(&na, &nb), aligned_a.cmp(&aligned_b));
     }
 
-    /// The decimal rendering equals the oracle's on both arms — the wide
-    /// arm's long division against the backend's own conversion.
-    #[test]
-    fn decimal_rendering_matches_the_oracle(value in arb_value()) {
-        let _guard = ceiling::force(TEST_CEILING_BITS);
-        let num = num_from_oracle(&value);
-        prop_assert_eq!(format!("{num}"), format!("{value}"));
-    }
-
     /// Structural equality and hashing are value equality across the
     /// dispatch: equal values are one arm and equal, unequal values are
     /// unequal whatever their arms.

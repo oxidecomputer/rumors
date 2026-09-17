@@ -4682,6 +4682,19 @@ mod answer_embedded_product {
     use before::meter::registry::Shape;
     use suanpan::touch_meter;
 
+    /// Places a binary point `exp` digits from the right of an odd numerator.
+    fn binary_rank_text(num: &dashu_int::UBig, exp: usize) -> String {
+        let mut digits = format!("{num:b}");
+        if exp == 0 {
+            return digits;
+        }
+        if digits.len() <= exp {
+            return format!("0.{}{}", "0".repeat(exp - digits.len()), digits);
+        }
+        digits.insert(digits.len() - exp, '.');
+        digits
+    }
+
     /// One public `Version::rank` run over `PP(s, s)`: encoded bytes and
     /// the touch, limb, and densify counters over the rank body alone.
     ///
@@ -4710,11 +4723,12 @@ mod answer_embedded_product {
         let touches = touch_meter::touches();
         let limb_ops = meter::limb_ops();
         let densified = meter::densified_digits();
-        // The answer itself is the product: the band is honest only
-        // while the measured body computes 2·x·y + 1 exactly.
+        // The answer itself is the product, so the value check keeps the
+        // measured operation tied to the intended family.
+        let numerator = ((&x * &y) << 1usize) + 1u8;
         assert_eq!(
             rank.to_string(),
-            format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * s),
+            binary_rank_text(&numerator, 66 * s),
             "the exact rank is the plateau times the punctured turn mass"
         );
         assert!(

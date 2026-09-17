@@ -131,7 +131,7 @@ impl<'a> Ranked<'a> {
     ///     Party::seed().ticks(&mut v, 2u8);
     ///     Ranked::from(&v).into_owned() // outlives the borrow
     /// };
-    /// assert_eq!(owned.rank().to_string(), "2");
+    /// assert_eq!(owned.rank().to_string(), "10");
     /// ```
     pub fn into_owned(self) -> Ranked<'static> {
         Ranked {
@@ -309,6 +309,11 @@ impl<'a> Ranked<'a> {
     pub fn decode<R: Read>(mut reader: R) -> Result<Ranked<'static>, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
+        Self::decode_bytes(buf.into())
+    }
+
+    /// Validates an owned canonical key and adopts its version bytes.
+    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Ranked<'static>, Decode> {
         // The rank stream is self-delimiting: consume exactly its bytes.
         let mut consumed = 0usize;
         let rank = decode_stream(|| {
@@ -316,11 +321,7 @@ impl<'a> Ranked<'a> {
             consumed += 1;
             Ok(byte)
         })?;
-        // The rest of the input is exactly the version (whole-input
-        // strictness is Version::decode's own contract).
-        let version = Version::decode(&buf[consumed..])?;
-        // The two-ways pin on the wire: the key's rank component must
-        // be the rank the version itself measures.
+        let version = Version::decode_bytes(buf.slice(consumed..))?;
         if version.rank() != rank {
             return Err(Decode::NotCanonical);
         }

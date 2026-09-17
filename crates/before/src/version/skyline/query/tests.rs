@@ -28,7 +28,7 @@ use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEP
 use crate::testing::generators::arb_oracle_version;
 use crate::testing::{optrace, semantic_oracle};
 use crate::version::skyline::{emit, encode};
-use crate::{Clock, Party, Version};
+use crate::{Clock, Party, Rank, Version};
 
 use super::{distance, lag, min_ticks, project, rank, rank_cmp};
 
@@ -769,8 +769,11 @@ proptest! {
         );
         let numerator = ((&x * &y) << 1usize) + 1u8;
         prop_assert_eq!(
-            v.rank().to_string(),
-            format!("{}/2^{}", numerator, y.bit_len() + 1),
+            v.rank(),
+            Rank::from_raw(
+                crate::codec::Base::from(numerator),
+                u64::try_from(y.bit_len() + 1).unwrap(),
+            ),
             "the exact rank must embed the arbitrary product"
         );
         let empty = Version::new();
@@ -1188,8 +1191,11 @@ fn dense_factor_tier_legs() {
         let v = Shape::PunctureProduct.build_product(x, y).version();
         let numerator = ((x * y) << 1usize) + 1u8;
         assert_eq!(
-            v.rank().to_string(),
-            format!("{}/2^{}", numerator, y.bit_len() + 1),
+            v.rank(),
+            Rank::from_raw(
+                crate::codec::Base::from(numerator),
+                u64::try_from(y.bit_len() + 1).unwrap(),
+            ),
             "the closed form must hold at the {label} boundary"
         );
         if oracle {

@@ -196,7 +196,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display",
+        "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr",
         &["rank_pair_ops", "rank_sum"],
     ),
     (

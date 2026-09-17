@@ -1272,8 +1272,7 @@ pub extern "C" fn ff_rank_add(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// Render the `Rank` in `src` to text in the staging buffer (the harness's
-/// end-of-program differential reads ranks as text; `Rank` has no codec).
+/// Render the `Rank` in `src` to text in the staging buffer.
 #[no_mangle]
 pub extern "C" fn ff_rank_display(src: u32) -> i32 {
     code(with_r(src, |r| {

@@ -642,21 +642,16 @@ impl Party {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // Validate over the whole buffer as bits, padding included: the
-        // walk's input is the whole `8 · buf.len()`-bit view, and the marker
-        // check judges the remainder.
+        Self::decode_bytes(buf.into())
+    }
+
+    /// Validates and adopts an owned canonical encoding.
+    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
         {
             let end = codec::parse_id(codec::BitsView::whole(&buf), 0)?;
             codec::require_marker_padding(&buf, end)?;
         }
-        // Adopt the read buffer as the result's backing store without
-        // copying: the padding check proved the buffer is the stream's one
-        // marker-padded spelling — the canonical form the at-rest
-        // container stores. The id grammar has no empty production
-        // (exhausted input rejects as `Truncated` above), so the parsed
-        // id is a nonzero share — the standalone-party invariant (paper
-        // §3: `i ≠ 0`) holds structurally.
-        Ok(Party(codec::Bits::from_canonical(buf.into())))
+        Ok(Party(codec::Bits::from_canonical(buf)))
     }
 
     /// The anonymous (zero) id: the empty bit stream, since a `0` is structural

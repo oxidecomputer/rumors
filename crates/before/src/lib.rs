@@ -391,7 +391,9 @@
 //! Every feature is off by default.
 //!
 //! - **`serde`:** `Serialize`/`Deserialize` for [`Party`], [`Version`],
-//!   [`Clock`], [`Rank`], [`Ranked`], and [`Span`].
+//!   [`Clock`], [`Rank`], [`Ranked`], and [`Span`]. Binary formats carry each
+//!   value's canonical encoded bytes. Human-readable formats use [`Rank`]'s
+//!   canonical binary text; the other types remain byte values.
 //! - **`borsh`:** `BorshSerialize`/`BorshDeserialize`, likewise as the
 //!   canonical encodings. The encodings are *prefix-free* — no value's
 //!   encoding is a prefix of another's — and values therefore compose

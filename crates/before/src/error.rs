@@ -52,6 +52,22 @@ pub struct Crossed;
 #[error("count exceeds the machine integer's range")]
 pub struct TooWide;
 
+/// Text was not a [`Rank`](crate::Rank)'s canonical binary form.
+///
+/// A rank has an integer part, an optional fractional part after `.`, no
+/// leading integer zeroes, and no trailing fractional zeroes.
+///
+/// # Example
+///
+/// ```
+/// use before::{error::ParseRank, Rank};
+/// let error = "01".parse::<Rank>().unwrap_err();
+/// assert_eq!(error, ParseRank);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, thiserror::Error)]
+#[error("invalid rank")]
+pub struct ParseRank;
+
 /// Why bytes failed to decode into a [`Party`](crate::Party),
 /// [`Version`](crate::Version), [`Clock`](crate::Clock), [`Rank`](crate::Rank),
 /// [`Ranked`](crate::Ranked), or [`Span`](crate::Span).

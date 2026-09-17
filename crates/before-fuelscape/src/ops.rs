@@ -1092,7 +1092,7 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "rank_add",
         inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
-        covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
+        covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr"],
         size_measure: "total encoded bytes of the two versions whose ranks are added, \
              split uniform (ranks derived by Version::rank in preparation)",
         variant: "",
@@ -1109,7 +1109,7 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "rank_cmp",
         inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
-        covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
+        covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr"],
         size_measure: "total encoded bytes of the two versions whose ranks are compared, \
              split uniform (ranks derived by Version::rank in preparation)",
         variant: "",
@@ -1152,13 +1152,13 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "rank_display",
         inputs: Inputs::Operands(&[Operand::Version]),
-        covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display"],
+        covers: &["Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr"],
         size_measure: "encoded bytes of the version whose rank is rendered (rank \
              derived by Version::rank in preparation; fuel includes writing the text \
              output)",
         variant: "",
-        contract: "superlinear, subquadratic in the rank's width: decimal conversion",
-        claim: "n log n",
+        contract: "`O(n)` in the encoded size of the `Version` from which the rank was derived",
+        claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_rank", &[1, 0]);

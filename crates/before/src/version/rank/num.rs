@@ -495,22 +495,6 @@ impl PartialEq for Num {
 
 impl Eq for Num {}
 
-/// Renders the exact decimal value, honoring integer padding flags.
-///
-/// The base arm is the backend's own (subquadratic) conversion; the wide
-/// arm is schoolbook long division by 10¹⁹ — quadratic in the value's
-/// width, the honest price of exact decimal past the backend's reach, and
-/// metered as one record of the operand's width per emitted 19-digit group
-/// (the division pass that produced it).
-impl core::fmt::Display for Num {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Num::Base(base) => core::fmt::Display::fmt(base, f),
-            Num::Wide(wide) => f.pad_integral(true, "", &wide.to_decimal()),
-        }
-    }
-}
-
 impl core::hash::Hash for Num {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         match self {
@@ -596,40 +580,6 @@ impl Wide {
     /// stream).
     fn msb_windows(&self) -> MsbWindows<impl Iterator<Item = u64> + '_> {
         MsbWindows::new(self.limbs.iter().rev().copied(), self.bits())
-    }
-
-    /// The exact decimal rendering: schoolbook long division by 10¹⁹,
-    /// quadratic in the width, one operand-width meter record per pass.
-    fn to_decimal(&self) -> String {
-        /// The largest power of ten in a limb: each division pass peels
-        /// 19 decimal digits.
-        const TEN_POW_19: u128 = 10_000_000_000_000_000_000;
-        let mut current = self.limbs.clone();
-        // 19-digit groups, least significant first.
-        let mut groups: Vec<u64> = Vec::new();
-        while !current.is_empty() {
-            meter_wide(current.len() as u64);
-            let mut remainder: u128 = 0;
-            for limb in current.iter_mut().rev() {
-                let carried = (remainder << 64) | u128::from(*limb);
-                *limb = (carried / TEN_POW_19) as u64;
-                remainder = carried % TEN_POW_19;
-            }
-            while current.last() == Some(&0) {
-                current.pop();
-            }
-            groups.push(remainder as u64);
-        }
-        let mut rendered = String::new();
-        for (index, group) in groups.iter().enumerate().rev() {
-            if index == groups.len() - 1 {
-                rendered.push_str(&group.to_string());
-            } else {
-                rendered.push_str(&format!("{group:019}"));
-            }
-        }
-        debug_assert!(!rendered.is_empty(), "a wide value is nonzero");
-        rendered
     }
 }
 

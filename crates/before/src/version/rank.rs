@@ -134,12 +134,13 @@ use core::cmp::Ordering;
 use core::fmt::{self, Debug, Display};
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
+use core::str::FromStr;
 use std::io::{self, Write};
 
 use suanpan::Accumulator;
 
 use crate::codec::Base;
-use crate::error::Decode;
+use crate::error::{Decode, ParseRank};
 
 mod num;
 use num::{arm_ceiling_bits, Num};
@@ -195,17 +196,11 @@ pub(crate) use num::{ceiling as arm_ceiling, BACKEND_CAPACITY_BITS};
 ///
 /// # Complexity
 ///
-/// **A rank's representation never is larger than the version it measures, and
-/// often is exponentially smaller.** In-memory size and encoded size are both,
-/// within small constant factors, at most the length of the rank's binary
-/// expansion, which we'll write `‖r‖`. Notably, `‖r‖` is at most linear in the
-/// size of the originating version.
-///
-/// Consequently, you won't go wrong reasoning through the space and time costs
-/// of [`Rank`]s in terms of the space and time costs of the [`Version`]s whence
-/// they are derived: a [`Rank`] is only ever smaller and cheaper. When you see
-/// complexity claims denominated in `‖r‖`, it's safe to substitute `|v|`, the
-/// size of the [`Version`] `v` such that `r = v.rank()`.
+/// Write `‖r‖` for a rank's binary width and `|v|` for a version's encoded
+/// size. If `r = v.rank()`, then `‖r‖ = O(|v|)`; the rank may be exponentially
+/// smaller. Its in-memory and encoded sizes are both `O(‖r‖)`. A bound stated
+/// in `‖r‖` therefore gives the same upper bound in `|v|` for a rank derived
+/// from a version.
 ///
 /// In brief: comparison, equality, hashing, and cloning are linear in the
 /// in-memory size. Addition and subtraction are `O(‖a‖ + ‖b‖)`.
@@ -301,7 +296,7 @@ impl Rank {
     /// let mut three = Version::new();
     /// Party::seed().ticks(&mut three, 3u8);
     /// let (five, three) = (five.rank(), three.rank());
-    /// assert_eq!(five.checked_sub(&three).unwrap().to_string(), "2");
+    /// assert_eq!(five.checked_sub(&three).unwrap().to_string(), "10");
     /// assert!(three.checked_sub(&five).is_none()); // 3 - 5 has no nonnegative value
     /// ```
     pub fn checked_sub(&self, other: &Rank) -> Option<Rank> {
@@ -364,7 +359,7 @@ impl Rank {
     /// let mut three = Version::new();
     /// Party::seed().ticks(&mut three, 3u8);
     /// let (five, three) = (five.rank(), three.rank());
-    /// assert_eq!(five.saturating_sub(&three).to_string(), "2");
+    /// assert_eq!(five.saturating_sub(&three).to_string(), "10");
     /// assert_eq!(three.saturating_sub(&five), Rank::ZERO); // 3 - 5 floors at zero
     /// ```
     pub fn saturating_sub(&self, other: &Rank) -> Rank {
@@ -487,7 +482,7 @@ impl Rank {
     /// let mut version = Version::new();
     /// Party::seed().ticks(&mut version, 5u8);
     /// let key = version.rank().encode();
-    /// assert_eq!(Rank::decode(&key[..]).unwrap().to_string(), "5");
+    /// assert_eq!(Rank::decode(&key[..]).unwrap().to_string(), "101");
     /// // A trailing zero byte is not the minimal packing: rejected.
     /// let padded = [key.clone(), vec![0]].concat();
     /// assert!(matches!(Rank::decode(&padded[..]), Err(Decode::TrailingBits)));
@@ -495,7 +490,12 @@ impl Rank {
     pub fn decode<R: io::Read>(mut reader: R) -> Result<Rank, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        decode_bytes(&buf)
+        Self::decode_bytes(&buf)
+    }
+
+    /// Decodes canonical bytes already held in memory.
+    pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
+        decode_bytes(bytes)
     }
 
     /// Whether this rank's numerator is stored on the wide arm, for the
@@ -1092,22 +1092,24 @@ impl Default for Rank {
     }
 }
 
-/// Renders as the exact rational: the numerator alone when integral,
-/// `num/2` if `exp = 1`, `num/2^exp` otherwise.
+/// Renders as a canonical binary number with an optional binary point.
+///
+/// The integer part has no leading zeroes. A fractional part appears exactly
+/// when the value is not integral and never ends in zero. Width, fill,
+/// alignment, and precision apply to the whole rendered value; sign and
+/// sign-aware zero-padding flags have no effect.
 ///
 /// # Complexity
 ///
-/// Superlinear, subquadratic in the rank's width: decimal conversion. (A
-/// numerator wider than the big-integer backend's capacity — reachable
-/// only on 32-bit targets, from hundreds of megabytes of decoded input —
-/// renders by schoolbook long division instead, quadratic in the width:
-/// exact at any width memory admits, at the honest price of exactness past
-/// the backend's reach.)
+/// Writing the canonical value is linear in its binary width, `O(‖r‖)`. When
+/// `r = v.rank()`, `‖r‖ = O(|v|)`, where `|v|` is the encoded size of `v`, so
+/// rendering is `O(|v|)`. Explicit padding adds time proportional to the
+/// padding written.
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic in the rank's width: decimal conversion"
+    doc = "`O(n)` in total input bytes; `O(n)` in the encoded size of the `Version` from which the rank was derived"
 )]
 ///
 /// # Example
@@ -1116,19 +1118,115 @@ impl Default for Rank {
 /// use before::{Clock, Party, Version};
 /// let mut five = Version::new();
 /// Party::seed().ticks(&mut five, 5u8);
-/// assert_eq!(five.rank().to_string(), "5");
+/// assert_eq!(five.rank().to_string(), "101");
 /// let mut half_clock = Clock::seed();
 /// let _other_half = half_clock.fork();
 /// let half = half_clock.tick().clone();
-/// assert_eq!(half.rank().to_string(), "1/2");
+/// assert_eq!(half.rank().to_string(), "0.1");
 /// ```
 impl Display for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.exp {
-            0 => Display::fmt(&self.num, f),
-            1 => write!(f, "{}/2", self.num),
-            exp => write!(f, "{}/2^{}", self.num, exp),
+        // Ordinary formatting can stream directly. Padding and precision need
+        // the complete text so `Formatter` can align or truncate it.
+        if f.width().is_none() && f.precision().is_none() {
+            return self.write_binary(f);
         }
+
+        let mut rendered = String::new();
+        self.write_binary(&mut rendered)?;
+        f.pad(&rendered)
+    }
+}
+
+impl Rank {
+    /// Writes the canonical binary form before formatter padding or
+    /// truncation.
+    fn write_binary(&self, out: &mut impl fmt::Write) -> fmt::Result {
+        let numerator_bits = self.num.bits();
+        let integer_bits = numerator_bits.saturating_sub(self.exp);
+
+        // `exp` is the number of digits to the right of the binary point. The
+        // more significant numerator bits form the integer part; when there
+        // are none, its canonical spelling is `0`.
+        if integer_bits == 0 {
+            out.write_char('0')?;
+        } else {
+            for position in (self.exp..numerator_bits).rev() {
+                out.write_char(if self.num.bit(position) { '1' } else { '0' })?;
+            }
+        }
+
+        // The low `exp` numerator bits are the fractional digits. A normalized
+        // non-integral rank has a one in bit zero, so this part never ends in
+        // a redundant zero.
+        if self.exp != 0 {
+            out.write_char('.')?;
+            for position in (0..self.exp).rev() {
+                out.write_char(if self.num.bit(position) { '1' } else { '0' })?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Parses the exact binary form emitted by [`Display`].
+///
+/// The integer part is nonempty and has no leading zeroes. The optional
+/// fractional part is nonempty and ends in `1`. Other digits, signs, and
+/// surrounding whitespace are rejected.
+///
+/// # Complexity
+///
+/// Linear in the input length, using storage proportional to its binary
+/// digits.
+impl FromStr for Rank {
+    type Err = ParseRank;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        // Keep the absent point distinct from an empty fractional part: `1`
+        // is canonical, while `1.` is not.
+        let (integer, fraction) = match text.split_once('.') {
+            Some((integer, fraction)) => (integer.as_bytes(), Some(fraction.as_bytes())),
+            None => (text.as_bytes(), None),
+        };
+
+        let all_binary_digits =
+            |digits: &[u8]| digits.iter().all(|digit| matches!(digit, b'0' | b'1'));
+        let integer_is_canonical = !integer.is_empty()
+            && all_binary_digits(integer)
+            && (integer.len() == 1 || integer[0] == b'1');
+        let fraction_is_canonical = match fraction {
+            None => true,
+            Some(digits) => {
+                !digits.is_empty() && all_binary_digits(digits) && digits.last() == Some(&b'1')
+            }
+        };
+        if !integer_is_canonical || !fraction_is_canonical {
+            return Err(ParseRank);
+        }
+
+        let fraction = fraction.unwrap_or_default();
+        let exponent = u64::try_from(fraction.len()).map_err(|_| ParseRank)?;
+        let digit_count = integer.len() + fraction.len();
+        let bits_per_limb = u64::BITS as usize;
+        let mut limbs = vec![0u64; digit_count.div_ceil(bits_per_limb)];
+
+        // Text is most-significant-bit first, while `Num` takes
+        // little-endian `u64` limbs. The rightmost digit is therefore bit zero
+        // regardless of where the point appeared.
+        for (offset, digit) in integer.iter().chain(fraction).enumerate() {
+            if *digit == b'1' {
+                let position = digit_count - offset - 1;
+                let limb = position / bits_per_limb;
+                let bit = position % bits_per_limb;
+                limbs[limb] |= 1u64 << bit;
+            }
+        }
+
+        Ok(Rank {
+            num: Num::from_limbs(limbs),
+            exp: exponent,
+        })
     }
 }
 

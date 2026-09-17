@@ -1,11 +1,12 @@
-//! The serde suite for the rank and span surfaces.
+//! Serde representation, strictness, round-trip, and composition tests.
 //!
-//! Round-trips through self-describing and binary formats, the canonical-bytes
-//! payload pin, strict rejection, and composition inside a larger serde value.
+//! Round-trips through human-readable and binary formats, canonical payload
+//! pins, strict rejection, and composition inside a larger serde value.
 //! The party/version/clock legs live beside the world fixture in
 //! `clock/tests.rs`.
 
 use proptest::prelude::*;
+use serde_test::{assert_tokens, Configure, Token};
 
 use crate::span::Span;
 use crate::testing::bridge::from_oracle_version;
@@ -20,14 +21,47 @@ fn ordered_pair() -> (Version, Version) {
     (older, newer)
 }
 
+/// Makes serde_test's static byte token from an owned encoding.
+fn byte_token(bytes: Vec<u8>) -> Token {
+    Token::Bytes(bytes.leak())
+}
+
+/// Compact serde uses typed canonical bytes for every value, while readable
+/// serde uses canonical text for ranks.
+#[test]
+fn serde_data_model_matches_each_format_class() {
+    let party = crate::Party::seed();
+    let bytes = party.encode();
+    assert_tokens(&party.compact(), &[byte_token(bytes)]);
+
+    let version = Version::new();
+    let bytes = version.encode();
+    assert_tokens(&version.compact(), &[byte_token(bytes)]);
+
+    let clock = Clock::seed();
+    let bytes = clock.encode();
+    assert_tokens(&clock.compact(), &[byte_token(bytes)]);
+
+    let rank: Rank = "101.01".parse().unwrap();
+    let bytes = rank.encode();
+    assert_tokens(&rank.clone().compact(), &[byte_token(bytes)]);
+    assert_tokens(&rank.readable(), &[Token::Str("101.01")]);
+
+    let ranked = Ranked::from(Version::new());
+    let bytes = ranked.encode();
+    assert_tokens(&ranked.compact(), &[byte_token(bytes)]);
+
+    let (older, newer) = ordered_pair();
+    let span = Span::new(&older, &newer).unwrap().into_owned();
+    let bytes = span.encode();
+    assert_tokens(&span.compact(), &[byte_token(bytes)]);
+}
+
 proptest! {
     /// [`Rank`], [`Ranked`], and [`Span`] round-trip through serde.
     ///
-    /// Both deserialization paths are driven: the self-describing number-array
-    /// (`serde_json`), the non-self-describing length-prefixed bytes
-    /// (`postcard`), and CBOR's *typed* byte string (`ciborium`, major type 2)
-    /// — each serialized as the canonical encoding and deserialized back
-    /// through the strict decode.
+    /// JSON uses `Rank`'s canonical text and bytes for the composite types.
+    /// Postcard and CBOR use canonical bytes for every type.
     #[test]
     fn serde_roundtrip_rank_and_span(
         oa in arb_oracle_version(),
@@ -45,6 +79,10 @@ proptest! {
         prop_assert_eq!(&r2, &rank);
         prop_assert_eq!(&k2, &ranked);
         prop_assert_eq!(&s2, &span);
+        prop_assert_eq!(
+            serde_json::to_value(&rank).unwrap(),
+            serde_json::Value::String(rank.to_string()),
+        );
 
         let r2: Rank = postcard::from_bytes(&postcard::to_allocvec(&rank).unwrap()).unwrap();
         let k2: Ranked = postcard::from_bytes(&postcard::to_allocvec(&ranked).unwrap()).unwrap();
@@ -53,8 +91,7 @@ proptest! {
         prop_assert_eq!(&k2, &ranked);
         prop_assert_eq!(&s2, &span);
 
-        // ciborium: each value must serialize as a CBOR byte string
-        // (major type 2), the typed-bytes path `serde_json` never takes.
+        // CBOR reports itself as binary, so every payload is a byte string.
         let cbor = |bytes: &[u8]| -> u8 { bytes[0] >> 5 };
         let mut buf = Vec::new();
         ciborium::ser::into_writer(&rank, &mut buf).unwrap();
@@ -104,12 +141,12 @@ proptest! {
     }
 }
 
-/// Serde deserialization runs the strict decoders.
+/// Serde deserialization accepts only the representation selected by the
+/// format and validates it strictly.
 ///
-/// A defective payload is rejected through both the binary (typed-bytes) and
-/// the self-describing (number-array) paths, for every rejection genre the raw
-/// decodes mint — trailing bytes on each type, the rank-mismatch composite
-/// [`Ranked::decode`] rejects, and the crossed pair [`Span::decode`] rejects.
+/// The binary path rejects trailing bytes, a rank/version mismatch, and crossed
+/// span endpoints. The human-readable rank path rejects noncanonical text and
+/// byte arrays.
 #[test]
 fn serde_rejects_defective_rank_and_span_payloads() {
     let (older, newer) = ordered_pair();
@@ -127,8 +164,8 @@ fn serde_rejects_defective_rank_and_span_payloads() {
     span_trailing.push(0x00);
     assert!(Span::decode(&span_trailing[..]).is_err());
 
-    // The composite genres: a rank prefix the version does not
-    // measure, and a crossed span pair.
+    // A Ranked prefix must equal the version's rank, and span endpoints must
+    // remain ordered.
     let mismatched = [newer.rank().encode(), older.encode()].concat();
     assert!(Ranked::decode(&mismatched[..]).is_err());
     let crossed = [newer.encode(), older.encode()].concat();
@@ -140,6 +177,9 @@ fn serde_rejects_defective_rank_and_span_payloads() {
         assert!(postcard::from_bytes::<Rank>(&postcard_frame(body)).is_err());
         assert!(serde_json::from_slice::<Rank>(&json_frame(body)).is_err());
     }
+    for text in ["01", "1.0", " 1", "1 "] {
+        assert!(serde_json::from_str::<Rank>(&format!("\"{text}\"")).is_err());
+    }
     for body in [&ranked_trailing, &mismatched] {
         assert!(postcard::from_bytes::<Ranked>(&postcard_frame(body)).is_err());
         assert!(serde_json::from_slice::<Ranked>(&json_frame(body)).is_err());
@@ -150,8 +190,7 @@ fn serde_rejects_defective_rank_and_span_payloads() {
     }
 }
 
-/// The new impls compose inside a larger serde value: a `(Span, Rank, Ranked)`
-/// tuple round-trips through postcard, each field framed by the format itself.
+/// The serde implementations compose in a larger binary value.
 #[test]
 fn serde_composes_rank_and_span_in_larger_values() {
     let (older, newer) = ordered_pair();

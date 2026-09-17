@@ -799,23 +799,14 @@ impl Clock {
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // The party is the byte-aligned prefix: parse its id once to find the
-        // split, then validate both components against the borrowed buffer —
-        // the party's padding first, then the version's stream and padding, the
-        // order the component decoders check. The id grammar has no empty
-        // production, so the party is a nonzero share and empty input is
-        // exhausted input. Both parts then adopt slices of the ONE read buffer
-        // as their storage: no per-component copy, and the id is parsed once
-        // where handing byte ranges to the component decoders re-parsed it.
-        // Each walk's input is its component's whole byte range as bits,
-        // padding included, judged by its marker check.
+        Self::decode_bytes(buf.into())
+    }
+
+    /// Validates an owned canonical encoding and shares its storage between
+    /// the party and version.
+    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
         let id_bytes = {
             let id_end = codec::parse_id(codec::BitsView::whole(&buf), 0)?;
-            // The party's padding marker rides in its final byte — which an
-            // input cut right after a flush id tree lacks. That cut is
-            // missing required data (the marker byte, and the whole version
-            // after it): the truncation genre, exactly as a byte-starved
-            // reader reports the same boundary.
             let id_bytes = (id_end + 1).div_ceil(8);
             if id_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
@@ -828,7 +819,6 @@ impl Clock {
             codec::require_marker_padding(tail, v_end)?;
             id_bytes
         };
-        let buf = bytes::Bytes::from(buf);
         let party = Party::from_frozen(codec::Bits::from_canonical(buf.slice(..id_bytes)));
         let version = Version::from_frozen(codec::Bits::from_canonical(buf.slice(id_bytes..)));
         Ok(Clock::from_parts(party, version))

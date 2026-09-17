@@ -1170,20 +1170,16 @@ impl Version {
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // Validate over the whole buffer as bits, padding included: the
-        // walk's input is the whole `8 · buf.len()`-bit view, and the marker
-        // check judges the remainder.
+        Self::decode_bytes(buf.into())
+    }
+
+    /// Validates and adopts an owned canonical encoding.
+    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
         {
             let end = skyline::validate_prefix(codec::BitsView::whole(&buf))?;
             codec::require_marker_padding(&buf, end)?;
         }
-        // Adopt the read buffer as the result's backing store without
-        // copying: the padding check proved the buffer is the stream's one
-        // marker-padded spelling — the canonical form the at-rest
-        // container stores.
-        Ok(Version::from_frozen(codec::Bits::from_canonical(
-            buf.into(),
-        )))
+        Ok(Version::from_frozen(codec::Bits::from_canonical(buf)))
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its

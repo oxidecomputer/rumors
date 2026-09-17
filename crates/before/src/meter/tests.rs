@@ -2,7 +2,7 @@
 //! byte-identically, and has exactly its closed-form bit length.
 
 use crate::codec;
-use crate::{Party, Ticks, Version};
+use crate::{Party, Rank, Ticks, Version};
 
 use proptest::prelude::*;
 use suanpan::UBig;
@@ -254,18 +254,15 @@ fn promotion_rearm_mate_decodes_canonically_at_predicted_length() {
 /// The harmonic spine `H(d)` is canonical normal form at exactly `6d + 2` bits,
 /// and its rank is exactly the closed form `(2^d − 1)/2^d`.
 ///
-/// The closed form is pinned two ways: directly against the rendered rational
-/// at hand-checkable depths, and at meter scale through the telescoping witness
-/// `1 − rank(H(d)) = 1/2^d` — `checked_sub` against the unit rank yields a
-/// one-bit numerator whose rendering is cheap at any depth, so the pin stays
-/// exact where the direct string would be thousands of digits.
+/// The closed form is pinned through canonical binary text at hand-checkable
+/// depths and at meter scale through `1 − rank(H(d)) = 1/2^d`.
 #[test]
 fn harmonic_decodes_canonically_at_predicted_length_and_rank() {
     for d in [1, 2, 3, 1000] {
         check_version(&harmonic(d), 6 * d + 2);
     }
-    assert_eq!(harmonic(2).version().rank().to_string(), "3/2^2");
-    assert_eq!(harmonic(7).version().rank().to_string(), "127/2^7");
+    assert_eq!(harmonic(2).version().rank().to_string(), "0.11");
+    assert_eq!(harmonic(7).version().rank().to_string(), "0.1111111");
     // Meter scale: 1 − (2^d − 1)/2^d = 1/2^d, exact at any depth.
     let d = 4_096;
     let h = harmonic(d).version().rank();
@@ -273,7 +270,7 @@ fn harmonic_decodes_canonically_at_predicted_length_and_rank() {
     let gap = one
         .checked_sub(&h)
         .expect("H(d)'s rank is strictly under the unit rank");
-    assert_eq!(gap.to_string(), format!("1/2^{d}"));
+    assert_eq!(gap.to_string(), format!("0.{}1", "0".repeat(d - 1)));
 }
 
 /// The alternating-binary spine `A(d)` is canonical normal form at exactly
@@ -1100,13 +1097,11 @@ fn plateau_puncture_decodes_canonically_at_predicted_length() {
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
-        // The answer-embedded product, through the public fold: the rank is
-        // exactly (2xy + 1) / 2^(66d), and the numerator is odd, so the
-        // rendered rational is already in lowest terms.
+        // The rank is exactly (2xy + 1) / 2^(66d).
         let numerator = ((&x * &y) << 1usize) + 1u8;
         assert_eq!(
-            plateau_puncture(w, d).version().rank().to_string(),
-            format!("{numerator}/2^{}", 66 * d),
+            plateau_puncture(w, d).version().rank(),
+            Rank::from_raw(codec::Base::from(numerator), (66 * d) as u64),
             "the exact rank is the plateau times the punctured turn mass"
         );
     }
@@ -1182,9 +1177,9 @@ fn weight_comb_decodes_canonically_at_predicted_length() {
 
 /// `freeze_parade(k)` is canonical normal form at exactly `1546k − 2` bits.
 ///
-/// Its `min_ticks` is exactly the printed-base sum in closed form — `(64k − 1)
-/// + 2^band + k·2^288 + (k/2)·log2(k)·(2^288 + 1) − (k − 1)(2^288 + 1) − 2^288`
-/// for `band = 290 + bitlen(k)`: the spine's unit leaves, then the block's `k`
+/// Its `min_ticks` is exactly
+/// `(64k − 1) + 2^band + k·2^288 + (k/2)·log2(k)·(2^288 + 1) − (k − 1)(2^288 + 1) − 2^288`,
+/// where `band = 290 + bitlen(k)`: the spine's unit leaves, then the block's `k`
 /// left-leaf wide drops, its internal left children's half-minima differences
 /// (`k/2` per level, each level's difference doubling from the pair stride),
 /// and its root's absolute minimum.

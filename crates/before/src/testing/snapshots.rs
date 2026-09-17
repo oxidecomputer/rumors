@@ -3,13 +3,14 @@
 use insta::assert_snapshot;
 
 use crate::codec::{encode_int, Base, BitsBuf, BitsView};
-use crate::error::{Crossed, Decode, Overlap};
+use crate::error::{Crossed, Decode, Overlap, ParseRank};
 use crate::oracle;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::{Clock, Party, Rank, Version};
 
-/// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`, the same
-/// order `encode_int` and the preorder codec emit. Empty stream renders as `""`.
+/// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`,
+/// the same order `encode_int` and the preorder codec emit. Empty stream
+/// renders as `""`.
 fn bits_to_string(bits: BitsView<'_>) -> String {
     (0..bits.len())
         .map(|i| if bits.bit(i) { '1' } else { '0' })
@@ -206,15 +207,8 @@ fn rank_row(label: &str, r: &Rank) -> String {
     format!("{label:<22} {r}")
 }
 
-/// `Rank`'s rendered representation across every rendering regime: zero,
-/// integral, fractional, normalized-after-subtraction, and a numerator
-/// spilled past `u64`.
-///
-/// This block pins the type's decimal rendering, and every row also
-/// witnesses `Debug ≡ Display`. The spilled row's digits are the
-/// literal decimal of `2^100 + 1`: the rendering of a numerator wider
-/// than `u64` must not differ from the machine-word rendering in anything
-/// but length.
+/// `Rank` renders zero, integral, fractional, normalized, and wide values in
+/// one canonical binary form, with `Debug` equal to `Display`.
 #[test]
 fn rank_rendered_forms() {
     let integral = from_oracle_version(&oracle::Version::leaf(5u8)).rank();
@@ -234,9 +228,9 @@ fn rank_rendered_forms() {
         .rank()
         .checked_sub(&half.rank())
         .expect("3/2 dominates 1/2");
-    // 2^100 + 1: odd, so the numerator stays spilled after normalization.
+    // 2^100 + 1 is odd, so the fractional form remains normalized.
     let wide = (Base::from(1u8) << 100u32) + Base::from(1u8);
-    let spilled = from_oracle_version(&oracle::Version::node(
+    let wide_rank = from_oracle_version(&oracle::Version::node(
         0u8,
         oracle::Version::leaf(wide),
         oracle::Version::leaf(0u8),
@@ -247,15 +241,15 @@ fn rank_rendered_forms() {
         rank_row("integral", &integral),
         rank_row("fractional", &half.rank()),
         rank_row("normalized after sub", &normalized),
-        rank_row("spilled numerator", &spilled.rank()),
+        rank_row("wide numerator", &wide_rank.rank()),
     ]
     .join("\n");
     assert_snapshot!(block, @r"
     zero                   0
-    integral               5
-    fractional             1/2
+    integral               101
+    fractional             0.1
     normalized after sub   1
-    spilled numerator      1267650600228229401496703205377/2
+    wide numerator         1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.1
     ");
 }
 
@@ -271,6 +265,7 @@ fn error_display_strings() {
     let block = [
         format!("Overlap               {Overlap}"),
         format!("Crossed               {Crossed}"),
+        format!("ParseRank             {ParseRank}"),
         format!("Decode::Truncated     {}", Decode::Truncated),
         format!("Decode::TrailingBits  {}", Decode::TrailingBits),
         format!("Decode::NotCanonical  {}", Decode::NotCanonical),
@@ -279,6 +274,7 @@ fn error_display_strings() {
     assert_snapshot!(block, @"
     Overlap               parties are not disjoint
     Crossed               span endpoints cross: the start is not within the end
+    ParseRank             invalid rank
     Decode::Truncated     unexpected end of input
     Decode::TrailingBits  malformed or spurious trailing padding
     Decode::NotCanonical  input is not canonical
