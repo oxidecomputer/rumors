@@ -30,7 +30,7 @@ use crate::tree::{
     },
 };
 use crate::{
-    Version,
+    DEFAULT_TARGET_MESSAGE_SIZE, Version,
     message::{Message, PayloadCodec, PayloadDepthLimit},
     tree::mirror::Error as MirrorError,
 };
@@ -138,8 +138,18 @@ where
 
 /// Reconcile the same pair entirely in process as the behavioral oracle.
 async fn reconcile_locally(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
-    let a = Handshaking::start(Local, Root::<Local>::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(
+        Local,
+        Root::<Local>::from(a),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .window(WindowConfig::FLOOR);
+    let b = Handshaking::start(
+        Local,
+        Root::<Local>::from(b),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .window(WindowConfig::FLOOR);
     let (a, b) = Box::pin(mirror(a, b))
         .await
         .expect("two honest local participants should reconcile");
@@ -237,8 +247,18 @@ async fn reconcile_with_failing_walk(
     } else {
         (whole(), failing)
     };
-    let a = Handshaking::start(left_backend, failing_root(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(right_backend, failing_root(b)).window(WindowConfig::FLOOR);
+    let a = Handshaking::start(
+        left_backend,
+        failing_root(a),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .window(WindowConfig::FLOOR);
+    let b = Handshaking::start(
+        right_backend,
+        failing_root(b),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(

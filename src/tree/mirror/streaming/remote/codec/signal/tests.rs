@@ -143,7 +143,7 @@ fn state_roster_snapshot() {
     insta::assert_snapshot!(roster);
 }
 
-/// Both elected speakers map their 17 stream indices bijectively to schedule heights.
+/// Both elected speakers map every stream index bijectively to schedule heights.
 #[test]
 fn stream_height_mappings_are_bijective() {
     for speaker in [Speaker::Initiator, Speaker::Responder] {

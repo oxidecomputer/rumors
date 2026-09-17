@@ -6,6 +6,7 @@ use super::{
     fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair},
     floor_start, streaming_mirror_sides,
 };
+use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::testing::run_to_quiescence;
 use crate::tree::arb::arb_wide_divergent_pair;
 use crate::tree::mirror::streaming::window::WindowConfig;
@@ -31,7 +32,8 @@ fn failing_start(
         ceiling: root.ceiling,
         root: root.root.map(FailingNode::new),
     };
-    Handshaking::start(backend, root).window(WindowConfig::FLOOR)
+    Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64)
+        .window(WindowConfig::FLOOR)
 }
 
 /// The connected abort suite's injected faults: every reply-shaped

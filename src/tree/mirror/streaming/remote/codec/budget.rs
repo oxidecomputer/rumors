@@ -1,59 +1,36 @@
-//! The supply-run byte budget: how large one batched supply frame may grow.
+//! Byte limits for batched supply frames.
 //!
-//! The streaming wire ships the leaves of a supplied subtree as *runs* — one
-//! [`Supply`](super::frame::Reaction::Supply) frame carrying a delimited
-//! sequence of leaf records — instead of one frame per leaf. Batching is
-//! chunked by **bytes**, not record count: the encoder accumulates records
-//! into the current run and flushes it when appending the next record would
-//! push the frame's full wire size — its [`SUPPLY_FRAME_OVERHEAD`]-byte
-//! head envelope plus the run body — past the budget. A run
-//! always carries at least one record, so a single record larger than the
-//! budget ships alone in its own frame, exceeding the budget by exactly
-//! that record's overhang. Runs never span protocol reactions: the batching
-//! scope is the leaf enumeration of one supplied subtree.
+//! A supply frame carries a run of leaf records from one supplied subtree.
+//! [`RunBudget`] counts the complete frame, including
+//! [`SUPPLY_FRAME_OVERHEAD`]. The encoder flushes before the next record would
+//! cross the limit. Every run must contain a record, so one oversized record
+//! travels alone; runs never combine separate protocol reactions.
 //!
-//! Each endpoint's target rides its greeting, and a session runs at the
-//! **minimum of the two**: one knob covers both directions — the frames
-//! an endpoint builds and the frames built for it — so the more
-//! memory-constrained end sets the pace and peers with different
-//! settings interoperate. The budget prices encoded memory per stream:
-//! the encoder buffers at most one run while filling it, and the decoder
-//! buffers at most one run's bytes per frame before yielding its records
-//! one at a time — each record passing custody of its payload to the
-//! storage backend as it is read, so the constructed leaves in flight
-//! are the sync budget's decode-fan charge, not this one's. The decode
-//! side of that price is enforced, not assumed: ingress holds every
-//! arriving supply frame to the session budget ([`covers`](RunBudget::covers))
-//! and rejects a violating frame before buffering its body, so the
-//! envelope holds against a conformance-buggy peer batching past the
-//! session minimum, not only by counterparty courtesy. The public
-//! knob is [`Peer::target_message_size`](crate::Peer::target_message_size).
+//! Each endpoint advertises its target in the greeting, and the session uses
+//! the smaller target in both directions. The encoder buffers one run per
+//! stream. The decoder applies the same limit before buffering a run: a frame
+//! may exceed it only when the frame contains one record. Constructed leaves
+//! are charged separately by the synchronization window.
+//! Applications configure the target with
+//! [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!
-//! Framing headroom: the wire caps a run body at `u32::MAX` bytes, so
-//! [`from_bytes`](RunBudget::from_bytes) saturates every budget at
-//! [`MAX_RUN_BUDGET_BYTES`] — a run flushed within budget always fits the
-//! cap. The one frame that can still outgrow it is a *single record*
-//! larger than the cap (the minimum-one-record rule ships it alone): that
-//! is a record-size limit of the wire, which no budget setting can lift,
-//! and the encoder rejects it at record level before writing anything.
+//! The wire stores run length in a `u32`. [`RunBudget::from_bytes`] therefore
+//! caps every target at [`MAX_RUN_BUDGET_BYTES`]. A single record beyond that
+//! wire limit is rejected before the encoder writes any part of its frame.
 
 use crate::tree::mirror::cbor;
-use crate::tree::mirror::streaming::window::FAN;
 
 use super::error::DecodeErrorKind;
-use super::frame::{MAX_QUERY_CHILDREN, listing_entry_len};
-use super::signal::WireSignal;
+use super::frame::{MAX_QUERY_CHILDREN, SUPPLY_HEAD_LEN, listing_entry_len};
+use super::signal::FRAME_OPENER_LEN;
 
 /// The exact wire size of one full-fan query frame.
 ///
-/// Its array head, its stream and state items, the listing map's head at
-/// the full fan, and one entry per radix value — the map spelling's
-/// per-entry cost varies with the key's head width, so the sum walks the
-/// radix space rather than multiplying.
+/// This includes the frame opener, the listing-map head, and every radix and
+/// hash. Radix keys have different CBOR head sizes, so the calculation visits
+/// each key rather than multiplying one entry size.
 const FULL_FAN_QUERY_FRAME_LEN: usize = {
-    let mut total = cbor::head_len(3) // the frame's three-item array head
-        + WireSignal::ENCODED_LEN
-        + cbor::head_len(MAX_QUERY_CHILDREN as u64);
+    let mut total = FRAME_OPENER_LEN + cbor::head_len(MAX_QUERY_CHILDREN as u64);
     let mut radix = 0usize;
     while radix < MAX_QUERY_CHILDREN {
         total += listing_entry_len(radix as u8);
@@ -64,53 +41,30 @@ const FULL_FAN_QUERY_FRAME_LEN: usize = {
 
 /// Default supply-run byte budget: the size of the maximally disputed reply.
 ///
-/// Derived from the wire constants, not measured: the decode side's
-/// documented memory unit is one decoded *reply* (the streaming `message`
-/// module docs), and the largest non-supply reply is maximally disputed —
-/// `FAN` reactions, each a full-fan query frame. Batching at this default
-/// therefore never raises the wire's established per-reply memory ceiling.
-pub const DEFAULT_TARGET_MESSAGE_SIZE: usize = FAN * FULL_FAN_QUERY_FRAME_LEN;
+/// A non-supply reply can contain one reaction per radix, each a full-fan
+/// query. Giving supply runs the same byte allowance preserves that per-reply
+/// memory ceiling.
+pub const DEFAULT_TARGET_MESSAGE_SIZE: usize = MAX_QUERY_CHILDREN * FULL_FAN_QUERY_FRAME_LEN;
 
-/// Wire bytes a supply frame wraps around its run body, charged at their
-/// widest.
+/// Most wire bytes a supply frame can add around its run body.
 ///
-/// The envelope: the frame's array head, its stream and state items, and
-/// the run's embedded-sequence tag with the widest byte-string head the
-/// run cap admits. The run head narrows for small runs; charging the
-/// envelope constant keeps the flush algebra exact-or-conservative, never
-/// optimistic.
-///
-/// The budget prices whole wire frames, so the encoder's flush accounting
-/// charges this envelope alongside the accumulated records — a frame's full
-/// wire size stays within the budget except when a single record alone
-/// exceeds it.
-pub const SUPPLY_FRAME_OVERHEAD: usize = cbor::head_len(3)
-    + WireSignal::ENCODED_LEN
-    + cbor::head_len(cbor::TAG_CBOR_SEQUENCE)
-    + cbor::head_len(u32::MAX as u64);
+/// This includes the frame opener, embedded-sequence tag, and widest possible
+/// byte-string head. Smaller runs use fewer bytes, so charging this value is
+/// conservative.
+pub const SUPPLY_FRAME_OVERHEAD: usize = FRAME_OPENER_LEN + SUPPLY_HEAD_LEN;
 
-/// The largest supply-run budget the wire can honor: budgets saturate
-/// here at construction.
+/// Largest whole-frame budget that keeps an in-budget run within the wire cap.
 ///
-/// A frame's full wire size is its fixed supply-frame envelope plus the run
-/// body, and the wire caps a run body at `u32::MAX` bytes
-/// (the cap every pricing closed form is denominated in). Capping the
-/// whole-frame budget at that ceiling less the envelope keeps every
-/// within-budget flush under the cap with the envelope already paid;
-/// without it, an over-ceiling budget lets a run grow past 4 GiB in RAM
-/// and then deterministically fail at the run head, re-failing every
-/// retry while the divergence persists.
+/// The wire represents the run-body length as a `u32`; subtracting the frame
+/// overhead ensures that every run accumulated within budget can be encoded.
 pub const MAX_RUN_BUDGET_BYTES: usize = u32::MAX as usize - SUPPLY_FRAME_OVERHEAD;
 
 /// The byte budget one supply frame may grow to before the encoder flushes it.
 ///
-/// Constructed from the public knob by [`from_bytes`](Self::from_bytes);
-/// consumed by the outgoing adapter's supply-run accumulation through
-/// [`admits`](Self::admits). Any value, including zero, is safe: the
-/// minimum-one-record rule keeps every leaf shippable, degrading a zero
-/// budget to the pre-batching one-leaf-per-frame wire traffic, and the
-/// constructor's [`MAX_RUN_BUDGET_BYTES`] ceiling keeps every
-/// within-budget flush inside the wire's run byte cap.
+/// A run always accepts its first record, even when the complete frame exceeds
+/// this target. Thus every value is usable; a target of zero sends one record
+/// per frame. Values above [`MAX_RUN_BUDGET_BYTES`] are saturated so an
+/// accumulated run always fits the wire's length field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RunBudget {
     /// Wire-frame bytes admitted before the next record forces a flush.
@@ -118,14 +72,7 @@ pub struct RunBudget {
 }
 
 impl RunBudget {
-    /// Adopt a caller-selected byte budget, saturated at
-    /// [`MAX_RUN_BUDGET_BYTES`].
-    ///
-    /// Saturation here is what makes every value safe: this is the single
-    /// constructor — the default, the public knob, and the negotiated
-    /// session minimum all pass through it — so no stored budget exceeds
-    /// what the framing can flush, and the greeting advertises the
-    /// saturated value.
+    /// Adopt a caller-selected target, saturated at [`MAX_RUN_BUDGET_BYTES`].
     pub fn from_bytes(bytes: usize) -> Self {
         Self {
             bytes: bytes.min(MAX_RUN_BUDGET_BYTES),
@@ -139,32 +86,21 @@ impl RunBudget {
 
     /// Whether a run may absorb one more record within this budget.
     ///
-    /// Charges the whole wire frame — the [`SUPPLY_FRAME_OVERHEAD`] envelope
-    /// plus the run's `body` bytes plus the `record` bytes about to join it —
-    /// so a flushed frame's on-wire size never exceeds the budget unless a
-    /// single record alone does. Defined as [`covers`](Self::covers) of the
-    /// grown body, so the encoder's flush rule and the decoder's ingress
-    /// check share one boundary and cannot drift apart.
+    /// This charges the complete frame after adding `record`. The encoder still
+    /// accepts the first record when this returns `false`.
     pub fn admits(self, body: usize, record: usize) -> bool {
         self.covers(body.saturating_add(record))
     }
 
     /// Whether a whole supply frame of `body` run bytes fits this budget.
     ///
-    /// Charges the frame's full wire size: the [`SUPPLY_FRAME_OVERHEAD`]
-    /// envelope plus `body`. This is the boundary the encoder flushes
-    /// against ([`admits`](Self::admits)) and the one the decoder enforces
-    /// at ingress: every frame the encoder can produce either satisfies it
-    /// or is a single record shipped alone (the minimum-one-record
-    /// overhang), so a frame failing it with more than one record is a
-    /// counterparty conformance bug.
+    /// The encoder uses this boundary when batching, and the decoder uses it
+    /// when checking incoming batches.
     pub fn covers(self, body: usize) -> bool {
         SUPPLY_FRAME_OVERHEAD.saturating_add(body) <= self.bytes
     }
 
-    /// The rejection of a supply frame whose `body` run bytes this budget
-    /// does not cover: the frame's charged wire size beside the budget it
-    /// broke.
+    /// Describe an incoming frame that exceeds this budget.
     pub(super) fn overbatched(self, body: usize) -> DecodeErrorKind {
         DecodeErrorKind::OverbatchedRun {
             declared: SUPPLY_FRAME_OVERHEAD.saturating_add(body),

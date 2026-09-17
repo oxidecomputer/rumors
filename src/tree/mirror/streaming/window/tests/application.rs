@@ -10,8 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use proptest::prelude::*;
 
 use super::super::{
-    KEY_DEPTH, WindowConfig, children_quantile, disputed, occupied, stage_population,
+    KEY_DEPTH, ReplicaSize, WindowConfig, children_quantile, disputed, occupied, stage_population,
 };
+use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::message::Message;
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::channel::{QueueKind, with_observation};
@@ -109,10 +110,10 @@ fn check_session(trees: [Tree<u64>; 2], budget: usize) {
     let (a, b) = (trees[0].len() as u64, trees[1].len() as u64);
     let config = WindowConfig::Budget(budget);
     let window = config.resolve(
-        a,
-        b,
-        trees[0].max_version_bytes() as u64,
-        trees[1].max_version_bytes() as u64,
+        [
+            ReplicaSize::new(a, trees[0].max_version_bytes() as u64),
+            ReplicaSize::new(b, trees[1].max_version_bytes() as u64),
+        ],
         Local::node_bytes,
     );
     let mut expected = trees[0].clone();
@@ -123,10 +124,10 @@ fn check_session(trees: [Tree<u64>; 2], budget: usize) {
     let ((result, trace), queues) = with_observation(|| {
         with_trace(|| {
             run_to_quiescence(mirror(
-                Handshaking::start(Local, left.root.into())
+                Handshaking::start(Local, left.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
                     .window(config)
                     .stats(left_stats.clone()),
-                Handshaking::start(Local, right.root.into())
+                Handshaking::start(Local, right.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
                     .window(config)
                     .stats(right_stats.clone()),
             ))

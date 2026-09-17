@@ -48,7 +48,7 @@ use before::Span;
 use futures::{StreamExt, stream as futures_stream};
 
 use crate::{
-    Version,
+    DEFAULT_TARGET_MESSAGE_SIZE, Version,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -905,10 +905,13 @@ where
     // Both sides use the same size declarations, so one recorder suffices
     // to check the window granted to this session.
     let stats = Recorder::default();
-    let client = materialized::Handshaking::start(charged.clone(), left)
-        .window(window)
-        .stats(stats.clone());
-    let server = materialized::Handshaking::start(charged, right).window(window);
+    let client =
+        materialized::Handshaking::start(charged.clone(), left, DEFAULT_TARGET_MESSAGE_SIZE as u64)
+            .window(window)
+            .stats(stats.clone());
+    let server =
+        materialized::Handshaking::start(charged, right, DEFAULT_TARGET_MESSAGE_SIZE as u64)
+            .window(window);
     let (ours, theirs) = streaming::mirror(client, server)
         .await
         .unwrap_or_else(|error| fail(&format!("the conformance session reconciles: {error:?}")));

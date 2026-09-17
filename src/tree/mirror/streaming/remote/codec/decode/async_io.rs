@@ -10,7 +10,7 @@ use super::super::{
     budget::RunBudget,
     error::{DecodeError, DecodeErrorKind, FramePart},
     frame::{Frame, LeafRun, ListingBuilder, Reaction, WireFrame, listing_entry_len},
-    signal::{Signal, Speaker, WireSignal},
+    signal::{FRAME_OPENER_LEN, Signal, Speaker},
 };
 use super::{
     OpenerItem, check_arity, classify, decode_signal, frame_arity, head_error, listing_issue,
@@ -33,10 +33,6 @@ const WIDE_ENTRY_LEN: usize = listing_entry_len(u8::MAX);
 
 /// The smallest radix whose key head takes two bytes.
 const FIRST_WIDE_RADIX: u8 = 24;
-
-/// Bytes a canonical frame opener occupies: the array head of a two- or
-/// three-item frame, then the stream and state items.
-const OPENER_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
 
 /// Async frame reader over one speaker's transport direction.
 ///
@@ -149,7 +145,7 @@ async fn read_frame<R: AsyncRead + Unpin>(
     // cannot consume the next frame. Parse the bytes that arrived in order;
     // if the read failed, report that error at the first incomplete item.
     // Re-reading instead could hide the error behind a later close or success.
-    let mut opener = [0u8; OPENER_LEN];
+    let mut opener = [0u8; FRAME_OPENER_LEN];
     let Arrived { filled, failure } = exact.fill(&mut opener).await;
     if filled == 0 {
         return match failure {

@@ -9,13 +9,9 @@
 //! decoded-response relay, is created by the response pump itself: see
 //! `Work::respond`.)
 //!
-//! - [`local_questions`] is the wire-facing question window itself, sized
-//!   by the session
-//!   [`Window`](crate::tree::mirror::streaming::window::Window): one slot
-//!   there re-serializes the descent no matter how wide the walk's own
-//!   channels are;
-//! - [`next_scopes`] is the decode-side register, also window-sized, whose
-//!   items are small enough to widen defensively.
+//! - [`local_questions`] holds questions whose replies are in flight. Its
+//!   capacity can limit the whole descent even when the walk's queues are wider.
+//! - [`next_scopes`] carries scopes released by decoded replies.
 
 use crate::tree::mirror::streaming::{
     channel::{QueueKind, QueueRole, Receiver, Sender, channel},
@@ -26,14 +22,14 @@ use crate::tree::mirror::streaming::{
 /// questions' height.
 ///
 /// This queue's occupancy tracks the questions in flight on the wire at
-/// this height: the encoder publishes each question once its complete
-/// reply has flushed, and the decoder retires one per decoded wire reply —
-/// a full round trip later. Tracks, not equals: occupancy undercounts the
-/// wire by a bounded slack (a flushing batch rides the wire before
-/// publication; the decoder holds one dequeued entry while its reply
-/// decodes). The canonical derivation — the occupancy bound, its
-/// reachability, and the slack — is in the
-/// [`window`](crate::tree::mirror::streaming::window) module docs.
+/// this height: [`encode`](mod@super::encode) publishes each question once its
+/// complete reply has flushed, and [`pump`](mod@super::pump) removes one per
+/// decoded wire reply — a full round trip later. Occupancy can undercount the
+/// wire slightly: a flushing batch has not been published yet, and the decoder
+/// holds one dequeued question while reading its reply. An upstream queue may
+/// recycle its slots while those replies remain outstanding, so it cannot
+/// bound this edge. Giving this queue the same depth-specific window preserves
+/// the session's population bound.
 pub fn local_questions(height: usize, capacity: usize) -> (Sender<Scope>, Receiver<Scope>) {
     channel(
         QueueRole::new(QueueKind::ProxyLocalQuestions, height),

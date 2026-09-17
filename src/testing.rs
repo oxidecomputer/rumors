@@ -3,6 +3,24 @@
 mod memnet;
 mod transport;
 
+use crate::{
+    Snapshot,
+    tree::{
+        mirror::streaming::{
+            Local,
+            remote::{self, RunBudget, codec::LeafRun},
+            window::{
+                self, DISPUTE_OVERHEAD_BYTES, DISPUTE_WIRE_BYTES, REFERENCE_SCOPE_BYTES,
+                ReplicaSize, SUPPLY_DECODE_ENVELOPE_BYTES, Window,
+            },
+        },
+        typed::{
+            height::{Height, Root},
+            untyped::census,
+        },
+    },
+};
+
 pub use crate::tree::mirror::streaming::remote::codec::{
     DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind, DecodeLeafError,
     FramePart, HeadError, LeafRunError,
@@ -24,10 +42,7 @@ pub use crate::tree::mirror::streaming::remote::{
 ///
 /// This exposes the local join to allocation tests without including transport
 /// setup, wire decoding, or a runtime in the measured work.
-pub fn join_snapshots<T: Send + Sync>(
-    ours: &crate::Snapshot<T>,
-    theirs: &crate::Snapshot<T>,
-) -> crate::Snapshot<T> {
+pub fn join_snapshots<T: Send + Sync>(ours: &Snapshot<T>, theirs: &Snapshot<T>) -> Snapshot<T> {
     assert_eq!(
         ours.network(),
         theirs.network(),
@@ -36,24 +51,24 @@ pub fn join_snapshots<T: Send + Sync>(
     let mut tree = ours.tree().clone();
     tree.join(theirs.tree().clone());
     tree.warm_memos();
-    crate::Snapshot::new(ours.network(), tree)
+    Snapshot::new(ours.network(), tree)
 }
 
 /// Render two hook captures grouped by labeled logical streams.
 pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
-    crate::tree::mirror::streaming::remote::render_hook_capture(a, b)
+    remote::render_hook_capture(a, b)
 }
 
 /// Assert the concatenation of observed items reproduces `wire` exactly:
 /// the totality witness behind rendering hook items as a wire-byte pin.
 pub fn assert_items_account_for(items: &[Vec<u8>], wire: &[u8]) {
-    crate::tree::mirror::streaming::remote::assert_items_account_for(items, wire);
+    remote::assert_items_account_for(items, wire);
 }
 
 /// Parse one data stream's on-wire open label, returning
 /// `((epoch, index), label byte length)`.
 pub fn stream_label(bytes: &[u8]) -> ((u8, u8), usize) {
-    crate::tree::mirror::streaming::remote::stream_label(bytes)
+    remote::stream_label(bytes)
 }
 
 /// A snapshot of the crate-wide census of live tree-node handles.
@@ -75,26 +90,26 @@ pub struct NodeCensus {
 /// The counters are process-global; tests that assert on them must own
 /// the process (one test per process under nextest).
 pub fn node_census() -> NodeCensus {
-    let (live, peak) = crate::tree::typed::untyped::census::read();
+    let (live, peak) = census::read();
     NodeCensus { live, peak }
 }
 
 /// Restart the census high-water mark from the current live count.
 pub fn node_census_reset() {
-    crate::tree::typed::untyped::census::reset_peak();
+    census::reset_peak();
 }
 
-/// Reference memory and wire costs, as `(envelope, wire)`.
+/// Mean modeled memory per scope in the reference sizing example.
 ///
-/// The envelope is the mean modeled memory per scope in the calibration
-/// corpus. The wire cost is the rounded-down mean bytes per differing
-/// message in the wire fixture, including its encoded payload. These
-/// describe particular workloads; neither is an input to the window solve.
-pub fn envelope_and_wire_bytes() -> (usize, usize) {
-    (
-        crate::tree::mirror::streaming::window::SCOPE_ENVELOPE_BYTES,
-        crate::tree::mirror::streaming::window::DISPUTE_WIRE_BYTES,
-    )
+/// This workload-specific estimate helps validate the explanatory model. The
+/// window calculation derives its prices from the actual session instead.
+pub fn reference_scope_bytes() -> usize {
+    REFERENCE_SCOPE_BYTES
+}
+
+/// Mean wire bytes per differing reference-size message in the calibration fixture.
+pub fn reference_wire_bytes() -> usize {
+    DISPUTE_WIRE_BYTES
 }
 
 /// Approximate protocol bytes per differing message, excluding its payload.
@@ -102,17 +117,17 @@ pub fn envelope_and_wire_bytes() -> (usize, usize) {
 /// Includes both directions' hashes, versions, framing, and session setup,
 /// averaged over a calibration corpus. The actual mean varies by workload.
 pub fn dispute_overhead_bytes() -> usize {
-    crate::tree::mirror::streaming::window::DISPUTE_OVERHEAD_BYTES
+    DISPUTE_OVERHEAD_BYTES
 }
 
 /// Worst-case bytes one session's decode fans keep resident, under the
 /// in-memory backend's pricing.
 ///
-/// This is the flat pre-charge that comes off a budget before the
-/// dispute-scope solve. The operator suite denominates its measured cells
-/// in a budget's dispute share, so it needs the pre-charge to add back.
+/// The window calculation reserves this amount before sizing its scope queues.
+/// Measurement tests add it back when expressing results against the complete
+/// session budget.
 pub fn supply_decode_envelope_bytes() -> usize {
-    crate::tree::mirror::streaming::window::SUPPLY_DECODE_ENVELOPE_BYTES
+    SUPPLY_DECODE_ENVELOPE_BYTES
 }
 
 /// Read exactly `declared` payload bytes under the framing layer's
@@ -142,11 +157,11 @@ pub fn frame_payload_chunk_len() -> usize {
 
 /// A canonical supply run built outside an allocator-metered region.
 #[derive(Debug)]
-pub struct PreparedRecordRun(crate::tree::mirror::streaming::remote::codec::LeafRun);
+pub struct PreparedRecordRun(LeafRun);
 
 /// Build a canonical run of `len` identical records for allocation metering.
 pub fn prepare_record_run(len: usize) -> PreparedRecordRun {
-    let mut run = crate::tree::mirror::streaming::remote::codec::LeafRun::new();
+    let mut run = LeafRun::new();
     let version = crate::Version::new();
     let message = crate::message::Message::try_from_arc(
         std::sync::Arc::new(0_u64),
@@ -179,7 +194,7 @@ pub fn decode_record_run(run: &PreparedRecordRun) -> Result<usize, DecodeLeafErr
 /// byte stream; the prefix is built by the codec's own head writers, so
 /// the meter cannot drift from the wire.
 pub fn supply_frame_head(declared: usize) -> Vec<u8> {
-    crate::tree::mirror::streaming::remote::supply_frame_head(declared)
+    remote::supply_frame_head(declared)
 }
 
 /// A structurally valid lone-record run of exactly `len` bytes, with
@@ -189,7 +204,7 @@ pub fn supply_frame_head(declared: usize) -> Vec<u8> {
 /// bodies from the wire's own record heads rather than a transcribed
 /// copy.
 pub fn lone_record_run(len: usize) -> Vec<u8> {
-    crate::tree::mirror::streaming::remote::lone_record_run(len)
+    remote::lone_record_run(len)
 }
 
 /// Decode one streaming-codec supply frame, discarding the decoded run.
@@ -219,18 +234,14 @@ pub async fn decode_supply_frame_budgeted(
     read: impl tokio::io::AsyncRead + Unpin,
     budget: usize,
 ) -> Result<(), CodecDecodeError> {
-    crate::tree::mirror::streaming::remote::decode_frame_discarded(
-        read,
-        crate::tree::mirror::streaming::remote::RunBudget::from_bytes(budget),
-    )
-    .await
+    remote::decode_frame_discarded(read, RunBudget::from_bytes(budget)).await
 }
 
 /// Build one canonical streaming-codec frame of `shape` ahead of writing
 /// it, so the encoder allocation meter (`tests/encode_alloc.rs`) prices
 /// the write alone.
 pub fn prepare_frame(shape: FrameShape) -> PreparedFrame {
-    crate::tree::mirror::streaming::remote::prepare_frame(shape)
+    remote::prepare_frame(shape)
 }
 
 /// Write a prepared frame through the streaming codec's async frame
@@ -240,101 +251,19 @@ pub fn prepare_frame(shape: FrameShape) -> PreparedFrame {
 /// (`tests/encode_alloc.rs`) counts every allocation inside this call,
 /// and the transport's own growth is not the encoder's.
 pub async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
-    crate::tree::mirror::streaming::remote::write_prepared_frame(frame, out).await
+    remote::write_prepared_frame(frame, out).await
 }
 
 /// Render the [sizing guide](crate::sizing)'s table from the window calculation.
 ///
-/// Each budget row's window comes from the same solve sessions run at
-/// handshake time ([`window_capacities`]'s derivation), evaluated at
-/// the example's set size, and each record-size column applies the
-/// measured wave form `slowdown = max(1, BDP_messages / K)` at the
-/// spec bandwidth-delay product. Pure deterministic arithmetic:
-/// `examples/window_tradeoff.rs` prints it (`just window-tradeoff`
-/// moves the output into place atomically), and the window suite
-/// byte-compares the committed file against this rendering, so the
-/// table cannot drift from the derivation it tabulates.
+/// Each cell estimates slowdown as `max(1, BDP_messages / window)`. The
+/// window tests compare the committed table with this deterministic output.
 pub fn window_tradeoff_table() -> String {
-    use std::fmt::Write;
-
-    use crate::tree::mirror::streaming::window::{
-        DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES, SPEC_BDP_BYTES,
-        Window,
-    };
-
-    /// A round example set size, independent of message size and link bandwidth.
-    const EXAMPLE_MESSAGES: u64 = 100_000;
-
-    /// The widest window the solve grants `budget` at a symmetric
-    /// `corpus`-message session under the in-memory backend's pricing.
-    fn solve_window(corpus: u64, budget: usize) -> u64 {
-        let window = Window::from_budget(
-            corpus,
-            corpus,
-            0,
-            0,
-            budget,
-            crate::tree::mirror::streaming::Local::node_bytes,
-        );
-        (0..=32)
-            .map(|height| window.capacity(height) as u64)
-            .max()
-            .expect("thirty-three heights")
-    }
-
-    /// The budget rows, smallest to largest; the default is labeled at
-    /// render time so the table cannot go stale against it.
-    const BUDGETS: &[(&str, usize)] = &[
-        ("256 KiB", 256 << 10),
-        ("1 MiB", 1 << 20),
-        ("4 MiB", 4 << 20),
-        ("16 MiB", 16 << 20),
-        ("64 MiB", 64 << 20),
-        ("256 MiB", 256 << 20),
-        ("512 MiB", 512 << 20),
-        ("2 GiB", 2 << 30),
-    ];
-
-    /// Encoded payload sizes, spanning random u64 values through larger messages.
-    const RECORD_SIZES: &[(usize, &str)] = &[
-        (9, "m = 9 (u64)"),
-        (64, "m = 64"),
-        (DESIGN_RECORD_BYTES, "m = 100"),
-        (1024, "m = 1024"),
-    ];
-
-    let mut table = String::new();
-    let _ = writeln!(
-        table,
-        "<!-- Generated by `just window-tradeoff`; do not edit. -->"
-    );
-
-    let mut header = String::from("| budget | window (subtrees) |");
-    let mut rule = String::from("|---|---|");
-    for (_, label) in RECORD_SIZES {
-        let _ = write!(header, " {label} |");
-        rule.push_str("---|");
-    }
-    let _ = writeln!(table, "{header}");
-    let _ = writeln!(table, "{rule}");
-
-    for &(label, budget) in BUDGETS {
-        let default = if budget == DEFAULT_SYNC_MEMORY_BUDGET {
-            " (default)"
-        } else {
-            ""
-        };
-        let window = solve_window(EXAMPLE_MESSAGES, budget);
-        let _ = write!(table, "| {label}{default} | {window} |");
-        for &(m, _) in RECORD_SIZES {
-            let bdp_messages = SPEC_BDP_BYTES as f64 / (DISPUTE_OVERHEAD_BYTES + m) as f64;
-            let slowdown = (bdp_messages / window as f64).max(1.0);
-            let _ = write!(table, " {slowdown:.1}× |");
-        }
-        let _ = writeln!(table);
-    }
-    table
+    window::tradeoff_table()
 }
+
+/// Messages per replica in the reference sizing example.
+pub const REFERENCE_SESSION_MESSAGES: usize = window::REFERENCE_SESSION_MESSAGES as usize;
 
 /// The largest canonical version-bound encoding in a snapshot's tree, in
 /// bytes.
@@ -342,7 +271,7 @@ pub fn window_tradeoff_table() -> String {
 /// Covers every bound the tree holds (leaf versions and every interior
 /// ceiling and floor); the result is the exact per-node aggregate the
 /// greeting exchanges.
-pub fn max_version_bytes<T: Send + Sync + 'static>(snapshot: &crate::Snapshot<T>) -> usize {
+pub fn max_version_bytes<T: Send + Sync + 'static>(snapshot: &Snapshot<T>) -> usize {
     snapshot.tree().max_version_bytes()
 }
 
@@ -355,27 +284,28 @@ pub fn max_version_bytes<T: Send + Sync + 'static>(snapshot: &crate::Snapshot<T>
 /// input materialized; this walk measures a reconciled tree against the
 /// pre-session exchange, so tests can pin the model side of the account
 /// to reality.
-pub fn max_bound_bytes<T: Send + Sync + 'static>(snapshot: &crate::Snapshot<T>) -> usize {
+pub fn max_bound_bytes<T: Send + Sync + 'static>(snapshot: &Snapshot<T>) -> usize {
     snapshot.tree().max_bound_bytes()
 }
 
 /// The per-height channel capacities a session derives from its budget
 /// and the two replicas' exchanged set sizes.
 ///
-/// Indexed by typed height (`0` = leaves, `32` = root) and priced as the
-/// in-memory backend prices its nodes: one pointer per handle at any
-/// version bound. Exposed so integration suites can compute, from the same
-/// derivation sessions use, where a divergence must saturate and serialize.
+/// The result is ordered by typed height, from leaves through the root, using
+/// the in-memory backend's node price. Integration tests use it to predict
+/// where a session should encounter backpressure.
 pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -> Vec<usize> {
-    let window = crate::tree::mirror::streaming::window::Window::from_budget(
-        local_len,
-        remote_len,
-        0,
-        0,
+    let window = Window::from_budget(
+        [
+            ReplicaSize::new(local_len, 0),
+            ReplicaSize::new(remote_len, 0),
+        ],
         budget_bytes,
-        crate::tree::mirror::streaming::Local::node_bytes,
+        Local::node_bytes,
     );
-    (0..=32).map(|height| window.capacity(height)).collect()
+    (0..=<Root as Height>::HEIGHT)
+        .map(|height| window.capacity(height))
+        .collect()
 }
 
 use std::{

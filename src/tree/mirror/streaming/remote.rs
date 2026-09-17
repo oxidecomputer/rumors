@@ -5,30 +5,22 @@
 //! and leaf reconstruction; [`streams`] the binding of logical streams to
 //! the link's transport streams.
 //!
-//! The transport is a [`Link`](crate::link): 17 logical streams in each
-//! direction, each carried by its own independently flow-controlled
-//! transport stream, lazily established as the descent needs it.
+//! The transport is a [`Link`](crate::link). Each direction can open up to
+//! [`STREAM_COUNT`](crate::link::STREAM_COUNT) independently flow-controlled
+//! data streams, established lazily as the descent needs them.
 //!
-//! [`codec`] defines the common frame grammar: a frame opens with its
-//! stream's index (one of 17) and its signal's state code (one of ten:
-//! each of the four reaction forms — `Match`, empty/nonempty `Query`, and
-//! `Supply` — either continuing or ending its reply, plus bare `ReplyEnd`
-//! and `StreamEnd`), each a one-byte item; other indices and codes are
-//! reserved. The phase schedule narrows that product: the initiator
-//! admits 162 placements and the responder 163, rejecting the rest
-//! immediately after the opener, before any frame body is read. Every
-//! frame names the stream it rides, so its stream item is redundant with
-//! the stream's label — deliberately: [`streams`] holds every frame to
-//! exact agreement with the label, so a miswired link surfaces at the
-//! first frame.
+//! [`codec`] defines the frame grammar. Every frame names its logical stream;
+//! [`streams`] checks that name against the transport label, so a miswired
+//! link fails at its first frame. The decoder also rejects signals that do not
+//! belong to the speaker and phase before reading their bodies.
 //!
 //! Reply and stream ends are separate events. A reaction or bare `ReplyEnd`
 //! completes a reply; a later bare `StreamEnd` closes the logical stream
 //! ahead of the transport-level half-close. The stream layer consumes that
 //! control instead of exposing it to the protocol adapter as an empty reply.
 //!
-//! An empty query occupies its signal alone; a nonempty query's one-byte
-//! count-minus-one admits every fan from 1 through 256.
+//! An empty query occupies its signal alone; a nonempty query encodes its
+//! child count minus one, covering every possible nonempty radix fan.
 //!
 //! Supplied leaves ship in *runs*: one exact-length-delimited body carrying
 //! one or more leaf records, each itself exact-length-delimited — a CBOR
@@ -83,11 +75,7 @@ pub(crate) use codec::{decode_frame_discarded, lone_record_run, supply_frame_hea
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::{prepare_frame, write_prepared_frame};
 
-/// The codec's logical stream count, for cross-layer constant assertions.
-#[cfg(test)]
-pub(crate) fn codec_stream_count() -> u8 {
-    codec::Stream::COUNT
-}
+pub(crate) use codec::STREAM_COUNT;
 pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
 pub(crate) use error::streaming_error;
 pub use proxy::ControlRead;

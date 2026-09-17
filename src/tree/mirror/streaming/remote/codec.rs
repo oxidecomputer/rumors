@@ -8,16 +8,11 @@
 //! general-CBOR position and may use any spelling their configured decoder
 //! accepts.
 //!
-//! A frame opens with two unsigned ints: the index of the logical stream
-//! it rides (one of 17) and its signal's state code (one of ten frame
-//! states — four reaction forms, each continuing or ending its reply,
-//! plus a bare empty-reply end and a bare stream-end control). Both are
-//! below 24, so each item is a single byte; any other index or code is
-//! reserved. The stream item deliberately restates the transport label so
-//! a mislabeled stream is its own diagnosis. Speaker and stream then
-//! select a phase-specific subset of states: the initiator admits 162
-//! placements and the responder 163, rejecting the rest before their
-//! frame body is read.
+//! A frame begins with its logical stream index and signal state. Both use a
+//! one-byte canonical integer; other values are reserved. The stream index
+//! repeats the transport's label so a mislabeled stream produces a precise
+//! conformance error. The decoder also checks that the speaker, stream, and
+//! state belong together before reading the frame body.
 //!
 //! Reply and stream lifetimes are deliberately orthogonal. Every nonempty
 //! reply ends on its final reaction; an empty reply is one bare reply-end
@@ -28,7 +23,7 @@
 //! to discover whether that item is also the stream's last.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query's
-//! body is a `{radix: hash}` map of one to 256 children: CBOR
+//! body is a `{radix: hash}` map with one entry per reported child: CBOR
 //! deterministic encoding mandates ascending keys and the wire's canonical
 //! form mandates strictly ascending radixes, so the two disciplines are
 //! one rule, enforced once at ingress. A supply body is a [`LeafRun`]
@@ -101,6 +96,7 @@ pub(crate) use frame::{ListingIssue, parse_listing_map, write_listing};
 pub use greeting::GreetingError;
 #[cfg(test)]
 pub(crate) use signal::DecodeSignalError;
+pub(crate) use signal::STREAM_COUNT;
 pub use signal::{End, Flow, Speaker, Stream};
 
 /// The whole wire prefix of one initiator-spoken, reply-ending supply

@@ -190,12 +190,13 @@ impl Backend for Local {
         self,
         leaves: BoxNodeStream<'a, Self, Z>,
     ) -> impl NodeStream<Self, H> + 'a {
-        // The bulk counterpart of `leaves`: buffer each maximal
-        // same-prefix run and build its subtree in one pass, rather than
-        // folding it up one virtual level at a time. The buffered run is
-        // transient state for a subtree this in-memory backend is about to
-        // hold whole anyway, so the streaming session's memory story is
-        // unchanged.
+        // Buffer one maximal same-prefix run and build its subtree in one pass.
+        // The run costs `size_of::<(Prefix<Z>, typed::Node<Z>)>()` per leaf.
+        // `from_sorted_leaves` moves those items into its builder vector, so the
+        // two allocations briefly coexist. The nodes become the replica
+        // subtree, and the temporary allocations are reclaimed when the run
+        // ends. This transient grows with the replica and falls under the
+        // budget's replica-storage exclusion.
         let assembled = try_stream! {
             let mut leaves = pin!(leaves);
             let mut current: Option<Prefix<H>> = None;

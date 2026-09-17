@@ -161,15 +161,15 @@ use std::io;
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream};
 use tokio::sync::mpsc;
 
+use crate::tree::mirror::streaming::remote::STREAM_COUNT as PROTOCOL_STREAM_COUNT;
+
 /// Logical data streams a session may open in one direction.
 ///
 /// The protocol never opens more, and instantiations must admit this many
 /// concurrently (per direction, plus the control stream). The value is the
-/// protocol's own, fixed by its wire schedule (the descent's 32 tree
-/// heights at a two-height stride per stream, plus the shared opening
-/// stream: `ceil(32 / 2) + 1 = 17`) and pinned against the wire codec by
-/// test, so it cannot drift silently.
-pub const STREAM_COUNT: usize = 17;
+/// codec's own, derived from the wire schedule so transport sizing follows
+/// any schedule change.
+pub const STREAM_COUNT: usize = PROTOCOL_STREAM_COUNT;
 
 /// Where a data-stream half goes at its stream's clean end.
 ///

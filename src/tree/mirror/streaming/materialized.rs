@@ -110,9 +110,8 @@ use crate::tree::{
         materialized::work::{Resolver, Work},
         message::Greeting,
         protocol::{self, BoxResponses, Requests},
-        remote::DEFAULT_TARGET_MESSAGE_SIZE,
         stats::Recorder,
-        window::WindowConfig,
+        window::{ReplicaSize, WindowConfig},
     },
     typed::{
         ErasedPrefix, Hash, Prefix,
@@ -424,9 +423,8 @@ pub struct Completing<B: Backend<Node<Z>: Leaf>> {
 }
 
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
-    /// Construct the session in its opening phase, at the default window
-    /// and message-size target.
-    pub fn start(backend: B, root: Root<B>) -> Self {
+    /// Begin a session and advertise `target_message_size` in its greeting.
+    pub fn start(backend: B, root: Root<B>, target_message_size: u64) -> Self {
         Self {
             backend,
             versions: Start {
@@ -434,7 +432,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             },
             root,
             window: WindowConfig::default(),
-            target_message_size: DEFAULT_TARGET_MESSAGE_SIZE as u64,
+            target_message_size,
             stats: Recorder::default(),
         }
     }
@@ -442,14 +440,6 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     /// Select this session's window choice; see [`window`](super::window).
     pub fn window(mut self, window: WindowConfig) -> Self {
         self.window = window;
-        self
-    }
-
-    /// Declare this side's supply-run byte target for the greeting; the
-    /// session's encoders on both ends run at the minimum of the two
-    /// exchanged targets.
-    pub fn target_message_size(mut self, bytes: u64) -> Self {
-        self.target_message_size = bytes;
         self
     }
 
@@ -622,10 +612,10 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Initiator<B> for Handshaking<B,
         let ceiling = our_version | &their_version;
 
         let window = self.window.resolve(
-            self.root.len(),
-            their_len,
-            self.root.max_version_bytes(),
-            their_version_bytes,
+            [
+                ReplicaSize::new(self.root.len(), self.root.max_version_bytes()),
+                ReplicaSize::new(their_len, their_version_bytes),
+            ],
             B::node_bytes,
         );
         self.stats.window_granted(window.widest());
@@ -669,10 +659,10 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Responder<B> for Handshaking<B,
         let ceiling = our_version | &their_version;
 
         let window = self.window.resolve(
-            self.root.len(),
-            their_len,
-            self.root.max_version_bytes(),
-            their_version_bytes,
+            [
+                ReplicaSize::new(self.root.len(), self.root.max_version_bytes()),
+                ReplicaSize::new(their_len, their_version_bytes),
+            ],
             B::node_bytes,
         );
         self.stats.window_granted(window.widest());

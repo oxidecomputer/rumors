@@ -13,7 +13,6 @@ use std::{
 use futures::join;
 use proptest::prelude::*;
 
-use crate::Version;
 use crate::link::memory_with_capacity;
 use crate::message::Message;
 use crate::observe::{
@@ -40,6 +39,7 @@ use crate::tree::mirror::streaming::{
 use crate::tree::typed::Path;
 use crate::tree::typed::height::{Height, Root as RootHeight};
 use crate::tree::{Action, Root as TreeRoot, Tree, arb::nth_party};
+use crate::{DEFAULT_TARGET_MESSAGE_SIZE, Version};
 
 use super::{
     harness::{self, Backends, EndpointError, Topology, codec},
@@ -476,8 +476,15 @@ impl Session {
         let window = WindowConfig::Fixed(self.window);
         let (roots, queues) = with_observation(|| {
             run_to_quiescence(async {
-                let left = Handshaking::start(Local, Root::from(left)).window(window);
-                let right = Handshaking::start(Local, Root::from(right)).window(window);
+                let left =
+                    Handshaking::start(Local, Root::from(left), DEFAULT_TARGET_MESSAGE_SIZE as u64)
+                        .window(window);
+                let right = Handshaking::start(
+                    Local,
+                    Root::from(right),
+                    DEFAULT_TARGET_MESSAGE_SIZE as u64,
+                )
+                .window(window);
                 let left_proxy = RemoteHandshaking::start(Local, left_link, codec::<Vec<u8>>())
                     .window(window)
                     .observe(sent[0].handle());

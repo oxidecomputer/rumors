@@ -11,8 +11,8 @@ pub use async_io::FrameWrite;
 
 use super::{
     error::EncodeErrorKind,
-    frame::{Frame, LeafRun, Reaction, listing_len, write_listing},
-    signal::{Signal, Stream, WireSignal},
+    frame::{Frame, LeafRun, Reaction, SUPPLY_HEAD_LEN, listing_len, write_listing},
+    signal::{FRAME_OPENER_LEN, Signal, Stream},
 };
 #[cfg(test)]
 use super::{
@@ -20,15 +20,6 @@ use super::{
     frame::WireFrame,
     signal::Speaker,
 };
-
-/// Bytes a frame's opener occupies: the array head of a two- or
-/// three-item frame, then the stream and state items.
-const FRAME_HEAD_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
-
-/// Bytes a supply body's heads occupy at their widest: the
-/// embedded-sequence tag, then the byte-string head of a run at the
-/// wire's run byte cap.
-const SUPPLY_HEAD_LEN: usize = cbor::head_len(TAG_CBOR_SEQUENCE) + cbor::head_len(u32::MAX as u64);
 
 /// Append `wire`'s canonical representation to `out`.
 #[cfg(test)]
@@ -87,7 +78,7 @@ impl<const N: usize> Heads<N> {
 /// move bytes without measuring anything.
 struct FrameEncoding<'a> {
     /// The frame's opener: its array head, stream item, and state item.
-    head: Heads<FRAME_HEAD_LEN>,
+    head: Heads<FRAME_OPENER_LEN>,
     body: BodyEncoding<'a>,
 }
 

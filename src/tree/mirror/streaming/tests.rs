@@ -15,6 +15,7 @@ use std::{
 use proptest::prelude::*;
 
 use super::driver::try_join_mapped;
+use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::testing::{Quiescence, node_census, node_census_reset, run_to_quiescence};
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
@@ -28,7 +29,9 @@ use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
 use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
 use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Start};
 use crate::tree::mirror::streaming::stats::{Recorder, SessionStats};
-use crate::tree::mirror::streaming::window::{DEFAULT_SYNC_MEMORY_BUDGET, Window, WindowConfig};
+use crate::tree::mirror::streaming::window::{
+    DEFAULT_SYNC_MEMORY_BUDGET, ReplicaSize, Window, WindowConfig,
+};
 use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror as drive_streaming};
 use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
@@ -166,8 +169,12 @@ impl LocalSession {
             transcript,
         } = self;
         let recorders = stats.then(|| (Recorder::default(), Recorder::default()));
-        let mut client = Handshaking::start(Local, client.into()).window(window);
-        let mut server = Handshaking::start(Local, server.into()).window(window);
+        let mut client =
+            Handshaking::start(Local, client.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
+                .window(window);
+        let mut server =
+            Handshaking::start(Local, server.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
+                .window(window);
         if let Some((client_recorder, server_recorder)) = &recorders {
             client = client.stats(client_recorder.clone());
             server = server.stats(server_recorder.clone());
@@ -258,7 +265,8 @@ impl Outcome {
 /// undriven session: the ones that wrap it in a fault or failure decorator,
 /// and the ones that poll it themselves.
 fn floor_start(root: Root) -> Handshaking<Local, Start> {
-    Handshaking::start(Local, root.into()).window(WindowConfig::FLOOR)
+    Handshaking::start(Local, root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
+        .window(WindowConfig::FLOOR)
 }
 
 /// Reconcile `a` and `b` through the streaming local backend, returning both
@@ -344,10 +352,7 @@ const WIDE_CORPUS: u64 = 1_000_000;
 /// than assumed so.
 fn wide_window() -> (WindowConfig, u64) {
     let window = Window::from_budget(
-        WIDE_CORPUS,
-        WIDE_CORPUS,
-        0,
-        0,
+        [ReplicaSize::new(WIDE_CORPUS, 0); 2],
         DEFAULT_SYNC_MEMORY_BUDGET,
         Local::node_bytes,
     );

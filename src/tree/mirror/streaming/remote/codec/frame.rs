@@ -1,5 +1,6 @@
 //! Semantic wire frames after signal decoding.
 
+use crate::tree::mirror::streaming::window::FAN;
 use crate::{
     Version,
     message::{Message, PayloadCodec},
@@ -15,7 +16,10 @@ use super::error::{DecodeLeafError, LengthOverflow, QueryOrderError};
 use super::signal::{End, Flow, Stream};
 
 /// Largest query fan a listing map can carry: one child per radix value.
-pub const MAX_QUERY_CHILDREN: usize = 256;
+///
+/// The wire keeps this name because it is the decoder's map-length limit and
+/// appears in its errors; its value follows the tree's structural [`FAN`].
+pub const MAX_QUERY_CHILDREN: usize = FAN;
 
 /// Bytes of the byte-string head ahead of one listed Merkle hash.
 pub const HASH_HEAD_LEN: usize = cbor::head_len(MERKLE_HASH_LEN as u64);
@@ -30,6 +34,9 @@ pub const fn listing_entry_len(radix: u8) -> usize {
 /// Head bytes of the embedded-CBOR-sequence tag (63) opening every supply
 /// run and every record within one.
 pub(super) const RECORD_TAG_LEN: usize = cbor::head_len(TAG_CBOR_SEQUENCE);
+
+/// Largest encoded size of a supply run's tag and byte-string head.
+pub(super) const SUPPLY_HEAD_LEN: usize = RECORD_TAG_LEN + cbor::head_len(u32::MAX as u64);
 
 /// The fewest bytes a record's heads can occupy: the tag head plus a
 /// one-byte byte-string head.
@@ -171,16 +178,13 @@ impl LeafRun {
     ///
     /// Exactly what [`push`](Self::push) writes — the record's
     /// embedded-sequence tag and byte-string head, the version atom's tag
-    /// and byte-string framing plus its canonical bytes, and the payload —
-    /// pinned against an actual push by `record_len_matches_an_actual_push`.
+    /// and byte-string framing plus its canonical bytes, and the payload.
+    /// Tests compare this calculation with the bytes actually written.
     /// Saturating: a sum past `usize::MAX` cannot occur for in-memory
     /// slices, and an over-large record is rejected by [`push`](Self::push)
     /// regardless.
     pub fn record_len(version: &Version, message: &Message) -> usize {
-        let body = Self::record_body_len(version, message);
-        RECORD_TAG_LEN
-            .saturating_add(cbor::head_len(body as u64))
-            .saturating_add(body)
+        record_item_len(Self::record_body_len(version, message))
     }
 
     /// Bytes of a record's content behind its embedded-sequence head.
@@ -200,9 +204,7 @@ impl LeafRun {
     /// exceeds the wire's run byte cap — leaving the run untouched.
     pub fn push(&mut self, version: &Version, message: &Message) -> Result<(), LengthOverflow> {
         let body = Self::record_body_len(version, message);
-        let item = RECORD_TAG_LEN
-            .saturating_add(cbor::head_len(body as u64))
-            .saturating_add(body);
+        let item = record_item_len(body);
         checked_run_len(item)?;
         let version = version.as_bytes();
         let message = message.as_slice();
@@ -323,12 +325,17 @@ pub(super) fn record_head(input: &mut &[u8]) -> Result<u64, RecordHeadError> {
     Ok(head.value)
 }
 
-/// Check a run body length against the wire's run byte cap.
+/// Bytes occupied by a record item whose byte string contains `content` bytes.
+const fn record_item_len(content: usize) -> usize {
+    RECORD_TAG_LEN
+        .saturating_add(cbor::head_len(content as u64))
+        .saturating_add(content)
+}
+
+/// Check a run body length against the wire's `u32` byte cap.
 ///
-/// The encoder's boundary: a run the cap rejects was necessarily a single
-/// record (the budget saturates below the cap, so a multi-record run never
-/// grows here), and [`LeafRun::push`] already rejected any such record —
-/// this check is the belt to that suspender, priced identically.
+/// Multi-record runs flush below this limit. An oversized value here can only
+/// be a single record, which [`LeafRun::push`] rejects before encoding.
 pub(super) fn checked_run_len(len: usize) -> Result<u64, LengthOverflow> {
     // The cap is exactly the u32 range, so the failed conversion is the
     // overflow witness.
@@ -341,17 +348,10 @@ pub(super) fn checked_run_len(len: usize) -> Result<u64, LengthOverflow> {
 /// Whether a run body of `len` bytes is exactly one record: the first
 /// record's heads plus the content they declare span the body.
 ///
-/// The lone-record test of the run-budget ingress check, shared by the
-/// async reader and the sync oracle so the two decoders draw the
-/// over-budget legality boundary identically. A body this predicate
-/// rejects may also be structurally malformed; over budget, that
-/// distinction is moot — either way the frame is not the one legal
-/// overhang — so the check does not refine it further.
+/// The decoder uses this after a run exceeds its budget to recognize the one
+/// allowed overhang. Record decoding still validates its contents.
 pub(super) fn lone_record_spans(len: usize, record_content: u64) -> bool {
-    (RECORD_TAG_LEN as u64)
-        .saturating_add(cbor::head_len(record_content) as u64)
-        .saturating_add(record_content)
-        == len as u64
+    usize::try_from(record_content).is_ok_and(|content| record_item_len(content) == len)
 }
 
 /// Decode one exact record content into its canonical pair.

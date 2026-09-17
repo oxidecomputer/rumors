@@ -6,17 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::testing::run_to_quiescence;
 
-use super::{Acceptor, Connector, STREAM_COUNT, memory, memory_with_capacity};
-
-/// The link module's stream bound and the codec's logical stream count are
-/// the same protocol constant, stated once in each layer's vocabulary.
-#[test]
-fn stream_count_matches_the_codec() {
-    assert_eq!(
-        STREAM_COUNT,
-        usize::from(crate::tree::mirror::streaming::remote::codec_stream_count()),
-    );
-}
+use super::{Acceptor, Connector, memory, memory_with_capacity};
 
 /// The control halves form two independent ordered byte pipes: bytes written
 /// on each side arrive intact and in order on the other.

@@ -17,6 +17,7 @@ use tokio::io::ReadBuf;
 
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::link::{Acceptor, Connector, Done, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
 use crate::tree::mirror::cbor;
@@ -733,8 +734,18 @@ where
         right: right_backend,
         right_proxy,
     } = backends;
-    let left = Handshaking::start(left_backend, B::lift(left)).window(window);
-    let right = Handshaking::start(right_backend, B::lift(right)).window(window);
+    let left = Handshaking::start(
+        left_backend,
+        B::lift(left),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .window(window);
+    let right = Handshaking::start(
+        right_backend,
+        B::lift(right),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .window(window);
     let remote_right = RemoteHandshaking::start(left_proxy, left_link, codec).window(window);
     let remote_left = RemoteHandshaking::start(right_proxy, right_link, codec).window(window);
 

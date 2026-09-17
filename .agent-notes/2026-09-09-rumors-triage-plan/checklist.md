@@ -1,9 +1,10 @@
 # Rumors review checklist
 
-**Current:** reassess the remaining findings after the shared protocol
-vocabulary batch.
+**Current:** derive window charges and limits from their owning types on
+`codex/window-structural-charges`, based on `aa45cc34`.
 
-**Next:** choose the highest-value remaining batch from that reassessment.
+**Next:** support the public budget claims with a sparse cost grid, then prune
+the measurements which do not justify their maintenance cost.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →

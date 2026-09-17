@@ -21,7 +21,7 @@ use crate::{
                 streams::{AcceptDriver, claims, error_route},
             },
             stats::Recorder,
-            window::{Window, WindowConfig},
+            window::{ReplicaSize, Window, WindowConfig},
         },
         typed::{
             Hash,
@@ -184,10 +184,13 @@ where
         // so a mixed configuration is caught even on a converged session.
         payload_depth_limits_match::<B::Error>(&self.codec, &self.versions.remote)?;
         let window = self.window.resolve(
-            theirs.set_len,
-            self.versions.remote.set_len,
-            theirs.max_version_bytes,
-            self.versions.remote.max_version_bytes,
+            [
+                ReplicaSize::new(theirs.set_len, theirs.max_version_bytes),
+                ReplicaSize::new(
+                    self.versions.remote.set_len,
+                    self.versions.remote.max_version_bytes,
+                ),
+            ],
             B::node_bytes,
         );
         let budget = run_budget(&theirs, &self.versions.remote);
@@ -232,10 +235,10 @@ where
         payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
         let greeting = remote.clone();
         let window = self.window.resolve(
-            request.set_len,
-            remote.set_len,
-            request.max_version_bytes,
-            remote.max_version_bytes,
+            [
+                ReplicaSize::new(request.set_len, request.max_version_bytes),
+                ReplicaSize::new(remote.set_len, remote.max_version_bytes),
+            ],
             B::node_bytes,
         );
         let budget = run_budget(&request, &remote);

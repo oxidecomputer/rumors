@@ -67,27 +67,50 @@
 //! before selecting a window width. These are different queues with different
 //! purposes, although both use the radix as their capacity.
 //!
-//! The proxy's flushed-question queue *does* use the window. It tracks questions
-//! already sent but not yet answered. An upstream queue can recycle its slots
-//! while answers at this depth remain pending, so its capacity does not limit
-//! this queue's total population. The flushed-question queue needs its own
-//! depth-specific bound, just like the walk's query and resolution queues.
+//! The [remote proxy](super::remote) also window-sizes its flushed-question
+//! queue; the constructor documents why that edge needs its own capacity.
 
-use super::{Backend, Local, materialized::Resolve};
+use super::{
+    Backend, Local,
+    materialized::{Query, Resolution, Resolve},
+};
 use crate::link::STREAM_COUNT;
-use crate::tree::typed::{self, Prefix, height::Z};
+use crate::tree::typed::{
+    self, Prefix,
+    height::{Height, Root, Z},
+};
 
-/// The tree's maximum branching factor: one child per radix byte.
+/// The tree's maximum branching factor: one child per `u8` radix.
 ///
 /// Also the hard capacity floor of the assembly fan queues (see the
 /// [module docs](self)): those channels must admit one *full* fan
 /// regardless of any window tuning.
-pub(crate) const FAN: usize = 256;
+pub(crate) const FAN: usize = u8::MAX as usize + 1;
 
-/// Radix levels in the trie: one byte of a 32-byte leaf path per
-/// level. Typed heights run from `Z = 0` (leaves) to `Root = KEY_DEPTH`;
-/// the *depth* of the children discussed at height `h` is `KEY_DEPTH − h`.
-const KEY_DEPTH: usize = typed::hash::PATH_LEN;
+/// Radix levels in the trie, derived from the root's typed height.
+///
+/// Typed heights count upward from `Z = 0`; depth counts downward from the
+/// root, so children at height `h` have depth `KEY_DEPTH − h`.
+const KEY_DEPTH: usize = <Root as Height>::HEIGHT;
+
+/// Values from one greeting that affect the session's window cost.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ReplicaSize {
+    /// Live messages declared by the replica.
+    messages: u64,
+    /// Largest encoded version bound in the replica's tree.
+    version_bytes: u64,
+}
+
+impl ReplicaSize {
+    /// Combine one replica's message count and version-size bound.
+    pub(crate) const fn new(messages: u64, version_bytes: u64) -> Self {
+        Self {
+            messages,
+            version_bytes,
+        }
+    }
+}
 
 /// In-memory bytes of one child's slots in a level's in-flight
 /// containers: a query slot, a resolution slot, and a listing entry.
@@ -108,12 +131,17 @@ pub(crate) const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::N
     + std::mem::size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
     + std::mem::size_of::<(u8, typed::Hash)>();
 
-/// Fixed in-memory bytes per buffered scope beyond its per-child slots:
-/// two inline prefixes (40 B each) and the container `Vec` headers.
-const SCOPE_FIXED_BYTES: usize = 2 * 40 + 2 * 24;
+/// Fixed bytes held for one buffered scope, excluding its child allocations.
+///
+/// A scope occupies one [`Query`] and one [`Resolution`]. Their vector
+/// buffers are charged per child by [`REFERENCE_SLOT_BYTES`]; `size_of`
+/// supplies the two inline prefixes and vector headers without duplicating
+/// their layouts here.
+const SCOPE_FIXED_BYTES: usize = std::mem::size_of::<Query<<Local as Backend>::Erased>>()
+    + std::mem::size_of::<Resolution<<Local as Backend>::Erased>>();
 
 /// In-memory bytes of one buffered leaf request: an inline leaf prefix.
-const LEAF_REQUEST_BYTES: usize = 40;
+const LEAF_REQUEST_BYTES: usize = std::mem::size_of::<Prefix<Z>>();
 
 /// In-memory bytes one decode-fan slot spends beyond the leaf node value
 /// it carries: the inline leaf prefix and the pair's padding.
@@ -172,23 +200,29 @@ pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 43;
 
 /// A round encoded payload size above the sizing guide's measured BDP crossover.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const DESIGN_RECORD_BYTES: usize = 100;
+pub(crate) const REFERENCE_RECORD_BYTES: usize = 100;
 
 /// Wire cost of one reference-size message, checked by the wire calibration suite.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_RECORD_BYTES;
+pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + REFERENCE_RECORD_BYTES;
 
-/// Average modeled bytes per scope with every stage at its population limit.
-///
-/// The calibration case has two fully divergent sets of 62,500 messages.
-/// `scope_envelope_matches_the_derivation` recomputes the average using
-/// `Local` pricing. This is a calibration value, not an input to the window.
-/// It is unsuitable as a fixed price at small budgets: decode buffers and
-/// near-root stages contribute costs that do not scale with window width.
+/// Messages per replica in the reference sizing example.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 5_431;
+pub(crate) const REFERENCE_SESSION_MESSAGES: u64 = 100_000;
 
-/// Default target for one synchronization's pipeline memory: 512 MiB.
+/// Average modeled bytes per scope in the reference sizing example.
+///
+/// The reference case has two fully divergent sets of
+/// [`REFERENCE_SESSION_MESSAGES`] messages.
+/// `reference_scope_cost_matches_the_derivation` recomputes the average using
+/// `Local` pricing. This describes the reference workload; it is not an input
+/// to the window. It is unsuitable as a fixed price at small budgets: decode
+/// buffers and near-root stages contribute costs that do not scale with window
+/// width.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) const REFERENCE_SCOPE_BYTES: usize = 4_397;
+
+/// The default budget for the memory a synchronization may spend on pipelining: 512 MiB.
 ///
 /// See [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
 /// the contract and [the sizing guide](crate::sizing) for tuning guidance.
@@ -244,30 +278,23 @@ impl Window {
     /// at least one slot, even if that floor exceeds the budget. This is a
     /// sizing calculation, not an allocation or a measurement of live memory.
     ///
-    /// Version prices use twice the sum of the replicas' encoded-version
-    /// bounds: a result combines both histories and carries a ceiling and a
-    /// floor. Deletion-pruned subsets are checked separately by the conformance
-    /// and retained-root census tests. The backend's price must be monotone in
-    /// both fan size and version size for these upper estimates to be useful.
+    /// A result node may combine version bounds from both replicas and retains
+    /// both a ceiling and a floor, so version storage is priced at twice the
+    /// replicas' sum. The backend's price must be monotone in fan size and
+    /// version size.
     pub(crate) fn from_budget(
-        local_messages: u64,
-        remote_messages: u64,
-        local_version_bytes: u64,
-        remote_version_bytes: u64,
+        replicas: [ReplicaSize; 2],
         budget_bytes: usize,
         node_bytes: impl Fn(usize, usize) -> usize,
     ) -> Self {
-        let n = u128::from(local_messages.max(remote_messages));
-        let pair = u128::from(local_messages) * u128::from(remote_messages);
+        let [local, remote] = replicas;
+        let n = u128::from(local.messages.max(remote.messages));
+        let pair = u128::from(local.messages) * u128::from(remote.messages);
         let budget = budget_bytes as u128;
-        // Ceiling and floor each encode within the exchanged aggregates'
-        // sum `local + remote` (each side's aggregate covers the bounds
-        // it materializes; a cross-side assembly joins or meets one from
-        // each, within the pinned pairwise lemmas; deletion-pruned
-        // survivor bounds are *priced* within the same sum, guarded by
-        // the census pin); the pair together within its double.
+        // Either bound may combine both replicas' histories. Price the
+        // ceiling and floor separately at their shared worst case.
         let version_bound = usize::try_from(
-            2 * (u128::from(local_version_bytes) + u128::from(remote_version_bytes)),
+            2 * (u128::from(local.version_bytes) + u128::from(remote.version_bytes)),
         )
         .unwrap_or(usize::MAX);
 
@@ -291,7 +318,9 @@ impl Window {
         let mut population = [0u128; KEY_DEPTH + 1];
         let mut scope_price = [0u128; KEY_DEPTH + 1];
         for depth in 1..=KEY_DEPTH {
-            let held = children_quantile(n, depth).try_into().unwrap_or(usize::MAX);
+            let held = children_quantile(n, depth)
+                .try_into()
+                .expect("a child count cannot exceed the radix fan");
             // Widened before the add: a backend pricing nodes near
             // `usize::MAX` must not wrap the slot term away.
             let reference_bytes =
@@ -312,8 +341,10 @@ impl Window {
         // by the number of queues carrying those views.
         //
         // Leaf requests retain only a prefix and need their own slot charge.
-        // Zero population estimates still receive one progress slot below,
-        // just like an unaffordable one-slot window.
+        // For u64 message counts, this population is always zero at the
+        // deepest stages (`deep_stage_populations_are_zero` pins the bound).
+        // Keeping the term makes the formula valid if those limits change;
+        // the final window still grants every edge one progress slot.
         //
         // Saturation makes an unrepresentable charge unaffordable, so large
         // populations or backend prices can narrow the window but never wrap
@@ -330,7 +361,12 @@ impl Window {
         // No modeled population benefits from K above the largest S(d).
         // Charge is monotone in K. Keep the affordable lower half, rounding
         // the midpoint upward so adjacent bounds still make progress.
-        let ceiling = population.iter().copied().max().unwrap_or(1).max(1);
+        let ceiling = population
+            .iter()
+            .copied()
+            .max()
+            .expect("the population table includes every tree height")
+            .max(1);
         let (mut lo, mut hi) = (1u128, ceiling);
         while lo < hi {
             let mid = lo + (hi - lo).div_ceil(2);
@@ -364,7 +400,8 @@ impl Window {
     /// The channel capacity for a window edge whose items carry typed
     /// height `height`.
     pub(crate) fn capacity(&self, height: usize) -> usize {
-        self.capacities[height.min(KEY_DEPTH)]
+        // Production callers obtain this value from a typed height.
+        self.capacities[height]
     }
 
     /// The widest per-height capacity this window grants, in disputed
@@ -430,23 +467,13 @@ impl WindowConfig {
     /// version-size bounds.
     pub(crate) fn resolve(
         self,
-        local_len: u64,
-        remote_len: u64,
-        local_version_bytes: u64,
-        remote_version_bytes: u64,
+        replicas: [ReplicaSize; 2],
         node_bytes: impl Fn(usize, usize) -> usize,
     ) -> Window {
         match self {
             #[cfg(any(test, feature = "test-internals"))]
             Self::Fixed(window) => window,
-            Self::Budget(bytes) => Window::from_budget(
-                local_len,
-                remote_len,
-                local_version_bytes,
-                remote_version_bytes,
-                bytes,
-                node_bytes,
-            ),
+            Self::Budget(bytes) => Window::from_budget(replicas, bytes, node_bytes),
         }
     }
 }
@@ -455,6 +482,73 @@ impl Default for WindowConfig {
     fn default() -> Self {
         Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
     }
+}
+
+/// Render the public sizing table with the production window calculation.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) fn tradeoff_table() -> String {
+    use std::fmt::Write;
+
+    /// The budget rows, smallest to largest.
+    const BUDGETS: &[(&str, usize)] = &[
+        ("256 KiB", 256 << 10),
+        ("1 MiB", 1 << 20),
+        ("4 MiB", 4 << 20),
+        ("16 MiB", 16 << 20),
+        ("64 MiB", 64 << 20),
+        ("256 MiB", 256 << 20),
+        ("512 MiB", 512 << 20),
+        ("2 GiB", 2 << 30),
+    ];
+
+    /// Encoded payload sizes from a random `u64` through larger messages.
+    const RECORD_SIZES: &[(usize, &str)] = &[
+        (9, "m = 9 (u64)"),
+        (64, "m = 64"),
+        (REFERENCE_RECORD_BYTES, "m = 100"),
+        (1024, "m = 1024"),
+    ];
+
+    let mut table = String::new();
+    let _ = writeln!(
+        table,
+        "<!-- Generated by `just window-tradeoff`; do not edit. -->"
+    );
+
+    let mut header = String::from("| budget | window (subtrees) |");
+    let mut rule = String::from("|---|---|");
+    for (_, label) in RECORD_SIZES {
+        let _ = write!(header, " {label} |");
+        rule.push_str("---|");
+    }
+    let _ = writeln!(table, "{header}");
+    let _ = writeln!(table, "{rule}");
+
+    for &(label, budget) in BUDGETS {
+        let default = if budget == DEFAULT_SYNC_MEMORY_BUDGET {
+            " (default)"
+        } else {
+            ""
+        };
+        let window = Window::from_budget(
+            [
+                ReplicaSize::new(REFERENCE_SESSION_MESSAGES, 0),
+                ReplicaSize::new(REFERENCE_SESSION_MESSAGES, 0),
+            ],
+            budget,
+            Local::node_bytes,
+        )
+        .widest();
+        let _ = write!(table, "| {label}{default} | {window} |");
+        for &(message_bytes, _) in RECORD_SIZES {
+            let bdp_messages =
+                SPEC_BDP_BYTES as f64 / (DISPUTE_OVERHEAD_BYTES + message_bytes) as f64;
+            let slowdown = (bdp_messages / window as f64).max(1.0);
+            let _ = write!(table, " {slowdown:.1}× |");
+        }
+        let _ = writeln!(table);
+    }
+    table
 }
 
 // Integer approximations to the occupancy tails. Uniform leaf placement makes

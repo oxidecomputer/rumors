@@ -5,9 +5,7 @@ use std::fmt;
 
 use crate::observe::Role;
 use crate::tree::mirror::cbor;
-#[cfg(any(test, feature = "test-internals"))]
-use crate::tree::typed::height::Root;
-use crate::tree::typed::height::{Height, UnderRoot, Z};
+use crate::tree::typed::height::{Height, Root, UnderRoot, Z};
 
 /// Lowest node height carried by a logical stream.
 pub const LEAF_HEIGHT: usize = <Z as Height>::HEIGHT;
@@ -16,11 +14,16 @@ pub const LEAF_HEIGHT: usize = <Z as Height>::HEIGHT;
 pub const HIGHEST_STREAM_HEIGHT: usize = <UnderRoot as Height>::HEIGHT;
 
 /// Number of streamed node heights, also the first height outside their range.
-#[cfg(any(test, feature = "test-internals"))]
 pub const STREAMED_HEIGHT_COUNT: usize = <Root as Height>::HEIGHT;
 
 /// Successive streams for one speaker descend two node heights at a time.
 const STREAM_HEIGHT_STRIDE: usize = 2;
+
+/// Logical streams required by the wire schedule in one direction.
+///
+/// Each speaker owns every other interior height. The extra stream is shared
+/// by the under-root opening and terminal leaf phases.
+pub(crate) const STREAM_COUNT: usize = STREAMED_HEIGHT_COUNT.div_ceil(STREAM_HEIGHT_STRIDE) + 1;
 
 /// Distance remainder selecting an initiator-owned interior height.
 const INITIATOR_HEIGHT_PHASE: usize = 1;
@@ -34,7 +37,10 @@ pub struct Stream(u8);
 
 impl Stream {
     /// Logical streams multiplexed into each transport direction.
-    pub const COUNT: u8 = 17;
+    pub const COUNT: u8 = {
+        assert!(STREAM_COUNT <= u8::MAX as usize);
+        STREAM_COUNT as u8
+    };
 
     /// Index of the final logical stream in a direction.
     pub const MAX: u8 = Self::COUNT - 1;
@@ -349,10 +355,15 @@ pub struct WireSignal {
 }
 
 impl WireSignal {
-    /// Bytes the two items occupy on the wire: every stream index and
-    /// state code is below 24, so each item is a one-byte head.
-    pub const ENCODED_LEN: usize =
-        cbor::head_len(Stream::MAX as u64) + cbor::head_len((Signal::STATE_COUNT - 1) as u64);
+    /// Bytes occupied by the stream index and state code.
+    ///
+    /// The frame writer stores these items in a fixed-size opener, so each
+    /// valid value must have the same encoded width as zero.
+    pub const ENCODED_LEN: usize = {
+        assert!(cbor::head_len(Stream::MAX as u64) == cbor::head_len(0));
+        assert!(cbor::head_len((Signal::STATE_COUNT - 1) as u64) == cbor::head_len(0));
+        cbor::head_len(Stream::MAX as u64) + cbor::head_len((Signal::STATE_COUNT - 1) as u64)
+    };
 
     /// Pair a stream with a signal valid for its speaker and protocol phase.
     #[cfg(test)]
@@ -419,6 +430,9 @@ impl WireSignal {
         (self.stream, self.signal)
     }
 }
+
+/// Encoded bytes in a frame's array head, stream, and state.
+pub(super) const FRAME_OPENER_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
 
 /// A known signal placed on a stream where the protocol forbids it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

@@ -24,7 +24,7 @@ use bytes::Bytes;
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::link::{Connector, Done, Link, MemoryLink};
-use rumors::testing::{dispute_overhead_bytes, envelope_and_wire_bytes};
+use rumors::testing::{dispute_overhead_bytes, reference_wire_bytes};
 use rumors::{Peer, Rumors};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -43,7 +43,7 @@ const DIVERGENT: usize = 8_192;
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// A byte-string payload that encodes to the 100-byte reference size.
-const DESIGN_PAYLOAD_LEN: usize = 98;
+const REFERENCE_PAYLOAD_LEN: usize = 98;
 
 /// A byte-string payload that encodes to 64 bytes.
 const MID_PAYLOAD_LEN: usize = 62;
@@ -52,9 +52,9 @@ const MID_PAYLOAD_LEN: usize = 62;
 /// type byte plus one length byte.
 const CBOR_BSTR_HEADER_BYTES: usize = 2;
 
-/// The design record's encoded payload: [`DESIGN_PAYLOAD_LEN`] bytes
+/// The reference record's encoded payload: [`REFERENCE_PAYLOAD_LEN`] bytes
 /// behind CBOR's byte-string header.
-const DESIGN_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + DESIGN_PAYLOAD_LEN;
+const REFERENCE_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + REFERENCE_PAYLOAD_LEN;
 
 /// A random `u64`'s CBOR encoding: the one-byte major-type header plus
 /// eight value bytes (every seeded draw exceeds 2³², so the width is
@@ -214,16 +214,16 @@ where
 
 /// The reference fixture's rounded mean equals the calibrated wire cost.
 #[test]
-fn dispute_wire_bytes_is_the_design_record_cost() {
+fn dispute_wire_bytes_is_the_reference_record_cost() {
     let mut make = |rng: &mut ChaChaRng| {
-        let mut payload = vec![0u8; DESIGN_PAYLOAD_LEN];
+        let mut payload = vec![0u8; REFERENCE_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)
     };
     let implied = implied_bytes_per_message::<Bytes>(&mut make);
-    let (_, constant) = envelope_and_wire_bytes();
+    let constant = reference_wire_bytes();
     eprintln!(
-        "design-record cell: implied {implied} B/message at {DESIGN_ENCODED_PAYLOAD_BYTES} B \
+        "reference-record cell: implied {implied} B/message at {REFERENCE_ENCODED_PAYLOAD_BYTES} B \
          encoded payload (constant {constant})",
     );
     assert_eq!(
@@ -274,14 +274,14 @@ fn mid_size_records_match_the_reference_estimate() {
 fn table_corpus_has_similar_protocol_overhead() {
     let messages = 75_000;
     let (left, right) = diverged(0, messages, WindowChoice::Default, |rng| {
-        let mut payload = vec![0u8; DESIGN_PAYLOAD_LEN];
+        let mut payload = vec![0u8; REFERENCE_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)
     });
     let total = session_wire_bytes(&left, &right);
     assert_eq!(left.snapshot().hash(), right.snapshot().hash());
     assert_eq!(left.snapshot().len(), 2 * messages);
-    let overhead = total as f64 / (2 * messages) as f64 - DESIGN_ENCODED_PAYLOAD_BYTES as f64;
+    let overhead = total as f64 / (2 * messages) as f64 - REFERENCE_ENCODED_PAYLOAD_BYTES as f64;
     let estimate = dispute_overhead_bytes() as f64;
     assert!(
         (overhead - estimate).abs() < 2.0,

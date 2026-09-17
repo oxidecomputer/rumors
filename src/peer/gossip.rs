@@ -917,10 +917,10 @@ impl<'a> Reconciliation<'a> {
                 remote_role,
             } = self;
             let (read, write, connector, acceptor, epoch) = link;
-            let local = materialized::Handshaking::start(Local, root.into())
-                .window(window)
-                .target_message_size(run_budget.bytes() as u64)
-                .stats(stats.clone());
+            let local =
+                materialized::Handshaking::start(Local, root.into(), run_budget.bytes() as u64)
+                    .window(window)
+                    .stats(stats.clone());
             let carrier = Link::for_session(read, write, connector, acceptor, epoch);
             let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
                 .window(window)

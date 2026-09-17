@@ -7,9 +7,10 @@ mod envelope;
 use proptest::prelude::*;
 
 use super::{
-    DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES, FAN, FAN_SLOT_BYTES,
-    KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES, SCOPE_FIXED_BYTES,
-    SPEC_BDP_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, SUPPLY_RECORDS_PER_STREAM, Window, WindowConfig,
+    DEFAULT_SYNC_MEMORY_BUDGET, DISPUTE_OVERHEAD_BYTES, FAN, FAN_SLOT_BYTES, KEY_DEPTH,
+    LEAF_REQUEST_BYTES, REFERENCE_RECORD_BYTES, REFERENCE_SCOPE_BYTES, REFERENCE_SESSION_MESSAGES,
+    REFERENCE_SLOT_BYTES, ReplicaSize, SCOPE_FIXED_BYTES, SPEC_BDP_BYTES,
+    SUPPLY_DECODE_ENVELOPE_BYTES, SUPPLY_RECORDS_PER_STREAM, Window, WindowConfig,
     children_quantile, disputed, occupied, stage_population,
 };
 use crate::link::STREAM_COUNT;
@@ -18,14 +19,19 @@ use crate::link::STREAM_COUNT;
 /// replicas at a terabyte-scale corpus.
 const SYMMETRIC: u64 = 10_000_000_000;
 
-/// Corpus size for the average-scope-cost calibration, independent of the public table.
-const DESIGN_SESSION_MESSAGES: u64 = 62_500;
-
 /// The in-memory backend's pricing, for tests that recompute the charge
 /// the solve stayed inside: one pointer per reference at every fan and
 /// version bound.
 fn local_node_bytes(_children: usize, _version_bound: usize) -> usize {
     std::mem::size_of::<*const ()>()
+}
+
+/// Build the two greeting measurements used by the window calculation.
+fn replicas(messages: [u64; 2], version_bytes: [u64; 2]) -> [ReplicaSize; 2] {
+    [
+        ReplicaSize::new(messages[0], version_bytes[0]),
+        ReplicaSize::new(messages[1], version_bytes[1]),
+    ]
 }
 
 /// Recompute a window's modeled charge from its installed capacities.
@@ -45,7 +51,8 @@ fn charge(
         * (SUPPLY_RECORDS_PER_STREAM as u128)
         * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
     for depth in 1..=KEY_DEPTH {
-        let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
+        let held = usize::try_from(children_quantile(n, depth))
+            .expect("a child count cannot exceed the radix fan");
         let reference = (node_bytes(held, version_bound) + REFERENCE_SLOT_BYTES) as u128;
         let capacity = window.capacity(KEY_DEPTH - depth) as u128;
         let population = stage_population(n, pair, depth).min(capacity);
@@ -72,7 +79,7 @@ fn default_is_the_budget_unconditionally() {
 #[test]
 fn explicit_floor_pins_every_capacity_at_one() {
     assert_eq!(
-        WindowConfig::FLOOR.resolve(SYMMETRIC, SYMMETRIC, 0, 0, local_node_bytes),
+        WindowConfig::FLOOR.resolve(replicas([SYMMETRIC; 2], [0; 2]), local_node_bytes),
         Window::FLOOR
     );
 }
@@ -84,7 +91,11 @@ fn explicit_floor_pins_every_capacity_at_one() {
 #[test]
 fn asymmetric_sessions_get_floor_dispute_windows() {
     assert_eq!(
-        Window::from_budget(0, SYMMETRIC, 0, 0, usize::MAX, local_node_bytes),
+        Window::from_budget(
+            replicas([0, SYMMETRIC], [0; 2]),
+            usize::MAX,
+            local_node_bytes,
+        ),
         Window::FLOOR
     );
 }
@@ -95,7 +106,7 @@ fn asymmetric_sessions_get_floor_dispute_windows() {
 #[test]
 fn zero_budget_is_the_floor() {
     assert_eq!(
-        Window::from_budget(SYMMETRIC, SYMMETRIC, 0, 0, 0, local_node_bytes),
+        Window::from_budget(replicas([SYMMETRIC; 2], [0; 2]), 0, local_node_bytes),
         Window::FLOOR
     );
 }
@@ -105,7 +116,7 @@ fn zero_budget_is_the_floor() {
 #[test]
 fn tiny_set_is_the_floor() {
     assert_eq!(
-        Window::from_budget(0, 0, 0, 0, usize::MAX, local_node_bytes),
+        Window::from_budget(replicas([0; 2], [0; 2]), usize::MAX, local_node_bytes),
         Window::FLOOR
     );
 }
@@ -121,10 +132,7 @@ fn tiny_set_is_the_floor() {
 #[test]
 fn pathological_pricing_saturates_to_the_floor() {
     let window = Window::from_budget(
-        u64::MAX,
-        u64::MAX,
-        u64::MAX,
-        u64::MAX,
+        replicas([u64::MAX; 2], [u64::MAX; 2]),
         usize::MAX,
         |_, _| usize::MAX,
     );
@@ -133,16 +141,20 @@ fn pathological_pricing_saturates_to_the_floor() {
 
 /// The structural near-root caps hold at any set size and any budget.
 ///
-/// The level under the root fans one scope into at most 256, and the next
-/// at most 256², so their capacities never exceed those populations
+/// The level under the root fans one scope into at most `FAN`, and the next
+/// at most `FAN²`, so their capacities never exceed those populations
 /// however much budget is offered.
 #[test]
 fn near_root_capacities_are_structural() {
-    let window = Window::from_budget(u64::MAX, u64::MAX, 0, 0, usize::MAX, local_node_bytes);
+    let window = Window::from_budget(
+        replicas([u64::MAX; 2], [0; 2]),
+        usize::MAX,
+        local_node_bytes,
+    );
     // Height KEY_DEPTH−2 discusses depth-2 children: at most one full fan
     // of queried entries under the single jointly-known root.
     assert!(window.capacity(KEY_DEPTH - 2) <= FAN);
-    // Height KEY_DEPTH−3 discusses depth-3 children: at most 256².
+    // Height KEY_DEPTH−3 discusses depth-3 children: at most FAN².
     assert!(window.capacity(KEY_DEPTH - 3) <= FAN * FAN);
 }
 
@@ -152,10 +164,7 @@ fn near_root_capacities_are_structural() {
 #[test]
 fn default_budget_pipelines_the_fat_stages() {
     let window = Window::from_budget(
-        SYMMETRIC,
-        SYMMETRIC,
-        0,
-        0,
+        replicas([SYMMETRIC; 2], [0; 2]),
         DEFAULT_SYNC_MEMORY_BUDGET,
         local_node_bytes,
     );
@@ -174,7 +183,11 @@ fn default_budget_pipelines_the_fat_stages() {
 /// than claiming an impossibility it cannot certify.
 #[test]
 fn deep_levels_are_sparse() {
-    let window = Window::from_budget(1_000_000, 1_000_000, 0, 0, usize::MAX, local_node_bytes);
+    let window = Window::from_budget(
+        replicas([1_000_000; 2], [0; 2]),
+        usize::MAX,
+        local_node_bytes,
+    );
     for height in 0..=(KEY_DEPTH - 10) {
         assert!(
             window.capacity(height) <= 16,
@@ -184,35 +197,33 @@ fn deep_levels_are_sparse() {
     }
 }
 
-/// The reference scope charge matches the sizing calculation, and the default fits that case.
+/// The reference scope cost matches its derivation, and the default admits that population.
 #[test]
-fn scope_envelope_matches_the_derivation() {
-    let n = u128::from(DESIGN_SESSION_MESSAGES);
+fn reference_scope_cost_matches_the_derivation() {
+    let n = u128::from(REFERENCE_SESSION_MESSAGES);
     let mut total = 0u128;
     for depth in 1..=KEY_DEPTH {
-        let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
+        let held = usize::try_from(children_quantile(n, depth))
+            .expect("a child count cannot exceed the radix fan");
         let reference = (local_node_bytes(held, 0) + REFERENCE_SLOT_BYTES) as u128;
         total += stage_population(n, n * n, depth).min(n)
             * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
     }
     total += stage_population(n, n * n, KEY_DEPTH).min(n) * LEAF_REQUEST_BYTES as u128;
     assert_eq!(
-        SCOPE_ENVELOPE_BYTES as u128,
+        REFERENCE_SCOPE_BYTES as u128,
         total.div_ceil(n),
-        "SCOPE_ENVELOPE_BYTES must equal the design session's per-scope charge",
+        "REFERENCE_SCOPE_BYTES must equal the reference session's per-scope charge",
     );
 
     let window = Window::from_budget(
-        DESIGN_SESSION_MESSAGES,
-        DESIGN_SESSION_MESSAGES,
-        0,
-        0,
+        replicas([REFERENCE_SESSION_MESSAGES; 2], [0; 2]),
         DEFAULT_SYNC_MEMORY_BUDGET,
         local_node_bytes,
     );
     assert!(
-        (0..=KEY_DEPTH).any(|height| window.capacity(height) as u64 >= DESIGN_SESSION_MESSAGES),
-        "the policy default must admit the design session's whole population in flight",
+        (0..=KEY_DEPTH).any(|height| window.capacity(height) as u64 >= REFERENCE_SESSION_MESSAGES),
+        "the policy default must admit the reference session's whole population in flight",
     );
 }
 
@@ -260,19 +271,13 @@ fn tradeoff_table_matches_the_derivation() {
 fn default_crossover_matches_the_solve() {
     let window_at = |corpus: u64| {
         let window = Window::from_budget(
-            corpus,
-            corpus,
-            0,
-            0,
+            replicas([corpus; 2], [0; 2]),
             DEFAULT_SYNC_MEMORY_BUDGET,
             local_node_bytes,
         );
-        (0..=KEY_DEPTH)
-            .map(|height| window.capacity(height) as u64)
-            .max()
-            .expect("thirty-three heights")
+        window.widest()
     };
-    let crossover = (1..=DESIGN_RECORD_BYTES).find(|&m| {
+    let crossover = (1..=REFERENCE_RECORD_BYTES).find(|&m| {
         let corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + m)) as u64;
         window_at(corpus) >= corpus
     });
@@ -306,18 +311,12 @@ fn materializing_node_bytes(children: usize, version_bound: usize) -> usize {
 /// through any built-in rate.
 #[test]
 fn function_pricing_narrows_the_window() {
-    let (len, version_bytes, budget) = (1 << 24, 512, 64 << 20);
-    let cheap = Window::from_budget(len, len, version_bytes, version_bytes, budget, |_, _| {
+    let (len, version_bytes, budget) = (1_u64 << 24, 512_u64, 64 << 20);
+    let measurements = replicas([len; 2], [version_bytes; 2]);
+    let cheap = Window::from_budget(measurements, budget, |_, _| {
         std::mem::size_of::<*const ()>()
     });
-    let pricey = Window::from_budget(
-        len,
-        len,
-        version_bytes,
-        version_bytes,
-        budget,
-        materializing_node_bytes,
-    );
+    let pricey = Window::from_budget(measurements, budget, materializing_node_bytes);
     for height in 0..=KEY_DEPTH {
         assert!(
             pricey.capacity(height) <= cheap.capacity(height),
@@ -338,7 +337,7 @@ proptest! {
         sizes in proptest::array::uniform2(any::<u64>()),
         budget in 0usize..=1 << 44,
     ) {
-        let window = Window::from_budget(sizes[0], sizes[1], 0, 0, budget, local_node_bytes);
+        let window = Window::from_budget(replicas(sizes, [0; 2]), budget, local_node_bytes);
         prop_assert!(
             window == Window::FLOOR
                 || charge(&window, sizes, local_node_bytes, 0) <= budget as u128
@@ -372,6 +371,31 @@ proptest! {
         prop_assert!(stage_population(n, n * n, depth) <= occupied(n, depth - 1));
     }
 
+    /// Every sufficiently deep stage has zero modeled occupancy for all
+    /// representable set lengths.
+    ///
+    /// At these depths the uniform-hash tail makes even one disputed scope
+    /// rarer than the session-wide bound. The calculation still charges leaf
+    /// requests so its general formula does not depend on this shortcut. The
+    /// maximal pair runs in every case because it is the first boundary to
+    /// become nonzero if the tail constants change.
+    #[test]
+    fn deep_stage_populations_are_zero(sizes in proptest::array::uniform2(any::<u64>())) {
+        for sizes in [[u64::MAX; 2], sizes] {
+            let n = u128::from(sizes[0].max(sizes[1]));
+            let pair = u128::from(sizes[0]) * u128::from(sizes[1]);
+            for depth in 25..=KEY_DEPTH {
+                prop_assert_eq!(
+                    stage_population(n, pair, depth),
+                    0,
+                    "depth {}, sizes {:?}",
+                    depth,
+                    sizes,
+                );
+            }
+        }
+    }
+
     /// Capacities move smoothly as the set estimate crosses a tree-height
     /// boundary (a power of 256).
     ///
@@ -392,8 +416,16 @@ proptest! {
         budget in (1usize << 24)..=(1 << 40),
     ) {
         let boundary = 256u64.pow(level);
-        let below = Window::from_budget(boundary - offset, boundary - offset, 0, 0, budget, local_node_bytes);
-        let above = Window::from_budget(boundary + offset, boundary + offset, 0, 0, budget, local_node_bytes);
+        let below = Window::from_budget(
+            replicas([boundary - offset; 2], [0; 2]),
+            budget,
+            local_node_bytes,
+        );
+        let above = Window::from_budget(
+            replicas([boundary + offset; 2], [0; 2]),
+            budget,
+            local_node_bytes,
+        );
         for height in 0..=KEY_DEPTH {
             let (b, a) = (below.capacity(height), above.capacity(height));
             let step = b.abs_diff(a) as u64;

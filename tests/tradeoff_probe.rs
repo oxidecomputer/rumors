@@ -6,7 +6,7 @@
 //! grants -- the quantity the committed trade-off table tabulates.
 //!
 //! It is a hand-run instrument, in no recipe: every cell drives whole
-//! sessions over the design corpus, too slow for the gate, for a claim
+//! sessions over the reference corpus, too slow for the gate, for a claim
 //! that moves only with the derivation or the wire law. Run it after
 //! either moves:
 //!
@@ -19,8 +19,9 @@
 //! 1. Measure the transfer-bound baseline (an unbounded budget) in exact
 //!    one-way hops, self-calibrating the link's BDP in messages.
 //! 2. Measure budgets spanning a constricted, a near-crossover, and a
-//!    comfortable cell, all at the design corpus (62,500 divergent
-//!    messages a side, the scale the per-scope envelope is pinned at).
+//!    comfortable cell, all at the reference corpus
+//!    ([`REFERENCE_SESSION_MESSAGES`] divergent messages per side, the scale
+//!    used to calibrate the per-scope envelope).
 //! 3. Assert the observed slowdown — hops(budget) / hops(unbounded) —
 //!    at or inside the solve-derived wave form to within hop
 //!    quantization; the closed-form estimate is printed beside it for
@@ -40,8 +41,8 @@ use std::time::Duration;
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::testing::{
-    dispute_overhead_bytes, envelope_and_wire_bytes, supply_decode_envelope_bytes,
-    window_capacities,
+    REFERENCE_SESSION_MESSAGES, dispute_overhead_bytes, reference_scope_bytes,
+    supply_decode_envelope_bytes, window_capacities,
 };
 use rumors::{Peer, Rumors};
 
@@ -55,11 +56,6 @@ const BUILD_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
-
-/// Messages each side originates alone: the design corpus (the scale
-/// `SCOPE_ENVELOPE_BYTES` = 5,431 B is pinned at), so the closed form
-/// is evaluated inside its own claimed regime.
-const DIVERGENT: usize = 62_500;
 
 /// An effectively unbounded budget: the transfer-bound baseline.
 const UNBOUNDED: usize = 8 << 30;
@@ -91,8 +87,8 @@ where
         .into_rumors()
     });
 
-    send(&left, DIVERGENT, &mut rng);
-    send(&right, DIVERGENT, &mut rng);
+    send(&left, REFERENCE_SESSION_MESSAGES, &mut rng);
+    send(&right, REFERENCE_SESSION_MESSAGES, &mut rng);
     (left, right)
 }
 
@@ -142,13 +138,13 @@ fn run_cells<T>(
 ) where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (envelope, _) = envelope_and_wire_bytes();
+    let scope_bytes = reference_scope_bytes();
     // The shipped intercept, never a transcribed copy: the probe's byte
     // denominators move with the wire's own calibration.
     let overhead = dispute_overhead_bytes();
     let transfer = wire_hops(UNBOUNDED, pipe, make);
     assert!(transfer >= 4, "degenerate transfer count {transfer}");
-    let bdp_messages = 2.0 * DIVERGENT as f64 / transfer as f64;
+    let bdp_messages = 2.0 * REFERENCE_SESSION_MESSAGES as f64 / transfer as f64;
     let bdp_bytes = bdp_messages * (overhead + encoded_m) as f64;
     eprintln!(
         "[{label}] m={encoded_m} pipe={pipe}: transfer {transfer} hops, \
@@ -157,11 +153,11 @@ fn run_cells<T>(
     for &target in targets {
         // Budget chosen so the closed form predicts `target`.
         let budget =
-            (bdp_bytes * envelope as f64 / (target * (overhead + encoded_m) as f64)) as usize;
-        let closed = (bdp_bytes * envelope as f64
+            (bdp_bytes * scope_bytes as f64 / (target * (overhead + encoded_m) as f64)) as usize;
+        let closed = (bdp_bytes * scope_bytes as f64
             / (budget as f64 * (overhead + encoded_m) as f64))
             .max(1.0);
-        let session_len = (COMMON + DIVERGENT) as u64;
+        let session_len = (COMMON + REFERENCE_SESSION_MESSAGES) as u64;
         let caps = window_capacities(session_len, session_len, budget);
         let k_max = caps.iter().copied().max().unwrap_or(1);
         let exact = (bdp_messages / k_max as f64).max(1.0);

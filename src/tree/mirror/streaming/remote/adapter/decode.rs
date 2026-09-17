@@ -341,6 +341,10 @@ where
 }
 
 /// Stream decoded leaves through the backend's node assembler.
+///
+/// The channel accounts for decoded leaves awaiting the backend. Any further
+/// buffering used to construct a node belongs to that backend; `Local`, for
+/// example, keeps one complete same-prefix run as replica storage.
 fn assembly<B>(
     backend: B,
     height: usize,
