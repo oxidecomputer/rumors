@@ -4,8 +4,8 @@
 use crate::codec;
 use crate::{Party, Rank, Ticks, Version};
 
+use dashu_int::UBig;
 use proptest::prelude::*;
-use suanpan::UBig;
 
 use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,

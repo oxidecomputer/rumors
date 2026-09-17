@@ -128,6 +128,11 @@ guarantees, errors, and costs. Private rustdoc and comments are for a maintainer
 changing it: invariants, representation choices, and reasoning that the code
 does not already state.
 
+Treat test legibility like prose quality: improve it continuously wherever a
+batch touches tests. Make the protected behavior and the way each test proves
+it easy to audit, without changing coverage or semantics unless the test is
+wrong and must be corrected to establish its stated invariant.
+
 Every definition receives a useful doc comment, including private helpers,
 trait implementations, test helpers, and constants. This minimum does not
 justify commentary that merely translates a name or body into English.

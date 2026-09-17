@@ -83,7 +83,7 @@
 
 use core::cmp::Ordering;
 
-use suanpan::{Accumulator, Limbs, UBig};
+use suanpan::Accumulator;
 
 use crate::codec::{Base, Int};
 
@@ -96,7 +96,8 @@ use super::super::watermark::{Close, MinWeb};
 /// The top digit of the top limb may be zero (the compaction loop skips
 /// zero digits, so the padding is free).
 fn u32_digits(value: &Base) -> Vec<u32> {
-    Limbs::new(&value.0)
+    value
+        .iter_limbs()
         .flat_map(|limb| [(limb & 0xFFFF_FFFF) as u32, (limb >> 32) as u32])
         .collect()
 }
@@ -146,11 +147,7 @@ pub(super) fn mul_into(
         }
         let mut product = factor.clone();
         product *= u32::try_from(digit).expect("a compacted signed digit fits 32 bits");
-        if sign.is_negative() == subtract {
-            total.add_magnitude_shl(&product, shift);
-        } else {
-            total.sub_magnitude_shl(&product, shift);
-        }
+        product.fold_into(total, shift, sign.is_negative() != subtract);
     };
     let mut shift = shift;
     for digit in u32_digits(digits) {
@@ -384,12 +381,10 @@ impl EpochLedger {
     /// Evict the live drift into a new epoch (or discard a redundantly spelled
     /// zero, keeping the epoch), resetting the live component.
     pub(super) fn freeze(&mut self, live: &mut Accumulator) {
-        let (sign, drift) = live.sign_magnitude();
-        if drift != UBig::ZERO {
-            self.drifts.push((
-                Sign::from_is_negative(sign == Ordering::Less),
-                Base::from(drift),
-            ));
+        let (sign, drift) = Base::from_accumulator(live);
+        if !drift.is_zero() {
+            self.drifts
+                .push((Sign::from_is_negative(sign == Ordering::Less), drift));
             self.refs.push(0);
         }
         live.reset();

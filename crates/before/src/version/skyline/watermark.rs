@@ -139,7 +139,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::Int;
+use crate::codec::{Base, Int};
 
 use super::signed::{fold_signed_int, Sign, Signed};
 use super::web_traffic;
@@ -853,9 +853,9 @@ impl<P> MinWeb<P> {
     /// would not fit.
     fn compact(&mut self, difference: Accumulator) -> Boundary {
         if self.compact_words && difference.digit_count() <= 2 {
-            let (sign, magnitude) = difference.sign_magnitude();
+            let (sign, magnitude) = Base::from_accumulator(&difference);
             debug_assert_eq!(sign, Ordering::Greater, "boundaries are strictly positive");
-            if let Ok(word) = u64::try_from(&magnitude) {
+            if let Some(word) = magnitude.to_u64() {
                 self.retire(difference);
                 return Boundary::Word(word);
             }
@@ -1144,7 +1144,7 @@ impl MinWeb<()> {
         // Collapse for an honest width before the read-out: `sign()` is
         // called for its compaction side effect, the value unread.
         let _sign = dying.sign();
-        let (sign, magnitude) = dying.sign_magnitude();
+        let (sign, magnitude) = Base::from_accumulator(&dying);
         self.retire(dying);
         Signed::from_sign_magnitude(sign, magnitude)
     }

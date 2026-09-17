@@ -1,6 +1,8 @@
-//! The sign-magnitude currency: the zigzag maps, the signed folds and sums, and
-//! the gamma codes of signed deltas — one home for the vocabulary every skyline
-//! walk exchanges heights in.
+//! Signed values used while decoding and traversing skylines.
+//!
+//! Skyline payloads encode signed deltas as gamma-coded natural numbers. This
+//! module defines that encoding and the small sign-and-magnitude type used by
+//! the traversal algorithms.
 //!
 //! # The zigzag bijection
 //!
@@ -26,34 +28,28 @@
 //!
 //! # Signed conventions
 //!
-//! [`Signed`] is the walks' exchange pair: a [`Sign`] tag beside a magnitude,
-//! the shape the scans return extrema in and the watermark webs price
-//! emissions against. No producer emits a negative-tagged zero — every
-//! construction normalizes: the zigzag maps have no spelling for one, the
-//! accumulator read-out ties a zero magnitude to the `Equal` sign
-//! ([`Accumulator::sign_magnitude`]'s contract, which
+//! [`Signed`] pairs a [`Sign`] with a magnitude. No constructor emits negative
+//! zero: the zigzag encoding has no spelling for it, the accumulator readout
+//! ties a zero magnitude to the `Equal` sign
+//! ([`Accumulator::sign_limbs`]'s contract, which
 //! [`Signed::from_sign_magnitude`] inherits), and [`signed_sum`] returns the
-//! positive zero on exact cancellation. The comparisons tolerate one anyway —
-//! deliberate slack, so no future fold is obligated to normalize: it means
-//! zero, and [`signed_le`] discharges the tag before comparing.
+//! positive zero on exact cancellation. Comparisons still treat negative zero
+//! as zero, so their correctness does not depend on every producer normalizing.
 
 use core::cmp::Ordering;
 
-use suanpan::{Accumulator, UBig};
+use suanpan::Accumulator;
 
 use crate::codec::{self, Base, Code, Int};
 
-/// The polarity of a sign-magnitude quantity: the tag beside a magnitude in
-/// every signed exchange this module defines.
+/// The polarity of a sign-and-magnitude value.
 ///
 /// Two-valued on purpose: zero travels as a zero magnitude under
 /// [`Positive`](Sign::Positive) (the module doc's conventions), so there is no
-/// third variant to construct and no negative zero to spell. The accumulator's
-/// three-valued [`Ordering`] reads are suanpan's vocabulary for a signed
-/// *read*, where the zero case is a distinct answer; they map down at the seam
-/// ([`Signed::from_sign_magnitude`] sends `Less` to
-/// [`Negative`](Sign::Negative) and everything else to
-/// [`Positive`](Sign::Positive)).
+/// third variant to construct and no negative zero to spell. An accumulator
+/// instead returns an [`Ordering`] so it can distinguish zero;
+/// [`Signed::from_sign_magnitude`] maps `Less` to [`Negative`](Sign::Negative)
+/// and the other cases to [`Positive`](Sign::Positive).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Sign {
     /// The tag of a nonnegative quantity, zero included.
@@ -104,11 +100,11 @@ pub(super) struct Signed {
 
 impl Signed {
     /// The [`Signed`] reading of an accumulator's sign-and-magnitude
-    /// decomposition ([`Accumulator::sign_magnitude`]).
-    pub(super) fn from_sign_magnitude(sign: Ordering, magnitude: UBig) -> Self {
+    /// decomposition ([`Accumulator::sign_limbs`]).
+    pub(super) fn from_sign_magnitude(sign: Ordering, magnitude: Base) -> Self {
         Signed {
             sign: Sign::from_is_negative(sign == Ordering::Less),
-            magnitude: Int::from_ubig(magnitude),
+            magnitude: Int::from_base(magnitude),
         }
     }
 
@@ -185,28 +181,18 @@ pub(super) fn unzigzag_base(code: Base) -> (Sign, Base) {
     }
 }
 
-/// Fold a signed magnitude into an accumulator: subtracted when negative, added
-/// otherwise.
-///
-/// The one home of the sign-magnitude fold every height walk applies — the
-/// exchange move between this module's sign-magnitude currency (the zigzag
-/// maps above) and the cliff-free [`Accumulator`].
+/// Fold a signed magnitude into an accumulator.
 pub(super) fn fold_signed(acc: &mut Accumulator, sign: Sign, magnitude: &Base) {
-    match sign {
-        Sign::Negative => acc.sub_magnitude(magnitude),
-        Sign::Positive => acc.add_magnitude(magnitude),
-    }
+    magnitude.fold_into(acc, 0, sign.is_negative());
 }
 
-/// Fold a signed [`Int`] delta into an accumulator: subtracted when negative,
-/// added otherwise — the [`Int`] twin of [`fold_signed`], dispatching
-/// word-scale values straight to the word entry points.
+/// Fold a signed [`Int`] into an accumulator, using the word path when possible.
 pub(super) fn fold_signed_int(acc: &mut Accumulator, sign: Sign, magnitude: &Int) {
     match (sign, magnitude) {
         (Sign::Positive, Int::Small(n)) => acc.add_u64(*n),
         (Sign::Negative, Int::Small(n)) => acc.sub_u64(*n),
-        (Sign::Positive, Int::Wide(base)) => acc.add_magnitude(base),
-        (Sign::Negative, Int::Wide(base)) => acc.sub_magnitude(base),
+        (Sign::Positive, Int::Wide(base)) => base.fold_into(acc, 0, false),
+        (Sign::Negative, Int::Wide(base)) => base.fold_into(acc, 0, true),
     }
 }
 

@@ -5457,8 +5457,24 @@ fn id_fork_envelope() {
 mod accum_streams {
     use std::cmp::Ordering;
 
-    use dashu_int::UBig;
+    use dashu_int::{UBig, Word};
     use suanpan::{touch_meter, Accumulator};
+
+    /// Fold a backend magnitude into the accumulator without materializing it.
+    fn fold_ubig(acc: &mut Accumulator, value: &UBig, subtract: bool) {
+        let words_per_limb = (u64::BITS / Word::BITS) as usize;
+        let limbs = value.as_words().chunks(words_per_limb).map(|chunk| {
+            #[allow(clippy::unnecessary_cast)]
+            chunk.iter().enumerate().fold(0u64, |limb, (index, &word)| {
+                limb | ((word as u64) << (index as u32 * Word::BITS))
+            })
+        });
+        if subtract {
+            acc.sub_limbs_shl(limbs, 0);
+        } else {
+            acc.add_limbs_shl(limbs, 0);
+        }
+    }
 
     /// Slack numerator over the measured value, matching the ×1.25 envelope
     /// convention (denominator [`SLACK_DEN`]).
@@ -5533,7 +5549,7 @@ mod accum_streams {
     /// `±1` oscillating across the `2^k` cliff, sign read after each.
     fn comb_run(k: u32, n: usize) -> Run {
         let mut acc = Accumulator::new();
-        acc.add_wide(&((UBig::from(1u8) << k as usize) - 1u8));
+        fold_ubig(&mut acc, &((UBig::from(1u8) << k as usize) - 1u8), false);
         touch_meter::reset();
         for _ in 0..n {
             acc.add_small(1);
@@ -5553,12 +5569,12 @@ mod accum_streams {
     fn wide_tooth_run(k: u32, w: u32, n: usize) -> Run {
         let tooth = UBig::from(1u8) << w as usize;
         let mut acc = Accumulator::new();
-        acc.add_wide(&(UBig::from(1u8) << k as usize));
+        fold_ubig(&mut acc, &(UBig::from(1u8) << k as usize), false);
         touch_meter::reset();
         for _ in 0..n {
-            acc.sub_wide(&tooth);
+            fold_ubig(&mut acc, &tooth, true);
             assert_eq!(acc.sign(), Ordering::Greater, "below the cliff");
-            acc.add_wide(&tooth);
+            fold_ubig(&mut acc, &tooth, false);
             assert_eq!(acc.sign(), Ordering::Greater, "back at the cliff");
         }
         Run {
@@ -5577,12 +5593,12 @@ mod accum_streams {
     fn cancelling_run(k: u32, n: usize) -> Run {
         let drop = (UBig::from(1u8) << k as usize) - 1u8;
         let mut acc = Accumulator::new();
-        acc.add_wide(&(UBig::from(1u8) << k as usize));
+        fold_ubig(&mut acc, &(UBig::from(1u8) << k as usize), false);
         touch_meter::reset();
         for _ in 0..n {
-            acc.sub_wide(&drop);
+            fold_ubig(&mut acc, &drop, true);
             assert_eq!(acc.sign(), Ordering::Greater, "down at 1");
-            acc.add_wide(&drop);
+            fold_ubig(&mut acc, &drop, false);
             assert_eq!(acc.sign(), Ordering::Greater, "back at the peak");
         }
         Run {
@@ -5608,8 +5624,8 @@ mod accum_streams {
     fn static_prefix_run(k: u32, n: usize) -> Run {
         let drop = (UBig::from(1u8) << k as usize) - 1u8;
         let mut acc = Accumulator::new();
-        acc.add_wide(&(UBig::from(1u8) << k as usize));
-        acc.sub_wide(&drop);
+        fold_ubig(&mut acc, &(UBig::from(1u8) << k as usize), false);
+        fold_ubig(&mut acc, &drop, true);
         touch_meter::reset();
         for _ in 0..n {
             acc.add_small(1);

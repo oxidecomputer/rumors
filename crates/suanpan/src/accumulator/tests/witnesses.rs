@@ -10,9 +10,9 @@
 
 use core::cmp::Ordering;
 
-use dashu_int::{IBig, UBig};
+use num_bigint::{BigInt as IBig, BigUint as UBig};
 
-use super::{assert_value, park_extreme_negative_digit, Accumulator};
+use super::{assert_value, park_extreme_negative_digit, Accumulator, TestBig as _};
 use crate::accumulator::{landing, QUICK_MAX, QUICK_SHIFT_MAX};
 
 /// The last digit position whose buffer length fits `usize` is accepted.
@@ -50,10 +50,10 @@ fn sign_threshold_survives_extreme_cancellation() {
     let mut acc = Accumulator::new();
     park_extreme_negative_digit(&mut acc, 0);
     park_extreme_negative_digit(&mut acc, 1);
-    acc.add_magnitude_shl(&UBig::from(2u8), 64);
+    acc.add_value_shl(&UBig::from(2u8), 64);
     // Independent read-out first: the low-to-high carry pass does not
     // share the fold's threshold, so the two paths cross-check.
-    let (sign, magnitude) = acc.sign_magnitude();
+    let (sign, magnitude) = acc.sign_biguint();
     assert_eq!(
         (sign, magnitude),
         (Ordering::Less, UBig::from((1u64 << 32) - 1)),
@@ -67,7 +67,7 @@ fn sign_threshold_survives_extreme_cancellation() {
     // The mirrored spelling: digits [2^33 − 1, 2^33 − 1, −2] denote
     // +(2^32 − 1), and a partial of −2 at the top must not decide either.
     acc.negate();
-    let (sign, magnitude) = acc.sign_magnitude();
+    let (sign, magnitude) = acc.sign_biguint();
     assert_eq!(
         (sign, magnitude),
         (Ordering::Greater, UBig::from((1u64 << 32) - 1)),
@@ -96,7 +96,7 @@ fn domination_decision_index_is_tight_at_floor_plus_two() {
     let mut acc = Accumulator::new();
     park_extreme_negative_digit(&mut acc, 0);
     park_extreme_negative_digit(&mut acc, 1);
-    acc.add_magnitude_shl(&UBig::from(3u8), 64);
+    acc.add_value_shl(&UBig::from(3u8), 64);
     let (sign, decided) = acc.sign_dominates_at(1);
     assert_eq!(sign, Ordering::Greater, "the sign itself is exact");
     assert!(
@@ -140,7 +140,7 @@ fn decided_domination_covers_extreme_accumulator_operands() {
     park_extreme_negative_digit(&mut held, 0);
     park_extreme_negative_digit(&mut held, 1);
     park_extreme_negative_digit(&mut held, 2);
-    held.add_magnitude_shl(&UBig::from(3u8), 96);
+    held.add_value_shl(&UBig::from(3u8), 96);
     let (sign, decided) = held.sign_dominates_at(floor);
     assert_eq!(sign, Ordering::Greater);
     assert!(decided, "partial 3 at index floor + 2 is the decision edge");
@@ -184,7 +184,7 @@ fn decided_domination_covers_extreme_accumulator_operands() {
 /// value — weakening the constant to 2 certifies exactly here, and the
 /// fold at the tail flips the sign. The generalized family is the
 /// accumulator-operand probe arm of `floor_domination_is_sound`; this
-/// witness is its deterministic tripwire at the gap value.
+/// witness checks the exact gap value deterministically.
 #[test]
 fn register_domination_constant_is_tight_from_below() {
     let mut held = Accumulator::new();
@@ -239,7 +239,7 @@ fn register_domination_constant_is_tight_from_below() {
 #[test]
 fn domination_floor_near_usize_max_never_decides() {
     let mut acc = Accumulator::new();
-    acc.add_wide(&(UBig::from(1u8) << 2_048usize));
+    acc.add_limb_value(&(UBig::from(1u8) << 2_048usize));
     let (sign, decided) = acc.sign_dominates_at(usize::MAX - 1);
     assert_eq!(sign, Ordering::Greater, "the sign is exact at any floor");
     assert!(
@@ -326,8 +326,8 @@ fn sign_collapse_tightens_the_top_and_arms_domination() {
     // down to 0; 320 = 32 · 10). Both operands exceed the register's
     // 2^96 magnitude bound, so the spelling lives in the digit engine.
     let mut cancelled = Accumulator::new();
-    cancelled.add_wide(&(UBig::ONE << 320usize));
-    cancelled.sub_wide(&((UBig::ONE << 320usize) - UBig::ONE));
+    cancelled.add_limb_value(&(UBig::ONE << 320usize));
+    cancelled.sub_limb_value(&((UBig::ONE << 320usize) - UBig::ONE));
     let stale = cancelled.digit_count();
     assert_eq!(
         stale, 11,
@@ -336,9 +336,9 @@ fn sign_collapse_tightens_the_top_and_arms_domination() {
     // A comparand with top digit 5 at index 4: decision-bound (5 ≥ 3,
     // the fold's decision bound) and spilled past the register.
     let mut comparand = Accumulator::new();
-    comparand.add_wide(&(UBig::from(5u8) << 128usize));
+    comparand.add_limb_value(&(UBig::from(5u8) << 128usize));
     // Adequacy leg (sign read omitted): a floor derived from the stale
-    // count demands clearance no honest comparand of the cancelled
+    // count demands clearance no comparand at the cancelled
     // value's true scale needs, and the read refuses. The read rewrites
     // nothing here (a decision-bound top answers on its first step), so
     // the decided read below sees the same spelling.
@@ -363,11 +363,11 @@ fn sign_collapse_tightens_the_top_and_arms_domination() {
     );
 }
 
-/// An interleaved sign read can lower `sign_magnitude_shl`'s returned
+/// An interleaved sign read can lower `sign_biguint_shl`'s returned
 /// shift: the collapse re-deposits its partial through the write path,
 /// below every position the caller's own writes touched.
 ///
-/// The [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl)
+/// The [`sign_biguint_shl`](Accumulator::sign_biguint_shl)
 /// rustdoc's sign-queries-count-as-writers clause, pinned executable: a
 /// caller pricing reads by the returned shift keeps sign reads off the
 /// accumulator before the scaled read, or surrenders part of the
@@ -379,10 +379,10 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
     // register's 30-bit shift bound, so the value lives in the digit
     // engine with a one-digit written span at index 40.
     let mut acc = Accumulator::new();
-    acc.add_wide_shl(&UBig::ONE, 1280);
+    acc.add_limb_value_shl(&UBig::ONE, 1280);
     // Sign read omitted: the scaled read prices the written span and
     // returns the whole never-written prefix as the shift.
-    let (sign, magnitude, shift) = acc.sign_magnitude_shl();
+    let (sign, magnitude, shift) = acc.sign_biguint_shl();
     assert_eq!(sign, Ordering::Greater);
     assert_eq!(
         (magnitude, shift),
@@ -391,10 +391,10 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
     );
     // The collapsing read: top digit 1 sits under the decision bound
     // 3, so the fold descends one digit and re-deposits the partial
-    // there; sign queries count as writers (the sign_magnitude_shl
+    // there; sign queries count as writers (the sign_biguint_shl
     // rustdoc), so the write watermark drops with it.
     assert_eq!(acc.sign(), Ordering::Greater);
-    let (sign, magnitude, shift) = acc.sign_magnitude_shl();
+    let (sign, magnitude, shift) = acc.sign_biguint_shl();
     assert_eq!(sign, Ordering::Greater);
     assert!(
         shift < 1280,
@@ -405,7 +405,7 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
         (&(UBig::ONE << 32usize), 1248),
         "the collapse re-deposits one digit down: shift 32 · 39, magnitude 2^32"
     );
-    // The pair is one honest spelling of the unchanged value.
+    // The pair is an exact spelling of the unchanged value.
     assert_eq!(
         magnitude << usize::try_from(shift).expect("the shift fits the address space"),
         UBig::ONE << 1280usize,
@@ -419,14 +419,14 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
 ///
 /// With the digit engine explicitly armed, the flush-right deposit
 /// `−2^32 − 2^32` lands digit 0 on the recenter boundary (remainder 0,
-/// carry −2). Pins the `rem_euclid`/complement seam of `sign_magnitude`
+/// carry −2). Checks the `rem_euclid`/complement boundary of `sign_biguint`
 /// on the one shape where the complement's carry crosses a zero digit —
 /// the arm the negative-conversion test's operands never exercise. The
-/// mode asserts keep the witness honest: the same schedule on the quick
-/// register stays register-held and never reaches the seam, so the
+/// mode assertions confirm that the same schedule on the quick register stays
+/// register-held and never reaches this boundary, so the
 /// spill and the exact digit state are pinned alongside the value. The
 /// generalized family is `carry_tie_streams_match_the_oracle` in the
-/// differential suite; this witness is its deterministic tripwire.
+/// differential suite; this test fixes one deterministic example.
 #[test]
 fn flush_right_carry_tie_converts_exactly() {
     let mut acc = Accumulator::new();
@@ -435,14 +435,14 @@ fn flush_right_carry_tie_converts_exactly() {
     acc.sub_u64(1 << 32);
     assert!(
         acc.quick.is_none(),
-        "the seam under test lives in the digit engine"
+        "the conversion boundary under test lives in the digit engine"
     );
     assert_eq!(
         &acc.digits[..=acc.top],
         &[0, -2],
         "the recenter tie leaves remainder 0 and carry −2"
     );
-    let (sign, magnitude) = acc.sign_magnitude();
+    let (sign, magnitude) = acc.sign_biguint();
     assert_eq!((sign, magnitude), (Ordering::Less, UBig::from(1u64 << 33)));
     assert_eq!(acc.sign(), Ordering::Less);
 }
@@ -461,7 +461,7 @@ fn quick_register_engages_and_retires() {
         acc.quick.is_some(),
         "word-scale streams stay in the register"
     );
-    acc.add_wide(&(UBig::from(1u8) << 200usize));
+    acc.add_limb_value(&(UBig::from(1u8) << 200usize));
     assert!(acc.quick.is_none(), "a wide operand arms the digit engine");
     acc.add_u64(1);
     assert!(
@@ -537,7 +537,7 @@ fn quick_register_extremes_spill_exactly() {
 
         // The widest shifted word the register path accepts.
         let (mut acc, mut oracle) = full_register(negative);
-        acc.add_magnitude_shl(&UBig::from(u64::MAX), QUICK_SHIFT_MAX);
+        acc.add_value_shl(&UBig::from(u64::MAX), QUICK_SHIFT_MAX);
         oracle += IBig::from(u64::MAX) << QUICK_SHIFT_MAX as usize;
         assert_value(&acc, &oracle);
 
@@ -577,7 +577,7 @@ fn quick_register_extremes_spill_exactly() {
 
 /// `sign_limbs` at its conversion-path corners: zero reads empty in
 /// both tiers, a register value spanning two limbs splits exactly at
-/// the limb seam, and negatives read the magnitude's limbs.
+/// the two-limb boundary, and negatives read the magnitude's limbs.
 ///
 /// The register readout packs an `i128` magnitude into at most two
 /// limbs and strips high zeros; the digit-engine readout pairs base-2^32
@@ -594,7 +594,7 @@ fn sign_limbs_conversion_corners() {
     zero.spill();
     assert_eq!(zero.sign_limbs(), (Ordering::Equal, vec![]));
 
-    // (value, expected LE limbs): the u64 ceiling, the limb seam at
+    // (value, expected LE limbs): the u64 ceiling, the boundary at
     // 2^64 (interior zero limb kept), and a two-limb composite.
     let corners: [(u128, Vec<u64>); 3] = [
         (u128::from(u64::MAX), vec![u64::MAX]),
@@ -654,13 +654,13 @@ fn reserve_digits_is_value_neutral() {
 
     // In the digit engine, before and after the covered writes — and a
     // reservation smaller than the held width is a no-op.
-    acc.add_wide(&(UBig::from(1u8) << 3_200usize));
+    acc.add_limb_value(&(UBig::from(1u8) << 3_200usize));
     oracle += IBig::from(UBig::from(1u8) << 3_200usize);
     acc.reserve_digits(500);
     assert_value(&acc, &oracle);
     acc.reserve_digits(1);
     assert_value(&acc, &oracle);
-    acc.sub_wide(&(UBig::from(1u8) << 12_800usize));
+    acc.sub_limb_value(&(UBig::from(1u8) << 12_800usize));
     oracle -= IBig::from(UBig::from(1u8) << 12_800usize);
     assert_value(&acc, &oracle);
 }

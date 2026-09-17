@@ -27,7 +27,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitStack, DsiCursor, Int};
+use crate::codec::{Base, BitCursor, BitStack, DsiCursor, Int};
 
 use super::signed::{fold_signed_int, unzigzag, Sign, Signed};
 
@@ -330,7 +330,7 @@ pub(super) fn net_leaves(walk: &mut LeafWalk, cursor: &mut DsiCursor<'_>) -> Sig
             break;
         }
     }
-    let (sign, magnitude) = net.sign_magnitude();
+    let (sign, magnitude) = Base::from_accumulator(&net);
     Signed::from_sign_magnitude(sign, magnitude)
 }
 
@@ -358,8 +358,9 @@ pub(super) fn skip_leaves(
     let mut min = Extremum::min(Accumulator::new());
     let (last_depth, last_code_len) =
         fold_region(walk, cursor, first, &mut net, &mut min, pending)?;
-    let (net_sign, net_magnitude) = net.sign_magnitude();
-    let (min_sign, min_magnitude) = min.into_offset().sign_magnitude();
+    let (net_sign, net_magnitude) = Base::from_accumulator(&net);
+    let min = min.into_offset();
+    let (min_sign, min_magnitude) = Base::from_accumulator(&min);
     debug_assert_ne!(
         min_sign,
         Ordering::Greater,

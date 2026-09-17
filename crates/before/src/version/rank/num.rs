@@ -50,7 +50,7 @@
 use core::cmp::Ordering;
 
 use dashu_int::UBig;
-use suanpan::{Accumulator, Limbs};
+use suanpan::Accumulator;
 
 use crate::codec::base::{msb_cmp_windows, MsbWindows};
 use crate::codec::Base;
@@ -238,7 +238,7 @@ impl Num {
                 // re-dispatches (an all-ones value grows one bit, past the
                 // ceiling; anything else stays base).
                 meter_wide(base.bits().div_ceil(64).max(1));
-                Num::from_limbs(increment(Limbs::new(&base.0).collect()))
+                Num::from_limbs(increment(base.iter_limbs().collect()))
             }
             Num::Wide(wide) => {
                 meter_wide(wide.limb_count());
@@ -412,7 +412,7 @@ impl Num {
         }
         meter_wide(base.bits().div_ceil(64));
         Num::Wide(Wide {
-            limbs: Limbs::new(&base.0).collect(),
+            limbs: base.iter_limbs().collect(),
         })
     }
 
@@ -426,11 +426,7 @@ impl Num {
     pub(crate) fn fold_into(&self, acc: &mut Accumulator, shift: u64, subtract: bool) {
         match self {
             Num::Base(base) => {
-                if subtract {
-                    acc.sub_magnitude_shl(base, shift);
-                } else {
-                    acc.add_magnitude_shl(base, shift);
-                }
+                base.fold_into(acc, shift, subtract);
             }
             Num::Wide(wide) => {
                 meter_wide(wide.limb_count());

@@ -17,7 +17,7 @@ use before::meter::Encoding;
 use before::{
     Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };
-use suanpan::UBig;
+use dashu_int::UBig;
 
 // ─── the roster-derived operand pool ─────────────────────────────────────────
 

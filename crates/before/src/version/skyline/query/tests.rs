@@ -1,18 +1,9 @@
-//! Differential pins for the query folds against the recursive oracle and the
-//! composed forms.
+//! Differential tests for the streaming queries.
 //!
-//! The recursive tree oracle (through the bridge) is the behavioral witness
-//! over the adversarial families, arbitrary trees, organic histories, and the
-//! exhaustive small scope: rank and min_ticks by its own folds, projection by
-//! its mask, distance and lag re-derived from its join, meet, and rank through
-//! the valuation identities the rustdoc states. Distance and lag are
-//! additionally pinned against the composed forms — the same identities
-//! assembled from this crate's own emission and rank kernels — and the pair
-//! sweeps include the two version-pair families (the two-operand jump comb, the
-//! concurrent pair), both as deterministic dimension sweeps and as proptests
-//! over their generator dimensions. Rank is additionally pinned against the
-//! semantic Riemann-sum oracle, which shares no structure with either
-//! implementation.
+//! Generated versions, operation histories, and exhaustive small trees are
+//! checked against the recursive tree oracle. Rank is also checked against an
+//! independent Riemann-sum implementation. Distance and lag are checked both
+//! against the tree oracle and against their join/meet identities.
 //!
 //! Every equality here is exact — `Rank` equality is structural on the
 //! normalized form, projection agreement is byte identity of the emitted
@@ -20,6 +11,7 @@
 //! rounding to hide behind.
 
 use proptest::prelude::*;
+use suanpan::Accumulator;
 
 use crate::meter::registry::Shape;
 use crate::meter::{dense_factor, factor_digit, Encoding};
@@ -31,6 +23,88 @@ use crate::version::skyline::{emit, encode};
 use crate::{Clock, Party, Rank, Version};
 
 use super::{distance, lag, min_ticks, project, rank, rank_cmp};
+
+/// Big-integer adapters for the reference folds in this test module.
+trait AccumulatorOracleExt {
+    /// Add an unshifted oracle magnitude.
+    fn add_ubig(&mut self, value: &dashu_int::UBig);
+    /// Subtract an unshifted oracle magnitude.
+    fn sub_ubig(&mut self, value: &dashu_int::UBig);
+}
+
+impl AccumulatorOracleExt for Accumulator {
+    fn add_ubig(&mut self, value: &dashu_int::UBig) {
+        crate::codec::Base(value.clone()).fold_into(self, 0, false);
+    }
+
+    fn sub_ubig(&mut self, value: &dashu_int::UBig) {
+        crate::codec::Base(value.clone()).fold_into(self, 0, true);
+    }
+}
+
+/// Accumulator adapters used only by the metered reference implementations.
+#[cfg(feature = "limb-meter")]
+trait MeteredAccumulatorOracleExt {
+    /// Add an oracle magnitude times `2^shift`.
+    fn add_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64);
+    /// Subtract an oracle magnitude times `2^shift`.
+    fn sub_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64);
+    /// Read the normalized magnitude into the oracle's representation.
+    fn sign_ubig(&self) -> (core::cmp::Ordering, dashu_int::UBig);
+    /// Read the magnitude and its retained power-of-two scale.
+    fn sign_ubig_shl(&self) -> (core::cmp::Ordering, dashu_int::UBig, u64);
+    /// Add an unshifted Before magnitude.
+    fn add_base(&mut self, value: &crate::codec::Base);
+    /// Subtract an unshifted Before magnitude.
+    fn sub_base(&mut self, value: &crate::codec::Base);
+    /// Add a Before magnitude times `2^shift`.
+    fn add_base_shl(&mut self, value: &crate::codec::Base, shift: u64);
+    /// Subtract a Before magnitude times `2^shift`.
+    fn sub_base_shl(&mut self, value: &crate::codec::Base, shift: u64);
+    /// Read a Before magnitude and its retained power-of-two scale.
+    fn sign_base_shl(&self) -> (core::cmp::Ordering, crate::codec::Base, u64);
+}
+
+#[cfg(feature = "limb-meter")]
+impl MeteredAccumulatorOracleExt for Accumulator {
+    fn add_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64) {
+        crate::codec::Base(value.clone()).fold_into(self, shift, false);
+    }
+
+    fn sub_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64) {
+        crate::codec::Base(value.clone()).fold_into(self, shift, true);
+    }
+
+    fn sign_ubig(&self) -> (core::cmp::Ordering, dashu_int::UBig) {
+        let (sign, magnitude) = crate::codec::Base::from_accumulator(self);
+        (sign, magnitude.0)
+    }
+
+    fn sign_ubig_shl(&self) -> (core::cmp::Ordering, dashu_int::UBig, u64) {
+        let (sign, magnitude, shift) = crate::codec::Base::from_accumulator_shl(self);
+        (sign, magnitude.0, shift)
+    }
+
+    fn add_base(&mut self, value: &crate::codec::Base) {
+        value.fold_into(self, 0, false);
+    }
+
+    fn sub_base(&mut self, value: &crate::codec::Base) {
+        value.fold_into(self, 0, true);
+    }
+
+    fn add_base_shl(&mut self, value: &crate::codec::Base, shift: u64) {
+        value.fold_into(self, shift, false);
+    }
+
+    fn sub_base_shl(&mut self, value: &crate::codec::Base, shift: u64) {
+        value.fold_into(self, shift, true);
+    }
+
+    fn sign_base_shl(&self) -> (core::cmp::Ordering, crate::codec::Base, u64) {
+        crate::codec::Base::from_accumulator_shl(self)
+    }
+}
 
 /// Decode a meter-generated encoded shape as a [`Version`].
 fn version_of(p: &Encoding) -> Version {
@@ -158,7 +232,7 @@ fn assert_pair(a: &Version, b: &Version) {
     );
 }
 
-/// The adversarial family pool the deterministic sweeps run over.
+/// Representative shapes used by the deterministic differential tests.
 fn family_pool() -> Vec<Version> {
     vec![
         Version::new(),
@@ -204,7 +278,7 @@ fn party_pool() -> Vec<Party> {
     ]
 }
 
-/// Every adversarial family shape agrees with the tree-fold oracle's rank and
+/// Every representative shape agrees with the tree-fold oracle's rank and
 /// min_ticks; crosses and pairs agree on projection, distance, and lag.
 ///
 /// The id-pool cross checks the oracle's projection mask; the ordered pairs
@@ -495,9 +569,10 @@ fn pair_families_agree() {
     }
 }
 
-/// The exhaustive small scope: every normal-form event tree to the small depth
-/// agrees on rank and min_ticks, and every tree × normal-form id agrees on
-/// projection — every boundary genre by brute force rather than sampling.
+/// Every normal-form event tree to the small depth agrees on rank and
+/// `min_ticks`, and every such tree and normal-form id agree on projection.
+///
+/// This covers every boundary reachable at the chosen depth without sampling.
 #[test]
 fn exhaustive_small_scope_agrees() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
@@ -521,7 +596,7 @@ fn exhaustive_small_scope_agrees() {
 /// `rank(join) − rank(meet)` and lag equals `rank(join) − rank(a)`,
 /// digit-exact.
 ///
-/// The total check over the pair space: every boundary genre the comparison
+/// The total check over the pair space covers every boundary the comparison
 /// sweep's exhaustive suite reaches (aligned ties, flush-right ties at unequal
 /// depths, plateau consumption, zero deltas across subtree boundaries) crossed
 /// with every orientation schedule reachable at this scope, by brute force
@@ -668,8 +743,8 @@ proptest! {
     /// a spelled zero through the parked/promoted/settled pipeline — the one
     /// answer the nonnegative pair measures can never exercise (their totals
     /// are monotone differences), and one no organically drawn pair reaches
-    /// at freezing scale. The freeze floor keeps the arm honest: every train
-    /// in the sampled box parks drift under the co-sweep.
+    /// at freezing scale. Every train in the sampled box parks drift under the
+    /// co-sweep, so the property exercises the intended path.
     #[test]
     fn arbitrary_mirrored_arming_trains_cancel_to_equal(
         n in 1usize..6,
@@ -738,7 +813,7 @@ proptest! {
         y_bytes in proptest::collection::vec(any::<u8>(), 1..64),
     ) {
         use dashu_int::ops::BitTest;
-        use suanpan::UBig;
+        use dashu_int::UBig;
         let nonzero = |bytes: &[u8]| {
             let v = UBig::from_le_bytes(bytes);
             if v == UBig::ZERO { UBig::ONE } else { v }
@@ -790,7 +865,7 @@ proptest! {
     }
 }
 
-/// The cluster seam splits exactly at gaps wider than the limit: runs whose
+/// Clusters split exactly at gaps wider than the limit: runs whose
 /// interior gaps stay within it stay whole, and a single over-wide gap is the
 /// only cut.
 ///
@@ -841,7 +916,8 @@ proptest! {
         ),
         neg in any::<bool>(),
     ) {
-        use suanpan::{Accumulator, UBig};
+        use dashu_int::UBig;
+    use suanpan::Accumulator;
 
         use crate::codec::Base;
 
@@ -875,8 +951,8 @@ proptest! {
         } else {
             (&positive, &negative)
         };
-        expected.add_wide(&(add_side * &factor.0));
-        expected.sub_wide(&(sub_side * &factor.0));
+        expected.add_ubig(&(add_side * &factor.0));
+        expected.sub_ubig(&(sub_side * &factor.0));
         expected.sub_accum(&clustered);
         prop_assert_eq!(
             expected.sign(),
@@ -892,8 +968,8 @@ proptest! {
 ///
 /// The committed proptest above samples factors up to 200 bytes (50 base-2^32
 /// digits ≈ 25 dashu words), so on a 64-bit target it never pushes a settle
-/// product past the backend's simple→Karatsuba dispatch seam, let alone
-/// Karatsuba→Toom-3 or Toom-3→NTT. This deterministic leg holds the value seam
+/// product past the backend's simple→Karatsuba dispatch boundary, let alone
+/// Karatsuba→Toom-3 or Toom-3→NTT. This deterministic test checks the value
 /// at every dispatch boundary the shipped dashu 0.5 backend has (smaller side
 /// 24 / 96 / 4,000 words, one width at and one past each), against the same
 /// un-clustered whole-span oracle, over three mass geometries per width: a
@@ -904,7 +980,8 @@ proptest! {
 /// balanced-range extremes (`−2^31` and `2^31 − 1`).
 #[test]
 fn clustered_charge_agrees_at_backend_tier_boundaries() {
-    use suanpan::{Accumulator, UBig};
+    use dashu_int::UBig;
+    use suanpan::Accumulator;
 
     use crate::codec::Base;
     use crate::version::skyline::signed::Sign;
@@ -931,8 +1008,8 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
         } else {
             (&positive, &negative)
         };
-        expected.add_wide(&(add_side * &factor.0));
-        expected.sub_wide(&(sub_side * &factor.0));
+        expected.add_ubig(&(add_side * &factor.0));
+        expected.sub_ubig(&(sub_side * &factor.0));
         expected.sub_accum(&clustered);
         assert_eq!(
             expected.sign(),
@@ -994,7 +1071,7 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
 /// Deliberate internal-entry pin, decided here: the tap's recording is a few
 /// percent of any public fold's limb column (the fold's own metered `Base`
 /// arithmetic dominates), so no public-surface floor can sit above the
-/// tap-dark residue without banning honest work — the seam window, where the
+/// tap's own contribution without rejecting valid work. The narrow point where
 /// backend products are the only width-scale recording, is the one place the
 /// tap's liveness is a testable number. The flatness bands this tap feeds
 /// (`ledger_wide_arming`, `answer_embedded_product`, `tests/meter.rs`) bound
@@ -1021,7 +1098,8 @@ fn clustered_charge_agrees_at_backend_tier_boundaries() {
 #[cfg(feature = "limb-meter")]
 #[test]
 fn settle_product_tap_is_alive_on_the_wide_arming_close() {
-    use suanpan::{Accumulator, UBig};
+    use dashu_int::UBig;
+    use suanpan::Accumulator;
 
     use crate::codec::Base;
     use crate::meter::{limb_ops, reset_limb_ops};
@@ -1052,7 +1130,7 @@ fn settle_product_tap_is_alive_on_the_wide_arming_close() {
         // product `factor × Σᵢ 2^(32·i)`.
         let mass_bytes: Vec<u8> = (0..w * 4).map(|i| u8::from(i % 4 == 0)).collect();
         let mut expected = Accumulator::new();
-        expected.add_wide(&(UBig::from_le_bytes(&mass_bytes) * &factor.0));
+        expected.add_ubig(&(UBig::from_le_bytes(&mass_bytes) * &factor.0));
         expected.sub_accum(&total);
         assert_eq!(
             expected.sign(),
@@ -1074,7 +1152,7 @@ fn settle_product_tap_is_alive_on_the_wide_arming_close() {
 /// liveness pin above): the images are transient allocations whose zero fill
 /// no other counter reads — a zeroed byte no digit lands on enters no operand
 /// width, touches no accumulator digit, and raises no peak under the walk's
-/// high-water mark — so the seam window is the one place the recorded
+/// high-water mark — so this internal boundary is where the recorded
 /// quantity can be held to the span, value-exact. The worst artifact this pin
 /// excludes is a densification sized by the cluster's absolute digit
 /// position: O(position) zero fill per cluster, green on every width and
@@ -1086,7 +1164,8 @@ fn settle_product_tap_is_alive_on_the_wide_arming_close() {
 #[cfg(feature = "limb-meter")]
 #[test]
 fn densify_tap_prices_the_cluster_span() {
-    use suanpan::{Accumulator, UBig};
+    use dashu_int::UBig;
+    use suanpan::Accumulator;
 
     use crate::codec::Base;
     use crate::meter::{densified_digits, reset_densified_digits};
@@ -1111,8 +1190,8 @@ fn densify_tap_prices_the_cluster_span() {
         );
         // The value leg: exactly factor · (2^(32·floor) − 3 · 2^(32·(floor + 2))).
         let mut expected = Accumulator::new();
-        expected.add_wide_shl(&factor.0, 32 * floor);
-        expected.sub_wide_shl(&(&factor.0 * UBig::from(3u8)), 32 * (floor + 2));
+        expected.add_ubig_shl(&factor.0, 32 * floor);
+        expected.sub_ubig_shl(&(&factor.0 * UBig::from(3u8)), 32 * (floor + 2));
         expected.sub_accum(&total);
         assert_eq!(
             expected.sign(),
@@ -1137,7 +1216,7 @@ fn densify_tap_prices_the_cluster_span() {
 /// each backend multiplication-tier boundary, exact against the recursive
 /// oracle and the closed form.
 ///
-/// The gap the seam-level differentials leave open: the tier-boundary charge
+/// The gap the lower-level differentials leave open: the tier-boundary charge
 /// test above holds the charge kernel value-exact at every dispatch boundary,
 /// but only a `charge_digits`-level operand ever reached the upper tiers — no
 /// public fold drove an incompressible factor through a settle product there.
@@ -1183,7 +1262,7 @@ fn dense_factors_agree_through_the_public_fold_at_tier_boundaries() {
 /// fat-stack thread the recursive oracle needs at these depths.
 fn dense_factor_tier_legs() {
     use dashu_int::ops::BitTest;
-    use suanpan::UBig;
+    use dashu_int::UBig;
 
     /// One puncture-product leg: the public rank against the closed form, and
     /// (where the tree fits the budget) the recursive oracle.
@@ -1250,8 +1329,8 @@ fn dense_factor_tier_legs() {
     }
 }
 
-/// Prefix sums of a mass vector, each leaf's mass floored at one — the split
-/// currency [`integral::mass_split`](super::integral::mass_split) consumes,
+/// Prefix sums of a mass vector, each leaf's mass floored at one — the measure
+/// [`integral::mass_split`](super::integral::mass_split) consumes,
 /// built exactly as the shipped settle builds it.
 fn mass_prefix(masses: &[u64]) -> Vec<u64> {
     let mut prefix: Vec<u64> = Vec::with_capacity(masses.len() + 1);
@@ -1412,6 +1491,8 @@ mod adequacy {
 
     use crate::version::skyline::signed::{fold_signed, fold_signed_int, Sign};
 
+    use super::MeteredAccumulatorOracleExt as _;
+
     use super::super::integral::{int_digits, FREEZE_ALLOWANCE_DIGITS};
     use super::super::max_depth;
     use super::super::web::mul_into;
@@ -1440,15 +1521,15 @@ mod adequacy {
             if !live_height.is_literally_zero() {
                 total.add_accum_shl(&live_height, weight_shift);
             }
-            position.add_magnitude_shl(&one, weight_shift);
+            position.add_base_shl(&one, weight_shift);
             if cursor.done() {
                 break;
             }
             let (_, step) = cursor.step();
             fold(&mut live_height, Side::A, step.sign, &step.magnitude);
             if live_height.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
-                let (drift_sign, drift) = live_height.sign_magnitude();
-                let (_, position_mag) = position.sign_magnitude();
+                let (drift_sign, drift) = live_height.sign_ubig();
+                let (_, position_mag) = position.sign_ubig();
                 let drift = Base::from(drift);
                 mul_into(
                     &mut total,
@@ -1458,14 +1539,14 @@ mod adequacy {
                     drift_sign == Ordering::Greater,
                 );
                 match drift_sign {
-                    Ordering::Less => frozen.sub_magnitude(&drift),
-                    _ => frozen.add_magnitude(&drift),
+                    Ordering::Less => frozen.sub_base(&drift),
+                    _ => frozen.add_base(&drift),
                 }
                 live_height = Accumulator::new();
             }
         }
         total.add_accum_shl(&frozen, max_depth);
-        let (sign, num) = total.sign_magnitude();
+        let (sign, num) = total.sign_ubig();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
         Rank::from_raw(Base::from(num), scale)
     }
@@ -1571,21 +1652,21 @@ mod adequacy {
             if !self.live.is_literally_zero() {
                 self.total.add_accum_shl(&self.live, weight_shift);
             }
-            self.segment_mass.add_magnitude_shl(&self.one, weight_shift);
+            self.segment_mass.add_base_shl(&self.one, weight_shift);
         }
 
         fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-            let (sign, magnitude) = diff.sign_magnitude();
-            if magnitude == suanpan::UBig::ZERO {
+            let (sign, magnitude) = diff.sign_ubig();
+            if magnitude == dashu_int::UBig::ZERO {
                 return;
             }
             let magnitude = Base::from(magnitude);
             let negative = (coefficient < 0) != (sign == Ordering::Less);
             let shift = if coefficient.abs() == 2 { 1 } else { 0 };
             if negative {
-                self.live.sub_magnitude_shl(&magnitude, shift);
+                self.live.sub_base_shl(&magnitude, shift);
             } else {
-                self.live.add_magnitude_shl(&magnitude, shift);
+                self.live.add_base_shl(&magnitude, shift);
             }
         }
 
@@ -1596,8 +1677,8 @@ mod adequacy {
         }
 
         fn freeze(&mut self) {
-            let (drift_sign, drift) = self.live.sign_magnitude();
-            if drift == suanpan::UBig::ZERO {
+            let (drift_sign, drift) = self.live.sign_ubig();
+            if drift == dashu_int::UBig::ZERO {
                 self.live.reset();
                 return;
             }
@@ -1609,25 +1690,25 @@ mod adequacy {
                 self.promote();
             }
             match drift_sign {
-                Ordering::Less => self.parked.sub_magnitude(&drift),
-                _ => self.parked.add_magnitude(&drift),
+                Ordering::Less => self.parked.sub_base(&drift),
+                _ => self.parked.add_base(&drift),
             }
             self.live.reset();
             self.segment_mass = Accumulator::new();
         }
 
         fn settle_segment(&mut self) {
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
-            if segment_magnitude == suanpan::UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
+            if segment_magnitude == dashu_int::UBig::ZERO {
                 return;
             }
             let segment = Base::from(segment_magnitude);
-            self.position.add_magnitude_shl(&segment, segment_shift);
+            self.position.add_base_shl(&segment, segment_shift);
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-            if parked_magnitude == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
+            if parked_magnitude == dashu_int::UBig::ZERO {
                 return;
             }
             mul_into(
@@ -1643,11 +1724,11 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-            if parked_magnitude == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
+            if parked_magnitude == dashu_int::UBig::ZERO {
                 return;
             }
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
             mul_into(
                 &mut self.total,
                 &Base::from(parked_magnitude),
@@ -1660,9 +1741,9 @@ mod adequacy {
         /// The refuted move: `P × position` with the position read whole, then
         /// `P` re-anchored into the base.
         fn promote(&mut self) {
-            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-            if parked_magnitude != suanpan::UBig::ZERO {
-                let (_, pos_mag, pos_shift) = self.position.sign_magnitude_shl();
+            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
+            if parked_magnitude != dashu_int::UBig::ZERO {
+                let (_, pos_mag, pos_shift) = self.position.sign_ubig_shl();
                 mul_into(
                     &mut self.total,
                     &Base::from(parked_magnitude),
@@ -1680,7 +1761,7 @@ mod adequacy {
             if !self.base.is_literally_zero() {
                 self.total.add_accum_shl(&self.base, closing_shift);
             }
-            let (sign, num) = self.total.sign_magnitude();
+            let (sign, num) = self.total.sign_ubig();
             debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
             let scale = closing_shift;
             Rank::from_raw(Base::from(num), scale)
@@ -1726,8 +1807,8 @@ mod adequacy {
         let mut orient = orientation(diff.sign());
         let mut integral = SpanIntegrator::new();
         if orient != 0 {
-            let (_, opening) = diff.sign_magnitude();
-            integral.open(&Int::from_ubig(opening));
+            let (_, opening) = diff.sign_ubig();
+            integral.open(&Int::from_base(Base::from(opening)));
         }
         loop {
             let weight_shift = overlay_depth - ca.depth().max(cb.depth());
@@ -1908,21 +1989,21 @@ mod adequacy {
             if !self.live.is_literally_zero() {
                 self.total.add_accum_shl(&self.live, weight_shift);
             }
-            self.segment_mass.add_magnitude_shl(&self.one, weight_shift);
+            self.segment_mass.add_base_shl(&self.one, weight_shift);
         }
 
         fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-            let (sign, magnitude) = diff.sign_magnitude();
-            if magnitude == suanpan::UBig::ZERO {
+            let (sign, magnitude) = diff.sign_ubig();
+            if magnitude == dashu_int::UBig::ZERO {
                 return;
             }
             let magnitude = Base::from(magnitude);
             let negative = (coefficient < 0) != (sign == Ordering::Less);
             let shift = if coefficient.abs() == 2 { 1 } else { 0 };
             if negative {
-                self.live.sub_magnitude_shl(&magnitude, shift);
+                self.live.sub_base_shl(&magnitude, shift);
             } else {
-                self.live.add_magnitude_shl(&magnitude, shift);
+                self.live.add_base_shl(&magnitude, shift);
             }
         }
 
@@ -1933,8 +2014,8 @@ mod adequacy {
         }
 
         fn freeze(&mut self) {
-            let (drift_sign, drift) = self.live.sign_magnitude();
-            if drift == suanpan::UBig::ZERO {
+            let (drift_sign, drift) = self.live.sign_ubig();
+            if drift == dashu_int::UBig::ZERO {
                 self.live.reset();
                 return;
             }
@@ -1946,26 +2027,25 @@ mod adequacy {
                 self.promote();
             }
             match drift_sign {
-                Ordering::Less => self.parked.sub_magnitude(&drift),
-                _ => self.parked.add_magnitude(&drift),
+                Ordering::Less => self.parked.sub_base(&drift),
+                _ => self.parked.add_base(&drift),
             }
             self.live.reset();
             self.segment_mass = Accumulator::new();
         }
 
         fn settle_segment(&mut self) {
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
-            if segment_magnitude == suanpan::UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
+            if segment_magnitude == dashu_int::UBig::ZERO {
                 return;
             }
             let segment = Base::from(segment_magnitude);
-            self.banked_window
-                .add_magnitude_shl(&segment, segment_shift);
+            self.banked_window.add_base_shl(&segment, segment_shift);
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-            if parked_magnitude == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
+            if parked_magnitude == dashu_int::UBig::ZERO {
                 return;
             }
             mul_into(
@@ -1981,11 +2061,11 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-            if parked_magnitude == suanpan::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
+            if parked_magnitude == dashu_int::UBig::ZERO {
                 return;
             }
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
             mul_into(
                 &mut self.total,
                 &Base::from(parked_magnitude),
@@ -1996,9 +2076,9 @@ mod adequacy {
         }
 
         fn promote(&mut self) {
-            let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-            if parked_magnitude != suanpan::UBig::ZERO {
-                let (_, window_magnitude, window_shift) = self.banked_window.sign_magnitude_shl();
+            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
+            if parked_magnitude != dashu_int::UBig::ZERO {
+                let (_, window_magnitude, window_shift) = self.banked_window.sign_base_shl();
                 self.promotions.push(Arming {
                     sign: Sign::from_is_negative(parked_sign == Ordering::Less),
                     parked: Base::from(parked_magnitude),
@@ -2017,9 +2097,9 @@ mod adequacy {
                 return;
             }
             let (_, final_window_magnitude, final_window_shift) =
-                self.banked_window.sign_magnitude_shl();
+                self.banked_window.sign_base_shl();
             let mut suffix = WindowMass::new();
-            if final_window_magnitude != suanpan::UBig::ZERO {
+            if !final_window_magnitude.is_zero() {
                 suffix.merge(&final_window_magnitude, final_window_shift);
             }
             let armings = core::mem::take(&mut self.promotions);
@@ -2034,17 +2114,17 @@ mod adequacy {
         fn finish(mut self, closing_shift: u64) -> Rank {
             self.settle();
             if !self.promotions.is_empty() {
-                let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_magnitude_shl();
-                if segment_magnitude != suanpan::UBig::ZERO {
+                let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
+                if segment_magnitude != dashu_int::UBig::ZERO {
                     self.banked_window
-                        .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
+                        .add_ubig_shl(&segment_magnitude, segment_shift);
                 }
                 self.settle_armings();
             }
             if !self.base.is_literally_zero() {
                 self.total.add_accum_shl(&self.base, closing_shift);
             }
-            let (sign, num) = self.total.sign_magnitude();
+            let (sign, num) = self.total.sign_ubig();
             debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
             let scale = closing_shift;
             Rank::from_raw(Base::from(num), scale)
@@ -2090,8 +2170,8 @@ mod adequacy {
         let mut orient = orientation(diff.sign());
         let mut integral = SuffixWalkIntegrator::new();
         if orient != 0 {
-            let (_, opening) = diff.sign_magnitude();
-            integral.open(&Int::from_ubig(opening));
+            let (_, opening) = diff.sign_ubig();
+            integral.open(&Int::from_base(Base::from(opening)));
         }
         loop {
             let weight_shift = overlay_depth - ca.depth().max(cb.depth());
@@ -2227,19 +2307,19 @@ mod adequacy {
     // digits into the left one digit at a time, each single-digit combine
     // re-walking the whole live vector, `O(density²)` per merge where the
     // shipped absorb is one pass over both operands — committed and failing on
-    // the dense-suffix family *in the limb currency*: the committed-and-failing
+    // the dense-suffix family in limb operations: the committed-and-failing
     // form is available here exactly because the tap exists (without it this
     // kernel reads byte-identical to the shipped settle on every committed
     // counter — the hole the tap closes), so this tripwire is simultaneously
     // the tap's liveness proof and the dense-suffix flatness bands' adequacy
-    // witness for the digit-traffic genre. Value-exact: the balanced
+    // witness for this digit traffic. Value-exact: the balanced
     // recentering is canonical per position, so digit-at-a-time recombination
     // converges to the same digit stream and every charge and the final rank
     // agree with the shipped fold exactly.
 
     use crate::meter::{limb_ops, reset_limb_ops};
     use crate::version::skyline::query::integral::{mass_split, Aggregate, Integrator};
-    use suanpan::UBig;
+    use dashu_int::UBig;
 
     /// Fold `other` into `dst` one digit at a time: each single-digit
     /// combine re-walks `dst`'s whole live vector — the `O(density²)`
@@ -2254,7 +2334,7 @@ mod adequacy {
     /// parked sum exactly as [`Aggregate::merge`], the window merge
     /// swapped for [`per_digit_absorb`].
     fn merge_per_digit(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (parked_sign, parked_magnitude) = left.parked.sign_magnitude();
+        let (parked_sign, parked_magnitude) = left.parked.sign_ubig();
         if parked_magnitude != UBig::ZERO {
             right.windows.charge(
                 total,
@@ -2274,8 +2354,7 @@ mod adequacy {
             return;
         }
         let armings = core::mem::take(&mut integ.promotions);
-        let (_, final_window_magnitude, final_window_shift) =
-            integ.banked_window.sign_magnitude_shl();
+        let (_, final_window_magnitude, final_window_shift) = integ.banked_window.sign_base_shl();
         let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
         for arming in armings {
             let mut parked = Accumulator::new();
@@ -2285,7 +2364,7 @@ mod adequacy {
             leaves.push(Aggregate { parked, windows });
         }
         let mut windows = WindowMass::new();
-        if final_window_magnitude != UBig::ZERO {
+        if !final_window_magnitude.is_zero() {
             windows.merge(&final_window_magnitude, final_window_shift);
         }
         leaves.push(Aggregate {
@@ -2340,18 +2419,18 @@ mod adequacy {
     fn per_digit_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
         integ.settle();
         if !integ.promotions.is_empty() {
-            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_magnitude_shl();
+            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_ubig_shl();
             if segment_magnitude != UBig::ZERO {
                 integ
                     .banked_window
-                    .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
+                    .add_ubig_shl(&segment_magnitude, segment_shift);
             }
             per_digit_settle_armings(&mut integ);
         }
         if !integ.base.is_literally_zero() {
             integ.total.add_accum_shl(&integ.base, closing_shift);
         }
-        let (sign, num) = integ.total.sign_magnitude();
+        let (sign, num) = integ.total.sign_ubig();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
         let scale = closing_shift;
         Rank::from_raw(Base::from(num), scale)
@@ -2378,12 +2457,11 @@ mod adequacy {
         per_digit_finish(integral, max_depth)
     }
 
-    /// One tripwire run over `DS(p, p)`: encoded bytes and the limb
-    /// count over the known-bad fold, value-pinned against the shipped
-    /// kernel.
+    /// Run the deliberately inefficient fold over `DS(p, p)`, returning its
+    /// encoded size and limb count after checking its value.
     ///
-    /// The limb currency is the point: the bad absorb's excess is pure
-    /// window-digit traffic, which only the combine tap meters.
+    /// Limb operations are the relevant measure because the excess work is
+    /// entirely in window-digit combination.
     fn per_digit_run(p: usize) -> (u64, u64) {
         let v = Shape::DenseSuffix.build2(p, p).version();
         let enc = encode(&v);
@@ -2399,13 +2477,13 @@ mod adequacy {
         (enc.len().div_ceil(8), limbs)
     }
 
-    /// `DS(p, p)` catches the per-digit window absorb red through the combine
-    /// tap: its per-byte limb cost grows across the doubling.
+    /// The inefficient per-digit combination grows superlinearly per encoded
+    /// byte when `DS(p, p)` doubles.
     ///
     /// A linear settle reads ~x1.00 here; the floor 1.42 sits midway between
     /// linear (x1.00) and the measured growth, while the shipped kernel's
-    /// dense-suffix flatness band holds the same family at x1.25 in the same
-    /// currency.
+    /// dense-suffix flatness band holds the same family at x1.25 in limb
+    /// operations per byte.
     ///
     /// [measured in the dev profile, exact counters: limb ops 725,957 ->
     /// 2,702,714 across DS(500, 500) -> DS(1,000, 1,000), encoded 119,593B ->
@@ -2424,10 +2502,10 @@ mod adequacy {
                 >= u128::from(small_limbs) * u128::from(large_bytes) * 142,
             "the per-digit window absorb reads flat on the dense-suffix family \
              ({small_limbs}/{small_bytes}B -> {large_limbs}/{large_bytes}B limb \
-             ops): either the combine tap went dark (the digit traffic is \
-             unmetered again) or the family no longer drives dense windows \
+             ops): either window-digit traffic is no longer metered or the \
+             family no longer drives dense windows \
              through the settle — in both cases the dense-suffix flatness \
-             bands are decoration for this genre until a new witness lands"
+             bands no longer validate this failure mode until a new witness lands"
         );
     }
 
@@ -2461,9 +2539,9 @@ mod adequacy {
             let mut product = parked.clone();
             product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
             if sign.is_negative() == (digit < 0) {
-                total.add_magnitude_shl(&product, 32 * index);
+                total.add_base_shl(&product, 32 * index);
             } else {
-                total.sub_magnitude_shl(&product, 32 * index);
+                total.sub_base_shl(&product, 32 * index);
             }
         }
     }
@@ -2472,7 +2550,7 @@ mod adequacy {
     /// absorb exactly as [`Aggregate::merge`], the product routed through
     /// [`schoolbook_charge`].
     fn merge_schoolbook(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (parked_sign, parked_magnitude) = left.parked.sign_magnitude();
+        let (parked_sign, parked_magnitude) = left.parked.sign_ubig();
         if parked_magnitude != UBig::ZERO {
             schoolbook_charge(
                 total,
@@ -2493,8 +2571,7 @@ mod adequacy {
             return;
         }
         let armings = core::mem::take(&mut integ.promotions);
-        let (_, final_window_magnitude, final_window_shift) =
-            integ.banked_window.sign_magnitude_shl();
+        let (_, final_window_magnitude, final_window_shift) = integ.banked_window.sign_base_shl();
         let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
         for arming in armings {
             let mut parked = Accumulator::new();
@@ -2504,7 +2581,7 @@ mod adequacy {
             leaves.push(Aggregate { parked, windows });
         }
         let mut windows = WindowMass::new();
-        if final_window_magnitude != UBig::ZERO {
+        if !final_window_magnitude.is_zero() {
             windows.merge(&final_window_magnitude, final_window_shift);
         }
         leaves.push(Aggregate {
@@ -2560,9 +2637,9 @@ mod adequacy {
     /// [`schoolbook_settle_armings`].
     fn schoolbook_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
         if !integ.parked.is_literally_zero() {
-            let (parked_sign, parked_magnitude) = integ.parked.sign_magnitude();
+            let (parked_sign, parked_magnitude) = integ.parked.sign_ubig();
             if parked_magnitude != UBig::ZERO {
-                let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_magnitude_shl();
+                let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_ubig_shl();
                 mul_into(
                     &mut integ.total,
                     &Base::from(parked_magnitude),
@@ -2573,18 +2650,18 @@ mod adequacy {
             }
         }
         if !integ.promotions.is_empty() {
-            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_magnitude_shl();
+            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_ubig_shl();
             if segment_magnitude != UBig::ZERO {
                 integ
                     .banked_window
-                    .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
+                    .add_ubig_shl(&segment_magnitude, segment_shift);
             }
             schoolbook_settle_armings(&mut integ);
         }
         if !integ.base.is_literally_zero() {
             integ.total.add_accum_shl(&integ.base, closing_shift);
         }
-        let (sign, num) = integ.total.sign_magnitude();
+        let (sign, num) = integ.total.sign_ubig();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
         let scale = closing_shift;
         Rank::from_raw(Base::from(num), scale)
@@ -2674,7 +2751,7 @@ mod adequacy {
     ///
     /// The arming-free site: no promotion ever fires, so the whole excess is
     /// the close-time `P · segment` product paid one digit at a time. The floor
-    /// 1.32 sits midway between linear and the lower measured currency, while
+    /// 1.32 sits midway between linear and the lower measured rate, while
     /// the shipped kernel's `answer_embedded_product` band holds the same
     /// family at x1.25.
     ///

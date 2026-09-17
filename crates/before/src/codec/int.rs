@@ -78,12 +78,4 @@ impl Int {
             (Int::Wide(a), Int::Wide(b)) => a.cmp(b),
         }
     }
-
-    /// A raw magnitude, parked word-sized when it fits.
-    pub(crate) fn from_ubig(magnitude: suanpan::UBig) -> Int {
-        match u64::try_from(&magnitude) {
-            Ok(n) => Int::Small(n),
-            Err(_) => Int::Wide(Base::from(magnitude)),
-        }
-    }
 }

@@ -1,24 +1,9 @@
 //! Differential and structural tests for the accumulator, against an
 //! exact `IBig` oracle.
 //!
-//! One submodule per category:
-//!
-//! - `differential`: randomized operation streams and deterministic
-//!   adversarial shapes, each compared against the oracle — the sign
-//!   after every operation, the full value at periodic snapshots.
-//! - `metered` (`touch-meter` builds only): the exact digit-touch pins
-//!   behind the claims roster's cost rows, including the adequacy
-//!   tripwire that reads red on a sign fold without its collapse.
-//! - `witnesses`: constructed corner cases no random stream reaches —
-//!   the decision thresholds at their tight edges, the quick register's
-//!   headroom extremes, and conversion-path corners.
-//! - `ledger`: the zero-run ledger's structural invariants, held after
-//!   every step of every schedule at exhaustive small scope and on
-//!   randomized deep-shift streams.
-//!
-//! This file holds the shared harness: mode-forcing construction, the
-//! oracle comparison, limb-built wide operands, and zone-edge digit
-//! parking.
+//! The shared helpers construct either accumulator representation, compare
+//! both readouts with an independent big-integer oracle, and build values
+//! from limb streams.
 
 mod differential;
 mod ledger;
@@ -28,7 +13,7 @@ mod witnesses;
 
 use core::cmp::Ordering;
 
-use dashu_int::{IBig, Sign, UBig};
+use num_bigint::{BigInt as IBig, BigUint as UBig, Sign};
 
 use super::Accumulator;
 
@@ -49,27 +34,17 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
         Ordering::Equal
     } else {
         match oracle.sign() {
-            Sign::Negative => Ordering::Less,
-            Sign::Positive => Ordering::Greater,
+            Sign::Minus => Ordering::Less,
+            Sign::Plus => Ordering::Greater,
+            Sign::NoSign => Ordering::Equal,
         }
     }
 }
 
-/// Assert the accumulator's full value equals the oracle's, sign and
-/// magnitude both — through the plain read and the scaled one.
+/// Assert that both limb readouts denote the oracle's exact signed value.
 fn assert_value(acc: &Accumulator, oracle: &IBig) {
-    let (sign, magnitude) = acc.sign_magnitude();
-    assert_eq!(sign, oracle_sign(oracle), "sign_magnitude sign");
-    // The sign was just asserted, so signing the magnitude with it makes
-    // the magnitude comparison exact.
-    let rebuilt = match sign {
-        Ordering::Less => -IBig::from(magnitude),
-        _ => IBig::from(magnitude),
-    };
-    assert_eq!(&rebuilt, oracle, "sign_magnitude magnitude");
-    // The limb read is the same value spelled as minimal LE 64-bit limbs.
     let (limb_sign, limbs) = acc.sign_limbs();
-    assert_eq!(limb_sign, sign, "sign_limbs sign");
+    assert_eq!(limb_sign, oracle_sign(oracle), "sign_limbs sign");
     assert_ne!(
         limbs.last(),
         Some(&0),
@@ -81,20 +56,91 @@ fn assert_value(acc: &Accumulator, oracle: &IBig) {
     };
     assert_eq!(&rebuilt, oracle, "sign_limbs magnitude");
     // The scaled read denotes the same value: ±magnitude · 2^shift.
-    let (shl_sign, shl_magnitude, shift) = acc.sign_magnitude_shl();
-    assert_eq!(shl_sign, sign, "sign_magnitude_shl sign");
-    let scaled = IBig::from(shl_magnitude) << usize::try_from(shift).unwrap();
+    let (shl_sign, shl_limbs, shift) = acc.sign_limbs_shl();
+    assert_eq!(shl_sign, limb_sign, "sign_limbs_shl sign");
+    let scaled = IBig::from(from_limbs(&shl_limbs)) << usize::try_from(shift).unwrap();
     let rebuilt = match shl_sign {
         Ordering::Less => -scaled,
         _ => scaled,
     };
-    assert_eq!(&rebuilt, oracle, "sign_magnitude_shl magnitude at scale");
+    assert_eq!(&rebuilt, oracle, "sign_limbs_shl magnitude at scale");
 }
 
 /// A wide magnitude from little-endian 64-bit limbs.
 fn from_limbs(limbs: &[u64]) -> UBig {
     let bytes: Vec<u8> = limbs.iter().flat_map(|limb| limb.to_le_bytes()).collect();
-    UBig::from_le_bytes(&bytes)
+    UBig::from_bytes_le(&bytes)
+}
+
+/// Big-integer adapters that drive the public word and limb entry points.
+trait TestBig {
+    /// Add a normalized oracle value through the limb-stream path.
+    fn add_limb_value(&mut self, value: &UBig);
+    /// Subtract a normalized oracle value through the limb-stream path.
+    fn sub_limb_value(&mut self, value: &UBig);
+    /// Add a shifted oracle value through the limb-stream path.
+    fn add_limb_value_shl(&mut self, value: &UBig, shift: u64);
+    /// Subtract a shifted oracle value through the limb-stream path.
+    fn sub_limb_value_shl(&mut self, value: &UBig, shift: u64);
+    /// Add a shifted oracle value through the narrowest applicable path.
+    fn add_value_shl(&mut self, value: &UBig, shift: u64);
+    /// Subtract a shifted oracle value through the narrowest applicable path.
+    fn sub_value_shl(&mut self, value: &UBig, shift: u64);
+    /// Read the held value into the big-integer oracle representation.
+    fn sign_biguint(&self) -> (Ordering, UBig);
+    /// Read the held value and retained scale into the oracle representation.
+    fn sign_biguint_shl(&self) -> (Ordering, UBig, u64);
+}
+
+impl TestBig for Accumulator {
+    fn add_limb_value(&mut self, value: &UBig) {
+        self.add_limbs_shl(value.iter_u64_digits(), 0);
+    }
+
+    fn sub_limb_value(&mut self, value: &UBig) {
+        self.sub_limbs_shl(value.iter_u64_digits(), 0);
+    }
+
+    fn add_limb_value_shl(&mut self, value: &UBig, shift: u64) {
+        self.add_limbs_shl(value.iter_u64_digits(), shift);
+    }
+
+    fn sub_limb_value_shl(&mut self, value: &UBig, shift: u64) {
+        self.sub_limbs_shl(value.iter_u64_digits(), shift);
+    }
+
+    fn add_value_shl(&mut self, value: &UBig, shift: u64) {
+        match oracle_word(value) {
+            Some(word) => self.add_u64_shl(word, shift),
+            None => self.add_limb_value_shl(value, shift),
+        }
+    }
+
+    fn sub_value_shl(&mut self, value: &UBig, shift: u64) {
+        match oracle_word(value) {
+            Some(word) => self.sub_u64_shl(word, shift),
+            None => self.sub_limb_value_shl(value, shift),
+        }
+    }
+
+    fn sign_biguint(&self) -> (Ordering, UBig) {
+        let (sign, limbs) = self.sign_limbs();
+        (sign, from_limbs(&limbs))
+    }
+
+    fn sign_biguint_shl(&self) -> (Ordering, UBig, u64) {
+        let (sign, limbs, shift) = self.sign_limbs_shl();
+        (sign, from_limbs(&limbs), shift)
+    }
+}
+
+/// Return an oracle value as a word when it fits.
+fn oracle_word(value: &UBig) -> Option<u64> {
+    if value.bits() <= 64 {
+        Some(value.iter_u64_digits().next().unwrap_or(0))
+    } else {
+        None
+    }
 }
 
 /// Deposit `−(2^33 − 1)` — the lazy zone's most negative digit — at
@@ -105,12 +151,12 @@ fn from_limbs(limbs: &[u64]) -> UBig {
 /// each intermediate total stays inside the zone; a single deposit of
 /// the full value would recenter. This is the construction behind the
 /// extreme-cancellation witnesses and the differential suite's
-/// accumulator-operand probes: an adversary (or an unlucky workload)
-/// can park any digit one unit inside the zone boundary.
+/// accumulator-operand probes: any digit can be parked one unit inside the
+/// zone boundary.
 fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
     // The construction is a digit-engine spelling: arm the engine so
     // the register cannot fuse the two deposits into one exact value.
     acc.spill();
-    acc.sub_magnitude_shl(&UBig::from(1u64 << 32), 32 * index);
-    acc.sub_magnitude_shl(&UBig::from((1u64 << 32) - 1), 32 * index);
+    acc.sub_u64_shl(1u64 << 32, 32 * index);
+    acc.sub_u64_shl((1u64 << 32) - 1, 32 * index);
 }

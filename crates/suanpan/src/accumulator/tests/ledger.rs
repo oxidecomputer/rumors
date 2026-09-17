@@ -12,10 +12,10 @@
 //! than the field doc needs, so a weakening of any clause fails here
 //! first, by name.
 
-use dashu_int::{IBig, UBig};
+use num_bigint::{BigInt as IBig, BigUint as UBig};
 use proptest::prelude::*;
 
-use super::{assert_value, fresh, from_limbs, oracle_sign, Accumulator};
+use super::{assert_value, fresh, from_limbs, oracle_sign, Accumulator, TestBig as _};
 use crate::accumulator::LAZY_LIMIT;
 
 /// Every structural invariant of the digit buffer and the zero-run
@@ -93,13 +93,11 @@ fn assert_ledger_invariants(acc: &Accumulator, schedule: &[u8]) {
 
 /// Precomputed operands of the exhaustive ledger driver's alphabet.
 struct LedgerCtx {
-    /// `2^32` as a word-scale magnitude.
+    /// `2^32`, used to deposit a whole signed coefficient in one digit.
     ///
-    /// `*_magnitude_shl` deposits it raw at a digit position (no
-    /// per-digit canonicalization), the one public route to an
-    /// adjacent-digit spelling like `(+1, −2^32)` — the shape that
-    /// drives the sign fold's running partial to exact zero above a
-    /// certified run.
+    /// The word path does not split the coefficient across two digits. That
+    /// distinction constructs an adjacent spelling such as `(+1, −2^32)`,
+    /// which can drive a sign fold's partial to zero above a certified run.
     word32: UBig,
     /// Oracle values of the shifted ops: `2^96`, `2^224`, `u64::MAX`.
     p96: IBig,
@@ -142,27 +140,27 @@ fn ledger_op(ctx: &LedgerCtx, acc: &mut Accumulator, oracle: &mut IBig, op: u8) 
             *oracle -= &ctx.max64;
         }
         4 => {
-            acc.add_wide_shl(&UBig::ONE, 96);
+            acc.add_limb_value_shl(&UBig::ONE, 96);
             *oracle += &ctx.p96;
         }
         5 => {
-            acc.sub_wide_shl(&UBig::ONE, 96);
+            acc.sub_limb_value_shl(&UBig::ONE, 96);
             *oracle -= &ctx.p96;
         }
         6 => {
-            acc.add_wide_shl(&UBig::ONE, 224);
+            acc.add_limb_value_shl(&UBig::ONE, 224);
             *oracle += &ctx.p224;
         }
         7 => {
-            acc.sub_wide_shl(&UBig::ONE, 224);
+            acc.sub_limb_value_shl(&UBig::ONE, 224);
             *oracle -= &ctx.p224;
         }
         8 => {
-            acc.sub_magnitude_shl(&ctx.word32, 192);
+            acc.sub_value_shl(&ctx.word32, 192);
             *oracle -= &ctx.p224;
         }
         9 => {
-            acc.add_magnitude_shl(&ctx.word32, 192);
+            acc.add_value_shl(&ctx.word32, 192);
             *oracle += &ctx.p224;
         }
         _ => {
@@ -262,15 +260,15 @@ proptest! {
             let scaled = IBig::from(value.clone()) << usize::try_from(*shift).unwrap();
             match arm {
                 0 => {
-                    acc.add_wide_shl(&value, *shift);
+                    acc.add_limb_value_shl(&value, *shift);
                     oracle += scaled;
                 }
                 1 => {
-                    acc.sub_wide_shl(&value, *shift);
+                    acc.sub_limb_value_shl(&value, *shift);
                     oracle -= scaled;
                 }
                 2 => {
-                    acc.sub_magnitude_shl(&value, *shift);
+                    acc.sub_value_shl(&value, *shift);
                     oracle -= scaled;
                 }
                 3 => {

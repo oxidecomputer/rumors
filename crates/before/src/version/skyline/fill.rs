@@ -868,7 +868,7 @@ impl FillWalk<'_> {
             // common case (nothing consumed since the last emit) reads the
             // single step just folded.
             self.gap.sign();
-            let (sign, magnitude) = self.gap.sign_magnitude();
+            let (sign, magnitude) = Base::from_accumulator(&self.gap);
             Signed::from_sign_magnitude(sign, magnitude)
         };
         // The new gap is h − value = 0 exactly.
@@ -911,11 +911,11 @@ impl FillWalk<'_> {
             // code plus consumed deltas), so the read is priced by the write.
             debug_assert!(!self.w_anchored, "the first emission finds no anchor");
             self.height.sign();
-            let (sign, magnitude) = self.height.sign_magnitude();
+            let (sign, magnitude) = Base::from_accumulator(&self.height);
             debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
             let value = Signed {
                 sign: Sign::Positive,
-                magnitude: Int::from_ubig(magnitude),
+                magnitude: Int::from_base(magnitude),
             }
             .sum(&offset);
             debug_assert!(!value.sign.is_negative(), "a collapsed height is a natural");
@@ -933,7 +933,7 @@ impl FillWalk<'_> {
                 // d_out = (h + offset) − prev_out = gap + offset.
                 fold_signed_int(&mut self.gap, offset.sign, &offset.magnitude);
                 self.gap.sign();
-                let (sign, magnitude) = self.gap.sign_magnitude();
+                let (sign, magnitude) = Base::from_accumulator(&self.gap);
                 Signed::from_sign_magnitude(sign, magnitude)
             };
             self.out
@@ -1116,7 +1116,7 @@ impl FillWalk<'_> {
                 Some(first_leaf_depth),
             );
             self.first_read = false;
-            let (net_sign, net_magnitude) = net.sign_magnitude();
+            let (net_sign, net_magnitude) = Base::from_accumulator(&net);
             let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
             self.fold_block(&net);
         }

@@ -4,8 +4,8 @@ use core::hash::{Hash, Hasher};
 use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Shr, Sub, SubAssign};
 
 use dashu_int::ops::BitTest;
-use dashu_int::UBig;
-use suanpan::Limbs;
+use dashu_int::{UBig, Word};
+use suanpan::Accumulator;
 
 // Test-only metering for big-arithmetic operations:
 #[cfg(feature = "limb-meter")]
@@ -25,8 +25,60 @@ use limb_metered::*;
 #[derive(Clone, Debug, Eq)]
 pub struct Base(pub(crate) UBig);
 
+/// Stored words per 64-bit limb on the current target.
+const WORDS_PER_LIMB: usize = (u64::BITS / Word::BITS) as usize;
+
+/// The stored magnitude as borrowed little-endian 64-bit limbs.
+pub(crate) struct Limbs<'a> {
+    chunks: core::slice::Chunks<'a, Word>,
+}
+
+impl<'a> Limbs<'a> {
+    /// Borrow the limbs of `value` without allocating.
+    pub(crate) fn new(value: &'a UBig) -> Limbs<'a> {
+        Limbs {
+            chunks: value.as_words().chunks(WORDS_PER_LIMB),
+        }
+    }
+}
+
+impl Iterator for Limbs<'_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        self.chunks.next().map(pack_limb)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.chunks.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for Limbs<'_> {
+    fn next_back(&mut self) -> Option<u64> {
+        self.chunks.next_back().map(pack_limb)
+    }
+}
+
+impl ExactSizeIterator for Limbs<'_> {}
+
+impl core::iter::FusedIterator for Limbs<'_> {}
+
+/// Combine one target-word chunk into a 64-bit limb.
+fn pack_limb(chunk: &[Word]) -> u64 {
+    #[allow(clippy::unnecessary_cast)]
+    chunk.iter().enumerate().fold(0u64, |limb, (index, &word)| {
+        limb | ((word as u64) << (index as u32 * Word::BITS))
+    })
+}
+
 impl Base {
     pub(crate) const ZERO: Base = Base(UBig::ZERO);
+
+    /// Whether this magnitude is zero.
+    pub(crate) fn is_zero(&self) -> bool {
+        self.0 == UBig::ZERO
+    }
 
     /// The magnitude's bit length: zero for zero, `floor(log2 n) + 1`
     /// otherwise.
@@ -41,6 +93,60 @@ impl Base {
     /// O(1), no allocation.
     pub(crate) fn to_u64(&self) -> Option<u64> {
         u64::try_from(&self.0).ok()
+    }
+
+    /// Borrow this magnitude as minimal little-endian 64-bit limbs.
+    pub(crate) fn iter_limbs(&self) -> Limbs<'_> {
+        Limbs::new(&self.0)
+    }
+
+    /// Build a magnitude from a borrowed little-endian limb slice.
+    fn from_limb_slice(limbs: &[u64]) -> Base {
+        #[cfg(target_pointer_width = "64")]
+        {
+            match limbs {
+                [] => return Base::ZERO,
+                &[low] => return Base(UBig::from(low)),
+                &[low, high] => {
+                    return Base(UBig::from(u128::from(low) | (u128::from(high) << 64)));
+                }
+                _ => {}
+            }
+            Base(UBig::from_words(limbs))
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            match limbs {
+                [] => return Base::ZERO,
+                &[limb] => return Base(UBig::from(limb)),
+                _ => {}
+            }
+            let words: Vec<Word> = limbs
+                .iter()
+                .flat_map(|&limb| [limb as Word, (limb >> 32) as Word])
+                .collect();
+            Base(UBig::from_words(&words))
+        }
+    }
+
+    /// Read an accumulator into this normalized magnitude representation.
+    pub(crate) fn from_accumulator(acc: &Accumulator) -> (Ordering, Base) {
+        acc.with_sign_limbs(|sign, limbs| (sign, Base::from_limb_slice(limbs)))
+    }
+
+    /// Read an accumulator as a magnitude with a retained power-of-two scale.
+    pub(crate) fn from_accumulator_shl(acc: &Accumulator) -> (Ordering, Base, u64) {
+        acc.with_sign_limbs_shl(|sign, limbs, shift| (sign, Base::from_limb_slice(limbs), shift))
+    }
+
+    /// Fold this magnitude, scaled by `2^shift`, into an accumulator.
+    pub(crate) fn fold_into(&self, acc: &mut Accumulator, shift: u64, subtract: bool) {
+        match self.to_u64() {
+            Some(word) if subtract => acc.sub_u64_shl(word, shift),
+            Some(word) => acc.add_u64_shl(word, shift),
+            None if subtract => acc.sub_limbs_shl(self.iter_limbs(), shift),
+            None => acc.add_limbs_shl(self.iter_limbs(), shift),
+        }
     }
 
     pub(crate) fn bit(&self, i: u64) -> bool {
@@ -82,7 +188,7 @@ impl Base {
     /// The MSB-first 64-bit windows of this magnitude's bit string, for
     /// [`msb_cmp_windows`].
     pub(crate) fn msb_windows(&self) -> MsbWindows<impl Iterator<Item = u64> + '_> {
-        MsbWindows::new(Limbs::new(&self.0).rev(), self.bits())
+        MsbWindows::new(self.iter_limbs().rev(), self.bits())
     }
 
     #[cfg(test)]
@@ -130,7 +236,8 @@ impl Base {
 /// the caller's normalization invariant that the strings end in a set bit
 /// (an odd numerator), so the longer string's extension is nonzero. The
 /// limb meter records one limb per streamed window pair, keeping the
-/// metered cost honest about the scan.
+/// limb meter records one limb per streamed window pair, matching the work of
+/// the scan.
 pub(crate) fn msb_cmp_windows(
     mut a: impl Iterator<Item = u64>,
     mut b: impl Iterator<Item = u64>,
@@ -234,24 +341,6 @@ impl Hash for Base {
     fn hash<H: Hasher>(&self, state: &mut H) {
         meter_limbs_solo(self);
         self.0.hash(state);
-    }
-}
-
-// The accumulator seam: `Base` drives `suanpan::Accumulator`'s
-// width-dispatched entry points (`add_magnitude`, `sub_magnitude_shl`, …) —
-// a word-scale magnitude takes the amortized-O(1) small path, a spilled one
-// the O(operand limbs) wide path — with the inline storage answering the
-// dispatch read in O(1). The differential tests below drive both dispatch
-// arms against an exact `IBig` oracle; the dispatch pins alongside them hold
-// `to_word` to that O(1) — word-scale answers exact, zero digit touches
-// under the limb-metered build.
-impl suanpan::Magnitude for Base {
-    fn to_word(&self) -> Option<u64> {
-        self.to_u64()
-    }
-
-    fn as_wide(&self) -> &UBig {
-        &self.0
     }
 }
 

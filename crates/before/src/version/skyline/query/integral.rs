@@ -1,13 +1,9 @@
-//! The anchored-segment integral: the machinery every rank-family fold runs on
-//! — the height split, the freeze discipline, the promotion ledger, and the
-//! settle tree — with the funding certificate for every charge.
+//! An anchored-segment integral over a skyline sweep.
 //!
-//! [`rank`](super::rank) runs this integral on one stream: its integrand is the
-//! height itself. [`distance`](super::distance), [`lag`](super::lag), and
-//! [`rank_cmp`](super::rank_cmp) run it on the pair co-sweep's integrand `h* =
-//! σ·D`, for the measure's orientation `σ` (the σ table in the [`query`](super)
-//! module doc). This doc derives the per-boundary algebra, the split, and the
-//! funding argument the public cost claims rest on.
+//! A single-stream sweep integrates its height. A paired sweep integrates
+//! `h* = σ·D`, where `D` is the running height difference and `σ` selects the
+//! desired measure. The anchored representation prevents compact positions or
+//! deltas from inducing repeated work proportional to an absolute height.
 //!
 //! # The per-boundary algebra
 //!
@@ -72,7 +68,7 @@
 //!   times O(1) digits however dense the absolute position is, and
 //!   oscillating drift cancels digit-wise inside `P` instead of
 //!   re-paying its width. The segment mass is read through the
-//!   accumulator's write-watermark read (`sign_magnitude_shl`) and
+//!   accumulator's scaled limb read (`sign_limbs_shl`) and
 //!   cleared by buffer replacement, so a segment parked deep in the
 //!   stream costs its written span, never its scale.
 //! - `B` (*base*): the opening `h*` plateau, anchored at position zero
@@ -134,9 +130,9 @@
 //! and states the pinned bound). Every unit of settle mass is a digit the
 //! input funded, so the depth is `O(log |v|)`.
 //!
-//! # Funding: the potential function and its arity
+//! # Bounding the work
 //!
-//! The certificate is a **two-ledger potential, one ledger per operand**:
+//! The bound uses a **two-ledger potential, one ledger per operand**:
 //! `Φ = Φ_a + Φ_b`, where folding a code of `w` digits from operand `s`
 //! deposits `Θ(w)` into `Φ_s`, and each topology bit deposits O(1). The arity
 //! is the point: distance and lag are two-stream operations, and a per-stream
@@ -146,9 +142,9 @@
 //! the integral then evicted at the other operand's cheap codes, priced by a
 //! position density neither had funded. The rank fold is the one-ledger,
 //! single-stream instance of the same integral (its orientation is constantly
-//! `+1`), so its certificate is this one with `Φ_b` empty.
+//! `+1`), so the same argument applies with `Φ_b` empty.
 //!
-//! ## The charge inventory
+//! ## Cost of each operation
 //!
 //! Every charge names its deposit:
 //!
@@ -190,9 +186,8 @@
 //! arming, a promoted prefix cannot be re-read once per window, and no width or
 //! density is re-read more times than its node's depth.
 //!
-//! Streams whose parked masses stay `O(1)` digits wide — every committed board
-//! family, and the dense-suffix adversaries of the `skyline_flatness`
-//! dense-suffix bands (a gap spine whose turns puncture the trailing mass a
+//! Streams whose parked masses stay `O(1)` digits wide — including the
+//! dense-suffix cases (a gap spine whose turns puncture the trailing mass a
 //! full digit apart, over `Θ(p)` re-arm blocks) — therefore settle in `O((n +
 //! D) log n)` digit work over `n` armings, `D` the total window density, and
 //! measure flat per byte. The `log n` is conditioned on exactly that
@@ -240,23 +235,16 @@
 //! and `Ω(M(|v|))` digit work is mandatory for any fold that answers exactly:
 //! no settle goes below the multiplication bound.
 //!
-//! The public API's `# Complexity` sections
-//! ([`Version::rank`](crate::Version::rank),
-//! [`Version::distance`](crate::Version::distance),
-//! [`Version::lag`](crate::Version::lag) — one shared integrator) state the
-//! resulting three-part claim. The `ledger_wide_arming` and
-//! `answer_embedded_product` bands (`tests/meter.rs`) hold both wide × dense
-//! families flat per byte in the deterministic counters (which price the fold's
-//! own traffic; the multiplication runs inside the backend, below the limb
-//! shim), and the committed schoolbook kernel beside the [`query`](super)
-//! module's tests (`schoolbook_settle_reads_superlinear_on_wide_arming` and its
-//! plateau-puncture twin) keeps the per-digit charge failing on both families,
-//! so the bands are never decoration.
+//! The public complexity bounds include this multiplication floor. Deterministic
+//! counters measure the fold's own operand and result traffic; multiplication
+//! itself remains inside the integer backend.
 
 use core::cmp::Ordering;
 
-use suanpan::{Accumulator, Limbs, UBig};
+use dashu_int::UBig;
+use suanpan::Accumulator;
 
+use crate::codec::base::Limbs;
 use crate::codec::{Base, Int};
 
 use super::super::signed::{fold_signed, fold_signed_int, Sign};
@@ -268,9 +256,8 @@ use super::super::signed::{fold_signed, fold_signed_int, Sign};
 /// Relative to the delta, so bounded oscillation never freezes at any width — a
 /// tooth's fold is paid by the tooth's own code — while stale drift under
 /// cheaper codes is evicted at the first such code. 8 digits (256 bits) of
-/// slack: reaching it from the codes' own widths would take more small folds
-/// than any real stream holds, and it caps how far a per-leaf `L` add can
-/// outgrow the code that last set `L`'s width.
+/// slack caps how far a per-leaf `L` add can outgrow the code that last set
+/// `L`'s width without freezing after minor fluctuations.
 pub(super) const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 
 #[cfg(test)]
@@ -324,12 +311,9 @@ pub(super) fn base_digits(value: &Base) -> usize {
 /// Split an ascending balanced-digit run into clusters whose interior zero gaps
 /// never exceed `gap_limit` digit positions.
 ///
-/// The cluster seam of the settle products: within a cluster the digits densify
-/// into one integer for the backend's multiplication, across a split the
-/// products stay separate. The threshold is a parameter so a caller can gate
-/// the split point — the settle passes the factor's own width
-/// ([`charge_digits`] derives why) — and the iterator borrows the run, so
-/// clustering allocates nothing.
+/// Within a cluster, digits become one integer for multiplication. A gap wider
+/// than `gap_limit` starts another product. The returned slices borrow the
+/// input, so clustering allocates nothing.
 pub(super) fn clusters(
     digits: &[(u64, i64)],
     gap_limit: u64,
@@ -349,20 +333,12 @@ pub(super) fn clusters(
     })
 }
 
-/// Record a settle product's limb-scale traffic: both operands and the
-/// materialized product.
+/// Record both operands and the result of a settle multiplication.
 ///
-/// The multiplication itself is delegated whole to the backend, below the limb
-/// shim — the `parse_decimal` convention — so the counters price the traffic
-/// the fold moves (operand reads, the product's width) and stay linear when the
-/// mechanism is honest: a settle that multiplied too often, or densified across
-/// an unfunded gap, would push this very tap superlinear. The backend's
-/// internal cost per product is its multiplication bound, which the public `#
-/// Complexity` claims carry. Compiles to nothing without the `limb-meter`
-/// feature. The tap's own liveness is pinned: the sibling tests' seam-window
-/// floor (`settle_product_tap_is_alive_on_the_wide_arming_close`) holds the
-/// recording to a per-boundary mechanism minimum, so a dark tap fails there
-/// instead of letting every limb ceiling it feeds pass vacuously.
+/// These counters measure the data read and produced by the fold, while the
+/// backend performs the multiplication itself. Too many products or a product
+/// spanning an avoidable sparse gap therefore increases the recorded traffic.
+/// This compiles to nothing without `limb-meter`.
 #[inline(always)]
 fn meter_product(factor: &UBig, part: &UBig, product: &UBig) {
     #[cfg(feature = "limb-meter")]
@@ -428,7 +404,7 @@ fn meter_densified_image(bytes: u64) {
 /// digits and splits into two word-scale products instead of densifying its
 /// whole span, and the punctured dense runs that remain ride the backend's
 /// multiplication cluster-wise.
-fn charge_segment(total: &mut Accumulator, sign: Sign, factor: &Base, segment: &UBig, shift: u64) {
+fn charge_segment(total: &mut Accumulator, sign: Sign, factor: &Base, segment: &Base, shift: u64) {
     let mut mass = WindowMass::new();
     mass.merge(segment, shift);
     mass.charge(total, sign, factor);
@@ -483,11 +459,7 @@ pub(super) fn charge_digits(
             // densified image.
             let mut product = factor.clone();
             product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
-            if sign.is_negative() == digit.is_negative() {
-                total.add_magnitude_shl(&product, 32 * index);
-            } else {
-                total.sub_magnitude_shl(&product, 32 * index);
-            }
+            product.fold_into(total, 32 * index, sign.is_negative() != digit.is_negative());
             continue;
         }
         let floor_index = cluster[0].0;
@@ -518,9 +490,9 @@ pub(super) fn charge_digits(
             let product = &factor.0 * &part;
             meter_product(&factor.0, &part, &product);
             if sign.is_negative() == (side == 1) {
-                total.add_wide_shl(&product, 32 * floor_index);
+                total.add_limbs_shl(Limbs::new(&product), 32 * floor_index);
             } else {
-                total.sub_wide_shl(&product, 32 * floor_index);
+                total.sub_limbs_shl(Limbs::new(&product), 32 * floor_index);
             }
         }
     }
@@ -592,7 +564,7 @@ pub(super) struct Arming {
     /// The interval mass banked between the previous promotion (or the sweep's
     /// start) and this one: `window · 2^shift`, the watermark read of the
     /// position window, `shift` a multiple of 32.
-    pub(super) window: UBig,
+    pub(super) window: Base,
     /// The window's power-of-two scale (its never-written low prefix).
     pub(super) shift: u64,
 }
@@ -622,10 +594,11 @@ impl WindowMass {
     /// Each window enters the settle through exactly one such merge — its
     /// 1-entry aggregate's — so the operand walk is paid by the watermark read
     /// that produced it.
-    pub(super) fn merge(&mut self, mass: &UBig, shift: u64) {
+    pub(super) fn merge(&mut self, mass: &Base, shift: u64) {
         debug_assert_eq!(shift % 32, 0, "interval masses are digit-aligned");
         let start_index = shift / 32;
-        let new = Limbs::new(mass)
+        let new = mass
+            .iter_limbs()
             .enumerate()
             .flat_map(|(limb_index, limb)| {
                 [
@@ -751,15 +724,15 @@ impl Aggregate {
     ///
     /// `self` is the left (older) half and `right` the newer, so the node's
     /// product `(Σ parked_left) × (Σ windows_right)` covers every arming-window
-    /// cross pair split by this node's seam — and no other node covers any of
+    /// cross pair split by this node — and no other node covers any of
     /// them, which is what makes the settle exact.
     fn merge(&mut self, right: Aggregate, total: &mut Accumulator) {
-        let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-        if parked_magnitude != UBig::ZERO {
+        let (parked_sign, parked_magnitude) = Base::from_accumulator(&self.parked);
+        if !parked_magnitude.is_zero() {
             right.windows.charge(
                 total,
                 Sign::from_is_negative(parked_sign == Ordering::Less),
-                &Base::from(parked_magnitude),
+                &parked_magnitude,
             );
         }
         self.parked.add_accum(&right.parked);
@@ -803,7 +776,8 @@ impl Integrator {
         // gate ([`frozen`](Self::frozen) derives why the mass behind the first
         // freeze funds nothing).
         if self.frozen {
-            self.segment_mass.add_magnitude_shl(&self.one, weight_shift);
+            self.one
+                .fold_into(&mut self.segment_mass, weight_shift, false);
         }
     }
 
@@ -823,11 +797,10 @@ impl Integrator {
     /// zero `D′` returned above — so `(σ′ − σ) · D′ > 0` on every fold that
     /// reaches the add.
     pub(super) fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-        let (sign, magnitude) = diff.sign_magnitude();
-        if magnitude == UBig::ZERO {
+        let (sign, magnitude) = Base::from_accumulator(diff);
+        if magnitude.is_zero() {
             return;
         }
-        let magnitude = Base::from(magnitude);
         // A hard assert, not a debug one: a non-monotone closure would
         // otherwise fold the term in the wrong direction silently, and the
         // check is one word compare per orientation change.
@@ -837,7 +810,7 @@ impl Integrator {
             "a monotone orientation's change term is a debit"
         );
         let shift = if coefficient.abs() == 2 { 1 } else { 0 };
-        self.live.add_magnitude_shl(&magnitude, shift);
+        magnitude.fold_into(&mut self.live, shift, false);
     }
 
     /// The end-of-boundary trigger: park the live drift when this boundary's
@@ -856,15 +829,14 @@ impl Integrator {
     /// the incoming drift runs far narrower, then moves the drift in and
     /// re-anchors.
     fn freeze(&mut self) {
-        let (drift_sign, drift) = self.live.sign_magnitude();
-        if drift == UBig::ZERO {
+        let (drift_sign, drift) = Base::from_accumulator(&self.live);
+        if drift.is_zero() {
             // A redundantly spelled zero tripped the width trigger: there is no
             // drift to park — empty the spelling and keep the current segment
             // open.
             self.live.reset();
             return;
         }
-        let drift = Base::from(drift);
         // Open the gate on the segment and window feeds: from here on, parked
         // drift exists for segment mass to settle. At this first opening the
         // segment sum is empty — the mass behind it funds nothing
@@ -880,10 +852,7 @@ impl Integrator {
         if self.parked.digit_count() > base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS {
             self.promote();
         }
-        match drift_sign {
-            Ordering::Less => self.parked.sub_magnitude(&drift),
-            _ => self.parked.add_magnitude(&drift),
-        }
+        drift.fold_into(&mut self.parked, 0, drift_sign == Ordering::Less);
         self.live.reset();
         // A fresh buffer, not `reset()`: the segment's digits sit at the sweep
         // position's scale, and a clearing scan would pay the untouched zero
@@ -906,30 +875,28 @@ impl Integrator {
         // part of the never-written-prefix skip this pricing rests on —
         // suanpan's witness `collapsing_sign_read_lowers_the_scaled_read_shift`.
         let (segment_sign, segment_magnitude, segment_shift) =
-            self.segment_mass.sign_magnitude_shl();
+            Base::from_accumulator_shl(&self.segment_mass);
         debug_assert_ne!(
             segment_sign,
             Ordering::Less,
             "interval masses only accumulate"
         );
-        if segment_magnitude == UBig::ZERO {
+        if segment_magnitude.is_zero() {
             return;
         }
-        let segment = Base::from(segment_magnitude);
-        self.banked_window
-            .add_magnitude_shl(&segment, segment_shift);
+        segment_magnitude.fold_into(&mut self.banked_window, segment_shift, false);
         if self.parked.is_literally_zero() {
             return;
         }
-        let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-        if parked_magnitude == UBig::ZERO {
+        let (parked_sign, parked_magnitude) = Base::from_accumulator(&self.parked);
+        if parked_magnitude.is_zero() {
             return;
         }
         charge_segment(
             &mut self.total,
             Sign::from_is_negative(parked_sign == Ordering::Less),
-            &Base::from(parked_magnitude),
-            &segment.0,
+            &parked_magnitude,
+            &segment_magnitude,
             segment_shift,
         );
     }
@@ -946,8 +913,8 @@ impl Integrator {
         if self.parked.is_literally_zero() {
             return;
         }
-        let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-        if parked_magnitude == UBig::ZERO {
+        let (parked_sign, parked_magnitude) = Base::from_accumulator(&self.parked);
+        if parked_magnitude.is_zero() {
             return;
         }
         // No sign read precedes this scaled read either, for the reason
@@ -955,7 +922,7 @@ impl Integrator {
         // shift and surrender the never-written-prefix skip (suanpan's
         // `collapsing_sign_read_lowers_the_scaled_read_shift`).
         let (segment_sign, segment_magnitude, segment_shift) =
-            self.segment_mass.sign_magnitude_shl();
+            Base::from_accumulator_shl(&self.segment_mass);
         debug_assert_ne!(
             segment_sign,
             Ordering::Less,
@@ -964,7 +931,7 @@ impl Integrator {
         charge_segment(
             &mut self.total,
             Sign::from_is_negative(parked_sign == Ordering::Less),
-            &Base::from(parked_magnitude),
+            &parked_magnitude,
             &segment_magnitude,
             segment_shift,
         );
@@ -985,10 +952,10 @@ impl Integrator {
     /// read at the watermark span the banked segments paid for; nothing is
     /// re-based against an absolute position.
     fn promote(&mut self) {
-        let (parked_sign, parked_magnitude) = self.parked.sign_magnitude();
-        if parked_magnitude != UBig::ZERO {
+        let (parked_sign, parked_magnitude) = Base::from_accumulator(&self.parked);
+        if !parked_magnitude.is_zero() {
             let (window_sign, window_magnitude, window_shift) =
-                self.banked_window.sign_magnitude_shl();
+                Base::from_accumulator_shl(&self.banked_window);
             debug_assert_eq!(
                 window_sign,
                 Ordering::Greater,
@@ -996,7 +963,7 @@ impl Integrator {
             );
             self.promotions.push(Arming {
                 sign: Sign::from_is_negative(parked_sign == Ordering::Less),
-                parked: Base::from(parked_magnitude),
+                parked: parked_magnitude,
                 window: window_magnitude,
                 shift: window_shift,
             });
@@ -1021,7 +988,7 @@ impl Integrator {
     /// P_i · w_j`, and the reduction computes the double sum as one aggregate
     /// product per merge ([`Aggregate::merge`]): `(Σ parked of the left half) ×
     /// (Σ windows of the right half)`, each cross pair covered by the one node
-    /// whose seam splits it. No per-arming walk of the suffix and no per-window
+    /// whose split separates it. No per-arming walk of the suffix and no per-window
     /// read of a promoted prefix exists for an input to load: a window's digits
     /// are rewritten once per tree level, and a parked width is read once per
     /// node where it is the left half's widest.
@@ -1051,7 +1018,7 @@ impl Integrator {
         );
         let armings = core::mem::take(&mut self.promotions);
         let (final_window_sign, final_window_magnitude, final_window_shift) =
-            self.banked_window.sign_magnitude_shl();
+            Base::from_accumulator_shl(&self.banked_window);
         debug_assert_ne!(
             final_window_sign,
             Ordering::Less,
@@ -1078,7 +1045,7 @@ impl Integrator {
             parked: Accumulator::new(),
             windows,
         });
-        // Prefix sums of the leaf masses: the split currency. A leaf's mass is
+        // Prefix sums of the leaf masses: the measure used to choose splits. A leaf's mass is
         // what its merges read — parked digits plus window density — floored at
         // one so empty leaves still take a slot.
         let mut prefix: Vec<u64> = Vec::with_capacity(leaves.len() + 1);
@@ -1139,11 +1106,11 @@ impl Integrator {
     /// the final segment is banked (one more watermark read, on promoting
     /// sweeps only) before the ledger settles. The live component owes nothing
     /// here: every interval already credited it directly.
-    pub(super) fn finish(mut self, closing_shift: u64) -> (Ordering, UBig) {
+    pub(super) fn finish(mut self, closing_shift: u64) -> (Ordering, Base) {
         self.settle();
         if !self.promotions.is_empty() {
             let (segment_sign, segment_magnitude, segment_shift) =
-                self.segment_mass.sign_magnitude_shl();
+                Base::from_accumulator_shl(&self.segment_mass);
             debug_assert_ne!(
                 segment_sign,
                 Ordering::Less,
@@ -1152,13 +1119,12 @@ impl Integrator {
             // Nonzero by the drivers' loop shape (an interval always follows
             // the last freeze), and harmless when zero: a zero magnitude
             // banks nothing.
-            self.banked_window
-                .add_magnitude_shl(&Base::from(segment_magnitude), segment_shift);
+            segment_magnitude.fold_into(&mut self.banked_window, segment_shift, false);
             self.settle_armings();
         }
         if !self.base.is_literally_zero() {
             self.total.add_accum_shl(&self.base, closing_shift);
         }
-        self.total.sign_magnitude()
+        Base::from_accumulator(&self.total)
     }
 }

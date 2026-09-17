@@ -56,6 +56,7 @@ hex = "0.4"
 indicatif = "0.18"
 insta = "1.47"
 itertools = "0.14"
+num-bigint = "0.4"
 peak_alloc = "0.3"
 pollster = { version = "0.4", features = ["macro"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }

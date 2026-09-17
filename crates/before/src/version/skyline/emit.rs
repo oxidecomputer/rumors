@@ -80,7 +80,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitsBuf, BitsView, Code, Int};
+use crate::codec::{Base, BitsBuf, BitsView, Code, Int};
 
 use super::build::SkylineBuilder;
 use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
@@ -354,17 +354,17 @@ fn delta_code(
 /// The output delta across a side switch: `±D′` oriented toward the new side,
 /// plus the old side's step delta (the module doc's algebra).
 fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> Signed {
-    let (diff_sign, magnitude) = diff.sign_magnitude();
+    let (diff_sign, magnitude) = Base::from_accumulator(diff);
     debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches the side");
     let sign = Sign::from_is_negative(match new_side {
         Side::A => diff_sign == Ordering::Less,
         Side::B => diff_sign == Ordering::Greater,
     });
     match old_step {
-        Some(step) => signed_sum_int(sign, Int::from_ubig(magnitude), step.sign, &step.magnitude),
+        Some(step) => signed_sum_int(sign, Int::from_base(magnitude), step.sign, &step.magnitude),
         None => Signed {
             sign,
-            magnitude: Int::from_ubig(magnitude),
+            magnitude: Int::from_base(magnitude),
         },
     }
 }

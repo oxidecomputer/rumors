@@ -6,18 +6,9 @@ description = "Cliff-free signed accumulators: redundant balanced signed-digit a
 license = "MPL-2.0"
 readme = "README.md"
 
-[dependencies]
-# The arbitrary-precision substrate: wide operands enter as `UBig` (borrowable
-# stored words, so streaming a wide delta allocates nothing) and the final
-# normalized magnitude leaves as one. Default features stay off: `std` alone
-# covers this crate's use.
-dashu-int = { workspace = true }
-
 [dev-dependencies]
 proptest = { workspace = true }
-# The workspace-shared source scanners behind the claims roster
-# (`src/claims.rs`): the public-surface extractor and the witness scanner.
-surface-scan = { workspace = true }
+num-bigint = { workspace = true }
 
 [features]
 # Counts every digit read-modify-write (plus one per operand limb read by a

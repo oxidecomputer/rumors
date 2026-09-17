@@ -19,7 +19,7 @@
 #[cfg(test)]
 mod tests;
 
-use suanpan::UBig;
+use dashu_int::UBig;
 
 use super::Encoding;
 use crate::Version;

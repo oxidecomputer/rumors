@@ -1,6 +1,6 @@
 //! *Cliff-free* signed accumulators: redundant balanced signed digits with no
 //! carry cliffs anywhere — machine-word deltas and sign reads amortized O(1),
-//! wide deltas amortized O(operand limbs), on every input sequence.
+//! limb-stream deltas amortized O(operand limbs), on every input sequence.
 //!
 //! [`Accumulator`] holds a running signed integer — a running total, a running
 //! difference of two totals, a running weighted sum — under interleaved adds,
@@ -8,25 +8,22 @@
 //!
 //! ```
 //! use core::cmp::Ordering;
-//! use suanpan::{Accumulator, UBig};
+//! use suanpan::Accumulator;
 //!
 //! let mut acc = Accumulator::new();
-//! acc.add_wide(&(UBig::from(1u8) << 512usize)); // park a wide total on a carry boundary
+//! acc.add_u64_shl(1, 512);                      // park a total on a carry boundary
 //! for _ in 0..1_000 {
 //!     acc.sub_small(1);                         // oscillate across it: amortized O(1) each
 //!     assert_eq!(acc.sign(), Ordering::Greater);
 //!     acc.add_small(1);
 //! }
-//! let (sign, magnitude) = acc.sign_magnitude(); // one carry pass, at the very end
+//! let (sign, limbs) = acc.sign_limbs();          // one carry pass, at the very end
 //! assert_eq!(sign, Ordering::Greater);
-//! assert_eq!(magnitude, UBig::from(1u8) << 512usize);
+//! assert_eq!(limbs, [0, 0, 0, 0, 0, 0, 0, 0, 1]);
 //! ```
 //!
-//! Every cost this page quotes holds on adversarial input sequences — the
-//! amortized bounds are worst-case over the whole sequence, not average-case
-//! claims — and every one is *derived*: the three arguments that carry them
-//! (the lazy zone, the collapsing sign fold, the zero-run ledger) are below, in
-//! full.
+//! These amortized bounds hold over every operation sequence, not merely on
+//! average. The sections below explain how the representation pays for them.
 //!
 //! # The problem: carry cliffs
 //!
@@ -39,16 +36,15 @@
 //! value exactly one way, so two values that differ by 1 can differ in every
 //! digit — and a type that must always hold the normal spelling must pay the
 //! full rewrite every time a small delta crosses a carry boundary. Any workload
-//! whose deltas mix signs near such a boundary inherits the cost; an
-//! adversarial workload seeks it out.
+//! whose deltas mix signs near such a boundary inherits the cost.
 //!
 //! # The representation
 //!
 //! Value storage is two-tier. Every accumulator begins in the *quick register*:
 //! the exact value in one `i128`, held while it and every operand stay
 //! word-scale (magnitudes to `2^96`, shifts to 30 bits) — there, an add is one
-//! machine addition and a sign read one comparison. The first wide operand,
-//! wide shift, or outgrown sum spills the register into the digit
+//! machine addition and a sign read one comparison. The first limb stream,
+//! large shift, or outgrown sum spills the register into the digit
 //! representation below, once per [`reset`](Accumulator::reset) epoch and at
 //! O(1) cost. The spill is one-way, so the register is not the two-zone design
 //! rejected later in this section: there is no boundary a delta stream can
@@ -64,12 +60,12 @@
 //! so a subtraction is just a negated addition and no borrow machinery exists.
 //!
 //! Every deposit a write makes lands in one digit (a machine-word delta is one
-//! deposit; a wide delta makes one per limb), forming the sum `t` in wider
+//! deposit; a limb stream makes one per limb), forming the sum `t` in wider
 //! (128-bit) intermediate arithmetic so nothing overflows. If `t` is in the
 //! zone, it becomes the digit and that is the whole write. If not, the digit
 //! *recenters*: it carries `c = (t + 2^31) >> 32` upward (an arithmetic shift)
 //! and keeps the remainder `t − c·2^32`, which lands in `[−2^31, 2^31)`. Two
-//! facts make this cheap \[derived\]: a freshly recentered digit must absorb at
+//! facts make this cheap: a freshly recentered digit must absorb at
 //! least `2^33 − 2^31` of further net inflow before it can carry again, and a
 //! carry chain attenuates fast — the first carry out of a word-scale write is
 //! at most about `2^32`, and the next is already a handful of units, tiny
@@ -79,21 +75,21 @@
 //! amortized: a single call can be caught repaying a run of digits that earlier
 //! writes parked near the zone's edge, but never more than those writes prepaid
 //! — over any sequence, total digit work stays O(1) per machine-word call and
-//! O(operand limbs) per wide call.
+//! O(operand limbs) per streamed call.
 //!
-//! Machine-word deltas are therefore amortized O(1) digit work. A wide delta
+//! Machine-word deltas are therefore amortized O(1) digit work. A streamed delta
 //! enters limb by limb — throughout this page a *limb* is one 64-bit word of
-//! the operand's value, independent of the backend's internal word size — each
+//! the operand's value — each
 //! limb landing as two contributions at the digit positions it spans, for
 //! amortized O(operand limbs) total: independent of how wide the *held* value
 //! is, and of any power-of-two shift applied on the way in.
 //!
 //! Because *every* write recenters, no region of the representation is ever
-//! kept in normal form — hence no boundary an adversarial delta stream can
+//! kept in normal form — hence no boundary a worst-case delta stream can
 //! oscillate across at less than the cost the stream itself paid, at any delta
 //! width. The obvious halfway design fails exactly there: a two-zone form (a
 //! normalized prefix plus a fixed-width lazy window over the low digits) has a
-//! boundary at the window's top, and a stream of deltas one digit wider than
+//! boundary at the window's top, and a stream of deltas one digit beyond
 //! the window forces the normalized prefix through a full carry per delta.
 //! Widening the window moves the boundary; only having no normalized region
 //! removes it.
@@ -147,7 +143,7 @@
 //! carries land inside a certified run splits the certificate around the digits
 //! actually written, keeping both remnants.
 //!
-//! The amortization is a potential argument over the ledger \[derived\]: at
+//! The amortization is a potential argument over the ledger: at
 //! every moment, every digit position at or below the top is either inside some
 //! certificate's run or funded by one scan credit deposited by the metered
 //! write that most recently touched it. A plain scan step spends the credit at
@@ -181,10 +177,10 @@
 //!
 //! ```
 //! use core::cmp::Ordering;
-//! use suanpan::{Accumulator, UBig};
+//! use suanpan::Accumulator;
 //!
 //! let mut watermark = Accumulator::new();
-//! watermark.add_wide(&(UBig::from(1u8) << 300usize));
+//! watermark.add_u64_shl(1, 300);
 //! // Could any adjustment below 2^128 flip the watermark's sign?
 //! // floor = 128.div_ceil(32) - 1 = 3: certainty without a wide fold.
 //! let (sign, decided) = watermark.sign_dominates_at(3);
@@ -197,10 +193,8 @@
 //!
 //! # The operations
 //!
-//! All costs in digit touches, derived above; `|x|` is the size of `x` in bytes
-//! — the operand `|delta|`/`|other|`, or the accumulator's own held digits
-//! `|self|` — so the limb-denominated derivations above read as `|x|` up to the
-//! constant word width. *Amortized* bounds hold over the whole operation
+//! Costs below count accumulator digits or 64-bit operand limbs. *Amortized*
+//! bounds hold over the whole operation
 //! sequence — one write can be caught repaying carries that earlier writes
 //! parked near the zone's edge, never more than they prepaid; unmarked rows are
 //! worst-case per call.
@@ -208,19 +202,15 @@
 //! | Operation | Cost |
 //! |---|---|
 //! | [`add_small`](Accumulator::add_small), [`sub_small`](Accumulator::sub_small), [`add_u64`](Accumulator::add_u64), [`sub_u64`](Accumulator::sub_u64) | amortized O(1) |
-//! | [`add_wide`](Accumulator::add_wide), [`sub_wide`](Accumulator::sub_wide) | amortized O(\|delta\|), whatever the held width |
-//! | [`add_wide_shl`](Accumulator::add_wide_shl), [`sub_wide_shl`](Accumulator::sub_wide_shl) | amortized O(\|delta\|), independent of the shift |
 //! | [`add_u64_shl`](Accumulator::add_u64_shl), [`sub_u64_shl`](Accumulator::sub_u64_shl) | amortized O(1), independent of the shift |
-//! | [`add_magnitude`](Accumulator::add_magnitude), [`sub_magnitude`](Accumulator::sub_magnitude) | word-scale: amortized O(1); wide: amortized O(\|delta\|) |
-//! | [`add_magnitude_shl`](Accumulator::add_magnitude_shl), [`sub_magnitude_shl`](Accumulator::sub_magnitude_shl) | as [`add_magnitude`](Accumulator::add_magnitude)/[`sub_magnitude`](Accumulator::sub_magnitude), at any shift |
 //! | [`add_limbs_shl`](Accumulator::add_limbs_shl), [`sub_limbs_shl`](Accumulator::sub_limbs_shl) | amortized O(limbs yielded), independent of the shift |
-//! | [`add_accum`](Accumulator::add_accum), [`sub_accum`](Accumulator::sub_accum) | amortized O(\|other\|) |
-//! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(\|other\|), independent of the shift |
-//! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(min(\|self\|, \|other\|)) |
+//! | [`add_accum`](Accumulator::add_accum), [`sub_accum`](Accumulator::sub_accum) | amortized O(other's held digits) |
+//! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(other's held digits), independent of the shift |
+//! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(the narrower accumulator's held digits) |
 //! | [`sign`](Accumulator::sign), [`is_negative`](Accumulator::is_negative), [`sign_dominates_word`](Accumulator::sign_dominates_word), [`sign_dominates_at`](Accumulator::sign_dominates_at) | amortized O(1) |
 //! | [`is_literally_zero`](Accumulator::is_literally_zero) (one-sided: `true` means zero, `false` means unknown), [`digit_count`](Accumulator::digit_count) | O(1) |
-//! | [`shl`](Accumulator::shl), [`negate`](Accumulator::negate), [`reset`](Accumulator::reset), [`sign_magnitude`](Accumulator::sign_magnitude), [`sign_limbs`](Accumulator::sign_limbs) | O(\|self\|) |
-//! | [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl) | O(w), w the written span since the last reset |
+//! | [`shl`](Accumulator::shl), [`negate`](Accumulator::negate), [`reset`](Accumulator::reset), [`sign_limbs`](Accumulator::sign_limbs), [`with_sign_limbs`](Accumulator::with_sign_limbs) | O(held digits) |
+//! | [`sign_limbs_shl`](Accumulator::sign_limbs_shl), [`with_sign_limbs_shl`](Accumulator::with_sign_limbs_shl) | O(w), w the written span since the last reset |
 //!
 //! Digit touches are shift-independent; memory is not. A shifted entry point
 //! grows the digit buffer to cover the shifted position, so memory is O(shift /
@@ -232,20 +222,12 @@
 //! at the distance between them, however few digits the writes themselves
 //! touched.
 //!
-//! The `*_magnitude` entry points are generic over [`Magnitude`], the seam for
-//! a caller's own stored-magnitude type: the operand reports whether it fits a
-//! machine word, and the accumulator dispatches to the small or wide path
-//! accordingly. The `*_limbs_shl` entry points and
-//! [`sign_limbs`](Accumulator::sign_limbs) are the same seam past the
-//! backend's reach: on a 32-bit target a [`UBig`] magnitude caps out near
-//! `usize::MAX` bits while the digit buffer is bounded only by memory, so
-//! operands and totals wider than that stream in and read out as plain
-//! little-endian 64-bit limb sequences with no backend value in between.
-//! There is no from-value constructor: build with
-//! [`new`](Accumulator::new) (or `Default`) and a single `add_*` call, read out
-//! with [`sign_magnitude`](Accumulator::sign_magnitude) (or
-//! [`sign_limbs`](Accumulator::sign_limbs) at widths the backend cannot
-//! hold).
+//! Arbitrary-width operands enter as minimal little-endian 64-bit limbs and
+//! totals leave in the same form. Callers should use the `u64` operations when
+//! the operand fits a word; those retain the register's O(1) path. There is no
+//! from-value constructor: build with [`new`](Accumulator::new) (or `Default`)
+//! and one add operation, then read with
+//! [`sign_limbs`](Accumulator::sign_limbs).
 //!
 //! # When not to reach for it
 //!
@@ -259,7 +241,7 @@
 //! oscillated — or when sign reads interleave with cancelling updates. And this
 //! is an accumulator, not a number type: it adds, subtracts, scales by powers
 //! of two (left only — a right shift would need normalization), reads its sign,
-//! and converts out through [`sign_magnitude`](Accumulator::sign_magnitude) —
+//! and converts out through [`sign_limbs`](Accumulator::sign_limbs) —
 //! no multiplication, no division, and no ordering between two accumulators
 //! except by subtracting one from the other and reading the difference's sign
 //! (subtract from a [`clone`](Clone::clone) when the receiver's value must
@@ -270,20 +252,19 @@
 //! # Metering
 //!
 //! The `touch-meter` feature counts every digit read-modify-write (plus one per
-//! operand limb read by a wide operation, and one per zero digit a
+//! operand limb read by a streamed operation, and one per zero digit a
 //! top-settlement scan steps or skips past — a certificate skip is one touch
 //! however wide the certified run, because the run's digits are neither read
 //! nor written) into the [`touch_meter`] module's process-global counter. The
 //! quick register holds no digits, yet its work is metered too: a delta, sign
 //! query, negation, or shift the register absorbs counts exactly one touch, a
-//! register read-out ([`sign_magnitude`](Accumulator::sign_magnitude) and its
+//! register read-out ([`sign_limbs`](Accumulator::sign_limbs) and its
 //! scaled twin) counts the value's [`digit_count`](Accumulator::digit_count),
 //! and the spill prices only the deposit of the register's few digits — so
 //! touch-count floors derived from the digit engine's shapes survive the
-//! register fast path. The counts are **exact**: for a fixed operation sequence
-//! the reading is a deterministic function of that sequence, and this exactness
-//! is a public contract — a change to any operation's count is a breaking
-//! change of this crate, never measurement noise. Digit-touch cost is invisible
+//! register fast path. Counts are deterministic for a fixed implementation and
+//! operation sequence, which makes exact regression tests possible; individual
+//! totals are not an API compatibility promise. Digit-touch cost is invisible
 //! to heap meters and step counters — the work is wider, not more frequent — so
 //! this counter is what a caller's resource envelopes should pin; the zero-run
 //! ledger's own upkeep is machine-word bookkeeping outside the digit
@@ -291,19 +272,16 @@
 //! and without the feature the module is absent and the counting compiles to
 //! nothing; with it, each touch is one relaxed atomic increment.
 //!
-//! # Interop
+//! # Traits
 //!
-//! [`UBig`] is `dashu_int::UBig` (compiled against `dashu-int` 0.5; bumping
-//! that dependency is a breaking change to this crate's API), re-exported so
-//! callers can name exactly the type this crate compiled against. The crate
-//! requires `std`; no `no_std` build is offered. [`Accumulator`] is `Clone`,
+//! The crate requires `std`; no `no_std` build is offered. [`Accumulator`] is `Clone`,
 //! `Default`, `Debug`, and `Send + Sync` — though `Sync` buys less than usual:
 //! every amortized-O(1) sign query takes `&mut self`, so the value reads
 //! available behind a shared reference are
 //! [`is_literally_zero`](Accumulator::is_literally_zero),
 //! [`digit_count`](Accumulator::digit_count), the O(held digits)
-//! [`sign_magnitude`](Accumulator::sign_magnitude) (and its scaled twin
-//! [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl)), and a
+//! [`sign_limbs`](Accumulator::sign_limbs) (and its scaled twin
+//! [`sign_limbs_shl`](Accumulator::sign_limbs_shl)), and a
 //! [`clone`](Clone::clone) — wrap in a lock for shared sign reads. It is
 //! deliberately not `PartialEq`: two spellings of one value would compare
 //! unequal, so compare by subtracting and reading the difference's sign.
@@ -311,10 +289,10 @@
 //!
 //! # Testing
 //!
-//! Differential proptests drive mixed small/wide operation streams against an
+//! Differential proptests drive mixed word/limb operation streams against an
 //! exact signed big-integer oracle, comparing the sign after every operation
-//! and the full value at periodic snapshots; deterministic adversarial streams
-//! pin the shapes the representation exists to survive — the boundary comb (a
+//! and the full value at periodic snapshots; deterministic streams pin difficult
+//! shapes — the boundary comb (a
 //! ±1 oscillation parked on a `2^k` carry boundary), wide teeth (±2^w strides
 //! across a higher boundary), cancelling-prefix chains (repeated falls from
 //! `2^k` to 1 and back, each forcing the sign fold below the top digit), and
@@ -350,16 +328,7 @@
 #![forbid(unsafe_code)]
 
 mod accumulator;
-mod limbs;
-mod magnitude;
 #[cfg(feature = "touch-meter")]
 pub mod touch_meter;
 
-pub use dashu_int::UBig;
-
 pub use accumulator::Accumulator;
-pub use limbs::Limbs;
-pub use magnitude::Magnitude;
-
-#[cfg(test)]
-mod claims;

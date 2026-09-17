@@ -1,9 +1,9 @@
 # `before` review checklist
 
-**Active:** give `Rank` one canonical binary-point text form, strict parsing,
-ordinary formatter behavior, and matching human-readable serde. Binary serde
-keeps the canonical bytes. Verify value semantics and linear scaling without
-binding tests to the integer backend's thresholds or algorithms.
+**Active:** remove `dashu` without replacing it with a custom arithmetic
+layer. The suanpan limb-stream boundary is ready for review; moving `before`
+to `num-bigint` and collapsing `Num` remains. Preserve public values,
+encodings, bounds, and low auxiliary space throughout.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -82,9 +82,10 @@ triage's dispositions and branches are leads only.
 
 ## 03. Canonical encoding and serialization
 
-- [ ] Make serde deserialize the same data model it serializes and preserve
+- [x] Make serde deserialize the same data model it serializes and preserve
       strict canonical decoding across supported formats.
       Sources: `crate-root-34`, `crate-root-35`, `fresh-eyes-2`.
+      Complete in `07c18ca65`.
 
 - [ ] Cover every canonicality condition through the public decoders,
       including the span admission walk's collapsible-pair boundary.
@@ -258,13 +259,14 @@ into otherwise small feature increments.
 
 ## 10. Public API and contracts
 
-- [ ] Render and parse `Rank` as canonical binary-point text, with formatter
+- [x] Render and parse `Rank` as canonical binary-point text, with formatter
       width and alignment behaving like other textual values. Human-readable
       serde uses this text; binary serde retains canonical encoded bytes. Test
       the mathematical value, accepted language, public formatting, and linear
       scaling without pinning integer-backend implementation details.
       Sources: prior rulings 85--86, critically reviewed against the current
       code; owner handoff, 2026-09-16.
+      Complete in `07c18ca65`.
 
 - [ ] Review `#[must_use]`, fork iterator naming and count type, error source
       chains, error extensibility, missing trait symmetry, and human-readable

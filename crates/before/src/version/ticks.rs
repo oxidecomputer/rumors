@@ -6,6 +6,7 @@ use core::fmt;
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
 
+use crate::codec::base::Limbs as BaseLimbs;
 use crate::codec::Base;
 use crate::error::TooWide;
 
@@ -90,9 +91,7 @@ impl Ticks {
     /// ```
     pub fn limbs(&self) -> Limbs<'_> {
         Limbs {
-            limbs: suanpan::Limbs::new(&self.0 .0),
-            remaining: usize::try_from(self.0.bits().div_ceil(64))
-                .expect("a stored count's limb count fits usize"),
+            limbs: self.0.iter_limbs(),
         }
     }
 }
@@ -102,24 +101,18 @@ impl Ticks {
 ///
 /// Exact-size and [fused](core::iter::FusedIterator).
 pub struct Limbs<'a> {
-    limbs: suanpan::Limbs<'a>,
-    /// Limbs not yet yielded, for the exact-size contract.
-    remaining: usize,
+    limbs: BaseLimbs<'a>,
 }
 
 impl Iterator for Limbs<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<u64> {
-        let limb = self.limbs.next();
-        if limb.is_some() {
-            self.remaining -= 1;
-        }
-        limb
+        self.limbs.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.remaining, Some(self.remaining))
+        self.limbs.size_hint()
     }
 }
 

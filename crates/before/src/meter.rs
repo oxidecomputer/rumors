@@ -1646,10 +1646,10 @@ const FREEZE_POSITION_DROP_BITS: usize = 288;
 fn freeze_position(k: usize) -> Encoding {
     assert!(k >= 1, "the freeze-position spine needs at least one block");
     let band = FREEZE_POSITION_DROP_BITS + 1 + bitlen(k);
-    let wide = suanpan::UBig::ONE << FREEZE_POSITION_DROP_BITS;
-    let unit = suanpan::UBig::ONE;
-    let descent = (&wide + &unit) * suanpan::UBig::from(k as u64);
-    let mut value = (suanpan::UBig::ONE << band) + descent;
+    let wide = dashu_int::UBig::ONE << FREEZE_POSITION_DROP_BITS;
+    let unit = dashu_int::UBig::ONE;
+    let descent = (&wide + &unit) * dashu_int::UBig::from(k as u64);
+    let mut value = (dashu_int::UBig::ONE << band) + descent;
     let mut bits = BitsBuf::with_capacity((4 * k * (band + 2) + 2) as u64);
     for _ in 0..k {
         for drop in [&wide, &unit] {
@@ -2100,23 +2100,23 @@ fn freeze_parade(k: usize) -> Encoding {
         k.is_power_of_two(),
         "the freeze parade is one complete subtree"
     );
-    let wide = suanpan::UBig::ONE << FREEZE_POSITION_DROP_BITS;
+    let wide = dashu_int::UBig::ONE << FREEZE_POSITION_DROP_BITS;
     // One shared width band for the 2k descending values: the descent consumes
     // k(2^288 + 1) < 2^(289 + bitlen(k)), so the top value's width bounds them
     // all.
     let band = FREEZE_POSITION_DROP_BITS + 2 + bitlen(k);
     let mut values = Vec::with_capacity(2 * k);
-    let mut v = suanpan::UBig::ONE << band;
+    let mut v = dashu_int::UBig::ONE << band;
     for _ in 0..k {
         values.push(v.clone());
         v -= &wide;
         values.push(v.clone());
-        v -= suanpan::UBig::ONE;
+        v -= dashu_int::UBig::ONE;
     }
     let mut bits = BitsBuf::with_capacity((1546 * k - 2) as u64);
     parked_unit_spine(&mut bits, 64 * k);
     // The min-lifted complete subtree over the descending run.
-    fn block(bits: &mut BitsBuf, vals: &[suanpan::UBig], parent_min: &suanpan::UBig) {
+    fn block(bits: &mut BitsBuf, vals: &[dashu_int::UBig], parent_min: &dashu_int::UBig) {
         if let [leaf] = vals {
             ev_leaf_wide(bits, &Base::from(leaf - parent_min));
             return;
@@ -2128,7 +2128,7 @@ fn freeze_parade(k: usize) -> Encoding {
         block(bits, l, my_min);
         block(bits, r, my_min);
     }
-    block(&mut bits, &values, &suanpan::UBig::ZERO);
+    block(&mut bits, &values, &dashu_int::UBig::ZERO);
     Encoding::from_bits(bits)
 }
 
@@ -2189,20 +2189,20 @@ fn lone_freeze(pre: usize, post: usize) -> Encoding {
         post >= 2 && post.is_multiple_of(2),
         "the lone freeze needs a whole-pair low tail"
     );
-    let plateau = (suanpan::UBig::ONE << LONE_FREEZE_PLATEAU_BITS) + suanpan::UBig::from(2u8);
+    let plateau = (dashu_int::UBig::ONE << LONE_FREEZE_PLATEAU_BITS) + dashu_int::UBig::from(2u8);
     let mut bits = BitsBuf::with_capacity((580 * pre + 6 * post + 14) as u64);
-    let leaf = |bits: &mut BitsBuf, value: suanpan::UBig| {
+    let leaf = |bits: &mut BitsBuf, value: dashu_int::UBig| {
         bits.push(true); // spine node: base 0, leaf left, spine right
         codec::encode_int(bits, &Base::ZERO);
         ev_leaf_wide(bits, &Base::from(value));
     };
     for j in 0..pre {
-        leaf(&mut bits, &plateau + suanpan::UBig::from((j % 2) as u64));
+        leaf(&mut bits, &plateau + dashu_int::UBig::from((j % 2) as u64));
     }
-    leaf(&mut bits, suanpan::UBig::from(2u8)); // the drop: one wide delta
-    leaf(&mut bits, suanpan::UBig::ONE); // the unit that fires the freeze
+    leaf(&mut bits, dashu_int::UBig::from(2u8)); // the drop: one wide delta
+    leaf(&mut bits, dashu_int::UBig::ONE); // the unit that fires the freeze
     for i in 0..post {
-        leaf(&mut bits, suanpan::UBig::from((2 - i % 2) as u64)); // 2, 1, …
+        leaf(&mut bits, dashu_int::UBig::from((2 - i % 2) as u64)); // 2, 1, …
     }
     ev_leaf(&mut bits, 0); // the terminal leaf: every ancestor's minimum
     Encoding::from_bits(bits)
@@ -2279,14 +2279,14 @@ fn tooth_tail(g: usize, m: usize) -> (Encoding, Encoding) {
 /// # Panics
 ///
 /// Panics if `x` or `y` is zero.
-fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Encoding {
+fn puncture_product(x: &dashu_int::UBig, y: &dashu_int::UBig) -> Encoding {
     use dashu_int::ops::BitTest;
     assert!(
-        *x != suanpan::UBig::ZERO,
+        *x != dashu_int::UBig::ZERO,
         "the plateau factor must be positive"
     );
     assert!(
-        *y != suanpan::UBig::ZERO,
+        *y != dashu_int::UBig::ZERO,
         "the mass factor must be positive"
     );
     let mass = y.clone() << 1usize;
@@ -2341,7 +2341,7 @@ pub fn factor_digit(seed: u64, i: u64) -> u32 {
 /// # Panics
 ///
 /// Panics if `digits == 0`.
-pub fn dense_factor(seed: u64, digits: usize) -> suanpan::UBig {
+pub fn dense_factor(seed: u64, digits: usize) -> dashu_int::UBig {
     assert!(digits >= 1, "a dense factor needs at least one digit");
     let mut bytes = vec![0u8; 4 * digits];
     for i in 0..digits {
@@ -2354,7 +2354,7 @@ pub fn dense_factor(seed: u64, digits: usize) -> suanpan::UBig {
         }
         bytes[4 * i..4 * i + 4].copy_from_slice(&digit.to_le_bytes());
     }
-    suanpan::UBig::from_le_bytes(&bytes)
+    dashu_int::UBig::from_le_bytes(&bytes)
 }
 
 /// Content-stream seed for the plateau-puncture plateau factor.
@@ -2383,21 +2383,21 @@ const PLATEAU_PUNCTURE_J_SEED: u64 = 0x5054_504A; // "PTPJ"
 /// # Panics
 ///
 /// Panics if `w == 0` or `d == 0`.
-pub fn plateau_puncture_factors(w: usize, d: usize) -> (suanpan::UBig, suanpan::UBig) {
+pub fn plateau_puncture_factors(w: usize, d: usize) -> (dashu_int::UBig, dashu_int::UBig) {
     assert!(w >= 1, "the plateau needs at least one digit");
     assert!(
         d >= 1,
         "the plateau-puncture family needs at least one turn"
     );
     let x = dense_factor(PLATEAU_PUNCTURE_X_SEED, w);
-    let mut y = suanpan::UBig::ZERO;
+    let mut y = dashu_int::UBig::ZERO;
     for i in 1..=d {
         let jitter = if i == d {
             31
         } else {
             u64::from(factor_digit(PLATEAU_PUNCTURE_J_SEED, i as u64)) % 32
         };
-        y += suanpan::UBig::ONE
+        y += dashu_int::UBig::ONE
             << usize::try_from(66 * (i as u64 - 1) + 33 + jitter)
                 .expect("turn positions fit usize");
     }
@@ -2477,11 +2477,11 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
         "an arming must out-span the kicker drift plus the freeze allowance"
     );
     let band = 32 * w + bitlen(n) + 2;
-    let arm = suanpan::UBig::ONE << (32 * w);
-    let kicker = suanpan::UBig::ONE << PROMOTION_REARM_SETTLE_BITS;
+    let arm = dashu_int::UBig::ONE << (32 * w);
+    let kicker = dashu_int::UBig::ONE << PROMOTION_REARM_SETTLE_BITS;
     // The plateau band's floor plus double-swing headroom: every wide leaf
     // below stays inside [2^band, 2^(band+1)), one gamma width.
-    let mut plateau = (suanpan::UBig::ONE << band) + (&arm << 1);
+    let mut plateau = (dashu_int::UBig::ONE << band) + (&arm << 1);
     let mut bits = BitsBuf::with_capacity((n * (g * (2 * band + 132) + 8 * band + 16) + 2) as u64);
     let mut trailing = 0usize;
     for b in 0..n {
@@ -2502,10 +2502,10 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
             plateau += &arm;
         }
         for kick in [
-            suanpan::UBig::ZERO, // the swing leaf itself
-            suanpan::UBig::ONE,  // parks the swing
-            kicker.clone(),      // the kicker
-            suanpan::UBig::ONE,  // fires the promoting freeze
+            dashu_int::UBig::ZERO, // the swing leaf itself
+            dashu_int::UBig::ONE,  // parks the swing
+            kicker.clone(),        // the kicker
+            dashu_int::UBig::ONE,  // fires the promoting freeze
         ] {
             plateau += kick;
             bits.push(true); // block node: wide leaf left, chain right

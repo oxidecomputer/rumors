@@ -41,7 +41,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, BitCursor, BitStack, BitsView, PopStack};
+use crate::codec::{self, Base, BitCursor, BitStack, BitsView, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::signed::{fold_signed_int, unzigzag, Signed};
@@ -568,7 +568,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 &mut above,
                 Some(first_leaf_depth),
             );
-            let (net_sign, net_magnitude) = net.sign_magnitude();
+            let (net_sign, net_magnitude) = Base::from_accumulator(&net);
             let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
             self.web.fold_height(net.sign, &net.magnitude);
         }

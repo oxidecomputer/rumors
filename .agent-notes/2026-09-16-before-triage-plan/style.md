@@ -95,6 +95,11 @@ when the signature and surrounding module carry the rest.
 
 ## Review tests as proofs
 
+Test legibility is a standing requirement, not a cleanup phase. Whenever a
+change touches a test, leave its claim and method easier to audit. Preserve its
+coverage and semantics unless the test is wrong; then correct it so its setup
+and assertions establish the stated invariant.
+
 A test name and doc comment should state one behavior. Its setup should reach
 that behavior without incidental machinery, and its assertions should make the
 protected invariant visible. Prefer properties when the claim ranges over a

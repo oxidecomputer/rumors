@@ -1,47 +1,12 @@
-//! The query folds over skyline streams: rank, distance, lag, min_ticks, and
-//! projection from single leaf sweeps, never reconstructing absolute heights.
+//! Streaming queries over a skyline's step function.
 //!
-//! Every fold here is a linear functional or a masking of the version's step
-//! function, so each rides the same machinery as the comparison sweep — one
-//! forward pass of its leaf cursors with the running height state on the
-//! carry-cliff-free [`Accumulator`] (amortized O(1) digit touches where a
-//! plain big integer pays each full carry) — plus the piece its own question
-//! needs:
-//!
-//! - [`rank`](fn@rank) integrates the step function: `Σ heightᵢ · 2^(−depthᵢ)`
-//!   over the leaves, telescoped through height *deltas* so no absolute
-//!   height is ever rebuilt per leaf — the single-stream instance of the
-//!   anchored-segment split (the [`integral`] submodule).
-//! - [`distance`](fn@distance) and [`lag`](fn@lag) integrate a directed functional of
-//!   the two operands' height difference in one fused co-sweep —
-//!   distance = `∫ |h_a − h_b|`, lag = `∫ (h_b − h_a)⁺` — on the
-//!   comparison sweep's merge walk, with no join or meet stream
-//!   materialized and no per-operand rank recomputed (the [`integral`]
-//!   submodule carries the algebra, the anchored-segment freeze
-//!   discipline, and the funding certification).
-//! - [`rank_cmp`](fn@rank_cmp) orders two versions' ranks with no
-//!   `Rank` materialized: the *signed* instance of the same co-sweep —
-//!   `rank(a) − rank(b) = ∫ (h_a − h_b)`, orientation constantly `+1`,
-//!   so no orientation change ever fires — keeping only the exact
-//!   total's sign.
-//! - [`min_ticks`](fn@min_ticks) folds the identity
-//!   `Σ bases = Σ leaf heights − Σ internal-node subtree minima` (each
-//!   normal-form base is its node's subtree minimum less its parent's)
-//!   exactly, at any magnitude: heights and minima enter the total as
-//!   narrow epoch-relative offsets, the frozen component arrives
-//!   through counting, and the closing nodes' minima ride a
-//!   range-minimum anchor web whose closes count instead of fold — how
-//!   a close can *count* (one count on the web's reigning record, the
-//!   record settling once when it dies) is the `web` submodule's module
-//!   doc, which carries the accounting and its funding certificate.
-//! - [`project`](fn@project) overlays the skyline against a party's binary stream
-//!   and re-emits the masked skyline through the collapsing output
-//!   builder: owned regions keep their plateaus, unowned regions emit
-//!   zero, and the absolute height is materialized only at ownership
-//!   transitions — where the emitted code itself is that height, so the
-//!   work is priced by the mandatory output (the comb × scattered-party
-//!   cross is Θ(teeth · magnitude) output from linear input — one wide
-//!   height per comb tooth — and this sweep is I/O-linear on it).
+//! A query walks each leaf stream once while keeping its running height in a
+//! carry-cliff-free [`Accumulator`]. Rank, distance, lag, and rank comparison
+//! are integrals of the height or of the difference between two heights.
+//! `min_ticks` uses the equivalent sum of leaf heights minus internal subtree
+//! minima. Projection masks the step function by a party's owned intervals and
+//! emits a new canonical skyline. None of these operations reconstructs an
+//! absolute height at every leaf or materializes an intermediate skyline.
 //!
 //! # The height split
 //!
@@ -53,8 +18,8 @@
 //! components folded narrow, with a relative freeze trigger that evicts stale
 //! wide drift at the first cheaper code. The rank fold and the pair co-sweep
 //! run the anchored-segment split, `h* = B + P + L` — base, parked, live —
-//! whose components the [`integral`] submodule mints and derives along with the
-//! discipline and its funding; the min_ticks fold runs the epoch-ledger form,
+//! whose components the [`integral`] submodule defines and analyzes; the
+//! min_ticks fold runs the epoch-ledger form,
 //! `h = F + L`, frozen plus live (the `web` submodule).
 //!
 //! # The pair co-sweep: distance, lag, and the rank order
@@ -136,7 +101,7 @@
 //! pop), one settle per reign record at the record's own funded width, and the
 //! epoch ledger's one product per freeze at the evicted drift's width — the
 //! `web` submodule certifies every charge (the `skyline_flatness` module's
-//! pure-comb and reveal-comb bands hold the close-reveal genre flat in both the
+//! pure-comb and reveal-comb bands hold the cost of closing revealed ranges flat in both the
 //! touch and limb counters).
 //!
 //! Projection adds one height materialization per ownership transition, priced
@@ -144,24 +109,12 @@
 //! min_ticks' compressed difference stack, and — for projection — the output
 //! builder's per-level bit stacks.
 //!
-//! # Testing
+//! # Verification
 //!
-//! The recursive tree oracle is the behavioral witness: every fold is
-//! differentially pinned against it through the bridge (exact `Rank` equality,
-//! exact count equality, byte-identical projection streams; distance and lag
-//! re-derived from the oracle's join, meet, and rank through the valuation
-//! identities) over the adversarial generator families — the two version-pair
-//! families included — arbitrary normal-form trees, organic op-trace histories,
-//! and the exhaustive small scope. Distance and lag are additionally pinned
-//! digit-exact against the composed forms (the emission sweep's join and meet
-//! re-ranked, subtracted through `Rank::checked_sub`) — the same identities on
-//! a code path the co-sweep shares nothing with past the cursors; that pin
-//! lives in this module's own test suite, and the cross-oracle triple (tree
-//! fold and function-space Riemann sums beside the production sweep) is the
-//! distance and lag descriptors in the pointwise differential table. Rank is
-//! additionally pinned against
-//! the semantic Riemann-sum oracle, which shares no structure with the sweep.
-//! The resource envelopes are the meter rows named above.
+//! Property tests compare every query with recursive tree and semantic
+//! function-space oracles over generated normal-form versions and histories.
+//! Distance and lag also satisfy their join/meet valuation identities, while
+//! deterministic resource envelopes bound the work on difficult input shapes.
 
 // The module doc and the fold docs (`rank`, `distance`, `lag`, `rank_cmp`)
 // cite the crate-private `integral` submodule's essay by intra-doc link so a
@@ -172,7 +125,7 @@
 
 use core::cmp::Ordering;
 
-use suanpan::{Accumulator, UBig};
+use suanpan::Accumulator;
 
 use crate::codec::{self, Base, BitsBuf, BitsView, Int};
 use crate::Rank;
@@ -221,7 +174,7 @@ pub fn rank(bits: BitsView<'_>) -> Rank {
     }
     let (sign, numerator) = integral.finish(max_depth);
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-    Rank::from_raw(Base::from(numerator), scale)
+    Rank::from_raw(numerator, scale)
 }
 
 /// The causal distance between the versions two skyline streams denote: the
@@ -302,7 +255,7 @@ fn pair_integral(
         Ordering::Less,
         "a Rank is nonnegative: a directed measure's integral cannot come out negative"
     );
-    Rank::from_raw(Base::from(total), scale)
+    Rank::from_raw(total, scale)
 }
 
 /// Run the pair co-sweep: one merge walk over both streams, handing back the
@@ -328,7 +281,7 @@ fn pair_fold(
     a_bits: BitsView<'_>,
     b_bits: BitsView<'_>,
     orientation: impl Fn(Ordering) -> i8,
-) -> (Ordering, UBig, u64) {
+) -> (Ordering, Base, u64) {
     // The overlay's scale: elementary intervals nest inside both operands'
     // leaves, so the deepest one sits at the deeper operand's maximum depth.
     // Depth counts levels of streams held in memory, so it always fits the u64
@@ -348,13 +301,13 @@ fn pair_fold(
         // by the two absolute first codes (the sign read above has collapsed
         // the spelling). Negative exactly when σ and `D` disagree in sign —
         // never for the directed measures, whose nonzero σ is `D`'s own sign.
-        let (opening_sign, opening) = diff.sign_magnitude();
+        let (opening_sign, opening) = Base::from_accumulator(&diff);
         let sign = Sign::from_is_negative(match opening_sign {
             Ordering::Greater => current_orientation < 0,
             Ordering::Less => current_orientation > 0,
             Ordering::Equal => false,
         });
-        integral.open(sign, &Int::from_ubig(opening));
+        integral.open(sign, &Int::from_base(opening));
     }
     loop {
         let weight_shift = overlay_depth - cursor_a.depth().max(cursor_b.depth());
@@ -456,8 +409,7 @@ pub fn min_ticks(bits: BitsView<'_>) -> Base {
         if live.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
             ledger.freeze(&mut live);
         }
-        let (live_sign, live_magnitude) = live.sign_magnitude();
-        let leaf_offset = Base::from(live_magnitude);
+        let (live_sign, leaf_offset) = Base::from_accumulator(&live);
         let leaf_sign = Sign::from_is_negative(live_sign == Ordering::Less);
         fold_signed(&mut total, leaf_sign, &leaf_offset);
         ledger.leaf_ref();
@@ -473,13 +425,13 @@ pub fn min_ticks(bits: BitsView<'_>) -> Base {
     // ledger folds the frozen component's every reference.
     web.drain(&mut total, &mut ledger);
     ledger.settle(&mut total);
-    let (sign, magnitude) = total.sign_magnitude();
+    let (sign, magnitude) = Base::from_accumulator(&total);
     debug_assert_ne!(
         sign,
         Ordering::Less,
         "a subtree minimum never exceeds its leaves"
     );
-    Base::from(magnitude)
+    magnitude
 }
 
 /// Project the version a skyline stream denotes onto a party's owned
@@ -503,7 +455,7 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     let mut height = Accumulator::new();
     fold_signed_int(&mut height, Sign::Positive, &first);
     let mut owned = id_cursor.owned();
-    // Allocation-strategy seam: the shipped arm pre-sizes to the operands'
+    // The normal build pre-sizes to the operands'
     // summed lengths — an estimate, since the projection's output is not
     // derivable from its inputs and can outgrow them. The `before_alloc_ab` cfg
     // is reachable only through `RUSTFLAGS` (never a cargo feature, so no
@@ -600,7 +552,7 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
         );
     }
     let bits = out.finish();
-    // Allocation-strategy arm (bench-only, as the seam above): one exact-size
+    // Benchmark-only alternative: one exact-size
     // copy here, where the buffer is about to become storage — the freeze
     // adopts the buffer without copying, so the pre-size estimate's slack
     // otherwise stays resident for the value's whole life. The arm prices that
@@ -623,8 +575,8 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
 fn absolute_height(height: &mut Accumulator) -> Base {
     let sign = height.sign();
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-    let (_, magnitude) = height.sign_magnitude();
-    Base::from(magnitude)
+    let (_, magnitude) = Base::from_accumulator(height);
+    magnitude
 }
 
 /// The maximum leaf depth of a skyline stream: one topology-only pre-scan,
