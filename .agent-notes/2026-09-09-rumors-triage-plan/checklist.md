@@ -1,8 +1,8 @@
 # Rumors review checklist
 
-**Current:** listing-read scratch initialization.
+**Current:** shared wire types and protocol explanation.
 
-**Next:** simplify shared wire types and clarify the protocol.
+**Next:** clarify stream adapter ownership, names, and behavior.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -340,7 +340,7 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
 - [x] Test adapter failures at the actual conversion and ordering boundaries — `b1d852fe`.
       Sources: `remote-adapter-tests-4`, `remote-adapter-tests-6`, `remote-adapter-tests-7`, `remote-adapter-tests-9–15`, `remote-adapter-tests-17`, `remote-adapter-tests-19–22`, T126, T132.
 
-- [ ] Avoid needless scratch initialization in listing reads.
+- [x] Avoid needless scratch initialization in listing reads — `8e72568f`.
       Sources: `remote-codec-12`, T132.
 
 - [ ] Simplify shared wire types and clarify the protocol.
