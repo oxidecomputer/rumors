@@ -121,7 +121,7 @@ where
             #[cfg(test)]
             progress::wire(trace_id, root_scope);
             yield Reply {
-                replies: std::iter::once(Reaction::Query(fan_listing(&fan)))
+                reactions: std::iter::once(Reaction::Query(fan_listing(&fan)))
                     .chain(supplies)
                     .collect(),
             };
@@ -203,7 +203,7 @@ where
         let responses = try_stream! {
             let mut requests = requests;
             let root_scope = Prefix::new().erase();
-            let Some(Reply { replies }) = requests.next().await else {
+            let Some(Reply { reactions }) = requests.next().await else {
                 return violation(Violation::UnansweredQuery)?;
             };
             // The opening reply is not paired positionally against the
@@ -216,7 +216,7 @@ where
             let mut theirs = None;
             let mut last = None;
             let mut early = Vec::new();
-            for reaction in replies {
+            for reaction in reactions {
                 match reaction {
                     Reaction::Query(listing) => {
                         if theirs.is_some() {
@@ -265,7 +265,7 @@ where
                     .await?;
             yield_resolve_query!(
                 trace_id, root_scope;
-                yield Reply { replies: reactions };
+                yield Reply { reactions };
                 resolution => Resolution {
                     prefix: root_scope,
                     resolved,
@@ -412,7 +412,7 @@ where
             let mut early_supplies = early_supplies;
             let mut supplied: Option<BTreeMap<u8, Vec<(u8, B::Erased)>>> = None;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { replies }) = requests.next().await else {
+                let Some(Reply { reactions }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
 
@@ -421,7 +421,7 @@ where
                 // the opening, so only the pairing reply travels here. A
                 // miss falls through: an empty reply to a request with no
                 // early supply means the whole subtree pruned away.
-                if replies.is_empty()
+                if reactions.is_empty()
                     && query.ours.is_empty()
                     && (early_supplies.is_some() || supplied.is_some())
                     && let Some(&radix) = query.prefix.as_bytes().last()
@@ -461,7 +461,7 @@ where
 
                 let mut resolver =
                     Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
-                for reaction in replies {
+                for reaction in reactions {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
                     };
@@ -485,7 +485,7 @@ where
                             {
                                 yield_resolve_query!(
                                     trace_id, child_prefix;
-                                    yield Reply { replies: Vec::new() };
+                                    yield Reply { reactions: Vec::new() };
                                     resolver.ready(radix, survivor);
                                 );
                                 continue;
@@ -494,13 +494,13 @@ where
                         let (node, children) =
                             unknown_providing(&backend, &their_version, child_prefix, node, &stats)
                                 .await?;
-                        let replies = children
+                        let reactions = children
                             .into_iter()
                             .map(|(radix, child)| Reaction::Supply(radix, child))
                             .collect();
                         yield_resolve_query!(
                             trace_id, child_prefix;
-                            yield Reply { replies };
+                            yield Reply { reactions };
                             resolver.ready(radix, node);
                         );
                         continue;
@@ -518,7 +518,7 @@ where
                     .await?;
                     yield_resolve_query!(
                         trace_id, child_prefix;
-                        yield Reply { replies: reactions };
+                        yield Reply { reactions };
                         lower => Resolution {
                             prefix: child_prefix,
                             resolved,
@@ -598,13 +598,13 @@ where
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { replies }) = requests.next().await else {
+                let Some(Reply { reactions }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
 
                 let mut resolver =
                     Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
-                for reaction in replies {
+                for reaction in reactions {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
                     };
@@ -614,24 +614,24 @@ where
                         let (node, leaves) =
                             unknown_providing(&backend, &their_version, child_prefix, node, &stats)
                                 .await?;
-                        let replies = leaves
+                        let reactions = leaves
                             .into_iter()
                             .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
                             .collect();
                         yield_resolve_query!(
                             trace_id, child_prefix;
-                            yield Reply { replies };
+                            yield Reply { reactions };
                             resolver.ready(radix, node);
                         );
                         continue;
                     }
 
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
-                    let (replies, next_queries, resolved) =
+                    let (reactions, next_queries, resolved) =
                         answer::leaf_parent(&their_version, child_prefix, leaves, listing, &stats);
                     yield_resolve_query!(
                         trace_id, child_prefix;
-                        yield Reply { replies };
+                        yield Reply { reactions };
                         lower => Resolution {
                             prefix: child_prefix,
                             resolved,
@@ -695,23 +695,23 @@ where
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { replies }) = requests.next().await else {
+                let Some(Reply { reactions }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
 
                 let mut resolver =
                     Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
-                for reaction in replies {
+                for reaction in reactions {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
                     };
 
-                    let (replies, node) =
+                    let (reactions, node) =
                         answer::leaf(&their_version, radix, node, listing, &stats)
                             .map_err(Error::Violation)?;
                     yield_resolve_query!(
                         trace_id, prefix.push(radix);
-                        yield Reply { replies };
+                        yield Reply { reactions };
                         resolver.ready(radix, node);
                     );
                 }

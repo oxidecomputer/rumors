@@ -53,18 +53,6 @@ pub(crate) fn chunk_boundary_cuts(total: usize) -> Vec<usize> {
     cuts
 }
 
-/// A payload length which cannot be represented by a `u32` wire length
-/// header.
-#[derive(Debug, thiserror::Error)]
-#[error("payload length {len} exceeds the u32 framing limit")]
-pub struct LengthOverflow {
-    /// The unrepresentable payload length.
-    pub len: usize,
-    /// The failed integer conversion.
-    #[source]
-    pub source: std::num::TryFromIntError,
-}
-
 /// Read exactly `len` payload bytes, growing the buffer as bytes arrive.
 ///
 /// Memory tracks receipt, never the declared length: bytes are read

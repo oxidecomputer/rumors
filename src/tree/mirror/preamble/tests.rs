@@ -4,6 +4,7 @@ use tokio::io::{duplex, split};
 use super::{
     Error, Intent, Preamble, PreambleDefect, Staged, V2_PREAMBLE_LEN, V2_PREFIX, preamble,
 };
+use crate::network::NETWORK_BYTES;
 use crate::observe::SessionHandle;
 use crate::{Network, Protocol};
 
@@ -41,8 +42,8 @@ fn prefix_matches_the_writers() {
 /// deadlock, preserving each peer's network and intent exactly.
 #[test]
 fn fragmented_exchange_is_symmetric() {
-    let left = Network::from_bytes([1; 16]);
-    let right = Network::from_bytes([2; 16]);
+    let left = Network::from_bytes([1; NETWORK_BYTES]);
+    let right = Network::from_bytes([2; NETWORK_BYTES]);
     let (left_io, right_io) = duplex(1);
     let (left_read, left_write) = split(left_io);
     let (right_read, right_write) = split(right_io);
@@ -99,7 +100,7 @@ fn fragmented_exchange_is_symmetric() {
 /// all are the malformed-preamble class.
 #[test]
 fn intent_byte_space_is_exhaustive() {
-    let network = Network::from_bytes([1; 16]);
+    let network = Network::from_bytes([1; NETWORK_BYTES]);
     for byte in u8::MIN..=u8::MAX {
         match (byte, staged(network, byte).validate()) {
             (0, Ok(preamble)) => assert_eq!(preamble.intent, Intent::Remain),
@@ -127,7 +128,7 @@ fn intent_byte_space_is_exhaustive() {
 /// [`Error::Truncated`] carrying the exact byte counts of the cut.
 #[test]
 fn every_truncation_boundary_is_typed() {
-    let network = Network::from_bytes([1; 16]);
+    let network = Network::from_bytes([1; NETWORK_BYTES]);
     let full = Preamble {
         network,
         intent: Intent::Remain,
@@ -170,7 +171,7 @@ fn every_truncation_boundary_is_typed() {
 /// stream" ahead of "wrong dialect".
 #[test]
 fn magic_mismatch_is_diagnosed_first() {
-    let mut wrong = staged(Network::from_bytes([1; 16]), 0xFF);
+    let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0xFF);
     wrong.buf[..6].copy_from_slice(b"SROMUR");
 
     let result = wrong.validate();
@@ -191,7 +192,7 @@ fn magic_mismatch_is_diagnosed_first() {
 /// dialect skew is reported as such rather than as a garbled body.
 #[test]
 fn version_mismatch_is_diagnosed_before_intent() {
-    let mut wrong = staged(Network::from_bytes([1; 16]), 0xFF);
+    let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0xFF);
     wrong.buf[V2_PREFIX.len()] = 0x07;
 
     let result = wrong.validate();
@@ -217,7 +218,7 @@ proptest! {
     fn arbitrary_preamble_decodes_by_the_oracle(
         magic_valid in prop_oneof![Just(true), any::<bool>()],
         version in prop_oneof![Just(Protocol::V2 as u8), 0_u8..=0x17],
-        network in any::<[u8; 16]>(),
+        network in any::<[u8; NETWORK_BYTES]>(),
         intent in prop_oneof![0_u8..=3, 0_u8..=0x17],
     ) {
         let mut bytes = Vec::with_capacity(V2_PREAMBLE_LEN);
@@ -243,7 +244,7 @@ proptest! {
             )
         } else if intent > 1 {
             matches!(&result, Err(Error::IntentInvalid { byte }) if *byte == intent)
-        } else if network == [0; 16] && intent == 1 {
+        } else if network == [0; NETWORK_BYTES] && intent == 1 {
             matches!(&result, Err(Error::BootstrapRetireConflict))
         } else {
             let expected = Preamble {
@@ -277,7 +278,7 @@ proptest! {
             bytes[V2_PREFIX.len() + 1..].copy_from_slice(&tail);
             bytes
         }),
-        4 => (any::<[u8; 16]>(), any::<u8>()).prop_map(|(network, intent)| {
+        4 => (any::<[u8; NETWORK_BYTES]>(), any::<u8>()).prop_map(|(network, intent)| {
             let mut bytes = [0; V2_PREAMBLE_LEN];
             bytes[..V2_PREFIX.len()].copy_from_slice(&V2_PREFIX);
             bytes[V2_PREFIX.len()] = Protocol::V2 as u8;
@@ -313,7 +314,7 @@ fn bootstrap_intent_matrix_is_exhaustive() {
 /// major-type filter, and the defect names the version field.
 #[test]
 fn version_item_wrong_major_is_the_version_defect() {
-    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0);
     // 0x38: a two-byte negative-int head; its argument byte (the network
     // head behind it) parses, so the head is well-formed but the wrong
     // major type.
@@ -338,7 +339,7 @@ fn version_item_wrong_major_is_the_version_defect() {
 /// against the dialect.
 #[test]
 fn widened_version_spelling_is_the_version_defect() {
-    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0);
     wrong.buf[V2_PREFIX.len()..V2_PREFIX.len() + 2].copy_from_slice(&[0x18, 0x02]);
     let result = wrong.validate();
     assert!(
@@ -357,7 +358,7 @@ fn widened_version_spelling_is_the_version_defect() {
 /// and the defect names the network field.
 #[test]
 fn network_item_wrong_length_is_the_network_defect() {
-    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0);
     wrong.buf[V2_PREFIX.len() + 1] = 0x51;
     let result = wrong.validate();
     assert!(

@@ -72,7 +72,7 @@ pub(super) fn rooted(node: Option<TreeNode<height::Root>>) -> Root {
 
 /// Wrap a node as a [`Root`] advertising an explicit ceiling.
 ///
-/// Used to equalize two remote trees' handshake versions so role election
+/// Used to equalize two remote trees' greeting versions so role election
 /// (`streaming.rs::descend`: the smaller set initiates, canonical version
 /// bytes break ties) comes out identical across two sessions against the
 /// same local tree once the remotes' set sizes are also equal. Inflating a

@@ -31,8 +31,8 @@ use super::harness::EndpointError;
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
     let source = match error {
         RemoteError::PeerDeparted(source)
-        | RemoteError::HandshakeRead(source)
-        | RemoteError::HandshakeWrite { source, .. } => source,
+        | RemoteError::GreetingRead(source)
+        | RemoteError::GreetingWrite { source, .. } => source,
         RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => source,
@@ -85,13 +85,13 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
         IoOperation::Read => matches!(
             error,
             RemoteError::PeerDeparted(_)
-                | RemoteError::HandshakeRead(_)
+                | RemoteError::GreetingRead(_)
                 | RemoteError::Stream(StreamError::Decode(_) | StreamError::SupplyClosed { .. })
         ),
         IoOperation::Write | IoOperation::Flush => {
             matches!(
                 error,
-                RemoteError::HandshakeWrite { .. } | RemoteError::Send(_)
+                RemoteError::GreetingWrite { .. } | RemoteError::Send(_)
             )
         }
         IoOperation::Connect => {

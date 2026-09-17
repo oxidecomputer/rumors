@@ -243,7 +243,7 @@ fn a_batched_run_round_trips_the_reply() {
         .expect("the batched frame decodes")
         .reply
     });
-    let [Reaction::Supply(_, node)] = reply.replies.as_slice() else {
+    let [Reaction::Supply(_, node)] = reply.reactions.as_slice() else {
         panic!("one batched run must decode to one supplied node");
     };
     let prefix = Prefix::<UnderRoot>::containing(&leaves[0].path());

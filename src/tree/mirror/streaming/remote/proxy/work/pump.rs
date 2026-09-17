@@ -207,12 +207,12 @@ where
                     .await?;
                     debug_assert!(asked.is_empty(), "an empty request opens no lower scope");
                     let (root, radix) = parent.pop();
-                    let mut replies = reply.replies;
+                    let mut reactions = reply.reactions;
                     if let Some(node) = early.advance_to(&backend, root, radix).await? {
                         let children = ops::children_of(&backend, parent, node)
                             .await
                             .map_err(|error| Error::Decode(DecodeError::Backend(error)))?;
-                        replies.extend(
+                        reactions.extend(
                             children
                                 .into_iter()
                                 .map(|(radix, child)| Reaction::Supply(radix, child)),
@@ -220,7 +220,7 @@ where
                     }
                     yield_reply_scopes!(
                         progress, height + 1, 0;
-                        yield Reply { replies };
+                        yield Reply { reactions };
                         next_scopes => Vec::<Scope>::new();
                     );
                     continue;

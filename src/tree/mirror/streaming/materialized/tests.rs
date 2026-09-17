@@ -97,7 +97,7 @@ fn absorb_scripted(
 /// The accepted shape: the one requested leaf, supplied once.
 fn requested(version: Version) -> Vec<Reply<Erased>> {
     vec![Reply {
-        replies: vec![supply(REQUESTED, version)],
+        reactions: vec![supply(REQUESTED, version)],
     }]
 }
 
@@ -219,21 +219,21 @@ impl Injection {
     fn script(self, version: Version) -> Vec<Reply<Erased>> {
         let requested = || supply(REQUESTED, version.clone());
         let one = |after_supply: bool, reaction: Reaction<Erased>| {
-            let mut replies = Vec::new();
+            let mut reactions = Vec::new();
             if after_supply {
-                replies.push(requested());
+                reactions.push(requested());
             }
-            replies.push(reaction);
-            vec![Reply { replies }]
+            reactions.push(reaction);
+            vec![Reply { reactions }]
         };
         match self {
             Self::UnansweredQuery => Vec::new(),
             Self::UnaskedReply => vec![
                 Reply {
-                    replies: vec![requested()],
+                    reactions: vec![requested()],
                 },
                 Reply {
-                    replies: Vec::new(),
+                    reactions: Vec::new(),
                 },
             ],
             Self::Match { after_supply } => one(after_supply, Reaction::Match),

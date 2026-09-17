@@ -1,4 +1,4 @@
-//! The wire participant's protocol handshake states.
+//! The wire participant's states for exchanging greetings.
 
 use crate::message::PayloadCodec;
 
@@ -30,10 +30,10 @@ use crate::{
     },
 };
 
-/// A wire-bound protocol participant ready for the version handshake.
+/// A wire-bound protocol participant ready for the greeting exchange.
 ///
 /// Consumes a [`Link`] carrier for one session: the control halves host the
-/// causal-version handshake (and are the session's output), the connector
+/// greeting exchange (and are the session's output), the connector
 /// and acceptor supply the descent's data streams, and the carrier's epoch
 /// labels every stream this session opens.
 pub struct Handshaking<B, R, W, C, A, V = Start>
@@ -116,7 +116,8 @@ pub struct Connecting {
     remote: Greeting,
 }
 
-impl<B, R, W, C, A, V> protocol::Protocol for Handshaking<B, R, W, C, A, V>
+/// A wire participant remains at root height through the greeting exchange.
+impl<B, R, W, C, A, V> protocol::Phase for Handshaking<B, R, W, C, A, V>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
@@ -305,17 +306,14 @@ where
     write
         .write_all(&item)
         .await
-        .map_err(|source| Error::HandshakeWrite {
+        .map_err(|source| Error::GreetingWrite {
             operation: crate::error::TransportOperation::Write,
             source,
         })?;
-    write
-        .flush()
-        .await
-        .map_err(|source| Error::HandshakeWrite {
-            operation: crate::error::TransportOperation::Flush,
-            source,
-        })?;
+    write.flush().await.map_err(|source| Error::GreetingWrite {
+        operation: crate::error::TransportOperation::Flush,
+        source,
+    })?;
     observe.control_sent(&item);
     Ok(())
 }
@@ -332,9 +330,9 @@ where
     R: AsyncRead + Unpin,
 {
     let route = |e| match e {
-        greeting_codec::ReadGreetingError::Io(io) => Error::HandshakeRead(io),
-        greeting_codec::ReadGreetingError::Decode(defect) => Error::HandshakeDecode(defect),
-        greeting_codec::ReadGreetingError::Listing(order) => Error::HandshakeListing(order),
+        greeting_codec::ReadGreetingError::Io(io) => Error::GreetingRead(io),
+        greeting_codec::ReadGreetingError::Decode(defect) => Error::GreetingDecode(defect),
+        greeting_codec::ReadGreetingError::Listing(order) => Error::GreetingListing(order),
     };
     if observe.attached() {
         let mut capture = CaptureRead::new(read);
@@ -352,7 +350,7 @@ where
 ///
 /// On equality both carried listings are dropped unused — the documented
 /// price of carrying them unconditionally.
-#[allow(clippy::too_many_arguments)] // The argument list is the handshake's
+#[allow(clippy::too_many_arguments)] // The argument list carries the greeting
 // dataflow into the elected session, one premise per argument.
 fn connected<B, R, W, C, A>(
     backend: B,

@@ -2,13 +2,21 @@
 
 use std::fmt;
 
-use crate::tree::mirror::{
-    cbor::{Head, HeadError},
-    framing::LengthOverflow,
-};
+use crate::tree::mirror::cbor::{Head, HeadError};
 
 use super::frame::{LeafRunError, ListingIssue};
 use super::signal::{DecodeSignalError, Speaker, Stream};
+
+/// A supplied-run length which cannot be represented by its wire head.
+#[derive(Debug, thiserror::Error)]
+#[error("payload length {len} exceeds the u32 framing limit")]
+pub(crate) struct LengthOverflow {
+    /// The unrepresentable payload length.
+    pub(crate) len: usize,
+    /// The failed integer conversion.
+    #[source]
+    pub(crate) source: std::num::TryFromIntError,
+}
 
 /// The speaker and, when known, logical stream which produced an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

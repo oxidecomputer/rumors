@@ -1,6 +1,4 @@
-use crate::tree::mirror::framing::LengthOverflow;
-
-use super::super::codec::DecodeLeafError;
+use super::super::codec::{DecodeLeafError, LengthOverflow};
 
 /// A prefix-free reaction could not be paired with the question it answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

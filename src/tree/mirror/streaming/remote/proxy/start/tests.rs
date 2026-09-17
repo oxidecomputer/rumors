@@ -8,9 +8,9 @@
 //!
 //! The scripted-fault harness wraps only data streams, so this ingress is
 //! exercised here directly: crafted control-stream bytes must surface the
-//! typed greeting errors ([`Error::HandshakeRead`] for truncation and
-//! length lies, [`Error::HandshakeListing`] for canonical-order violations,
-//! [`Error::HandshakeDecode`] for malformed items), never a panic, and a
+//! typed greeting errors ([`Error::GreetingRead`] for truncation and
+//! length lies, [`Error::GreetingListing`] for canonical-order violations,
+//! [`Error::GreetingDecode`] for malformed items), never a panic, and a
 //! canonical greeting must decode intact.
 
 use std::convert::Infallible;
@@ -70,13 +70,13 @@ fn content_of(item: &[u8]) -> Vec<u8> {
 ///
 /// The tag and byte-string heads are the first peer-controlled bytes of
 /// the greeting; a peer that closes mid-head must surface
-/// [`Error::HandshakeRead`] with `UnexpectedEof` — never a hang waiting on
+/// [`Error::GreetingRead`] with `UnexpectedEof` — never a hang waiting on
 /// bytes that cannot arrive.
 #[pollster::test]
 async fn truncated_version_header_is_a_typed_read_error() {
     let result = receive_greeting(&[0xd8]).await.map(|_| ());
     match result {
-        Err(Error::HandshakeRead(error)) => {
+        Err(Error::GreetingRead(error)) => {
             assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
         }
         other => panic!("expected the truncated head's typed rejection, got {other:?}"),
@@ -88,7 +88,7 @@ async fn truncated_version_header_is_a_typed_read_error() {
 ///
 /// An over-declared byte-string head makes the item's exact read run off
 /// the end of the peer's bytes; the lie must surface
-/// [`Error::HandshakeRead`] with `UnexpectedEof`, never a partially filled
+/// [`Error::GreetingRead`] with `UnexpectedEof`, never a partially filled
 /// item handed to the decoder.
 #[pollster::test]
 async fn over_declared_version_frame_is_a_typed_read_error() {
@@ -99,7 +99,7 @@ async fn over_declared_version_frame_is_a_typed_read_error() {
 
     let result = receive_greeting(&bytes).await.map(|_| ());
     match result {
-        Err(Error::HandshakeRead(error)) => {
+        Err(Error::GreetingRead(error)) => {
             assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
         }
         other => panic!("expected the over-declared item's typed rejection, got {other:?}"),
@@ -109,7 +109,7 @@ async fn over_declared_version_frame_is_a_typed_read_error() {
 /// An empty greeting item fails as a typed decode error.
 ///
 /// An item whose byte string is empty carries no map at all; it must
-/// surface [`Error::HandshakeDecode`] with the head defect (the map's
+/// surface [`Error::GreetingDecode`] with the head defect (the map's
 /// content ends before its opening head) — the under-declared degenerate
 /// case, distinct from the transport-level truncations above.
 #[pollster::test]
@@ -118,7 +118,7 @@ async fn empty_version_frame_is_a_typed_decode_error() {
     assert!(
         matches!(
             result,
-            Err(Error::HandshakeDecode(GreetingError::Head(
+            Err(Error::GreetingDecode(GreetingError::Head(
                 HeadError::Truncated
             ))),
         ),
@@ -140,7 +140,7 @@ async fn untagged_greeting_is_a_typed_decode_error() {
     assert!(
         matches!(
             result,
-            Err(Error::HandshakeDecode(GreetingError::Structure(
+            Err(Error::GreetingDecode(GreetingError::Structure(
                 GreetingStructureError::ItemTag { .. }
             )))
         ),
@@ -151,7 +151,7 @@ async fn untagged_greeting_is_a_typed_decode_error() {
 /// A greeting item with bytes after its map fails as a typed decode error.
 ///
 /// The greeting decode is canonical: the item must contain exactly one
-/// map, so trailing bytes surface [`Error::HandshakeDecode`] rather than
+/// map, so trailing bytes surface [`Error::GreetingDecode`] rather than
 /// being silently dropped (which would let two encodings name one
 /// greeting).
 #[pollster::test]
@@ -164,7 +164,7 @@ async fn trailing_version_bytes_are_rejected() {
     assert!(
         matches!(
             result,
-            Err(Error::HandshakeDecode(GreetingError::Structure(
+            Err(Error::GreetingDecode(GreetingError::Structure(
                 GreetingStructureError::Trailing { remaining: 1 }
             )))
         ),
@@ -184,7 +184,7 @@ async fn missing_listing_frame_is_a_typed_read_error() {
 
     let result = receive_greeting(bytes).await.map(|_| ());
     match result {
-        Err(Error::HandshakeRead(error)) => {
+        Err(Error::GreetingRead(error)) => {
             assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
         }
         other => panic!("expected the cut content's typed rejection, got {other:?}"),
@@ -206,9 +206,9 @@ proptest! {
         prop_assert!(matches!(
             result,
             Ok(())
-                | Err(Error::HandshakeRead(_)
-                    | Error::HandshakeDecode(_)
-                    | Error::HandshakeListing(_)),
+                | Err(Error::GreetingRead(_)
+                    | Error::GreetingDecode(_)
+                    | Error::GreetingListing(_)),
         ));
     }
 }
@@ -234,13 +234,13 @@ async fn invalid_version_atom_is_a_typed_decode_error() {
     assert!(
         matches!(
             result,
-            Err(Error::HandshakeDecode(GreetingError::Version(_)))
+            Err(Error::GreetingDecode(GreetingError::Version(_)))
         ),
         "expected the version decoder's typed rejection, got {result:?}",
     );
 }
 
-/// A listing whose radixes descend is rejected as [`Error::HandshakeListing`].
+/// A listing whose radixes descend is rejected as [`Error::GreetingListing`].
 ///
 /// The canonical strictly-ascending radix order is the rule positional
 /// pairing rests on; an out-of-order peer listing must die at the greeting
@@ -253,7 +253,7 @@ async fn unordered_listing_is_rejected() {
     assert!(
         matches!(
             result,
-            Err(Error::HandshakeListing(QueryOrderError {
+            Err(Error::GreetingListing(QueryOrderError {
                 previous: 2,
                 radix: 1,
             })),
@@ -262,7 +262,7 @@ async fn unordered_listing_is_rejected() {
     );
 }
 
-/// A listing repeating a radix is rejected as [`Error::HandshakeListing`].
+/// A listing repeating a radix is rejected as [`Error::GreetingListing`].
 ///
 /// Strictly ascending means duplicates are non-canonical too: equal adjacent
 /// radixes trip the same greeting-time order check as a descending pair,
@@ -275,7 +275,7 @@ async fn duplicate_listing_radix_is_rejected() {
     assert!(
         matches!(
             result,
-            Err(Error::HandshakeListing(QueryOrderError {
+            Err(Error::GreetingListing(QueryOrderError {
                 previous: 3,
                 radix: 3,
             })),
@@ -287,7 +287,7 @@ async fn duplicate_listing_radix_is_rejected() {
 /// A greeting map whose content is cut short fails as a typed decode error.
 ///
 /// The greeting's byte string ends inside the map's final entry; the cut
-/// must surface [`Error::HandshakeDecode`] with the head defect — a typed
+/// must surface [`Error::GreetingDecode`] with the head defect — a typed
 /// greeting failure, never a panic and never a partially parsed greeting.
 #[pollster::test]
 async fn truncated_map_content_is_rejected() {
@@ -299,7 +299,7 @@ async fn truncated_map_content_is_rejected() {
     assert!(
         matches!(
             result,
-            Err(Error::HandshakeDecode(GreetingError::Head(
+            Err(Error::GreetingDecode(GreetingError::Head(
                 HeadError::Truncated
             ))),
         ),
@@ -310,7 +310,7 @@ async fn truncated_map_content_is_rejected() {
 /// A canonical greeting with an empty listing decodes intact.
 ///
 /// The empty listing is a legal greeting — an empty tree's root fan — and
-/// the validation path must pass it through: the decoded handshake carries
+/// the validation path must pass it through: the decoded greeting carries
 /// the sent fields and the empty listing, exercising the success arm of the
 /// same ingress the rejection tests pin.
 #[pollster::test]
@@ -326,12 +326,12 @@ async fn empty_listing_greeting_decodes() {
         listing: Vec::new(),
     });
 
-    let handshake = receive_greeting(&item)
+    let greeting = receive_greeting(&item)
         .await
         .expect("a canonical empty-listing greeting decodes");
-    assert_eq!(handshake.version, version);
-    assert_eq!(handshake.set_len, 7);
-    assert_eq!(handshake.max_version_bytes, 512);
-    assert_eq!(handshake.target_message_size, 1 << 16);
-    assert!(handshake.listing.is_empty());
+    assert_eq!(greeting.version, version);
+    assert_eq!(greeting.set_len, 7);
+    assert_eq!(greeting.max_version_bytes, 512);
+    assert_eq!(greeting.target_message_size, 1 << 16);
+    assert!(greeting.listing.is_empty());
 }

@@ -28,7 +28,7 @@ use crate::{
     Network, Protocol, Ticks,
     bookmark::{Bookmark, BookmarkIo, NoBookmark},
     observe::SessionErrorKind,
-    tree::mirror::handshake,
+    tree::mirror::preamble,
 };
 
 mod session;
@@ -166,21 +166,21 @@ impl<B: Bookmark> fmt::Debug for Error<B> {
 }
 
 /// Map preamble failures to public session error categories.
-impl From<handshake::Error> for Error {
+impl From<preamble::Error> for Error {
     /// Classify preamble failures without exposing its wire grammar.
-    fn from(error: handshake::Error) -> Self {
+    fn from(error: preamble::Error) -> Self {
         match error {
-            handshake::Error::Io { operation, source } => {
+            preamble::Error::Io { operation, source } => {
                 Self::transport(Phase::Preamble, operation, source)
             }
-            handshake::Error::VersionMismatch {
+            preamble::Error::VersionMismatch {
                 local_protocol,
                 remote_version,
             } => Self::Mismatch(Mismatch::Protocol {
                 local_protocol,
                 remote_version,
             }),
-            error @ handshake::Error::Truncated { .. } => Self::transport(
+            error @ preamble::Error::Truncated { .. } => Self::transport(
                 Phase::Preamble,
                 TransportOperation::Read,
                 std::io::Error::new(std::io::ErrorKind::UnexpectedEof, error),

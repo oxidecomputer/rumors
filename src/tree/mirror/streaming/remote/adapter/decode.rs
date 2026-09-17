@@ -45,7 +45,7 @@ pub fn opening_reply<E>(listing: Vec<(u8, Hash)>) -> (Reply<E>, Scope) {
     let scope = Scope::opening(&listing);
     (
         Reply {
-            replies: vec![ProtocolReaction::Query(listing)],
+            reactions: vec![ProtocolReaction::Query(listing)],
         },
         scope,
     )
@@ -465,7 +465,7 @@ impl ReadReply {
             ..
         } = self;
         let mut nodes = nodes.into_iter();
-        let replies = skeleton
+        let reactions = skeleton
             .into_iter()
             .map(|part| match part {
                 Skeleton::Match => ProtocolReaction::Match,
@@ -487,7 +487,7 @@ impl ReadReply {
             "assembly yields exactly one node per supplied run",
         );
         Decoded {
-            reply: Reply { replies },
+            reply: Reply { reactions },
             questions,
         }
     }

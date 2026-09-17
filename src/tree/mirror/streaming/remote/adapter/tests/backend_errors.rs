@@ -47,7 +47,7 @@ where
         for fail_after in 0..Self::HEIGHT {
             // A failing supply may appear on either side of a positional
             // reaction. Neither ordering may publish the pending frame.
-            for (listing, replies) in [
+            for (listing, reactions) in [
                 (
                     vec![(supply_radix + 1, hash(supply_radix + 1))],
                     vec![
@@ -74,7 +74,7 @@ where
                     backend.clone(),
                     RunBudget::default(),
                     Scope::new(parent.erase(), &listing),
-                    Reply { replies },
+                    Reply { reactions },
                 );
                 let (yielded, error, ended) = runtime.block_on(async {
                     let mut yielded = Vec::new();
@@ -112,7 +112,7 @@ where
                 RunBudget::default(),
                 Scope::new(parent.erase(), &lower.map(|radix| (radix, hash(radix)))),
                 Reply {
-                    replies: vec![
+                    reactions: vec![
                         Reaction::Match,
                         Reaction::Match,
                         Reaction::Supply(

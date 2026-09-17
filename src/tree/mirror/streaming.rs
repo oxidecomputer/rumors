@@ -33,7 +33,7 @@
 //! [`materialized::Handshaking::start`] or [`remote::Handshaking::start`].
 //!
 //! On a wire connection, the peer-level driver first exchanges the shared
-//! fixed [`super::handshake`] preamble. Network and intent therefore resolve
+//! fixed [`super::preamble`]. Network and intent therefore resolve
 //! before the atomic tree snapshot/party fork; this module begins with the
 //! subsequent greeting exchange, the one message each side sends before any
 //! frame flows. What the greeting carries — and why each field rides this
@@ -74,30 +74,39 @@ use crate::{Version, tree::typed::height::Z};
 use driver::{mirror_connected, try_join_mapped};
 use protocol::*;
 
+/// A client after both greetings have been exchanged.
 type ClientConnected<C, B> = <<C as Connect<B>>::Next as CompleteConnect<B>>::Next;
+/// A server after both greetings have been exchanged.
 type ServerConnected<S, B> = <S as Accept<B>>::Next;
 
+/// Both participants after the greeting exchange, with the role-election keys.
 pub(crate) struct Handshaken<C, S, B>
 where
     B: Backend<Node<Z>: Leaf>,
     C: Client<B>,
     S: Server<B>,
 {
+    /// The connected client participant.
     client: ClientConnected<C, B>,
+    /// The connected server participant.
     server: ServerConnected<S, B>,
+    /// The local set version advertised in the greeting.
     our_version: Version,
     /// Our advertised live message count: our half of the role election's
     /// primary key ([`message::initiates`]).
     our_len: u64,
+    /// The peer's validated greeting.
     peer: message::Greeting,
 }
 
+/// Operations available after both greetings have been exchanged.
 impl<C, S, B> Handshaken<C, S, B>
 where
     B: Backend<Node<Z>: Leaf>,
     C: Client<B>,
     S: Server<B>,
 {
+    /// Return the peer's greeting.
     pub(crate) fn peer(&self) -> &message::Greeting {
         let Handshaken { peer, .. } = self;
         peer
@@ -105,7 +114,7 @@ where
 
     /// Reconcile the two connected sessions, returning both sides' outputs.
     ///
-    /// Equal handshake versions resolve each connected state directly to its
+    /// Equal greeting versions resolve each connected state directly to its
     /// output without opening the descent.
     pub(crate) fn reconcile<'a>(
         self,
@@ -137,7 +146,7 @@ where
 /// Run two arbitrary protocol implementations through the full schedule.
 ///
 /// Both implementations share one backend `B`, whose node types are the
-/// vocabulary crossing between them. Equal handshake versions resolve both
+/// vocabulary crossing between them. Equal greeting versions resolve both
 /// connected states without opening the descent.
 #[cfg(test)]
 pub(crate) async fn mirror<C, S, B>(
@@ -152,7 +161,7 @@ where
     handshake(client, server).await?.reconcile().await
 }
 
-/// Exchange versions and return both connected protocol states.
+/// Exchange greetings and return both connected protocol states.
 pub(crate) async fn handshake<C, S, B>(
     client: C,
     server: S,
@@ -162,10 +171,10 @@ where
     C: Client<B>,
     S: Server<B>,
 {
-    let (our_handshake, client) = client.connect().await.map_err(Error::Client)?;
-    let our_version = our_handshake.version.clone();
-    let our_len = our_handshake.set_len;
-    let (peer, server) = server.accept(our_handshake).await.map_err(Error::Server)?;
+    let (our_greeting, client) = client.connect().await.map_err(Error::Client)?;
+    let our_version = our_greeting.version.clone();
+    let our_len = our_greeting.set_len;
+    let (peer, server) = server.accept(our_greeting).await.map_err(Error::Server)?;
     let client = client
         .complete_connect(peer.clone())
         .await

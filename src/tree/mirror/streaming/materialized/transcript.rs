@@ -90,7 +90,7 @@ pub fn with_transcript<R>(f: impl FnOnce() -> R) -> (R, Transcript) {
 /// capturing pump's typed exit.
 pub(super) fn reply<E>(work: usize, height: usize, reply: &Reply<E>) {
     let labels = reply
-        .replies
+        .reactions
         .iter()
         .map(|reaction| match reaction {
             Reaction::Supply(radix, _) => Label::Supply(*radix),

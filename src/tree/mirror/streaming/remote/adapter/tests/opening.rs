@@ -68,7 +68,7 @@ where
 fn opening_listing_agrees_with_greeting_replay() {
     let listing = vec![(3, hash(1)), (9, hash(2))];
     let reply = Reply::<<Local as Backend>::Erased> {
-        replies: vec![Reaction::Query(listing.clone())],
+        reactions: vec![Reaction::Query(listing.clone())],
     };
 
     let (split, supplies) = opening_parts(reply).expect("canonical opening");
@@ -78,7 +78,7 @@ fn opening_listing_agrees_with_greeting_replay() {
 
     let (replayed, replayed_scope) = opening_reply::<<Local as Backend>::Erased>(listing.clone());
     assert_eq!(replayed_scope, scope);
-    let [Reaction::Query(replayed)] = replayed.replies.as_slice() else {
+    let [Reaction::Query(replayed)] = replayed.reactions.as_slice() else {
         panic!("the replayed opening must remain one query")
     };
     assert_eq!(replayed, &listing);
@@ -89,7 +89,7 @@ fn opening_listing_agrees_with_greeting_replay() {
 fn opening_supplies_split_off_the_question() {
     let listing = vec![(3, hash(1))];
     let reply = Reply::<<Local as Backend>::Erased> {
-        replies: vec![
+        reactions: vec![
             Reaction::Query(listing.clone()),
             Reaction::Supply(5, erased(UnderRoot::node())),
             Reaction::Supply(9, erased(UnderRoot::node())),
@@ -113,7 +113,7 @@ fn opening_supplies_split_off_the_question() {
 #[test]
 fn empty_listing_replays_the_empty_opening() {
     let (replayed, mut scope) = opening_reply::<<Local as Backend>::Erased>(Vec::new());
-    let [Reaction::Query(listing)] = replayed.replies.as_slice() else {
+    let [Reaction::Query(listing)] = replayed.reactions.as_slice() else {
         panic!("the replayed opening must be one query")
     };
     assert!(listing.is_empty());
@@ -502,26 +502,26 @@ fn opening_supply_grammar_is_exhaustive_for_short_words() {
 #[test]
 fn opening_rejections_are_exhaustive() {
     let empty = Reply::<<Local as Backend>::Erased> {
-        replies: Vec::new(),
+        reactions: Vec::new(),
     };
     assert_eq!(opening_parts(empty).err(), Some(OpeningError::Empty));
 
     for count in 1..=3 {
         let reply = Reply::<<Local as Backend>::Erased> {
-            replies: (0..count).map(|_| Reaction::Match).collect(),
+            reactions: (0..count).map(|_| Reaction::Match).collect(),
         };
         assert_eq!(opening_parts(reply).err(), Some(OpeningError::NotQuery));
     }
 
     let supplied = Reply::<<Local as Backend>::Erased> {
-        replies: vec![Reaction::Supply(0, erased(UnderRoot::node()))],
+        reactions: vec![Reaction::Supply(0, erased(UnderRoot::node()))],
     };
     assert_eq!(opening_parts(supplied).err(), Some(OpeningError::NotQuery));
 
     // A non-supply reaction anywhere behind the question is rejected at
     // its whole-reply position.
     let trailing = Reply::<<Local as Backend>::Erased> {
-        replies: vec![
+        reactions: vec![
             Reaction::Query(vec![(3, hash(1))]),
             Reaction::Supply(5, erased(UnderRoot::node())),
             Reaction::Match,

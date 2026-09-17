@@ -84,6 +84,7 @@ pub use encode::FrameWrite;
 pub use encode::encode;
 #[cfg(any(test, feature = "test-internals"))]
 pub use error::FramePart;
+pub(crate) use error::LengthOverflow;
 #[cfg(test)]
 pub(crate) use error::VersionDecodeError;
 pub use error::{

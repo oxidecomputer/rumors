@@ -464,7 +464,8 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     }
 }
 
-impl<B: Backend<Node<Z>: Leaf>, V: Send> protocol::Protocol for Handshaking<B, V> {
+/// A materialized participant remains at root height through the greeting exchange.
+impl<B: Backend<Node<Z>: Leaf>, V: Send> protocol::Phase for Handshaking<B, V> {
     type Height = height::Root;
     type Output = Root<B>;
     type Error = Error<B::Error>;
@@ -702,7 +703,8 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Responder<B> for Handshaking<B,
     }
 }
 
-impl<B: Backend<Node<Z>: Leaf>, H: Height> protocol::Protocol for Descending<B, H>
+/// A materialized descent phase processes the height carried by its state.
+impl<B: Backend<Node<Z>: Leaf>, H: Height> protocol::Phase for Descending<B, H>
 where
     S<H>: Height,
 {
@@ -809,7 +811,8 @@ where
     }
 }
 
-impl<B: Backend<Node<Z>: Leaf>> protocol::Protocol for Completing<B> {
+/// A completing materialized participant processes the final leaf-height replies.
+impl<B: Backend<Node<Z>: Leaf>> protocol::Phase for Completing<B> {
     type Height = Z;
     type Output = Root<B>;
     type Error = Error<B::Error>;
@@ -868,7 +871,7 @@ where
 {
     let mut requests = pin!(requests);
     while let Some(prefix) = queries.recv().await {
-        let Some(Reply { replies }) = requests.next().await else {
+        let Some(Reply { reactions }) = requests.next().await else {
             return violation(Violation::UnansweredQuery);
         };
 
@@ -880,7 +883,7 @@ where
             ours: Vec::new(),
         };
         let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, stats.clone());
-        for reaction in replies {
+        for reaction in reactions {
             if let Reaction::Supply(radix, _) = &reaction
                 && *radix != expected
             {

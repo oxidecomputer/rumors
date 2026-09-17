@@ -28,8 +28,8 @@ use crate::{Error, Network, Version};
 use crate::{
     bookmark::{Bookmark, BookmarkIo, Bookmarked, NoBookmark},
     tree::mirror::{
-        handshake::{self, Intent},
         party,
+        preamble::{self, Intent},
         streaming::{
             self, Local, materialized,
             remote::{self as streaming_remote, ControlRead, RunBudget},
@@ -283,8 +283,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
             // Establish the protocol version and the provider's network
             // before interpreting the rest of the session.
-            let mut staged = handshake::Staged::new();
-            let remote = handshake::preamble(
+            let mut staged = preamble::Staged::new();
+            let remote = preamble::preamble(
                 Network::BOOTSTRAP,
                 Intent::Remain,
                 &mut staged,
@@ -358,7 +358,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new();
+        let mut staged = preamble::Staged::new();
         let parts = match erase(link) {
             Ok(parts) => parts,
             // The fail-fast happened before any wire traffic: nothing of
@@ -396,7 +396,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new();
+        let mut staged = preamble::Staged::new();
         let parts = erase(link).map_err(Error::widen)?;
         let (_, result) = self.session(Intent::Remain, &mut staged, parts).await;
         // Un-poison on clean completion: the session's own `Ok` is
@@ -423,7 +423,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     async fn session(
         &self,
         intent: Intent,
-        staged: &mut handshake::Staged,
+        staged: &mut preamble::Staged,
         link: SessionTransport<'_>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>) {
         let mut outcome = Intent::Remain;
@@ -500,7 +500,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         &self,
         intent: Intent,
         outcome: &mut Intent,
-        staged: &mut handshake::Staged,
+        staged: &mut preamble::Staged,
         link: SessionTransport<'a>,
         observe: SessionHandle,
         stats: Recorder,
@@ -508,7 +508,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let (read, write, connector, acceptor, epoch) = link;
         let codec = self.codec;
         // Check protocol and network compatibility before reconciliation.
-        let remote = handshake::preamble(self.network, intent, staged, read, write, &observe)
+        let remote = preamble::preamble(self.network, intent, staged, read, write, &observe)
             .await
             .map_err(|error| Error::from(error).widen())?;
         let peer_bootstrapping = remote.network.is_bootstrap();
@@ -705,7 +705,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             when: self
                 .gossip_policy
                 .when(crate::Changes::subscribe(&self.inner)),
-            staged: handshake::Staged::new(),
+            staged: preamble::Staged::new(),
             converged: None,
             done: false,
         };
@@ -803,7 +803,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                             // fresh staging buffer (this preamble is
                             // consumed), and the new suppression token.
                             drive.state.finish();
-                            drive.staged = handshake::Staged::new();
+                            drive.staged = preamble::Staged::new();
                             drive.converged = Some(converged.clone());
                             Some((
                                 Ok(Gossiped {
@@ -1059,7 +1059,7 @@ async fn epilogue(
 /// The event that ends the driver's idle wait, after its racing borrows end.
 enum Trigger {
     /// Received initiation bytes (`true`), clean EOF (`false`), or an I/O error.
-    Arrival(Result<bool, handshake::Error>),
+    Arrival(Result<bool, preamble::Error>),
     /// The local policy produced an item or ended.
     Tick(Option<Gossip>),
 }
@@ -1081,7 +1081,7 @@ struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
     /// Local initiation policy; pinned independently of the driver state.
     when: futures::stream::BoxStream<'static, Gossip>,
     /// Initiation bytes consumed before the active exchange takes over.
-    staged: handshake::Staged,
+    staged: preamble::Staged,
     /// The frontier this connection last converged on: a WhenChanged request
     /// initiates only once the local frontier differs.
     ///

@@ -7,12 +7,11 @@ use crate::{
         mirror::cbor::{
             self, HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, MAJOR_UINT, TAG_CBOR_SEQUENCE,
         },
-        mirror::framing::LengthOverflow,
         typed::{Hash, hash::MERKLE_HASH_LEN},
     },
 };
 
-use super::error::{DecodeLeafError, QueryOrderError};
+use super::error::{DecodeLeafError, LengthOverflow, QueryOrderError};
 use super::signal::{End, Flow, Stream};
 
 /// Largest query fan a listing map can carry: one child per radix value.

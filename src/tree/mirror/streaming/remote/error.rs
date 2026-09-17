@@ -59,10 +59,8 @@ impl From<MirrorError> for Error {
             proxy::Error::PayloadDepthMismatch { local, remote } => {
                 return Self::Mismatch(Mismatch::PayloadDepth { local, remote });
             }
-            proxy::Error::HandshakeRead(source) => {
-                (Context::new(Phase::Greeting), Op::Read, source)
-            }
-            proxy::Error::HandshakeWrite { operation, source } => {
+            proxy::Error::GreetingRead(source) => (Context::new(Phase::Greeting), Op::Read, source),
+            proxy::Error::GreetingWrite { operation, source } => {
                 (Context::new(Phase::Greeting), operation, source)
             }
             proxy::Error::Stream(StreamError::Truncated { origin }) => (
@@ -122,7 +120,7 @@ impl From<MirrorError> for Error {
 fn violation_context(error: &proxy::Error<std::convert::Infallible>) -> Context {
     use streams::{AcceptError, SendError, StreamError};
     match error {
-        proxy::Error::HandshakeDecode(_) | proxy::Error::HandshakeListing(_) => {
+        proxy::Error::GreetingDecode(_) | proxy::Error::GreetingListing(_) => {
             Context::new(Phase::Greeting)
         }
         proxy::Error::Stream(StreamError::Mislabeled { origin, .. }) => Context::at(*origin),

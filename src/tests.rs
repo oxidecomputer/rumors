@@ -25,7 +25,7 @@ use crate::{Error, Inner, Peer, Retire};
 /// The preamble's wire length: magic(6) + proto_version(2) + network(16) +
 /// intent(1). The fault-injection budgets
 /// below land cuts on exact protocol boundaries relative to this.
-const PREAMBLE_LEN: usize = crate::tree::mirror::handshake::V2_PREAMBLE_LEN;
+const PREAMBLE_LEN: usize = crate::tree::mirror::preamble::V2_PREAMBLE_LEN;
 
 /// Insert each of `vals` into `k` as one committed batch.
 fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {

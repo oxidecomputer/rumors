@@ -11,7 +11,7 @@ use proptest::prelude::*;
 use crate::link::memory_with_capacity;
 use crate::observe::SessionHandle;
 use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_link};
-use crate::tree::mirror::handshake::{self, Intent};
+use crate::tree::mirror::preamble::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
 };
@@ -95,11 +95,11 @@ where
 {
     let (mut a_link, mut b_link) = memory_with_capacity(64 * 1024);
     let network = crate::Network::from_bytes([1; 16]);
-    let mut a_staged = handshake::Staged::new();
-    let mut b_staged = handshake::Staged::new();
+    let mut a_staged = preamble::Staged::new();
+    let mut b_staged = preamble::Staged::new();
     let observe = SessionHandle::default();
     let (seen_a, seen_b) = join!(
-        handshake::preamble(
+        preamble::preamble(
             network,
             Intent::Remain,
             &mut a_staged,
@@ -107,7 +107,7 @@ where
             &mut a_link.control_write,
             &observe
         ),
-        handshake::preamble(
+        preamble::preamble(
             network,
             Intent::Remain,
             &mut b_staged,

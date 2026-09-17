@@ -62,7 +62,7 @@ pub type Frames<E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> 
 pub fn opening_parts<E>(
     reply: Reply<E>,
 ) -> Result<(Vec<(u8, Hash)>, Vec<ProtocolReaction<E>>), OpeningError> {
-    let mut reactions = reply.replies.into_iter();
+    let mut reactions = reply.reactions.into_iter();
     let Some(first) = reactions.next() else {
         return Err(OpeningError::Empty);
     };
@@ -120,7 +120,7 @@ impl Encoded {
     {
         Box::pin(try_stream! {
             let mut pending = None;
-            for reaction in reply.replies {
+            for reaction in reply.reactions {
                 let (wire, question) = match reaction {
                     ProtocolReaction::Match => {
                         scope.next().ok_or(ScopeError::UnpositionedMatch)?;

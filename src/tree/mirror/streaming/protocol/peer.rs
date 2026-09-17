@@ -9,6 +9,7 @@ use crate::tree::{
     typed::height::Z,
 };
 
+/// Define the complete client, server, and connected-participant phase chains.
 macro_rules! define_peer {
     (
         init: [$($init_count:tt)*],
@@ -57,6 +58,7 @@ macro_rules! define_peer {
         init_chain: ($($init_chain:tt)*),
         resp_chain: ($($resp_chain:tt)*) $(,)?
     ) => {
+        /// A participant's complete connected-to-terminal phase chain.
         pub trait Peer<I>:
             CompleteEqual<I>
             + Initiator<I, Next: $($init_chain)*>
@@ -66,6 +68,7 @@ macro_rules! define_peer {
                     {
         }
 
+        /// Every participant implementing the complete chain is a peer.
         impl<X, I> Peer<I> for X
         where
             I: Backend<Node<Z>: Leaf>,
@@ -75,6 +78,7 @@ macro_rules! define_peer {
         {
         }
 
+        /// A server's complete accept-to-terminal phase chain.
         pub trait Server<I>:
             Accept<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>
         where
@@ -82,6 +86,7 @@ macro_rules! define_peer {
                     {
         }
 
+        /// Every participant implementing the complete server chain is a server.
         impl<X, I> Server<I> for X
         where
             I: Backend<Node<Z>: Leaf>,
@@ -89,6 +94,7 @@ macro_rules! define_peer {
         {
         }
 
+        /// A client's complete connect-to-terminal phase chain.
         pub trait Client<I>:
             Connect<I, Next: CompleteConnect<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>>
         where
@@ -96,6 +102,7 @@ macro_rules! define_peer {
                     {
         }
 
+        /// Every participant implementing the complete client chain is a client.
         impl<X, I> Client<I> for X
         where
             I: Backend<Node<Z>: Leaf>,
@@ -105,10 +112,11 @@ macro_rules! define_peer {
     };
 }
 
-// One `_` per exchange round: the initiator descends heights 31 → 1 in
-// fifteen rounds of two heights each, the responder 30 → 2 in fourteen.
-// `mirror_connected` in streaming.rs drives this same schedule; the counts
-// must move together.
+// One `_` per exchange round: the initiator descends heights 31 → 1 in fifteen
+// rounds of two heights each, the responder 30 → 2 in fourteen.
+// `driver::mirror_connected` drives this schedule. If its loop count and these
+// chains disagree, the terminal trait bounds fail to compile; macro repetition
+// and `seq!` cannot share a named count.
 define_peer! {
     init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],
     resp: [_ _ _ _ _ _ _ _ _ _ _ _ _ _],

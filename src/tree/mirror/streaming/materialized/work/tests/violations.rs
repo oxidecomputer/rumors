@@ -135,32 +135,32 @@ where
         Injection::UnaskedReply => (
             None,
             vec![Reply {
-                replies: Vec::new(),
+                reactions: Vec::new(),
             }],
         ),
         Injection::UnansweredQuery => (Some(query), Vec::new()),
         Injection::UnfinishedReply => (
             Some(query),
             vec![Reply {
-                replies: std::iter::repeat_with(|| Reaction::Match)
+                reactions: std::iter::repeat_with(|| Reaction::Match)
                     .take(ours.len() - 1)
                     .collect(),
             }],
         ),
         Injection::UnexpectedMatch => {
-            let mut replies = matches();
-            replies.push(Reaction::Match);
-            (Some(query), vec![Reply { replies }])
+            let mut reactions = matches();
+            reactions.push(Reaction::Match);
+            (Some(query), vec![Reply { reactions }])
         }
         Injection::UnexpectedQuery => {
-            let mut replies = matches();
-            replies.push(Reaction::Query(Vec::new()));
-            (Some(query), vec![Reply { replies }])
+            let mut reactions = matches();
+            reactions.push(Reaction::Query(Vec::new()));
+            (Some(query), vec![Reply { reactions }])
         }
         Injection::UnexpectedSupply => (
             Some(query),
             vec![Reply {
-                replies: vec![Reaction::Supply(
+                reactions: vec![Reaction::Supply(
                     *radixes.first().expect("the strategy produces a child"),
                     supplied,
                 )],
@@ -174,7 +174,7 @@ where
                     ours: Vec::new(),
                 }),
                 vec![Reply {
-                    replies: vec![
+                    reactions: vec![
                         Reaction::Supply(radix, supplied.clone()),
                         Reaction::Supply(radix, supplied),
                     ],
@@ -191,7 +191,7 @@ where
                     ours: Vec::new(),
                 }),
                 vec![Reply {
-                    replies: vec![Reaction::Supply(radix, escaped)],
+                    reactions: vec![Reaction::Supply(radix, escaped)],
                 }],
             )
         }
@@ -483,15 +483,15 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
     let high = fresh.next().expect("at most eight radices are held");
     let question = || Reaction::Query(theirs.clone());
     let supply = |radix: u8, index: usize| Reaction::Supply(radix, contained[index].clone());
-    let one = |replies: Vec<Reaction<Local, UnderRoot>>| vec![Reply { replies }];
+    let one = |reactions: Vec<Reaction<Local, UnderRoot>>| vec![Reply { reactions }];
     let requests = match injection {
         OpeningInjection::UnansweredQuery => Vec::new(),
         OpeningInjection::UnaskedReply => vec![
             Reply {
-                replies: vec![question()],
+                reactions: vec![question()],
             },
             Reply {
-                replies: Vec::new(),
+                reactions: Vec::new(),
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),

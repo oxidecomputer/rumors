@@ -157,7 +157,9 @@ where
             backend,
             budget,
             Scope::opening(&[]),
-            Reply { replies: supplies },
+            Reply {
+                reactions: supplies,
+            },
         );
         let batch: Vec<Scope> = write_reply(&mut outgoing, &mut encoded).await?;
         debug_assert!(batch.is_empty(), "opening supplies ask no question");

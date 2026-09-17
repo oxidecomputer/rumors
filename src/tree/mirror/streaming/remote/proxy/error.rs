@@ -15,14 +15,14 @@ pub enum Error<E> {
     #[error("peer departed during reconciliation: {0}")]
     PeerDeparted(#[source] std::io::Error),
     /// Reading one of the peer's greeting frames failed.
-    #[error("failed to read streaming handshake")]
-    HandshakeRead(#[source] std::io::Error),
+    #[error("failed to read the peer's greeting")]
+    GreetingRead(#[source] std::io::Error),
     /// The peer's greeting arrived but is not canonical rumors CBOR.
-    #[error("failed to decode streaming handshake")]
-    HandshakeDecode(#[source] codec::GreetingError),
+    #[error("failed to decode the peer's greeting")]
+    GreetingDecode(#[source] codec::GreetingError),
     /// Sending the local greeting failed before reconciliation began.
     #[error("{operation} failed during the greeting: {source}")]
-    HandshakeWrite {
+    GreetingWrite {
         /// Whether writing or flushing failed.
         operation: crate::error::TransportOperation,
         /// The transport's original error.
@@ -31,7 +31,7 @@ pub enum Error<E> {
     },
     /// The peer's greeting listing violated canonical ascending radix order.
     #[error("peer greeting carried a non-canonical root-fan listing")]
-    HandshakeListing(#[source] codec::QueryOrderError),
+    GreetingListing(#[source] codec::QueryOrderError),
     /// The peer's configured payload depth limit differs from ours.
     ///
     /// Detected symmetrically, after the greetings and before anything

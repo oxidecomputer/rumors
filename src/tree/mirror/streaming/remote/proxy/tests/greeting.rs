@@ -209,7 +209,7 @@ fn mixed_empty_and_populated_converges() {
 /// message nobody redacted.
 ///
 /// The shape: session S2 (with a peer converged at T0) forks at T0; equal
-/// handshake versions resolve without opening the descent, so S2's
+/// greeting versions resolve without opening the descent, so S2's
 /// reconciled root is the fork-time root handle itself — its children fan
 /// is the very object M0. Meanwhile session S1 (with a peer that redacted
 /// one message at root radix `r_h`) installs first: the install's

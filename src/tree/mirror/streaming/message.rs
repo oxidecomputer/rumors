@@ -57,9 +57,10 @@ use crate::{
 /// fan of hashes (~4.3 KB, and ~nothing for an empty tree) on a hop that
 /// exists anyway, versus saving a full one-way hop on every divergent
 /// session. Divergence is not knowable at greeting time, so there is
-/// nothing sound to gate the bytes on.
+/// nothing to gate the bytes on.
 #[derive(Clone)]
 pub struct Greeting {
+    /// The sender's set version; equal versions end the session at the greeting.
     pub version: Version,
     /// The sender's live message count, exact (an O(1) read of its set).
     ///
@@ -103,7 +104,7 @@ pub struct Greeting {
     pub target_message_size: u64,
     /// The sender's configured payload nesting-depth limit
     /// ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)),
-    /// in scopes.
+    /// in decode recursion steps.
     ///
     /// A session proceeds only if the two exchanged values are equal:
     /// the limit is a property of the shared set (every replica must be
@@ -158,7 +159,7 @@ pub(crate) fn initiates(
 /// The sole stream message.
 pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The reactions to a single previous query.
-    pub replies: Vec<Reaction<B, H>>,
+    pub reactions: Vec<Reaction<B, H>>,
 }
 
 /// Reactions are positionally keyed against the corresponding
@@ -168,24 +169,22 @@ pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
 /// it represents information that the counterparty could not have known to
 /// ask about.
 pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
-    /// Having inferred that the counterparty lacks this node through its
-    /// absence in the counterparty's listing of hashes, we provide it, at
+    /// The sender supplies a node absent from the counterparty's listing, at
     /// this radix.
     ///
-    /// The counterparty cannot infer the radix because only we know the node
-    /// exists in the first place.
+    /// The radix is explicit because the counterparty did not know the node
+    /// existed and therefore could not ask about it positionally.
     Supply(u8, B::Node<H>),
-    /// Having inferred that we and the counterparty agree about this node, as
-    /// its hash is the same on both sides, we indicate such.
+    /// Both sides hold the node with the same hash.
     Match,
-    /// Having inferred that we both have this node but disagree about its
-    /// contents (or that we lack the node entirely), we recur.
+    /// The sender asks to compare the node's children because the hashes
+    /// differ, or asks for the whole node with an empty listing.
     ///
     /// The listing informs the counterparty of the hashes of this node's
     /// children, implicitly requesting that they reply about each of those
-    /// children (as well as providing any children which we didn't know to
+    /// children (as well as providing any children the sender did not know to
     /// ask about). An empty listing is the request for the whole node: an
     /// internal node always has at least one child, so emptiness is
-    /// unambiguous; it can only mean we lack the node.
+    /// unambiguous; it can only mean the sender lacks the node.
     Query(Vec<(u8, Hash)>),
 }

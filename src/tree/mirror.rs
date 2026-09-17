@@ -23,8 +23,8 @@ mod tests;
 
 pub(crate) mod cbor;
 pub(crate) mod framing;
-pub(crate) mod handshake;
 pub(crate) mod party;
+pub(crate) mod preamble;
 
 /// Whether `bound` is causally contained in `declared`: the version-
 /// containment predicate the protocol enforces on supplied subtrees at

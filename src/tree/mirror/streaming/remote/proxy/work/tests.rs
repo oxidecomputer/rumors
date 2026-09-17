@@ -326,7 +326,7 @@ proptest! {
         let buffered = buffered && !dropped;
         let messages = futures::stream::iter(
             buffered.then_some(Ok(Reply {
-                replies: Vec::new(),
+                reactions: Vec::new(),
             })).into_iter().chain([Err(Error::Decode(DecodeError::OversizedVersion { declared, actual }))]),
         );
         let responses = work.respond::<Z>(messages);

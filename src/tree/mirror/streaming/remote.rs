@@ -50,7 +50,7 @@
 //! to root-level requests the responder is provably about to make, one
 //! hop and one decomposition level ahead of being asked. The stream opens
 //! exactly when that exclusive set is nonempty, and the responder's
-//! matching empty queries are answered by bare empty replies: pairing
+//! matching empty queries are answered by empty replies: pairing
 //! intact, content relocated.
 //!
 //! [`adapter`] retains the question scope omitted from protocol replies. It

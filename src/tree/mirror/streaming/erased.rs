@@ -61,13 +61,17 @@ use crate::tree::{
 /// [`message::Reply`] with its height forgotten: what the walk's workers
 /// produce and consume.
 pub(crate) struct Reply<E> {
-    pub replies: Vec<Reaction<E>>,
+    /// The ordered reactions to one earlier query.
+    pub reactions: Vec<Reaction<E>>,
 }
 
 /// [`message::Reaction`] with its height forgotten.
 pub(crate) enum Reaction<E> {
+    /// A supplied subtree at its explicit radix.
     Supply(u8, E),
+    /// Agreement with the corresponding queried child.
     Match,
+    /// A request to compare the corresponding child's listing.
     Query(Vec<(u8, Hash)>),
 }
 
@@ -79,8 +83,8 @@ where
     H: Height,
 {
     Reply {
-        replies: reply
-            .replies
+        reactions: reply
+            .reactions
             .into_iter()
             .map(|reaction| match reaction {
                 message::Reaction::Supply(radix, node) => Reaction::Supply(radix, B::erase(node)),
@@ -98,8 +102,8 @@ where
     H: Height,
 {
     message::Reply {
-        replies: reply
-            .replies
+        reactions: reply
+            .reactions
             .into_iter()
             .map(|reaction| match reaction {
                 Reaction::Supply(radix, node) => message::Reaction::Supply(radix, B::assume(node)),

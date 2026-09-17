@@ -119,7 +119,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
     );
 
     let reply = Reply::<<Local as Backend>::Erased> {
-        replies: vec![Reaction::Match, Reaction::Match],
+        reactions: vec![Reaction::Match, Reaction::Match],
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -170,7 +170,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
     );
 
     let reply = Reply::<<Local as Backend>::Erased> {
-        replies: vec![Reaction::Query(listing)],
+        reactions: vec![Reaction::Query(listing)],
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -221,7 +221,7 @@ fn leaf_query_matrix_is_exhaustive() {
                 Frame::Reaction(WireReaction::Query(query_listing.clone()), Flow::End);
 
             let reply = Reply::<<Local as Backend>::Erased> {
-                replies: vec![Reaction::Query(query_listing.clone())],
+                reactions: vec![Reaction::Query(query_listing.clone())],
             };
             let encoded = runtime().block_on(async {
                 encode_leaf_reply(
@@ -273,7 +273,7 @@ fn leaf_query_matrix_is_exhaustive() {
                         decoded.questions,
                         vec![Scope::leaf(parent.push(radix).erase())]
                     );
-                    let [Reaction::Query(listing)] = decoded.reply.replies.as_slice() else {
+                    let [Reaction::Query(listing)] = decoded.reply.reactions.as_slice() else {
                         panic!("the decoded reaction must remain a query")
                     };
                     assert!(listing.is_empty());
@@ -538,7 +538,7 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
             codec(),
         )
         .await
-        .map(|decoded| decoded.reply.replies.len())
+        .map(|decoded| decoded.reply.reactions.len())
     })
 }
 

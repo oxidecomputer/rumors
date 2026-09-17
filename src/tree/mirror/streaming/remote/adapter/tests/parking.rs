@@ -99,7 +99,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     );
 
     let reply = Reply {
-        replies: children
+        reactions: children
             .into_iter()
             .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend>::erase(node)))
             .collect(),
@@ -130,12 +130,12 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     assert!(decoded.questions.is_empty());
     // The parked cost is one handle per supplied node — the fan's width,
     // never the leaf count the run streamed through assembly.
-    assert_eq!(decoded.reply.replies.len(), expected.len());
+    assert_eq!(decoded.reply.reactions.len(), expected.len());
     assert!(
-        decoded.reply.replies.len() < LEAVES as usize,
+        decoded.reply.reactions.len() < LEAVES as usize,
         "handle count must not scale with the subtree's leaves",
     );
-    for (reaction, (radix, hash, len)) in decoded.reply.replies.iter().zip(&expected) {
+    for (reaction, (radix, hash, len)) in decoded.reply.reactions.iter().zip(&expected) {
         match reaction {
             Reaction::Supply(actual, node) => {
                 assert_eq!(actual, radix);
@@ -160,7 +160,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
         .map(|radix| (radix as u8, hash(radix as u8)))
         .collect();
     let reply = Reply::<<Local as Backend>::Erased> {
-        replies: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
+        reactions: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
     };
 
     let runtime = runtime();
@@ -217,9 +217,9 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     // Every reaction parks as a listing skeleton; each registers exactly one
     // lower scope for the reply that will answer it.
     assert_eq!(decoded.questions.len(), FAN);
-    assert_eq!(decoded.reply.replies.len(), FAN);
+    assert_eq!(decoded.reply.reactions.len(), FAN);
     let mut entries = 0_usize;
-    for reaction in &decoded.reply.replies {
+    for reaction in &decoded.reply.reactions {
         match reaction {
             Reaction::Query(nested) => entries += nested.len(),
             _ => panic!("a maximally disputed reply parks queries only"),

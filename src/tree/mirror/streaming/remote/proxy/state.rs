@@ -164,7 +164,8 @@ where
     }
 }
 
-impl<B, R, W, C, A> protocol::Protocol for Connected<B, R, W, C, A>
+/// A connected wire participant remains at root height until role election.
+impl<B, R, W, C, A> protocol::Phase for Connected<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
@@ -211,7 +212,8 @@ where
     scopes: Receiver<Scope>,
 }
 
-impl<B, H, R, W, C, A> protocol::Protocol for Descending<B, H, R, W, C, A>
+/// A wire descent phase processes the height carried by its state.
+impl<B, H, R, W, C, A> protocol::Phase for Descending<B, H, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
@@ -226,7 +228,8 @@ where
     type Output = (ControlRead<R>, W);
 }
 
-impl<B, R, W, C, A> protocol::Protocol for Completing<B, R, W, C, A>
+/// A completing wire participant processes the final leaf-height replies.
+impl<B, R, W, C, A> protocol::Phase for Completing<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,

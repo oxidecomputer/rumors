@@ -18,8 +18,8 @@ use super::{EPILOGUE_MARKER, SessionDefect, epilogue, erase};
 use crate::link::{Link, MemoryLink, memory};
 use crate::observe::SessionHandle;
 use crate::tree::mirror::{
-    handshake::{self, Intent},
     party,
+    preamble::{self, Intent},
     streaming::{self, Local, materialized, remote as streaming_remote},
 };
 use crate::tree::{self, Tree};
@@ -135,8 +135,8 @@ async fn claim_bootstrap_with_root(
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
     let (read, write, connector, acceptor, epoch) = erase(link)?;
-    let mut staged = handshake::Staged::new();
-    handshake::preamble(
+    let mut staged = preamble::Staged::new();
+    preamble::preamble(
         Network::BOOTSTRAP,
         Intent::Remain,
         &mut staged,

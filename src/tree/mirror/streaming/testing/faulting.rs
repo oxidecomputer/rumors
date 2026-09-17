@@ -202,7 +202,7 @@ where
             while let Some(item) = responses.next().await {
                 yield item;
             }
-            yield Ok(message::Reply { replies: Vec::new() });
+            yield Ok(message::Reply { reactions: Vec::new() });
             return;
         }
 
@@ -215,10 +215,10 @@ where
         };
 
         match violation {
-            Violation::UnfinishedReply => reply.replies.clear(),
-            Violation::UnexpectedMatch => reply.replies.push(message::Reaction::Match),
+            Violation::UnfinishedReply => reply.reactions.clear(),
+            Violation::UnexpectedMatch => reply.reactions.push(message::Reaction::Match),
             Violation::UnexpectedQuery => {
-                reply.replies.push(message::Reaction::Query(Vec::new()));
+                reply.reactions.push(message::Reaction::Query(Vec::new()));
             }
             Violation::UnexpectedSupply => {
                 // Ahead of the honest reply, at radix 0, which assumes the
@@ -228,7 +228,7 @@ where
                 // At a fan whose first child is higher, a radix-0 supply
                 // is a legal sibling mid-walk, and at the opening it is
                 // out of order (`InvalidSupply`) rather than held.
-                reply.replies.insert(0, message::Reaction::Supply(0, B::node::<H>()));
+                reply.reactions.insert(0, message::Reaction::Supply(0, B::node::<H>()));
             }
             Violation::InvalidSupply => {
                 // A duplicated radix, past the honest reply. Radix 0xff
@@ -242,8 +242,8 @@ where
                 // declares its true length, and the receiver absorbs at
                 // most that side's exclusive leaves ahead of this one.
                 let node = B::node::<H>();
-                reply.replies.push(message::Reaction::Supply(0xff, node.clone()));
-                reply.replies.push(message::Reaction::Supply(0xff, node));
+                reply.reactions.push(message::Reaction::Supply(0xff, node.clone()));
+                reply.reactions.push(message::Reaction::Supply(0xff, node));
             }
             Violation::UncontainedSupply => {
                 // Appended past the honest reply, which covers the whole
@@ -252,7 +252,7 @@ where
                 // fixture holds that child, which every current fixture
                 // satisfies.
                 reply
-                    .replies
+                    .reactions
                     .push(message::Reaction::Supply(0xff, B::escaped::<H>()));
             }
             Violation::OverdrawnSupply => {
@@ -290,9 +290,10 @@ where
     }
 }
 
-impl<P> protocol::Protocol for Faulting<P>
+/// The fault wrapper preserves its inner participant's phase metadata.
+impl<P> protocol::Phase for Faulting<P>
 where
-    P: protocol::Protocol,
+    P: protocol::Phase,
 {
     type Height = P::Height;
     type Error = P::Error;
@@ -302,7 +303,7 @@ where
 impl<B, P> Connect<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Connect<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Connect<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -312,18 +313,18 @@ where
             remaining,
             fault,
         } = self;
-        let (mut handshake, next) = inner.connect().await?;
+        let (mut greeting, next) = inner.connect().await?;
         if let Some(Fault::Greeting(lie)) = fault {
-            tell(&mut handshake, lie);
+            tell(&mut greeting, lie);
         }
-        Ok((handshake, Faulting::new(next, remaining, fault)))
+        Ok((greeting, Faulting::new(next, remaining, fault)))
     }
 }
 
 impl<B, P> CompleteConnect<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteConnect<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteConnect<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -341,7 +342,7 @@ where
 impl<B, P> protocol::Accept<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: protocol::Accept<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: protocol::Accept<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -354,18 +355,18 @@ where
             remaining,
             fault,
         } = self;
-        let (mut handshake, next) = inner.accept(request).await?;
+        let (mut greeting, next) = inner.accept(request).await?;
         if let Some(Fault::Greeting(lie)) = fault {
-            tell(&mut handshake, lie);
+            tell(&mut greeting, lie);
         }
-        Ok((handshake, Faulting::new(next, remaining, fault)))
+        Ok((greeting, Faulting::new(next, remaining, fault)))
     }
 }
 
 impl<B, P> CompleteEqual<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteEqual<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteEqual<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     async fn complete_equal(self) -> Result<Self::Output, Self::Error> {
         self.inner.complete_equal().await
@@ -375,7 +376,7 @@ where
 impl<B, P> Initiator<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Initiator<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Initiator<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -388,7 +389,7 @@ where
 impl<B, P> Responder<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Responder<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Responder<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -404,7 +405,7 @@ where
 impl<B, P> Reply<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Reply<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Reply<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
     <P::Height as protocol::ReplyHeight>::Output: FaultHeight,
 {
     type Next = Faulting<P::Next>;
@@ -424,7 +425,7 @@ where
 impl<B, P> CompleteResponder<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteResponder<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteResponder<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     fn complete_responder(
         self,
@@ -446,7 +447,7 @@ where
 impl<B, P> CompleteInitiator<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteInitiator<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteInitiator<B> + protocol::Phase<Error = MaterializedError<B::Error>>,
 {
     async fn complete_initiator(
         self,

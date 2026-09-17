@@ -1,4 +1,4 @@
-//! The transport handshake opening every mirror session.
+//! The fixed preamble opening every mirror session.
 //!
 //! Every wire session first exchanges one fixed-size [`Preamble`] carrying
 //! the wire dialect's version, the network, and the session intent. Only
@@ -12,9 +12,9 @@
 //! The preamble is one self-described CBOR item, so a control stream is a
 //! CBOR sequence from its very first byte —
 //! `55799(["rumors", version: uint, network: bstr, intent: uint])`.
-//! Every field's head is one byte at the values the dialect admits, so
-//! the item is 30 bytes, fixed; that width is part of the dialect, so
-//! no redundant frame length precedes it.
+//! Every field's head is one byte at the values the dialect admits, so the
+//! item has the fixed [`V2_PREAMBLE_LEN`] width. That width is part of the
+//! dialect, so no redundant frame length precedes it.
 //!
 //! Validation diagnoses the opening, then the protocol version, followed
 //! by the semantic network/intent combination. Only after that validation
@@ -25,12 +25,10 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::{
     Network, Protocol,
     error::TransportOperation,
+    network::NETWORK_BYTES,
     observe::SessionHandle,
     tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT},
 };
-
-/// Canonical width of one network identifier.
-const NETWORK_LEN: usize = 16;
 
 /// Leading bytes quoted by [`Error::MagicMismatch`] when a peer's opening
 /// is not a rumors preamble: enough to recognize a familiar protocol in a
@@ -51,7 +49,7 @@ const V2_PREFIX: [u8; 11] = {
 /// Length of the complete V2 preamble item: the prefix, the one-byte
 /// version item, the network byte string with its one-byte head, and the
 /// one-byte intent item.
-pub(crate) const V2_PREAMBLE_LEN: usize = V2_PREFIX.len() + 1 + (1 + NETWORK_LEN) + 1;
+pub(crate) const V2_PREAMBLE_LEN: usize = V2_PREFIX.len() + 1 + (1 + NETWORK_BYTES) + 1;
 
 /// A peer's declared purpose for one reconciliation session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +84,7 @@ impl Intent {
     }
 }
 
-/// The validated identity and intent carried ahead of version exchange.
+/// The validated network and intent carried ahead of the greeting exchange.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Preamble {
     /// The peer's causal universe, or the bootstrap placeholder.
@@ -101,7 +99,7 @@ impl Preamble {
         let mut bytes = Vec::with_capacity(V2_PREAMBLE_LEN);
         bytes.extend_from_slice(&V2_PREFIX);
         cbor::write_head(&mut bytes, MAJOR_UINT, Protocol::V2.wire_version());
-        cbor::write_head(&mut bytes, MAJOR_BSTR, NETWORK_LEN as u64);
+        cbor::write_head(&mut bytes, MAJOR_BSTR, NETWORK_BYTES as u64);
         bytes.extend_from_slice(&self.network.to_bytes());
         cbor::write_head(&mut bytes, MAJOR_UINT, u64::from(self.intent.to_byte()));
         debug_assert_eq!(bytes.len(), V2_PREAMBLE_LEN, "the dialect width is fixed");
@@ -131,11 +129,11 @@ impl Preamble {
         }
         cbor::read_head(&mut input)
             .ok()
-            .filter(|head| head.major == MAJOR_BSTR && head.value == NETWORK_LEN as u64)
+            .filter(|head| head.major == MAJOR_BSTR && head.value == NETWORK_BYTES as u64)
             .ok_or(malformed(PreambleDefect::Network))?;
         // The canonical one-byte version and network heads leave exactly the
         // network bytes and one-byte intent in this fixed-width input.
-        let (network, rest) = input.split_at(NETWORK_LEN);
+        let (network, rest) = input.split_at(NETWORK_BYTES);
         input = rest;
         let network = Network::from_bytes(network.try_into().expect("network width"));
         let intent = cbor::read_head(&mut input)
@@ -143,7 +141,7 @@ impl Preamble {
             .filter(|head| head.major == MAJOR_UINT)
             .ok_or(malformed(PreambleDefect::Intent))?;
         let intent = Intent::from_byte(u8::try_from(intent.value).expect(
-            "the 30-byte preamble leaves exactly one byte for the intent item, \
+            "the fixed-width preamble leaves exactly one byte for the intent item, \
              whose one-byte head's value is at most 23",
         ))?;
         Self::admit(network, intent)
@@ -174,7 +172,7 @@ pub(crate) enum Error {
     #[error("peer is not a rumors stream (leading bytes: {remote_magic:x?})")]
     MagicMismatch {
         /// The peer's leading bytes, retained to diagnose the wrong protocol.
-        remote_magic: [u8; 6],
+        remote_magic: [u8; MISMATCH_PREVIEW_LEN],
     },
     /// The peer speaks a different wire dialect.
     #[error(

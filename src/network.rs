@@ -8,6 +8,10 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+
+/// Bytes in one encoded network identifier.
+pub(crate) const NETWORK_BYTES: usize = 16;
+
 /// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
 /// the same [`seed`](crate::Peer::seed).
 ///
@@ -22,7 +26,7 @@ use serde::Serializer;
 /// [`network`](crate::Peer::network) and compare two for equality, but cannot
 /// create one except through [`seed`](crate::Peer::seed).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Network([u8; 16]);
+pub struct Network([u8; NETWORK_BYTES]);
 
 // The serde form is one byte string of the 16 raw bytes: the identifier is
 // opaque, so no structure beyond its width belongs on the wire or on disk
@@ -37,7 +41,7 @@ impl Serialize for Network {
 impl<'de> Deserialize<'de> for Network {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(deserializer)?;
-        let bytes: [u8; 16] = bytes
+        let bytes: [u8; NETWORK_BYTES] = bytes
             .as_slice()
             .try_into()
             .map_err(|_| serde::de::Error::custom("a network identifier is exactly 16 bytes"))?;
@@ -52,7 +56,7 @@ impl Network {
     /// It is the one value
     /// [`from_rng`](Self::from_rng) never yields, so it unambiguously means "I
     /// am bootstrapping" on the wire and suppresses the network-match check.
-    pub(crate) const BOOTSTRAP: Network = Network([0u8; 16]);
+    pub(crate) const BOOTSTRAP: Network = Network([0u8; NETWORK_BYTES]);
 
     /// Draws a fresh random identifier: 16 bytes from `rng`.
     ///
@@ -61,7 +65,7 @@ impl Network {
     /// unambiguous bootstrap sentinel.
     pub(crate) fn from_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
         loop {
-            let mut bytes = [0u8; 16];
+            let mut bytes = [0u8; NETWORK_BYTES];
             rng.fill_bytes(&mut bytes);
             let network = Network(bytes);
             if !network.is_bootstrap() {
@@ -77,12 +81,12 @@ impl Network {
     }
 
     /// The raw 16 bytes, for placement into the greeting frame.
-    pub(crate) fn to_bytes(self) -> [u8; 16] {
+    pub(crate) fn to_bytes(self) -> [u8; NETWORK_BYTES] {
         self.0
     }
 
     /// Reconstructs a network from 16 bytes read off the greeting frame.
-    pub(crate) fn from_bytes(bytes: [u8; 16]) -> Self {
+    pub(crate) fn from_bytes(bytes: [u8; NETWORK_BYTES]) -> Self {
         Network(bytes)
     }
 }

@@ -91,7 +91,7 @@ where
         let scope = Scope::new(parent.erase(), &case.listing());
         let nested = Self::nested(case);
         let reply = Reply::<Erased> {
-            replies: (0..case.radixes.len())
+            reactions: (0..case.radixes.len())
                 .map(|position| {
                     if case.is_query(position) {
                         Reaction::Query(nested.to_vec())
@@ -354,23 +354,23 @@ fn mixed_reply<H: Height>(
     supply: typed::Node<H>,
 ) -> Reply<Erased> {
     let mut supply = Some(<Local as Backend>::erase(supply));
-    let mut replies = Vec::with_capacity(case.radixes.len() + 1);
+    let mut reactions = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
-            replies.push(Reaction::Supply(
+            reactions.push(Reaction::Supply(
                 supply_radix,
                 supply.take().expect("the supply has one insertion point"),
             ));
         }
         if position < case.radixes.len() {
-            replies.push(if case.is_query(position) {
+            reactions.push(if case.is_query(position) {
                 Reaction::Query(query_listing.to_vec())
             } else {
                 Reaction::Match
             });
         }
     }
-    Reply { replies }
+    Reply { reactions }
 }
 
 /// Build the canonical frames for a mixed reply independently of the encoder.
@@ -433,11 +433,11 @@ fn assert_mixed_reply<H: Convert>(
 where
     S<H>: Height,
 {
-    prop_assert_eq!(reply.replies.len(), case.radixes.len() + 1);
+    prop_assert_eq!(reply.reactions.len(), case.radixes.len() + 1);
     let mut reaction = 0;
     for position in 0..=case.radixes.len() {
         if position == supply_at {
-            let Reaction::Supply(radix, node) = &reply.replies[reaction] else {
+            let Reaction::Supply(radix, node) = &reply.reactions[reaction] else {
                 return Err(TestCaseError::fail(format!(
                     "height {} lost its supply at reaction {reaction}",
                     H::HEIGHT
@@ -448,7 +448,7 @@ where
             reaction += 1;
         }
         if position < case.radixes.len() {
-            match (case.is_query(position), &reply.replies[reaction]) {
+            match (case.is_query(position), &reply.reactions[reaction]) {
                 (false, Reaction::Match) => {}
                 (true, Reaction::Query(actual)) => {
                     prop_assert_eq!(actual, query_listing, "height {}", H::HEIGHT);
@@ -514,8 +514,13 @@ fn assert_positional_reply(
     nested: &[(u8, Hash)],
     height: usize,
 ) -> TestCaseResult {
-    prop_assert_eq!(reply.replies.len(), case.radixes.len(), "height {}", height);
-    for (position, reaction) in reply.replies.iter().enumerate() {
+    prop_assert_eq!(
+        reply.reactions.len(),
+        case.radixes.len(),
+        "height {}",
+        height
+    );
+    for (position, reaction) in reply.reactions.iter().enumerate() {
         match (case.is_query(position), reaction) {
             (false, Reaction::Match) => {}
             (true, Reaction::Query(actual)) => {
