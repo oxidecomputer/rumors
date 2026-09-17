@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** reassess the remaining priorities and choose the next substantive batch.
+**Next:** parse the version head directly and simplify the fixed greeting vocabulary.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -231,7 +231,7 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 - [x] Collapse public session failures to actionable causes and one protocol-violation diagnostic; keep operation outcomes separate — `faa518a5`.
       Sources: `api-audit-13`, `api-audit-14`, `api-core-7`, `fresh-eyes-10`, `mirror-common-15`, `remote-proxy-2`, `remote-proxy-3`, T46, T63, T82, T85; owner direction, 2026-09-10.
 
-- [ ] Finish internal diagnostic cleanup: remove impossible cases, refine decoder context, and apply the error-enum conventions.
+- [x] Finish internal diagnostic cleanup: remove impossible cases, refine decoder context, and apply the error-enum conventions — `95485131`.
       Sources: `materialized-17`, `mirror-common-10`, `remote-adapter-streams-19`, `remote-adapter-streams-22`, `remote-codec-9`, `remote-codec-18`, `remote-codec-19`, `remote-codec-28`, `remote-codec-30`, `session-bookmark-46`, T55, T63, T85.
 
 - [x] Expose each peer's effective synchronization settings and include them in
