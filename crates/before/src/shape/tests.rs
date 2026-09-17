@@ -1,16 +1,5 @@
-//! Public-entry point witnesses over combined shapes, plus the unit pins on the
-//! walks' edges.
-//!
-//! The witnesses hold the lattice to pointwise extrema and the causal
-//! order to pointwise comparison over combined item streams; the unit
-//! pins cover arity 0 and 1, fusing, and the trivial values.
-//!
-//! The oracle differentials for the walks themselves are descriptors in
-//! the pointwise differential table
-//! ([`diff_ops`](crate::testing::diff_ops)), driven over the shared
-//! populations; the row folds they share
-//! ([`shape_rows`](crate::testing::shape_rows)) assert the item streams'
-//! own canonicality and tiling in passing, here as there.
+//! Checks pointwise shape combination, ordering, iterator fusion, and arity
+//! boundaries through public entry points.
 
 use proptest::prelude::*;
 

@@ -14,7 +14,7 @@ use crate::{Party, Version};
 
 use super::bridge::{from_oracle_party, from_oracle_version};
 
-// ───────────────────────────── adversarial deep shapes ─────────────────────────────
+// ───────────────────────────── deep worst-case shapes ─────────────────────────────
 
 /// A deep tree shape.
 ///
@@ -339,13 +339,13 @@ pub(crate) fn arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
 ///   (a chain of `j` in-counter combines), then leaves a lone raw input
 ///   under the deep group for the drain.
 ///
-/// Every combine-arm *genre* the folds dispatch on (leaf,
+/// Every combine-arm case the folds dispatch on (leaf,
 /// merged–input, merged–merged; in-counter and drain) is reachable by
-/// `k = 6`. The band `0..=9` covers each genre plus the first full
+/// `k = 6`. The band `0..=9` covers each case plus the first full
 /// octave boundary (8, 9); the band `15..=17` crosses the next octave
 /// (15 = 0b1111 drains four groups through three combines, 16 carries
 /// to a single weight-4 group, 17 leaves a lone input under it), so
-/// behavior keyed to a particular *weight* rather than a genre still
+/// behavior keyed to a particular *weight* rather than a case still
 /// meets two octaves of weights.
 pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
     prop_oneof![

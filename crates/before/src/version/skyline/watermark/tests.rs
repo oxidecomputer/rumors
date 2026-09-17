@@ -1,28 +1,8 @@
-//! Direct pins on the web's latent-ladder gates that no encoded walk
-//! reaches, and on the seam contracts no encoded stream drives.
+//! Direct tests of [`MinWeb`]'s latent-boundary and range-closing invariants.
 //!
-//! Deliberate internal-entry tests, driving [`MinWeb`] at its own seam. The
-//! worked pins read a live latent only immediately behind a raise-decision
-//! read (`compare_above`) on the same folded state: comparable scales collapse
-//! the latent inside that read, and a decided drop past the latent routes the
-//! raise to the tracked minimum's emission — so `emit_offset`'s post-collapse
-//! restore and the undercut's latent annihilation in `drop_below` execute on
-//! no input either walk can be handed. The third latent-ladder arm, a
-//! dominating latent refusing a drop that never reaches the minimum, is
-//! reachable from an encoded stream in principle but only grazed by generated
-//! populations, and nondeterministically — a directed pin holds it here so the
-//! arm's coverage does not depend on the draw. The public-surface family
-//! (`fill/tests.rs`'s latent-ladder suite) pins every walk-reachable arm
-//! against the recursive oracle; the worked pins here hold the web's
-//! remaining gates to the same polarity discipline at the only seam that can
-//! reach them.
-//!
-//! The close seam's precondition — callers close only armed ranges — is
-//! debug-asserted at [`MinWeb::close`]; the proptest family here drives the
-//! legal batch schedule directly at the seam: `n` ranges armed by one
-//! emission close one by one, each consuming exactly one range record, with
-//! the outer range's tracked minimum exactly where its arming emission put
-//! it throughout.
+//! Fixed cases reach internal branches that encoded walks cannot reliably
+//! isolate. Properties vary magnitudes across accumulator representations and
+//! verify that closing batch-armed ranges consumes one record at a time.
 
 use core::cmp::Ordering;
 
@@ -45,9 +25,7 @@ fn below(n: u64) -> Signed {
 
 /// The magnitude `n` spelled wide.
 ///
-/// Past the word range this is the only spelling; within it, the same value
-/// spelled wide is the redundant spelling the accumulator's certification is
-/// sensitive to, which is what makes it worth constructing deliberately.
+/// This forces the accumulator's multi-word path even for small values.
 fn wide(n: &UBig) -> Int {
     Int::Wide(Base::from(n.clone()))
 }
@@ -60,17 +38,10 @@ fn below_wide(n: &UBig) -> Signed {
     }
 }
 
-/// After a comparable-scale collapse re-bases the anchor to the true minimum
-/// with the emission not below it, `emit_offset` restores the priced fold
-/// exactly: every later read still sees `gap = h − m`.
+/// Collapsing a comparable-scale latent preserves the tracked minimum.
 ///
-/// Two ranges arm at height `0`; an inner range arms `1000` higher and closes,
-/// parking `Λ = 1000` (anchor `A = 1000`, true minimum `m = 0`). An emission
-/// `975` below the anchor is comparable-scale on both sides, so the ladder
-/// collapses the latent and the re-test reads `v = 25` at or above `m`: the
-/// declined-drop exit whose restore is under test. Restoring the fold with the
-/// wrong polarity leaves the web displaced by `2 · 975`, and the three-point
-/// anchor probe below reads the minimum away from `0`.
+/// The fixture parks a latent of `1000`, then emits at `25`. Probes below, at,
+/// and above the original minimum verify the restored fold's value and sign.
 #[test]
 fn post_collapse_restore_returns_the_priced_fold() {
     let mut web: MinWeb<()> = MinWeb::new();
@@ -105,17 +76,11 @@ fn post_collapse_restore_returns_the_priced_fold() {
     );
 }
 
-/// A drop that dominates a live latent annihilates the latent into the
-/// undercut's residue: the drop leaving the dying anchor is `m − v`, never
-/// `A − v`, so the boundary surviving above the stopping range stays exact.
+/// A drop larger than a live latent transfers the undercut residue exactly.
 ///
-/// Two ranges arm; a middle range arms `2^36` higher, an inner one `50` above
-/// that, and the inner close parks `Λ = 50`. An emission then drops `2^34 +
-/// 50` below the anchor: the drop's register certificate dominates the
-/// word-scale latent, a true undercut reaching `drop_below` with the latent
-/// still live — the annihilation under test. The middle boundary must survive
-/// as exactly `2^36 − 2^34`; skipping the annihilation leaves it long by `Λ`,
-/// and the close-then-probe below reads the outer minimum displaced by `50`.
+/// The fixture parks a latent of `50`, then undercuts the prior minimum by
+/// `2^34`. Probes before and after closing the range verify that the surviving
+/// boundary contains `m - v`, not `A - v`.
 #[test]
 fn dominated_latent_annihilates_into_the_undercut_residue() {
     const D: u64 = 1 << 36;
@@ -163,19 +128,10 @@ fn dominated_latent_annihilates_into_the_undercut_residue() {
     );
 }
 
-/// A drop below the anchor that never reaches the latent-parked minimum
-/// refuses the undercut and leaves the web exactly as it stood.
+/// A drop that remains above the parked minimum leaves the web unchanged.
 ///
-/// Two ranges arm at `0`; an inner range arms `2^36` higher and closes, parking
-/// `Λ = 2^36` (anchor `A = 2^36`, true minimum `m = 0`). The height then drops
-/// `50`, so the emission sits at `v = 2^36 − 50`: strictly between `m` and `A`,
-/// and scale-disparate enough that the latent's top dominates the gap's, so the
-/// domination read answers `m < v < A` with no fold and no state change. The
-/// latent must survive that read — a comparable-scale collapse would retire it,
-/// and a true undercut would annihilate it into a residue — and the tracked
-/// minimum must still be `0`. Mistaking the drop for an undercut would seat the
-/// minimum at `v`, which the three-point anchor probe below reads displaced by
-/// `2^36 − 50`.
+/// A latent of `2^36` dominates a drop of `50`. The latent remains live and
+/// three probes establish that the tracked minimum is still zero.
 #[test]
 fn a_drop_short_of_the_latent_minimum_refuses_the_undercut() {
     const D: u64 = 1 << 36;
@@ -211,16 +167,10 @@ fn a_drop_short_of_the_latent_minimum_refuses_the_undercut() {
     );
 }
 
-/// The same refusal when the parked latent is too wide to sit in the register:
-/// the certification regime changes, the answer does not.
+/// The spilled-accumulator path also preserves a minimum above the drop.
 ///
-/// [`a_drop_short_of_the_latent_minimum_refuses_the_undercut`] parks a latent
-/// the accumulator holds exactly, where domination is certified by direct
-/// magnitude comparison. A latent of `2^200` spills to the digit engine, which
-/// instead certifies through the sign fold's running partial and its decision
-/// index — a genuinely different test that the same input must answer the same
-/// way. The drop stays word-scale, so the latent still dominates and the web
-/// must again come through untouched.
+/// A latent of `2^200` forces the digit engine, while the word-sized drop keeps
+/// the expected ordering easy to calculate. Three probes establish the result.
 #[test]
 fn a_spilled_latent_refuses_the_drop_on_the_folded_certificate() {
     let lambda = UBig::from(1u8) << 200;
@@ -257,8 +207,7 @@ fn a_spilled_latent_refuses_the_drop_on_the_folded_certificate() {
 }
 
 proptest! {
-    /// A dominated undercut moves its residue *out of* every live follower, by
-    /// exactly `m − v`, at every scale that reaches the arm.
+    /// A dominant undercut subtracts exactly `m - v` from every live follower.
     ///
     /// One range arms at `0` with a follower installed at a known offset, the
     /// height drops `2^b`, and a word-scale offset emission arrives. Past
@@ -267,12 +216,8 @@ proptest! {
     /// undercut answered with no fold: the residue `m − v = 2^b + k` moves out
     /// whole, and a follower tracking `m − X` must come down by exactly it.
     ///
-    /// The polarity is the whole content. Folding the residue in at the
-    /// opposite sign leaves the follower above where it stood rather than
-    /// below, and any residue other than `m − v` displaces it by the
-    /// difference — both refused here. The committed regression family drives
-    /// this decision with *no* follower installed, so the propagation loop
-    /// there runs zero times and its polarity goes unread.
+    /// Varying the drop and starting value checks both the residue's magnitude
+    /// and its negative sign.
     #[test]
     fn a_dominated_undercut_subtracts_its_residue_from_live_followers(
         b in 128usize..=300,
@@ -307,19 +252,12 @@ proptest! {
 }
 
 proptest! {
-    /// A drop landing strictly between the latent-parked minimum and the anchor
-    /// never moves the minimum, at any scale and under either certification
-    /// regime — and leaves the web able to take a later true undercut exactly.
+    /// A drop between the parked minimum and anchor preserves the minimum and
+    /// permits a later undercut.
     ///
-    /// The worked pins above fix two points on this surface; the family is the
-    /// claim they are points of. The latent's width spans the register-held and
-    /// spilled regimes, and the drop spans one and two digits, so the domination
-    /// read is exercised at both floor indices. Which arm answers varies across
-    /// the space — a dominating latent refuses outright, comparable scales
-    /// collapse the latent and re-test against the re-based anchor — and that is
-    /// the point: the routing is allowed to differ, the answer is not. An arm
-    /// that refused correctly but corrupted the web would pass the refusal check
-    /// and fail the undercut that follows it.
+    /// Magnitudes cover register-held and spilled accumulators. Probes verify
+    /// the first drop, then a true undercut verifies that the preserved state
+    /// remains usable.
     #[test]
     fn a_drop_inside_the_latent_never_moves_the_minimum(
         b in 34usize..=260,
@@ -382,8 +320,7 @@ proptest! {
 }
 
 proptest! {
-    /// A batch of `n` ranges armed by one emission closes range by range,
-    /// each close consuming exactly one range record.
+    /// Batch-armed ranges close one at a time and consume one record each.
     ///
     /// The records consumed are `n − 1` zero-run entries, then the one
     /// stacked boundary parking; throughout, the outer range stays armed

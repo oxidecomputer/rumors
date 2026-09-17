@@ -4,7 +4,7 @@
 //! changed flag, both total by canonical uniqueness: [`tick`] must equal the
 //! recursive oracle's `event` byte for byte, and the walk's changed flag must
 //! read exactly `fill(i, e) ≠ e` decided by the oracle's `fill` — over every
-//! committed family crossed with adversarial parties, the exhaustive small
+//! committed family crossed with varied parties, the exhaustive small
 //! scope, arbitrary pairs, and organic histories. The flag is
 //! emitted-differs-from-input, plateau-aligned: a value-reproducing raise must
 //! not trip it, and the first emitted leaf compares absolute against absolute
@@ -144,7 +144,7 @@ fn assert_tick(v: &Version, p: &Party) {
     );
 }
 
-/// The adversarial event pool: every §2 family at two scales, plus the
+/// The event pool: every registered family at two scales, plus the
 /// empty version.
 fn event_pool() -> Vec<Version> {
     vec![
@@ -193,7 +193,7 @@ fn event_pool() -> Vec<Version> {
     ]
 }
 
-/// The adversarial party pool: the seed, deep and diverted unary spines,
+/// The party pool: the seed, deep and diverted unary spines,
 /// scattered ownership, and every owning exhaustive small-scope id (an empty id
 /// never ticks: the public contract requires an owning party).
 fn party_pool() -> Vec<Party> {
@@ -458,8 +458,7 @@ fn flag_compares_offsets_at_full_width() {
 /// by canonical uniqueness).
 ///
 /// Deliberate internal entry: no public path re-enters `materialize`
-/// post-build by construction, so this pin binds the contract at the seam
-/// the public surface cannot reach.
+/// after building, so this test exercises the internal contract directly.
 #[test]
 fn materialize_is_a_noop_once_built() {
     use crate::oracle::Version as V;
@@ -746,7 +745,7 @@ proptest! {
 /// clearance.
 ///
 /// The clearance is the point: the propagation's width guard enters on the
-/// digit counts alone, and top-index domination at that clearance is honest —
+/// digit counts alone, and top-index domination at that clearance is valid —
 /// a residue whose top digit is 1 or 2 sits inside the redundant-spelling
 /// operand bound, so the read answers undecided and the fold falls through to
 /// the total comparable-scale path; a top digit of 3 or more certifies and
@@ -796,7 +795,7 @@ proptest! {
     }
 }
 
-/// The left-full raise decision's height seam: the tick matches the oracle on
+/// The left-full raise decision's height boundary: the tick matches the oracle on
 /// a pair whose sibling range moves the height between the site's collapse
 /// scan and the site's close.
 ///
@@ -833,7 +832,7 @@ fn left_full_raise_decides_at_the_site_not_its_close() {
 /// deeper (the outermost spine base is the surviving innermost minimum
 /// `m = bases.last()`), the tip leaf arms last and highest, and the spine's
 /// closes then pop those arming boundaries back — one park per level, the
-/// first a mint and the rest merges — leaving the latent
+/// first creating a record and the rest merging — leaving the latent
 /// `Λ = tip + Σ bases[..last]` under the anchor `A = m + Λ`. The sibling
 /// consumed by the right-full raise probes the ladder at `v = peak`: the
 /// latent `Λ` decides against the drop `δ = A − v`, with the true minimum at
@@ -974,7 +973,7 @@ fn arb_ladder_comparable() -> impl Strategy<Value = Base> {
 
 /// One latent-ladder case for [`latent_ladder_pair`] — `(bases, tip, peak)` —
 /// drawn to land in a chosen ladder relation, with the spine depth (one to
-/// three parks: a mint plus up to two merges) and every scale free.
+/// three parks: one new record plus up to two merges) and every scale free.
 fn arb_latent_ladder() -> impl Strategy<Value = (Vec<Base>, Base, Base)> {
     let inner = proptest::collection::vec((1u64..1000).prop_map(Base::from), 0..=2);
     prop_oneof![
@@ -1037,7 +1036,7 @@ proptest! {
     /// ones undercut, comparable scales collapse — both re-test sides.
     ///
     /// The generalized family behind the four worked witnesses above: spine
-    /// depth sweeps the park chain (a mint plus up to two merges), the
+    /// depth sweeps the park chain (one new record plus up to two merges), the
     /// dominating sides draw from `[5·2^96, 2^100)` so the domination
     /// certificate fires in either accumulator representation, and the
     /// comparable arm draws both operands at top digit index 3 so neither
@@ -1208,8 +1207,8 @@ proptest! {
     /// deltas against a wide neighbor (the raise's landing, grow's zero leaf),
     /// each duplicating one input code's width once. Hence the factor of two,
     /// not an additive slack: 255 output bits from a 175-bit event under a
-    /// 6-bit id is honest arithmetic (the zero leaf lands next to a wide
-    /// value), while a superlinear output would be minting content no operand
+    /// 6-bit id follows from the arithmetic (the zero leaf lands next to a wide
+    /// value), while a superlinear output would create content no operand
     /// paid for.
     #[test]
     fn tick_output_is_input_bounded(
@@ -1239,7 +1238,7 @@ proptest! {
     ///
     /// The per-step multiplicative bound cannot compound: a width duplication
     /// needs an unexpanded id-demanded site adjacent to a wide transition, the
-    /// orbit mints expansions at most once per id site (the `4·bits(id)`
+    /// orbit creates expansions at most once per id site (the `4·bits(id)`
     /// transient), re-fired raises re-code the same position rather than
     /// stacking, and the steady state is increments whose two re-coded delta
     /// codes grow with the count's own gamma width — the `log k` term
@@ -1421,7 +1420,7 @@ proptest! {
 // ───────────────────────────── ticks(n) ─────────────────────────────
 //
 // The fused multi-tick's differentials: `ticks(n)` must equal `n` sequential
-// public ticks byte for byte on every branch — the crux the grow module doc's
+// public ticks byte for byte on every branch — the claim the grow module doc's
 // compounding argument and the two-walk fill branch both reduce to — with the
 // structural facts the argument rests on (fill idempotence, the grow branch
 // absorbing) pinned directly, wide-n self-consistency pinned by the
@@ -1454,7 +1453,7 @@ fn check_ticks_equivalence(v: &Version, p: &Party, ns: &[u32]) {
 }
 
 proptest! {
-    /// The crux differential: `ticks(n)` is byte-identical to `n` sequential
+    /// `ticks(n)` is byte-identical to `n` sequential
     /// public ticks for `n` in {0, 1, 2, 3, 7, 64}, on arbitrary normal-form
     /// (version, party) pairs — including wide (beyond-u64) leaf magnitudes.
     #[test]
@@ -1518,7 +1517,7 @@ proptest! {
     ///
     /// Once a pair sits on the unchanged branch, ticking never flips the next
     /// tick back to the fill branch — so one `+k` splice stands in for ticks
-    /// 2..n. (The crux differential covers this too; this pins the mechanism at
+    /// 2..n. (The general differential covers this too; this checks the mechanism at
     /// every intermediate step of a short run.)
     #[test]
     fn grow_branch_is_absorbing(
@@ -1568,7 +1567,7 @@ proptest! {
     }
 }
 
-/// The shape corpus at depth: the crux differential over the adversarial deep
+/// The shape corpus at depth: the main differential over the registered deep
 /// shapes crossed with the shape parties, `n` to 1000.
 ///
 /// The parties span single deep owned regions and bushy multi-region ids, and
@@ -1630,7 +1629,7 @@ fn ticks_from_empty_is_the_counter() {
     let n = Base::from(123_456_789_012_345u64);
     let ticked = ticks_version(&v, &seed, &n);
     assert_eq!(ticked, uniform(123_456_789_012_345u64));
-    // And the seam back to ground truth at small n.
+    // Small counts also match repeated ticking directly.
     check_ticks_equivalence(&v, &seed, &[0, 1, 2, 3, 7, 64, 1000]);
 }
 
@@ -1666,7 +1665,7 @@ fn ticks_composes_at_wide_n() {
                 let plus_one = ticks_version(&v, &p, &(big.clone() + 1u64));
                 let mut stepped = half.clone();
                 stepped.tick(&p);
-                assert_eq!(plus_one, stepped, "wide-plus-one seam diverged");
+                assert_eq!(plus_one, stepped, "wide count plus one diverged");
             }
         }
     }

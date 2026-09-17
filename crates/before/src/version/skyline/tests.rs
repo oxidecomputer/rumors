@@ -13,7 +13,7 @@
 //! encoding that must spell the adopted bytes — the one comparison a lax
 //! validator can fail — which is what makes acceptance imply the stream is
 //! *the* canonical encoding of its value (the meter board's decode-defect ops
-//! pin the same rejection genre deterministically at gate tier).
+//! pin the same rejection class deterministically in the gate).
 
 use std::collections::BTreeSet;
 
@@ -304,7 +304,7 @@ fn rejects_trailing_bits() {
 /// exhaustively at small scope.
 ///
 /// This is why the reject corpus has no "non-canonical zigzag" member — the
-/// genre is empty by construction, as is non-minimal gamma (a prefix code with
+/// class is empty by construction, as is non-minimal gamma (a prefix code with
 /// one spelling per natural).
 #[test]
 fn zigzag_is_a_bijection_without_negative_zero() {
@@ -415,7 +415,7 @@ fn assert_flag_bijection(t: &oracle::Version) {
     );
 }
 
-/// The flag bijection holds across the adversarial families, wide (the gamma
+/// The flag bijection holds across the registered input families, wide (the gamma
 /// wide arm) and deep (long unary runs) members included.
 #[test]
 fn topology_flag_bijection_on_generator_families() {
@@ -452,8 +452,8 @@ proptest! {
 /// The re-derivation is the accept side's whole strength: decode *adopts* the
 /// accepted bytes as storage verbatim and `Eq` is byte equality, so comparing
 /// the decoded version's own stream against the mutated bytes would hold under
-/// any validator behavior. Only an independently rebuilt encoding can convict
-/// a validator that accepted a non-canonical spelling.
+/// any validator behavior. Only an independently rebuilt encoding can detect a
+/// validator that accepted a non-canonical spelling.
 fn assert_mutation_never_aliases(v: &Version, bits: &BitsBuf, flip: u64) {
     let mut mutated = bits.clone();
     let old = mutated.get(flip);
@@ -535,7 +535,7 @@ fn assert_agreement(v: &Version) {
     );
 }
 
-/// Every adversarial generator family agrees with the sizer and round-trips
+/// Every registered generator family agrees with the sizer and round-trips
 /// exactly, across a deterministic size grid per family.
 #[test]
 fn generator_families_agree_and_round_trip() {

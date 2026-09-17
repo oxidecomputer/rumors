@@ -233,7 +233,7 @@ fn combine(route: &mut Route, expand: bool, key: u64, left: Cost, right: Cost) -
 
 // ───────────── deterministic grids ─────────────
 
-/// The adversarial event pool the deterministic grids run over.
+/// Event families used by the deterministic grids.
 fn event_pool() -> Vec<Version> {
     vec![
         Version::new(),
@@ -255,7 +255,7 @@ fn event_pool() -> Vec<Version> {
     ]
 }
 
-/// The adversarial party pool: the seed, deep and diverted unary spines,
+/// The party pool: the seed, deep and diverted unary spines,
 /// scattered ownership, and every exhaustive small-scope id that owns anything.
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
@@ -322,7 +322,7 @@ const EXHAUSTIVE_GROW_PAIRS: usize = 114_621;
 /// brute-force right-favoring minimal inflation, with the coverage count pinned
 /// exactly.
 ///
-/// Brute force reaches every reachable branch genre — increments, expansions at
+/// Brute force reaches every reachable branch case — increments, expansions at
 /// every depth, ties in both cost components — deterministically rather than by
 /// sampling.
 #[test]
@@ -370,7 +370,7 @@ fn exhaustive_small_scope_grows_identically() {
 /// The worked examples, pinned end to end: a plain increment and one- and
 /// two-level expansion chains, on pairs whose fill is the identity.
 ///
-/// The increment-equalizes-collapse genre has no member here: making the grown
+/// The increment-equalizes-collapse case has no member here: making the grown
 /// leaf equal its leaf sibling requires ownership of a leaf sitting one below
 /// that sibling, and fill's raise preempts exactly that configuration (the
 /// owned leaf is lifted to the sibling range's minimum first), so such pairs

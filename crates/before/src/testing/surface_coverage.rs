@@ -40,7 +40,7 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     ),
     (
         "prod↔tree: incorrect operation descriptors are rejected",
-        "the_drivers_convict_a_mis_transcribed_descriptor",
+        "descriptor_checks_reject_a_mistranscribed_operation",
     ),
     (
         "prod↔fs: the function-space grid is sufficiently fine",
@@ -48,11 +48,11 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     ),
     (
         "tree↔fs: an incorrect function-space operation is rejected",
-        "the_drivers_convict_a_mis_transcribed_fs_realization",
+        "filesystem_checks_reject_a_mistranscribed_operation",
     ),
     (
         "prod↔fs: a sum that omits a cell is rejected",
-        "rank_differential_convicts_the_cell_dropping_riemann_sum",
+        "rank_differential_rejects_a_cell_dropping_riemann_sum",
     ),
     (
         "tree↔fs: the published example is reproduced",
@@ -64,7 +64,7 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     ),
     (
         "tree↔fs: a mirrored embedding is rejected",
-        "worked_value_anchor_convicts_the_mirrored_embedding",
+        "worked_value_samples_reject_a_mirrored_embedding",
     ),
 ];
 

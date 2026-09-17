@@ -1,13 +1,8 @@
-//! The 32-bit boundary pins: each test drives one guest export at one
-//! boundary size and pins its exact behavior on wasm32.
+//! Checks exact behavior around 32-bit representation and allocation bounds.
 //!
-//! Red-first discipline: a boundary found misbehaving is pinned AS FOUND —
-//! the assertion names the trap or wrong value, and the doc comment names
-//! the wrong behavior it stands for — and the commit that engineers the
-//! seam around flips the same test to the correct-value assertion. A pinned
-//! trap is therefore never an accepted behavior: it is a committed bad
-//! baseline its cure must move. Each pin's own history of red and green
-//! lives in this file's git log.
+//! Each test invokes one wasm guest export at a carefully chosen boundary
+//! value. Traps are expected only where the documented allocation limit makes
+//! the operation impossible.
 
 use wasm32_pins_harness::{call0, call1, call2, Outcome, Trap};
 
@@ -76,7 +71,7 @@ fn version_decode_at_build_cap() {
 ///
 /// One byte past the straddle coordinate's silent-wrap size; together
 /// with the pin one byte below, this holds the entry points clear of both failure
-/// genres a 2^29-bit length encoding would produce (a silently empty view,
+/// failures a 2^29-bit length encoding would produce (a silently empty view,
 /// then an element-count guard panic).
 #[test]
 fn version_decode_past_build_cap() {
@@ -149,7 +144,7 @@ fn version_decode_deep_in_memory_bounded_range() {
 /// code alone costs a quarter of the address space, and the decode's
 /// working set exhausts memory first. (The rank wire entry point reaches the
 /// same coordinate with no fold transients and crosses it exactly — it
-/// is the numerator's arm seam there, pinned by
+/// is the numerator's representation boundary there, pinned by
 /// `rank_decode_past_backend_bit_capacity`.) A leaner working set — not
 /// a wider denomination — is what would move this terminal outward.
 #[test]
@@ -165,9 +160,9 @@ fn version_decode_memory_terminal_traps() {
 ///
 /// The deepest flush-group exponent whose whole fraction image fits the
 /// big-integer backend's 32-bit buffer capacity without any stripping:
-/// the lower adjacency witness of the numerator's arm seam — the widths
+/// the lower adjacency witness of the numerator's representation boundary — the widths
 /// where storage crosses from the backend magnitude to the rank's own
-/// limb vector. ~604 MB of input is the smallest honest trigger, since
+/// limb vector. ~604 MB of input is the smallest valid trigger, since
 /// the fraction's depth is deliberately counted from bits actually read,
 /// never from a header's claim.
 #[test]
@@ -217,7 +212,7 @@ fn rank_decode_at_usize_exp_boundary() {
 /// expansion bits deep opening with 64 zero bits.
 /// The backend caps a magnitude at `usize::MAX / 32` words so bit counts
 /// fit `usize`; a numerator of exactly that many bits fills the buffer to
-/// its last word. This is the arm seam's at-capacity witness on the
+/// its last word. This is the representation boundary's at-capacity witness on the
 /// numerator's own width (the byte-capacity witness above covers the
 /// unstripped image's width): the widest numerator the backend arm
 /// stores, holding the arm ceiling to the real backend from below.
@@ -233,7 +228,7 @@ fn rank_decode_at_backend_bit_capacity() {
 /// past the backend's 2^32 - 32-bit capacity — decodes correctly on
 /// wasm32 and orders exactly against reference ranks.
 ///
-/// The arm seam's upper witness, beside
+/// The representation boundary's upper witness, beside
 /// `rank_decode_at_backend_bit_capacity`: the ~604 MB input and its
 /// ~512 MiB numerator both fit the 4 GiB address space, and past the
 /// backend's structural word cap the decoder assembles the numerator
@@ -251,9 +246,9 @@ fn rank_decode_past_backend_bit_capacity() {
 /// one byte under the backend's capacity — decodes correctly on wasm32
 /// and orders exactly against reference ranks.
 ///
-/// The integral wire form's lower adjacency witness at the arm seam: the
+/// The integral wire form's lower adjacency witness at the representation boundary: the
 /// whole path (mantissa read, bias removal) runs on the backend arm.
-/// ~512 MiB of input is the smallest honest trigger — the mantissa's
+/// ~512 MiB of input is the smallest valid trigger — the mantissa's
 /// bits are all stream bits.
 #[test]
 fn rank_integral_decode_below_backend_bit_capacity() {
@@ -267,7 +262,7 @@ fn rank_integral_decode_below_backend_bit_capacity() {
 /// capacity — decodes correctly on wasm32.
 ///
 /// The integral form's at-capacity witness, and the biased-transient
-/// seam: the mantissa is read as the biased value `2^k` at `k + 1` bits,
+/// boundary: the mantissa is read as the biased value `2^k` at `k + 1` bits,
 /// one past the capacity, so the transient rides the limb arm while the
 /// unbiased value re-dispatches back onto the backend arm at exactly its
 /// widest representable width.
@@ -282,7 +277,7 @@ fn rank_integral_decode_at_backend_bit_capacity() {
 /// A valid integral rank of 2^32 - 24 value bits — one byte past the
 /// backend's capacity — decodes correctly on wasm32.
 ///
-/// The integral form's upper arm-seam witness, beside the fraction
+/// The integral form's upper representation-boundary witness, beside the fraction
 /// form's `rank_decode_past_backend_bit_capacity`: both wire paths to a
 /// past-capacity numerator land on the limb arm, priced by memory alone.
 #[test]
@@ -298,8 +293,8 @@ fn rank_integral_decode_past_backend_bit_capacity() {
 /// re-encodes to byte-identical canonical form on wasm32.
 ///
 /// The full-width round-trip witness: byte-identical re-emission is what
-/// the lexicographic-order law rides on, and this holds it at the arm
-/// seam's far side, where the emission walks a numerator wider than the
+/// the lexicographic-order law uses, and this holds it beyond the representation
+/// boundary, where the emission walks a numerator wider than the
 /// backend can hold.
 #[test]
 fn rank_roundtrip_past_backend_bit_capacity() {
@@ -564,7 +559,7 @@ fn version_join_below_build_cap() {
 /// The emitting operation class's middle straddle witness, on the output
 /// side: the covered join rebuilds the big operand whole, a finished
 /// stream whose bit count sits exactly at the straddle coordinate when it
-/// crosses the freeze seam — which the crate-owned build buffer carries at
+/// crosses the freeze boundary — which the crate-owned build buffer carries at
 /// `u64` width on every target.
 #[test]
 fn version_join_at_build_cap() {
@@ -603,10 +598,8 @@ fn version_join_emit_below_build_cap() {
     );
 }
 
-/// A join of two valid operands, each under every per-operand bound, emits
-/// on wasm32 with an output of 536870905 live bits — 67108864 finished
-/// bytes, the first byte length past the straddle coordinate at the freeze
-/// seam.
+/// Joining two valid operands emits 536870905 live bits on wasm32, the first
+/// whole-byte length past the freeze boundary's straddle coordinate.
 ///
 /// The operands are complementary two-leaf skylines, ~50 MB and ~42 MB,
 /// whose join concatenates: the emitting class's upper output-side
@@ -626,7 +619,7 @@ fn version_join_emit_at_build_cap() {
 /// 2^29-byte coordinate where a 32-bit `usize` runs out of bit positions.
 ///
 /// The emitting class's upward witness past the coordinate: the build
-/// buffer, the freeze seam, and the frozen form all carry `u64` bit
+/// buffer, the freeze boundary, and the frozen form all carry `u64` bit
 /// counts, so an emission is storable whenever its buffer is allocatable —
 /// the output's live length itself exceeds 2^32 here, past any `usize`
 /// spelling on this target.
@@ -656,7 +649,7 @@ fn rank_add_below_gap_boundary() {
 /// 32-bit target can name — so the addition routes through the streaming
 /// accumulator, on which no aligned numerator is ever materialized in the
 /// backend, and the 2^32 + 1-bit result lands on the numerator's limb
-/// arm. The gap boundary's at-seam witness, beside
+/// arm. The gap boundary's exact witness, beside
 /// `rank_add_below_gap_boundary`.
 #[test]
 fn rank_add_at_gap_boundary() {
@@ -668,7 +661,7 @@ fn rank_add_at_gap_boundary() {
 ///
 /// The exponent gap, 2^32 - 1, fits a 32-bit shift amount, but the
 /// aligned numerator — 2^32 value bits — exceeds the backend's
-/// 2^32 - 32-bit capacity: the gap boundary's other genre, routed to the
+/// 2^32 - 32-bit capacity: the gap boundary's other case, routed to the
 /// accumulator by the aligned-width clause of the routing predicate
 /// rather than the gap clause, with the result on the limb arm.
 #[test]

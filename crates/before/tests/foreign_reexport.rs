@@ -1,24 +1,9 @@
-//! The foreign re-export roster: every public re-export of a dependency
-//! crate is pinned by name, so re-exporting foreign surface past the
-//! totality pincer is tamper-evident.
+//! Detects public re-exports of dependency types.
 //!
-//! A `pub use` of another crate's type (say `pub use bytes::Bytes;` at
-//! the root) makes that type's entire inherent method surface reachable
-//! `before` API — yet both jaws of the surface-totality pincer are
-//! structurally blind to it: the rustdoc-JSON leg
-//! (`crates/before/surfacecheck`) skips any `use` whose target id is
-//! not in the local index (foreign items never are), and the in-tree
-//! roster scan covers only inherent `pub fn`s declared in its named
-//! source files. Demonstrated: with `pub use bytes::Bytes;` added at
-//! the crate root, the surface-totality leg reads the same 197 items
-//! and exits clean. `pub extern crate <dep>` and a `pub type` alias of
-//! a foreign type open the same entry point through different spellings, so
-//! the scan matches all three. This pin closes the channel: the
-//! committed roster below names every dependency re-export in the
-//! library source (today: none), so adding one is a reviewable diff
-//! here — the reviewer then decides whether the foreign surface needs
-//! roster rows, an exception, or a wrapper type — never a silent
-//! escape.
+//! Re-exporting a foreign type also exposes its inherent methods, which source
+//! scans of Before's own definitions cannot enumerate. This test scans `pub
+//! use`, `pub extern crate`, and public type aliases so any such exposure is an
+//! explicit review decision.
 
 use std::path::{Path, PathBuf};
 
@@ -100,11 +85,7 @@ fn scan(dir: &Path, root: &Path, deps: &[String], found: &mut Vec<(String, Strin
 
 /// The library's dependency re-exports match the committed roster exactly.
 ///
-/// A foreign type re-exported into `before`'s public surface is
-/// invisible to both jaws of the surface-totality pincer (the
-/// rustdoc-JSON leg skips foreign ids; the in-tree roster scan sees
-/// only local inherent `pub fn`s), so every occurrence is pinned here
-/// by name.
+/// The source scan finds exactly the explicitly allowed dependency re-exports.
 #[test]
 fn dependency_reexports_match_the_committed_roster() {
     let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

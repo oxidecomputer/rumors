@@ -113,24 +113,11 @@ proptest! {
     }
 }
 
-// ───────────── arbitrary normal-form ids (decoupled from the op pipeline) ─────────────
-//
-// The op-trace differentials above only ever compare ids that descend from one
-// seed (so every pair is causally related and pairwise disjoint by
-// construction). These feed *arbitrary* normal-form ids — random shape, random
-// ownership, including genuinely *overlapping* and *unrelated* pairs — to the
-// id walks, the public `Party::join`, and the wire surface. They reach
-// the overlap arms (`compare == None`, `sum == None`, `join == Err`) that the
-// seed-derived pipeline cannot produce. The public region algebra reaches the
-// same regime through the descriptor table's id-pair drivers.
+// Arbitrary normal-form parties exercise overlapping shapes that valid live
+// populations cannot contain but rejection paths must handle.
 
 proptest! {
-    /// `split` (the structural op behind `fork`) on an arbitrary non-empty id
-    /// matches the oracle's `split`, structurally — on shapes the seed pipeline
-    /// never forks.
-    ///
-    /// The two halves are read straight off the impl's encoded `IdReader::split`
-    /// output and lowered for comparison.
+    /// Splitting an arbitrary nonempty party matches the recursive oracle.
     #[test]
     fn split_arbitrary(op in arb_oracle_party_nonempty()) {
         let mut oracle_self = op.clone();
@@ -153,8 +140,7 @@ proptest! {
     /// oracle's join; an overlapping pair returns `Err(other)` with the
     /// refused party handed back unchanged and `self` unmodified.
     ///
-    /// The op pipeline only ever joins disjoint halves, so the overlap arm
-    /// is otherwise untested at arbitrary shapes.
+    /// Arbitrary pairs exercise both successful disjoint joins and overlap.
     #[test]
     fn join_arbitrary(
         oa in arb_oracle_party(),
@@ -192,10 +178,8 @@ proptest! {
     ///
     /// Byte-identical halves where the pair is disjoint, `None` exactly where
     /// `sum` refuses (overlap), the empty-operand identities included. This is
-    /// the total oracle for the fusion (canonical uniqueness makes byte
-    /// equality the whole contract); the arbitrary pairs reach the overlap arm
-    /// and the union-collapse seam (both branch children full) that
-    /// seed-derived populations never produce.
+    /// the complete reference for the fused operation. Arbitrary pairs include
+    /// overlap and a union whose two full children collapse.
     #[test]
     fn sum_split_is_sum_then_split(
         oa in arb_oracle_party(),
@@ -210,8 +194,7 @@ proptest! {
     }
 }
 
-/// The branch-collapse seam of `sum_split`, deterministically: `(1, 0) + (0,
-/// 1)` re-splits to `((1, 0), (0, 1))`.
+/// `sum_split` handles a union whose full children collapse to the seed.
 ///
 /// Summing the two halves of the seed makes both union children full, so the
 /// built union collapses to the seed's terminal and `split` lands in its
@@ -304,18 +287,10 @@ mod constructed {
     }
 }
 
-/// Deep constructed id pairs hold `sum_split` to its composition beyond the
-/// arbitrary generator's reach.
+/// Deep constructed parties keep `sum_split` equal to `sum` followed by `split`.
 ///
-/// `arb_oracle_party` recurses a handful of levels, so every genre here is
-/// otherwise unsampled: a kilolevel lockstep spine ending at the union-collapse
-/// seam (adjacent sibling cells at depth), whole-branch delegation whose merge
-/// cascade-collapses to the terminal level by level, a deep subtree spliced
-/// verbatim from one side alone, a targeted branch whose merged child collapses
-/// inside the delegated `sum`, overlap detected at depth (on the spine and
-/// inside the delegated merge), and the root-leaf/empty-operand arms. Each case
-/// asserts byte equality with `sum`-then-`split` (`None` arms included); the
-/// deep cases double as stack-safety proof for the fused walk's loop.
+/// The cases cover deep collapse, whole-branch reuse, overlap detected at depth,
+/// and empty or full operands. Kilolevel inputs also check iterative traversal.
 mod sum_split_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node, spine};
     use super::*;
@@ -340,7 +315,7 @@ mod sum_split_constructed {
 
     /// Adjacent sibling cells at depth `DEEP`: the lockstep spine runs the
     /// whole way down and the union collapses at the deepest branch (both
-    /// children full), the terminal-split seam far from the root.
+    /// children full), followed by the terminal split far from the root.
     #[test]
     fn deep_adjacent_cells_collapse_at_the_branch() {
         let a = leftmost(DEEP);
@@ -399,8 +374,8 @@ mod sum_split_constructed {
     /// The method doc's cost claim, held by meter on the three constructed
     /// regimes at two scales each: whole-branch delegation (the composition's
     /// bytes minus the built union's spine), the pure splice (constant root
-    /// reads, the honest sub-linear arm the `clock_sync` board floors are
-    /// derived around), and the lockstep spine to a targeted branch. A fused
+    /// reads, the sublinear case used by the `clock_sync` board floors), and
+    /// the lockstep spine to a targeted branch. A fused
     /// walk that re-reads a skipped child or scans a spliced subtree moves the
     /// ratio above one.
     #[cfg(feature = "scan-meter")]
@@ -662,10 +637,8 @@ proptest! {
     /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
     /// bit-level compare of the live id streams, in both operand orders.
     ///
-    /// The cross-check that the canonical-padding invariant (the marker
-    /// sealed at every storage seam) really makes the raw bytes
-    /// injective, licensing the byte-compare shortcut. Equal values must
-    /// also hash equally (`Eq`/`Hash` consistency).
+    /// Canonical padding makes raw byte equality equivalent to live-bit
+    /// equality. Equal parties must also hash equally.
     #[test]
     fn byte_equality_matches_bit_equality(
         oa in arb_oracle_party_nonempty(),
@@ -690,23 +663,14 @@ proptest! {
 
 // ───────────────────── fork orbits: iterated size trajectories ─────────────────────
 //
-// A per-call cost bound does not preclude compounding: an operation can be
-// cheap per call while its output grows so that iterated application is
-// quadratic in total work. These pins fix the size trajectory of iterated fork
-// — deterministic, exact at every step, so the whole shape is asserted and
-// tuning any one point cannot pass. A future change that makes repeated forking
-// mint more than its one tree level per split trips a committed diff here.
+// These checks pin the complete size trajectory of repeated forks, catching
+// output growth that would compound across otherwise cheap calls.
 
 /// An iterated fork chain's id sizes are exactly affine.
 ///
 /// Following the forked-off child each round (the mover lineage descends one
 /// level per split), both halves read exactly `2 + 2·k` encoded bits after the
-/// k-th fork, for every k — one two-bit tree level per fork, nothing
-/// compounding [measured: exact at all 512 steps].
-///
-/// Liveness floor: the trajectory's equality at `k = 512` is itself the floor —
-/// a chain that stopped splitting would read short of 1026 bits. Budget: 512
-/// forks of O(depth) each, milliseconds.
+/// k-th fork, for every `k`: one two-bit tree level per fork.
 #[test]
 fn fork_chain_orbit_sizes_are_exactly_affine() {
     let mut p = Party::seed();
@@ -724,12 +688,7 @@ fn fork_chain_orbit_sizes_are_exactly_affine() {
 /// Each round forks a fresh child off the root lineage (the keeper deepens one
 /// level per split), both halves reading exactly `2 + 2·k` encoded bits at the
 /// k-th fork; rejoining the children in reverse order then walks the root back
-/// down the same trajectory, ending byte-identical to the seed — sizes return,
-/// never ratchet [measured: exact at all 512 steps, both directions].
-///
-/// Liveness floor: the root must visit 1026 bits at the fan's rim and end
-/// `is_seed` — an unwind that dropped or double-counted a share would miss one
-/// or the other. Budget: 512 forks + 512 joins, milliseconds.
+/// down the same trajectory, ending byte-identical to the seed.
 #[test]
 fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
     let mut root = Party::seed();

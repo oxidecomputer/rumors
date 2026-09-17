@@ -1,14 +1,12 @@
-//! Unit suites for the numerator's two-arm storage: every wide-arm
-//! operation differentially against the backend as oracle.
+//! Differential checks for the numerator's two storage forms.
 //!
 //! The host backend's ceiling is astronomically past memory, so under a
 //! lowered test ceiling ([`ceiling::force`]) every wide-arm value here is
 //! *also* representable as a [`UBig`] — which makes the backend itself the
 //! exact oracle for the arm that exists because the backend (on 32-bit
 //! targets, at production widths) cannot hold the value. The value-level
-//! rank suites (`version/tests.rs`) drive the same arms through the public
-//! entry points; these tests pin the arm mechanics — dispatch, assembly, shifts,
-//! bias steps, windows, and rendering — one operation at a time.
+//! The lowered ceiling makes both forms reachable with small values, while
+//! `UBig` provides the expected mathematical result.
 
 use dashu_int::ops::BitTest;
 use dashu_int::UBig;
@@ -17,7 +15,7 @@ use proptest::prelude::*;
 use super::*;
 
 /// The lowered ceiling every suite here forces: small enough that a few
-/// dozen bytes cross it, large enough that both arms and the seam get
+/// dozen bytes cross it, large enough that both forms and their boundary get
 /// populated by the generators.
 const TEST_CEILING_BITS: u64 = 96;
 
@@ -74,7 +72,7 @@ proptest! {
         prop_assert_eq!(shifted.is_wide(), expected.bit_len() as u64 > TEST_CEILING_BITS);
     }
 
-    /// The bias steps are exact inverses across the arm seam: `plus_one`
+    /// The bias steps are exact inverses across the representation boundary: `plus_one`
     /// then `minus_one` is the identity, each matches the oracle, and
     /// each lands on the canonical arm.
     #[test]
@@ -142,14 +140,11 @@ fn increment_carries_across_full_limbs() {
     assert_eq!(increment(vec![5]), vec![6]);
 }
 
-/// The arm seam's exact corners: a base value at the ceiling crosses to
-/// wide on `plus_one` only when the carry outgrows the ceiling, and the
-/// wide power of two at the ceiling's edge falls back to base on
-/// `minus_one`.
+/// At the representation boundary, carry and borrow select the canonical form.
 #[test]
-fn arm_seam_corners_redispatch_exactly() {
+fn representation_boundary_redispatches_exactly() {
     let _guard = ceiling::force(TEST_CEILING_BITS);
-    // All ones at the ceiling: the carry crosses the seam upward.
+    // All ones at the ceiling: the carry crosses into the wide form.
     let all_ones = (UBig::ONE << usize::try_from(TEST_CEILING_BITS).unwrap()) - 1u8;
     let num = num_from_oracle(&all_ones);
     assert!(!num.is_wide(), "at the ceiling exactly: base arm");

@@ -685,7 +685,7 @@ impl<P> MinWeb<P> {
     /// either direction. The caller has already adjusted `gap` and the
     /// followers.
     ///
-    /// The `skyline_min_ticks_seam_*` bands of `tests/meter.rs` hold both
+    /// The descending- and stopping-boundary bands in `tests/meter.rs` hold both
     /// wide-hop arms at the guards' minimal clearance: the plunge bands
     /// price the residue-dominates arm's dying-width folds (a hop rerouted
     /// onto the comparable fold pays the residue's width instead, and the

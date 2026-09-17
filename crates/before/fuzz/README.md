@@ -25,13 +25,13 @@ cargo install cargo-fuzz
   the in-tree proptest `clock::tests::h34_decode_never_panics`.
 - **`fuzz_decode_differential`** feeds the same arbitrary bytes to every
   decode that has a composed public-API counterpart and asserts agreement on
-  accept, value + re-encode, and *rejection genre*: the fused `Span` and
+  acceptance, value plus re-encoding, and rejection class: the fused `Span` and
   `Ranked` decodes against their carve-decode-validate spellings, borsh's
   self-delimiting prefix reads against the whole-slice raw decodes, and
   postcard (the byte-carrying serde format of record) against its `Vec<u8>`
-  framing plus raw decode. The genre axis is what round-trip fuzzing cannot
+  framing plus raw decode. Error classes are what round-trip fuzzing cannot
   see: two paths both rejecting an input while disagreeing on *which* error
-  breaks the documented precedence (structural genres outrank the pair
+  breaks the documented precedence (structural errors outrank the pair
   verdict).
 - **`fuzz_decode_ops`** decodes a value from the front of the input, then uses
   the trailing bytes as an op script (tick / fork / join / sync / send / receive
@@ -62,7 +62,7 @@ reproduce with `cargo +nightly fuzz run <target> artifacts/<target>/<crash-file>
 
 `seeds/<target>/` holds a small committed seed corpus (canonical encodings of every
 wire type, decode-then-ops scripts, law-target chunk inputs, and the differential
-target's per-genre rejection witnesses — including
+target's rejection witnesses — including
 wide-gamma bases, whose 64+-zero unary prefixes random bytes essentially never
 produce). Nothing consumes it
 implicitly: a run reads it only when the seed directory is named as an extra corpus

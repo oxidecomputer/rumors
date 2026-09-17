@@ -1,10 +1,12 @@
-//! Checks for the arbitrary-precision count inside the balanced split.
+//! Checks for balanced splitting above machine-sized counts.
 
 use super::{Forks, Party};
 use crate::Ticks;
 
-/// Reserving the residual does not narrow or saturate a count wider than
-/// `u128`, and each yielded share decrements that exact count once.
+/// The internal remaining count stays exact above `u128::MAX`.
+///
+/// Constructing the iterator preserves the requested count, and yielding one
+/// share subtracts exactly one.
 #[test]
 fn unbounded_remainder_stays_exact() {
     let count = Ticks::from(u128::MAX) + Ticks::from(1u8);

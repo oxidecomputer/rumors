@@ -3,21 +3,11 @@ use crate::sample::cell_rng;
 
 use super::{draw_arity, run_op, split_budget, Plan, Samplers};
 
-/// A run is a pure function of (guest wasm, plan): two executions of the
-/// same plan read byte-identical fuel in the same cell order.
+/// Repeating a plan produces identical samples and overlay points in plan order.
 ///
-/// Every cell RNG is seeded from its coordinates and every measurement
-/// runs in a fresh guest, so rayon's nondeterministic scheduling has
-/// nothing to perturb — neither a draw, nor a reading, nor the order the
-/// collected samples land in. This is the atlas's stamped determinism
-/// contract; a construction change that leaks state between samples or
-/// re-derives a cell's RNG from execution order fails it. The op list
-/// walks every input space: unary and binary encoded draws (both
-/// samplers, the split rule, the version rejection path), the slice
-/// arity-and-composition draw, the distinct-pair rejection, the
-/// three-way split with in-guest fork preparation, and both
-/// variable-arity fold draws (the party-plus-version-slice clock fold
-/// and the guest-split party shares).
+/// The selected operations cover each input-construction strategy. Fresh guest
+/// instances and coordinate-derived seeds make the result independent of
+/// parallel scheduling.
 #[test]
 fn run_op_is_deterministic_and_ordered() {
     let plan = Plan {
@@ -38,7 +28,7 @@ fn run_op_is_deterministic_and_ordered() {
         let op = ROSTER
             .iter()
             .find(|op| op.name == name)
-            .expect("determinism ops are roster rows");
+            .expect("the tested operation must exist");
         let a = run_op(&plan, &samplers, op);
         let b = run_op(&plan, &samplers, op);
 
@@ -68,9 +58,7 @@ fn run_op_is_deterministic_and_ordered() {
             "{name}: overlay points must replay exactly"
         );
 
-        // The collected order is the plan's declared order: columns in
-        // grid order, sample indices in sequence within each column,
-        // each column at its spread-weighted count.
+        // The expected order follows the plan's columns and sample counts.
         let min_bytes = op.inputs.min_bytes();
         let expected: Vec<usize> = plan
             .columns(min_bytes)
@@ -82,8 +70,7 @@ fn run_op_is_deterministic_and_ordered() {
     }
 }
 
-/// The spread-weighted column split conserves the flag's budget and
-/// never decreases toward the larger columns it exists to fill.
+/// Spread weighting preserves the sample budget and favors no smaller column.
 ///
 /// Conservation: the per-column counts sum to `samples_per_column ×
 /// columns` within one sample per column of rounding.
@@ -120,9 +107,7 @@ fn spread_weighted_split_conserves_budget_and_is_monotone() {
     }
 }
 
-/// The budget split is a composition: `parts` positive part sizes that
-/// sum to the total, for every feasible (total, parts) pair in the small
-/// grid — the invariant every multi-operand draw rests on.
+/// Every budget split has the requested number of positive parts and exact sum.
 #[test]
 fn split_budget_yields_positive_compositions() {
     let mut rng = cell_rng(0xc0de, "split", 0, 0);
@@ -142,14 +127,7 @@ fn split_budget_yields_positive_compositions() {
     }
 }
 
-/// The arity draw reaches every count under its cap.
-///
-/// Uniform over `1..=cap`, so at a small cap every arity appears across
-/// a modest draw budget — a draw that silently skipped an arity band
-/// would skew every variable-arity column's measure and hide the fold's
-/// boundary arities (the drain first combines at 3, the merged–merged
-/// carry at 4, the drain of two merged groups at 6: all reachable only
-/// if no count is skipped).
+/// A deterministic sample from the arity distribution reaches every allowed value.
 #[test]
 fn arity_draw_reaches_every_count() {
     let mut rng = cell_rng(0xc0de, "arity-reach", 9, 0);
@@ -164,18 +142,11 @@ fn arity_draw_reaches_every_count() {
     );
 }
 
-/// The arity draw is uniform over `1..=cap`, not merely total.
+/// A chi-square check finds no bias in the uniform arity distribution.
 ///
-/// The module doc claims *uniform* stratification (equal representation
-/// per arity), and every variable-arity column's measure rests on it —
-/// but a reachability check alone cannot pin uniformity: a
-/// biased-but-total draw (e.g. the min of two `gen_range` draws,
-/// `P(1) = 17/81` vs the uniform `1/9` at cap 9, chi-square 723.2 at
-/// the committed seed over 2000 draws) reaches
-/// every count in the same budget and passes it. This one-sided
-/// chi-square pin (8 degrees of freedom, mean 8 + 6σ = 32, the sampler
-/// pins' own 6σ idiom) reads red on any such skew while a fixed seed
-/// keeps the run deterministic.
+/// Reachability alone would miss a biased distribution. The fixed seed makes
+/// this statistical check deterministic, and the threshold is six standard
+/// deviations above the expected statistic for eight degrees of freedom.
 #[test]
 fn arity_draw_is_uniform_over_every_count() {
     const TOTAL: usize = 9;
@@ -201,18 +172,10 @@ fn arity_draw_is_uniform_over_every_count() {
     );
 }
 
-/// The fold panels can read the fold's arity out of the bulk cloud: at
-/// a fixed size column, samples that drew a larger arity burn more
-/// fuel.
+/// At a fixed input size, larger fold arities consume more deterministic fuel.
 ///
-/// This is what the variable-arity draw buys the two guest-split fold
-/// rows. With the arity pinned to a constant, the balanced fold's
-/// log-arity factor is the same in every sample, and the panel is
-/// structurally incapable of separating a fold that costs `O(n)` from
-/// one that costs `O(n · log k)`; the per-sample draw puts the arity
-/// axis inside each column, where the spread and the reference slopes
-/// can price it. Fuel is deterministic wasm instruction metering, so
-/// the comparison is exact at the committed seed and load-independent.
+/// This confirms that varying arity gives the panels enough information to
+/// reveal the fold's arity-dependent cost.
 #[test]
 fn fold_rows_expose_the_arity_axis_in_fuel() {
     let plan = Plan {
@@ -225,7 +188,7 @@ fn fold_rows_expose_the_arity_axis_in_fuel() {
         let op = ROSTER
             .iter()
             .find(|op| op.name == name)
-            .expect("fold rows are roster rows");
+            .expect("the fold operation must exist");
         let atlas = run_op(&plan, &samplers, op);
         let mut column: Vec<(usize, u64)> = atlas
             .samples

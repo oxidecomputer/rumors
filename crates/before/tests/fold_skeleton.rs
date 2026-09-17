@@ -1,5 +1,5 @@
 //! The hull fold on a shared deep skeleton: `span_all` over a
-//! population whose *every* operand is a full-size adversarial spine.
+//! population in which every operand is a full-size worst-case spine.
 //!
 //! The board's fold rows ride the committed fold populations (scattered
 //! single-tick forks, woven fork-tree leaves, staggered combs) — all
@@ -41,7 +41,7 @@ fn growth(c0: u64, b0: usize, c1: u64, b1: usize) -> f64 {
 /// ×1.25 flatness convention with margin for amortization wobble.
 const GROWTH_BOUND: f64 = 1.35;
 
-/// `span_all` over a population sharing one deep adversarial skeleton
+/// `span_all` over a population sharing one deep worst-case skeleton
 /// (every operand full-size, meets never shrink) stays per-byte flat
 /// at fixed arity when the skeleton doubles.
 #[test]

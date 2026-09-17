@@ -3,7 +3,7 @@
 //!
 //! A version carries no record of who ticked it, and a party's tick is a
 //! pure function of the version it is applied to — so re-running a party
-//! over a duplicated version re-mints the same successors. For a
+//! over a duplicated version produces the same successors. For a
 //! *version* that is valid use: a version records causal knowledge, not
 //! event identity, and duplicating one to stamp divergent timelines is
 //! how version-vector-style callers work. Three pins state that model.
@@ -19,12 +19,12 @@
 use before::{Clock, Party, Version};
 
 /// One party ticking two divergent clones of the same base version
-/// mints equal versions.
+/// produces equal versions.
 ///
 /// Valid by the model: the two timelines carry equal causal knowledge,
 /// so their stamps compare equal — a version is not an event identifier.
 #[test]
-fn same_party_ticks_on_divergent_clones_mint_equal_versions() {
+fn same_party_ticks_on_divergent_clones_produce_equal_versions() {
     let p = Party::seed();
     let mut v1 = Version::new();
     v1.tick(&p); // one event, recorded in v1's history
@@ -76,19 +76,19 @@ fn restored_pre_tick_clock_conflates_without_any_fork() {
     assert!(!c.party().is_disjoint(restored.party()));
 }
 
-/// `Clock::from_parts` over an earlier version re-mints the successor
+/// `Clock::from_parts` over an earlier version reproduces the successor
 /// the party's later tick already produced.
 ///
 /// Valid by the model: the party is the moved, latest state of the
 /// identity, and the version it is paired with is knowledge, free to
 /// duplicate — the pairing entry point is a version-duplication site.
 #[test]
-fn from_parts_over_an_earlier_version_re_mints_its_successor() {
+fn from_parts_over_an_earlier_version_reproduces_its_successor() {
     let mut c = Clock::seed();
     let earlier: Version = c.tick().clone(); // snapshot after event 1
     let x: Version = c.tick().clone(); // event X
     let (party, _current) = c.into_parts();
     let mut rebuilt = Clock::from_parts(party, earlier);
     let y: Version = rebuilt.tick().clone(); // event Y
-    assert_eq!(x, y, "the rebuilt line re-mints the same successor");
+    assert_eq!(x, y, "the rebuilt clock reproduces the same successor");
 }

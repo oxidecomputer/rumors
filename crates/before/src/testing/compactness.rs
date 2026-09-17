@@ -33,14 +33,14 @@ mod tests;
 ///
 /// Provenance: measured (~13k samples: 5000 arbitrary trees,
 /// ~7800 organic-history versions at trace lengths up to 400, the
-/// adversarial-shape and comb grids, and realistic gossip populations). The
+/// worst-case shape and comb grids, and realistic gossip populations). The
 /// derivation (each stored base charged at most twice, O(1) bits per gamma
 /// merge and per zigzag sign) allows a small positive constant; the measured
 /// per-node excess `(tier2 - 2 * current) / nodes` never exceeded -1.57 on
 /// any family, so the pinned ceiling is 0 — Tier 2 never exceeded twice
 /// today's size outright, with over a bit per node of headroom. Any sample
 /// breaking this is a decision-critical finding: capture it as a regression
-/// case and re-pin the honest constant.
+/// case and re-pin the corrected constant.
 pub(crate) const TIER2_NODE_ENVELOPE_BITS: f64 = 0.0;
 
 /// Per-leaf charge constant for the Euler-tour probe: `delta_bits <=

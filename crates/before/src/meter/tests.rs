@@ -1,4 +1,4 @@
-//! Pins for the adversarial generators: each shape decodes, re-encodes
+//! Checks registered worst-case generators: each shape decodes, re-encodes
 //! byte-identically, and has exactly its closed-form bit length.
 
 use crate::codec;
@@ -327,7 +327,7 @@ fn dominated_undercut_id_decodes_canonically_at_predicted_length() {
 fn stack_segment_meter_counts_deterministically_and_resets() {
     use crate::recurse::descend;
     /// A guarded descent to `floor`, each frame holding a small
-    /// stack-resident payload so its size is honest.
+    /// stack-resident payload so its size is explicit.
     fn dive(depth: usize, floor: usize) -> u64 {
         if depth == floor {
             return 1;
@@ -906,14 +906,13 @@ fn hoisted_window_decodes_canonically_at_predicted_length() {
     );
 }
 
-/// The seam shapes' shared narrow rung, as the tests' oracle-side value.
-fn seam_rung_ubig() -> UBig {
+/// Returns the boundary shapes' shared narrow value.
+fn boundary_rung_ubig() -> UBig {
     UBig::from(5u8) << 64usize
 }
 
-/// The seam shapes' `w`-digit wide operand `5·2^(32(w−1))`, as the tests'
-/// oracle-side value.
-fn seam_wide_ubig(w: usize) -> UBig {
+/// Returns the boundary shapes' `w`-digit operand `5·2^(32(w−1))`.
+fn boundary_wide_ubig(w: usize) -> UBig {
     UBig::from(5u8) << (32 * (w - 1))
 }
 
@@ -922,15 +921,15 @@ fn seam_wide_ubig(w: usize) -> UBig {
 ///
 /// Its `min_ticks` is exactly the stored-base sum — the `k + 1` ascending
 /// leaves over all-zero node bases and the zero plunge:
-/// `(k + 1)·5·2^(32(r−1)) + 5·2^64·(k + 1)(k + 2)/2` — pinned so the seam
-/// band reasons about the tree the generator actually builds.
+/// `(k + 1)·5·2^(32(r−1)) + 5·2^64·(k + 1)(k + 2)/2`. The assertion
+/// ensures resource measurements describe the generated tree.
 #[test]
-fn seam_plunge_decodes_canonically_at_predicted_length() {
+fn descending_boundary_decodes_canonically_at_predicted_length() {
     for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
         let p = seam_plunge(k, r);
         check_version(&p, (k + 1) * (64 * r - 56) + 2);
-        let expected = seam_wide_ubig(r) * UBig::from((k + 1) as u64)
-            + seam_rung_ubig() * UBig::from(((k + 1) * (k + 2) / 2) as u64);
+        let expected = boundary_wide_ubig(r) * UBig::from((k + 1) as u64)
+            + boundary_rung_ubig() * UBig::from(((k + 1) * (k + 2) / 2) as u64);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
@@ -946,14 +945,14 @@ fn seam_plunge_decodes_canonically_at_predicted_length() {
 ///
 /// Its `min_ticks` is exactly the stored-base sum `5·2^(32(r−1)) +
 /// 5·2^64·(k + 2)` (the ascent carried on the bases, the terminal one rung
-/// up); the wire-prefix identity is what lets the seam band read the pair's
+/// up); the wire-prefix identity lets the boundary band read the pair's
 /// difference as the plunge's own propagation.
 #[test]
-fn seam_plunge_control_decodes_canonically_at_predicted_length() {
+fn descending_boundary_control_decodes_at_predicted_length() {
     for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
         let p = seam_plunge_control(k, r);
         check_version(&p, 136 * k + 64 * r + 78);
-        let expected = seam_wide_ubig(r) + seam_rung_ubig() * UBig::from((k + 2) as u64);
+        let expected = boundary_wide_ubig(r) + boundary_rung_ubig() * UBig::from((k + 2) as u64);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
@@ -989,14 +988,14 @@ fn seam_plunge_control_decodes_canonically_at_predicted_length() {
 ///
 /// Its `min_ticks` is exactly the stored-base sum `5·2^128 + (k − 1)·2^80 +
 /// 5·2^64·k(k − 1)/2` — the descent node's base plus the `k` descending
-/// leaves — pinned so the seam band reasons about the tree the generator
+/// leaves. The assertion ensures the boundary band describes the tree the generator
 /// actually builds.
 #[test]
-fn seam_stop_decodes_canonically_at_predicted_length() {
+fn stopping_boundary_decodes_canonically_at_predicted_length() {
     for k in [1usize, 5, 32] {
         let p = seam_stop(k);
         check_version(&p, 164 * k + 266);
-        let expected = seam_stop_ticks(k);
+        let expected = stopping_boundary_ticks(k);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
@@ -1006,12 +1005,12 @@ fn seam_stop_decodes_canonically_at_predicted_length() {
     }
 }
 
-/// The seam-stop shapes' shared stored-base sum: the pair differs only in
+/// The boundary-stop shapes' shared stored-base sum: the pair differs only in
 /// zero-base wrapping, so one closed form serves both pins.
-fn seam_stop_ticks(k: usize) -> UBig {
+fn stopping_boundary_ticks(k: usize) -> UBig {
     (UBig::from(5u8) << 128usize)
         + (UBig::from((k - 1) as u64) << 80usize)
-        + seam_rung_ubig() * UBig::from((k * (k - 1) / 2) as u64)
+        + boundary_rung_ubig() * UBig::from((k * (k - 1) / 2) as u64)
 }
 
 /// `seam_stop_control(k)` is canonical normal form at exactly `164k + 262`
@@ -1021,11 +1020,11 @@ fn seam_stop_ticks(k: usize) -> UBig {
 /// `min_ticks` is unchanged — the removed boundary lives in the *walk's*
 /// difference stack, never in the total.
 #[test]
-fn seam_stop_control_decodes_canonically_at_predicted_length() {
+fn stopping_boundary_control_decodes_at_predicted_length() {
     for k in [1usize, 5, 32] {
         let p = seam_stop_control(k);
         check_version(&p, 164 * k + 262);
-        let ticks = ticks_from_big(&seam_stop_ticks(k));
+        let ticks = ticks_from_big(&stopping_boundary_ticks(k));
         assert_eq!(
             p.version().min_ticks(),
             ticks,
@@ -1046,7 +1045,7 @@ fn latent_ladder_decodes_canonically_at_predicted_length() {
     for (w, k) in [(3usize, 1usize), (4, 5), (10, 8)] {
         let p = latent_ladder(w, k);
         check_version(&p, k * (64 * w - 56) + 64 * w - 48);
-        let expected = seam_wide_ubig(w) * UBig::from((k + 1) as u64) + UBig::ONE
+        let expected = boundary_wide_ubig(w) * UBig::from((k + 1) as u64) + UBig::ONE
             - UBig::from((k * (k + 1) / 2) as u64);
         let ticks = ticks_from_big(&expected);
         assert_eq!(

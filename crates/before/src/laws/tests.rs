@@ -1,6 +1,4 @@
-//! Guards on the law collection itself (the laws are *asserted* by the drivers
-//! in [`crate::testing`]'s algebraic-laws suite and by the fuzz workspace; here
-//! we pin the collection's own invariants).
+//! Consistency checks for the registered algebraic laws.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -42,9 +40,7 @@ fn every_law_group_is_registered() {
         .collect();
     assert_eq!(
         declared, registered,
-        "the law-group statics in laws.rs and the for_each_law_group! \
-         roster must be the same set: an unrostered group never executes, \
-         and a rostered phantom names nothing"
+        "declared and registered law groups differ"
     );
 }
 
@@ -53,7 +49,6 @@ fn every_law_group_is_registered() {
 fn conservation_laws_cover_multiple_aliases() {
     use crate::{Clock, Party};
 
-    // Check parties first.
     let mut p = Party::seed();
     let shares: Vec<Party> = p.forks(3u64).collect();
     let [a, b, c] = shares.try_into().expect("three shares");
@@ -69,7 +64,6 @@ fn conservation_laws_cover_multiple_aliases() {
         "the party conservation law failed with repeated aliases"
     );
 
-    // Check clocks with distinct histories over the same party pattern.
     let mut seed = Clock::seed();
     let mut lines: Vec<Clock> = seed.forks(3u64).collect();
     for line in &mut lines {

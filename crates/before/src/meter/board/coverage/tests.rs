@@ -1,4 +1,4 @@
-//! The board coverage tests: the tiling over the public surface.
+//! Checks that the resource board accounts for every public operation.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -26,14 +26,11 @@ fn public_surface() -> BTreeSet<String> {
     surface
 }
 
-/// The board tiling: every public-surface row is priced by live board rows
-/// ([`BOARD_PRICED`]) or excused in [`BOARD_NOT_APPLICABLE`] with a mechanism,
-/// never both, never neither.
+/// Every public operation is either measured by the board or explicitly marked
+/// not applicable, never both.
 ///
-/// Both tables name only real surface rows, carry no duplicates, and every
-/// cited board row exists on the board's operation axis, so a renamed or
-/// retired row orphans the entries that leaned on it by name, and a new public
-/// operation fails here until it is priced or excused.
+/// The test also rejects duplicates, stale names, and references to missing
+/// board operations.
 #[test]
 fn board_coverage_tiles_the_public_surface() {
     let surface = public_surface();

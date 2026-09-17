@@ -1,11 +1,9 @@
-//! Cross-check the three references by replaying one single-seed op trace
-//! against all three and requiring their final clock populations to agree on
-//! every pairwise comparison.
+//! Cross-checks three ITC implementations by replaying the same operation
+//! trace and comparing their final clock populations.
 //!
 //! The three references are the production impl, the recursive tree [`oracle`],
-//! and the function-space [`super`] model. Also a law suite proving the
-//! function-space operations are a sound ITC, and unit anchors pinning the
-//! embedding against a value the paper states.
+//! and the function-space [`super`] model. Laws exercise the function-space
+//! model independently, while fixed examples anchor its tree embedding.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -48,14 +46,12 @@ fn grid_for(parts: &[u32]) -> u32 {
 
 // ───────────────────────────── replay cross-check ─────────────────────────────
 
-/// Play `ops` (starting from `seeds` independent seed clocks) against all three
-/// references in lockstep, asserting they agree on every fallible op's outcome,
-/// and return the three final populations (index-aligned).
+/// Replays operations against all three implementations and returns their
+/// index-aligned final populations.
 ///
-/// Every caller passes `seeds = 1`: the invariance the keystone asserts holds
-/// only for a proper single-seed system (see
-/// [`replay_matches_across_references`]). A `Join`/`Sync` on overlapping
-/// parties is a no-op in all three (disjointness is invariant).
+/// Tests use one seed because values from separate universes may not interact.
+/// A `Join` or `Sync` between overlapping parties is a no-op in all three
+/// implementations.
 fn replay(
     seeds: usize,
     ops: &[Op],
@@ -154,30 +150,12 @@ fn replay(
 }
 
 proptest! {
-    /// The keystone check.
+    /// All three implementations produce the same causal ordering and party
+    /// disjointness after any generated single-universe trace.
     ///
-    /// After the same op trace, every ordered pair of final clocks has the same
-    /// comparison descriptor — (version causal order, party disjointness) —
-    /// under all three references. The function space computes its descriptor
-    /// purely by sampling its closures; the impl and oracle use their native
-    /// ops. Agreement across all three is the satisfaction condition: it is
-    /// ITC's defining guarantee that the observable partial order is fixed by
-    /// the operation sequence, independent of the (valid) fork/inflation policy
-    /// each implementation chooses.
-    ///
-    /// Single seed, deliberately: that guarantee holds only for a *proper* ITC
-    /// system, where ids partition one space and all live ids are disjoint.
-    /// Multiple seeds would have several stamps each owning all of `[0,1)` —
-    /// not a valid configuration — and a cross-lineage `receive` then entangles
-    /// events on the overlapping region, where the various §4-valid inflation
-    /// policies genuinely disagree on the order. (Disjointness/overlap and the
-    /// join/sync-`Err` paths are id-algorithm behavior, exercised against the
-    /// oracle elsewhere.)
-    ///
-    /// The trace carries a `seed`: the function space's `fork`/`event` choices
-    /// are *random* (any §4-valid split/inflation), so this asserts agreement
-    /// for an arbitrary valid policy, not just one fixed instantiation. The
-    /// seed makes a failure replay deterministically.
+    /// The function-space model chooses valid fork and event policies from the
+    /// supplied random seed. Agreement therefore covers many valid policies,
+    /// while the seed keeps failures reproducible.
     #[test]
     fn replay_matches_across_references(ops in world_strategy(), seed in any::<u64>()) {
         let (im, or, se) = replay(1, &ops, &mut ChaChaRng::seed_from_u64(seed));
@@ -367,7 +345,7 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
     assert_eq!(f.at(Dyadic::grid(15, 4)), Base::from(9u64)); // 15/16
 }
 
-// ───────────────────────── known-bad references, held convicted ─────────────────────────
+// ─────────────── deliberately incorrect references ───────────────
 
 /// A right comb of depth `d` with one base per node and a ticked tip: the
 /// asymmetric family the known-bad convictions sweep.
@@ -387,11 +365,8 @@ fn right_comb(d: u32) -> oracle::Version {
 /// The Riemann sum with one deliberate defect: it drops the final grid
 /// cell.
 ///
-/// The committed known-bad reference for the prod↔fs leg
-/// (`crate::testing::surface_coverage`'s tripwire roster):
-/// [`rank_differential_convicts_the_cell_dropping_riemann_sum`] holds it
-/// convicted by the same comparison the rank descriptor's fs leg
-/// performs.
+/// This deliberately incorrect implementation demonstrates that the rank
+/// differential detects an omitted cell.
 fn riemann_sum_dropping_the_last_cell(e: &Event, g: u32) -> crate::Rank {
     let mut total = Base::ZERO;
     for k in 0..(1u64 << g) - 1 {
@@ -400,18 +375,15 @@ fn riemann_sum_dropping_the_last_cell(e: &Event, g: u32) -> crate::Rank {
     crate::Rank::from_raw(total, u64::from(g))
 }
 
-/// The prod↔fs leg's criterion can fail: the rank differential convicts
-/// the cell-dropping Riemann sum at every depth of an asymmetric family,
-/// while the genuine sum agrees with the impl everywhere.
+/// The rank differential rejects a Riemann sum that omits the final cell.
 ///
 /// Per depth, the right-comb family stacks its bases down the rightmost
 /// path, so the dropped cell's height is the full path sum and the
 /// truncated total falls short exactly there. The genuine Riemann sum
-/// realizes the impl's rank at every depth (the comparison's liveness);
-/// the known-bad variant reads different at every depth, so the leg's
-/// criterion is proven able to reject a wrong reference.
+/// matches the implementation's rank, while the deliberately incomplete sum
+/// differs at every checked depth.
 #[test]
-fn rank_differential_convicts_the_cell_dropping_riemann_sum() {
+fn rank_differential_rejects_a_cell_dropping_riemann_sum() {
     for d in 1..=6 {
         let v = right_comb(d);
         let g = grid_for(&[ev_depth(&v)]);
@@ -424,7 +396,7 @@ fn rank_differential_convicts_the_cell_dropping_riemann_sum() {
         assert_ne!(
             riemann_sum_dropping_the_last_cell(&lift_ev(v), g),
             want,
-            "the rank differential must convict the cell-dropping sum at depth {d}"
+            "the rank differential must reject the cell-dropping sum at depth {d}"
         );
     }
 }
@@ -432,12 +404,8 @@ fn rank_differential_convicts_the_cell_dropping_riemann_sum() {
 /// The embedding with one deliberate defect: every descent step walks
 /// into the wrong child (the mirror image of the §4 recursion).
 ///
-/// The committed known-bad reference for the tree↔fs leg
-/// (`crate::testing::surface_coverage`'s tripwire roster):
-/// [`worked_value_anchor_convicts_the_mirrored_embedding`] holds it
-/// convicted by the paper worked-value anchor's comparison — and
-/// documents that the leg's pointwise-operation differentials alone
-/// cannot convict it.
+/// This deliberately incorrect implementation demonstrates why fixed samples
+/// complement the pointwise-operation differentials.
 fn mirrored_lift_ev(t: oracle::Version) -> Event {
     fn eval(t: &oracle::Version, mut x: Dyadic) -> Base {
         use oracle::Version as V;
@@ -449,8 +417,7 @@ fn mirrored_lift_ev(t: oracle::Version) -> Event {
                 V::Node(n, l, r) => {
                     acc += n;
                     let (right, nx) = descend(x);
-                    // The defect: the honest embedding descends right
-                    // exactly when the point lies in [1/2, 1).
+                    // The correct embedding descends right for points in [1/2, 1).
                     node = if right { l } else { r };
                     x = nx;
                 }
@@ -460,21 +427,17 @@ fn mirrored_lift_ev(t: oracle::Version) -> Event {
     Event::new(ev_depth(&t), move |x| eval(&t, x))
 }
 
-/// The tree↔fs leg's criterion can fail: the paper worked-value anchor
-/// convicts the mirrored embedding, which the leg's pointwise-operation
-/// differentials alone can never reject.
+/// Fixed samples reject a mirrored tree embedding that pointwise differentials
+/// cannot distinguish.
 ///
 /// The mirror is a measure-preserving relabeling of `[0,1)`, so it
 /// commutes with every pointwise combinator: substituted on *both* sides
 /// of the meet differential it stays green at every depth (asserted
-/// below — the twin-spelling blindness that makes an absolute-geometry
-/// anchor the leg's necessary tripwire, not a redundancy). The anchor
-/// and the honest embedding convict it: the mirrored lift of the paper's
-/// §4 worked example disagrees with the samples the paper states, and it
-/// disagrees with the honest lift at every depth of the asymmetric
-/// right-comb family.
+/// below). Fixed samples supply the absolute position that pointwise operations
+/// cannot establish. The mirrored lift disagrees with those samples and with
+/// the correct lift at every checked right-comb depth.
 #[test]
-fn worked_value_anchor_convicts_the_mirrored_embedding() {
+fn worked_value_samples_reject_a_mirrored_embedding() {
     use oracle::Version as V;
     // The worked tree the committed anchor pins
     // ([`embedding_matches_known_values`]' fixture).
@@ -499,14 +462,14 @@ fn worked_value_anchor_convicts_the_mirrored_embedding() {
         .collect();
     assert_ne!(
         got, want,
-        "the worked-value anchor must convict the mirrored embedding"
+        "the worked-value samples must reject the mirrored embedding"
     );
     for d in 1..=6 {
         let v = right_comb(d);
         let g = grid_for(&[ev_depth(&v), ev_depth(&e)]);
         assert!(
             !ev_eq(&lift_ev(v.clone()), &mirrored_lift_ev(v.clone()), g),
-            "the honest embedding must convict the mirror at depth {d}"
+            "the correct embedding must differ from the mirror at depth {d}"
         );
         // The blindness this artifact documents: with the mirror on both
         // sides, the meet differential's comparison stays green.
@@ -521,27 +484,21 @@ fn worked_value_anchor_convicts_the_mirrored_embedding() {
     }
 }
 
-/// Guard the soundness premise: the chosen grid must fully resolve every
-/// function the keystone scans, i.e. the finest boundary observed over a wide
-/// op-trace sweep must stay below [`GRID_N`] (else sampling could alias).
+/// Generated traces never reach the resolution cap used by function sampling.
 ///
-/// This covers *both* the oracle's tree depth and the function space's probed
+/// The test covers both the oracle's tree depth and the function space's probed
 /// resolution — the random `fork` refines up to two levels per call (vs. the
 /// paper's one), so its resolution can run ahead of the oracle's, and it is the
 /// binding constraint.
 ///
 /// The structural guarantee lives in [`GRID_N`]'s derivation from the op cap
 /// (one level per op at most, so every in-support trace stays under); this
-/// sweep is the distributional canary over sampled traces, and
+/// generated sweep checks sampled traces, and
 /// [`fork_chain_raises_resolution_one_level_per_fork`] pins the derivation's
 /// growth-rate premise deterministically on the worst in-support schedule.
 ///
-/// Single seed, matching the keystone: forking one lineage repeatedly is the
-/// worst case for per-lineage resolution growth, so a single seed bounds it.
-/// (Multiple seeds reuse `[0,1)`, an improper configuration the keystone
-/// deliberately avoids; under the random policy their structural-vs-geometric
-/// disjointness even disagrees, so they can't be replayed in lockstep — see the
-/// keystone doc.)
+/// Repeatedly forking one lineage is the worst case for its resolution growth.
+/// One seed therefore suffices and preserves the universe invariant.
 #[test]
 fn grid_cap_is_never_reached() {
     use proptest::test_runner::{Config, TestRunner};

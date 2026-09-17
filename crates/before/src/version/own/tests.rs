@@ -1,16 +1,8 @@
-//! [`OwnVersion`] tests: the view's semantic-equality contract and its
-//! explicit materialization.
+//! Checks [`OwnVersion`]'s semantic equality and materialization.
 //!
-//! The fused projected walks are bound to the *oracle* — the independent
-//! recursive implementation the impl shares nothing with — by the
-//! differential table's three- and four-stream descriptors, over arbitrary
-//! normal-form operands and organic op-trace populations alike. The
-//! materialized-form coherence (`view ⋚ w ≡ view.to_version() ⋚ w`, both
-//! comparison directions and `==`, plus the seed-mask coherence) lives in
-//! [`crate::laws`] and runs through every law consumer. What remains here
-//! is what neither of those states: that equality on the view is semantic
-//! rather than representational, and that the `From` impl is the
-//! materialization.
+//! These tests focus on behavior not already covered by the oracle
+//! differentials: equality observes values outside the owned region, and the
+//! `From` implementation performs the same materialization as `to_version`.
 
 use core::cmp::Ordering;
 

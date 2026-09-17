@@ -10,7 +10,7 @@
 //! public operation (plus a constant register-machine dispatch overhead the
 //! calibration's intercept absorbs).
 //!
-//! Contract with the harness (which is the only caller):
+//! Contract with the harness:
 //!
 //! - Registers are dense indices into a growable file; a slot holds a
 //!   `Version`, `Party`, `Clock`, `Rank`, `Span`, or an owned causal
@@ -83,8 +83,8 @@ impl StoredQuery {
 
 // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
 // fallback-TLS lowering (illumos among the gate's targets) and denies
-// initializers that already sit in `const` blocks; the allow keeps
-// `-D warnings` honest on every platform the gate runs.
+// initializers that already sit in `const` blocks; this target-specific allow
+// keeps the gate portable.
 thread_local! {
     /// The register file. wasm32-unknown-unknown is single-threaded, so a
     /// thread-local `RefCell` is an uncontended, unsafe-free global.
@@ -125,8 +125,7 @@ fn take_v(src: u32) -> Option<Version> {
     match take(src) {
         Some(Val::V(v)) => Some(v),
         other => {
-            // Put a non-version back rather than destroying it: the harness
-            // aborts on the error return anyway, but keep the file honest.
+            // A failed typed move must not destroy the register's value.
             if let Some(val) = other {
                 put(src, val);
             }
@@ -783,9 +782,7 @@ pub extern "C" fn ff_version_meet_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Version::span`: the pair's lattice hull `[a & b, a | b]` into a
-/// span register (one fused pair walk feeds both endpoints; the
-/// operands are read in place and the endpoints minted owned).
+/// Store `Version::span`'s owned lattice hull in `dst`.
 #[no_mangle]
 pub extern "C" fn ff_version_span(dst: u32, a: u32, b: u32) -> i32 {
     let span = with_v(a, |va| with_v(b, |vb| va.span(vb)));
@@ -801,9 +798,8 @@ pub extern "C" fn ff_version_span(dst: u32, a: u32, b: u32) -> i32 {
 /// `Version::span_all`: the lattice hull of the versions in
 /// `src..src + n` into `dst`.
 ///
-/// The version in `src` is the receiver, the rest ride as the iterator,
-/// feed order preserved; every operand is borrowed — the hull fold
-/// reads them in place and mints its endpoints owned.
+/// The version in `src` is the receiver. The remaining versions are borrowed
+/// in register order, and the resulting endpoints are owned.
 #[no_mangle]
 pub extern "C" fn ff_version_span_all(dst: u32, src: u32, n: u32) -> i32 {
     if n == 0 {
@@ -924,13 +920,12 @@ pub extern "C" fn ff_party_join(a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Party::join_all`: fold the parties in `src..src + n` into `a`
-/// (consumes the range; the n-ary balanced fold).
+/// `Party::join_all`: consume and fold `src..src + n` into `a`.
 ///
 /// On an overlap rejection the handed-back parties are dropped rather
 /// than restored: the harness aborts the case on any nonzero return, and
-/// the atlas's fold panels construct disjoint populations, so the error
-/// path is a roster bug, never a measurement.
+/// generated fold populations are disjoint, so rejection indicates an invalid
+/// program rather than a measurement outcome.
 #[no_mangle]
 pub extern "C" fn ff_party_join_all(a: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -1062,12 +1057,11 @@ pub extern "C" fn ff_clock_join(a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Clock::join_all`: fold the clocks in `src..src + n` into `a`
-/// (consumes the range; the n-ary balanced fold over both halves).
+/// `Clock::join_all`: consume and fold `src..src + n` into `a`.
 ///
 /// On an overlap rejection the handed-back clocks are dropped rather
-/// than restored, as in `ff_party_join_all`: the error path is a roster
-/// bug, never a measurement.
+/// than restored. Generated inputs are disjoint, so rejection indicates an
+/// invalid program rather than a measurement outcome.
 #[no_mangle]
 pub extern "C" fn ff_clock_join_all(a: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -1088,8 +1082,8 @@ pub extern "C" fn ff_clock_join_all(a: u32, src: u32, n: u32) -> i32 {
 /// every participant re-shared in place.
 ///
 /// On an overlap rejection the participants are dropped rather than
-/// restored, as in `ff_clock_join_all`: the error path is a roster
-/// bug, never a measurement.
+/// restored. Generated inputs are disjoint, so rejection indicates an invalid
+/// program rather than a measurement outcome.
 #[no_mangle]
 pub extern "C" fn ff_clock_sync_all(a: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -1493,9 +1487,7 @@ pub extern "C" fn ff_span_decode(dst: u32) -> i32 {
     })
 }
 
-/// `Span + Span`: the containment join of the spans in `a` and `b`
-/// into `dst` (operands read in place; the union's endpoints are
-/// minted owned).
+/// Store the owned containment union of the spans in `a` and `b` in `dst`.
 #[no_mangle]
 pub extern "C" fn ff_span_union(dst: u32, a: u32, b: u32) -> i32 {
     let r = with_s(a, |sa| with_s(b, |sb| sa.union(sb)));
@@ -1555,12 +1547,10 @@ pub extern "C" fn ff_span_meet(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// Borrow the spans in `src..src + n` as (receiver, items) and run
-/// one n-ary span entry point over them.
+/// Borrow a receiver and remaining spans from `src..src + n` for one fold.
 ///
-/// The span in `src` is the receiver, the rest ride as the iterator,
-/// feed order preserved; every operand is borrowed — the balanced
-/// fold reads them in place and mints its endpoints owned.
+/// The span in `src` is the receiver. Remaining operands retain register order,
+/// and the fold returns owned endpoints.
 fn span_fold<T>(
     src: u32,
     n: u32,

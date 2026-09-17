@@ -192,8 +192,8 @@ pub extern "C" fn pin_version_decode(n_bytes: u64) -> i64 {
 /// Every byte of this stream is input the decoder must actually read — the
 /// fraction's depth is deliberately in-band (counted from bits read, never
 /// from a header's claim), so ~`9/64` bytes per expansion bit is the
-/// smallest honest trigger for any `exp`-boundary behavior: no crafted
-/// stream can reach the exponent seam without materializing this length.
+/// smallest valid trigger for any `exp`-boundary behavior: no crafted
+/// stream can reach the exponent boundary without materializing this length.
 fn synth_rank(exp: u64) -> Vec<u8> {
     assert!(
         exp >= 128 && exp.is_multiple_of(8),
@@ -244,10 +244,10 @@ fn synth_rank(exp: u64) -> Vec<u8> {
 /// The observations, against reference ranks: the value sits strictly
 /// between zero and one, and equals its own clone.
 ///
-/// The harness aims this at the `u64 -> usize` exponent seam: `exp` just
+/// The harness aims this at the `u64 -> usize` exponent boundary: `exp` just
 /// below `2^32` (in `usize` range on wasm32) and at `2^32` (past it). The
-/// input is ~`9/64 · exp` bytes — about 604 MB at the seam — which is the
-/// smallest honest trigger (`synth_rank` documents why no smaller stream
+/// input is ~`9/64 · exp` bytes — about 604 MB at the boundary — which is the
+/// smallest valid trigger (`synth_rank` documents why no smaller stream
 /// can reach it).
 #[no_mangle]
 pub extern "C" fn pin_rank_decode(exp: u64) -> i64 {
@@ -623,7 +623,7 @@ fn synth_rank_ladder(b: u64, d: u64) -> Vec<u8> {
 /// The harness aims `(b, d)` at the rank fold's numerator width, `b + d`
 /// bits: the one quantity on the fold path that outgrows every decoded
 /// value (decode materializes `b` bits at most). ~`b/4` bytes of input is
-/// the smallest honest trigger: a numerator is at most its widest height
+/// the smallest valid trigger: a numerator is at most its widest height
 /// times `2^depth`, heights pay their own width in code bits, and depth
 /// pays five stream bits per level.
 #[no_mangle]
@@ -655,7 +655,7 @@ pub extern "C" fn pin_version_rank(b: u64, d: u64) -> i64 {
 /// fraction form: the mantissa is read as one `k + 1`-bit stream (the
 /// biased value `2^k`), so both the value's own width and the one-wider
 /// biased transient cross the backend's capacity here. ~`k/8` bytes of
-/// input is the smallest honest trigger: the mantissa's bits are all
+/// input is the smallest valid trigger: the mantissa's bits are all
 /// stream bits.
 #[no_mangle]
 pub extern "C" fn pin_rank_integral_decode(k: u64) -> i64 {

@@ -857,14 +857,6 @@ proptest! {
     }
 }
 
-// Strict rank monotonicity on the causal order is the
-// `laws::VERSION_PAIR::rank_strictly_monotone` law on all three law
-// populations; the join probe (the join's rank strictly grows past a side
-// unless that side already contained the other) is its composition with
-// `merge_is_upper_bound` and `order_absorbing`, and tick-increases-rank the
-// composition with `laws::VERSION_PARTY::tick_strictly_advances` — each leg
-// executed by the law drivers on the same populations.
-
 /// The alignment oracle for `Rank` order: shift both numerators to the
 /// common exponent and compare — the definitionally correct order the
 /// class-first streamed comparison must reproduce.
@@ -882,7 +874,7 @@ fn rank_parts(r: &super::Rank) -> (dashu_int::UBig, u64) {
     (dashu_int::UBig::from_le_bytes(&num.to_bytes_le()), exp)
 }
 
-/// One adversarial `Rank` for the order-agreement sweeps, from a
+/// Build one worst-case `Rank` from a deterministic
 /// deterministic word stream.
 ///
 /// Odd numerators from one to a few hundred limbs wide (with all-ones
@@ -915,11 +907,11 @@ fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
 }
 
 /// The order-agreement sweep's fixed PRNG seed: every run replays the
-/// same 25,000-pair corpus.
+/// same comparison corpus.
 const RANK_CMP_SWEEP_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// The class-first streamed `Rank` order agrees with the alignment oracle on
-/// 25,000 adversarial pairs.
+/// 25,000 wide and differently scaled pairs.
 ///
 /// The pairs cross random wide/narrow numerators with far-apart exponents (the
 /// mismatched-class fast path), forced class ties with deep shared prefixes
@@ -1001,7 +993,7 @@ fn a_bits(r: &super::Rank) -> u64 {
 
 proptest! {
     /// Every `laws::RANK_TRIPLE` law (the monoid, order, and cross-path
-    /// normalization laws) holds on adversarial seeded ranks.
+    /// normalization laws) holds on generated wide ranks.
     ///
     /// Mixed magnitude classes, spilled numerators, and perturbed exponents:
     /// the regime the version-derived driver in the algebraic-laws suite cannot
@@ -1016,7 +1008,7 @@ proptest! {
     }
 }
 
-/// One deterministic adversarial rank from a word seed, via the shared
+/// Build one deterministic wide rank from the shared
 /// test word stream.
 fn seeded_rank(seed: u64) -> super::Rank {
     stream_rank(&mut crate::testing::rng::word_stream(seed))
@@ -1024,13 +1016,13 @@ fn seeded_rank(seed: u64) -> super::Rank {
 
 // ─────────────────────── the rank wire form ───────────────────────
 
-/// Committed witnesses for the lexicographic law's boundary genres.
+/// Known rank encodings pin the lexicographic format at each boundary.
 ///
 /// Zero, the smallest fractions, integral-only vs fractional at a shared
 /// integral part, every step of the integral header (the mantissa-width steps
 /// at `I + 1` crossing a power of two, and the width-of-width steps where the
 /// unary run itself lengthens), and equal integral parts separated only deep in
-/// the fraction — across a group seam, where the deeper rank's extra expansion
+/// the fraction — across a group boundary, where the deeper rank's extra expansion
 /// bits ride a further continuation-framed group. Each byte string is pinned
 /// exactly — the wire form is canonical, so these are format goldens — and the
 /// whole battery must be strictly ascending in byte order exactly as it is
@@ -1068,7 +1060,7 @@ fn rank_encoding_known_values() {
         (int(4), vec![0xA8]),
         // 5, then 5 + 2⁻⁴⁰ and 5 + 2⁻⁴⁰ + 2⁻⁴¹: equal integral parts
         // separated only deep in the fraction — the deepest pair only
-        // past a group seam (the 41st expansion bit opens a sixth
+        // past a group boundary (the 41st expansion bit opens a sixth
         // group), and the integral-only rank separated from both at
         // its close bit, never by a byte-prefix relation.
         (int(5), vec![0xB0]),
@@ -1087,7 +1079,7 @@ fn rank_encoding_known_values() {
         (int(8), vec![0xC1, 0x00]),
         // 15 and 16: the next mantissa-width step inside one run
         // width, separated by the mantissa's final bit at the byte
-        // seam.
+        // boundary.
         (int(15), vec![0xC8, 0x00]),
         (int(16), vec![0xC8, 0x80]),
     ];
@@ -1110,23 +1102,16 @@ fn rank_encoding_known_values() {
     }
 }
 
-// THE LAW of the rank wire form (byte order == `Ord`, the codec round-trip,
-// and prefix-freedom) lives in `laws::RANK_TRIPLE` (`rank_lex_order`,
-// `rank_codec_roundtrip`, `rank_encoding_prefix_free`): the roster drivers
-// run it on version-derived ranks over the organic, arbitrary, and
-// fuzz-decoded populations, and `rank_triple_laws_on_seeded_ranks` above
-// keeps the adversarial spilled-magnitude regime driving the same group.
-
 /// The exhaustive small-scope sweep over **every** byte string of zero, one,
 /// and two bytes.
 ///
 /// Decode is total (accepts or rejects, never panics); every accepted string
 /// re-encodes byte-identically (the format is bijective on accepted strings, so
 /// no value has a second spelling — the strict-canonicality statement that
-/// subsumes the per-genre rejections); the accepted strings in byte order carry
+/// subsumes the individual rejection cases); the accepted strings in byte order carry
 /// strictly ascending ranks (the lexicographic law, total at this scope); every
 /// decoded rank's numeric size is linear in its input bytes (no decompression
-/// bomb); and both live rejection genres (truncation, non-minimal packing)
+/// bomb); and both reachable errors (truncation and non-minimal packing)
 /// actually fire.
 #[test]
 fn rank_encoding_exhaustive_small_scope() {
@@ -1143,7 +1128,7 @@ fn rank_encoding_exhaustive_small_scope() {
         }
         Err(crate::error::Decode::Truncated) => truncated += 1,
         Err(crate::error::Decode::TrailingBits) => trailing += 1,
-        Err(e) => panic!("unexpected rejection genre at this scope: {e}"),
+        Err(e) => panic!("unexpected rejection at this scope: {e}"),
     };
     sweep(vec![]);
     for b0 in 0..=255u8 {
@@ -1164,17 +1149,17 @@ fn rank_encoding_exhaustive_small_scope() {
         );
     }
     // Liveness: the scope actually exercises acceptance and both
-    // reachable rejection genres.
+    // reachable rejection classes.
     assert!(
         accepted.len() > 1_000,
         "acceptance is live: {}",
         accepted.len()
     );
-    assert!(truncated > 0, "the truncation genre fires");
-    assert!(trailing > 0, "the non-minimal-packing genre fires");
+    assert!(truncated > 0, "the sweep reaches truncation");
+    assert!(trailing > 0, "the sweep reaches non-minimal packing");
 }
 
-/// Committed witnesses, one per rejection genre the decoder can reach.
+/// Direct cases cover every rejection class the rank decoder can reach.
 ///
 /// Empty input, an unterminated unary run, a truncated header payload, a
 /// truncated integral mantissa, a truncated fraction group, a trailing zero
@@ -1185,15 +1170,15 @@ fn rank_encoding_exhaustive_small_scope() {
 /// declaring a mantissa width beyond `2⁶⁴` bits — the one format bound a small
 /// input can reach; the fraction bound needs over half a GiB of real groups,
 /// since the fraction has no length header to forge). The remaining documented
-/// genre — a non-minimal integral header — is structurally unrepresentable
+/// error — a non-minimal integral header — is structurally unrepresentable
 /// (every `(run, payload)` pair decodes to a width whose own width matches the
 /// run exactly), which the exhaustive sweep witnesses mechanically at small
 /// scope.
 #[test]
 #[allow(clippy::type_complexity)]
-fn rank_decoding_rejects_each_genre() {
+fn rank_decoding_rejects_each_malformed_input_class() {
     use crate::error::Decode;
-    let genres: [(&[u8], fn(&Decode) -> bool, &str); 9] = [
+    let cases: [(&[u8], fn(&Decode) -> bool, &str); 9] = [
         (&[], |e| matches!(e, Decode::Truncated), "empty input"),
         (
             &[0xFF],
@@ -1249,26 +1234,16 @@ fn rank_decoding_rejects_each_genre() {
             "integral width past the format bound",
         ),
     ];
-    for (bytes, is_genre, what) in genres {
-        let err = super::Rank::decode(bytes).expect_err(what);
-        assert!(is_genre(&err), "{what}: wrong genre: {err}");
+    for (bytes, matches_error, description) in cases {
+        let err = super::Rank::decode(bytes).expect_err(description);
+        assert!(matches_error(&err), "{description}: wrong error: {err}");
     }
 }
 
-/// The provenance size bound, measured and pinned per committed family: every
-/// rank reachable through a version fold encodes linearly in the version's
-/// stored bytes.
+/// Every version-derived rank encoding is no larger than its source version.
 ///
-/// The families white-box the encoder's two axes — numerator width (wide
-/// counters, answer-embedding products) and exponent depth (spines), plus the
-/// dense-fraction staircase that maximizes set bits per level — and the pin
-/// holds each family's encoded size at or under 1.0 bit per input bit.
-/// Measured \[by this test's own instrumentation\]: wide counter 0.56 (the
-/// worst — a lone counter's version pays gamma's doubled width where the
-/// encoding pays the width once), deep spine 0.38, dense staircase 0.38, deep
-/// wide counter 0.27, plateau puncture 0.18; the 1.0 pin leaves headroom for
-/// packing drift while sitting an order under the exponential blowup arbitrary
-/// in-memory ranks can reach.
+/// The constructed families vary numerator width, exponent depth, and dense
+/// fractional bits. Each checks the claimed linear size bound directly.
 #[test]
 fn rank_encoding_size_is_provenance_linear() {
     use crate::oracle::Version as V;
@@ -1328,7 +1303,7 @@ fn rank_encoding_size_is_provenance_linear() {
     }
 }
 
-/// Committed witnesses for suffix safety at the padding seam: the shapes where
+/// Direct cases pin suffix safety at the padding boundary, where
 /// a naive expansion spelling would make one encoding a byte prefix of
 /// another's.
 ///
@@ -1341,7 +1316,7 @@ fn rank_encoding_size_is_provenance_linear() {
 /// sorts first under *any* tiebreak suffix — including the worst one, `0xFF`
 /// against the larger key's continuation.
 #[test]
-fn rank_encoding_is_suffix_safe_at_the_padding_seam() {
+fn rank_encoding_is_suffix_safe_at_the_padding_boundary() {
     let pairs: [(super::Rank, super::Rank); 3] = [
         // 5 against 5 + 2⁻⁴⁰: equal integral parts, one fraction empty.
         (
@@ -1400,7 +1375,7 @@ proptest! {
     ) {
         let a = seeded_rank(sa);
         let b = if extend {
-            // A strict extension of `a`'s expansion: the genre where
+            // A strict extension of `a`'s expansion: the case where
             // one stream continues past the other's content.
             let (num, exp) = rank_parts(&a);
             super::Rank::from_raw(
@@ -1434,7 +1409,7 @@ proptest! {
 // these suites lower the arm ceiling (`rank::arm_ceiling::force`, a
 // test-only routing override that moves no values) and drive the same
 // public entry points production serves: every rank built under the lowered
-// ceiling straddles or crosses the seam at host-friendly sizes, while the
+// ceiling straddles or crosses the boundary at host-friendly sizes, while the
 // host backend — whose real capacity is astronomically higher — remains an
 // exact oracle for every value. The wasm32 boundary pins hold the same
 // entry points at the production coordinate itself.
@@ -1472,7 +1447,7 @@ fn assert_rank_canonical(r: &super::Rank, ceiling: u64) {
 /// with the backend's buffer-cap formula.
 ///
 /// This is the production-routing sanity leg beside the lowered-ceiling
-/// suites: on this host the wide arm must never engage (its honest
+/// suites: on this host the wide arm must never engage (its actual
 /// coordinate is 2⁶⁴ − 64 bits here), so the historical numerator path is
 /// what every other suite in this file measures and pins.
 #[test]
@@ -1491,8 +1466,8 @@ fn rank_arm_dispatch_defaults_to_the_backend_capacity() {
 }
 
 /// The class-first streamed order agrees with the alignment oracle across
-/// the wide arm and the arm seam, and `checked_sub`'s pre-check stays
-/// consistent: 10,000 adversarial pairs under the lowered ceiling.
+/// the wide arm and its boundary, and `checked_sub`'s pre-check stays
+/// consistent across 10,000 generated pairs under the lowered ceiling.
 ///
 /// The same generator and oracle as the backend-arm sweep above; under
 /// the 256-bit ceiling the pairs mix base–base, base–wide, and wide–wide
@@ -1557,7 +1532,7 @@ proptest! {
     /// Every `laws::RANK_TRIPLE` law — the monoid, order, codec
     /// round-trip, lexicographic, prefix-freedom, and cross-path
     /// normalization laws — holds on ranks straddling the wide arm's
-    /// seam.
+    /// boundary.
     ///
     /// The same law group the backend-arm drivers run, under the lowered
     /// ceiling: addition, subtraction, and `Sum` route through the
@@ -1666,7 +1641,7 @@ proptest! {
         prop_assert_eq!(num << usize::try_from(exp - e).unwrap(), raw);
     }
 
-    /// The wire round-trip is exact and byte-canonical across the seam.
+    /// The wire round-trip is exact and byte-canonical across the representation boundary.
     ///
     /// Known-arm constructions — wide integral parts, wide fractions, and
     /// base-arm controls — encode, decode to the same value on the same
@@ -1871,8 +1846,7 @@ proptest! {
 /// Adds one unit plateau per level, leaning the previous tree left or right.
 ///
 /// The two leans are mirror images — their areas agree level for level, so they
-/// share a rank by symmetry. The extreme-depth genre no generator reaches,
-/// shared by the deep-cancellation and composite-key suites.
+/// share a rank by symmetry. The depth extends beyond generated inputs.
 fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
     use crate::oracle::Version as V;
     let mut tree = to_oracle_version(core);
@@ -1886,8 +1860,7 @@ fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
     from_oracle_version(&tree)
 }
 
-/// The fused comparison's hard genres, constructed: deep total cancellation,
-/// and verdicts decided only at the walk's last contribution.
+/// Constructed ranks exercise deep cancellation and last-contribution verdicts.
 ///
 /// A staircase and its mirror image share a rank by symmetry while their mass
 /// sits at opposite ends of the interval, so the signed co-sweep's running
@@ -1943,12 +1916,9 @@ fn ranked_fused_walk_survives_deep_cancellation() {
 // Version-encoding prefix-freedom is the `version_encoding_is_prefix_free`
 // law in `laws::VERSION_PAIR`, driven over arbitrary normal forms, organic
 // op-trace populations, and the fuzz target's decoded values — exactly the
-// population where a prefix-aliasing bug would live. The growth-seam
-// witnesses below stay: extreme depth past any generator's reach.
+// population where a prefix-aliasing bug would live.
 
-/// Committed witnesses for version-encoding prefix-freedom at the growth seam:
-/// chains where one version's stream extends another's structure — the shapes
-/// most likely to share a long byte prefix.
+/// Version encodings remain prefix-free along deep growth chains.
 ///
 /// A tick chain (each version one event past the last), a spine tower (each one
 /// level deeper, out to 800 levels — extreme depth past the arb generator's
@@ -1976,7 +1946,7 @@ fn version_encoding_is_prefix_free_on_growth_chains() {
         battery.push(from_oracle_version(&tree));
     }
     // The 800-level staircase and its mirror: extreme depth past any
-    // generator's reach, sharing a rank by symmetry — the deep genre whose
+    // generator's reach, sharing a rank by symmetry — the case whose
     // streams extend structure level by level.
     battery.push(stairs(800, true, &half()));
     battery.push(stairs(800, false, &half()));
@@ -2036,7 +2006,7 @@ proptest! {
     }
 }
 
-/// Committed witnesses for composite-key suffix safety at the tiebreak seam:
+/// Direct cases pin composite-key suffix safety at the tiebreak boundary:
 /// pairs whose keys agree byte-for-byte through the whole rank component, so
 /// the order is decided inside the version tail.
 ///
@@ -2050,10 +2020,10 @@ proptest! {
 /// equals the views' total order, and the worst suffixes (`0xFF` on the smaller
 /// key, `0x00` on the larger) cannot flip it.
 #[test]
-fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
+fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_boundary() {
     let half = half();
     let peaks = peaks();
-    assert_eq!(half.rank(), peaks.rank(), "the seam pair shares a rank");
+    assert_eq!(half.rank(), peaks.rank(), "the boundary pair shares a rank");
     let mut clock = Clock::seed();
     let one = clock.tick().clone();
     let two = clock.tick().clone();
@@ -2095,22 +2065,19 @@ fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam() {
     }
 }
 
-/// Committed witnesses, one per rejection genre `Ranked::decode` adds over its
-/// components' own.
+/// Direct cases cover each composite-specific `Ranked::decode` rejection.
 ///
 /// Empty input; truncation at every byte boundary of a composite (cuts land in
-/// the rank stream, at the component seam, and inside the version); a trailing
+/// the rank stream, at the component boundary, and inside the version); a trailing
 /// zero byte (the version component's whole-input strictness); a set bit in the
 /// version's padding; and a well-formed rank prefix paired with a version it
 /// does not measure, witnessed from both sides of the true rank (the
-/// composite's redundancy check — `NotCanonical`, the genre for well-formed
-/// structure that is the canonical spelling of no value). The components'
-/// interior genres are their own suites' business
-/// (`rank_decoding_rejects_each_genre` and the codec suite's rejection
+/// composite's redundancy check (`NotCanonical`). Component-specific errors
+/// are covered by `rank_decoding_rejects_each_malformed_input_class` and the codec rejection
 /// battery); the cuts here prove each component's rejection surfaces through
 /// the composite entry.
 #[test]
-fn ranked_decode_rejects_each_genre() {
+fn ranked_decode_rejects_each_composite_error() {
     use crate::error::Decode;
     let half = half();
     let key = Ranked::from(&half).encode();
@@ -2165,7 +2132,7 @@ proptest! {
     /// Acceptance-canonicity is what keeps decode injective on bytes and byte
     /// equality on keys exactly [`Eq`] on views.
     ///
-    /// The codec suite's mutation genre, aimed at the composite's own seam: a
+    /// The mutation targets the composite boundary: a
     /// flip in the self-delimiting rank prefix can move where the version parse
     /// begins, and the accepted language must still contain only canonical
     /// keys. The rank-against-version verification makes any accept a needle's
@@ -2284,10 +2251,8 @@ proptest! {
     /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
     /// bit-level compare of the live streams, in both operand orders.
     ///
-    /// The cross-check that the canonical-padding invariant (the marker sealed
-    /// at every storage seam) really makes the raw bytes injective, licensing
-    /// the byte-compare shortcut. Equal values must also hash equally
-    /// (`Eq`/`Hash` consistency).
+    /// Canonical padding makes raw byte equality equivalent to live-bit
+    /// equality. Equal values must also hash equally.
     #[test]
     fn byte_equality_matches_bit_equality(
         oa in arb_oracle_version(),

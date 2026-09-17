@@ -1,4 +1,4 @@
-//! Cross-checks independent causal-relation operations over one adversarial
+//! Cross-checks independent causal-relation operations over a worst-case
 //! operand pool.
 //!
 //! [`Version::partial_cmp`] supplies the reference relation. Projected
@@ -73,7 +73,7 @@ fn benign_pair() -> (Version, Version) {
     (a.version().clone(), b.version().clone())
 }
 
-/// The committed matrix-coverage answer for one adversarial family.
+/// The committed matrix-coverage answer for one input family.
 ///
 /// The match is exhaustive over [`FamilyId`], mirroring the registry's
 /// coverage pattern: a new family fails to compile until it answers here,
@@ -82,7 +82,7 @@ fn benign_pair() -> (Version, Version) {
 /// order — capped at two versions and two masks, the pool-budget rule the
 /// module doc derives — at the smallest committed-valid knobs, so every
 /// operand stays tens to hundreds of encoded bytes while keeping its
-/// family's adversarial structure.
+/// family's distinguishing structure.
 fn matrix_operands(family: FamilyId) -> MatrixOperands {
     let (versions, masks): (Vec<Version>, Vec<Party>) = match family {
         // The dense event spine: node-count and depth maximizer.
@@ -324,7 +324,7 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             vec![Shape::HoistedWindow.build3(10, 2, 384).version()],
             vec![],
         ),
-        // The seam-plunge spine and its leveled control.
+        // The descending spine and its leveled control.
         FamilyId::PropagateSeam => (
             vec![
                 Shape::SeamPlunge.build2(4, 5).version(),

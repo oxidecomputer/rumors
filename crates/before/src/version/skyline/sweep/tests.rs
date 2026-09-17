@@ -1,7 +1,7 @@
 //! Differential pins for the comparison sweep against the recursive oracle's
 //! pointwise `leq` comparison.
 //!
-//! The oracle (through the bridge) is the verdict witness over the adversarial
+//! The oracle (through the bridge) is the verdict witness over the registered
 //! families, arbitrary trees, organic histories, and the exhaustive small scope
 //! — it shares no cursor, no delta, and no accumulator with the sweep.
 //!
@@ -146,7 +146,7 @@ fn deep_versus_empty_agrees() {
     }
 }
 
-/// Every ordered pair drawn from the adversarial families yields identical
+/// Every ordered pair drawn from the registered families yields identical
 /// verdicts from the sweep and the recursive oracle.
 ///
 /// The pool includes the empty version, and each operand is also compared
@@ -186,7 +186,7 @@ fn family_pairs_agree() {
 /// small-scope depth yields identical verdicts from all four entry points and
 /// the recursive oracle.
 ///
-/// Brute force rather than sampling is what reaches every boundary genre
+/// Brute force rather than sampling reaches every boundary case
 /// deterministically: aligned ties, flush-right ties at unequal depths, plateau
 /// consumption, zero deltas across subtree boundaries.
 #[test]

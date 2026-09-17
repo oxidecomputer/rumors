@@ -268,7 +268,7 @@ def extract_bespoke(diff_ops_code):
         diff_ops_code,
         "DIFF_BESPOKE",
         "diff_ops.rs",
-        r'\(\s*"([^"]+)"\s*,\s*BespokeGenre::',
+        r'\(\s*"([^"]+)"\s*,\s*BespokeCategory::',
     )
 
 
@@ -485,11 +485,11 @@ diff_ops! {
         tree: a.join(b),
     }
 }
-pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
-    ("alpha_bespoke", BespokeGenre::TraceLockstep),
+pub(crate) const DIFF_BESPOKE: &[(&str, BespokeCategory)] = &[
+    ("alpha_bespoke", BespokeCategory::TraceLockstep),
     (
         "alpha_diff",
-        BespokeGenre::FallibleHandBack,
+        BespokeCategory::FallibleHandBack,
     ),
 ];
 """

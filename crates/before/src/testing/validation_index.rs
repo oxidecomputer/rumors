@@ -43,11 +43,10 @@
 //! could not prevent one: each chose its own population, so coverage was
 //! a product nobody enumerated. Here the population belongs to the driver
 //! and the operation to the descriptor, and the two meet by construction.
-//! Its own adequacy is the committed known-bad descriptors held
-//! convicted, since centralizing each operation's oracle transcription is
-//! only payable if a wrong transcription cannot pass. Beside it, a tiling
-//! pin holds every `Bound` citation in the coverage roster to exactly one
-//! side — derived from the table, or bespoke under a declared genre — so
+//! Deliberately incorrect descriptors demonstrate that the drivers reject
+//! mistranscribed operations. A separate coverage check assigns every `Bound`
+//! citation to exactly one
+//! side — derived from the table, or bespoke under a declared category — so
 //! a pointwise operation cannot quietly land as one more hand-written
 //! body.
 //!
@@ -58,8 +57,8 @@
 //! catch: contract violations **where no reference implementation
 //! exists** — properties the paper never states (rank tiebreaks, fork
 //! hand-back shapes) or that both oracles would share a blind spot on.
-//! A law needs no oracle to disagree with; it convicts production by
-//! itself.
+//! A law needs no oracle to disagree with; production either satisfies the
+//! predicate or fails it.
 //!
 //! **Exhaustive small-scope enumeration** ([`super::exhaustive`]). Total
 //! enumeration of every reachable state and operation pairing inside
@@ -81,7 +80,7 @@
 //! **The amplification board** (`crate::meter::board`; rendered by
 //! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
-//! adversarial family, a four-size measurement ladder per cell, judged on
+//! worst-case family, a four-size measurement ladder per cell, judged on
 //! deterministic counters only (heap, stack segments, limb ops, scan bits,
 //! digit touches) against one fitted exponent trend per currency, per-size
 //! constants, liveness floors, and owner-declared models. What
@@ -120,14 +119,14 @@
 //! **The population atlas** (the `before-fuelscape` crate, an external
 //! instrument). Per-operation heatmaps of deterministic fuel against
 //! exact input size, sampled uniformly from each size's whole canonical
-//! input space, with the committed adversarial families overlaid as
+//! input space, with the committed worst-case families overlaid as
 //! marked points. What it alone provides: **the distribution** — an
 //! audit view of where the bulk of the input space sends each
 //! operation, so early-exit strata and log-factor banding are visible
 //! to the eye. It enforces nothing (its committed checks are sampler
 //! correctness and coverage parity against `crate::surface`);
 //! enforcement stays in the envelopes and bands, which is why it may
-//! read the roster but never mint a threshold.
+//! read the roster but never create a threshold.
 //!
 //! # The documentation instruments
 //!
@@ -163,8 +162,8 @@
 //!   the parent commit before attributing, then either cure or bring
 //!   the owner a declared-model case with the derivation.
 //! - a liveness floor or band floor fails → a meter stopped watching,
-//!   or an honest input legitimately did less work than the floor's
+//!   or a valid input legitimately did less work than the floor's
 //!   premise — the latter is a floor-premise finding, not a meter bug.
 //! - an asymptotics liveness pin fails → a documented mechanism is gone
 //!   or moved; update the `# Complexity` sections and the pin in one
-//!   change, whichever direction is honest.
+//!   change, whichever direction is correct.

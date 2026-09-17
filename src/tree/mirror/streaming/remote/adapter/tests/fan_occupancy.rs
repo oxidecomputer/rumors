@@ -1,19 +1,11 @@
-//! The fan channels' occupancy ceiling: the supply-decode charge premise.
+//! Checks the supply decoder's bounded channel occupancy.
 //!
-//! Both reply-decode shapes buffer decoded leaf records in a
-//! [`FAN`]-slot channel between the reader and the assembler —
-//! `decode`'s joined reader/assembler pair and `early_supplies`'
-//! jointly driven pair — and the session budget charges that residency
-//! flat: `SUPPLY_DECODE_ENVELOPE_BYTES` prices exactly
-//! `SUPPLY_RECORDS_PER_STREAM`
-//! backend-priced records per reply stream, one full channel plus the
-//! record in the reader's hand. The pins here hold that premise against
-//! the code through the test-gated `fan_probe` in `decode.rs` (both
-//! paths hook the same counter). An eager frame source reaches the
-//! `SUPPLY_RECORDS_PER_STREAM` ceiling on each path, demonstrating that the
-//! priced regime is real while pinning the maximum residency to the charge.
+//! The reader and assembler communicate through a [`FAN`]-slot channel. An
+//! eager source must reach, but never exceed, `FAN + 1` resident records: one
+//! full channel plus the record held by the reader. A paced source confirms
+//! that the probe measures actual occupancy rather than returning a constant.
 
-use futures::{Stream, TryStreamExt, stream};
+use futures::{Stream, StreamExt, TryStreamExt, stream};
 
 use before::Version;
 
@@ -119,19 +111,11 @@ fn one_slot_decode_channel_makes_progress() {
     );
 }
 
-/// The occupancy ceiling the flat charge rests on: an eager decode
-/// reaches exactly [`SUPPLY_RECORDS_PER_STREAM`] resident records and never
-/// exceeds it.
+/// An eager ordinary decode reaches exactly `FAN + 1` resident records.
 ///
-/// Under an eager frame source (every frame ready — the wire outpaces
-/// assembly) and the instant `Local` backend, the reader/assembler
-/// channel reaches exactly [`SUPPLY_RECORDS_PER_STREAM`] resident decoded records — one
-/// full channel plus the record in the reader's hand. Reaching the
-/// ceiling keeps the pin non-vacuous: the regime
-/// `SUPPLY_DECODE_ENVELOPE_BYTES` prices is real. Not exceeding it is
-/// the charge premise itself, so a widened channel or a new buffer
-/// stage on this path fails here instead of silently underpricing every
-/// session budget.
+/// All frames are immediately ready and the backend is instantaneous, so the
+/// reader runs as far ahead as the channel permits. Equality makes the bound
+/// both strict and non-vacuous.
 #[test]
 fn eager_decode_occupancy_pins_the_charged_ceiling() {
     let leaves = leaves(4 * FAN as u64);
@@ -144,13 +128,9 @@ fn eager_decode_occupancy_pins_the_charged_ceiling() {
     );
 }
 
-/// The twin channel rides the same ceiling: `early_supplies`' jointly
-/// driven reader/assembler pair reaches exactly [`SUPPLY_RECORDS_PER_STREAM`] resident
-/// records under an eager source and never exceeds it.
+/// Eager opening-supply decoding reaches the same `FAN + 1` ceiling.
 ///
-/// The opening-supply path is one of the reply streams the flat charge
-/// prices, so its channel must hold the same occupancy premise as
-/// `decode`'s; both paths use the same probe.
+/// This separately checks the jointly driven opening path.
 #[test]
 fn eager_early_supplies_ride_the_same_ceiling() {
     let leaves = leaves(4 * FAN as u64);
@@ -179,5 +159,29 @@ fn eager_early_supplies_ride_the_same_ceiling() {
         "peak resident decoded records on the early-supply path must equal the \
          charged ceiling, the same per-stream shape SUPPLY_DECODE_ENVELOPE_BYTES \
          prices for every reply stream",
+    );
+}
+
+/// A paced source stays below the ceiling, proving the probe is live.
+///
+/// A paced source (one frame per poll cycle, so the assembler keeps up)
+/// holds peak occupancy at the reader's per-cycle intake, far under
+/// `FAN + 1`: the sub-ceiling reading proves the eager pin's figure is
+/// measured rather than an instrument artifact, and that occupancy
+/// tracks reader-ahead — not channel capacity — when the wire is the
+/// slower side.
+#[test]
+fn paced_decode_stays_under_the_ceiling() {
+    let leaves = leaves(4 * FAN as u64);
+    let paced = Box::pin(stream::iter(frames(&leaves)).then(|frame| async move {
+        tokio::task::yield_now().await;
+        frame
+    }));
+    let peak = peak_occupancy(paced);
+    assert!(peak >= 1, "records flowed through the probe");
+    assert!(
+        peak <= 2 * PER_FRAME,
+        "paced peak {peak} stays at per-cycle intake, far under the {} ceiling",
+        FAN + 1,
     );
 }

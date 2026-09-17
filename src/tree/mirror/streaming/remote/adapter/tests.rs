@@ -1,10 +1,7 @@
-//! Behavioral specification of the reply/frame adapter.
+//! Behavioral specification for adapting wire frames into protocol replies.
 //!
-//! [`properties`] checks the adapter laws at every tree height.
-//! [`malformed`] and [`backend_errors`] cover invalid input and backend
-//! failures. [`opening`] covers the greeting's exceptional first reply, and
-//! [`runs`] covers supply batching. [`parking`] and [`fan_occupancy`] check the
-//! memory assumptions used to size a session.
+//! The suite checks valid and malformed replies, batching, bounded parking,
+//! and the reader/assembler occupancy limit across every protocol height.
 
 use std::{collections::BTreeMap, ops::Range};
 

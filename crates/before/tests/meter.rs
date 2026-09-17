@@ -1,59 +1,40 @@
-//! Resource envelopes: each operation's peak transient heap, big-integer
-//! limb work, accumulator digit touches, and encoded bits scanned on
-//! the adversarial input families, pinned as ceilings.
+//! Deterministic resource envelopes for Before operations.
 //!
-//! A regression fails a pinned row loudly; an improvement tightens a
-//! committed number. The rows pin constants on fixed shapes; the flatness
-//! bands beside them hold each cost flat per unit across a scale doubling,
-//! which is where the asymptotic claims are judged.
+//! Fixed input shapes bound peak transient heap, big-integer limb work,
+//! accumulator digit touches, and encoded bits scanned. Scaling tests bound
+//! each cost per input unit across a size doubling.
 //!
 //! # The columns
 //!
-//! Deterministic meters, read over the scenario body alone and asserted
-//! together by [`metered`]:
+//! [`metered`] reads four deterministic counters around each scenario body:
 //!
-//! - **Peak heap bytes**: the binary-wide counting allocator
-//!   ([`PeakAlloc`]), read as a delta over the scenario body. The canaries
-//!   below prove the meter live.
+//! - **Peak heap bytes**: the [`PeakAlloc`] delta over the scenario body.
 //! - **Limb operations** ([`meter::limb_ops`], under `limb-meter`): operand
 //!   limbs per `Base` operation plus one value-width record per decoded
 //!   wide-gamma value. Arithmetic-width cost is invisible to the other
-//!   meters (the work is wider, not more frequent), so this is the column
-//!   that sees a magnitude-quadratic regression.
+//!   meters, so this counter detects unexpectedly expensive wide arithmetic.
 //! - **Accumulator digit touches** (`suanpan::touch_meter`, under
 //!   `limb-meter`): the cliff-free accumulator's own currency, where the
 //!   folds and the tick walk do their arithmetic.
 //! - **Scanned bits** ([`meter::scan_bits`], under `scan-meter`):
-//!   encoded bits read and written through the metered primitives,
-//!   the column that sees traversal work that allocates nothing, recurses
-//!   nothing, and does no arithmetic.
+//!   encoded bits read and written through metered primitives.
 //!
 //! Stack depth is not a meter column. Dedicated deep-tree tests cover the
 //! library's iterative traversals at depths that would overflow a recursive
 //! implementation.
 //!
 //! The counters are process-global, so per-scenario readings are meaningful
-//! only under nextest's process-per-test isolation, this workspace's
-//! runner. The binary builds only with the `limb-meter` and `scan-meter`
-//! features (`required-features` in the crate manifest), so every column
-//! is always compiled in.
+//! only under nextest's process-per-test isolation. This test binary requires
+//! the `limb-meter` and `scan-meter` features, so every counter is present.
 //!
 //! # The pin convention
 //!
-//! A ceiling is the measured reading ×1.25, rounded up, and only ever
-//! tightened: where a re-measure rises while staying inside the ceiling
-//! (heap cells whose backend growth headroom varies), the tighter ceiling
-//! stands. A re-denomination of a column, the same work newly counted at a
-//! metered seam, is a sanctioned rise, recorded in its pin commit. Every
-//! row pins every column, and under each counter column sits a floor of
-//! one of two genres, named apart because their trips mean opposite
-//! things:
+//! Each ceiling is 125% of a measured reading, rounded up. Each counter also
+//! has one of two lower bounds:
 //!
-//! - An **improvement tripwire** ([`Floor::Tripwire`]) is the measured
-//!   reading ×0.75, rounded down. A trip is a drop of more than 25% from
-//!   the pinned reading: attribute it. An improvement re-pins the band; a
-//!   dead meter is the bypass the column exists to catch, since a ceiling
-//!   passes vacuously once a counter stops counting.
+//! - An **improvement tripwire** ([`Floor::Tripwire`]) is 75% of the measured
+//!   reading, rounded down. It distinguishes a genuine improvement from a
+//!   counter that stopped observing work.
 //! - A **liveness floor** ([`Floor::LiveBits`]) states a mechanism's
 //!   irreducible work, never a measured basis: a walk that must read every
 //!   live input bit, by contract (a strict validator, a decoder) or by
@@ -63,21 +44,17 @@
 //!   the tail the floor's definition allows past a decision. An improvement
 //!   can approach but never cross it, so a trip means the work left the
 //!   metered primitives; on a row whose walk also writes, the counter
-//!   holds those writes too, and the floor attests total bypass alone.
+//!   holds those writes too. This floor detects total bypass, not partial
+//!   rerouting.
 //!
-//! Both genres detect total bypass, not partial rerouting: work routed
-//! around the metered primitives in part still reads green.
-//!
-//! The measurements of record, and every re-pin's movement and
-//! attribution, live in the pin commits (`git log -S` the constant). Re-pin
-//! by rerunning this binary under `--no-capture` with `--all-features` and
-//! reading the MEASURED lines.
+//! Re-measure with this binary under `--no-capture --all-features`; it prints
+//! each reading with a `MEASURED` prefix.
 //!
 //! Wall time is never asserted here: it is the one number that is not
 //! deterministic. The pins are dev-profile (limb counts shrink under
 //! release, where `debug_assert!` comparisons vanish, so the dev pin
 //! binds). Every column's reading is deterministic on a given target; a
-//! pin's portability is what CI's run on a second target checks.
+//! CI checks the pins on a second target.
 
 use before::meter::registry::Shape;
 use std::cmp::Ordering;
@@ -270,8 +247,7 @@ struct Bound {
     floor: Floor,
 }
 
-/// The floor under a counter column's reading: the file doc's two genres,
-/// whose trips mean opposite things.
+/// A lower bound that detects either counter failure or unexpected cost drift.
 #[derive(Clone, Copy)]
 enum Floor {
     /// The improvement tripwire: the measured reading ×0.75, rounded down
@@ -561,7 +537,7 @@ const HARNESS_PROBE_DEPTH: usize = 64;
 /// The harness judges every column.
 ///
 /// A body that moves every counter fails under a ceiling below its
-/// reading on any one column, under a floor of either genre above its
+/// reading on any one column, under either floor above its
 /// reading on any one column, and under a zero heap ceiling.
 ///
 /// The harness's own negative control: a column whose assert is skipped, a
@@ -1282,14 +1258,14 @@ fn decode_alt_spine_envelope() {
 // accumulator at the exponent gap, never through a materialized shift of
 // the accumulated value), so their arithmetic shows up in the accumulator
 // touch column; the limb column keeps the `Base` work (decode, the final
-// conversion) honest, and the touch column is the liveness floor for the
+// conversion) explicit, and the touch column is the liveness floor for the
 // fold itself. RANK_HARMONIC is the fold's separating family — a
 // numerator as wide as the depth already walked at every level — pinned
 // linear where a re-shifting fold reads magnitude-quadratic. RANK_DENSE
 // and RANK_BIGROOT are the controls: one-bit and root-heavy numerators
 // respectively.
 //
-// RANK_PAIR_MISMATCH pins the class-first comparison's honest remainder
+// RANK_PAIR_MISMATCH pins the class-first comparison's expected remainder
 // (the subtraction and addition outputs' own content), and RANK_SUM_MIXED
 // the raw-accumulator Sum (one normalization at the end, where a
 // per-summand renormalization reads magnitude-quadratic).
@@ -1405,9 +1381,8 @@ fn rank_pair_mismatch_envelope() {
 /// the end, so the high-exponent operand costs its own width once instead
 /// of once per later element.
 ///
-/// High-first ordering was the adversarial arm of the fold's
-/// order-dependence (`Sum` accepts arbitrary order, so the worst order is
-/// the honest pin); under the raw accumulator it is the order that makes
+/// High-first ordering is the worst arm of the fold's order dependence. Under
+/// the raw accumulator it is the order that makes
 /// every later add a shifted word, which is why the pin stays the
 /// scenario of record.
 #[test]
@@ -1429,7 +1404,7 @@ fn rank_sum_mixed_envelope() {
 
 // ─── skyline codec scenarios ────────────────────────────────────────────────
 //
-// The skyline validator over the adversarial event families, with the
+// The skyline validator over the registered worst-case event families, with the
 // stream transcoded outside measurement. The rows pin the validator's
 // transient (~2 bits of open-ancestor stack per level plus the
 // cliff-free accumulator), denominated against skyline input bytes: the
@@ -2220,7 +2195,7 @@ mod skyline_flatness {
     /// The reveal comb's `k` sibling sites share one `2^b`-wide minimum
     /// over a zero floor, so the sweep's minimum tracking crosses the
     /// width-`b` boundary between the floor and the site plateau at
-    /// every site — the close-reveal genre. The web shuttles that
+    /// every site — the close-reveal case. The web shuttles that
     /// boundary between the difference stack and the latent register by
     /// moves alone, so the flatness bound holds in both currencies with
     /// the closed form `min_ticks = k·2^b` exact at both scales (an
@@ -2253,7 +2228,7 @@ mod skyline_flatness {
         );
     }
 
-    // ─── the propagate seam: the wide-hop guards at their clearance line ─────
+    // ─── wide-hop guards at their clearance boundary ───
     //
     // The anchor web's undercut propagation decides each wide hop by
     // top-index domination before any fold, and the dying side — residue
@@ -2273,48 +2248,48 @@ mod skyline_flatness {
     // guard that stops deciding at the line (or starts demanding more
     // clearance) inflates exactly the minimal-clearance point.
 
-    /// Sites of the seam bands' small runs (the large runs double it).
-    const SEAM_SMALL_K: usize = 512;
+    /// Sites in the boundary bands' small runs; large runs double this count.
+    const BOUNDARY_SMALL_K: usize = 512;
 
     /// The plunge residue's digit count at the guards' minimal decidable
     /// clearance: three-digit boundaries plus the two-digit certificate.
     ///
     /// The closed forms rest on every hop deciding without a descent: a
-    /// decision-bound top (the seam shapes' top digit 5) decides two digit
+    /// decision-bound top (the boundary shapes' top digit 5) decides two digit
     /// indexes below itself on its first touch — suanpan's witness
     /// `decision_bound_top_decides_on_the_first_touch`.
-    const SEAM_CLEARANCE: usize = 5;
+    const BOUNDARY_CLEARANCE: usize = 5;
 
     /// The clearance band's second point: the same hops decided with five
     /// digits of daylight, every dying width unchanged.
-    const SEAM_CLEARANCE_WIDE: usize = 10;
+    const BOUNDARY_CLEARANCE_WIDE: usize = 10;
 
-    /// The seam-plunge closed form: `(k + 1)` ascending leaves over all-zero
+    /// The descending-boundary closed form: `(k + 1)` ascending leaves over all-zero
     /// minima plus the plunge.
-    fn seam_plunge_ticks(k: usize, r: usize) -> dashu_int::UBig {
+    fn descending_boundary_ticks(k: usize, r: usize) -> dashu_int::UBig {
         use dashu_int::UBig;
         (UBig::from(5u8) << (32 * (r - 1))) * UBig::from((k + 1) as u64)
             + (UBig::from(5u8) << 64usize) * UBig::from(((k + 1) * (k + 2) / 2) as u64)
     }
 
-    /// The seam-plunge control's closed form: the ascent on the bases, the
+    /// The leveled control's closed form: the ascent on the bases, the
     /// terminal one rung up.
-    fn seam_plunge_control_ticks(k: usize, r: usize) -> dashu_int::UBig {
+    fn descending_boundary_control_ticks(k: usize, r: usize) -> dashu_int::UBig {
         use dashu_int::UBig;
         (UBig::from(5u8) << (32 * (r - 1)))
             + (UBig::from(5u8) << 64usize) * UBig::from((k + 2) as u64)
     }
 
-    /// The seam-stop pair's shared closed form (the control differs only in
+    /// The stopping pair's shared closed form (the control differs only in
     /// zero-base wrapping).
-    fn seam_stop_ticks(k: usize) -> dashu_int::UBig {
+    fn stopping_boundary_ticks(k: usize) -> dashu_int::UBig {
         use dashu_int::UBig;
         (UBig::from(5u8) << 128usize)
             + (UBig::from((k - 1) as u64) << 80usize)
             + (UBig::from(5u8) << 64usize) * UBig::from((k * (k - 1) / 2) as u64)
     }
 
-    /// Touch liveness floor on the seam-plunge's larger run, derived from
+    /// Touch liveness floor on the descending shape's larger run, derived from
     /// the propagation's irreducible work — never from a measured basis.
     ///
     /// The plunge consumes every stacked boundary: `k` dying folds, each
@@ -2323,11 +2298,11 @@ mod skyline_flatness {
     /// exactly three), `3k` touches at `k = 1,024`. Everything else the run
     /// does is on top; a reading below this means the propagation's folds
     /// left the metered representation.
-    const SEAM_PLUNGE_TOUCH_FLOOR: u64 = 3 * 2 * SEAM_SMALL_K as u64;
+    const DESCENDING_TOUCH_FLOOR: u64 = 3 * 2 * BOUNDARY_SMALL_K as u64;
 
-    /// Absolute touch ceiling on the seam-plunge's larger run: the measured
+    /// Absolute touch ceiling on the descending shape's larger run: the measured
     /// record ×1.25, rounded up (the record lives in the pin commit).
-    const SEAM_PLUNGE_TOUCH_CEILING: u64 = 26_945;
+    const DESCENDING_TOUCH_CEILING: u64 = 26_945;
 
     /// Band on the control-minus-plunge touch difference at the larger run:
     /// the measured record ×0.75 down and ×1.25 up (the record lives in the
@@ -2344,9 +2319,9 @@ mod skyline_flatness {
     /// wide-hop guards exist to prevent) drives this surplus through zero —
     /// the floor is the tripwire — while a park regression inflates it past
     /// the ceiling.
-    const SEAM_PLUNGE_PARK_SURPLUS_BAND: (i64, i64) = (1_514, 2_523);
+    const DESCENDING_PARK_SURPLUS_BAND: (i64, i64) = (1_514, 2_523);
 
-    /// The seam-plunge cascade is dying-width-funded flat.
+    /// The descending cascade is flat per retiring digit width.
     ///
     /// Per-byte touches stay flat (×1.25) across a site doubling at the
     /// guards' minimal clearance, under an absolute band, over the derived
@@ -2359,20 +2334,20 @@ mod skyline_flatness {
     /// per byte, with the surplus leg isolating the hops against the
     /// control's drain parks.
     #[test]
-    fn skyline_min_ticks_seam_plunge_is_flat_per_unit() {
+    fn skyline_min_ticks_descending_boundary_is_flat_per_unit() {
         let run = |k: usize| {
             let plunge = min_ticks_family_run(
-                Shape::SeamPlunge.build2(k, SEAM_CLEARANCE),
-                &seam_plunge_ticks(k, SEAM_CLEARANCE),
+                Shape::SeamPlunge.build2(k, BOUNDARY_CLEARANCE),
+                &descending_boundary_ticks(k, BOUNDARY_CLEARANCE),
             );
             let control = min_ticks_family_run(
-                Shape::SeamPlungeControl.build2(k, SEAM_CLEARANCE),
-                &seam_plunge_control_ticks(k, SEAM_CLEARANCE),
+                Shape::SeamPlungeControl.build2(k, BOUNDARY_CLEARANCE),
+                &descending_boundary_control_ticks(k, BOUNDARY_CLEARANCE),
             );
             (plunge, control)
         };
-        let (small, small_control) = run(SEAM_SMALL_K);
-        let (large, large_control) = run(2 * SEAM_SMALL_K);
+        let (small, small_control) = run(BOUNDARY_SMALL_K);
+        let (large, large_control) = run(2 * BOUNDARY_SMALL_K);
         eprintln!(
             "MEASURED seam_plunge: small={}/{}B large={}/{}B control_small={}/{}B \
              control_large={}/{}B diff_small={} diff_large={}",
@@ -2394,14 +2369,14 @@ mod skyline_flatness {
             (large.touches, large.bytes),
         );
         assert!(
-            large.touches <= SEAM_PLUNGE_TOUCH_CEILING,
+            large.touches <= DESCENDING_TOUCH_CEILING,
             "seam_plunge: {} touches exceed the pinned ceiling \
-             {SEAM_PLUNGE_TOUCH_CEILING}",
+             {DESCENDING_TOUCH_CEILING}",
             large.touches,
         );
         assert!(
-            large.touches >= SEAM_PLUNGE_TOUCH_FLOOR,
-            "seam_plunge: {} touches read below the {SEAM_PLUNGE_TOUCH_FLOOR} \
+            large.touches >= DESCENDING_TOUCH_FLOOR,
+            "seam_plunge: {} touches read below the {DESCENDING_TOUCH_FLOOR} \
              liveness floor (the k dying three-digit folds alone): the \
              propagation's work left the metered representation",
             large.touches,
@@ -2409,18 +2384,18 @@ mod skyline_flatness {
         let surplus = i64::try_from(large_control.touches).expect("touch counts fit i64")
             - i64::try_from(large.touches).expect("touch counts fit i64");
         assert!(
-            surplus >= SEAM_PLUNGE_PARK_SURPLUS_BAND.0,
+            surplus >= DESCENDING_PARK_SURPLUS_BAND.0,
             "seam_plunge: the control-minus-plunge surplus {surplus} fell below its \
              band floor {} — a per-hop read of the surviving residue's width is \
              back in the cascade (or the parks got cheaper: attribute and re-pin)",
-            SEAM_PLUNGE_PARK_SURPLUS_BAND.0,
+            DESCENDING_PARK_SURPLUS_BAND.0,
         );
         assert!(
-            surplus <= SEAM_PLUNGE_PARK_SURPLUS_BAND.1,
+            surplus <= DESCENDING_PARK_SURPLUS_BAND.1,
             "seam_plunge: the control-minus-plunge surplus {surplus} exceeds its \
              band ceiling {} — the drain parks picked up width, or the hops got \
              cheaper: attribute and re-pin",
-            SEAM_PLUNGE_PARK_SURPLUS_BAND.1,
+            DESCENDING_PARK_SURPLUS_BAND.1,
         );
     }
 
@@ -2431,22 +2406,22 @@ mod skyline_flatness {
     /// whose hops have five, at equal site count and dying widths.
     ///
     /// The `r` knob moves only the residue's digit clearance (and its two
-    /// wide codes' width), so the honest mechanism reads near-identical
+    /// wide codes' width), so the expected mechanism reads near-identical
     /// per byte at both points. A clearance regression is one-sided:
     /// demanding more daylight (or mis-certifying at the line) reroutes
     /// exactly the minimal-clearance point's hops onto the comparable-scale
     /// fold, inflating it against the wide point — the direction the
     /// standard growth band never checks.
     #[test]
-    fn skyline_min_ticks_seam_plunge_clearance_band() {
-        let k = 2 * SEAM_SMALL_K;
+    fn skyline_min_ticks_descending_boundary_clearance_band() {
+        let k = 2 * BOUNDARY_SMALL_K;
         let tight = min_ticks_family_run(
-            Shape::SeamPlunge.build2(k, SEAM_CLEARANCE),
-            &seam_plunge_ticks(k, SEAM_CLEARANCE),
+            Shape::SeamPlunge.build2(k, BOUNDARY_CLEARANCE),
+            &descending_boundary_ticks(k, BOUNDARY_CLEARANCE),
         );
         let wide = min_ticks_family_run(
-            Shape::SeamPlunge.build2(k, SEAM_CLEARANCE_WIDE),
-            &seam_plunge_ticks(k, SEAM_CLEARANCE_WIDE),
+            Shape::SeamPlunge.build2(k, BOUNDARY_CLEARANCE_WIDE),
+            &descending_boundary_ticks(k, BOUNDARY_CLEARANCE_WIDE),
         );
         eprintln!(
             "MEASURED seam_plunge_clearance: tight={}/{}B wide={}/{}B",
@@ -2470,7 +2445,7 @@ mod skyline_flatness {
         }
     }
 
-    /// Touch liveness floor on the seam-stop's larger run, derived from the
+    /// Touch liveness floor on the stopping shape's larger run, derived from the
     /// stopping arm's irreducible work — never from a measured basis.
     ///
     /// Each of the `k` descents dies by one terminal fold into the
@@ -2478,11 +2453,11 @@ mod skyline_flatness {
     /// (each dying residue is a spilled two-limb magnitude), `3k` touches
     /// at `k = 1,024`. A reading below this means the stopping folds left
     /// the metered representation.
-    const SEAM_STOP_TOUCH_FLOOR: u64 = 3 * 2 * SEAM_SMALL_K as u64;
+    const STOPPING_TOUCH_FLOOR: u64 = 3 * 2 * BOUNDARY_SMALL_K as u64;
 
-    /// Absolute touch ceiling on the seam-stop's larger run: the measured
+    /// Absolute touch ceiling on the stopping shape's larger run: the measured
     /// record ×1.25, rounded up (the record lives in the pin commit).
-    const SEAM_STOP_TOUCH_CEILING: u64 = 38_017;
+    const STOPPING_TOUCH_CEILING: u64 = 38_017;
 
     /// Band on the stop-minus-control touch difference at the larger run:
     /// the measured record ×0.75 down and ×1.25 up (the record lives in
@@ -2496,9 +2471,9 @@ mod skyline_flatness {
     /// boundary-dominates hop itself (plus the one stacked-boundary arming
     /// and its drain park, O(1) in `k`): a per-hop read of the surviving
     /// boundary's width lands whole here, undiluted by the shared freight.
-    const SEAM_STOP_DIFF_BAND: (u64, u64) = (5_904, 9_840);
+    const STOPPING_DIFF_BAND: (u64, u64) = (5_904, 9_840);
 
-    /// The seam-stop arm survives its hops at O(1) beside the dying fold:
+    /// The stopping arm uses O(1) work per hop beside the retiring fold:
     /// per-byte touches stay flat (×1.25) across a site doubling, under an
     /// absolute band, over the derived floor, with the stop-minus-control
     /// difference banded.
@@ -2509,15 +2484,17 @@ mod skyline_flatness {
     /// boundary's shrink polarity: each hop leaves the survivor smaller by
     /// exactly the dying residue.
     #[test]
-    fn skyline_min_ticks_seam_stop_is_flat_per_unit() {
+    fn skyline_min_ticks_stopping_boundary_is_flat_per_unit() {
         let run = |k: usize| {
-            let stop = min_ticks_family_run(Shape::SeamStop.build1(k), &seam_stop_ticks(k));
-            let control =
-                min_ticks_family_run(Shape::SeamStopControl.build1(k), &seam_stop_ticks(k));
+            let stop = min_ticks_family_run(Shape::SeamStop.build1(k), &stopping_boundary_ticks(k));
+            let control = min_ticks_family_run(
+                Shape::SeamStopControl.build1(k),
+                &stopping_boundary_ticks(k),
+            );
             (stop, control)
         };
-        let (small, small_control) = run(SEAM_SMALL_K);
-        let (large, large_control) = run(2 * SEAM_SMALL_K);
+        let (small, small_control) = run(BOUNDARY_SMALL_K);
+        let (large, large_control) = run(2 * BOUNDARY_SMALL_K);
         eprintln!(
             "MEASURED seam_stop: small={}/{}B large={}/{}B control_small={}/{}B \
              control_large={}/{}B diff_small={} diff_large={}",
@@ -2539,13 +2516,13 @@ mod skyline_flatness {
             (large.touches, large.bytes),
         );
         assert!(
-            large.touches <= SEAM_STOP_TOUCH_CEILING,
-            "seam_stop: {} touches exceed the pinned ceiling {SEAM_STOP_TOUCH_CEILING}",
+            large.touches <= STOPPING_TOUCH_CEILING,
+            "seam_stop: {} touches exceed the pinned ceiling {STOPPING_TOUCH_CEILING}",
             large.touches,
         );
         assert!(
-            large.touches >= SEAM_STOP_TOUCH_FLOOR,
-            "seam_stop: {} touches read below the {SEAM_STOP_TOUCH_FLOOR} liveness \
+            large.touches >= STOPPING_TOUCH_FLOOR,
+            "seam_stop: {} touches read below the {STOPPING_TOUCH_FLOOR} liveness \
              floor (the k dying three-digit folds alone): the stopping folds left \
              the metered representation",
             large.touches,
@@ -2555,17 +2532,17 @@ mod skyline_flatness {
             .checked_sub(large_control.touches)
             .expect("the stop does at least its control's work");
         assert!(
-            diff >= SEAM_STOP_DIFF_BAND.0,
+            diff >= STOPPING_DIFF_BAND.0,
             "seam_stop: the stop-minus-control difference {diff} fell below its \
              band floor {} (measured ×0.75): attribute the improvement and re-pin",
-            SEAM_STOP_DIFF_BAND.0,
+            STOPPING_DIFF_BAND.0,
         );
         assert!(
-            diff <= SEAM_STOP_DIFF_BAND.1,
+            diff <= STOPPING_DIFF_BAND.1,
             "seam_stop: the stop-minus-control difference {diff} exceeds its band \
              ceiling {} — a per-hop read of the surviving boundary's width is back \
              in the stopping arm",
-            SEAM_STOP_DIFF_BAND.1,
+            STOPPING_DIFF_BAND.1,
         );
     }
 
@@ -3209,7 +3186,7 @@ mod skyline_flatness {
     /// 1), so the co-sweep's freezes and promotions fire at boundaries
     /// where the mate's cheap codes set the funded width while the
     /// drift being parked and promoted was deposited by the re-arm
-    /// operand's wide codes — the two-operand arming genre the
+    /// operand's wide codes — the two-operand arming case the
     /// freeze-position analogue's monotone mate cannot reach (its own
     /// doc records that promotion never fires there; the committed
     /// span-promotion pair tripwire proves it fires here). Value legs
@@ -3265,7 +3242,7 @@ mod skyline_flatness {
         [(1_368_802, 1_083_031), (2_737_957, 2_167_143)];
 
     /// Distance and lag are linear on the promotion re-arm analogue:
-    /// the two-operand arming genre reads flat (×1.25) per encoded byte
+    /// the two-operand arming case reads flat (×1.25) per encoded byte
     /// across a block-count doubling, under absolute two-scale
     /// ceilings.
     ///
@@ -3815,7 +3792,7 @@ mod skyline_flatness {
     /// 0 pays the prefix per freeze — `Θ(k²)` touches on linear input,
     /// and the zero-padded magnitudes it returns drag the limb column
     /// superlinear with it. The freeze-position family pins the
-    /// query-layer half of this genre (no absolute position is read
+    /// query-layer half of this case (no absolute position is read
     /// per freeze); this band pins the accumulator half — the
     /// public-API lift of `scaled_read_costs_the_written_span`.
     #[test]
@@ -3899,7 +3876,7 @@ mod skyline_flatness {
     /// per boundary forever. The public-API lift of
     /// `held_width_rows_cost_the_held_digits`: reads price the settled
     /// width, and the settlement (with its certificate skip) is what
-    /// keeps the settled width honest after a cancellation.
+    /// keeps the settled width accurate after a cancellation.
     #[test]
     fn skyline_cmp_tooth_tail_is_flat_per_unit() {
         let m = CMP_TOOTH_TAIL_SMALL;
@@ -4138,7 +4115,7 @@ mod eq_early_exit {
     /// both scales.
     ///
     /// Fixing the magnitude keeps the deciding first interval's own
-    /// codes — the work an honest early exit is allowed to read —
+    /// codes — the work a valid early exit is allowed to read —
     /// scale-independent, so only the tail the exit must NOT read
     /// grows.
     const EQ_EXIT_TOOTH_BITS: usize = 1_024;
@@ -4197,14 +4174,8 @@ mod eq_early_exit {
     /// (ceiling, floor) = measured ×1.25 rounded up, ×0.75 rounded down
     /// (the file doc's ceiling and improvement-tripwire conventions).
     ///
-    /// The record (exact counters, dev profile; the readings live in
-    /// the pin commit) is identical at BOTH tooth-count scales: the
-    /// deciding interval's one wide delta fold, unmoved by the tail.
-    /// The exit-discipline mutation this row owns (`eq` sweeping a
-    /// decided question to exhaustion — value-equivalent, work-only)
-    /// reads tail-linear on the same pairs: orders over this ceiling
-    /// and growing with the doubling \[measured under the live
-    /// mutation, same harness, at pin time\].
+    /// The reading is identical at both tooth-count scales: the deciding
+    /// interval performs one wide delta fold, unaffected by the tail.
     const EQ_EXIT_TOUCH_PINS: (u64, u64) = (62, 36);
 
     /// Absolute two-scale scan pins paired with
@@ -4213,8 +4184,7 @@ mod eq_early_exit {
     /// The record is identical at both scales: the two streams'
     /// opening codes — dominated by the comb's
     /// `2·EQ_EXIT_TOOTH_BITS + 1`-bit first absolute — read once,
-    /// tail-independent. The same exit-discipline mutation reads
-    /// tail-linear.
+    /// tail-independent.
     #[cfg(feature = "scan-meter")]
     const EQ_EXIT_SCAN_PINS: (u64, u64) = (2_568, 1_540);
 
@@ -4250,7 +4220,7 @@ mod eq_early_exit {
             assert!(
                 run.touches >= EQ_EXIT_TOUCH_PINS.1,
                 "eq_exit_{scale}: {} touches under the {} improvement tripwire \
-                 (measured ×0.75): attribute the drop — an honest improvement \
+                 (measured ×0.75): attribute the drop — a genuine improvement \
                  re-pins the band; a dead meter is the bypass this floor catches",
                 run.touches,
                 EQ_EXIT_TOUCH_PINS.1,
@@ -4268,7 +4238,7 @@ mod eq_early_exit {
                 assert!(
                     run.scan_bits >= EQ_EXIT_SCAN_PINS.1,
                     "eq_exit_{scale}: {} scanned bits under the {} improvement \
-                     tripwire (measured ×0.75): attribute the drop — an honest \
+                     tripwire (measured ×0.75): attribute the drop — a genuine \
                      improvement re-pins the band; a dead meter is the bypass this \
                      floor catches",
                     run.scan_bits,
@@ -4281,13 +4251,13 @@ mod eq_early_exit {
 
 // ─── the ledger wide-arming band ─────────────────────────────────────────────
 //
-// The ledger settle's wide × dense genre, held flat in the fold's own
+// The ledger settle's wide × dense case, held flat in the fold's own
 // traffic. The family arms the promotion ledger once with a parked
 // mass as wide as the input (a `2^(32w)` climb) ahead of a trailing
 // mass as dense as the input (the gap spine's punctured run), and the
 // plateau's cancelling descent lands after the sweep — outside every
 // aggregate — so the settle's one aggregate product is exactly the
-// wide × dense cross term, undodgeable by any seam cancellation. The
+// wide × dense cross term, unaffected by boundary cancellation. The
 // settle rides it through one backend multiplication (the query
 // module doc's settle bound), so the deterministic counters — which
 // price the traffic the fold itself moves: operand reads, window
@@ -4433,7 +4403,7 @@ mod ledger_wide_arming {
 
 // ─── the hoisted-window band ─────────────────────────────────────────────────
 //
-// The settle's densified-image span genre. The family is the wide-arming
+// The settle's densified-image span case. The family is the wide-arming
 // close with its block terminal deepened into a dense tail: the tail
 // funds no window density, no settle width, and no freeze — its consumed
 // interval mass is one contiguous run whose balanced spelling compacts
@@ -4443,7 +4413,7 @@ mod ledger_wide_arming {
 // stays put. So across a tail doubling, span-priced work (the walk, the
 // folds, the settle products, the images the settle densifies) grows
 // only with the tail's own linear scan freight, and work priced by a
-// cluster's absolute position — the genre invisible to the width and
+// cluster's absolute position — the case invisible to the width and
 // touch counters, because a zeroed image byte no digit lands on enters
 // no operand width and touches no accumulator digit — scales with the
 // knob instead.
@@ -4646,7 +4616,7 @@ mod hoisted_window {
 
 // ─── the answer-embedded product band ────────────────────────────────────────
 //
-// The close-time settle's wide × dense genre — and the floor under
+// The close-time settle's wide × dense case — and the floor under
 // every settle. The plateau-puncture family `PP(w, d)`
 // (`meter::plateau_puncture`) embeds its excess in the exact answer,
 // not in any ledger accounting: every turn leaf sits on one
@@ -4836,7 +4806,7 @@ mod answer_embedded_product {
 // ─── the settle flatness probes ──────────────────────────────────────────────
 //
 // The multi-arming and pair legs of the settle's bound, held flat per
-// byte. The single-arming wide × dense genres carry their own bands
+// byte. The single-arming wide × dense cases carry their own bands
 // (`ledger_wide_arming`, `answer_embedded_product`); the probes here
 // hold the shapes only arming *count* can reach: trains of wide
 // armings whose ledger settles through the full mass-balanced product
@@ -5022,7 +4992,7 @@ mod settle_flatness {
     /// shared-integrator argument measured on the pair co-sweep, not
     /// inferred from rank alone.
     ///
-    /// The pair drives both settle genres in one co-sweep — the
+    /// The pair drives both settle cases in one co-sweep — the
     /// plateau side parks one wide drift whose final segment stays
     /// dense (the close-time answer-embedded product) while the train
     /// side arms the promotion ledger repeatedly (the aggregate
@@ -5442,7 +5412,7 @@ fn id_fork_envelope() {
 
 // ─── accumulator stream scenarios ───────────────────────────────────────────
 //
-// The digit-touch cost of the cliff-free accumulator on the adversarial
+// The digit-touch cost of the cliff-free accumulator on the worst-case
 // families' delta streams, with the sign read after every delta (the read
 // the sweeps depend on), plus the read-heavy stream where the sign folds
 // outnumber the writes. Each scenario runs at a base scale and its
@@ -5772,7 +5742,7 @@ mod query_env {
     // The practical-regime gauge: `Version::rank`
     // on one concurrent-pair operand — word-scale heights over organic
     // forks, no freeze, no arming. The row pins the benign path's
-    // constants so the adversarial machinery's price on common inputs is
+    // constants so the worst-case machinery's price on common inputs is
     // a committed number, not a vibe.
     pub const RANK_CONCURRENT: Envelope              = envelope(      0,            band(4, 2),    band(11_099, 6_659),       band(61_448, 36_868)); // word-scale heights: zero heap, near-zero limb work, one walk's scan and touches
     pub const TICKS_DENSE: Envelope                  = envelope( 58_815,            band(8, 4),  band(156_270, 93_762),     band(468_809, 281_285)); // the tick row's cost plus the count's gamma codes
@@ -6403,9 +6373,9 @@ fn version_lag_jump_pair_envelope() {
 /// Word-scale heights over organically forked parties: the regime the
 /// overwhelming share of real inputs lives in (every event count fits a
 /// machine word, nothing freezes, the promotion ledger never arms). The
-/// adversarial rank rows above price the machinery's worst shapes; this
+/// worst-case rank rows above price the machinery's expensive shapes; this
 /// row pins what a benign input pays for that machinery's existence, so
-/// a change that cheapens the adversarial path by charging the common
+/// a change that cheapens the worst-case path by charging the common
 /// one cannot read as an improvement.
 #[test]
 fn version_rank_concurrent_envelope() {
@@ -6627,7 +6597,7 @@ fn masked_hole_touches(d: usize) -> u64 {
 const MASK_HOLE_TOUCH_CEILING: u64 = 18;
 
 /// The improvement tripwire under both depth points: the measured reading
-/// ×0.75, the envelope columns' tripwire genre.
+/// ×0.75, the envelope columns' tripwire case.
 #[cfg(feature = "limb-meter")]
 const MASK_HOLE_TOUCH_FLOOR: u64 = 10;
 
@@ -6639,7 +6609,7 @@ const MASK_HOLE_TOUCH_FLOOR: u64 = 10;
 /// per-boundary mechanism can satisfy — a walk that steps the unowned run
 /// boundary by boundary scales its touches with the spine depth and fails
 /// at both points — while the committed floor (measured ×0.75, the
-/// improvement-tripwire genre) keeps the column live. The two readings are
+/// improvement-tripwire case) keeps the column live. The two readings are
 /// deterministic and equal: the block skip makes the walk's accumulator
 /// work a function of the mask depth alone, so the band also pins the
 /// readings' difference at zero.
@@ -6660,7 +6630,7 @@ fn masked_cmp_hole_depth_band() {
             reading >= MASK_HOLE_TOUCH_FLOOR,
             "masked_cmp_hole depth {name}: touch counter reads {reading}, below the \
              {MASK_HOLE_TOUCH_FLOOR} improvement tripwire (measured x0.75): attribute \
-             the drop — an honest improvement re-pins the band; a dead meter is the \
+             the drop — a genuine improvement re-pins the band; a dead meter is the \
              bypass this column exists to catch"
         );
     }
@@ -6849,12 +6819,12 @@ fn fold_party_scatter_envelope() {
 // left version fold (`fold(Version::new(), |acc, v| acc | v)`) re-walks
 // its never-coalescing accumulator per input, and the sequential party
 // fold (one `join` per input) re-walks its accumulated region the same
-// way — the growing-accumulator genre the balanced reduction exists to
+// way — the growing-accumulator case the balanced reduction exists to
 // foreclose, quadratic in arity where the reduction is log-linear, so
 // its readings sit several times over these bands with the gap widening
 // with arity (the demonstration readings live in the pin commit); the
 // per-entry point `*_log_factor_is_alive` pins (the asymptotics suite) keep
-// the model's log factor itself honest.
+// the model's log factor itself explicit.
 mod fold_stagger {
     use super::uniform_version;
     use before::meter::registry::Shape;
@@ -7506,7 +7476,7 @@ mod memo_resolution_cost {
     /// Improvement tripwire paired with [`MEMO_FANOUT_TOUCH_CEILING`]:
     /// the measured reading ×0.75, rounded down.
     ///
-    /// The module comment's tripwire genre: a trip means the reading
+    /// The module comment's tripwire: a trip means the reading
     /// improved past the band, not that the meter died — attribute and
     /// re-pin.
     const MEMO_FANOUT_TOUCH_TRIPWIRE: u64 = 44_040;
@@ -7544,7 +7514,7 @@ mod memo_resolution_cost {
             large.touches >= MEMO_FANOUT_TOUCH_TRIPWIRE,
             "memo_fanout: {} touches read below the {MEMO_FANOUT_TOUCH_TRIPWIRE} \
              improvement tripwire (measured x0.75): attribute the drop — an \
-             honest improvement re-pins the band; a dead meter is the bypass \
+             genuine improvement re-pins the band; a dead meter is the bypass \
              this column exists to catch",
             large.touches,
         );
@@ -7650,9 +7620,9 @@ mod memo_resolution_cost {
 // site anywhere: no memo, no pre-scan) pins the watermark web's
 // own arm-move + close-pop cycle in isolation.
 //
-// Two lower-bound genres guard these pins, named apart because their
+// Two lower-bound classes guard these pins because their
 // trips mean opposite things. A liveness FLOOR is derived from the
-// mechanism's irreducible work, never from a measured basis: an honest
+// mechanism's irreducible work, never from a measured basis: a genuine
 // improvement approaches it but can never cross it, so a trip means
 // the work left the metered representation — investigate the meter. An
 // improvement TRIPWIRE is a measured reading ×0.75: a trip means the
@@ -7709,7 +7679,7 @@ mod width_circulation_cost {
     /// on a ×2 input, under an absolute band on the larger run.
     ///
     /// The signature is the linear ×2.0 on a ×2.0 input: the
-    /// consume-minted width-b boundary difference parks in the latent
+    /// consumed width-b boundary difference parks in the latent
     /// register at the site's close and the next consume's arm
     /// recycles it by a narrow anchor-relative fold, so no hop
     /// re-reads the width — a per-site width read reads ~×4 here. A
@@ -7759,7 +7729,7 @@ mod width_circulation_cost {
     /// Improvement tripwire paired with [`REVEAL_COMB_TOUCH_CEILING`]:
     /// the measured reading ×0.75, rounded down.
     ///
-    /// The module comment's tripwire genre: a trip means the reading
+    /// The module comment's tripwire: a trip means the reading
     /// improved past the band, not that the meter died — attribute and
     /// re-pin.
     const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 46_272;
@@ -7850,12 +7820,12 @@ mod width_circulation_cost {
     /// Improvement tripwire paired with [`HIFLOOR_TOUCH_CEILING`]: the
     /// measured reading ×0.75, rounded down.
     ///
-    /// The module comment's tripwire genre: a trip means the reading
+    /// The module comment's tripwire: a trip means the reading
     /// improved past the band, not that the meter died — attribute and
     /// re-pin.
     const HIFLOOR_TOUCH_TRIPWIRE: u64 = 25_374;
 
-    /// GREEN PIN: the high-floor control is flat and width-independent
+    /// The high-floor control is flat and width-independent
     /// — identical forest, identical deferral and close-reveal cycle,
     /// consume-time gap 2.
     ///
@@ -7997,7 +7967,7 @@ mod width_circulation_cost {
     /// (k, b) = (2,000, 4,096): (k − 1) + b/64 = 1,999 + 64.
     const PLATEAU_TOUCH_FLOOR: u64 = 2_063;
 
-    /// GREEN PIN: the leveled control is flat — identical spine,
+    /// The leveled control is flat: identical spine,
     /// identical arming schedule, identical cliff undercut, all
     /// boundary differences zero.
     ///
@@ -8073,7 +8043,7 @@ mod width_circulation_cost {
 // everything else green while the arm returns to undriven — an arm no
 // committed family drives is exactly where a polarity error waits for an
 // input to find it. The floor is derived from the construction, never
-// measured: the shape mints exactly one dominated-undercut emission per
+// measured: the shape creates exactly one dominated-undercut emission per
 // site, so `dominated_undercut ≥ k` is the mechanism's irreducible
 // decision count, and a reading below it means the family no longer
 // drives the arm — re-derive the family's reachability argument (the
@@ -8221,9 +8191,9 @@ mod pool_recycle {
     /// doubling of the arm/retire churn).
     const CHURN_SMALL_K: usize = 512;
 
-    /// The seam-stop pair's closed form (the semantic leg, proving the
+    /// The stopping pair's closed form (the semantic check, proving the
     /// generator builds the churn this row reasons about).
-    fn seam_stop_ticks(k: usize) -> UBig {
+    fn stopping_boundary_ticks(k: usize) -> UBig {
         (UBig::from(5u8) << 128usize)
             + (UBig::from((k - 1) as u64) << 80usize)
             + (UBig::from(5u8) << 64usize) * UBig::from((k * (k - 1) / 2) as u64)
@@ -8234,14 +8204,14 @@ mod pool_recycle {
     ///
     /// The pool starts empty and a miss occurs exactly when a lease finds
     /// it empty, so the total is the peak count of simultaneously
-    /// outstanding pool-served buffers. On the seam-stop family that peak
+    /// outstanding pool-served buffers. On the stopping family that peak
     /// is two: the first arming leases its fresh gap before any buffer
     /// has retired, and the one stacked boundary then holds a leased
     /// buffer across the next arming's fresh-gap lease; every later
     /// cycle's lease is preceded by its own predecessor's residue
     /// retiring, so steady-state churn adds nothing. A third miss means
     /// a cycle stopped returning its dying buffer before the next lease.
-    const SEAM_STOP_POOL_WARMUP: u64 = 2;
+    const STOPPING_POOL_WARMUP: u64 = 2;
 
     /// One `Version::min_ticks` run over `SS(k)`, reading the pool-miss
     /// counter over the fold body alone, with the closed form as the
@@ -8253,8 +8223,8 @@ mod pool_recycle {
         let misses = meter::pool_misses();
         assert_eq!(
             ticks,
-            ticks_from_big(&seam_stop_ticks(k)),
-            "min_ticks disagrees with the seam-stop closed form"
+            ticks_from_big(&stopping_boundary_ticks(k)),
+            "min_ticks disagrees with the stopping-family closed form"
         );
         misses
     }
@@ -8267,7 +8237,7 @@ mod pool_recycle {
     /// each cycle's arming lease finds the pool empty, so the reading
     /// lands near `k` and both the ceiling and the equality trip.
     #[test]
-    fn seam_stop_pool_misses_stay_at_warmup_across_churn_doubling() {
+    fn stopping_boundary_pool_misses_stay_at_warmup_across_churn_doubling() {
         let small = churn_run(CHURN_SMALL_K);
         let large = churn_run(2 * CHURN_SMALL_K);
         eprintln!("MEASURED seam_stop_pool: misses small={small} large={large}");
@@ -8282,9 +8252,9 @@ mod pool_recycle {
              pool's fill phase is reading the churn, not the peak demand"
         );
         assert!(
-            large <= SEAM_STOP_POOL_WARMUP,
+            large <= STOPPING_POOL_WARMUP,
             "seam_stop_pool: {large} misses exceed the derived peak-demand \
-             ceiling {SEAM_STOP_POOL_WARMUP}: a cycle stopped returning its \
+             ceiling {STOPPING_POOL_WARMUP}: a cycle stopped returning its \
              dying buffer before the next lease"
         );
     }
@@ -8316,7 +8286,7 @@ mod placement {
     /// The placement fixture: one clock's comparable snapshot chain
     /// `s < v < e` (multi-party skylines via received sends, so the
     /// streams have real structure), plus a divergent line for the
-    /// concurrent genres.
+    /// concurrent cases.
     ///
     /// Returns `(s, v, e, div)` with `s < v < e`, `s <= div`, and
     /// `div` concurrent to both `v` and `e`.
@@ -8355,7 +8325,7 @@ mod placement {
         (s, v, e, div)
     }
 
-    /// GREEN PIN: on a full sweep (no demand settles before
+    /// On a full sweep where no demand settles before
     /// exhaustion), the fused membership walk scans exactly the
     /// two-walk composition minus one probe scan — each stream decoded
     /// once.
@@ -8396,7 +8366,7 @@ mod placement {
         );
     }
 
-    /// GREEN PIN: over a single stored bound, the membership walk is
+    /// Over a single stored bound, the membership walk is
     /// the pair sweep.
     ///
     /// A bound whose verdict confirms only at exhaustion reads scan
@@ -8476,9 +8446,9 @@ mod placement {
         );
     }
 
-    /// GREEN PIN: the composition's early exits survive the fusion, and
+    /// The composition's early exits survive the fusion, and
     /// the fused walk stays strictly under the composition on both
-    /// concurrent genres.
+    /// concurrent cases.
     ///
     /// Concurrent to the ceiling: the refuted containment answers at
     /// the deciding interval. Concurrent to the hole: the hole is
@@ -8523,7 +8493,7 @@ mod placement {
         );
     }
 
-    /// GREEN PIN: the single-bound identity holds on the limb meter too —
+    /// The single-bound identity also holds for limb operations:
     /// on an exhaustion-confirmed demand, the degenerate walk commits
     /// exactly the pair sweep's accumulator write sequence.
     #[cfg(feature = "limb-meter")]
@@ -8549,7 +8519,7 @@ mod placement {
         );
     }
 
-    /// GREEN PIN: one fused span pass, each stream decoded once.
+    /// One fused span pass decodes each stream once.
     ///
     /// On a full sweep (every relation comparable) the fused span
     /// placement scans exactly the two-comparison composition minus one
@@ -8652,8 +8622,8 @@ mod placement {
         );
     }
 
-    /// GREEN PIN: the span walk's concurrency exits fire per
-    /// endpoint, and every concurrent genre stays strictly under the
+    /// The span walk's concurrency exits fire per
+    /// endpoint, and every concurrent case stays strictly under the
     /// two-comparison composition.
     ///
     /// Concurrent to both endpoints: the walk returns at the second
@@ -8665,7 +8635,7 @@ mod placement {
         let (s, v, e, div) = fixture();
         let top = &e | &div;
 
-        for (lo, hi, probe, verdict, genre) in [
+        for (lo, hi, probe, verdict, case) in [
             // div is concurrent to both v and e: the early return.
             (&v, &e, &div, Placement::Concurrent(Endpoint::Both), "both"),
             // v is past s but concurrent to div: the hi-drop path.
@@ -8689,17 +8659,17 @@ mod placement {
                 let _ = probe.partial_cmp(lo);
                 let _ = probe.partial_cmp(hi);
             });
-            eprintln!("MEASURED span_concurrent_{genre}: fused={fused} composed={composed}");
+            eprintln!("MEASURED span_concurrent_{case}: fused={fused} composed={composed}");
             assert!(
                 fused < composed,
-                "concurrent-to-{genre}: the fused span walk ({fused}) must undercut \
+                "concurrent-to-{case}: the fused span walk ({fused}) must undercut \
                  the composition ({composed})"
             );
         }
     }
 
-    /// GREEN PIN: the dominance face's bail on a start the probe fails
-    /// to dominate, on both failure genres.
+    /// The dominance query stops when the probe fails to dominate the start,
+    /// to dominate, on both failure classes.
     ///
     /// A *concurrent* start refutes `lo <= probe` at its first opposing
     /// interval — one interval before the pair sweep's two-flag
@@ -8716,7 +8686,7 @@ mod placement {
     fn dominance_bails_at_the_refuted_start() {
         let (s, v, e, div) = fixture();
 
-        // Genre 1: the start is concurrent to the probe.
+        // Case 1: the start is concurrent to the probe.
         let top = &e | &div;
         let span = Span::new(&div, &top).unwrap();
         let fused = scanned(|| {
@@ -8751,7 +8721,7 @@ mod placement {
             "the dominance bail ({fused}) must undercut the two-check shape ({two_check})"
         );
 
-        // Genre 2: the start strictly dominates the probe.
+        // Case 2: the start strictly dominates the probe.
         let span = Span::new(&v, &e).unwrap();
         let fused = scanned(|| {
             assert_eq!(span.dominance(&s), Dominance::Before);
@@ -8779,9 +8749,9 @@ mod placement {
         );
     }
 
-    /// GREEN PIN: the precedence face's bail on an end the probe fails
+    /// The precedence query stops when the probe fails to precede the end,
     /// to precede — the dominance bail, mirrored — on both failure
-    /// genres.
+    /// error classes.
     ///
     /// A *concurrent* end refutes `probe <= hi` at its first opposing
     /// interval — one interval before the pair sweep's two-flag
@@ -8796,7 +8766,7 @@ mod placement {
     fn precedence_bails_at_the_refuted_end() {
         let (s, v, e, div) = fixture();
 
-        // Genre 1: the end is concurrent to the probe.
+        // Case 1: the end is concurrent to the probe.
         let span = Span::new(&s, &div).unwrap();
         let fused = scanned(|| {
             assert_eq!(span.precedence(&v), Precedence::After);
@@ -8830,7 +8800,7 @@ mod placement {
             "the precedence bail ({fused}) must undercut the two-check shape ({two_check})"
         );
 
-        // Genre 2: the end strictly precedes the probe.
+        // Case 2: the end strictly precedes the probe.
         let span = Span::new(&s, &v).unwrap();
         let fused = scanned(|| {
             assert_eq!(span.precedence(&e), Precedence::After);
@@ -8858,7 +8828,7 @@ mod placement {
         );
     }
 
-    /// GREEN PIN: the membership face bails at the first refuted
+    /// The membership query stops at the first refuted
     /// required direction, on either side.
     ///
     /// A probe above the end refutes `probe <= hi` at its first excess
@@ -8959,7 +8929,7 @@ mod span {
         (s, v, div, population)
     }
 
-    /// GREEN PIN: the span ladder's two walking regimes, one scan
+    /// Comparable and concurrent span construction satisfy one scan
     /// identity each.
     ///
     /// A *comparable* pair's hull is the pair handed back
@@ -9025,7 +8995,7 @@ mod span {
         );
     }
 
-    /// GREEN PIN: `span_all`'s leaf combines ride the fused pair walk —
+    /// `span_all`'s leaf combines use the fused pair walk:
     /// at one item the multi-input operation scans exactly as the binary span.
     #[test]
     fn span_all_leaf_combine_is_the_fused_pair_walk() {
@@ -9044,7 +9014,7 @@ mod span {
         );
     }
 
-    /// GREEN PIN: the n-ary hull undercuts the two composed folds, and
+    /// The multi-input hull costs less than the two composed folds, and
     /// the saving is the leaf level's — the interior regime
     /// consolidates without a shared walk, so the fold stays strictly
     /// above half the composition.
@@ -9082,7 +9052,7 @@ mod span {
         );
     }
 
-    /// GREEN PIN: the fused hull decodes the pair once at arithmetic
+    /// The fused hull decodes the pair once at arithmetic
     /// width, and folds each crossing into ONE shared running
     /// difference — the two meter faces of the fusion, one leg each.
     ///
@@ -9178,7 +9148,7 @@ mod span_codec {
 
     /// The wire fixture: two comparable snapshots `s < v` of one
     /// multi-party history, their composite `[s, v]` wire bytes, and
-    /// the byte seam where the second component begins.
+    /// the byte boundary where the second component begins.
     ///
     /// Received sends give both streams real multi-party structure, so
     /// every leg folds live deltas.
@@ -9203,33 +9173,28 @@ mod span_codec {
         let v = main.version().clone();
         assert!(s < v, "the snapshot chain is strict");
         let bytes = Span::new(&s, &v).unwrap().encode();
-        let seam = s.encode().len();
-        (s, v, bytes, seam)
+        let boundary = s.encode().len();
+        (s, v, bytes, boundary)
     }
 
-    /// GREEN PIN: the fused decode scans the second component ONCE —
-    /// its reading is exactly the first component's standalone parse
-    /// plus one comparison sweep.
+    /// Fused span decoding scans the second component exactly once.
     ///
     /// The composed decode + decode + compare shape sits strictly
     /// above it, by exactly the second component's parse scan.
     ///
-    /// Both statements are relational, so no measured constant can
-    /// rot: the identity pins the fusion to its own pieces (an ordered
-    /// pair's comparison sweeps to exhaustion, as the admission walk
-    /// must), and the undercut is the deleted second scan — which a
-    /// parse-then-validate spelling reads back exactly.
+    /// The fused reading equals the first decode plus comparison and is less
+    /// than decoding both components before comparing them.
     #[test]
     fn span_decode_scans_the_second_component_once() {
-        let (s, v, bytes, seam) = fixture();
+        let (s, v, bytes, boundary) = fixture();
         let fused = scanned(|| {
             let _ = Span::decode(&bytes[..]).expect("a canonical composite decodes");
         });
         let decode_lo = scanned(|| {
-            let _ = Version::decode(&bytes[..seam]).expect("the first component decodes");
+            let _ = Version::decode(&bytes[..boundary]).expect("the first component decodes");
         });
         let decode_hi = scanned(|| {
-            let _ = Version::decode(&bytes[seam..]).expect("the second component decodes");
+            let _ = Version::decode(&bytes[boundary..]).expect("the second component decodes");
         });
         let cmp = scanned(|| assert!(s < v));
         eprintln!(
@@ -9254,21 +9219,14 @@ mod span_codec {
         );
     }
 
-    /// GREEN PIN: the fused decode's limb traffic decodes the second
-    /// component's payloads once, strictly under the composed shape.
+    /// Fused span decoding reads the second component's payload limbs once.
     ///
-    /// The floor is the fusion's own pieces; the gap above it is
-    /// exactly the topology-minimality check the fusion keeps (one
-    /// word-scale zero-equality per second-component leaf *delta* —
-    /// the first leaf is never asked, the bare comparison never asks
-    /// at all, the strict parse must), and the
-    /// undercut against the composed shape is the second component's
-    /// deleted payload re-decode. A parse-then-validate spelling reads
-    /// the composed sum back exactly and fails the undercut.
+    /// Its limb count includes the first decode and comparison, but remains
+    /// below the composed decode-decode-compare sequence.
     #[cfg(feature = "limb-meter")]
     #[test]
     fn span_decode_shares_the_second_payload_decode() {
-        let (s, v, bytes, seam) = fixture();
+        let (s, v, bytes, boundary) = fixture();
         let limbs = |f: &dyn Fn()| {
             meter::reset_limb_ops();
             f();
@@ -9278,10 +9236,10 @@ mod span_codec {
             let _ = Span::decode(&bytes[..]).expect("a canonical composite decodes");
         });
         let decode_lo = limbs(&|| {
-            let _ = Version::decode(&bytes[..seam]).expect("the first component decodes");
+            let _ = Version::decode(&bytes[..boundary]).expect("the first component decodes");
         });
         let decode_hi = limbs(&|| {
-            let _ = Version::decode(&bytes[seam..]).expect("the second component decodes");
+            let _ = Version::decode(&bytes[boundary..]).expect("the second component decodes");
         });
         let cmp = limbs(&|| assert!(s < v));
         eprintln!(
@@ -9305,21 +9263,14 @@ mod span_codec {
         );
     }
 
-    /// GREEN PIN: the fused decode's accumulator traffic is exactly the
-    /// first component's validation plus ONE comparison's folds — the
-    /// second component's validation-height accumulator is deleted
-    /// outright, not fused.
+    /// Fused span decoding omits the second validation-height accumulator.
     ///
-    /// Touches are the meter that can see the deletion: accumulator
-    /// folds record no limb ops and no scan bits, so this identity is
-    /// the leg a parse-then-validate pseudo-fusion cannot fake — it
-    /// runs the second component's height folds and reads the composed
-    /// sum back exactly, failing the identity by that component's whole
-    /// validation traffic (asserted live below).
+    /// Accumulator touches equal the first decode plus comparison and remain
+    /// below the composed sequence, whose second decode performs extra folds.
     #[cfg(feature = "limb-meter")]
     #[test]
     fn span_decode_deletes_the_second_validation_accumulator() {
-        let (s, v, bytes, seam) = fixture();
+        let (s, v, bytes, boundary) = fixture();
         let touches = |f: &dyn Fn()| {
             suanpan::touch_meter::reset();
             f();
@@ -9329,10 +9280,10 @@ mod span_codec {
             let _ = Span::decode(&bytes[..]).expect("a canonical composite decodes");
         });
         let decode_lo = touches(&|| {
-            let _ = Version::decode(&bytes[..seam]).expect("the first component decodes");
+            let _ = Version::decode(&bytes[..boundary]).expect("the first component decodes");
         });
         let decode_hi = touches(&|| {
-            let _ = Version::decode(&bytes[seam..]).expect("the second component decodes");
+            let _ = Version::decode(&bytes[boundary..]).expect("the second component decodes");
         });
         let cmp = touches(&|| assert!(s < v));
         eprintln!(

@@ -716,7 +716,7 @@ proptest! {
     ///
     /// The dimensions cover arming counts across several product-tree shapes (a
     /// lone entry, a full level, an odd drain), both sign schedules, and window
-    /// densities from trivial to multi-digit — the ledger genres `arb_base`'s
+    /// densities from trivial to multi-digit, beyond `arb_base`'s
     /// 128-bit ceiling keeps the arbitrary-tree sweep from ever arming. The
     /// pair leg crosses the train against its opposite-schedule twin, so the
     /// co-sweep promotes on both operands with the difference's orientation

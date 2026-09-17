@@ -25,13 +25,13 @@
 //! construction — every registered descriptor meets every population — and
 //! what is paid is transcription centralization: one descriptor is the only
 //! spelling of the oracle side, where a body per population was three
-//! independent spellings. The counterweight is the committed known-bad
-//! descriptors this module's tests hold convicted; a table whose drivers
-//! cannot reject a mis-transcribed descriptor is decoration.
+//! independent spellings. Deliberately incorrect descriptors demonstrate that
+//! the drivers reject mistranscribed operations; without that check, the table
+//! would be decorative.
 //!
 //! # The boundary
 //!
-//! The table covers what a value-returning descriptor states honestly. The
+//! The table covers what a value-returning descriptor can state directly. The
 //! prod and tree spellings are mandatory; the fs spelling is per-descriptor,
 //! because it exists only where the function-space realization is
 //! deterministic — the under-determined operations (`fork`, `event`) draw
@@ -41,11 +41,11 @@
 //! spelling sits beside it); the prod↔fs leg then rides transitively
 //! through the same descriptor's prod↔tree comparison. The
 //! operations the table does not cover keep their hand-written bodies and are
-//! rostered in [`DIFF_BESPOKE`] under a [`BespokeGenre`], so "bespoke" is a
+//! recorded in [`DIFF_BESPOKE`] under a [`BespokeCategory`], so "bespoke" is a
 //! closed status a reviewer diffs rather than the default anything falls
 //! into. The tiling pin in this module's tests holds every `Bound` citation
 //! in [`crate::surface`] to exactly one side: derived from this table, or
-//! bespoke with a declared genre — never both, never neither.
+//! bespoke with a declared category — never both, never neither.
 
 use std::cmp::Ordering;
 
@@ -467,7 +467,7 @@ diff_ops! {
     ///
     /// Production walks the projection and the comparison together, never
     /// materializing; the oracle materializes and then compares. The
-    /// descriptor is that seam.
+    /// descriptor is that boundary.
     pub(crate) static VERSION_PARTY_VERSION: (a: version, p: party, b: version);
 
     /// `(a / p) ⋚ b`: the fused walk against materialize-then-compare.
@@ -722,7 +722,7 @@ diff_ops! {
     ///
     /// The fs leg is the explicit, shares-no-recursion witness that the
     /// tree recursion computes the true GLB — the dual of the pointwise
-    /// maximum the keystone replay exercises through `join`/`send`.
+    /// maximum the replay differential exercises through `join`/`send`.
     fn version_meet_matches_the_oracle {
         prod: a & b,
         tree: a & b,
@@ -794,13 +794,11 @@ diff_ops! {
 ///
 /// A descriptor states one thing: that a pure function of the carriers
 /// agrees with the oracle's spelling of it, over whatever populations the
-/// drivers supply. Each genre below names a contract that statement leaves
-/// unbound, so a body in that genre would lose assert strength by
-/// migrating. Every genre is inhabited — an empty genre is a dead category,
-/// dissolved rather than carried — and a citation classified into none of
-/// them fails the tiling pin.
+/// drivers supply. Each category below names a contract that statement leaves
+/// unbound, so moving such a test into the table would weaken its assertion.
+/// Every category must classify at least one test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BespokeGenre {
+pub(crate) enum BespokeCategory {
     /// Whole populations co-evolved step by step, asserted after each step.
     ///
     /// The contract is over the *trace*, not over any one call: every live
@@ -835,8 +833,8 @@ pub(crate) enum BespokeGenre {
     /// space a fresh random draw per call. Equality between those legs is
     /// therefore unassertable in principle, so no fs spelling can exist
     /// for them; their binding is the per-operation policy-law bodies this
-    /// genre holds, with cross-policy agreement on the observable order
-    /// carried by the replay keystone.
+    /// category holds, with cross-policy agreement on the observable order
+    /// checked by the replay differential.
     FunctionSpaceRealization,
     /// An n-ary fold against the reference's fold over the same family.
     ///
@@ -845,11 +843,11 @@ pub(crate) enum BespokeGenre {
     NAryFold,
 }
 
-impl BespokeGenre {
-    /// Every genre name, for the inhabitation census; the exhaustive match
-    /// in [`name`](BespokeGenre::name) beside this list keeps the two in
+impl BespokeCategory {
+    /// Every category name, for the usage census; the exhaustive match
+    /// in [`name`](BespokeCategory::name) beside this list keeps the two in
     /// one diff when the vocabulary changes.
-    pub(crate) const GENRES: &'static [&'static str] = &[
+    pub(crate) const CATEGORIES: &'static [&'static str] = &[
         "TraceLockstep",
         "FallibleHandBack",
         "OperandFormMatrix",
@@ -857,46 +855,46 @@ impl BespokeGenre {
         "NAryFold",
     ];
 
-    /// The genre's name, as [`GENRES`](BespokeGenre::GENRES) spells it.
+    /// The category's name, as [`CATEGORIES`](BespokeCategory::CATEGORIES) spells it.
     pub(crate) fn name(self) -> &'static str {
         match self {
-            BespokeGenre::TraceLockstep => "TraceLockstep",
-            BespokeGenre::FallibleHandBack => "FallibleHandBack",
-            BespokeGenre::OperandFormMatrix => "OperandFormMatrix",
-            BespokeGenre::FunctionSpaceRealization => "FunctionSpaceRealization",
-            BespokeGenre::NAryFold => "NAryFold",
+            BespokeCategory::TraceLockstep => "TraceLockstep",
+            BespokeCategory::FallibleHandBack => "FallibleHandBack",
+            BespokeCategory::OperandFormMatrix => "OperandFormMatrix",
+            BespokeCategory::FunctionSpaceRealization => "FunctionSpaceRealization",
+            BespokeCategory::NAryFold => "NAryFold",
         }
     }
 }
 
 /// The bespoke half of the tiling: every `Bound` citation in
-/// [`crate::surface`] this table does not derive, with the genre excusing
+/// [`crate::surface`] this table does not derive, with the category explaining
 /// it.
 ///
 /// Held equal, both directions, to the roster's `Bound` citations minus the
 /// derived ones: a new hand-written differential cited by a row fails the
 /// tiling pin until it is classified, and an entry naming a citation no row
 /// makes is a phantom that fails the same pin.
-pub(crate) const DIFF_BESPOKE: &[(&str, BespokeGenre)] = &[
-    ("d_fork_join_roundtrip", BespokeGenre::FallibleHandBack),
+pub(crate) const DIFF_BESPOKE: &[(&str, BespokeCategory)] = &[
+    ("d_fork_join_roundtrip", BespokeCategory::FallibleHandBack),
     (
         "event_dominates_local_and_advances",
-        BespokeGenre::FunctionSpaceRealization,
+        BespokeCategory::FunctionSpaceRealization,
     ),
-    ("fork_partitions", BespokeGenre::FunctionSpaceRealization),
-    ("heterogeneous_joins", BespokeGenre::OperandFormMatrix),
+    ("fork_partitions", BespokeCategory::FunctionSpaceRealization),
+    ("heterogeneous_joins", BespokeCategory::OperandFormMatrix),
     (
         "join_all_matches_the_recursive_oracle",
-        BespokeGenre::FallibleHandBack,
+        BespokeCategory::FallibleHandBack,
     ),
-    ("join_arbitrary", BespokeGenre::FallibleHandBack),
-    ("master_differential", BespokeGenre::TraceLockstep),
-    ("meet_all_matches_oracle", BespokeGenre::NAryFold),
+    ("join_arbitrary", BespokeCategory::FallibleHandBack),
+    ("master_differential", BespokeCategory::TraceLockstep),
+    ("meet_all_matches_oracle", BespokeCategory::NAryFold),
     (
         "replay_matches_across_references",
-        BespokeGenre::TraceLockstep,
+        BespokeCategory::TraceLockstep,
     ),
-    ("sync", BespokeGenre::FallibleHandBack),
+    ("sync", BespokeCategory::FallibleHandBack),
 ];
 
 /// Expands to every registered descriptor group: its static, the driver

@@ -16,14 +16,14 @@ use crate::version::decode_rank_stream;
 use crate::version::skyline::{validate_dominating_from, Admission};
 use crate::{Clock, Party, Rank, Ranked, Version};
 
-/// Builds a version with the same event count everywhere.
+/// Build a version with the same event count everywhere.
 fn uniform(ticks: impl Into<crate::Ticks>) -> Version {
     let mut version = Version::new();
     Party::seed().ticks(&mut version, ticks);
     version
 }
 
-/// Builds a nonuniform version from the structural test oracle.
+/// Build a nonuniform version from the recursive oracle.
 fn sample_version() -> Version {
     use crate::oracle::Version as V;
     from_oracle_version(&V::node(
@@ -33,7 +33,7 @@ fn sample_version() -> Version {
     ))
 }
 
-/// Builds a version whose left half is one tick ahead.
+/// Build a version whose left half is one tick ahead.
 fn half() -> Version {
     use crate::oracle::Version as V;
     from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)))
@@ -138,8 +138,7 @@ fn arb_flush_party() -> impl Strategy<Value = Party> {
         })
 }
 
-/// The 1-byte flush-cut witness reads the truncation genre through both
-/// entry points.
+/// Both decoders classify a stream missing its full padding byte as truncated.
 ///
 /// A uniform seven-tick version encodes to eight live bits plus a whole
 /// `1000_0000` padding byte; on its first byte alone the reader entry point
@@ -162,15 +161,13 @@ fn flush_cut_is_truncated_by_both_decoders() {
 }
 
 proptest! {
-    /// A stream cut exactly at a flush byte boundary reads the truncation
-    /// genre through both entry points of every version-tailed wire type.
+    /// Both decoding APIs classify a missing full padding byte as truncation.
     ///
     /// The borsh reader starves on the absent `1000_0000` padding byte
     /// (`UnexpectedEof`) exactly where the whole-slice decode reports
-    /// [`Decode::Truncated`] — the two entry points report the same genre for the
-    /// same malformed input, at the end of the input (`Version`, and the
-    /// version tail of `Clock`, `Ranked`, and `Span`) and at the interior
-    /// seam (`Span`'s meet cut short of its own padding byte).
+    /// [`Decode::Truncated`]. The property checks a standalone version, each
+    /// composite type with a version tail, and the boundary between a span's
+    /// two versions.
     #[test]
     fn flush_cut_version_is_truncated_by_both_decoders(
         v in arb_flush_version(),
@@ -212,8 +209,7 @@ proptest! {
             ErrorKind::UnexpectedEof
         );
 
-        // The interior seam: the meet cut short of its own padding byte,
-        // the join missing entirely.
+        // The meet is cut short of its padding byte; the join is absent.
         prop_assert!(matches!(Span::decode(cut), Err(Decode::Truncated)));
         prop_assert_eq!(
             Span::try_from_slice(cut).unwrap_err().kind(),
@@ -223,13 +219,12 @@ proptest! {
 }
 
 proptest! {
-    /// A party stream cut exactly at a flush byte boundary reads the
-    /// truncation genre through both entry points.
+    /// Both decoding APIs classify a party missing its full padding byte as truncated.
     ///
     /// `UnexpectedEof` from the borsh reader, [`Decode::Truncated`] from
     /// the whole-slice decode — at the end of the input (`Party`) and at
-    /// the clock entry point's interior seam (the id section cut short of its own
-    /// padding byte, the version then missing entirely).
+    /// the boundary inside a clock, where the party lacks its padding byte and
+    /// the version is absent.
     #[test]
     fn flush_cut_party_is_truncated_by_both_decoders(p in arb_flush_party()) {
         let bytes = p.encode();
@@ -247,17 +242,14 @@ proptest! {
     }
 }
 
-/// Regression: a `Party` grown by [`join`](Party::join) — the operation
-/// [`reclaim`](crate::bookmark) drives on a reboot — must survive the borsh
-/// wire round-trip.
+/// A joined party remains canonical when serialized through borsh.
 ///
 /// `fork; fork; join` reunites two quarter-regions into `(0, 1)`, normalizing
 /// the build buffer's tree to a smaller one. The collapse sheds bits into the
 /// buffer's final byte, where an unsealed freeze would leave them for
 /// [`as_bytes`](Party::as_bytes) — which borsh serializes — to carry as
-/// garbage the peer's [`Party::decode`] rejects as `TrailingBits`, silently
-/// dropping a donated identity on the wire. This is the one-shot witness that
-/// the freeze seals the shed bits behind the canonical padding.
+/// bytes that `Party::decode` would reject as `TrailingBits`. The chosen joins
+/// force that collapse before the round-trip assertion.
 #[test]
 fn joined_party_roundtrips_through_borsh() {
     let mut left = Party::seed();
@@ -422,9 +414,10 @@ fn assert_same_error(subject: &Error, oracle: &Error) -> Result<(), TestCaseErro
     Ok(())
 }
 
-/// Layer the adversarial wire shapes over a canonical-encoding strategy: raw
-/// noise, or an encoding optionally bit-flipped, truncated, and tailed with
-/// junk that only a speculative read would touch.
+/// Generate worst-case wire inputs from raw bytes or modified canonical encodings.
+///
+/// Canonical encodings may be bit-flipped, truncated, or followed by bytes that
+/// only an over-read would consume.
 fn arb_stream(encoding: impl Strategy<Value = Vec<u8>>) -> impl Strategy<Value = Vec<u8>> {
     prop_oneof![
         proptest::collection::vec(any::<u8>(), 0..24),
@@ -607,7 +600,7 @@ proptest! {
     ///
     /// The rank stream has exactly one parser, shared by both sides, so
     /// the differential surface is the version leg — window, refills, and
-    /// the padding genre — and the mismatched-pair cross-check around it,
+    /// padding handling and the mismatched-pair cross-check around it,
     /// which bit flips in the rank prefix breed. Streams cover canonical
     /// composite keys, bit flips, truncations, raw noise, and trailing
     /// junk.
@@ -637,7 +630,7 @@ proptest! {
 proptest! {
     /// The borsh rank entry point reads exactly one self-delimiting rank stream
     /// and agrees with the whole-slice decode on the exact error variant:
-    /// no genre may shift between the two entry points.
+    /// both APIs report the same error class.
     ///
     /// Reader starvation surfaces as the reader's own `UnexpectedEof`
     /// exactly where the slice entry point reports [`Decode::Truncated`]; every
@@ -675,7 +668,7 @@ proptest! {
                         .expect_err("bytes remain past the rank: the whole slice must reject");
                     prop_assert!(
                         matches!(whole, Decode::TrailingBits),
-                        "input past a complete rank is the trailing genre: {:?}",
+                        "input past a complete rank must report trailing bits: {:?}",
                         whole,
                     );
                 }
@@ -707,8 +700,8 @@ proptest! {
     /// the per-bit reference: same value or same error, same bytes
     /// consumed.
     ///
-    /// The agreement is total — the admission verdict, the padding check
-    /// that outranks it, and every structural genre included. Streams cover canonical span composites and bare meet prefixes,
+    /// The agreement includes the admission verdict and the higher-priority
+    /// padding check. Streams cover canonical spans and bare meet prefixes,
     /// each optionally bit-flipped, truncated, and tailed with junk, plus
     /// raw noise: the junk-tailed meet prefixes drive the admission walk
     /// over arbitrary join streams (height dips, collapsible siblings,
@@ -879,7 +872,7 @@ fn rank_borsh_is_the_canonical_encoding() {
 }
 
 /// A [`Ranked`] composite key composes inside a larger borsh stream,
-/// and its rejection genres cross the borsh boundary intact.
+/// and its rejection classes cross the borsh boundary intact.
 ///
 /// A `(Ranked, Party, Rank)` concatenation deserializes field by
 /// field, each read consuming exactly its own bytes.
@@ -889,7 +882,7 @@ fn rank_borsh_is_the_canonical_encoding() {
 /// carrying [`Decode::NotCanonical`] (the redundancy check
 /// `Ranked::decode` documents).
 #[test]
-fn ranked_borsh_composes_and_keeps_its_genres() {
+fn ranked_borsh_composes_and_preserves_decode_errors() {
     let half = half();
     let mut party = Party::seed();
     let _ = party.fork();
@@ -949,7 +942,7 @@ fn rank_composes_in_a_borsh_stream() {
 /// own `UnexpectedEof`, and a set padding bit crosses the boundary as
 /// `InvalidData` carrying the exact [`Decode`] variant.
 #[test]
-fn rank_borsh_rejections_keep_their_genres() {
+fn rank_borsh_preserves_decode_errors() {
     let deep = crate::version::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40);
     let bytes = borsh::to_vec(&deep).unwrap();
     assert!(bytes.len() >= 7, "the fraction spans several groups");
@@ -1008,7 +1001,7 @@ proptest! {
 }
 
 /// A [`Span`](crate::Span) composite composes inside a
-/// larger borsh stream, and its rejection genres cross the borsh
+/// larger borsh stream, and its rejection classes cross the borsh
 /// boundary intact.
 ///
 /// A `(Span, Party, Rank)` concatenation deserializes field by field,
@@ -1018,7 +1011,7 @@ proptest! {
 /// [`Decode::NotCanonical`] (the fused pair validation
 /// `Span::decode` documents).
 #[test]
-fn span_borsh_composes_and_keeps_its_genres() {
+fn span_borsh_composes_and_preserves_decode_errors() {
     let mut clock = Clock::seed();
     let older = clock.tick().clone();
     let newer = clock.tick().clone();
@@ -1058,8 +1051,7 @@ fn span_borsh_composes_and_keeps_its_genres() {
     );
 
     // A crossed composite whose join also carries a set padding bit:
-    // the structural genre crosses the borsh boundary ahead of the
-    // pair verdict, exactly as the raw decode orders them.
+    // Trailing bits take precedence over the reversed-endpoint verdict.
     let mut crossed_padding = crossed.clone();
     assert_ne!(
         older.encoded_bits() % 8,
@@ -1085,7 +1077,7 @@ proptest! {
     /// constructor admits.
     #[test]
     fn span_borsh_roundtrips(oa in arb_oracle_version(), ob in arb_oracle_version()) {
-            let a = from_oracle_version(&oa);
+        let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
         let span = a.span(&b);
         let bytes = borsh::to_vec(&span).unwrap();
@@ -1196,19 +1188,18 @@ fn borsh_every_type_pair_composes_with_exact_boundaries() {
     pairs_from!(span, Span<'static>);
 }
 
-/// A defect inside element `N` of a borsh sequence keeps its genre and
-/// leaves the elements before it intact.
+/// A malformed sequence element keeps its error class and earlier elements.
 ///
 /// A `Vec<Version>` is a length prefix and then each element's
 /// self-delimiting encoding: a set padding bit inside the middle
 /// element's final byte crosses the boundary as `InvalidData` carrying
 /// [`Decode::TrailingBits`], and a stream cut inside the middle element
 /// surfaces as the reader's own `UnexpectedEof` — the sequence context
-/// neither masks the genre nor shifts the defect's attribution, and the
+/// neither masks the error nor shifts its attribution, and the
 /// same corrupted stream still yields element 0 when read field by
 /// field.
 #[test]
-fn borsh_sequence_defect_in_element_n_keeps_its_genre() {
+fn borsh_sequence_defect_preserves_its_error_class() {
     use crate::oracle::Version as V;
     let elems = vec![
         sample_version(),
@@ -1242,7 +1233,7 @@ fn borsh_sequence_defect_in_element_n_keeps_its_genre() {
         "the defect in element 1 does not reach element 0"
     );
 
-    // Cut the stream inside element 1: the reader's own truncation genre.
+    // Cutting element 1 reports the reader's own truncation error.
     let err = <Vec<Version>>::try_from_slice(&bytes[..4 + e0 + e1 / 2]).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
 }
@@ -1271,19 +1262,11 @@ fn span_borsh_dedups_the_coincident_span() {
     );
 }
 
-/// A coincident span inside a larger borsh stream consumes exactly its
-/// own bytes: the Equal admission arm keeps the container framing.
+/// A coincident span consumes exactly its bytes inside a larger borsh stream.
 ///
-/// [`span_borsh_composes_and_keeps_its_genres`] drives a *dominating*
-/// span ahead of its neighbors; the Equal arm is the one admission
-/// verdict it never takes in a container, and that arm alone drops the
-/// parsed join bits and stores the meet's clone instead — the seam
-/// where an EOF-tolerant over-read in consumed bytes would silently
-/// corrupt every following field while every lone-value test (which
-/// sees a fully drained buffer either way) stays green. The witness: a
-/// coincident span, then a forked party, then a rank, in one unframed
-/// stream; each field decodes to its value, the reader drains exactly,
-/// and the composite re-serializes byte-identically.
+/// Equality reuses the first endpoint's storage after parsing the second. A
+/// span followed by a party and rank checks that this optimization neither
+/// over-reads nor changes the surrounding framing.
 #[test]
 fn coincident_span_keeps_borsh_container_framing() {
     let mut clock = Clock::seed();
@@ -1367,8 +1350,8 @@ fn coincident_span_borsh_rejects_tampered_join_padding() {
 /// internal `0`, left leaf height gamma(0), right leaf delta zigzag(-1),
 /// padding marker. No encode produces it, so only a constructed stream
 /// reaches the verdict's rejection arm under a `ReaderCursor`; it rides
-/// beside [`span_wire_decode_matches_bitwise_reference`] as the
-/// deterministic tripwire for that arm's genre.
+/// beside [`span_wire_decode_matches_bitwise_reference`] as a direct check of
+/// that rejection path.
 #[test]
 fn span_borsh_rejects_negative_height_join() {
     let bytes = [Version::new().encode(), vec![0x75]].concat();
@@ -1394,8 +1377,8 @@ fn span_borsh_rejects_negative_height_join() {
 /// The bytes are a canonical empty meet, then an internal node whose two
 /// leaf children carry height 0 and delta 0 — a sibling pair normal form
 /// forbids. It rides beside
-/// [`span_wire_decode_matches_bitwise_reference`] as the deterministic
-/// tripwire for the close-out arm's genre.
+/// [`span_wire_decode_matches_bitwise_reference`] as a direct check of the
+/// final canonicality check.
 #[test]
 fn span_borsh_rejects_collapsible_join() {
     let bytes = [Version::new().encode(), vec![0b0111_1000]].concat();

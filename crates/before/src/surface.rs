@@ -172,7 +172,7 @@ const RANK_WIRE_PINS: &[&str] = &[
     "rank_lex_encoding_is_suffix_safe",
     "rank_encoding_exhaustive_small_scope",
     "rank_encoding_known_values",
-    "rank_decoding_rejects_each_genre",
+    "rank_decoding_rejects_each_malformed_input_class",
     "rank_encoding_size_is_provenance_linear",
 ];
 
@@ -733,8 +733,8 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Excluded(Exclusion::NoWireFormatInReferences {
             pins: &[
                 "ranked_composite_encoding_is_suffix_safe",
-                "ranked_composite_key_is_suffix_safe_at_the_tiebreak_seam",
-                "ranked_decode_rejects_each_genre",
+                "ranked_composite_key_is_suffix_safe_at_the_tiebreak_boundary",
+                "ranked_decode_rejects_each_composite_error",
                 "ranked_composite_bit_flip_rejects_or_decodes_canonically",
             ],
         }),
@@ -924,7 +924,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
             pins: &[
                 "span_decode_verdict_matches_the_composed_form",
                 "span_decode_verdict_matches_the_composed_form_exhaustively",
-                "span_decode_rejects_each_genre",
+                "span_decode_rejects_each_malformed_input_class",
             ],
         }),
         tree_fs: Leg::Excluded(Exclusion::NoWireFormatInReferences { pins: &[] }),
@@ -1167,8 +1167,8 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
             bound_at: "Version::decode",
             pins: &[
                 "span_gate_admits_exactly_the_ordered",
-                "rank_decoding_rejects_each_genre",
-                "span_decode_rejects_each_genre",
+                "rank_decoding_rejects_each_malformed_input_class",
+                "span_decode_rejects_each_malformed_input_class",
             ],
         }),
         prod_fs: Leg::Excluded(Exclusion::NotAPaperObject {

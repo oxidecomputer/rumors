@@ -6,7 +6,7 @@
 //! `fuzz/seeds/` byte-identical to the live derivation
 //! (`tests/support/fuzz_seed_set.rs`) and hold every seed to the
 //! contract it seeds — the decode targets' round-trips, the
-//! differential target's per-genre rejection witnesses — so format drift is a
+//! differential target's rejection witnesses — so format drift is a
 //! red gate with a one-command fix (`cargo run -p before --example fuzz_seeds`).
 
 use std::collections::BTreeSet;
@@ -92,7 +92,7 @@ fn seed_directories_hold_exactly_the_set_of_record() {
 
 /// Every `fuzz_decode` seed decodes as the type its name declares and
 /// re-encodes byte-identically — or, for the corpus's non-canonical
-/// frontier, rejects with exactly its named genre.
+/// frontier, rejects with exactly its named error class.
 ///
 /// Either way the seeds actually exercise the decode paths they were
 /// written for.
@@ -104,7 +104,7 @@ fn decode_seeds_decode_as_named_and_round_trip() {
         }
         let bytes = &seed.bytes;
         // The rejection witnesses, by full name: each must reject with
-        // the exact error its genre pronounces (never fail an earlier
+        // the exact named error (never fail an earlier
         // parse), so the corpus keeps seeding the validator arm it was
         // written for — the fused span walk cannot reach these arms, so
         // these version-entry point seeds are their only corpus coverage.
@@ -164,12 +164,12 @@ fn decode_seeds_decode_as_named_and_round_trip() {
 /// Every `fuzz_decode_differential` seed exercises the case its name declares.
 ///
 /// The accept-frontier seeds decode and round-trip, and each rejection
-/// witness rejects with the exact genre whose precedence the
+/// witness rejects with the exact error class whose precedence the
 /// differential oracle guards — so the committed corpus keeps seeding
-/// the genre seams it was written for, and a reintroduced
+/// the error boundaries it was written for, and an incorrect
 /// verdict-before-padding ordering reddens this gate directly.
 #[test]
-fn differential_seeds_exercise_their_genre_seams() {
+fn differential_seeds_exercise_their_error_boundaries() {
     for seed in fuzz_seed_set::seed_set() {
         if seed.target != "fuzz_decode_differential" {
             continue;
@@ -215,7 +215,7 @@ fn differential_seeds_exercise_their_genre_seams() {
             "span_trailing" => {
                 assert!(
                     matches!(Span::decode(&bytes[..]), Err(Decode::TrailingBits)),
-                    "a spurious byte past the composite is the trailing genre"
+                    "a spurious byte past the composite is trailing data"
                 );
             }
             "ranked_mismatched" => {

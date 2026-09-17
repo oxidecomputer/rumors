@@ -907,8 +907,8 @@ pub enum FamilyId {
     /// so the stop band's charge is width conservation alone: the surviving
     /// boundary is never read across its width while it survives, and the
     /// arm's value flow rides the closed form. The
-    /// `skyline_min_ticks_seam_*` bands price the family; the seam-stop
-    /// pair doubles as the pool-miss row's steady-state churn shape.
+    /// The descending- and stopping-boundary bands price the family; the
+    /// stopping pair also supplies the pool-miss row's steady-state shape.
     PropagateSeam,
     /// The latent-ladder family `LL(w, k)`: the parked-latent undercut
     /// decision's O(1) claim, on the axis that would falsify it.
@@ -1906,9 +1906,9 @@ impl FamilyId {
                     decided: "2026-08-11",
                 },
                 bands: Bands::Priced(&[
-                    "skyline_min_ticks_seam_plunge_is_flat_per_unit",
-                    "skyline_min_ticks_seam_plunge_clearance_band",
-                    "skyline_min_ticks_seam_stop_is_flat_per_unit",
+                    "skyline_min_ticks_descending_boundary_is_flat_per_unit",
+                    "skyline_min_ticks_descending_boundary_clearance_band",
+                    "skyline_min_ticks_stopping_boundary_is_flat_per_unit",
                 ]),
                 denominator: "encoded input bytes; each control-paired leg is judged as \
                               the run difference against its wire-near-identical control",

@@ -110,9 +110,8 @@ pub enum Verdict {
     /// Above the band: a regression flag (more work than the pinned law
     /// predicts for this size).
     Above,
-    /// Below the band: a liveness flag (less work than any honest
-    /// execution of this kernel performs — a dead meter or a measurement
-    /// hole).
+    /// Below the band: less work than the calibrated executions, indicating a
+    /// dead meter or an unmeasured path.
     Below,
     /// Below the calibrated floor: not judged (the line extrapolates the
     /// constant-overhead regime downward there).
@@ -136,16 +135,13 @@ pub fn judge_against(band: &Band, denom_bits: u64, fuel: u64) -> Verdict {
     }
 }
 
-/// The kernels priced below the fit floor by the small-operand bands,
-/// success arm only: rumors' bootstrap hot path (seed-scale clocks are
-/// what bootstrap and per-message stamping actually hand these
-/// operations).
+/// Kernels with success bands for operands below the general fit floor.
 ///
 /// The size-law legs are structurally out of range below
 /// [`crate::fit::FIT_FLOOR_BITS`] — the point leg returns
 /// [`Verdict::BelowFloor`], the shape leg buckets only floored samples,
-/// and the refit fitter drops sub-floor samples — so without this roster
-/// the production-hottest operand sizes would carry no judgment at all.
+/// and the refit fitter drops sub-floor samples. This list keeps those small
+/// operand sizes under an explicit judgment.
 /// The committed expectation list is this constant: a calibration that
 /// stops producing a small band for any kernel here fails the
 /// enforcement suite by name.
@@ -163,17 +159,15 @@ pub fn small_band_for(kernel: &str, rejected: bool) -> Option<&'static Band> {
         .find(|b| b.kernel == kernel && b.rejected == rejected)
 }
 
-/// Judge one sub-floor step against the small-operand roster.
+/// Judge one sub-floor step against its small-operand band.
 ///
 /// Returns `Some((band, verdict))` when a small band prices this key
 /// and the step lands inside the band's calibrated span, `None` when
 /// the step stays structurally unjudged (no small band, or outside the
 /// span).
 ///
-/// The span cut on both sides is deliberate: a constant band is the
-/// honest model only over the region it was calibrated on — above its
-/// `max_denom` the cost law starts climbing toward the size-law regime,
-/// and extrapolating the constant level there would flag honest growth.
+/// Constant bands apply only over their calibrated interval. Beyond
+/// `max_denom`, ordinary input-proportionate growth may begin.
 pub fn judge_small(
     kernel: &str,
     rejected: bool,

@@ -27,10 +27,9 @@
 //! [`Mirror`] executes each op natively over the same register discipline
 //! the guest uses (linear where the API is linear), computing the step's
 //! denominator from real operand sizes and predicting the guest's return
-//! code. Where an operation can reject (joining overlapping parties — the
-//! cross-universe generators reach this arm deliberately), the mirror's
-//! native outcome is the prediction; a guest that disagrees fails the
-//! differential immediately.
+//! code. Where an operation can reject, such as joining overlapping
+//! parties, the mirror's native outcome is the prediction; a guest that
+//! disagrees fails the differential immediately.
 
 use std::cmp::Ordering;
 
@@ -47,8 +46,7 @@ pub type Reg = u32;
 /// join consume `b`; `into_parts`/`from_parts` consume their sources).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
-    /// `Clock::seed` — a new universe. Programs in the coupled regime call
-    /// this exactly once; the independent regime seeds several.
+    /// `Clock::seed` — the program's single universe.
     ClockSeed { dst: Reg },
     /// `Clock::tick`.
     ClockTick { c: Reg },

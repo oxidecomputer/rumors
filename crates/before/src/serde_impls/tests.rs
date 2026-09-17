@@ -1,9 +1,4 @@
-//! Serde representation, strictness, round-trip, and composition tests.
-//!
-//! Round-trips through human-readable and binary formats, canonical payload
-//! pins, strict rejection, and composition inside a larger serde value.
-//! The party/version/clock legs live beside the world fixture in
-//! `clock/tests.rs`.
+//! Checks of serde representations, strict decoding, and composition.
 
 use proptest::prelude::*;
 use serde_test::{assert_tokens, Configure, Token};
@@ -21,13 +16,12 @@ fn ordered_pair() -> (Version, Version) {
     (older, newer)
 }
 
-/// Makes serde_test's static byte token from an owned encoding.
+/// Convert an owned encoding into a static `serde_test` byte token.
 fn byte_token(bytes: Vec<u8>) -> Token {
     Token::Bytes(bytes.leak())
 }
 
-/// Compact serde uses typed canonical bytes for every value, while readable
-/// serde uses canonical text for ranks.
+/// Binary formats receive canonical bytes, while readable ranks use text.
 #[test]
 fn serde_data_model_matches_each_format_class() {
     let party = crate::Party::seed();
@@ -58,10 +52,10 @@ fn serde_data_model_matches_each_format_class() {
 }
 
 proptest! {
-    /// [`Rank`], [`Ranked`], and [`Span`] round-trip through serde.
+    /// `Rank`, `Ranked`, and `Span` round-trip through representative formats.
     ///
-    /// JSON uses `Rank`'s canonical text and bytes for the composite types.
-    /// Postcard and CBOR use canonical bytes for every type.
+    /// The property also checks that JSON exposes a rank as its canonical text
+    /// and that CBOR receives byte strings from binary serialization.
     #[test]
     fn serde_roundtrip_rank_and_span(
         oa in arb_oracle_version(),
@@ -110,11 +104,10 @@ proptest! {
         prop_assert_eq!(&s3, &span);
     }
 
-    /// The serde byte payload is exactly the canonical encoding.
+    /// Postcard receives exactly each value's canonical byte encoding.
     ///
-    /// Each type serializes to the same stream as its own `encode()` bytes
-    /// handed to the format as a plain byte sequence — the wire form is
-    /// `encode()` with nothing added, reordered, or wrapped.
+    /// Serializing the value and serializing its encoded bytes must therefore
+    /// produce identical postcard messages.
     #[test]
     fn serde_bytes_pin_the_canonical_encoding_rank_and_span(
         oa in arb_oracle_version(),
@@ -141,12 +134,11 @@ proptest! {
     }
 }
 
-/// Serde deserialization accepts only the representation selected by the
-/// format and validates it strictly.
+/// Deserialization rejects malformed bytes and noncanonical readable ranks.
 ///
-/// The binary path rejects trailing bytes, a rank/version mismatch, and crossed
-/// span endpoints. The human-readable rank path rejects noncanonical text and
-/// byte arrays.
+/// The malformed binary cases cover trailing input, a rank/version mismatch,
+/// and reversed span endpoints. JSON additionally rejects noncanonical rank
+/// text and byte-array substitutions for textual ranks.
 #[test]
 fn serde_rejects_defective_rank_and_span_payloads() {
     let (older, newer) = ordered_pair();
@@ -190,7 +182,7 @@ fn serde_rejects_defective_rank_and_span_payloads() {
     }
 }
 
-/// The serde implementations compose in a larger binary value.
+/// The serde implementations preserve tuple framing in postcard.
 #[test]
 fn serde_composes_rank_and_span_in_larger_values() {
     let (older, newer) = ordered_pair();

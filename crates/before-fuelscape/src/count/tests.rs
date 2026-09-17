@@ -8,18 +8,12 @@ use super::{
     bit_window, PartyCounts, VersionCounts, MIN_PARTY_BITS, MIN_VERSION_BITS, PAR_SPLIT_THRESHOLD,
 };
 
-/// The largest exact bit length the exhaustive cross-checks enumerate.
-/// Chosen by measured runtime: the enumerations stay in the tens of
-/// thousands of members here, seconds under the dev profile.
+/// Largest bit length enumerated by the exact grammar checks.
+///
+/// At this limit the development-profile test completes in seconds.
 const EXHAUSTIVE_BITS: usize = 24;
 
-/// The version table equals brute-force enumeration at every bit length.
-///
-/// The counting table is the sampler's measure; if it miscounts any size,
-/// every probability downstream is wrong. For every exact bit length up
-/// to the enumeration bound, the sibling-rule family's table must equal
-/// the count of members listed by brute force from the grammar rules — a
-/// derivation sharing no code with the table's convolution.
+/// Version counts equal independent grammar enumeration at every tested length.
 #[test]
 fn version_counts_match_exhaustive_enumeration() {
     let counts = VersionCounts::build(EXHAUSTIVE_BITS);
@@ -32,16 +26,10 @@ fn version_counts_match_exhaustive_enumeration() {
     }
 }
 
-/// The canonical per-bit-length counts match the independent census.
+/// Enumerated canonical versions match the independent per-length census.
 ///
-/// The number of canonical version streams at each exact bit length,
-/// derived here by enumerating the coding grammar (topology bits + gamma
-/// payloads) and filtering on the nonnegative-height rule, must equal the
-/// counts independently derived by the entropy census of the same grammar
-/// (an exact dynamic program over the validator's accept rules,
-/// cross-pinned against brute force over all bit strings). Two
-/// derivations, one number: drift in either grammar transcription moves a
-/// committed integer.
+/// Enumeration filters the grammar by nonnegative height; the expected values
+/// come from a separate dynamic program over the decoder's acceptance rules.
 #[test]
 fn version_constrained_counts_match_independent_census() {
     const CENSUS: [usize; 20] = [
@@ -57,9 +45,7 @@ fn version_constrained_counts_match_independent_census() {
     }
 }
 
-/// The party table counts the whole canonical id family (no payload
-/// constraints exist to reject), so it must equal the brute-force
-/// enumeration exactly at every bit length up to the bound.
+/// Party counts equal independent grammar enumeration at every tested length.
 #[test]
 fn party_counts_match_exhaustive_enumeration() {
     let counts = PartyCounts::build(EXHAUSTIVE_BITS);
@@ -72,15 +58,10 @@ fn party_counts_match_exhaustive_enumeration() {
     }
 }
 
-/// The parallel build equals the sequential reference, entry for entry.
+/// Parallel and sequential table construction produce identical entries.
 ///
-/// The parallel path re-associates each entry's split reduction across
-/// worker threads; big-integer addition is associative and commutative,
-/// so every reduction order must produce the identical table. This pin
-/// holds `build` (parallel) equal to `build_sequential` (the reference)
-/// for both grammars, at a span whose top entries reach past the
-/// sequential-fallback threshold — the guard keeps the pin from going
-/// vacuous if the threshold moves.
+/// The compile-time assertion ensures the chosen range reaches the parallel
+/// reduction path for both grammars.
 #[test]
 fn parallel_build_matches_sequential_reference() {
     const PIN_BITS: usize = 2048;
@@ -110,15 +91,10 @@ fn parallel_build_matches_sequential_reference() {
     }
 }
 
-/// The largest byte length the decoder census sweeps: every byte string
-/// of every length in `1..=CENSUS_BYTES` goes through the real decoder.
-///
-/// Chosen by measured runtime: `256^3` decodes per grammar run low
-/// single-digit seconds under the dev profile with the sweep fanned out
-/// over rayon.
+/// Largest byte length exhaustively passed through each public decoder.
 const CENSUS_BYTES: usize = 3;
 
-/// The largest exact bit length the decoder census covers.
+/// Largest live bit length covered by the decoder census.
 ///
 /// A byte length `L` carries live bit lengths in `[8(L-1), 8L-1]` (the
 /// decode padding rule — the marker claims one bit of the final byte),
@@ -126,13 +102,7 @@ const CENSUS_BYTES: usize = 3;
 /// exactly.
 const CENSUS_BITS: usize = 8 * CENSUS_BYTES - 1;
 
-/// Accepted-input counts per exact live bit length, from a real decoder.
-///
-/// Sweeps every byte string of every length in `1..=CENSUS_BYTES` through
-/// `accept` (a public decode entry; `Some(live bit length)` on accept)
-/// and tallies acceptances per live bit length. The sweep fans out over
-/// rayon; per-chunk histograms add commutatively, so the fan-out cannot
-/// change any count.
+/// Count every accepted byte string by its decoded live bit length.
 fn decoder_census(accept: impl Fn(&[u8]) -> Option<u64> + Sync) -> Vec<u64> {
     let empty = || vec![0u64; CENSUS_BITS + 1];
     let mut census = empty();
@@ -169,26 +139,11 @@ fn decoder_census(accept: impl Fn(&[u8]) -> Option<u64> + Sync) -> Vec<u64> {
     census
 }
 
-/// The shipping decoder's accept census equals the grammar's constrained
-/// family at every exact bit length up to [`CENSUS_BITS`].
+/// `Version::decode` accepts exactly the enumerated canonical versions.
 ///
-/// Two derivations of the same number — the count of canonical version
-/// streams at each exact bit length:
-///
-/// - the grammar transcription: brute-force enumeration of the
-///   sibling-rule family filtered by the nonnegative-height rule (the
-///   derivation the committed census literals and the counting table are
-///   pinned against above);
-/// - the shipping parser: every byte string of `1..=CENSUS_BYTES` bytes
-///   through `Version::decode`, accepts bucketed by live bit length.
-///
-/// The two share no code, so a disagreement at any entry is a bug in
-/// exactly one of them: either the enumeration mis-transcribes a
-/// canonical-form rule, or the decoder's accept set has drifted from the
-/// grammar the sampler's measure is built on. Bucketing by live bit
-/// length also holds the padding rule: an accept carrying eight or more
-/// pad bits would land a count in a bit length whose own byte window was
-/// already tallied, and the entry would read high.
+/// Both sides are counted by live bit length. The enumeration follows the
+/// grammar and nonnegative-height rule, while the decoder census tries every
+/// byte string through the public entry point.
 #[test]
 fn version_decoder_census_matches_constrained_family() {
     let census = decoder_census(|bytes| Version::decode(bytes).ok().map(|v| v.encoded_bits()));
@@ -204,18 +159,10 @@ fn version_decoder_census_matches_constrained_family() {
     }
 }
 
-/// The shipping decoder's accept census equals the counting table, entry
-/// for entry, at every exact bit length up to [`CENSUS_BITS`].
+/// `Party::decode` accepts exactly the parties counted by the table.
 ///
-/// The party table counts the whole canonical family exactly (no
-/// payloads, so nothing is deliberately relaxed), which makes this the
-/// direct decoder-versus-table pin: the table's convolution recurrence on
-/// one side, every byte string of `1..=CENSUS_BYTES` bytes through
-/// `Party::decode` on the other, accepts bucketed by live bit length. The
-/// two share no code, so a disagreement at any entry is a bug in exactly
-/// one of them: either the recurrence mis-counts the grammar, or the
-/// decoder's accept set has drifted from the grammar the sampler's
-/// measure is built on.
+/// The table uses the grammar recurrence; the census tries every short byte
+/// string through the public decoder and groups accepted values by bit length.
 #[test]
 fn party_decoder_census_matches_count_table() {
     let counts = PartyCounts::build(CENSUS_BITS);

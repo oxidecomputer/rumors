@@ -125,7 +125,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
 /// The value-content fit reads the same measurements linear. This is the
 /// tripwire the comb-scatter exponent re-denomination rests on: the comparison
 /// sweep's limb work per tooth is flat across a tooth-count doubling (the
-/// honest linear witness), the encoded denominator grows under x1.5 because the
+/// linear witness), the encoded denominator grows under x1.5 because the
 /// fixed 1000-bit magnitude dominates it (the intercept premise), and the two
 /// fits disagree by an exponent class on identical readings.
 #[cfg(feature = "limb-meter")]
@@ -159,7 +159,7 @@ fn flat_denominator_encoded_fit_manufactures_an_exponent() {
         (1.9..=2.1).contains(&content_growth),
         "the value content must track the doubled tooth count: grew x{content_growth:.2}"
     );
-    // The honest linear witness: per-tooth touch work is flat.
+    // Per-tooth touch work stays flat under linear scaling.
     let per_tooth = (ops1 as f64 / 128.0, ops2 as f64 / 256.0);
     assert!(
         per_tooth.1 <= per_tooth.0 * 1.25,
@@ -428,7 +428,7 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
 ///
 /// Three probes through [`evaluate`], all at the benign control's committed
 /// arity pair (k 256 -> 512 over a x2.19 denominator): the pre-declaration
-/// honest readings (scan exponent ~1.17, constant ~114 bits/B — the readings
+/// expected readings (scan exponent ~1.17, constant ~114 bits/B — the readings
 /// that were red under the flat ceilings and are exactly the reduction's own
 /// log factor) read green under the model; a quadratic fold (a left fold
 /// re-walking its accumulator, exponent ~2 — the cheapest wrong artifact the
@@ -472,16 +472,16 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
     // The benign control's committed pair: k 256 -> 512, denominators 1322 ->
     // 2897 bytes.
     let (n1, n2, k1, k2) = (1_322usize, 2_897usize, 256u64, 512u64);
-    let honest = evaluate(
+    let expected = evaluate(
         "fold_probe",
         "log-factor",
         sample(n1, k1, 132_200),
         sample(n2, k2, 330_500), // e ~1.17, ~114 bits/B: the reduction's own signature
     );
     assert!(
-        !honest.red.iter().any(|r| r.starts_with("scan")),
+        !expected.red.iter().any(|r| r.starts_with("scan")),
         "the reduction's log factor must read green under its declared model: {:?}",
-        honest.red
+        expected.red
     );
     let quadratic = evaluate(
         "fold_probe",

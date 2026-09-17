@@ -7,8 +7,7 @@
 //! [`zigzag_signed`] then [`codec::encode_int`] — which shares neither the
 //! fused mantissa expression nor the guard, so a wrong guard direction or an
 //! off-by-one mantissa near the fast-path magnitude bound reads red
-//! deterministically under the seam sweep and under committed seeds of the
-//! generalized family.
+//! deterministically under the boundary sweep and committed property seeds.
 //!
 //! [`signed_le`] and [`signed_max`] are pinned against the exact value order
 //! (an [`IBig`] oracle): the sign-tag case analysis and its negative-zero
@@ -59,12 +58,12 @@ fn assert_fused_matches(sign: Sign, magnitude: &Base) {
     );
 }
 
-/// Magnitudes concentrated on the coder's seams.
+/// Generates magnitudes concentrated around the coder's boundaries.
 ///
 /// The dense small range, random values of exactly 29..=34 bits (the band
 /// holding the fast-path magnitude bound), uniform words, and `2^k ± {0, 1}`
 /// through the wide (past-`u64`) range.
-fn arb_seam_magnitude() -> impl Strategy<Value = Base> {
+fn arb_boundary_magnitude() -> impl Strategy<Value = Base> {
     prop_oneof![
         (0u64..=64).prop_map(Base::from),
         any::<u64>().prop_map(Base::from),
@@ -81,15 +80,16 @@ fn arb_seam_magnitude() -> impl Strategy<Value = Base> {
     ]
 }
 
-/// Deterministic seam sweep: both fused coders match the unfused composition
-/// on the fast-path bound's dense neighborhood, the dense small range, the
-/// word edges, and `2^k ± 1` across the wide band — both signs throughout.
+/// Both fused coders match the unfused composition around encoding boundaries.
+///
+/// Cases cover the fast-path bound's dense neighborhood, word edges, and
+/// `2^k ± 1` across the wide range, under both signs.
 ///
 /// The point tripwire riding beside the generalized family below: a flipped
-/// fast-path guard or a mantissa error at the `2^31` seam fails here without
+/// fast-path guard or a mantissa error at the `2^31` boundary fails here without
 /// any random exploration.
 #[test]
-fn fused_coders_match_at_the_fast_path_seam() {
+fn fused_coders_match_at_the_fast_path_boundary() {
     let mut magnitudes: Vec<Base> = Vec::new();
     for m in 0..=64u64 {
         magnitudes.push(Base::from(m));
@@ -123,7 +123,7 @@ proptest! {
     /// and wide (past-`u64`) values.
     #[test]
     fn fused_coders_match_the_unfused_composition(
-        magnitude in arb_seam_magnitude(),
+        magnitude in arb_boundary_magnitude(),
         negative in any::<bool>(),
     ) {
         let sign = if negative && magnitude != Base::ZERO {

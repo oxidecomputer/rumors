@@ -305,11 +305,11 @@ proptest! {
     }
 }
 
-/// Join and meet across the adversarial event shapes of record (dense spine,
+/// Join and meet across the registered worst-case event shapes (dense spine,
 /// bigroot, hugeleaf, boundary comb) hold the 1-Lipschitz coding pin on every
 /// cross of the family grid.
 #[test]
-fn adversarial_crosses_hold_the_lipschitz_pin() {
+fn worst_case_crosses_hold_the_lipschitz_pin() {
     let shapes = [
         dense(512).version(),
         bigroot(200, 100).version(),
@@ -515,13 +515,13 @@ fn empty_pair_is_the_subadditivity_equality_case() {
     }
 }
 
-/// Join and meet across the full adversarial event-shape grid hold the
+/// Join and meet across the full worst-case event-shape grid hold the
 /// subadditivity lemma on every cross of the family grid.
 ///
 /// The grid: dense spine, bigroot, hugeleaf, boundary comb, wide-tooth
 /// comb, cliff fan, cancelling chain, alternating spine.
 #[test]
-fn adversarial_crosses_hold_subadditivity() {
+fn worst_case_crosses_hold_subadditivity() {
     let shapes = [
         dense(256).version(),
         bigroot(128, 64).version(),

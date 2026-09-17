@@ -236,19 +236,10 @@ proptest! {
 }
 
 proptest! {
-    /// Every should-be-equivalent encoding view of a live `Party`/`Version`/
-    /// `Clock` agrees, over an arbitrary *impl-driven* history.
+    /// Every live value reached through public operations has one encoded form.
     ///
-    /// The oracle-lowered round-trip tests (and [`master_differential`] above)
-    /// only ever compare `encode`d bytes; the `as_bytes_matches_encode` tests
-    /// only build via the oracle. Neither combination drives the impl's own
-    /// `fork`/`join`/`sync` *and* reads `as_bytes` — the exact seam where a
-    /// normalizing `join` once left stale bits in the stored buffer, so that
-    /// `as_bytes` (the borsh wire form) diverged from the canonical `encode`.
-    ///
-    /// For each clock reached by the trace this asserts the encoded views
-    /// coincide — `as_bytes == encode`, and `decode` of either recovers the
-    /// value.
+    /// For each clock in the generated history, `as_bytes` equals `encode` for
+    /// both components, and decoding either view recovers the value.
     #[test]
     fn encoding_views_agree_over_impl_history(ops in world_strategy()) {
         let mut imp = vec![Clock::seed()];
@@ -678,9 +669,8 @@ fn deep_tree_min_ticks_stack_safety() {
 proptest! {
     /// `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`.
     ///
-    /// Any accepted value satisfies the keystone invariant `decode(b) == Ok(x)
-    /// ⟹ is_normal(x)`: lowering it to the oracle yields a normal-form tree.
-    /// This — not the re-encode round-trip alone — is what makes the
+    /// Any accepted value lowers to a normal-form oracle tree. This, rather
+    /// than the re-encode round-trip alone, is what makes the
     /// byte-equality `Eq`/`Hash` sound: a non-normal accept would give two
     /// distinct byte strings for one logical value. The re-encode-then-decode
     /// round-trip is also asserted (canonical encoding is stable).
@@ -1069,13 +1059,8 @@ fn octave_maxima(traj: &[u64]) -> Vec<u64> {
 /// The fork+join round-trip orbit is byte-stationary.
 ///
 /// Forking a child off a clock and immediately joining it back returns the
-/// clock byte-identical to its resting encoding, every round — iterated
-/// re-partitioning of an idle region mints nothing, with no transient and no
-/// ratchet [measured: identity at all 256 rounds].
-///
-/// Liveness floor: mid-round the encoding must differ from the resting one (the
-/// fork really split the party), so the identity is a round trip, not a no-op.
-/// Budget: 256 rounds, microseconds.
+/// clock byte-identical to its resting encoding after every round. The
+/// mid-round inequality confirms that each fork actually changes the party.
 #[test]
 fn fork_join_round_trip_orbit_is_byte_stationary() {
     let mut c = Clock::seed();

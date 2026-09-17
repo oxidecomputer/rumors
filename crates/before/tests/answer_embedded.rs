@@ -164,7 +164,7 @@ fn measure_folds_are_additive_on_wide_base_tiny_tail() {
 /// Near-equal wide subtree minima are each discriminated within the
 /// input bits that spelled them. Unlike the wide-base family, here the
 /// *input itself* carries the n x w product (every rung stores its own
-/// wide count), so the honest check is flatness per encoded byte across
+/// wide count), so the relevant check is flatness per encoded byte across
 /// all four grid cells.
 #[test]
 fn measure_folds_are_flat_per_byte_on_wide_ladder() {

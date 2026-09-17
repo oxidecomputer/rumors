@@ -1,12 +1,13 @@
-//! Exact-count checks for the borrowing balanced-fork iterators.
+//! Count and conservation checks for balanced-fork iterators.
 
 use before::{Clock, Party, Ticks};
 use proptest::prelude::*;
 
 proptest! {
-    /// At every practical requested width, `Party::forks` reports and yields
-    /// exactly that many pairwise-disjoint shares, which rejoin the keeper to
-    /// recover the original party.
+    /// `Party::forks` yields the requested number of pairwise-disjoint shares.
+    ///
+    /// At each step the size hint is exact, and rejoining every share recovers
+    /// the seed party.
     #[test]
     fn party_forks_yield_the_requested_count(k in 0u16..=256) {
         let count = Ticks::from(k);
@@ -36,8 +37,10 @@ proptest! {
     }
 }
 
-/// A count wider than `u128` constructs and iterates normally, uses the
-/// standard unbounded `size_hint`, and returns every untaken region on drop.
+/// A count above `u128::MAX` uses an unbounded size hint without losing shares.
+///
+/// Dropping the iterator returns all untaken regions to the keeper, so joining
+/// the one yielded share recovers the seed.
 #[test]
 fn party_forks_accept_an_unbounded_count() {
     let count = Ticks::from(u128::MAX) + Ticks::from(1u8);
@@ -55,8 +58,7 @@ fn party_forks_accept_an_unbounded_count() {
     assert!(keeper.is_seed());
 }
 
-/// `Clock::forks` accepts the same unbounded count while each yielded child
-/// carries the parent's version.
+/// `Clock::forks` accepts a count above `u128::MAX` and preserves the version.
 #[test]
 fn clock_forks_accept_an_unbounded_count() {
     let count = Ticks::from(u128::MAX) + Ticks::from(1u8);

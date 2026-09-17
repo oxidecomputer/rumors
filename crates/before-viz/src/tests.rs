@@ -1,10 +1,9 @@
-//! Host-target tests for the engine and the op-log algebra. The browser-facing wasm
-//! wrapper is a thin JSON shim over this core.
+//! Host-side checks for engine behavior and operation-log encoding.
 
 use super::*;
 use proptest::prelude::*;
 
-/// The empty log is the seed clock: full id, empty history.
+/// A new engine contains one live seed clock with an empty history.
 #[test]
 fn seed_is_the_only_node() {
     let e = Engine::new();
@@ -21,7 +20,7 @@ fn seed_is_the_only_node() {
     assert_eq!(e.live_indices(), vec![0]);
 }
 
-/// A tick advances the clock's own component.
+/// Ticking the seed advances its version by one event.
 #[test]
 fn tick_advances_the_event_component() {
     let mut e = Engine::new();
@@ -32,7 +31,7 @@ fn tick_advances_the_event_component() {
     );
 }
 
-/// A fork emits two clocks owning disjoint, complementary halves of the id space.
+/// Forking the seed produces two disjoint parties whose regions cover the seed.
 #[test]
 fn fork_splits_into_two_disjoint_halves() {
     let mut e = Engine::new();
@@ -65,7 +64,7 @@ fn fork_splits_into_two_disjoint_halves() {
     assert!(e.is_disjoint(1, 2));
 }
 
-/// Joining the two halves of a fork reconstitutes the whole id.
+/// Joining the two children of a fork recovers the seed party.
 #[test]
 fn join_reunites_disjoint_halves() {
     let mut e = Engine::new();
@@ -80,17 +79,16 @@ fn join_reunites_disjoint_halves() {
     );
 }
 
-/// Joining clocks whose ids overlap is rejected, leaving prior state intact.
+/// Joining overlapping parties fails without changing the engine.
 #[test]
 fn join_rejects_overlapping_ids() {
     let mut e = Engine::new();
     let err = e.load(vec![Op::Join { a: 0, b: 0 }]).unwrap_err();
     assert_eq!(err, EngineError::JoinOverlap { a: 0, b: 0 });
-    assert_eq!(e.node_count(), 1); // unchanged
+    assert_eq!(e.node_count(), 1);
 }
 
-/// Send transfers the sender's history into the receiver without advancing its own
-/// component or changing its id.
+/// Sending copies the sender's history into the receiver without changing its party.
 #[test]
 fn send_transfers_history_without_ticking() {
     let mut e = Engine::new();
@@ -106,7 +104,7 @@ fn send_transfers_history_without_ticking() {
     assert_eq!(nodes[4].version, nodes[3].version);
 }
 
-/// The op-log round-trips through its URL fragment.
+/// Encoding and loading a URL fragment preserves every rendered clock.
 #[test]
 fn fragment_round_trips() {
     let log = vec![
@@ -123,15 +121,15 @@ fn fragment_round_trips() {
     assert_eq!(e2.descriptors(), e.descriptors());
 }
 
-/// Regression for the non-disjoint-live bug: joining a *live* clock with a *historical*
-/// one must rewind the historical clock's future (both join operands are anchors), not
-/// leave it alive alongside the new lineage.
+/// Joining a live clock with an ancestor rewinds that ancestor's descendants.
+///
+/// The remaining live clocks must still own pairwise-disjoint parties.
 #[test]
 fn joining_a_historical_clock_rewinds_its_future() {
     let mut e = Engine::new();
-    e.apply(Op::Fork { x: 0 }).unwrap(); // live: 1, 2
-    e.apply(Op::Tick { x: 1 }).unwrap(); // 1 superseded by 3; live: 2, 3
-    e.apply(Op::Join { a: 2, b: 1 }).unwrap(); // join live 2 with historical 1
+    e.apply(Op::Fork { x: 0 }).unwrap();
+    e.apply(Op::Tick { x: 1 }).unwrap();
+    e.apply(Op::Join { a: 2, b: 1 }).unwrap();
     let live = e.live_indices();
     for i in 0..live.len() {
         for j in (i + 1)..live.len() {
@@ -145,53 +143,44 @@ fn joining_a_historical_clock_rewinds_its_future() {
     }
 }
 
-/// Regression for the orphaned-operand bug: an op whose operand lies inside the future
-/// the op itself would rewind (here: joining a clock with its own causal descendant) is
-/// rejected, leaving prior state intact.
+/// An operation fails without mutation when rewinding one operand would remove another.
 ///
-/// Before the rejection existed, the rewind
-/// dropped the operand's creating op and the dangling index silently rebound to an
-/// arbitrary node, joining overlapping ids.
+/// Joining an ancestor to its descendant exercises this check directly.
 #[test]
 fn op_orphaning_its_own_operand_is_rejected() {
     let mut e = Engine::new();
-    e.apply(Op::Fork { x: 0 }).unwrap(); // live: 1, 2
-    e.apply(Op::Send { from: 1, to: 2 }).unwrap(); // 3 descends from 1 via the message edge
+    e.apply(Op::Fork { x: 0 }).unwrap();
+    e.apply(Op::Send { from: 1, to: 2 }).unwrap();
     let before = e.descriptors();
-    let err = e.apply(Op::Join { a: 3, b: 1 }).unwrap_err(); // rewinding 1 would drop 3
+    let err = e.apply(Op::Join { a: 3, b: 1 }).unwrap_err();
     assert_eq!(err, EngineError::Orphaned { operand: 3 });
-    assert_eq!(e.descriptors(), before); // unchanged
+    assert_eq!(e.descriptors(), before);
 }
 
-/// Interpret a random command against the engine: act on any node (exercising the
-/// historical-rewind path), guarding joins by disjointness as the UI does.
-///
-/// A rejected
-/// op (e.g. an operand that the rewind would orphan) leaves state unchanged, mirroring
-/// the UI declining the gesture; we test the invariant over the *successful* states.
-fn step(e: &mut Engine, k: u8, ra: usize, rb: usize) {
-    let n = e.node_count();
-    let a = ra % n;
-    match k {
-        0 => drop(e.apply(Op::Tick { x: a })),
-        1 => drop(e.apply(Op::Fork { x: a })),
+/// Apply one generated command, using the same disjointness guard as the UI.
+fn step(engine: &mut Engine, kind: u8, raw_a: usize, raw_b: usize) {
+    let node_count = engine.node_count();
+    let a = raw_a % node_count;
+    match kind {
+        0 => drop(engine.apply(Op::Tick { x: a })),
+        1 => drop(engine.apply(Op::Fork { x: a })),
         2 => {
-            let b = rb % n;
-            if a != b && e.is_disjoint(a, b) {
-                drop(e.apply(Op::Join { a, b }));
+            let b = raw_b % node_count;
+            if a != b && engine.is_disjoint(a, b) {
+                drop(engine.apply(Op::Join { a, b }));
             }
         }
-        _ => drop(e.apply(Op::Send {
+        _ => drop(engine.apply(Op::Send {
             from: a,
-            to: rb % n,
+            to: raw_b % node_count,
         })),
     }
 }
 
 proptest! {
-    /// The core invariant: after any sequence of operations — including acting on
-    /// historical nodes, which rewinds — the live clocks are pairwise id-disjoint (the
-    /// frontier always partitions the id space).
+    /// Every generated operation sequence leaves the live parties pairwise disjoint.
+    ///
+    /// Commands may target historical nodes, so the property also exercises rewinding.
     #[test]
     fn live_clocks_stay_pairwise_disjoint(
         cmds in prop::collection::vec((0u8..4, any::<usize>(), any::<usize>()), 0..60)
@@ -208,7 +197,7 @@ proptest! {
         }
     }
 
-    /// Applying the same command sequence is deterministic: same fragment, same nodes.
+    /// Replaying the same generated commands produces the same fragment and clocks.
     #[test]
     fn apply_sequences_are_deterministic(
         cmds in prop::collection::vec((0u8..4, any::<usize>(), any::<usize>()), 0..50)
@@ -224,8 +213,7 @@ proptest! {
     }
 }
 
-/// Assert `fragment` rejects through the engine as `BadFragment`, leaving
-/// the engine at the seed (a rejected load commits nothing).
+/// Assert that loading an invalid fragment reports `BadFragment` without mutation.
 fn assert_rejects_as_bad_fragment(fragment: &str) {
     let mut e = crate::Engine::new();
     match e.load_fragment(fragment) {
@@ -235,47 +223,31 @@ fn assert_rejects_as_bad_fragment(fragment: &str) {
     assert_eq!(e.node_count(), 1, "a rejected load leaves the prior state");
 }
 
-/// A hostile URL fragment whose varint overflows the index space rejects
-/// cleanly as `BadFragment`.
+/// A URL fragment with an overflowing index varint reports `BadFragment`.
 ///
-/// `read_varint` bounds its shift, so an over-wide varint can neither
-/// panic (debug assertions) nor silently mask into a wrong value (the
-/// release wasm the site ships). The fragments are
+/// The fragments are
 /// `[tag 1, 0x80 x 10, 0x01]` base64url-encoded and its `0x00`-terminated
-/// alias — under a masked shift the second decodes to a valid index,
-/// making two distinct fragments alias one op. Any shared link can carry
-/// either.
+/// variant. If the shift were masked, the second fragment would decode as
+/// a valid but incorrect index.
 #[test]
 fn overlong_varint_fragment_rejects_cleanly() {
-    for hostile in ["AYCAgICAgICAgIAB", "AYCAgICAgICAgIAA"] {
-        assert_rejects_as_bad_fragment(hostile);
+    for fragment in ["AYCAgICAgICAgIAB", "AYCAgICAgICAgIAA"] {
+        assert_rejects_as_bad_fragment(fragment);
     }
 }
 
-/// The op budget covers every entry — the wire, direct `load`, and
-/// `apply`.
+/// Every operation-log entry point enforces the same inclusive operation limit.
 ///
-/// A fragment at the budget loads through the engine; an `apply` that
-/// would grow the log past it rejects as `TooManyOps` with the state
-/// intact, so the engine can never mint a fragment the decoder refuses;
-/// and a past-budget log rejects at both remaining entries (the wire as
-/// `BadFragment`, direct `load` as `TooManyOps`).
-///
-/// A log is caller input (any shared link carries one), and op count is
-/// what bounds replay work, arena size, and the front-end's per-level
-/// work; unbudgeted, a link of a few tens of KB wedges the tab. The
-/// boundary is pinned from both sides so the budget can neither drift
-/// below teaching-figure scale nor silently stop rejecting.
+/// The test accepts a fragment at the limit, then checks that `apply`, `load`,
+/// and fragment loading reject one additional operation without losing the
+/// accepted state.
 #[test]
 fn op_budget_covers_every_entry() {
-    // At the budget, through the wire: accepted whole.
     let at_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_OPS]);
     let mut e = crate::Engine::new();
     e.load_fragment(&at_cap).expect("a log at the budget loads");
     assert_eq!(e.op_log().len(), oplog::MAX_OPS);
 
-    // One op past, via a gesture on the newest live tip: rejected, state
-    // intact, and the fragment the full engine minted still reloads.
     match e.apply(Op::Tick { x: oplog::MAX_OPS }) {
         Err(crate::EngineError::TooManyOps(n)) => assert_eq!(n, oplog::MAX_OPS + 1),
         other => panic!("an apply past the op budget must reject as TooManyOps, got {other:?}"),
@@ -284,9 +256,8 @@ fn op_budget_covers_every_entry() {
     let frag = e.fragment();
     let mut e2 = crate::Engine::new();
     e2.load_fragment(&frag)
-        .expect("every fragment the engine mints reloads");
+        .expect("the last accepted state must remain encodable");
 
-    // One op past, through the wire and through direct load.
     let past_cap = oplog::encode(&vec![Op::Tick { x: 0 }; oplog::MAX_OPS + 1]);
     assert_rejects_as_bad_fragment(&past_cap);
     let mut e3 = crate::Engine::new();

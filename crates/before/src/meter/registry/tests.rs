@@ -1,5 +1,4 @@
-//! The registry's own pins: the seams between the roster and its data tables
-//! that the compiler cannot check, held by tests instead.
+//! Checks consistency between the family registry and its derived tables.
 
 use std::collections::BTreeSet;
 
@@ -7,9 +6,7 @@ use super::{Bands, Coverage, FamilyId, Shape, AXIS_BANDS};
 
 /// Every shape constructor, for the citation pin below.
 ///
-/// Completeness rides the same review discipline as [`FamilyId::ALL`]: a
-/// variant missing here escapes only the citation pin, never the compiler ties
-/// (its constructor arm in `Shape::builder` is still forced).
+/// The complete shape set used to check registry citations.
 const ALL_SHAPES: [Shape; 68] = [
     Shape::Dense,
     Shape::Bigroot,
@@ -109,9 +106,7 @@ fn family_names_are_unique() {
 
 /// Every shape constructor is cited by at least one family's spec.
 ///
-/// The named parity survivor for shape citation: membership of a [`Shape`] in a
-/// family's `shapes` row is data, not types, so this pin is what keeps a
-/// constructor from riding the registry entry point with no family answering for it.
+/// Every shape constructor appears in at least one family specification.
 #[test]
 fn every_shape_is_cited_by_a_family() {
     let cited: BTreeSet<Shape> = FamilyId::ALL

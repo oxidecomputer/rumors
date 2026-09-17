@@ -1,12 +1,4 @@
-//! Constructed corner-case witnesses: inputs no random stream reaches,
-//! each pinning a decision constant, a headroom bound, a
-//! conversion-path corner, or a documented collapse side effect at its
-//! tight edge.
-//!
-//! The extreme-cancellation witnesses exist because their mutations
-//! passed everything else: `SIGN_DECIDED: 3 → 2` and a decision index
-//! of `floor + 1` each survived the whole differential suite, so the
-//! tight corners are pinned here by construction.
+//! Constructed boundary cases that random input generation is unlikely to reach.
 
 use core::cmp::Ordering;
 
@@ -15,14 +7,14 @@ use num_bigint::{BigInt as IBig, BigUint as UBig};
 use super::{assert_value, park_extreme_negative_digit, Accumulator, TestBig as _};
 use crate::accumulator::{landing, QUICK_MAX, QUICK_SHIFT_MAX};
 
-/// The last digit position whose buffer length fits `usize` is accepted.
+/// The last digit position whose required buffer length fits `usize` is accepted.
 #[test]
 fn last_addressable_landing_is_accepted() {
     let position = usize::MAX as u128 - 1;
     assert_eq!(landing(position), usize::MAX - 1);
 }
 
-/// The first digit position whose buffer length cannot fit `usize` panics.
+/// The next digit position panics because its required buffer length cannot fit.
 #[test]
 #[should_panic(expected = "digit landing fits the accumulator buffer")]
 fn first_unaddressable_landing_panics() {
@@ -34,17 +26,9 @@ fn first_unaddressable_landing_panics() {
 /// must keep descending — a threshold of 2 would report the wrong sign
 /// on this input.
 ///
-/// The witness parks digits `[−(2^33 − 1), −(2^33 − 1), 2]` (built
-/// through public entry points; every digit is one unit inside the lazy
-/// zone). The suffix partial at the top digit is exactly 2, but the two
-/// digits below sum to `−(2^33 − 1)·(2^32 + 1)`, which exceeds
-/// `2 · 2^64` by `2^32 − 1`: the true value is `−(2^32 − 1)`, negative.
-/// Committed because the mutation `SIGN_DECIDED: 3 → 2` — which reads
-/// this value as positive — passed the whole differential suite:
-/// random streams essentially never stack two adjacent
-/// extreme digits under a partial of exactly 2, so the tight corner
-/// needs this constructed pin. The mirrored spelling checks the
-/// negative-partial side of the same boundary.
+/// The fixture parks digits `[−(2^33 − 1), −(2^33 − 1), 2]`. Although
+/// the top partial is exactly 2, the full value is `−(2^32 − 1)`. The
+/// mirrored fixture checks the opposite-sign boundary.
 #[test]
 fn sign_threshold_survives_extreme_cancellation() {
     let mut acc = Accumulator::new();
@@ -81,16 +65,11 @@ fn sign_threshold_survives_extreme_cancellation() {
 /// because an adjustment under `2^(32·(floor + 1))` can still flip the
 /// sign there.
 ///
-/// The witness holds digits `[−(2^33 − 1), −(2^33 − 1), 3]`: the fold
+/// The fixture holds digits `[−(2^33 − 1), −(2^33 − 1), 3]`: the fold
 /// decides the (exact, positive) sign at index 2 with partial 3, and
 /// the value is `2^64 − 2^32 + 1` — strictly less than `u64::MAX`. At
 /// `floor = 1` the contract covers every `u64` adjustment, so `decided`
-/// must be false: subtracting `u64::MAX` flips the sign, as the tail of
-/// the test demonstrates. Committed because the mutation
-/// `floor.saturating_add(2) → floor.saturating_add(1)` — which
-/// certifies domination here — passed the entire committed test suite;
-/// a caller consumes the certificate to skip folds entirely, so a
-/// wrongly-decided verdict would corrupt values silently.
+/// must be false because subtracting `u64::MAX` flips the sign.
 #[test]
 fn domination_decision_index_is_tight_at_floor_plus_two() {
     let mut acc = Accumulator::new();
@@ -125,12 +104,10 @@ fn domination_decision_index_is_tight_at_floor_plus_two() {
 /// magnitudes under `2^(32·(floor + 1))`, while a lazy-zone spelling
 /// reaches almost `2.01 · 2^(32·(floor + 1))`.
 ///
-/// The held value decides at exactly index `floor + 2` with the minimum
-/// partial 3 over maximally cancelling lower digits — the tightest
-/// decided value — and the operand spells every digit `0..=floor` at
-/// `+(2^33 − 1)`, about twice the largest plain magnitude the proptest
-/// can draw. Folding the operand in (both signs) must preserve the
-/// sign, and the operand's magnitude must be strictly smaller.
+/// The held value decides at exactly `floor + 2` with partial 3 over
+/// maximally cancelling lower digits. An operand filled with `2^33 - 1` in
+/// every covered digit is still smaller, and folding it under either sign must
+/// preserve the held value's sign.
 #[test]
 fn decided_domination_covers_extreme_accumulator_operands() {
     let floor = 1usize;
@@ -181,10 +158,8 @@ fn decided_domination_covers_extreme_accumulator_operands() {
 /// bound: an operand parked at the zone's edge in digits `0..=1`
 /// carries `(2^33 − 1)(2^32 + 1) = 2^65 + 2^32 − 1 > 2^65`, so a
 /// certificate at `2^65` would cover an operand larger than the held
-/// value — weakening the constant to 2 certifies exactly here, and the
-/// fold at the tail flips the sign. The generalized family is the
-/// accumulator-operand probe arm of `floor_domination_is_sound`; this
-/// witness checks the exact gap value deterministically.
+/// value. The final fold demonstrates that certifying at `2^65` would permit
+/// the operand to flip the sign.
 #[test]
 fn register_domination_constant_is_tight_from_below() {
     let mut held = Accumulator::new();
@@ -234,8 +209,7 @@ fn register_domination_constant_is_tight_from_below() {
 /// in digits `0..=usize::MAX - 1` — and a wrapping `floor + 2` computes
 /// 0, so an unsaturated decision index either panics the debug build
 /// (the add overflows) or certifies domination from 64 digits in
-/// release: this test is the committed witness that the index
-/// saturates.
+/// release. The assertion requires saturation instead.
 #[test]
 fn domination_floor_near_usize_max_never_decides() {
     let mut acc = Accumulator::new();
@@ -257,7 +231,7 @@ fn domination_floor_near_usize_max_never_decides() {
 ///
 /// `u64::MAX` spans two digits — below any deciding fold's index for
 /// `floor = 0` — yet the register reads `(Greater, true)` because
-/// `u64::MAX ≥ 3 · 2^32`. Pins the register arm of the contract:
+/// `u64::MAX ≥ 3 · 2^32`. This isolates the register arm of the contract:
 /// `decided` on a register-held value is exactly
 /// `|value| ≥ 3 · 2^(32·(floor + 1))`, with no fold mechanics involved.
 #[test]
@@ -282,7 +256,7 @@ fn register_certifies_domination_below_any_deciding_fold() {
 /// The same `2^80` certifies at `floor = 1` while register-held
 /// (`2^80 ≥ 3 · 2^64`) and reads `decided = false` once spilled — its
 /// fold decides at digit index 2, below the required `floor + 2 = 3`.
-/// Pins the representation cliff the contract documents: a caller must
+/// This checks the representation distinction the contract documents: a caller must
 /// never treat `decided` as a pure function of the value.
 #[test]
 fn domination_certificate_depends_on_representation() {
@@ -311,12 +285,12 @@ fn domination_certificate_depends_on_representation() {
 /// domination floor derived from that count decides; derived from the
 /// stale count instead, the same read refuses.
 ///
-/// The clause callers comparing accumulators lean on: the
+/// Accumulator comparisons use the
 /// [`sign_dominates_at`](Accumulator::sign_dominates_at) rustdoc routes
 /// them through `floor = its digit_count - 1`, and the fold's collapse
 /// (the scanned prefix zeroed, its exact partial re-deposited at the
 /// scan's floor) is what makes that count tight after a sign read.
-/// Adequacy leg: with the sign read omitted, the stale spelling still
+/// Without the sign read, the stale spelling still
 /// counts its cancelling prefix, and the floor it yields is undecidable
 /// even for a comparand that dwarfs the true value.
 #[test]
@@ -338,7 +312,7 @@ fn sign_collapse_tightens_the_top_and_arms_domination() {
     let mut comparand = Accumulator::new();
     comparand.add_limb_value(&(UBig::from(5u8) << 128usize));
     // Adequacy leg (sign read omitted): a floor derived from the stale
-    // count demands clearance no comparand at the cancelled
+    // count demands clearance no valid comparand of the cancelled
     // value's true scale needs, and the read refuses. The read rewrites
     // nothing here (a decision-bound top answers on its first step), so
     // the decided read below sees the same spelling.
@@ -368,10 +342,10 @@ fn sign_collapse_tightens_the_top_and_arms_domination() {
 /// below every position the caller's own writes touched.
 ///
 /// The [`sign_biguint_shl`](Accumulator::sign_biguint_shl)
-/// rustdoc's sign-queries-count-as-writers clause, pinned executable: a
+/// rustdoc's sign-queries-count-as-writers clause: a
 /// caller pricing reads by the returned shift keeps sign reads off the
 /// accumulator before the scaled read, or surrenders part of the
-/// never-written-prefix skip. Adequacy leg: untouched, the same value
+/// never-written-prefix skip. Untouched, the same value
 /// returns the full written-span shift, exactly.
 #[test]
 fn collapsing_sign_read_lowers_the_scaled_read_shift() {
@@ -405,7 +379,7 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
         (&(UBig::ONE << 32usize), 1248),
         "the collapse re-deposits one digit down: shift 32 · 39, magnitude 2^32"
     );
-    // The pair is an exact spelling of the unchanged value.
+    // The pair is one valid spelling of the unchanged value.
     assert_eq!(
         magnitude << usize::try_from(shift).expect("the shift fits the address space"),
         UBig::ONE << 1280usize,
@@ -422,11 +396,10 @@ fn collapsing_sign_read_lowers_the_scaled_read_shift() {
 /// carry −2). Checks the `rem_euclid`/complement boundary of `sign_biguint`
 /// on the one shape where the complement's carry crosses a zero digit —
 /// the arm the negative-conversion test's operands never exercise. The
-/// mode assertions confirm that the same schedule on the quick register stays
-/// register-held and never reaches this boundary, so the
+/// mode assertions establish that the same schedule on the quick
+/// register stays register-held and never reaches the boundary, so the
 /// spill and the exact digit state are pinned alongside the value. The
-/// generalized family is `carry_tie_streams_match_the_oracle` in the
-/// differential suite; this test fixes one deterministic example.
+/// property `carry_tie_streams_match_the_oracle` covers surrounding values.
 #[test]
 fn flush_right_carry_tie_converts_exactly() {
     let mut acc = Accumulator::new();
@@ -435,7 +408,7 @@ fn flush_right_carry_tie_converts_exactly() {
     acc.sub_u64(1 << 32);
     assert!(
         acc.quick.is_none(),
-        "the conversion boundary under test lives in the digit engine"
+        "the boundary under test lives in the digit engine"
     );
     assert_eq!(
         &acc.digits[..=acc.top],
@@ -450,8 +423,8 @@ fn flush_right_carry_tie_converts_exactly() {
 /// The quick register engages on machine-word streams, retires at the
 /// first wide operand, and re-arms on reset.
 ///
-/// The liveness pin that the fast path is actually taken and the
-/// spill actually spills, so neither mode's coverage is vacuous.
+/// The test checks both transitions directly, so neither mode's coverage is
+/// vacuous.
 #[test]
 fn quick_register_engages_and_retires() {
     let mut acc = Accumulator::new();
@@ -577,7 +550,7 @@ fn quick_register_extremes_spill_exactly() {
 
 /// `sign_limbs` at its conversion-path corners: zero reads empty in
 /// both tiers, a register value spanning two limbs splits exactly at
-/// the two-limb boundary, and negatives read the magnitude's limbs.
+/// the limb boundary, and negatives read the magnitude's limbs.
 ///
 /// The register readout packs an `i128` magnitude into at most two
 /// limbs and strips high zeros; the digit-engine readout pairs base-2^32
@@ -594,7 +567,7 @@ fn sign_limbs_conversion_corners() {
     zero.spill();
     assert_eq!(zero.sign_limbs(), (Ordering::Equal, vec![]));
 
-    // (value, expected LE limbs): the u64 ceiling, the boundary at
+    // (value, expected LE limbs): the u64 ceiling, the limb boundary at
     // 2^64 (interior zero limb kept), and a two-limb composite.
     let corners: [(u128, Vec<u64>); 3] = [
         (u128::from(u64::MAX), vec![u64::MAX]),

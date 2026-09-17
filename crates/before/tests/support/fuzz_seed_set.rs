@@ -121,7 +121,7 @@ pub fn seed_set() -> Vec<Seed> {
     });
     // The decode target's non-canonical frontier: one committed witness
     // per skyline-validator arm, driven through the version entry point (the
-    // span differential's fused admission walk subsumes both genres
+    // span differential's fused admission walk subsumes both cases
     // under its dominance refutation, so only a version-kind seed
     // reaches these arms). Neither stream is derivable from the API —
     // no encode produces them — so the bytes carry their derivations.
@@ -170,9 +170,9 @@ pub fn seed_set() -> Vec<Seed> {
     });
 
     // Differential-target seeds: the accept frontier plus one committed
-    // witness per rejection genre whose *precedence* the differential
+    // witness per rejection class whose *precedence* the differential
     // oracle guards. Every fuzz run replays the seed corpus first, so a
-    // reintroduced genre-ordering defect (a pair verdict pronounced before
+    // incorrect error ordering (a pair verdict pronounced before
     // the padding check) crashes the very first smoke run.
     seeds.push(Seed {
         target: "fuzz_decode_differential",
@@ -210,7 +210,7 @@ pub fn seed_set() -> Vec<Seed> {
         bytes: [Version::new().encode(), Version::new().encode()].concat(),
     });
     // A crossed pair whose join also carries a set padding bit: the
-    // structural genre (TrailingBits) must outrank the pair verdict.
+    // structural error (`TrailingBits`) must outrank the pair verdict.
     let mut padded_empty = Version::new().encode();
     padded_empty[0] |= 0x04;
     seeds.push(Seed {
@@ -222,7 +222,7 @@ pub fn seed_set() -> Vec<Seed> {
     // leaf `1` with height gamma(0) `1`, right leaf `1` with delta
     // zigzag(-1) `010`, then the padding marker — 0b0111_0101. Not
     // derivable from the API (no encode produces it); it seeds the one
-    // documented fused/composed genre divergence, the height-dip
+    // documented fused/composed divergence, the height-dip
     // subsumption.
     seeds.push(Seed {
         target: "fuzz_decode_differential",
@@ -247,7 +247,7 @@ pub fn seed_set() -> Vec<Seed> {
     // bits of the uniform version at 7 (leaf flag `1`, gamma(7) `0001000`)
     // fill its first byte, so its whole `1000_0000` padding byte is the
     // second — and the first byte alone is a complete tree whose required
-    // padding is missing entirely. It seeds the truncation-genre agreement
+    // padding is missing entirely. It seeds the truncation agreement
     // between the reader and slice entry points (`UnexpectedEof` is exactly raw
     // `Truncated`).
     seeds.push(Seed {

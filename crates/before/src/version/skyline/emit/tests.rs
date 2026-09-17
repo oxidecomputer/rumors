@@ -197,7 +197,7 @@ fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
     crate::version::skyline::signed::fold_signed_int(diff, sign, &step.magnitude);
 }
 
-/// The adversarial family pool the deterministic grids run over.
+/// The registered input families used by deterministic grids.
 fn family_pool() -> Vec<Version> {
     vec![
         Version::new(),
@@ -219,7 +219,7 @@ fn family_pool() -> Vec<Version> {
     ]
 }
 
-/// Every ordered pair drawn from the adversarial families emits
+/// Every ordered pair drawn from the registered families emits
 /// byte-identically to the recursive oracle, validates as canonical, and
 /// re-derives pointwise.
 ///
@@ -264,7 +264,7 @@ fn flat_over_deep_collapses_totally() {
 /// small-scope depth emits join and meet byte-identically to the recursive
 /// oracle.
 ///
-/// Brute force reaches every boundary genre — aligned ties, flush-right ties,
+/// Brute force reaches every boundary case — aligned ties, flush-right ties,
 /// plateau consumption, switches at and across zero deltas, collapse cascades —
 /// deterministically rather than by sampling.
 #[test]
@@ -481,7 +481,7 @@ proptest! {
     ///
     /// The 29..=34 band puts deterministic mass on output deltas around the
     /// fused signed-gamma coder's fast-path magnitude bound at `2^31` (the
-    /// guard in `skyline::signed`), so a guard or mantissa error at that seam
+    /// guard in `skyline::signed`), so a guard or mantissa error at that boundary
     /// reads red under this family's oracle rather than only under random
     /// exploration.
     #[test]

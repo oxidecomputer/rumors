@@ -206,7 +206,7 @@ fn exclusion_payload_citations_resolve() {
 
 /// Every exclusion variant is used by at least one coverage row.
 #[test]
-fn every_exclusion_family_is_inhabited() {
+fn every_exclusion_family_is_used() {
     use std::collections::BTreeMap;
     let mut census: BTreeMap<&str, usize> = BTreeMap::new();
     for row in METHOD_SURFACE.iter().chain(FAMILY_SURFACE) {
@@ -219,8 +219,7 @@ fn every_exclusion_family_is_inhabited() {
     for family in crate::surface::Exclusion::FAMILIES {
         assert!(
             census.get(family).copied().unwrap_or(0) > 0,
-            "exclusion family {family} is uninhabited: dissolve it or \
-             inhabit it"
+            "exclusion family {family} is unused"
         );
     }
 }
@@ -230,7 +229,7 @@ fn every_exclusion_family_is_inhabited() {
 /// This keeps bare-name citations from silently resolving to the wrong copy
 /// after one same-named test is removed.
 #[test]
-fn duplicate_test_names_are_rostered() {
+fn duplicate_test_names_are_recorded() {
     let scanned: Vec<(String, Vec<String>)> = declared_test_names_by_file()
         .into_iter()
         .filter(|(_, files)| files.len() > 1)
@@ -249,7 +248,7 @@ fn duplicate_test_names_are_rostered() {
         scanned, rostered,
         "the same-named tests in the tree and the DUPLICATE_TEST_NAMES \
          roster must agree exactly: an unrostered duplicate makes bare-name \
-         citations ambiguous, and a rostered phantom names a deleted copy"
+         citations ambiguous, and a stale entry names a deleted copy"
     );
 }
 

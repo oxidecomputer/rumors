@@ -7,8 +7,7 @@ use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::generators::arb_oracle_version;
 use crate::Clock;
 
-/// The span witness fixture: an alice chain `a[0] < ... < a[4]` and `b1`
-/// concurrent to every version of it.
+/// Build a five-version chain and one version concurrent with the whole chain.
 fn span_fixtures() -> ([Version; 5], Version) {
     let mut alice = Clock::seed();
     let mut bob = alice.fork();
@@ -114,9 +113,7 @@ fn span_precedence_coarsens_every_witness() {
     assert_eq!(span.precedence(&b1), Precedence::After);
 }
 
-/// Membership on the nine placement witnesses: exactly the at-endpoint
-/// and between placements are contained — every outside and concurrent
-/// genre is not, the coincident segment included.
+/// Span membership includes endpoints and interior versions, but nothing else.
 #[test]
 fn span_contains_admits_every_witness() {
     let ([a1, a2, a3, a4, a5], b1) = span_fixtures();
@@ -200,8 +197,7 @@ fn at_builds_the_coincident_span() {
     assert_eq!(borrowed, point);
 }
 
-/// The deriving entry points on every input genre: the receiver keeps the hull
-/// total, and every genre yields its tightest containing span.
+/// Binary and iterator construction produce the tightest containing span.
 ///
 /// An empty iterator's hull is the coincident `[self, self]`; a comparable
 /// pair's is its validated span from either operand order (binary and n-ary
@@ -231,23 +227,17 @@ fn span_derives_the_hull() {
     // Owned items use the same `Borrow` implementation as references.
     assert_eq!(a1.span_all([a2.clone()]), flat);
 }
-// The span gate's family claim (`Span::new` admits exactly the ordered
-// pairs, endpoints preserved exactly) is the
-// `span_gate_admits_exactly_the_ordered` law in `crate::laws`, driven over
-// arbitrary normal forms, organic op-trace populations, and the fuzz
-// target's decoded values.
-
 // ───────────────────────────── the span wire form ─────────────────────────────
 
-/// Committed witnesses, one per rejection genre the span wire decode can reach.
+/// Span decoding rejects every malformed-input class with the expected error.
 ///
 /// A strictly crossed pair, a concurrent pair (both orders), a non-canonical
-/// component on each side of the seam, truncation at every byte boundary
-/// (inside the meet, at the seam with the join missing entirely, inside the
+/// component on each side of the boundary, truncation at every byte boundary
+/// (inside the meet, with the join missing entirely, and inside the
 /// join), a trailing byte after the complete composite, and a set padding bit
 /// inside each component's final byte.
 #[test]
-fn span_decode_rejects_each_genre() {
+fn span_decode_rejects_each_malformed_input_class() {
     use crate::error::Decode;
     let mut alice = Clock::seed();
     let mut bob = alice.fork();
@@ -287,14 +277,14 @@ fn span_decode_rejects_each_genre() {
         "empty input"
     );
     for cut in 1..bytes.len() {
-        let genre = match cut.cmp(&lo_len) {
+        let location = match cut.cmp(&lo_len) {
             Ordering::Less => "inside the meet",
-            Ordering::Equal => "at the seam: the join missing entirely",
+            Ordering::Equal => "before the join",
             Ordering::Greater => "inside the join",
         };
         assert!(
             matches!(Span::decode(&bytes[..cut]), Err(Decode::Truncated)),
-            "cut at byte {cut} ({genre})"
+            "cut at byte {cut} ({location})"
         );
     }
 
@@ -330,7 +320,7 @@ fn span_decode_rejects_each_genre() {
         "set bit in the join's padding"
     );
 
-    // A non-canonical component on each side of the seam: an internal node
+    // A non-canonical component on each side of the boundary: an internal node
     // whose two leaf children carry height 0 and delta 0 — the collapsible
     // sibling pair minimal topology forbids. As a *join* it denotes the empty
     // version, so it dominates an empty meet and only canonicality can reject
@@ -353,15 +343,10 @@ fn span_decode_rejects_each_genre() {
     );
 }
 
-/// FUSED-VALIDATE VERDICT IDENTITY, exhaustively at small scope.
+/// Exhaustive short pairs make fused span decoding match separate decoding.
 ///
-/// Over every ordered pair of normal-form event trees to the committed depth
-/// bound, the fused wire decode of `lo.encode() ++ hi.encode()` agrees with the
-/// composed form — decode each component, then validate with `Span::new` —
-/// accepting exactly the same composites, producing the same span on every
-/// accept, and rejecting every crossed or concurrent pair as `NotCanonical`.
-/// The corpus reaches ordered, reversed, coincident, and concurrent pairs by
-/// brute force, and the liveness floors prove both verdicts fired at scale.
+/// Each normal-form pair is decoded both as a composite and as two versions
+/// passed to `Span::new`. The value or rejection must agree.
 #[test]
 fn span_decode_verdict_matches_the_composed_form_exhaustively() {
     use crate::error::Decode;
@@ -441,28 +426,21 @@ proptest! {
 
 }
 
-// Span-composite prefix-freedom is the `span_encoding_is_prefix_free` law in
-// `laws::VERSION_TRIPLE`, quantified over the operand-span families (whose
-// shared endpoints make byte-prefix-adjacent composites on every call) and
-// driven over arbitrary normal forms, organic op-trace populations, and the
-// fuzz target's decoded values.
-
-/// Structural genres outrank the pair verdict on multiply-defective composites,
-/// exactly as decoding the components would order them.
+/// Structural decode errors take precedence over an invalid endpoint order.
 ///
 /// Each witness stacks a second defect on a composite the pair relation already
-/// rejects, and the structural genre wins: a set padding bit or a spurious
+/// rejects, and the structural error wins: a set padding bit or a spurious
 /// trailing byte after a crossed join is `TrailingBits`, a cut after an early
 /// refutation is `Truncated` — never the pair rejection's `NotCanonical`. The
-/// negative-height witnesses pin the admission walk's subsumption seam: a whole
-/// negative-height join rejects `NotCanonical` (the same genre the standalone
+/// negative-height witnesses cover the admission walk's refuted path: a whole
+/// negative-height join rejects `NotCanonical` (the same error the standalone
 /// validator gives those bytes), and a negative-height join that is *also*
 /// truncated rejects `Truncated` — the one deliberate divergence from
 /// component-wise decoding, which reports the height dip it meets first; the
 /// fused walk carries no height accumulator, so the whole-parse rule decides
 /// instead.
 #[test]
-fn span_decode_structural_genres_outrank_the_pair_verdict() {
+fn span_decode_structural_errors_outrank_the_pair_verdict() {
     use crate::error::Decode;
     let mut clock = Clock::seed();
     let one = clock.tick().clone();
@@ -483,7 +461,7 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
 
     // A whole negative-height join over the empty meet: the join never
     // dominates (its dip sits below the meet's zero), so the admission verdict
-    // subsumes the height check under the same genre.
+    // subsumes the height check under the same error.
     let composite = [empty.encode(), neg].concat();
     assert!(
         matches!(Span::decode(&composite[..]), Err(Decode::NotCanonical)),
@@ -492,7 +470,7 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
 
     // The same stream cut before its right subtree: 0b0011_1010 parses root
     // internal, left-inner leaf height 0, then delta zigzag(-1) — the dip — and
-    // then runs out of bits. The structural genre wins.
+    // then runs out of bits. Truncation wins.
     let truncated_neg = [empty.encode(), vec![0x3A]].concat();
     assert!(
         matches!(Span::decode(&truncated_neg[..]), Err(Decode::Truncated)),
@@ -512,7 +490,7 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
 
     // A crossed pair with a spurious all-zero byte after the join: the
     // composite re-encoding shorter than its input is the same
-    // trailing-bits genre.
+    // trailing-bits error.
     let crossed_trailing = [one.encode(), vec![0xE0, 0x00]].concat();
     assert!(
         matches!(
@@ -547,7 +525,7 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
     );
 }
 
-/// Structural genres outrank the coincident-pair verdict: a composite whose
+/// Structural errors outrank the coincident-pair verdict: a composite whose
 /// join stream byte-equals its meet still rejects by its structural defect,
 /// never silently dedups.
 ///
@@ -558,7 +536,7 @@ fn span_decode_structural_genres_outrank_the_pair_verdict() {
 /// mid-tree is `Truncated`: the same precedence the crossed-pair witnesses pin,
 /// exercised through the dedup-dispatching arm.
 #[test]
-fn span_decode_structural_genres_outrank_the_coincident_verdict() {
+fn span_decode_structural_errors_outrank_the_coincident_verdict() {
     use crate::error::Decode;
     let mut main = Clock::seed();
     let mut other = main.fork();
@@ -587,7 +565,7 @@ fn span_decode_structural_genres_outrank_the_coincident_verdict() {
     );
 
     // A spurious all-zero byte after the byte-equal join: the same trailing
-    // genre.
+    // error.
     let trailing = [coincident.clone(), vec![0x00]].concat();
     assert!(
         matches!(Span::decode(&trailing[..]), Err(Decode::TrailingBits)),
@@ -603,26 +581,18 @@ fn span_decode_structural_genres_outrank_the_coincident_verdict() {
     );
 }
 
-/// FUSED-VALIDATE VERDICT IDENTITY beyond the exhaustive corpus's reach: deep
-/// spines, wide fans, and payload magnitudes at and past the machine word, on
-/// both verdicts.
+/// Deep, wide, and large-height pairs make fused decoding match composition.
 ///
-/// The small-scope sweep is exhaustive to depth 2; these constructed families
-/// sample the genres it cannot contain — 300-level spines (deep path stacks,
-/// long unary runs), 1024-leaf fans (maximal-width plateaus), absolute heights
-/// above `2^64` (payload codes past the decoder's word window), and heights at
-/// the 63/64-bit sign edges of the zigzag map — and check the fused decode
-/// against the composed form (decode, decode, `Span::new`) on accept, reject,
-/// and the decoded span itself, for the pair, its hulls, and the coincident
-/// span.
+/// These cases extend the exhaustive short-pair check across iterative depth,
+/// broad trees, payloads beyond one machine word, and zigzag sign boundaries.
 #[test]
 fn span_decode_verdict_matches_the_composed_form_off_corpus() {
     use crate::error::Decode;
     use crate::oracle;
 
-    fn composed(bytes: &[u8], seam: usize) -> Result<Span<'static>, Decode> {
-        let lo = Version::decode(&bytes[..seam])?;
-        let hi = Version::decode(&bytes[seam..])?;
+    fn composed(bytes: &[u8], boundary: usize) -> Result<Span<'static>, Decode> {
+        let lo = Version::decode(&bytes[..boundary])?;
+        let hi = Version::decode(&bytes[boundary..])?;
         Span::new(&lo, &hi)
             .map(|s| s.into_owned())
             .map_err(|Crossed| Decode::NotCanonical)
@@ -630,10 +600,10 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
 
     fn check_identity(lo: &Version, hi: &Version) {
         let lo_bytes = lo.encode();
-        let seam = lo_bytes.len();
+        let boundary = lo_bytes.len();
         let composite = [lo_bytes, hi.encode()].concat();
         let fused = Span::decode(&composite[..]);
-        match (fused, composed(&composite, seam)) {
+        match (fused, composed(&composite, boundary)) {
             (Ok(f), Ok(c)) => {
                 assert_eq!(f, c, "accept identity for [{lo:?}, {hi:?}]");
                 assert_eq!(f.encode(), composite, "re-encode identity");
@@ -641,7 +611,7 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
             (Err(ef), Err(ec)) => assert_eq!(
                 std::mem::discriminant(&ef),
                 std::mem::discriminant(&ec),
-                "genre identity for [{lo:?}, {hi:?}]: fused {ef:?}, composed {ec:?}"
+                "error identity for [{lo:?}, {hi:?}]: fused {ef:?}, composed {ec:?}"
             ),
             (f, c) => panic!("verdict mismatch for [{lo:?}, {hi:?}]: fused {f:?}, composed {c:?}"),
         }
@@ -720,10 +690,10 @@ proptest! {
     /// The mutated bytes are rejected, or they decode to a *different* span
     /// whose endpoint values, re-derived through the oracle bridge into a
     /// fresh composite, encode exactly the mutated bytes — the span-level face
-    /// of the components' mutation sweeps, crossing the seam and both padding
+    /// of the components' mutation sweeps, crossing the component boundary and both padding
     /// regions that only the composite has. The re-derivation is the accept
     /// side's whole strength: decode adopts accepted bytes and `Eq` is byte
-    /// equality, so only an independently rebuilt composite can convict an
+    /// equality, so only an independently rebuilt composite can detect an
     /// admission walk that accepted a non-canonical spelling.
     #[test]
     fn span_single_bit_mutations_never_alias(

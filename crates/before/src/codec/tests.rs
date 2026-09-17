@@ -1,9 +1,7 @@
-//! Codec tests: round-trip, canonical injectivity, and strict rejection of
-//! malformed / non-canonical input.
+//! Codec round-trips, canonical uniqueness, and malformed-input rejection.
 //!
 //! Impl values are built from oracle trees via the bridge (canonical bits
-//! emitted directly), so these test the *codec* in isolation from the operation
-//! algorithms.
+//! emitted directly), isolating the codec from production operations.
 
 use std::sync::Arc;
 
@@ -111,14 +109,7 @@ fn gamma_truncated() {
 
 // ───────────────────────── frozen storage (Bits) ─────────────────────────
 
-/// `Bits::freeze` canonicalizes storage.
-///
-/// A build buffer that shed live bits by `truncate` freezes to the
-/// canonical marker-padded raw slice — live bits, one `1`, zeros to the
-/// byte boundary — with the live length and bit content preserved behind
-/// the live view: the buffer zeroes the shed bits at the truncation
-/// itself (its representation invariant), so the freeze only appends the
-/// marker and the bytes come out canonical.
+/// Freezing a truncated buffer preserves live bits and writes canonical padding.
 #[test]
 fn freeze_canonicalizes_storage() {
     // Write a byte of ones, then truncate to 3 live bits: the shed ones
@@ -200,15 +191,8 @@ fn from_canonical_matches_freeze() {
 
 // ───────────── build-history family (the buffer's invariants) ─────────────
 //
-// The build buffer promises that its byte image — and therefore its sealed
-// encoding — is a function of the bit *content* alone,
-// whatever mutation history produced it. The family below drives arbitrary
-// interleavings of the buffer's whole mutating move set (single-bit pushes,
-// word-wide appends, verbatim view copies, truncations aimed at byte
-// boundaries, mid-byte positions, and empty) and compares every observable
-// against a clean rebuild of the surviving content: a history-dependent
-// observable — a stale shed bit surviving a truncation, a dead bit a word
-// append failed to zero — reads red here before any decoder ever sees it.
+// A buffer's bytes depend only on its live bits. Generated edit sequences are
+// compared with a fresh buffer rebuilt from the surviving bits.
 
 /// One step of an arbitrary build history: the buffer's mutating move set.
 #[derive(Debug, Clone)]
@@ -217,13 +201,9 @@ enum BuildOp {
     Push(bool),
     /// Append `len` bits of `value` word-wide (`len <= 64`).
     PushBits { value: u64, len: u32 },
-    /// Append a verbatim range of a fresh source stream through the view
-    /// copy seam; the range is `sub`-selected inside the source at
-    /// application time.
+    /// Append a selected range from a fresh source stream.
     Extend { src: Vec<bool>, sub: (u16, u16) },
-    /// Roll back: `sel` picks the truncation genre (empty, the deepest
-    /// byte boundary at or under a chosen position, or an arbitrary
-    /// mid-byte position), `frac` seeds the position.
+    /// Truncate to empty, a byte boundary, or an arbitrary bit position.
     Truncate { sel: u8, frac: u16 },
 }
 
@@ -303,15 +283,10 @@ fn hash_of(bits: &super::Bits) -> u64 {
 }
 
 proptest! {
-    /// The buffer's byte image and sealed spelling are functions of the
-    /// bit content alone, whatever mutation history produced it.
+    /// Every edit sequence has the same bytes as a clean rebuild of its live bits.
     ///
-    /// Any interleaving of pushes, word appends, view copies, and
-    /// truncations (byte-aligned, mid-byte, to empty, multi-byte sheds
-    /// included) leaves the buffer byte-identical to a clean rebuild of
-    /// the surviving content — at every intermediate state — freezing to
-    /// the identical canonical spelling, with `Eq` and the canonical hash
-    /// agreeing with bit-level equality.
+    /// The comparison runs after each edit and after freezing, including equality
+    /// and hashing of the frozen values.
     #[test]
     fn build_history_spelling_is_a_function_of_content(
         ops in proptest::collection::vec(arb_build_op(), 0..40),
@@ -374,17 +349,10 @@ proptest! {
 
 // ───────────────── word-window fast paths (differential) ─────────────────
 //
-// `encode_int` and `decode_int` carry word-wise fast paths riding on
-// `gamma::decode_int_window` / `store_be`, and the word-parallel cursor's
-// `skip_int` settles a code's width from one unary read; the per-bit loop is
-// the specification. These tests pin the fast paths to it differentially, with
-// generators seeded at the window-edge boundaries (prefix length 31/32 around
-// the window's widest provable code, 63/64/65 around the word width, codes
-// straddling the window edge, streams ending mid-code) where a window bug would
-// hide.
+// The per-bit implementation is the reference for word-wide integer encoding,
+// decoding, and skipping. Generated streams emphasize word and window bounds.
 
-/// The per-bit reference emitter, the encode-side differential oracle: unary
-/// prefix then MSB-first mantissa, one push per bit.
+/// Encode one integer bit by bit: unary prefix, then an MSB-first mantissa.
 fn encode_int_bitwise(out: &mut BitsBuf, n: &Base) {
     let m = n + 1u32;
     let k = m.bits() - 1;
@@ -396,8 +364,7 @@ fn encode_int_bitwise(out: &mut BitsBuf, n: &Base) {
     }
 }
 
-/// The per-bit reference `skip_int`, the skip-side differential oracle: counts
-/// the unary prefix, then steps over the mantissa bit by bit.
+/// Skip one integer bit by bit and return the end position.
 fn skip_int_bitwise(bits: BitsView<'_>, pos: u64) -> Result<u64, Decode> {
     let mut k = 0u64;
     loop {
@@ -1004,9 +971,7 @@ fn transcoding_normalizes_noncanonical_event() {
     );
 }
 
-/// Zero bytes is exhausted input to every raw decoder, rejected as `Truncated`
-/// — the same starvation genre the borsh reader path reports when its reader
-/// runs dry before a value.
+/// Every raw decoder classifies an empty slice as truncated input.
 ///
 /// The wire grammar has no empty production: an anonymous (`0`) id is spelled
 /// by a zero presence bit in its parent's 2-bit tag (structural absence), never
@@ -1104,18 +1069,9 @@ fn reject_trailing_bits() {
 
 // ───────────────────── decode mutation tests ─────────────────────
 //
-// The 256 uniform-random vectors in `decode_never_panics` are a thin panic net:
-// truly random bytes almost never form a *nearly*-valid stream, so they barely
-// exercise the validator's accept boundary. These tests instead start from a
-// *valid* canonical encoding and perturb it minimally — flip one bit, truncate
-// at one position — so the mutated input lands right at the edge of the
-// accepted language. The contract for every mutation is the same disjunction:
-// `decode` either **rejects** (`Err`) or **accepts-canonically** — the accepted
-// value lowers to a normal-form oracle tree (the keystone byte-canonicity
-// invariant, the thing byte-equality `Eq`/`Hash` rests on) *and* re-encodes to
-// exactly the bytes it was decoded from (so the mutated stream was itself the
-// canonical encoding of some value). A decode that accepts a non-normal value,
-// or one whose re-encode disagrees with its own input, is a major finding.
+// Mutations of valid encodings exercise the boundary of the accepted language
+// more directly than uniform random bytes. A mutation must either be rejected
+// or decode to a normal value that re-encodes to the same bytes.
 
 /// Assert the accept-canonically contract for a `Party` decode of `bytes`: if
 /// it decodes, the value is normal form and re-encodes to exactly `bytes`.
@@ -1183,7 +1139,7 @@ proptest! {
     /// step from the accepted language, where a validator that under-checks
     /// would leak a non-canonical accept.
     ///
-    /// Regression guard for the spurious-trailing-byte genre: a flip can
+    /// A flip can
     /// shift the tree to end early enough that a whole trailing byte
     /// follows the padding; `decode` must reject any remainder past one
     /// padded byte (`require_marker_padding`'s length bound), keeping
@@ -1218,7 +1174,7 @@ proptest! {
     /// leaf of a clock) — which must then decode canonically, never to a
     /// malformed value.
     ///
-    /// Regression guard for the spurious-trailing-byte genre: a truncation
+    /// A truncation
     /// can cut a valid stream just *after* a complete tree and its padding
     /// but inside later bytes; `decode` must reject any remainder past one
     /// padded byte rather than accept a value that re-encodes to fewer
@@ -1236,9 +1192,7 @@ proptest! {
     }
 }
 
-/// WITNESS — the padding boundary cases the two mutation proptests above
-/// (bit-flip and truncation) sweep, pinned by hand at their smallest
-/// shapes.
+/// Direct examples cover each marker-padding boundary exercised by mutation.
 ///
 /// A canonical encoding pads with exactly one `1` marker and then zeros
 /// to the byte boundary, all within one byte, which is what makes
@@ -1388,8 +1342,7 @@ fn arb_flush_party() -> impl Strategy<Value = Party> {
         })
 }
 
-/// The 1-byte flush-cut witness reads [`Decode::Truncated`], never the
-/// trailing-bits genre.
+/// A stream missing its full padding byte reports [`Decode::Truncated`].
 ///
 /// A uniform version at height 7 encodes to eight live bits (leaf flag `1`,
 /// gamma(7) `0001000`) plus a whole `1000_0000` padding byte, so its first
@@ -1416,7 +1369,7 @@ proptest! {
     /// Live bits end on the boundary and the whole `1000_0000` padding byte
     /// is absent: required data is missing, not malformed. Exercised at the
     /// end of the input (`Version`, and the version tail of `Clock`,
-    /// `Ranked`, and `Span`) and at the interior seam (`Span`'s meet cut
+    /// `Ranked`, and `Span`) and at the boundary inside `Span` (its meet cut
     /// short of its own padding byte, the join then missing entirely).
     #[test]
     fn flush_cut_version_reads_truncated_for_every_version_tail(
@@ -1454,8 +1407,7 @@ proptest! {
             Err(Decode::Truncated)
         ));
 
-        // The interior seam: the meet cut short of its own padding byte,
-        // the join missing entirely.
+        // The meet is cut short of its padding byte; the join is absent.
         prop_assert!(matches!(Span::decode(cut), Err(Decode::Truncated)));
     }
 }
@@ -1466,7 +1418,7 @@ proptest! {
     ///
     /// Live bits end on the boundary and the whole `1000_0000` padding byte
     /// is absent: missing required data at the end of the input (`Party`)
-    /// and at the clock's interior seam (the party section cut short of
+    /// and at the boundary inside a clock (the party cut short of
     /// its own padding byte, the version then missing entirely).
     #[test]
     fn flush_cut_party_reads_truncated_for_party_and_clock(p in arb_flush_party()) {

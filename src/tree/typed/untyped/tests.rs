@@ -743,7 +743,7 @@ fn small_tree_hash_matches_byte_literal_preimage() {
 /// teeth land in every other's gaps, so a sequential accumulator never
 /// coalesces) and the meet-shade population (one deep carrier under
 /// dominating shades, so a sequential running meet never shrinks). Each
-/// population makes one direction adversarial; the sequential reference
+/// population makes one direction expensive; the sequential reference
 /// composes both directions, because that is what a memo delivering
 /// both bounds replaces. The counters are process-global and meaningful
 /// one scenario per process (nextest's model).
@@ -830,7 +830,7 @@ mod memo_fold_cost {
     }
 
     /// A maximal-fanout fringe branch's whole bounds memo undercuts the
-    /// sequential two-fold shape on the join-adversarial population.
+    /// sequential two-fold shape on the join-heavy population.
     ///
     /// The memo's one fused balanced hull over the leaf versions buys
     /// floor and ceiling together, and computes the identical bounds.
@@ -872,7 +872,7 @@ mod memo_fold_cost {
 
     /// A maximal-fanout fringe branch's whole bounds memo costs a small
     /// fraction of the sequential two-fold shape on the
-    /// meet-adversarial population, and computes the identical bounds.
+    /// meet-heavy population, and computes the identical bounds.
     ///
     /// The meet-shade population keeps the sequential running meet
     /// carrier-sized at every step — a meet shrinks the value, never

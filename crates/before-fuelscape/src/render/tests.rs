@@ -3,14 +3,9 @@ use crate::plan::{run_op, Plan, Samplers};
 
 use super::{render_gallery, render_op, AtlasData, OverlayData, RenderMeta, SampleData};
 
-/// The whole pipeline runs end to end at tiny scale.
+/// A tiny run samples, measures, and renders every operation successfully.
 ///
-/// Sample uniform inputs, measure real fuel in the fuzz-fit guest,
-/// render an SVG per operation with the provenance stamp drawn in, and
-/// emit the gallery. This is the gate's liveness check for the
-/// instrument — seconds, not a real survey (full renders go through the
-/// `just fuelscape` recipe) — and it needs the guest wasm, which the
-/// recipe builds first (`just fuzzfit-build`).
+/// Each SVG must contain its provenance, and the gallery must link every SVG.
 #[test]
 fn pipeline_smoke_samples_measures_and_renders() {
     // The grid top must reach every row's minimum total size, so every
@@ -29,10 +24,7 @@ fn pipeline_smoke_samples_measures_and_renders() {
     std::fs::create_dir_all(&out).expect("temp output dir");
     let samplers = Samplers::build(&plan);
 
-    // Every roster row at tiny sizes: every input space's draw, every
-    // measured kernel name, every overlay mapping, and every render run
-    // once, so a row that cannot sample, measure, or draw fails the gate
-    // here rather than in a full survey.
+    // Running every declared operation checks all configured input builders.
     let mut rendered = Vec::new();
     for op in ROSTER {
         let atlas = run_op(&plan, &samplers, op);
@@ -64,12 +56,7 @@ fn pipeline_smoke_samples_measures_and_renders() {
     std::fs::remove_dir_all(&out).expect("smoke output cleans up");
 }
 
-/// The font-scale knob is alive and rendering is deterministic.
-///
-/// At any fixed scale two renders of the same atlas are byte-identical,
-/// and a non-unit scale changes the output — a dead parameter would
-/// silently ship print figures with unreadable text while every gate
-/// stays green.
+/// Rendering is deterministic at one font scale and changes at another.
 #[test]
 fn font_scale_changes_the_svg_and_rendering_is_deterministic() {
     let meta = RenderMeta {
@@ -124,18 +111,10 @@ fn font_scale_changes_the_svg_and_rendering_is_deterministic() {
     std::fs::remove_dir_all(&out).expect("scale output cleans up");
 }
 
-/// The binned grid is a pure, platform-independent function of the
-/// samples: `aggregate` over a fixed synthetic atlas hashes to the same
-/// committed value on every host and architecture.
+/// Aggregating a fixed atlas produces the same serialized grid on every host.
 ///
-/// A dump commits its `HeatGrid`, and the loader re-derives that grid
-/// bit-for-bit on whatever machine opens the dump — so the bin geometry
-/// must not lean on the platform math library, whose `log2` differs by
-/// an ulp across libms exactly at bin boundaries. The sample set below
-/// spreads fuel values across ~48 octaves so a platform divergence
-/// anywhere in the log2 range flips at least one bin count and the
-/// hash. The committed constant was produced by this test's own first
-/// run; its value carries no meaning beyond cross-host agreement.
+/// The fuel values span enough octaves to expose platform-dependent logarithm
+/// rounding at bin boundaries. A stable checksum pins the resulting grid.
 #[test]
 fn aggregate_bins_identically_on_every_platform() {
     // SplitMix64: a fixed, portable stream — no dependency on rand's

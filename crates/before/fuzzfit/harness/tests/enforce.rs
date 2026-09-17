@@ -1,25 +1,21 @@
-//! The enforcement sentry: fuzzed programs must land every measured step
-//! inside its pinned fuel band, and no band key's within-case trend may
-//! out-climb its pinned slope.
+//! Checks generated programs against their pinned fuel bounds.
 //!
-//! Each case draws one program from the full family roster (shape-biased,
-//! combination, cross-universe, and reach regimes), replays it natively and
-//! in the wasm guest, and judges two legs: every step's fuel against the
-//! committed band for its key (kernel × outcome) at its denominated size
-//! (the point leg), and every key's within-case bucket-median trend against
-//! its pinned slope (the shape leg — a mechanism that tilts into a wide
-//! band keeps its point residuals small, and only the trend sees it). Fuel
-//! determinism makes a failure replay exactly: proptest shrinks to a
-//! minimal out-of-band shape and writes a seed file next to this binary —
-//! commit any seed that appears (repo hard rule); it is an
-//! out-of-band-shape finding of record.
+//! Each case generates one single-universe program, replays it natively and
+//! in the wasm guest, and checks two properties. Every operation's fuel must
+//! remain inside the committed band for its operation and outcome at that
+//! operand size. Within a case, each operation's bucket-median trend must
+//! also remain below its pinned slope. The trend check catches growth that
+//! a wide pointwise band could hide. Fuel is deterministic, so proptest can
+//! shrink failures to a reproducible program; every resulting seed file
+//! must be committed.
 //!
 //! The deterministic corpus prefix rides the same judgment, program by
 //! program, every run: the random draws probe novelty, and the prefix
 //! leg makes every kernel × size-decade region the corpus reaches an
-//! enforced verdict rather than a sampled one (a region a random case
-//! draws with probability `q` slips an `n`-case run at `(1 − q)^n`; the
-//! prefix leg reads it red deterministically).
+//! enforced verdict rather than a sampled one. A region drawn with
+//! probability `q` still escapes `n` random cases with probability
+//! `(1 − q)^n`; the deterministic prefix removes that uncertainty for the
+//! regions it covers.
 //!
 //! Standing self-checks ride along: the meter's liveness (`ff_nop`), the
 //! detection path's adequacy (a deliberately quadratic guest burner must
@@ -28,11 +24,10 @@
 //! deterministic corpus prefix must agree with the committed lines on
 //! every covered band key), and the escalated regime itself (two fixed
 //! reach-family programs — mid-depth and the depth cap, distinct seeds —
-//! replay on every run, so the instrument's deep reach — including the
-//! at-scale rejection arms — never rides on the sentry's rare escalation
-//! draws alone).
+//! replay on every run, so the deep rejection and overlap cases do not
+//! depend on rare escalation draws).
 //!
-//! The sentry runs proptest's default case count, raised with
+//! The property test runs proptest's default case count, raised with
 //! `PROPTEST_CASES`; the calibration corpus is the big sweep.
 
 use std::collections::BTreeMap;
@@ -50,9 +45,8 @@ use fuzzfit_harness::drive::{
 use fuzzfit_harness::strategies::{any_program, build, Family, ESCALATION_REPLAYS};
 use fuzzfit_harness::wasm::Guest;
 
-/// Judge one program's samples on both enforcement legs, panicking with
-/// the finding on any violation (the proptest sentry and the deterministic
-/// escalation replay share this judgment verbatim).
+/// Checks one program's pointwise fuel and within-case growth, panicking on
+/// any violation.
 fn judge(samples: &[Sample]) {
     let mut by_key: BTreeMap<(&'static str, bool), Vec<(u64, u64)>> = BTreeMap::new();
     for s in samples {
@@ -133,9 +127,9 @@ fn judge(samples: &[Sample]) {
     }
     // The shape leg: within one case the population is family-pure,
     // so a rising bucket-median trend is the mechanism's own
-    // curvature, not mixture tilt. The fold rows are exempt (their
-    // honest law trends along the width axis; the point leg owns
-    // them).
+    // curvature, not mixture tilt. Fold operations are exempt because
+    // their expected cost grows along the width axis; their pointwise
+    // bands enforce the bound instead.
     for (&(kernel, rejected), group) in &by_key {
         if SHAPE_EXEMPT.contains(&kernel) {
             continue;
@@ -309,12 +303,12 @@ fn a_live_quadratic_reads_above_a_linear_band() {
     assert_eq!(judge_against(&band, 8192, mid), Verdict::Below);
 }
 
-/// The pin's provenance: the building toolchain must be the pinning one.
+/// Ensures the current compiler matches the one used to derive the bands.
 ///
 /// Fuel constants are a function of the guest codegen, which is a
 /// function of the compiler, so judging against bands pinned under a
 /// different toolchain compares incommensurable numbers. A toolchain
-/// bump reads red here until the bands are re-pinned
+/// bump fails here until the bands are re-pinned
 /// (`just fuzzfit-calibrate`).
 #[test]
 fn building_toolchain_matches_the_pin() {
@@ -325,32 +319,16 @@ fn building_toolchain_matches_the_pin() {
     );
 }
 
-/// The deterministic prefix is total under the sentry's own judgment,
-/// and its fresh fit must agree with the committed constants on every
-/// band key the pin-time prefix covered (the staleness cross-check).
+/// Ensures the deterministic corpus fits every covered pinned band.
 ///
-/// One pass serves two legs. The totality leg judges every step of all
-/// [`REFIT_PREFIX_PROGRAMS`] programs against the pinned bands — point
-/// and shape, the same judgment the random sentry applies — every run:
-/// the random draws keep probing novel shapes, while this leg makes
-/// every kernel × size-decade region the deterministic corpus reaches
-/// an enforced verdict rather than a sampled one. A region of per-case
-/// draw measure `q` survives an `n`-case sentry at `(1 − q)^n`, never
-/// zero, so an out-of-band region can pass consecutive gates on luck;
-/// under this leg the same region reads red deterministically. The programs
-/// already execute for the refit, so the leg's cost is the verdict,
-/// not the runtime.
+/// Every step in the first [`REFIT_PREFIX_PROGRAMS`] programs receives the
+/// same pointwise and trend checks as a generated case. This makes the
+/// corpus's operation-by-size coverage deterministic while generated cases
+/// continue exploring new shapes.
 ///
-/// The staleness leg: the bands are computable two ways — the pin and
-/// the refit — so the two get compared, and disagreement beyond the
-/// measured tolerance demands a deliberate re-pin with a movement
-/// annotation, never silent drift. It walks the committed
-/// [`REFIT_COVERAGE`] list: every listed key must still have a prefix
-/// fit (coverage decay fails by name), must still match its pin's
-/// classification (a constant/linear flip is a reach regression — the
-/// generators stopped placing that key where its slope is measurable —
-/// and fails as a stale pin, never a skip), and must agree with the
-/// pinned line within [`REFIT_TOLERANCE`].
+/// The test also refits the corpus. Every key in [`REFIT_COVERAGE`] must
+/// remain measurable, retain its constant-or-linear classification, and
+/// agree with its pinned line within [`REFIT_TOLERANCE`].
 #[test]
 fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
     let mut by_key: BTreeMap<(&'static str, bool), Vec<(u64, u64)>> = BTreeMap::new();
@@ -394,19 +372,11 @@ fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
     }
 }
 
-/// The escalated regime rides in every suite run: a fixed reach-family
-/// program must land every step in its band and every trend under its
-/// slope, deterministically.
+/// Ensures a fixed mid-depth escalation program satisfies every fuel bound.
 ///
-/// The sentry's random draws pick the escalation family about once in 137
-/// cases, so a run at the default case count can leave the small-operand
-/// regime untouched — and an instrument whose deep reach rides on rare
-/// draws has no standing proof its at-scale bands (the seven single-operand
-/// rows, the rejection arms, the deep-overlap scans) still bite. This
-/// replay is that proof: one escalation program at fixed depth and seed,
-/// judged on both legs like any sentry case. (The cross-universe rejection
-/// arms need no fixed replay: the sentry's family roster draws the
-/// independent regime at a shape family's full weight, eight cases in 137.)
+/// Generated cases select this family only about once in 137 draws. The
+/// fixed replay deterministically exercises the family's large operands,
+/// rejection outcomes, and overlap scans.
 #[test]
 fn the_escalated_regime_stays_in_the_pinned_bands() {
     let (depth, seed) = ESCALATION_REPLAYS[0];
@@ -416,15 +386,10 @@ fn the_escalated_regime_stays_in_the_pinned_bands() {
     judge(&samples);
 }
 
-/// The escalated regime's far end, on an independent seed: a second fixed
-/// reach-family program at the family's depth cap must land every step in
-/// its band and every trend under its slope, deterministically.
+/// Ensures a fixed depth-cap escalation program satisfies every fuel bound.
 ///
-/// The depth-1024 replay alone would leave the family's upper depth range
-/// (1025..=1792) riding on sentry draws that land there about once in 274
-/// cases, and would hang the whole deterministic reach proof on a single
-/// (depth, seed) point. This replay pins the other end of the reach: the
-/// deepest constructible spine, a different seed, the same judgment.
+/// This second replay covers the deepest constructible spine with a
+/// different seed, complementing the mid-depth replay above.
 #[test]
 fn the_escalation_depth_cap_stays_in_the_pinned_bands() {
     let (depth, seed) = ESCALATION_REPLAYS[1];
@@ -439,9 +404,9 @@ proptest! {
     /// shapes nobody chose, and no band key's within-case cost trend
     /// out-climbs its pinned slope.
     ///
-    /// Cases draw random programs over the whole vocabulary, coupled
-    /// and cross-universe operand regimes alike, success and rejection
-    /// arms judged each against their own pinned law.
+    /// Cases draw random programs over the whole vocabulary within one
+    /// universe. Success and rejection outcomes are checked against their
+    /// respective pinned laws.
     ///
     /// Above-band is an asymptotic regression; below-band is a liveness
     /// failure; a band key with no band is an unpriced operation

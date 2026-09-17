@@ -1,9 +1,4 @@
-//! The descriptor table's own guards: the tiling against the coverage
-//! roster, the genre vocabulary's hygiene, and the registration totality
-//! pin.
-//!
-//! The descriptors are *asserted* by the drivers beside them; here we pin
-//! the collection's own invariants.
+//! Checks the differential descriptors' coverage and registration.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -11,17 +6,14 @@ use std::path::PathBuf;
 
 use proptest::prelude::*;
 
-use super::{registered_names, BespokeGenre, DiffOp, DIFF_BESPOKE, REGISTERED_GROUPS};
+use super::{registered_names, BespokeCategory, DiffOp, DIFF_BESPOKE, REGISTERED_GROUPS};
 use crate::oracle;
 use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
 use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, world_strategy};
 use crate::Ticks;
 
-/// Assert every descriptor in a slice, naming the violated one on failure.
-///
-/// The vehicle every driver asserts through: the drivers differ only in
-/// which population they feed it.
+/// Asserts every descriptor in a slice and identifies a failing descriptor.
 macro_rules! assert_diff_ops {
     ($group:expr, $($input:expr),+) => {
         for (name, check) in $group {
@@ -30,12 +22,7 @@ macro_rules! assert_diff_ops {
     };
 }
 
-/// Every test name a `Leg::Bound` disposition cites, across both rosters.
-///
-/// `Bound` is the differential leg — the one this table exists to derive —
-/// so it is the leg the tiling quantifies over. `Law`, `Trans`, and
-/// `Excluded` dispositions are held by their own vocabularies in the
-/// coverage suite.
+/// Collects every test cited by a `Leg::Bound` disposition.
 fn bound_citations() -> BTreeSet<&'static str> {
     METHOD_SURFACE
         .iter()
@@ -51,19 +38,11 @@ fn bound_citations() -> BTreeSet<&'static str> {
         .collect()
 }
 
-/// Every `Bound` citation in the coverage roster is derived from the
-/// descriptor table or bespoke under a declared genre, never both, never
-/// neither.
+/// Every bound citation is classified exactly once as derived or bespoke.
 ///
-/// The seam this pin defends is a drift, not an error: a pointwise pure
-/// operation added as one more hand-written body, because that was the
-/// shorter path on the day. Making bespoke a *rostered status* rather than
-/// the default turns that choice into a named diff — the new citation fails
-/// here until someone writes down which genre excuses it — and holds the
-/// reverse direction too, so a bespoke entry outliving the body it names is
-/// a phantom rather than silent slack. Both tables name only citations the
-/// roster actually makes, so a renamed differential orphans the entry that
-/// leaned on it.
+/// The test compares the coverage citations with the descriptor and bespoke
+/// tables in both directions. It therefore catches missing, duplicate, and
+/// stale classifications.
 #[test]
 fn diff_ops_tile_the_bound_citations() {
     let cited = bound_citations();
@@ -74,8 +53,8 @@ fn diff_ops_tile_the_bound_citations() {
         "duplicate descriptor names: a failure must name exactly one descriptor"
     );
 
-    let mut bespoke: BTreeMap<&str, BespokeGenre> = BTreeMap::new();
-    for (name, genre) in DIFF_BESPOKE {
+    let mut bespoke: BTreeMap<&str, BespokeCategory> = BTreeMap::new();
+    for (name, category) in DIFF_BESPOKE {
         assert!(
             cited.contains(*name),
             "DIFF_BESPOKE names {name:?}, which no roster row cites as a \
@@ -87,7 +66,7 @@ fn diff_ops_tile_the_bound_citations() {
              bespoke — the tiling sides must stay disjoint; remove one"
         );
         assert!(
-            bespoke.insert(*name, *genre).is_none(),
+            bespoke.insert(*name, *category).is_none(),
             "{name} appears twice in DIFF_BESPOKE"
         );
     }
@@ -100,8 +79,7 @@ fn diff_ops_tile_the_bound_citations() {
     assert!(
         unclassified.is_empty(),
         "Bound citations neither derived from the descriptor table nor \
-         rostered in DIFF_BESPOKE with a genre (migrate them into a \
-         descriptor, or declare the genre that excuses them): {unclassified:?}"
+         listed in DIFF_BESPOKE with a category: {unclassified:?}"
     );
 
     // The reverse leg on the derived side: a descriptor no row cites is a
@@ -119,34 +97,26 @@ fn diff_ops_tile_the_bound_citations() {
     );
 }
 
-/// Every bespoke genre is inhabited: an empty genre is a dead category,
-/// dissolved rather than carried in the vocabulary.
+/// Every bespoke category classifies at least one differential.
 #[test]
-fn every_bespoke_genre_is_inhabited() {
+fn every_bespoke_category_is_used() {
     let mut census: BTreeMap<&str, usize> = BTreeMap::new();
-    for (_, genre) in DIFF_BESPOKE {
-        *census.entry(genre.name()).or_default() += 1;
+    for (_, category) in DIFF_BESPOKE {
+        *census.entry(category.name()).or_default() += 1;
     }
-    for genre in BespokeGenre::GENRES {
+    for category in BespokeCategory::CATEGORIES {
         assert!(
-            census.get(genre).copied().unwrap_or(0) > 0,
-            "bespoke genre {genre} is uninhabited: dissolve it or inhabit it"
+            census.get(category).copied().unwrap_or(0) > 0,
+            "bespoke category {category} classifies no differential"
         );
     }
 }
 
-/// Every `pub(crate) static` descriptor group in `diff_ops.rs` is carried
-/// by the roster (`for_each_diff_group!`) — no group can compile and never
-/// execute.
+/// Every descriptor group declared in `diff_ops.rs` is registered.
 ///
-/// Every consumer derives from the roster by macro expansion, so a rostered
-/// group is executed by construction and needs no per-consumer pin. The one
-/// entry point that leaves open is a group static missing from the roster,
-/// which nothing would run; this pin closes it against a source scan of the
-/// declarations in the module (its only `pub(crate) static`s are descriptor
-/// groups). The known-bad groups deliberately live in this test file, out of
-/// the scan's reach, since registering them would drive them as if they were
-/// real.
+/// The test compares the source declarations with `for_each_diff_group!`,
+/// which generates each consumer. Known-bad descriptors live in this test
+/// module and are intentionally absent from both sets.
 #[test]
 fn every_descriptor_group_is_registered() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/testing/diff_ops.rs");
@@ -197,21 +167,10 @@ fn every_descriptor_group_is_registered() {
 // (the `Dyadic` u64 index width) against a population that escapes both
 // derivations.
 
-/// The tick counts the drivers sweep.
-///
-/// The upper end is set by the recursive oracle, which iterates its
-/// `ticks` literally — one whole-tree rewrite per tick — so a count the
-/// differential can afford is a count that loop can afford, not one the
-/// production entry point can. Wide counts ride the composition law and the
-/// closed-form witnesses instead.
+/// Tick counts small enough for the recursive oracle to evaluate directly.
 const DRIVEN_TICK_COUNTS: std::ops::Range<u64> = 0..24;
 
-/// Expands the group roster into the arbitrary-population drivers: one
-/// proptest per group, named by the roster's driver column, keyed on the
-/// group's input signature.
-///
-/// The arms carry each signature's input regime and its doc comment; the
-/// *list* of groups lives only in `for_each_diff_group!`.
+/// Generates one arbitrary-population property for each descriptor group.
 macro_rules! group_drivers {
     (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         $( group_drivers!(@one $group, $driver, $shape); )*
@@ -366,8 +325,7 @@ macro_rules! group_drivers {
 
 for_each_diff_group!(group_drivers);
 
-/// One organic population's picks: the oracle-side carriers the
-/// roster-derived drive list selects each group's inputs from.
+/// Inputs selected from one organically generated clock population.
 struct Organic<'a> {
     /// Three versions from the trace, causally related.
     v: [&'a oracle::Version; 3],
@@ -381,9 +339,7 @@ struct Organic<'a> {
     c: &'a oracle::Clock,
 }
 
-/// Expands the group roster into the organic drive list: one
-/// `assert_diff_ops!` per group, keyed on the group's input signature,
-/// selecting that signature's inputs from an [`Organic`] environment.
+/// Applies every descriptor group to compatible inputs from [`Organic`].
 macro_rules! organic_drive {
     (args: ($env:expr); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         $( organic_drive!(@one $env, $group, $shape); )*
@@ -466,13 +422,13 @@ proptest! {
     }
 }
 
-// ───────────────────── the known-bad descriptors, held convicted ─────────────────────
+// ─────────────── deliberately incorrect descriptors ───────────────
 //
 // A table centralizes each operation's oracle spelling: one descriptor is
 // the only transcription every population sees, where a body per population
 // was an independent transcription each. That trade is only payable if a
 // wrong transcription cannot pass, so the wrong ones are committed here and
-// held convicted. These groups are deliberately absent from the roster —
+// rejected by focused tests. These groups are deliberately absent from the roster —
 // registering them would drive them as if they were real — and the
 // registration totality pin scans only the table's own file, so their
 // `pub(crate) static`s do not reach it.
@@ -526,9 +482,9 @@ diff_ops! {
     }
 }
 
-/// Run a version-pair group through the drivers' assertion vehicle.
+/// Checks a version-pair descriptor group.
 // The group's element type is the signature it carries; naming it would
-// mint a synonym per signature to appease the lint.
+// require a redundant alias for each signature to appease the lint.
 #[allow(clippy::type_complexity)]
 fn check_version_pair(
     group: &[DiffOp<fn(&oracle::Version, &oracle::Version) -> bool>],
@@ -539,9 +495,9 @@ fn check_version_pair(
     Ok(())
 }
 
-/// Run an id-pair group through the drivers' assertion vehicle.
+/// Checks a party-pair descriptor group.
 // The group's element type is the signature it carries; naming it would
-// mint a synonym per signature to appease the lint.
+// require a redundant alias for each signature to appease the lint.
 #[allow(clippy::type_complexity)]
 fn check_party_pair(
     group: &[DiffOp<fn(&oracle::Party, &oracle::Party) -> bool>],
@@ -552,34 +508,28 @@ fn check_party_pair(
     Ok(())
 }
 
-/// The assertion the drivers run convicts a mis-transcribed descriptor, and
-/// passes it exactly where the mis-transcription makes no difference.
+/// Descriptor assertions distinguish incorrect operations from equivalent
+/// results.
 ///
-/// Two directions, and the second is what makes the first mean anything. A
-/// comparison that had gone blind — a `Matches` implementation that always
-/// agrees, a bridge that erases the result — would let the wrong descriptor
-/// through, which the conviction witnesses catch. A comparison stuck at
-/// "disagree" would convict everything, including correct descriptors,
-/// which the agreement witnesses catch. Each known-bad descriptor is
-/// therefore committed with an input pair where its two spellings genuinely
-/// differ and one where they coincide, so the vehicle is shown to
-/// discriminate rather than merely to fail.
+/// Each known-bad descriptor is checked on one input where its operations
+/// differ and one where they agree. This proves the comparison neither accepts
+/// everything nor rejects everything.
 #[test]
-fn the_drivers_convict_a_mis_transcribed_descriptor() {
+fn descriptor_checks_reject_a_mistranscribed_operation() {
     use crate::oracle::Version as V;
 
     // The join and the meet of an ordered pair differ, so the swapped
     // operator changes the answer.
     assert!(
         check_version_pair(KNOWN_BAD_VERSION_PAIR, &V::leaf(1u64), &V::leaf(2u64)).is_err(),
-        "the meet-transcribed-as-join descriptor must be convicted where \
+        "the meet-transcribed-as-join descriptor must be rejected where \
          the join and the meet disagree"
     );
-    // On a coincident pair they agree, so nothing is there to convict.
+    // On a coincident pair the two operations agree.
     assert!(
         check_version_pair(KNOWN_BAD_VERSION_PAIR, &V::leaf(3u64), &V::leaf(3u64)).is_ok(),
         "the same descriptor must pass where the join and the meet coincide: \
-         a comparison that convicts everything convicts nothing"
+         a comparison that rejects everything proves nothing"
     );
 
     // Two disjoint halves: each survives the other's removal, and the two
@@ -589,7 +539,7 @@ fn the_drivers_convict_a_mis_transcribed_descriptor() {
     let give = keep.fork();
     assert!(
         check_party_pair(KNOWN_BAD_PARTY_PAIR, &keep, &give).is_err(),
-        "the operand-swapped difference descriptor must be convicted where \
+        "the operand-swapped difference descriptor must be rejected where \
          the two orders yield different regions"
     );
     // Against itself the difference is empty in either order.
@@ -600,31 +550,28 @@ fn the_drivers_convict_a_mis_transcribed_descriptor() {
     );
 }
 
-/// The assertion the drivers run convicts a mis-transcribed fs spelling,
-/// and passes it exactly where the mis-transcription makes no difference.
+/// Filesystem-result assertions distinguish an incorrect combinator from an
+/// equivalent result.
 ///
-/// The fs column's own instance of the two-direction argument above, with
-/// one sharpening: the known-bad descriptor's walk legs agree with each
-/// other (both spell the meet), so the [`FsMatches`](super::FsMatches)
-/// comparison is the only thing standing between the wrong combinator and
-/// green — a conviction here is evidence about the fs comparison
-/// specifically, not about the walk comparison beside it.
+/// The descriptor's walk operations both compute the meet, so the differing
+/// input isolates [`FsMatches`](super::FsMatches). An agreeing input confirms
+/// that the comparison does not reject indiscriminately.
 #[test]
-fn the_drivers_convict_a_mis_transcribed_fs_realization() {
+fn filesystem_checks_reject_a_mistranscribed_operation() {
     use crate::oracle::Version as V;
 
     // The join and the meet of an ordered pair differ, so the swapped
     // combinator changes the fs answer while both walk legs agree.
     assert!(
         check_version_pair(KNOWN_BAD_FS_VERSION_PAIR, &V::leaf(1u64), &V::leaf(2u64)).is_err(),
-        "the join-transcribed fs spelling must be convicted where the join \
+        "the join-transcribed fs spelling must be rejected where the join \
          and the meet disagree"
     );
     // On a coincident pair every spelling agrees, so nothing is there to
-    // convict.
+    // reject it.
     assert!(
         check_version_pair(KNOWN_BAD_FS_VERSION_PAIR, &V::leaf(3u64), &V::leaf(3u64)).is_ok(),
         "the same descriptor must pass where the join and the meet coincide: \
-         a comparison that convicts everything convicts nothing"
+         a comparison that rejects everything proves nothing"
     );
 }

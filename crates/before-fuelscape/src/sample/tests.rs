@@ -93,13 +93,11 @@ fn party_grammar_is_exactly_the_decoder_accept_set() {
     }
 }
 
-/// One-sided chi-square acceptance bound against the uniform null.
+/// Return a six-standard-deviation chi-square bound for uniform samples.
 ///
 /// The statistic over `k` categories has mean `k - 1` and variance
-/// `2(k - 1)`, so six standard deviations above the mean rejects honest
-/// uniformity with probability under 1e-9 — a fixed seed makes the run
-/// deterministic anyway; the margin documents how far from uniform a
-/// failure is.
+/// `2(k - 1)`. A fixed seed makes the test deterministic; the wide margin
+/// prevents ordinary sampling noise from causing failures.
 fn chi_square_threshold(categories: usize) -> f64 {
     let dof = (categories - 1) as f64;
     dof + 6.0 * (2.0 * dof).sqrt()

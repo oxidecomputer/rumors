@@ -1,54 +1,28 @@
 //! Exhaustive small-scope differential tests.
 //!
-//! Each `check_*` helper runs one op family over the *entire* enumerated corpus
-//! (every tree, every ordered pair) and diffs the impl against the recursive
-//! oracle — the same structural-agreement contract the sampled differentials
-//! use, but total rather than random. Every impl reading goes through the
-//! **public ops** (`fork`, `join`, `without`, `is_disjoint`, `covers`, `tick`,
-//! the codec, the event operators), so the suite pins the surface callers
-//! invoke — a drift between an internal walk and its public routing cannot
-//! pass unseen. Two consequences of that choice:
+//! Each helper compares public operations with the recursive oracle over every
+//! enumerated tree or ordered pair. The suite therefore complements sampled
+//! differentials with total coverage at bounded depths.
 //!
-//! - **The anonymous id sits out the op checks.** The enumeration includes the
-//!   empty tree, but a standalone [`Party`] is never anonymous (nothing public
-//!   constructs one), so the corpus lowering drops it up front — once, not as a
-//!   per-row test inside the billion-pair loops — matching the ops' public
-//!   domain. The empty *region* is still exercised everywhere it publicly
-//!   occurs: as the absent child inside every non-trivial pair.
+//! - The party corpus omits the empty tree because no standalone [`Party`] can
+//!   represent it. Empty subregions remain covered inside non-trivial parties.
 //!
-//! - **Mutating/consuming contracts are checked as such.** `join` mutates its
-//!   receiver and consumes its operand, `without` consumes its receiver, `fork`
-//!   mutates — so those checks duplicate the borrowed corpus entry per pair with
-//!   [`Party::dangerously_alias`] (the public escape hatch for exactly this
-//!   handoff shape) and assert the full public contract, including `join`'s
-//!   leave-self-unmodified/hand-back on overlap.
+//! - Checks duplicate corpus entries before calling consuming operations and
+//!   assert their complete success and failure contracts.
 //!
-//! The cross-product is the whole point, so it is never sampled (that is what
-//! the property tests are for); instead two things keep it tractable:
+//! The cross-products are never sampled. Two choices keep them tractable:
 //!
-//! - **Precompute once.** Each oracle tree is lowered to its impl form a single
-//!   time into a `Vec<Party>` / `Vec<Version>` that the pair loops *borrow*,
-//!   rather than re-lowering both operands inside the inner loop (which, at the
-//!   deep bound, would be billions of allocations).
+//! - Each oracle tree is converted to its production form once, outside the
+//!   pair loops.
 //!
-//! - **Parallelize.** The outer loop of every check runs on a `rayon` thread
-//!   pool; a failing `assert!` in a worker propagates as a panic when the
-//!   parallel region joins, so the test semantics are unchanged.
+//! - Each outer loop runs in parallel with `rayon`.
 //!
-//! The two entry points wire the helpers to decoupled id/event depth bounds
-//! (events grow far faster, so they are held a level shallower — see the parent
-//! module doc): the gate-resident [`exhaustive_small`] at [`ID_SMALL_DEPTH`] /
-//! [`EV_SMALL_DEPTH`] runs every helper, and the `#[ignore]`d
-//! [`exhaustive_deep`] at [`ID_DEEP_DEPTH`] / [`EV_DEEP_DEPTH`] runs all but
-//! the structural pair legs (`join`/`without`), which stay at the small bound
-//! — the parent module doc states the split and where the deep structural
-//! coverage lives instead.
+//! [`exhaustive_small`] runs every helper in the gate. The ignored
+//! [`exhaustive_deep`] raises the bounds but omits the allocation-heavy
+//! `join`/`without` pair checks.
 //!
-//! Op *symmetry* (`is_disjoint` symmetric, `join` commutative, event
-//! `partial_cmp` anti-symmetric) is NOT relied on to skip half the pairs and is
-//! NOT checked here; it is an intrinsic algebraic property of the impl, tested
-//! directly and oracle-independently in the "intrinsic symmetry laws" section
-//! at the bottom of this file.
+//! Symmetry does not reduce the pair space. Separate tests below check those
+//! algebraic properties without consulting the oracle.
 
 use std::cmp::Ordering;
 
@@ -416,24 +390,11 @@ fn exhaustive_small() {
     check_tick(&ids, &imp_ids, &evs, &imp_evs);
 }
 
-/// The total cross-product at the deep depth bound: every check but the
-/// structural pair legs, which stay at the small bound (see the parent module
-/// doc for the split and where deep structural coverage lives).
+/// The deeper exhaustive run checks every operation except the allocation-heavy
+/// structural party pairs.
 ///
-/// The id corpus jumps to 65536 trees, so the `O(corpus²)` id verdict
-/// pair-product (~4.3 billion pairs) dominates everything else — the per-id
-/// checks are seconds, and the `tick` grid (65536 ids × 691 events with the
-/// brute-force minimality pin) extrapolates linearly along its id axis to
-/// about a minute. Measured state (aarch64-apple-darwin, 16
-/// cores, release, quiet machine): two fully parallel runs were stopped at a
-/// 45-minute cap, one row-major and one cache-tiled, the row-major one
-/// profiled still inside the verdict pair product at 31 minutes — budget
-/// upwards of an hour and run it detached. Sampled-corpus extrapolation
-/// undershoots this product badly (a 268-million-pair stride sample prices
-/// it at under a minute): the expensive verdict pairs are *structurally
-/// similar* trees, which the full cross-product contains in every
-/// near-diagonal block and a strided sample quadratically thins out. It is
-/// `#[ignore]`d to keep the normal gate fast. Run it with:
+/// Its party verdict grid contains about 4.3 billion ordered pairs, so the test
+/// is ignored and should run separately in release mode:
 ///
 /// ```text
 /// cargo test -p before --release --all-features -- --ignored exhaustive_deep
@@ -544,12 +505,8 @@ fn event_meet_is_commutative() {
 /// The enumerated corpora are exactly total, pinned by counts the
 /// enumerator cannot supply to itself.
 ///
-/// Every check in this suite is universally quantified over the corpus, so
-/// a silent enumeration shrink (a dedup regression, a dropped constructor
-/// arm) leaves them all green on a smaller universe — the "exhaustive"
-/// claim degrades to "sampled" with no red anywhere in this module
-/// (`corpus_is_canonical`'s non-triviality floor admits shrinks of more
-/// than half the corpus). This pin closes that hole two ways:
+/// Every check depends on the corpus being complete, so this test validates its
+/// size independently in two ways:
 ///
 /// - **Ids, by closed form**: canonical normal-form id trees of depth
 ///   `≤ d` are in bijection with the owned-cell subsets of the `2^d`-cell
