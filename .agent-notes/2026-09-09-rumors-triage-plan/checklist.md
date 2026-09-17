@@ -1,9 +1,8 @@
 # Rumors review checklist
 
-**Current:** sender, receiver, claim, and error-route state on
-`codex/stream-state-simplify`, based on `57c776b5`.
+**Current:** listing-read scratch initialization.
 
-**Next:** test adapter failures at their conversion and ordering boundaries.
+**Next:** simplify shared wire types and clarify the protocol.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -335,10 +334,10 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
       read-ahead because no measurement justifies a more complex reader — `4a2fd1b7`.
       Sources: `remote-adapter-streams-6`, `remote-proxy-27`, T106.
 
-- [ ] Simplify stream state machines and repeated encoder/decoder plumbing.
+- [x] Simplify stream state machines and repeated encoder/decoder plumbing — `57c776b5`, `18833bb1`, `b1d852fe`.
       Sources: `async-hazards-6`, `mirror-common-7`, `mirror-common-17`, `mirror-common-24`, `mirror-common-25`, `mirror-common-32`, `remote-adapter-streams-2–5`, `remote-adapter-streams-9`, `remote-adapter-streams-10`, `remote-adapter-streams-12`, `remote-adapter-streams-14`, `remote-adapter-streams-16`, `remote-adapter-streams-20`, `remote-adapter-streams-24–30`, T52, T119, T126, T132.
 
-- [ ] Test adapter failures at the actual conversion and ordering boundaries.
+- [x] Test adapter failures at the actual conversion and ordering boundaries — `b1d852fe`.
       Sources: `remote-adapter-tests-4`, `remote-adapter-tests-6`, `remote-adapter-tests-7`, `remote-adapter-tests-9–15`, `remote-adapter-tests-17`, `remote-adapter-tests-19–22`, T126, T132.
 
 - [ ] Avoid needless scratch initialization in listing reads.
@@ -566,8 +565,8 @@ Dependencies: 10–12 for affected implementation baselines; 16 for shared suppo
 
 Dependencies: API lints only after their affected public surfaces are clean; broad settings after 15.
 
-- [ ] Diagnose `before`'s `ff_party_decode` fuel-band failure (13,612 fuel at 136 bits).
-      Reproduce with `just fuzzfit`; preserved [seed](../../crates/before/fuzzfit/harness/proptest-regressions/enforce.txt): `ea7f69a7…`.
+- [ ] Diagnose `before`'s `fuel_stays_in_the_pinned_bands` failures.
+      Reproduce with `just fuzzfit`; a counterexample is preserved in the [seed file](../../crates/before/fuzzfit/harness/proptest-regressions/enforce.txt).
       Owner approved proceeding despite this failure, 2026-09-10. Keep the test enabled; this specific failure does not block Rumors batches.
 
 - [ ] Make gate and CI run the intended checks reproducibly.
