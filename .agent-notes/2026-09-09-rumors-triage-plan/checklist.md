@@ -1,10 +1,9 @@
 # Rumors review checklist
 
-**Current:** the focused Link conformance probes are complete at `d3294828`.
+**Current:** materialized resolution is complete at `c1898773`.
 
-**Next:** simplify the materialized and proxy reconciliation paths while
-preserving failure attribution; this is the highest-value remaining production
-area. The remaining Link, measurement, and fixture work is lower-risk cleanup.
+**Next:** consolidate the proxy's request erasure and decode pumps without
+changing its failure attribution or scheduling.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -394,8 +393,18 @@ Scope: `materialized-14`, `remote-proxy-31` and the fault suites retain finite
 input checks and reported-error coverage, without requiring arbitrary malformed
 exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch).
 
-- [ ] Share classification and completion paths without hiding backend failures.
-      Sources: `materialized-13`, `materialized-14`, `materialized-26`, `materialized-27`, `materialized-31`, `materialized-35`, `materialized-36`, `materialized-40`, `remote-proxy-23`, `remote-proxy-25`, `remote-proxy-28–30`, `streaming-backend-window-20`, `streaming-backend-window-23`, `streaming-backend-window-29`, T26, T40, T118, T128, T132, N04, N05.
+- [x] Classify opening and terminal replies consistently, and pin the leaf-height pruning verdict — `bd96695c`, `0bebd811`.
+      Sources: `materialized-14`, `materialized-27`, T26, T40.
+
+- [x] Simplify materialized resolution without changing terminal failure priority — `c1898773`.
+      Sources: `materialized-13`, `materialized-26`, `materialized-31`, `materialized-35`, `materialized-36`, `materialized-40`, T128, T132, N04, N05.
+      `materialized-13`'s task-registration proposal is superseded by `f643bd60`'s fixed terminal-first error priority.
+
+- [ ] Consolidate request erasure and the proxy's decode pumps.
+      Sources: `remote-proxy-23`, `remote-proxy-25`, `remote-proxy-28–30`, T132.
+
+- [ ] Remove pass-through backend wrappers and duplicate runtime checks.
+      Sources: `streaming-backend-window-20`, `streaming-backend-window-23`, `streaming-backend-window-29`, T132.
 
 - [ ] Collapse the handshake handoff and name its actual premises once.
       Sources: `async-hazards-5`, `materialized-11`, `materialized-34`, `mirror-common-16`, `remote-proxy-4`, `remote-proxy-7`, `remote-proxy-24`, `streaming-tests-24`, T99, T118, T119, T128, T132.
@@ -407,7 +416,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
       Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-31`, `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
 
 - [ ] Simplify materialized-backend state and explain its ownership.
-      Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T128, T132.
+      Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T118, T128, T132.
 
 - [ ] Simplify proxy state and clarify driver responsibilities.
       Sources: `remote-proxy-1`, `remote-proxy-5`, `remote-proxy-6`, `remote-proxy-8–11`, `remote-proxy-13–18`, `remote-proxy-21`, `remote-proxy-22`, `remote-proxy-26`, `remote-proxy-32`, T48, T49, T52, T57, T126, T132.
