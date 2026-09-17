@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** add a minimal atomic file-backed Bookmark behind a feature.
+**Next:** simplify session and bookmark plumbing and explanations.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -209,7 +209,7 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 - [x] Ship a focused Bookmark conformance suite — `ce670e87`.
       Sources: `conformance-1`, `tests-bookmark-6`, T69, T130.
 
-- [ ] Add a minimal atomic file-backed Bookmark behind a feature.
+- [x] Add a minimal atomic file-backed Bookmark behind a feature — `adf0c65f`.
       Sources: `fresh-eyes-8`, T94, T159.
 
 - [ ] Simplify session and bookmark plumbing and explanations.
