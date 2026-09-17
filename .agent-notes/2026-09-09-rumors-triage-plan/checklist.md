@@ -1,9 +1,8 @@
 # Rumors review checklist
 
-**Current:** the streaming-wrapper cleanup is complete at `60094492`.
+**Current:** reply fault injection is complete at `f66de43b`.
 
-**Next:** make fault-injection reply corruption states explicit and share their
-countdown logic.
+**Next:** collapse the handshake handoff and state its premises once.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -409,8 +408,8 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Remove the pass-through assembly relay and duplicate runtime pricing checks — `60094492`.
       Sources: `streaming-backend-window-20`, `streaming-backend-window-29`, T132.
 
-- [ ] Make fault-injection reply corruption states explicit and share their
-      countdown logic.
+- [x] Make fault-injection reply corruption states explicit and share their
+      countdown logic — `f66de43b`.
       Sources: `streaming-backend-window-23`, T132.
 
 - [ ] Collapse the handshake handoff and name its actual premises once.
