@@ -6,9 +6,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
-use serde::Serialize;
-use serde::Serializer;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, Serializer, de::DeserializeOwned};
 
 /// A type-erased payload and its cached CBOR encoding.
 ///
@@ -36,8 +34,9 @@ pub struct Message {
 
 /// The default payload nesting-depth limit: 256 decode recursion steps.
 ///
-/// Exactly the CBOR decoder's own default recursion bound, so a fleet
-/// upgrading together sees no acceptance change on existing content.
+/// This is the decoder's default recursion bound, so the depth check rejects
+/// nothing the decoder would otherwise accept.
+///
 /// Wire interop across releases is governed by the greeting's format,
 /// not by this constant.
 pub const DEFAULT_PAYLOAD_DEPTH_LIMIT: u64 = 256;
@@ -90,6 +89,7 @@ impl Default for PayloadDepthLimit {
 ///
 /// See [`Rumors::send`](crate::Rumors::send) for the payload requirements.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EncodeError {
     /// The payload value's CBOR encoding nests deeper than the peer's
     /// configured payload depth limit.
@@ -206,9 +206,18 @@ impl PayloadCodec {
             });
             Message::try_from_arc(payload, limit)
         }
+
+        /// Decode one value into shared, type-erased storage.
+        fn deserialize_payload<T: DeserializeOwned + Send + Sync + 'static>(
+            bytes: &[u8],
+            limit: PayloadDepthLimit,
+        ) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError> {
+            Ok(Arc::new(decode_exact::<T>(bytes, limit)?))
+        }
+
         PayloadCodec {
             serialize: serialize_payload::<T>,
-            deserialize: Message::deserializer::<T>(),
+            deserialize: deserialize_payload::<T>,
             limit,
         }
     }
@@ -317,9 +326,9 @@ impl Message {
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
         let serialized = encode(&*arc);
-        // Use the receiver's decoder and limit so admission cannot accept a
-        // value that wire ingress would reject.
-        let decoded = match Self::deserializer::<T>()(&serialized, limit) {
+        // Run the same typed decode that wire ingress wraps in an `Arc`, so
+        // admission cannot accept a value that a receiver would reject.
+        let decoded = match decode_exact::<T>(&serialized, limit) {
             Ok(decoded) => decoded,
             Err(PayloadDecodeError::Depth(limit)) => {
                 return Err(EncodeError::Depth { limit: limit.get() });
@@ -327,10 +336,7 @@ impl Message {
             Err(PayloadDecodeError::Io(source)) => return Err(EncodeError::Roundtrip(source)),
         };
         // Decoding successfully is not enough: the value must survive intact.
-        let decoded: Arc<T> = decoded
-            .downcast()
-            .unwrap_or_else(|_| panic!("a payload decodes to its own type"));
-        if *decoded != *arc {
+        if decoded != *arc {
             return Err(EncodeError::Unfaithful);
         }
         Ok(Message {
@@ -348,25 +354,6 @@ impl Message {
             message: codec.decode(&bytes).map_err(PayloadDecodeError::into_io)?,
             serialized: bytes,
         })
-    }
-
-    /// The shared decoder for send-side admission and wire ingress.
-    ///
-    /// Returning a function pointer keeps [`PayloadCodec`] non-generic; the
-    /// payload type and its serde implementation stay inside this function.
-    pub(crate) fn deserializer<T>() -> PayloadDeserializer
-    where
-        T: DeserializeOwned + Send + Sync + 'static,
-    {
-        /// Decode one value into shared, type-erased storage.
-        fn deserialize<T: DeserializeOwned + Send + Sync + 'static>(
-            bytes: &[u8],
-            limit: PayloadDepthLimit,
-        ) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError> {
-            let message: T = decode_exact(bytes, limit)?;
-            Ok(Arc::new(message))
-        }
-        deserialize::<T>
     }
 
     /// Share the stored payload as its original type.

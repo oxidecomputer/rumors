@@ -51,10 +51,11 @@
 //! # The descent to the disjoint frontier
 //!
 //! After a fixed transport preamble, a session opens with a *greeting*:
-//! each side sends its version, its live-message count, its version-size
-//! bound, its message-size target, and its root's child listing. Equal versions mean identical
-//! replicas, and the session ends right there, before a single digest is
-//! compared: the cheapest possible session, one exchange and no descent.
+//! each side sends its version, live-message count, version-size bound,
+//! message-size target, payload depth limit, and root's children. The
+//! peers must agree on the payload depth limit before descent. Equal versions
+//! mean identical replicas, and the session ends before a single digest is
+//! compared: one exchange and no descent.
 //!
 //! Otherwise the two sides walk their trees downward together, level by
 //! level, comparing children by digest. Equal digests prune: that subtree
@@ -194,43 +195,35 @@
 //! carry the descent into the tree, whose traffic exists only where divergence
 //! does: a converged session opens none, so they are opened on demand and are
 //! worth recycling back to a transport's connection pool. They are
-//! unidirectional because that is all the protocol demands — demanding less of
-//! the transport leaves implementations more room, and a link is free to split
-//! one bidirectional stream into two unidirectional roles.
+//! unidirectional because the protocol needs traffic in only one direction; a
+//! link may split a bidirectional stream into two such roles.
 //!
-//! In *theory*, the maximum number of streams needed on either side of the link
-//! is 17, though in practice, far fewer will ever be needed. Why 17? A 32-byte
-//! key gives the descent 32 levels; the schedule of traversal asks each side to
-//! hop down the tree by 2 levels at a time, so at most 16 data streams plus a
-//! control stream are ever needed.
+//! Each direction may open at most [`STREAM_COUNT`](crate::link::STREAM_COUNT)
+//! data streams in addition to the control stream, though a session usually
+//! opens fewer. The bound comes from the fixed tree height and the wire
+//! schedule's assignment of tree levels to streams. The constant's documentation
+//! gives the derivation.
 //!
 //! Streams are independently flow-controlled: one stream's backpressure is
 //! invisible to every other stream, so the two levels sharing a stream
-//! serialize against each other and levels on different streams do not. That
-//! per-stream independence is *vital*: it grounds the protocol's
-//! deadlock-freedom argument. With this to rely on, the session pipelines many
-//! disputes at multiple levels concurrently, which permits maximal utilization
-//! of the connection between two synchronizing peers, with neither peer ever
-//! needing to twiddle its thumbs awaiting a message.
+//! serialize against each other and levels on different streams do not. This
+//! independence is required for deadlock freedom and lets the session pipeline
+//! disputes across several levels.
 //!
 //! # Memory: the budget and the window
 //!
-//! This pipelining is bought with memory: every dispute in flight holds decoded
-//! tree state until its concomitant reply resolves it. Rather than let a very
-//! divergent session's in-flight state grow indefinitely with the divergence,
-//! each session derives a window (i.e. fixed per-tree-level capacities) from a
-//! caller-set byte budget
+//! Each dispute in flight holds decoded tree state until its reply arrives. To
+//! keep that state bounded, a session derives fixed capacities for each tree
+//! level from a caller-set byte budget
 //! ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)) and from
-//! both sides' exact set sizes and version-size bounds, so a statistical
-//! worst-case memory utilization can be statically capped before the descent
-//! begins, by enforcing the correct amount of backpressure. Divergence wider
-//! than a level's assigned buffer capacity drains in capacity-sized waves: a
-//! smaller budget costs increased latency, and any caller-set budget — down to
-//! zero — leaves the session deadlock-free at one dispute in flight per level.
+//! both sides' set sizes and version-size bounds. Backpressure makes wider
+//! divergence drain in waves. A smaller budget can add latency; even a zero
+//! budget permits one dispute per level and remains deadlock-free.
 //! Message bodies are governed separately: supplies stream outside the window
 //! as size-targeted runs, with at most one run in hand per stream per direction
 //! ([`Peer::target_message_size`](crate::Peer::target_message_size)). The
-//! budget's contract is at [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);
+//! budget's contract is at
+//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);
 //! [the sizing guide](crate::sizing) explains how to choose it.
 //!
 //! # Why streaming, not level-synchronous exchange
@@ -242,7 +235,6 @@
 //! is unbounded; at high divergence a level's message grows with the
 //! divergence itself, so a session can transiently hold a second copy of
 //! much of the set, doubling the replica's memory footprint in the worst
-//! case. [`Protocol::V2`](crate::Protocol::V2) instead runs the descent
-//! using the bounded-memory streaming approach described above; its
-//! behavioral oracle in the test suite is the in-memory merge
-//! (`Tree::join`), which honors deletions through the same filter.
+//! case. The streaming descent above bounds that transient state. Tests
+//! compare its result with the same in-memory reconciliation semantics across
+//! generated trees, including redactions.

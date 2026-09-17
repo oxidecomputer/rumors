@@ -104,11 +104,9 @@ fn bytes_after_the_marker_stay_untouched() {
 /// events: what a misdeclaring claimant presents, nothing to provide plus a
 /// version dominating any replica with fewer events.
 ///
-/// Built with real semantics, standing in for a misbehaving implementation:
-/// a redaction advances
-/// the ceiling and leaves no tombstone, so committing and then redacting
-/// `events` messages leaves an empty root carrying a genuine `events`-tick
-/// version.
+/// The fixture uses the normal send and redact paths: redaction advances the
+/// frontier and leaves no tombstone, so sending and then redacting `events`
+/// messages leaves an empty root with an `events`-tick version.
 fn redacted_history_root(events: u64) -> tree::Root {
     let donor = Peer::<u64>::seed();
     {
@@ -129,14 +127,14 @@ fn redacted_history_root(events: u64) -> tree::Root {
     donor.inner.borrow().tree.clone().root
 }
 
-/// Drive one V2 session as a bootstrap claimant whose greeting version comes
+/// Drive one session as a bootstrap claimant whose greeting version comes
 /// from `root` instead of a newborn's empty version.
 ///
 /// This is the bootstrap join's wire flow with the one deviation under test:
 /// the preamble declares [`Network::BOOTSTRAP`] while the greeting declares
 /// `root`'s causal frontier. Returns the donated party and the reconciled
 /// tree if the counterparty serves the session to completion.
-async fn claim_bootstrap_v2(
+async fn claim_bootstrap_with_root(
     link: &mut MemoryLink,
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
@@ -186,9 +184,8 @@ fn party_of(provider: &Peer<u64>) -> Party {
     provider.inner.borrow().party.dangerously_alias()
 }
 
-/// A provider serving a bootstrap rejects, under V2, a claimant whose
-/// greeting declares causal history: [`Error::Protocol`],
-/// nothing moved.
+/// A provider serving a bootstrap rejects a claimant whose greeting declares
+/// causal history: [`Error::Protocol`], nothing moved.
 ///
 /// The declared version would otherwise drive the deletion-honoring filter
 /// as the claimant's causal frontier, making every dominated local subtree
@@ -200,7 +197,7 @@ fn party_of(provider: &Peer<u64>) -> Party {
 /// link is poisoned like any failed session's, so the next session on it
 /// fails fast.
 #[test]
-fn v2_bootstrap_claimant_declaring_history_is_rejected() {
+fn bootstrap_claimant_declaring_history_is_rejected() {
     let provider = provider_with(&[1, 2, 3]);
     let hash_before = provider.snapshot().hash();
     let party_before = party_of(&provider);
@@ -215,7 +212,7 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
     let (claim_out, (first, second)) = pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         tokio::join!(
-            async move { claim_bootstrap_v2(&mut a_link, claimant_tree.root).await },
+            async move { claim_bootstrap_with_root(&mut a_link, claimant_tree.root).await },
             async move {
                 let first = provider_ref.gossip_once(&mut b_link).await;
                 // The second session on the same link must fail fast,
@@ -258,22 +255,22 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
     );
 }
 
-/// A joining peer rejects, under V2, a mutual-bootstrap counterparty whose
-/// greeting declares causal history, instead of bailing as if the
-/// encounter were two honest newborns.
+/// A joining peer rejects a mutual-bootstrap counterparty whose greeting
+/// declares causal history, instead of bailing as if the encounter were two
+/// newborns.
 ///
 /// The newborn requirement binds every bootstrap claimant, and in a
 /// mutual-bootstrap encounter the joining side is the side facing one: it
-/// surfaces the same [`Error::Protocol`] a serving
-/// provider would, rather than certifying a clean mutual bail against a
-/// counterparty that is neither newborn nor a provider.
+/// surfaces the same [`Error::Protocol`] a serving provider would, rather than
+/// certifying a clean mutual bail against a counterparty that is neither
+/// newborn nor a provider.
 #[test]
-fn v2_mutual_bootstrap_counterparty_with_history_is_rejected() {
+fn mutual_bootstrap_counterparty_with_history_is_rejected() {
     let (join_out, claim_out) = pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         tokio::join!(
             async move { Peer::<u64>::bootstrap().join(&mut a_link).await },
-            async move { claim_bootstrap_v2(&mut b_link, redacted_history_root(8)).await },
+            async move { claim_bootstrap_with_root(&mut b_link, redacted_history_root(8)).await },
         )
     });
 
@@ -293,11 +290,11 @@ fn v2_mutual_bootstrap_counterparty_with_history_is_rejected() {
     );
 }
 
-/// A rejected claimant costs the provider nothing: an honest bootstrap
+/// A rejected claimant costs the provider nothing: a newborn claimant
 /// over a fresh link afterwards succeeds and replicates the full content.
 ///
 /// The rejection's recovery contract is the claimant's alone — the
-/// provider needs no repair beyond a fresh link, and a genuinely newborn
+/// provider needs no repair beyond a fresh link, and a newborn
 /// claimant (empty greeting version) is served exactly as before.
 #[test]
 fn rejected_claimant_leaves_the_provider_serviceable() {
@@ -307,7 +304,7 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
     pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         let (claim_out, provider_out) = tokio::join!(
-            async move { claim_bootstrap_v2(&mut a_link, redacted_history_root(8)).await },
+            async move { claim_bootstrap_with_root(&mut a_link, redacted_history_root(8)).await },
             async move { provider_ref.gossip_once(&mut b_link).await },
         );
         assert!(
@@ -323,7 +320,7 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
             Peer::<u64>::bootstrap().join(&mut a_link),
             provider.gossip_once(&mut b_link),
         );
-        provider_out.expect("the provider serves the honest bootstrap");
+        provider_out.expect("the provider serves the newborn claimant");
         match witness_out {
             crate::Joined::Joined { peer } => peer,
             _ => panic!("the provider donates"),
@@ -332,7 +329,7 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
     assert_eq!(
         witness.snapshot().len(),
         3,
-        "the honest newcomer replicates the provider's full content",
+        "the newborn claimant replicates the provider's full content",
     );
 }
 

@@ -44,29 +44,20 @@ use super::{BootstrapReservations, Inner, Peer, bootstrap::Bootstrap};
 /// The epilogue marker each side writes on the control stream after all
 /// of its session work: the CBOR text item `"."`.
 ///
-/// Reading the peer's marker is what lets `Ok` certify that the peer
-/// completed and committed too. As an item, the marker keeps the control
-/// stream a pure CBOR sequence; its leading byte is deliberately distinct
-/// from the self-described tag opening a V2 preamble, so a desynchronized
-/// peer that starts its next preamble where an epilogue belongs is
-/// diagnosed as a protocol violation, not mistaken for completion.
+/// Receiving this marker confirms that the peer also committed. Its first byte
+/// differs from a preamble's, so a premature next session is reported as a
+/// protocol violation rather than mistaken for completion.
 const EPILOGUE_MARKER: [u8; 2] = [0x61, b'.'];
 
 /// A session's control read half with its concrete transport type erased.
 ///
-/// Every session entry point erases its caller's [`Link`] — the control
-/// halves to this and [`DynWrite`], the stream supply to
-/// [`DynConnector`]/[`DynAcceptor`] — before entering a reconciliation
-/// protocol. The protocol state machines carry their transport type
-/// parameters through every height of the descent, so each distinct link
-/// instantiation would otherwise re-instantiate both towers — and, because
-/// generic code monomorphizes in the crate that supplies the concrete types,
-/// it would do so once per downstream binary per instantiation. Erasing here
-/// — with the protocol bodies behind the non-generic [`Reconciliation`] and
-/// bootstrap drivers — caps that at one instantiation, compiled once into
-/// this crate. The price is one vtable
-/// call per stream open/accept and per `poll_read`/`poll_write` beneath the
-/// framing layers, which buffer whole frames on both sides.
+/// Session entry points erase the caller's [`Link`] before reconciliation.
+/// Otherwise each link implementation would instantiate the protocol's deeply
+/// generic state machine in every downstream binary. The non-generic,
+/// non-inlined drivers keep one copy in this crate.
+///
+/// Erasure costs one virtual call per stream open or accept and per read or
+/// write poll beneath the framing buffers.
 type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
 
 /// A session's control write half with its concrete transport type erased.
@@ -399,7 +390,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut staged = handshake::Staged::new();
         let parts = erase(link).map_err(Error::widen)?;
         let (_, result) = self.session(Intent::Remain, &mut staged, parts).await;
-        // Un-poison on clean completion: the session's own `Ok` under V2 is
+        // Un-poison on clean completion: the session's own `Ok` is
         // already epilogue-certified, so the control stream rests at the
         // session boundary.
         if result.is_ok() {
@@ -945,7 +936,7 @@ fn bootstrap_reconcile<'a>(
         // choice can widen this session: disputes require joint occupancy
         // and this side's replica is empty, so every derived capacity floors
         // at one slot regardless. The message-size target is the operative
-        // knob: the greeting advertises it, and the provider's supply runs
+        // setting: the greeting advertises it, and the provider's supply runs
         // are built at the exchanged minimum.
         let local = materialized::Handshaking::start(Local, local_root)
             .window(window)
