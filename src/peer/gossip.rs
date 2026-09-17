@@ -299,25 +299,34 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // holds the provider's content and the next frame carries the
             // donated identity. Two bootstrappers instead finish without one.
             let both_bootstrapping = remote.network.is_bootstrap();
-            let reconcile = bootstrap_reconcile(
-                (read, write, connector, acceptor, epoch),
+            let reconciliation = Reconciliation {
+                root: tree::Root::default(),
+                link: (read, write, connector, acceptor, epoch),
                 codec,
-                config.window,
-                config.run_budget,
-                both_bootstrapping,
-                observe.clone(),
+                window: config.window,
+                run_budget: config.run_budget,
+                remote_role: if both_bootstrapping {
+                    RemoteRole::Bootstrapping
+                } else {
+                    RemoteRole::Providing
+                },
                 stats,
-            );
-            let Some((root, mut read, mut write)) = reconcile.await? else {
+                observe: observe.clone(),
+            };
+            let (root, mut read, mut write) = reconciliation.reconcile().await?;
+            // A provider donates a fork or its whole retiring identity. Two
+            // bootstrappers have no identity to exchange.
+            let party = if both_bootstrapping {
+                None
+            } else {
+                Some(party::receive(&mut read, &observe).await?)
+            };
+            // Confirm completion before exposing the new peer. On failure, any
+            // received identity is dropped and cannot be reused.
+            finish_session(&mut read, &mut write, &observe).await?;
+            let Some(party) = party else {
                 return Ok(None);
             };
-            // A serving provider donates a fork; a retiring one donates
-            // its whole identity. Either becomes this peer's identity.
-            let party = party::receive(&mut read, &observe).await?;
-            // Peer construction cannot fail. Confirm receipt and wait for
-            // the provider's completion before exposing the new peer. If this
-            // exchange fails, the received identity is dropped, never reused.
-            finish_session(&mut read, &mut write, &observe).await?;
             let peer = Self {
                 network: remote.network,
                 window: config.window,
@@ -567,10 +576,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             run_budget: self.run_budget,
             stats: stats.clone(),
             observe: observe.clone(),
-            peer_bootstrapping,
-            remote_network: remote.network,
-            network: self.network,
-            local_min_events,
+            remote_role: if peer_bootstrapping {
+                RemoteRole::Bootstrapping
+            } else {
+                RemoteRole::Gossiping {
+                    remote_network: remote.network,
+                    local_network: self.network,
+                    local_min_events,
+                }
+            },
         };
         let reconcile = reconciliation.reconcile();
         let (root, mut read, write) = reconcile.await.map_err(Error::widen)?;
@@ -811,15 +825,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     }
 }
 
-/// One gossip reconciliation's inputs, fully erased.
+/// One reconciliation's fully erased inputs.
 ///
-/// [`Peer::gossip_inner`] assembles this and immediately consumes it through
-/// [`reconcile`](Self::reconcile). The struct exists so that body is
-/// non-generic: `gossip_inner` is generic over the payload and bookmark
-/// types, and a reconciliation written inline there would monomorphize the
-/// entire protocol tower it drives into every consumer crate, once per
-/// instantiation. Behind this boundary the tower codegens exactly once, into
-/// this crate's own object code.
+/// Gossip and bootstrap both assemble this bundle and consume it through
+/// [`reconcile`](Self::reconcile). That non-generic, non-inlined boundary keeps
+/// the protocol state machine in this crate rather than instantiating it for
+/// each downstream peer and link type.
 struct Reconciliation<'a> {
     /// The local replica's root, snapshotted inside the session transaction's
     /// critical section: exactly what the local participant reconciles from.
@@ -843,14 +854,47 @@ struct Reconciliation<'a> {
     /// attached, and shared, like the recorder, by every layer that
     /// moves a wire item.
     observe: SessionHandle,
-    /// Whether the remote's preamble declared it a bootstrap claimant.
-    peer_bootstrapping: bool,
-    /// The network the remote's preamble declared.
-    remote_network: Network,
-    /// The local network, which a non-bootstrapping remote must match.
-    network: Network,
-    /// The local greeting frontier's event floor, for the mismatch report.
-    local_min_events: Ticks,
+    /// The remote's role and the context needed to validate its greeting.
+    remote_role: RemoteRole,
+}
+
+/// How the remote peer participates in this session.
+enum RemoteRole {
+    /// The remote provides membership and content to a joining peer.
+    Providing,
+    /// The remote is joining and must have no causal history.
+    Bootstrapping,
+    /// The remote is an established peer and must be in the same network.
+    Gossiping {
+        /// The network declared by the remote preamble.
+        remote_network: Network,
+        /// The local peer's network.
+        local_network: Network,
+        /// The local greeting frontier's event floor, for diagnostics.
+        local_min_events: Ticks,
+    },
+}
+
+/// Validate the greeting for each remote session role.
+impl RemoteRole {
+    /// Enforce the role's network and causal-history requirements.
+    fn validate(self, remote_version: &Version) -> Result<(), Error> {
+        match self {
+            RemoteRole::Providing => Ok(()),
+            RemoteRole::Bootstrapping => bootstrap_claimant_is_newborn(remote_version),
+            RemoteRole::Gossiping {
+                remote_network,
+                local_network,
+                local_min_events,
+            } if remote_network != local_network => Err(Error::Mismatch(Mismatch::Network {
+                local_network,
+                local_min_events,
+                remote_network,
+                remote_min_events: remote_version.min_ticks(),
+            })),
+            RemoteRole::Gossiping { .. } => Ok(()),
+        }
+    }
 }
 
 impl<'a> Reconciliation<'a> {
@@ -870,13 +914,10 @@ impl<'a> Reconciliation<'a> {
                 run_budget,
                 stats,
                 observe,
-                peer_bootstrapping,
-                remote_network,
-                network,
-                local_min_events,
+                remote_role,
             } = self;
             let (read, write, connector, acceptor, epoch) = link;
-            let local = materialized::Handshaking::<_, _>::start(Local, root.into())
+            let local = materialized::Handshaking::start(Local, root.into())
                 .window(window)
                 .target_message_size(run_budget.bytes() as u64)
                 .stats(stats.clone());
@@ -888,86 +929,12 @@ impl<'a> Reconciliation<'a> {
             let handshaken = streaming::handshake(local, proxy)
                 .await
                 .map_err(Error::from)?;
-            if peer_bootstrapping {
-                bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-            } else if remote_network != network {
-                return Err(Error::Mismatch(Mismatch::Network {
-                    local_network: network,
-                    local_min_events,
-                    remote_network,
-                    remote_min_events: handshaken.peer().version.min_ticks(),
-                }));
-            }
+            remote_role.validate(&handshaken.peer().version)?;
             let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
             let (root, (read, write)) = descent.await.map_err(Error::from)?;
             Ok((root.into(), read, write))
         })
     }
-}
-
-/// Drive one bootstrap reconciliation from an empty local replica.
-///
-/// Free and non-generic for the same reason [`Reconciliation`] is: the
-/// generic [`Peer::bootstrap_erased`] shell funnels through here, so the
-/// protocol tower codegens once, in this crate.
-///
-/// `Ok(None)` is the mutual-bootstrap bail: the counterparty is itself
-/// bootstrapping, so there is no donation to receive, and the epilogue has
-/// already been exchanged. `Ok(Some(..))` hands back the reconciled root and
-/// the control halves positioned at the trailing party frame.
-///
-/// Boxed and `inline(never)` for [`Reconciliation::reconcile`]'s reasons:
-/// the `dyn` coercion is what pins the protocol state machine in this crate.
-#[inline(never)]
-#[allow(clippy::type_complexity)]
-fn bootstrap_reconcile<'a>(
-    link: SessionTransport<'a>,
-    codec: PayloadCodec,
-    window: WindowConfig,
-    run_budget: RunBudget,
-    both_bootstrapping: bool,
-    observe: SessionHandle,
-    stats: Recorder,
-) -> BoxFuture<'a, Result<Option<Reconciled<'a>>, Error>> {
-    Box::pin(async move {
-        let (read, write, connector, acceptor, epoch) = link;
-        let local_root: streaming::Root<Local> = tree::Root::default().into();
-        // The window choice is passed for uniformity with gossip, but no
-        // choice can widen this session: disputes require joint occupancy
-        // and this side's replica is empty, so every derived capacity floors
-        // at one slot regardless. The message-size target is the operative
-        // setting: the greeting advertises it, and the provider's supply runs
-        // are built at the exchanged minimum.
-        let local = materialized::Handshaking::start(Local, local_root)
-            .window(window)
-            .target_message_size(run_budget.bytes() as u64)
-            .stats(stats.clone());
-        let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-        let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
-            .window(window)
-            .stats(stats)
-            .observe(observe.clone());
-        let handshaken = streaming::handshake(local, proxy)
-            .await
-            .map_err(Error::from)?;
-        // A counterparty that is itself bootstrapping has nothing to hand
-        // us, but the session still ends with the epilogue. Both trees are
-        // empty, so the versions are equal and `reconcile` resolves to the
-        // untouched control halves without opening a data stream; the marker
-        // exchange then certifies the mutual bail to both sides. The
-        // equal-version resolution is itself guarded: a fellow claimant must
-        // be as newborn as we are.
-        if both_bootstrapping {
-            bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-        }
-        let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-        let (root, (mut read, mut write)) = descent.await.map_err(Error::from)?;
-        if both_bootstrapping {
-            finish_session(&mut read, &mut write, &observe).await?;
-            return Ok(None);
-        }
-        Ok(Some((root.into(), read, write)))
-    })
 }
 
 /// Erase a caller's link into one session's [`SessionTransport`], opening the
