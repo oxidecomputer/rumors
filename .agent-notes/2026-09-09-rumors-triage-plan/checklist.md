@@ -1,10 +1,8 @@
 # Rumors review checklist
 
-**Current:** proxy request erasure and decode-loop consolidation is complete at
-`45bd3df3`.
+**Current:** the opening-supply cursor is complete at `8ac4b1c9`.
 
-**Next:** represent the opening-supply cursor's states directly and pin its
-radix-pairing invariant.
+**Next:** remove pass-through backend wrappers and duplicate runtime checks.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -404,8 +402,8 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Consolidate request erasure and the proxy's decode loops — `45bd3df3`.
       Sources: `remote-proxy-23`, `remote-proxy-25`, `remote-proxy-28`, `remote-proxy-29`, T132.
 
-- [ ] Represent opening-supply cursor states directly and pin radix pairing.
-      Sources: `remote-proxy-30`, T132.
+- [x] Represent opening-supply cursor states directly and pin radix pairing — `8ac4b1c9`.
+      Sources: `remote-proxy-30`, `remote-proxy-31` (pairing property), T132.
 
 - [ ] Remove pass-through backend wrappers and duplicate runtime checks.
       Sources: `streaming-backend-window-20`, `streaming-backend-window-23`, `streaming-backend-window-29`, T132.
@@ -417,7 +415,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
       Sources: T117, T132.
 
 - [ ] Exercise meaningful walk and proxy failures, shedding, isolation, and terminal behavior.
-      Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-31`, `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
+      Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-31` (remaining error paths), `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
 
 - [ ] Simplify materialized-backend state and explain its ownership.
       Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T118, T128, T132.
