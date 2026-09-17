@@ -22,6 +22,7 @@ use before::Version;
 
 use crate::{
     message::Message,
+    testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
             Local,
@@ -32,7 +33,11 @@ use crate::{
     },
 };
 
-use super::super::{Scope, decode::fan_probe, decode_reply, early_supplies};
+use super::super::{
+    Scope,
+    decode::{decode_reply_one_slot, fan_probe},
+    decode_reply, early_supplies,
+};
 use super::unbounded;
 
 /// Leaf records per supply frame.
@@ -94,6 +99,40 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
     fan_probe::peak()
 }
 
+/// Decode one pure-supply reply through the one-slot test channel.
+fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
+    fan_probe::reset();
+    run_to_quiescence(async {
+        decode_reply_one_slot::<Local, _>(
+            Local,
+            u64::MAX,
+            unbounded(),
+            Scope::opening(&[]),
+            &mut input,
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+        )
+        .await
+        .expect("ascending in-scope leaves assemble");
+    })
+    .expect("the reader and assembler reach quiescence");
+    fan_probe::peak()
+}
+
+/// A one-slot leaf channel completes an eager reply much larger than one fan.
+///
+/// This is the smallest capacity Tokio permits. Completing four fans of
+/// records refutes the premise that this channel must buffer a whole fan for
+/// progress; the joined assembler drains each blocked send.
+#[test]
+fn one_slot_decode_channel_makes_progress() {
+    let leaves = leaves(4 * FAN as u64);
+    let peak = one_slot_peak_occupancy(stream::iter(frames(&leaves)));
+    assert_eq!(
+        peak, 2,
+        "one queued record plus the reader's current record is the exact ceiling",
+    );
+}
+
 /// The occupancy ceiling the flat charge rests on: an eager decode
 /// reaches exactly `FAN + 1` resident records and never exceeds it.
 ///
@@ -125,8 +164,7 @@ fn eager_decode_occupancy_pins_the_charged_ceiling() {
 ///
 /// The opening-supply path is one of the reply streams the flat charge
 /// prices, so its channel must hold the same `FAN + 1` premise as
-/// `decode`'s; the probe is the same counter, and the paced negative
-/// control below covers its liveness.
+/// `decode`'s; both paths use the same probe.
 #[test]
 fn eager_early_supplies_ride_the_same_ceiling() {
     let leaves = leaves(4 * FAN as u64);

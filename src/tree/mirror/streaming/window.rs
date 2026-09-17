@@ -136,10 +136,11 @@ pub(crate) const FAN_SLOT_BYTES: usize =
 /// in the reader's hand, and each occupant is one backend-priced leaf
 /// node in its slot — for the in-memory backend, a pointer-sized handle
 /// (pinned by the `Local` handle assertion) beside [`FAN_SLOT_BYTES`] of
-/// slot. [`from_budget`](Window::from_budget) charges the same shape
-/// through the live backend's own `node_bytes`; this constant is that
-/// charge under the in-memory backend, the flat pre-charge the operator
-/// docs quote.
+/// slot. A full fan permits one parent group's worth of read-ahead, reducing
+/// wakeups and overlapping parsing with slower assembly; capacity one still
+/// makes progress. [`from_budget`](Window::from_budget) charges the same shape
+/// through the live backend's own `node_bytes`; this constant is that charge
+/// under the in-memory backend, the flat pre-charge the operator docs quote.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
     STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<Z>>() + FAN_SLOT_BYTES);

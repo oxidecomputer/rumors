@@ -1,10 +1,9 @@
 # Rumors review checklist
 
-**Current:** version-head and greeting decoding is ready for review on
-`codex/greeting-decoder`, based on `d9e5a477`.
+**Current:** decode-channel progress and measured per-reply overhead on
+`codex/decode-channel-progress`, based on `8cbbfd04`.
 
-**Next:** demonstrate decode-channel progress below a fan and remove
-per-reply overhead only if measured.
+**Next:** simplify stream state machines and repeated encoder/decoder plumbing.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -329,7 +328,7 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
 - [x] Check decoder values, errors, and stream boundaries across delivery schedules; correct incomplete assertions and test descriptions — `b0d0abbb`.
       Sources: `mirror-common-5`, `remote-codec-6`, `remote-codec-15–17`, `remote-proxy-tests-25`, T126, T132.
 
-- [ ] Parse the version head directly and simplify the fixed greeting vocabulary.
+- [x] Parse the version head directly and simplify the fixed greeting vocabulary — `8cbbfd04`.
       Sources: `inventory-5`, `mirror-common-3`, `mirror-common-14`, `remote-codec-24`, `remote-codec-26`, `remote-codec-27`, `remote-proxy-tests-2`, T105, T126, T132.
 
 - [ ] Demonstrate decode-channel progress below a fan and remove per-reply overhead only if measured.

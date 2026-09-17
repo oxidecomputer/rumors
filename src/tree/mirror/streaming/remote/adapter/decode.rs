@@ -212,7 +212,7 @@ where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
 {
-    decode(
+    decode::<FAN, _, _, _, _>(
         backend,
         version_bytes,
         ledger,
@@ -240,7 +240,7 @@ where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
 {
-    decode(
+    decode::<FAN, _, _, _, _>(
         backend,
         version_bytes,
         ledger,
@@ -258,7 +258,41 @@ where
     .await
 }
 
-async fn decode<B, F, Q, N>(
+/// Decode one non-leaf reply through a one-slot leaf channel.
+///
+/// Test-only because production fixes the capacity at [`FAN`] for bounded
+/// read-ahead. The smallest capacity Tokio permits establishes whether progress
+/// depends on that performance choice.
+#[cfg(test)]
+pub(super) async fn decode_reply_one_slot<B, F>(
+    backend: B,
+    version_bytes: u64,
+    ledger: SupplyLedger,
+    scope: Scope,
+    frames: &mut F,
+    codec: PayloadCodec,
+) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
+where
+    B: Backend<Node<Z>: Leaf>,
+    F: Stream<Item = Frame> + Unpin,
+{
+    decode::<1, _, _, _, _>(
+        backend,
+        version_bytes,
+        ledger,
+        scope,
+        frames,
+        |scope, listing| {
+            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+            Ok(Scope::new(prefix, listing))
+        },
+        codec,
+    )
+    .await
+}
+
+/// Decode one reply while its supplied leaves are assembled concurrently.
+async fn decode<const LEAF_CAPACITY: usize, B, F, Q, N>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
@@ -275,17 +309,12 @@ where
     // The reply's supplied runs group into nodes one level under the
     // scope's parent: the scope's own children height.
     let children_height = scope.parent().height() - 1;
-    // One fan of buffered leaves, amortizing the reader/assembler waker
-    // round trip over runs of consecutive leaves instead of paying it per
-    // leaf. The capacity is load-bearing for liveness: the channel must
-    // admit one full fan of records while the assembler holds a parent
-    // group open, so no configuration may shrink it. Its residency is
-    // charged: each slot holds a backend-priced node — the payload's
-    // custody already passed to the backend at `Leaf::leaf` — and the
-    // session budget prices all of them, one fan plus the record in the
-    // reader's hand per reply stream, at `node_bytes(0, version_bound)`
-    // plus the slot itself (the window's supply-decode envelope).
-    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
+    // A full fan amortizes reader/assembler wakeups and lets parsing run ahead
+    // when assembly is slower. Progress needs only one slot: `join` polls both
+    // sides, and a blocked send wakes the assembler that drains it. The
+    // production fan is therefore a throughput choice whose maximum residency
+    // the window charges, not a liveness requirement.
+    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(LEAF_CAPACITY);
     let read = read_reply::<B, _, _, _>(version_bytes, &ledger, scope, frames, question, tx, codec);
     let assemble = assemble_supplies::<B>(backend, children_height, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
