@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** simplify session and bookmark plumbing and explanations.
+**Next:** simplify the remaining session and bookmark plumbing and explanations.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -212,8 +212,11 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 - [x] Add a minimal atomic file-backed Bookmark behind a feature — `adf0c65f`.
       Sources: `fresh-eyes-8`, T94, T159.
 
-- [ ] Simplify session and bookmark plumbing and explanations.
-      Sources: `session-bookmark-1–7`, `session-bookmark-9–17`, `session-bookmark-19`, `session-bookmark-26–30`, `session-bookmark-32`, `session-bookmark-33`, `session-bookmark-35`, `session-bookmark-36`, `session-bookmark-39`, `session-bookmark-41`, `session-bookmark-43`, `session-bookmark-45`, `session-bookmark-47`, T46, T48–50, T52, T56, T104, T129, T132.
+- [x] Simplify session outcomes and bookmark attachment/checkpoint plumbing — `704ff1a0`.
+      Sources: `session-bookmark-1`, `session-bookmark-3`, `session-bookmark-4`, `session-bookmark-8`, `session-bookmark-11`, `session-bookmark-26`, T129, T132.
+
+- [ ] Simplify the remaining session and bookmark plumbing and explanations.
+      Sources: `session-bookmark-2`, `session-bookmark-5–7`, `session-bookmark-9–10`, `session-bookmark-12–17`, `session-bookmark-19`, `session-bookmark-27–30`, `session-bookmark-32–33`, `session-bookmark-35–36`, `session-bookmark-39`, `session-bookmark-41`, `session-bookmark-43`, `session-bookmark-45`, `session-bookmark-47`, T46, T48–50, T52, T56, T104, T129, T132.
 
 ## 09. Public diagnostics and observability
 
