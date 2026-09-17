@@ -1,8 +1,9 @@
 # Rumors review checklist
 
-**Current:** shared wire types and protocol explanation.
+**Current:** reassess the remaining findings after the shared protocol
+vocabulary batch.
 
-**Next:** clarify stream adapter ownership, names, and behavior.
+**Next:** choose the highest-value remaining batch from that reassessment.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -335,7 +336,7 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
       Sources: `remote-adapter-streams-6`, `remote-proxy-27`, T106.
 
 - [x] Simplify stream state machines and repeated encoder/decoder plumbing — `57c776b5`, `18833bb1`, `b1d852fe`.
-      Sources: `async-hazards-6`, `mirror-common-7`, `mirror-common-17`, `mirror-common-24`, `mirror-common-25`, `mirror-common-32`, `remote-adapter-streams-2–5`, `remote-adapter-streams-9`, `remote-adapter-streams-10`, `remote-adapter-streams-12`, `remote-adapter-streams-14`, `remote-adapter-streams-16`, `remote-adapter-streams-20`, `remote-adapter-streams-24–30`, T52, T119, T126, T132.
+      Sources: `async-hazards-6`, `mirror-common-7`, `mirror-common-17`, `mirror-common-24`, `mirror-common-25`, `remote-adapter-streams-2–5`, `remote-adapter-streams-9`, `remote-adapter-streams-10`, `remote-adapter-streams-12`, `remote-adapter-streams-14`, `remote-adapter-streams-16`, `remote-adapter-streams-20`, `remote-adapter-streams-24–30`, T52, T119, T126, T132.
 
 - [x] Test adapter failures at the actual conversion and ordering boundaries — `b1d852fe`.
       Sources: `remote-adapter-tests-4`, `remote-adapter-tests-6`, `remote-adapter-tests-7`, `remote-adapter-tests-9–15`, `remote-adapter-tests-17`, `remote-adapter-tests-19–22`, T126, T132.
@@ -343,8 +344,14 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
 - [x] Avoid needless scratch initialization in listing reads — `8e72568f`.
       Sources: `remote-codec-12`, T132.
 
-- [ ] Simplify shared wire types and clarify the protocol.
-      Sources: `mirror-common-1`, `mirror-common-2`, `mirror-common-4`, `mirror-common-6`, `mirror-common-9`, `mirror-common-11`, `mirror-common-13`, `mirror-common-18–23`, `mirror-common-26–31`, `mirror-common-34–37`, T46, T49, T50, T52–54, T132.
+- [x] Simplify shared protocol vocabulary and types — `6b11bcd8`.
+      Sources: `mirror-common-6`, `mirror-common-9`, `mirror-common-11`, `mirror-common-27`, `mirror-common-28`, `mirror-common-30–33`, T50, T132.
+
+- [ ] Correct common mirror documentation and derived claims.
+      Sources: `mirror-common-1`, `mirror-common-2`, `mirror-common-4`, `mirror-common-13`, `mirror-common-23`, `mirror-common-26`, `mirror-common-34–37`, T49, T50, T132.
+
+- [ ] Apply remaining common mirror module hygiene.
+      Sources: `mirror-common-18–22`, `mirror-common-29`, T46, T52–54, T132.
 
 - [ ] Clarify stream adapter ownership, names, and behavior.
       Sources: `remote-adapter-streams-1`, `remote-adapter-streams-7`, `remote-adapter-streams-8`, `remote-adapter-streams-11`, `remote-adapter-streams-13`, `remote-adapter-streams-15`, `remote-adapter-streams-17`, `remote-adapter-streams-18`, `remote-adapter-streams-23`, T48, T52, T57, T132.
@@ -389,7 +396,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
       Sources: `async-hazards-5`, `materialized-11`, `materialized-34`, `mirror-common-16`, `remote-proxy-4`, `remote-proxy-7`, `remote-proxy-24`, `streaming-tests-24`, T99, T118, T119, T128, T132.
 
 - [ ] Run the height-indexed trait experiment and judge the result.
-      Sources: `mirror-common-33`, T117, T132.
+      Sources: T117, T132.
 
 - [ ] Exercise meaningful walk and proxy failures, shedding, isolation, and terminal behavior.
       Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-31`, `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
