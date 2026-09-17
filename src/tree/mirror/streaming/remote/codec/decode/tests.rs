@@ -600,7 +600,8 @@ proptest! {
         prop_assert!(named, "expected {expected:?}, got {:?}", error.kind);
     }
 
-    /// An arbitrary canonical query round-trips through the decoder.
+    /// An arbitrary canonical query round-trips through both decoders, and
+    /// the asynchronous decoder stops exactly at the next frame boundary.
     #[test]
     fn canonical_queries_decode(
         index in 1_u8..Stream::MAX,
@@ -614,10 +615,18 @@ proptest! {
             .map(|&radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
             .collect();
         let encoded = query(stream, flow, &children);
+        let expected = (stream, Frame::Reaction(Reaction::Query(children), flow));
         prop_assert_eq!(
             decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
-            (stream, Frame::Reaction(Reaction::Query(children), flow))
+            expected.clone()
         );
+
+        let mut repeated = encoded.clone();
+        repeated.extend_from_slice(&encoded);
+        let mut reader = FrameRead::new(speaker, RunBudget::default(), repeated.as_slice());
+        prop_assert_eq!(pollster::block_on(reader.frame()).unwrap(), Some(expected.clone()));
+        prop_assert_eq!(pollster::block_on(reader.frame()).unwrap(), Some(expected));
+        prop_assert_eq!(pollster::block_on(reader.frame()).unwrap(), None);
     }
 }
 

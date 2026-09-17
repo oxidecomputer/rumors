@@ -279,13 +279,30 @@ impl<'a, R: AsyncRead + Unpin> Exact<'a, R> {
         }
     }
 
-    /// Append up to `want` bytes to `scratch` likewise.
+    /// Append up to `want` bytes to `scratch`, stopping at a close or error.
+    ///
+    /// Limiting the reader presents an artificial EOF after `want` bytes.
+    /// `read_to_end` can therefore use the vector's retained spare capacity
+    /// without consuming any part of the next frame.
     async fn fill_vec(&mut self, scratch: &mut Vec<u8>, want: usize) -> Arrived {
         let start = scratch.len();
-        scratch.resize(start + want, 0);
-        let arrived = self.fill(&mut scratch[start..]).await;
-        scratch.truncate(start + arrived.filled);
-        arrived
+        if let Some(source) = self.failure.take() {
+            return Arrived {
+                filled: 0,
+                failure: Some(source),
+            };
+        }
+
+        scratch.reserve(want);
+        let failure = (&mut *self.read)
+            .take(want as u64)
+            .read_to_end(scratch)
+            .await
+            .err();
+        Arrived {
+            filled: scratch.len() - start,
+            failure,
+        }
     }
 
     /// Fill `buf` exactly, attributing a short delivery to `part`.
