@@ -184,7 +184,7 @@ pub enum BookmarkIo<E> {
 ///
 /// The default for every [`Peer`](crate::Peer). Ordinary gossip needs no
 /// bookmark, but repeated crashes can grow message versions without one.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NoBookmark;
 
 /// Disable persistence for peers that do not use a bookmark.
@@ -310,13 +310,31 @@ impl<B: Bookmark> Bookmarked<B> {
 
 /// Update identity ownership and decide when it needs another checkpoint.
 impl Loaded {
+    /// Stage a checkpoint if the last confirmed store does not cover this state.
+    ///
+    /// Return whether the caller must persist the staged record. This keeps the
+    /// suppression rule and the update it guards in one operation.
+    pub(crate) fn checkpoint_if_needed(
+        &mut self,
+        network: Network,
+        party: &mut Party,
+        version: &Version,
+        reclaim: bool,
+    ) -> bool {
+        if self.can_skip_checkpoint(party, version) {
+            return false;
+        }
+        self.checkpoint(network, party, version, reclaim);
+        true
+    }
+
     /// Whether a confirmed store still protects this party's own writes.
     ///
     /// This deliberately requires the same party and own-write progress. A
     /// larger stored party could sometimes cover a smaller current one too,
     /// but checkpointing that ownership change keeps the rule simple. Remote
     /// progress may permit more reclamation without requiring another store.
-    pub(crate) fn can_skip_checkpoint(&self, party: &Party, version: &Version) -> bool {
+    fn can_skip_checkpoint(&self, party: &Party, version: &Version) -> bool {
         self.last.as_ref().is_some_and(|checkpoint| {
             checkpoint.party == *party && &checkpoint.version / party == version / party
         })

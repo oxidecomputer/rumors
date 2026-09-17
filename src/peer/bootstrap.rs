@@ -2,8 +2,7 @@
 
 use std::{fmt, marker::PhantomData, sync::Arc};
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::bookmark::{Bookmark, NoBookmark};
@@ -14,7 +13,7 @@ use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{Error, Peer};
 
-use super::gossip::Unbookmarked;
+use super::bookmark::Unbookmarked;
 
 /// Configuration for joining a gossip network through [`Peer::bootstrap`].
 ///

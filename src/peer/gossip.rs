@@ -5,17 +5,18 @@
 //! Retirement owns its consumed `Peer` until the outcome determines whether
 //! the identity can be returned to the caller.
 
-use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use std::{fmt, sync::Arc, time::Instant};
 
 use before::{Party, Ticks};
 use futures::{Stream, future::BoxFuture};
 use futures_util::StreamExt;
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{Mutex, watch},
 };
 
+use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use crate::link::{
     Acceptor, Connector, Link, SessionState,
     erased::{DynAcceptor, DynConnector},
@@ -40,8 +41,6 @@ use crate::{
 
 use super::{BootstrapReservations, Inner, Peer, bootstrap::Bootstrap};
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 /// The epilogue marker each side writes on the control stream after all
 /// of its session work: the CBOR text item `"."`.
 ///
@@ -140,42 +139,18 @@ impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Retire<T, B> {
     }
 }
 
-/// A failed bookmark attachment, with the peer returned unchanged.
-///
-/// Produced by [`Peer::bookmark`] or [`Joined::Unbookmarked`](super::Joined::Unbookmarked).
-/// The peer remains usable without a bookmark. To retry attachment, repair or
-/// replace the storage and call `bookmark` on the returned peer.
-#[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
-pub struct Unbookmarked<T: Send + Sync + 'static, B: Bookmark> {
-    /// The unchanged peer, with no bookmark attached.
-    pub peer: Peer<T, NoBookmark>,
-    /// The storage or decoding failure.
-    pub error: BookmarkIo<B::Error>,
-}
-
-/// Format a failed bookmark attachment without requiring debuggable payload or
-/// bookmark types.
-impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
-    /// Formats the returned peer and storage error.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Unbookmarked")
-            .field("peer", &self.peer)
-            .field("error", &self.error)
-            .finish()
-    }
-}
-
 /// One completed exchange, returned by [`gossip_once`](crate::Rumors::gossip_once)
 /// or yielded by the [`gossip`](crate::Rumors::gossip) stream.
 ///
 /// One of these exists per successful session; a failed session is an
 /// `Err` instead (the terminal `Err` of the `gossip` stream).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Gossiped {
     /// The causal frontier the two replicas converged on.
     ///
-    /// At the instant the session committed, both held exactly this version.
+    /// Both replicas absorbed this frontier. Concurrent local work may leave
+    /// either replica ahead of it when the session commits.
     pub converged: Version,
     /// Which trigger initiated the session on this side.
     pub led: Led,
@@ -365,73 +340,6 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             Ok(Some(peer))
         })
     }
-
-    /// Attach storage and record the live identity without reclaiming another.
-    pub(crate) async fn bookmark_inner<B: Bookmark>(
-        self,
-        bookmark: B,
-    ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
-        let size_limit = self
-            .bookmark
-            .try_lock()
-            .expect("a Peer has no running sessions")
-            .size_limit();
-        let Peer {
-            network,
-            window,
-            run_budget,
-            gossip_policy,
-            inner,
-            codec,
-            observe,
-            ..
-        } = self;
-        let peer = Peer {
-            network,
-            window,
-            run_budget,
-            gossip_policy,
-            inner,
-            bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
-            codec,
-            observe,
-        };
-
-        let peer = peer.bookmark_size_limit(size_limit);
-
-        // A pristine seed has no identity worth recording yet; persisting it
-        // would only force a write the lazy load already defers. Anything the
-        // peer *knows* (any messages advancing the version, or a
-        // forked/absorbed identity) must be made durable immediately.
-        let pristine = {
-            let inner = peer.inner.borrow();
-            inner.tree.latest().is_empty() && inner.party.is_seed()
-        };
-        if pristine {
-            return Ok(peer);
-        }
-
-        // Record ownership without reclaiming any stored identity. This leaves
-        // the live party unchanged on failure, even if the write took effect.
-        // The attempt adds only an alias of the returned peer's own identity.
-        match peer.bookmark_record().await {
-            Ok(()) => Ok(peer),
-            Err(error) => Err(Unbookmarked {
-                peer: Peer {
-                    network: peer.network,
-                    window: peer.window,
-                    run_budget: peer.run_budget,
-                    gossip_policy: peer.gossip_policy,
-                    inner: peer.inner,
-                    bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-                    codec: peer.codec,
-                    observe: peer.observe,
-                }
-                .bookmark_size_limit(size_limit),
-                error,
-            }),
-        }
-    }
 }
 
 /// Run sessions and maintain bookmarks across ownership changes.
@@ -544,27 +452,6 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         (outcome, result)
     }
 
-    /// Durably record this peer's *own* identity at its current version, without
-    /// reclaiming anything: the attach-time persist behind
-    /// [`bookmark`](Peer::bookmark).
-    ///
-    /// Unlike [`bookmark_update`](Self::bookmark_update), this never grows the
-    /// live party — it only notes who we are, so a freshly received fork cannot
-    /// strand on an early crash — and so a failed [`write`](Bookmarked::write)
-    /// leaves the party exactly as it was. Reclaiming, with its party growth
-    /// and the gating that protects it, is left to the first gossip. Holds the
-    /// bookmark mutex across a brief `watch` borrow (read-only here) and the
-    /// write; lock order is bookmark-then-`watch`, as everywhere.
-    async fn bookmark_record(&self) -> Result<(), BookmarkIo<B::Error>> {
-        let mut bookmark = self.bookmark.lock().await;
-        let loaded = bookmark.ensure_loaded().await?;
-        {
-            let inner = self.inner.borrow();
-            loaded.record(self.network, &inner.party, inner.tree.latest());
-        }
-        bookmark.write().await
-    }
-
     /// Reclaim caught-up identities and checkpoint our own writes when needed.
     ///
     /// Hold the bookmark mutex through persistence, taking the replica lock
@@ -578,16 +465,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut persist = false;
         Inner::update_party(&self.inner, |inner| {
             let version = inner.tree.latest();
-            if !loaded.can_skip_checkpoint(&inner.party, version) {
-                // Only a successful store can justify skipping the next one.
-                loaded.checkpoint(
-                    self.network,
-                    &mut inner.party,
-                    version,
-                    inner.bootstrap_forks.can_reclaim(),
-                );
-                persist = true;
-            }
+            persist = loaded.checkpoint_if_needed(
+                self.network,
+                &mut inner.party,
+                version,
+                inner.bootstrap_forks.can_reclaim(),
+            );
         });
         if persist {
             bookmark.write().await
@@ -662,15 +545,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             let mut persist = false;
             Inner::update_party(&self.inner, |inner| {
                 let version = inner.tree.latest();
-                if !loaded.can_skip_checkpoint(&inner.party, version) {
-                    loaded.checkpoint(
-                        self.network,
-                        &mut inner.party,
-                        version,
-                        inner.bootstrap_forks.can_reclaim(),
-                    );
-                    persist = true;
-                }
+                persist = loaded.checkpoint_if_needed(
+                    self.network,
+                    &mut inner.party,
+                    version,
+                    inner.bootstrap_forks.can_reclaim(),
+                );
                 prior_tree = Some(inner.tree.clone());
                 if peer_bootstrapping && !self_retiring {
                     guarded.fork = Some(inner.reserve());

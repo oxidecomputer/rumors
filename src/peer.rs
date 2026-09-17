@@ -28,14 +28,16 @@ use crate::{
     Batch, Bookmark, CausalMessages, Network, Rumors, Snapshot, UnorderedMessages, Version,
 };
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
+
+mod bookmark;
 mod bootstrap;
 mod gossip;
 mod policy;
 
+pub use bookmark::Unbookmarked;
 pub use bootstrap::{Bootstrap, Joined};
-pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
+pub use gossip::{Gossip, Gossiped, Led, Retire};
 
 /// The start and end of a [`Rumors`]'s lifecycle.
 ///
@@ -455,27 +457,6 @@ impl<T: Send + Sync + 'static> Peer<T> {
     /// the builder for retry. See [`Joined`] for the possible outcomes.
     pub fn bootstrap() -> Bootstrap<T> {
         Bootstrap::new()
-    }
-
-    /// Attach restart bookkeeping that limits version growth after crashes.
-    ///
-    /// Reuse this bookmark when restarting the peer. It records internal
-    /// protocol state, not messages; recover content by joining and gossiping.
-    /// [`Bookmark`] explains the storage and ownership requirements.
-    ///
-    /// Attachment reads and updates storage before returning. A pristine seed
-    /// with no prior activity defers this until its first gossip session.
-    /// Select [`Bootstrap::bookmark`] to perform attachment as part of joining.
-    ///
-    /// # Errors
-    ///
-    /// A storage or decoding failure returns the peer unchanged and without a
-    /// bookmark in [`Unbookmarked`]. Repair or replace the storage, then retry.
-    pub async fn bookmark<B: Bookmark>(
-        self,
-        bookmark: B,
-    ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
-        self.bookmark_inner(bookmark).await
     }
 }
 
