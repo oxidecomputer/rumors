@@ -14,7 +14,7 @@ use super::budget::RunBudget;
 #[cfg(test)]
 use super::frame::{Frame, LeafRun, Reaction, WireFrame};
 use super::{
-    error::{DecodeError, DecodeErrorKind, FramePart},
+    error::{DecodeError, DecodeErrorKind, FramePart, OpenerItem},
     frame::ListingIssue,
     signal::{Signal, Speaker, Stream, WireSignal},
 };
@@ -227,25 +227,14 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
 /// (the opener's stream and state, then a body if the state takes one).
 pub(super) fn frame_arity(head: cbor::Head) -> Result<u64, DecodeErrorKind> {
     if head.major != MAJOR_ARRAY {
-        return Err(DecodeErrorKind::FrameShape {
-            detail: "frame item is not an array",
-        });
+        return Err(DecodeErrorKind::FrameType { actual: head });
     }
     if !(2..=3).contains(&head.value) {
-        return Err(DecodeErrorKind::FrameShape {
-            detail: "frame array is not two or three items",
+        return Err(DecodeErrorKind::FrameLength {
+            declared: head.value,
         });
     }
     Ok(head.value)
-}
-
-/// One of the two items every frame opens with.
-#[derive(Debug, Clone, Copy)]
-pub(super) enum OpenerItem {
-    /// The logical stream's index.
-    Stream,
-    /// The signal's state code.
-    State,
 }
 
 /// Validate an opener item's head: an unsigned int. Its range is the
@@ -253,13 +242,7 @@ pub(super) enum OpenerItem {
 /// value keeps its reserved-value taxonomy.
 pub(super) fn opener_item(head: cbor::Head, item: OpenerItem) -> Result<u64, DecodeErrorKind> {
     if head.major != MAJOR_UINT {
-        return Err(DecodeErrorKind::Malformed {
-            part: FramePart::Signal,
-            detail: match item {
-                OpenerItem::Stream => "stream item is not an unsigned int",
-                OpenerItem::State => "state item is not an unsigned int",
-            },
-        });
+        return Err(DecodeErrorKind::OpenerType { item, actual: head });
     }
     Ok(head.value)
 }
@@ -285,16 +268,10 @@ pub(super) fn query_listing(
     head: cbor::Head,
 ) -> Result<super::frame::ListingBuilder, DecodeErrorKind> {
     if head.major != cbor::MAJOR_MAP {
-        return Err(DecodeErrorKind::Malformed {
-            part: FramePart::QueryChildren,
-            detail: "query body is not a listing map",
-        });
+        return Err(DecodeErrorKind::QueryType { actual: head });
     }
     if head.value == 0 {
-        return Err(DecodeErrorKind::Malformed {
-            part: FramePart::QueryChildren,
-            detail: "a nonempty query's listing is empty",
-        });
+        return Err(DecodeErrorKind::EmptyQuery);
     }
     super::frame::ListingBuilder::new(head.value).map_err(listing_issue)
 }
@@ -303,22 +280,16 @@ pub(super) fn query_listing(
 /// head, held to the wire's run byte cap.
 pub(super) fn run_head(tag: cbor::Head, body: cbor::Head) -> Result<usize, DecodeErrorKind> {
     if tag.major != cbor::MAJOR_TAG || tag.value != cbor::TAG_CBOR_SEQUENCE {
-        return Err(DecodeErrorKind::Malformed {
-            part: FramePart::SupplyLength,
-            detail: "supply body does not open with the embedded-sequence tag",
-        });
+        return Err(DecodeErrorKind::SupplyTag { actual: tag });
     }
     if body.major != cbor::MAJOR_BSTR {
-        return Err(DecodeErrorKind::Malformed {
-            part: FramePart::SupplyLength,
-            detail: "supply tag does not wrap a byte string",
-        });
+        return Err(DecodeErrorKind::SupplyType { actual: body });
     }
     u32::try_from(body.value)
         .map(|len| len as usize)
-        .map_err(|_| DecodeErrorKind::Malformed {
-            part: FramePart::SupplyLength,
-            detail: "supply run exceeds the run byte cap",
+        .map_err(|_| DecodeErrorKind::SupplyTooLarge {
+            declared: body.value,
+            maximum: u32::MAX,
         })
 }
 

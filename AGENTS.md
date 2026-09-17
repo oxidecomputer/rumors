@@ -81,9 +81,13 @@ additionally wants `wasm-pack` and node/npm.
   simplify its names, structure, and prose accordingly. Preserve its coverage
   and semantics unless it is wrong, vacuous, or weaker than its claim; in that
   case, fix the test and call out the behavioral correction for review.
-- When the claim is a family (a boundary, an ordering, a schedule), state
-  it as a proptest invariant; the shrunk counterexample then rides along
-  as a committed seed. A point regression may stay a unit test.
+- Every test must protect behavior that could plausibly regress. Do not test an
+  enum constructor, direct error pass-through, or rendered prose merely to add
+  coverage; exercise the boundary where a wrong implementation would matter.
+- When the claim is a family (a boundary, an ordering, a schedule), test it
+  as a proptest invariant or exhaust the finite domain. Never give a point
+  unit test a family-wide name or comment. A point regression may stay a unit
+  test when its name and prose state the exact case it protects.
 - A failing proptest writes a seed file automatically, at the one path
   its persistence derives from the test's source location: the central
   `<package root>/proptest-regressions/<path below the anchor>.txt`,

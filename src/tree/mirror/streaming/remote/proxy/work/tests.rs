@@ -407,7 +407,7 @@ proptest! {
             })) if origin == Origin::stream(Speaker::Responder, stream)), "{error:?}");
         } else {
             prop_assert!(matches!(error, Error::Stream(StreamError::Decode(codec::DecodeError {
-                origin, kind: DecodeErrorKind::FrameShape { .. },
+                origin, kind: DecodeErrorKind::FrameLength { .. },
             })) if origin == Origin::direction(Speaker::Responder)), "{error:?}");
         }
     }

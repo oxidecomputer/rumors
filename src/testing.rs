@@ -4,8 +4,8 @@ mod memnet;
 mod transport;
 
 pub use crate::tree::mirror::streaming::remote::codec::{
-    DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind, FramePart, HeadError,
-    LeafRunError,
+    DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind, DecodeLeafError,
+    FramePart, HeadError, LeafRunError,
 };
 
 pub use memnet::{MemoryDial, MemoryListen, MemoryName, MemoryNet};
@@ -138,6 +138,38 @@ pub async fn read_declared_payload(
 /// copy.
 pub fn frame_payload_chunk_len() -> usize {
     crate::tree::mirror::framing::PAYLOAD_CHUNK_LEN
+}
+
+/// A canonical supply run built outside an allocator-metered region.
+#[derive(Debug)]
+pub struct PreparedRecordRun(crate::tree::mirror::streaming::remote::codec::LeafRun);
+
+/// Build a canonical run of `len` identical records for allocation metering.
+pub fn prepare_record_run(len: usize) -> PreparedRecordRun {
+    let mut run = crate::tree::mirror::streaming::remote::codec::LeafRun::new();
+    let version = crate::Version::new();
+    let message = crate::message::Message::try_from_arc(
+        std::sync::Arc::new(0_u64),
+        crate::message::PayloadDepthLimit::default(),
+    )
+    .expect("the integer fixture is an admissible payload");
+    for _ in 0..len {
+        run.push(&version, &message)
+            .expect("the tiny fixture record fits a supply run");
+    }
+    PreparedRecordRun(run)
+}
+
+/// Decode and discard every record in a prepared supply run.
+///
+/// The allocation meter uses this narrow entry to price record-content
+/// decoding after the run buffer and its canonical records are built.
+pub fn decode_record_run(run: &PreparedRecordRun) -> Result<usize, DecodeLeafError> {
+    let codec =
+        crate::message::PayloadCodec::new::<u64>(crate::message::PayloadDepthLimit::default());
+    run.0
+        .records(codec)
+        .try_fold(0, |count, record| record.map(|_| count + 1))
 }
 
 /// The wire prefix of one streaming-codec supply frame declaring a

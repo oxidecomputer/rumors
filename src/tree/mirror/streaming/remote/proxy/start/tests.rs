@@ -24,7 +24,9 @@ use crate::observe::SessionHandle;
 use crate::tree::arb::nth_party;
 use crate::tree::mirror::cbor::{self, HeadError, MAJOR_BSTR, TAG_EMBEDDED_ITEM};
 use crate::tree::mirror::streaming::remote::codec::QueryOrderError;
-use crate::tree::mirror::streaming::remote::codec::greeting::{GreetingError, encode_greeting};
+use crate::tree::mirror::streaming::remote::codec::greeting::{
+    GreetingError, GreetingStructureError, encode_greeting,
+};
 use crate::tree::typed::Hash;
 
 /// Wrap raw content exactly as the greeting item does: the embedded-item
@@ -136,7 +138,12 @@ async fn untagged_greeting_is_a_typed_decode_error() {
 
     let result = receive_greeting(&content).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(GreetingError::Shape(_))),),
+        matches!(
+            result,
+            Err(Error::HandshakeDecode(GreetingError::Structure(
+                GreetingStructureError::ItemTag { .. }
+            )))
+        ),
         "expected the untagged item's typed rejection, got {result:?}",
     );
 }
@@ -155,7 +162,12 @@ async fn trailing_version_bytes_are_rejected() {
 
     let result = receive_greeting(&raw_item(&content)).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(GreetingError::Shape(_))),),
+        matches!(
+            result,
+            Err(Error::HandshakeDecode(GreetingError::Structure(
+                GreetingStructureError::Trailing { remaining: 1 }
+            )))
+        ),
         "expected the trailing bytes' typed rejection, got {result:?}",
     );
 }
@@ -180,14 +192,11 @@ async fn missing_listing_frame_is_a_typed_read_error() {
 }
 
 proptest! {
-    /// Arbitrary greeting item contents decode to a greeting or a typed
-    /// error, never a panic.
+    /// Arbitrary greeting item contents cannot make the map opener panic.
     ///
-    /// The item is honestly sized around arbitrary content, so the fuzz
-    /// lands on the map decoder (heads, key roster, version atom, listing
-    /// shape and order) rather than on the allocator via a lied length —
-    /// the head lies are pinned deterministically above. Every outcome
-    /// must be `Ok` or one of the three typed greeting errors.
+    /// The item is honestly sized around arbitrary content. Random bytes
+    /// primarily exercise the map head and first-key checks; structured
+    /// tests below drive the deeper version and listing boundaries.
     #[test]
     fn arbitrary_greeting_bodies_never_panic(
         content in vec(any::<u8>(), 0..96),
@@ -202,6 +211,33 @@ proptest! {
                     | Error::HandshakeListing(_)),
         ));
     }
+}
+
+/// Invalid version bytes retain their typed greeting defect at ingress.
+#[pollster::test]
+async fn invalid_version_atom_is_a_typed_decode_error() {
+    let mut content = content_of(&greeting(Vec::new()));
+    let key = b"version";
+    let at = content
+        .windows(key.len())
+        .position(|window| window == key)
+        .expect("the greeting carries its version key");
+    let mut atom = &content[at + key.len()..];
+    let before_heads = atom.len();
+    cbor::read_head(&mut atom).expect("the version atom has a tag head");
+    let head = cbor::read_head(&mut atom).expect("the version atom has a byte-string head");
+    assert!(head.value > 0, "the fixture's version encoding is nonempty");
+    let content_at = at + key.len() + (before_heads - atom.len());
+    content[content_at] = 0xff;
+
+    let result = receive_greeting(&raw_item(&content)).await.map(|_| ());
+    assert!(
+        matches!(
+            result,
+            Err(Error::HandshakeDecode(GreetingError::Version(_)))
+        ),
+        "expected the version decoder's typed rejection, got {result:?}",
+    );
 }
 
 /// A listing whose radixes descend is rejected as [`Error::HandshakeListing`].

@@ -179,7 +179,7 @@ pub(crate) fn read_head(input: &mut &[u8]) -> Result<Head, HeadError> {
         28..=30 => return Err(HeadError::Reserved),
         _ => return Err(HeadError::Indefinite),
     };
-    let width = 1 + (input.len() - rest.len() - 1);
+    let width = input.len() - rest.len();
     if width != head_len(value) {
         return Err(HeadError::NotShortest);
     }

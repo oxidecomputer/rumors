@@ -510,7 +510,12 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
     let DecodeError::Record(DecodeLeafError::Version(source)) = error else {
         panic!("expected a version decode error, got {error:?}");
     };
-    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+    assert!(matches!(
+        source,
+        crate::tree::mirror::streaming::remote::codec::VersionDecodeError::TagHead(
+            crate::tree::mirror::cbor::HeadError::Truncated
+        )
+    ));
 }
 
 /// The declared version bound admits exactly the versions it covers.

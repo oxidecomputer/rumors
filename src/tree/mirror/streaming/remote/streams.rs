@@ -728,18 +728,18 @@ async fn label_item(
     use crate::tree::mirror::cbor;
     match cbor::read_head_async(rx).await {
         Ok(Some(head)) if head.major == cbor::MAJOR_UINT => Ok(head.value),
-        Ok(Some(_)) => Err(AcceptError::Label {
+        Ok(Some(actual)) => Err(AcceptError::Label {
             origin: Origin::direction(speaker),
-            detail: "label item is not an unsigned int",
+            issue: LabelError::Type { actual },
         }
         .into()),
         Ok(None) => Err(AcceptFate::SupplyFailed(
             std::io::ErrorKind::UnexpectedEof.into(),
         )),
         Err(cbor::HeadReadError::Io(io)) => Err(AcceptFate::SupplyFailed(io)),
-        Err(cbor::HeadReadError::Malformed(_)) => Err(AcceptError::Label {
+        Err(cbor::HeadReadError::Malformed(source)) => Err(AcceptError::Label {
             origin: Origin::direction(speaker),
-            detail: "label head is not canonical",
+            issue: LabelError::Head(source),
         }
         .into()),
     }
@@ -772,25 +772,58 @@ pub enum AcceptError {
     /// its `session` state can still produce it.
     #[error("{origin}: stream labeled for session epoch {actual}, expected {expected}")]
     Epoch {
+        /// Direction from which the label arrived.
         origin: Origin,
+        /// Session epoch this side is accepting.
         expected: u8,
+        /// Epoch carried by the label.
         actual: u64,
     },
     /// A stream's label named no logical stream.
     #[error("{origin}: stream labeled with unknown stream index {index}")]
-    UnknownStream { origin: Origin, index: u64 },
-    /// A stream's label was not a pair of canonical unsigned-int items.
-    #[error("{origin}: stream label is malformed: {detail}")]
-    Label {
+    UnknownStream {
+        /// Direction from which the label arrived.
         origin: Origin,
-        detail: &'static str,
+        /// Out-of-range logical stream index.
+        index: u64,
+    },
+    /// A stream's label was not a pair of canonical unsigned integers.
+    #[error("{origin}: stream label is malformed: {issue}")]
+    Label {
+        /// Direction from which the malformed label arrived.
+        origin: Origin,
+        /// How the next label item failed.
+        issue: LabelError,
     },
     /// A second stream arrived bearing an already-delivered label.
     #[error("{origin}: peer opened the logical stream twice")]
-    Duplicate { origin: Origin },
+    Duplicate {
+        /// Direction and logical stream duplicated by the label.
+        origin: Origin,
+    },
     /// The peer opened a stream for a level where nothing was asked of it.
     #[error("{origin}: peer opened a logical stream that answers no question")]
-    Unexpected { origin: Origin },
+    Unexpected {
+        /// Direction and unsolicited logical stream.
+        origin: Origin,
+    },
+}
+
+/// How one item of an incoming stream label is malformed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LabelError {
+    /// The item is canonical CBOR but not an unsigned integer.
+    #[error("label item has head {actual:?}; expected an unsigned integer")]
+    Type {
+        /// Head found where the label integer belongs.
+        actual: crate::tree::mirror::cbor::Head,
+    },
+    /// The item's CBOR head is malformed.
+    #[error("label head is not canonical: {0}")]
+    Head(
+        /// Exact canonical-encoding rule the head violated.
+        crate::tree::mirror::cbor::HeadError,
+    ),
 }
 
 #[cfg(test)]

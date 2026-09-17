@@ -67,12 +67,12 @@ proptest! {
         marker in any::<u64>(),
         kind in prop::sample::select(vec![io::ErrorKind::UnexpectedEof, io::ErrorKind::InvalidData]),
     ) {
-        let remote = proxy::Error::Decode(adapter::DecodeError::Record(codec::DecodeLeafError::Version(io::Error::new(kind, Injected(marker)))));
+        let remote = proxy::Error::Decode(adapter::DecodeError::Record(codec::DecodeLeafError::Message(io::Error::new(kind, Injected(marker)))));
         let public = Error::from(MirrorError::Remote(remote));
         let Error::Protocol(error) = public else { prop_assert!(false, "complete record blamed on transport: {public:?}"); return Ok(()); };
         prop_assert_eq!(error.context.phase, Phase::Reconciliation);
         let remote = error.source.downcast_ref::<proxy::Error<Infallible>>().unwrap();
-        let proxy::Error::Decode(adapter::DecodeError::Record(codec::DecodeLeafError::Version(source))) = remote else { unreachable!() };
+        let proxy::Error::Decode(adapter::DecodeError::Record(codec::DecodeLeafError::Message(source))) = remote else { unreachable!() };
         prop_assert_eq!(source.kind(), kind);
         prop_assert_eq!(source.get_ref().unwrap().downcast_ref::<Injected>().unwrap().0, marker);
     }
@@ -82,7 +82,12 @@ proptest! {
     fn frame_violations_keep_their_location(index in 0..Stream::COUNT, initiator in any::<bool>()) {
         let speaker = if initiator { Speaker::Initiator } else { Speaker::Responder };
         let origin = Origin::stream(speaker, Stream::new(index).unwrap());
-        let remote = proxy::Error::Stream(StreamError::Decode(DecodeError { origin, kind: DecodeErrorKind::FrameShape { detail: "wrong frame shape" } }));
+        let remote = proxy::Error::Stream(StreamError::Decode(DecodeError {
+            origin,
+            kind: DecodeErrorKind::FrameType {
+                actual: crate::tree::mirror::cbor::Head { major: 0, value: 0 },
+            },
+        }));
         let Error::Protocol(error) = Error::from(MirrorError::Remote(remote)) else { prop_assert!(false, "invalid frame was not a violation"); return Ok(()); };
         prop_assert_eq!(error.context.data_stream, Some(DataStream { sender: speaker.role(), index: Some(index) }));
         prop_assert!(error.source.downcast_ref::<proxy::Error<Infallible>>().is_some());

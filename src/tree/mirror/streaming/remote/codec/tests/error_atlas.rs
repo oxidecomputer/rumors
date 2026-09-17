@@ -70,7 +70,7 @@ const WITNESS_MARKERS: &[&str] = &[
     "kind: FrameArity(",
     "kind: Malformed(part=",
     // DecodeLeafError (describe_leaf_kind).
-    "kind: Record::Version(io=",
+    "kind: Record::Version(",
     "kind: Record::Message(io=",
     // FramePart: every frame component must fail somewhere, whichever
     // side witnesses it — the encode Write witnesses carry most parts,
@@ -499,9 +499,7 @@ fn record_leaf(atlas: &mut String, label: &str, error: &DecodeLeafError) {
 // exempted with a reason).
 fn describe_leaf_kind(out: &mut String, kind: &DecodeLeafError) {
     match kind {
-        DecodeLeafError::Version(source) => {
-            write!(out, "Record::Version(io={:?})", source.kind()).unwrap()
-        }
+        DecodeLeafError::Version(source) => write!(out, "Record::Version({source})").unwrap(),
         DecodeLeafError::Message(source) => {
             write!(out, "Record::Message(io={:?})", source.kind()).unwrap()
         }
@@ -635,8 +633,8 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
         DecodeErrorKind::InvalidListing(ListingIssue::Head(source)) => {
             write!(out, "InvalidListing::Head({source})").unwrap()
         }
-        DecodeErrorKind::InvalidListing(ListingIssue::Shape(detail)) => {
-            write!(out, "InvalidListing::Shape({detail})").unwrap()
+        DecodeErrorKind::InvalidListing(ListingIssue::Structure(issue)) => {
+            write!(out, "InvalidListing::Shape({issue})").unwrap()
         }
         DecodeErrorKind::InvalidListing(ListingIssue::Truncated) => {
             write!(out, "InvalidListing::Truncated").unwrap()
@@ -655,18 +653,40 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
             "InvalidRun::Head(remaining={remaining}, source={source})"
         )
         .unwrap(),
-        DecodeErrorKind::InvalidRun(LeafRunError::NotARecord { remaining, detail }) => write!(
+        DecodeErrorKind::InvalidRun(LeafRunError::NotARecord { remaining, issue }) => write!(
             out,
-            "InvalidRun::NotARecord(remaining={remaining}, {detail})"
+            "InvalidRun::NotARecord(remaining={remaining}, {issue})"
         )
         .unwrap(),
-        DecodeErrorKind::FrameShape { detail } => write!(out, "FrameShape({detail})").unwrap(),
+        DecodeErrorKind::FrameType { actual } => {
+            write!(out, "FrameShape(expected=array, actual={actual:?})").unwrap()
+        }
+        DecodeErrorKind::FrameLength { declared } => {
+            write!(out, "FrameShape(items={declared})").unwrap()
+        }
         DecodeErrorKind::FrameArity { expected, found } => {
             write!(out, "FrameArity(expected={expected}, found={found})").unwrap()
         }
-        DecodeErrorKind::Malformed { part, detail } => {
-            write!(out, "Malformed(part={part:?}, {detail})").unwrap()
+        DecodeErrorKind::OpenerType { item, actual } => write!(
+            out,
+            "Malformed(part=Signal, item={item}, actual={actual:?})"
+        )
+        .unwrap(),
+        DecodeErrorKind::QueryType { actual } => {
+            write!(out, "Malformed(part=QueryChildren, actual={actual:?})").unwrap()
         }
+        DecodeErrorKind::EmptyQuery => write!(out, "Malformed(part=QueryChildren, empty)").unwrap(),
+        DecodeErrorKind::SupplyTag { actual } => {
+            write!(out, "Malformed(part=SupplyLength, tag={actual:?})").unwrap()
+        }
+        DecodeErrorKind::SupplyType { actual } => {
+            write!(out, "Malformed(part=SupplyLength, body={actual:?})").unwrap()
+        }
+        DecodeErrorKind::SupplyTooLarge { declared, maximum } => write!(
+            out,
+            "Malformed(part=SupplyLength, declared={declared}, maximum={maximum})"
+        )
+        .unwrap(),
         DecodeErrorKind::InvalidRun(LeafRunError::TruncatedRecord { len, remaining }) => write!(
             out,
             "InvalidRun::TruncatedRecord(len={len}, remaining={remaining})"

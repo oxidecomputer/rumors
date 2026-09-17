@@ -2,7 +2,10 @@
 
 use std::fmt;
 
-use crate::tree::mirror::{cbor::HeadError, framing::LengthOverflow};
+use crate::tree::mirror::{
+    cbor::{Head, HeadError},
+    framing::LengthOverflow,
+};
 
 use super::frame::{LeafRunError, ListingIssue};
 use super::signal::{DecodeSignalError, Speaker, Stream};
@@ -65,6 +68,17 @@ pub enum FramePart {
     SupplyRun,
 }
 
+/// One unsigned integer in the two-item frame opener.
+#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
+pub enum OpenerItem {
+    /// The logical stream index.
+    #[error("stream index")]
+    Stream,
+    /// The reaction state code.
+    #[error("state code")]
+    State,
+}
+
 /// A query listing that is not in canonical radix order.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
 #[error("query child radix {radix} does not follow {previous} in ascending order")]
@@ -122,11 +136,51 @@ impl EncodeError {
 #[non_exhaustive]
 pub enum DecodeLeafError {
     /// The record's version is invalid.
-    #[error("supplied Version could not be decoded")]
-    Version(#[source] std::io::Error),
+    #[error("supplied Version could not be decoded: {0}")]
+    Version(#[source] VersionDecodeError),
     /// The record's payload is invalid.
     #[error("supplied Message could not be decoded")]
     Message(#[source] std::io::Error),
+}
+
+/// Why a supplied record's version atom could not be decoded.
+#[derive(Debug, thiserror::Error)]
+pub enum VersionDecodeError {
+    /// The version tag's CBOR head is malformed.
+    #[error("version tag head is invalid: {0}")]
+    TagHead(#[source] HeadError),
+    /// The version atom does not begin with the version tag.
+    #[error("version tag is {actual:?}; expected the version-atom tag")]
+    Tag {
+        /// Head found where the version tag belongs.
+        actual: Head,
+    },
+    /// The version byte string's CBOR head is malformed.
+    #[error("version byte-string head is invalid: {0}")]
+    BytesHead(#[source] HeadError),
+    /// The version tag does not wrap a byte string.
+    #[error("version body has head {actual:?}; expected a byte string")]
+    Bytes {
+        /// Head found where the version byte string belongs.
+        actual: Head,
+    },
+    /// The version's declared body cannot be addressed on this platform.
+    #[error("version declares {declared} bytes, which do not fit in memory")]
+    TooLarge {
+        /// Byte length declared by the version atom.
+        declared: u64,
+    },
+    /// The record ends inside the version byte string.
+    #[error("version declares {declared} bytes, but only {available} remain in the record")]
+    Truncated {
+        /// Byte length declared by the version atom.
+        declared: usize,
+        /// Bytes remaining after its head.
+        available: usize,
+    },
+    /// The complete bytes are not one valid version encoding.
+    #[error("version bytes are invalid: {0}")]
+    Value(#[source] before::error::Decode),
 }
 
 /// Why an incoming frame could not be decoded.
@@ -166,11 +220,17 @@ pub enum DecodeErrorKind {
     /// A query's child listing violated its shared structural grammar.
     #[error("query child listing is invalid: {0}")]
     InvalidListing(#[source] ListingIssue),
-    /// The frame item is not a two- or three-element CBOR array.
-    #[error("frame is not a CBOR reaction array: {detail}")]
-    FrameShape {
-        /// A concise description of the invalid shape.
-        detail: &'static str,
+    /// The frame item does not begin with a CBOR array.
+    #[error("frame head is {actual:?}; expected an array")]
+    FrameType {
+        /// Head found where the frame array belongs.
+        actual: Head,
+    },
+    /// The frame array has no valid protocol arity.
+    #[error("frame array declares {declared} items; expected two or three")]
+    FrameLength {
+        /// Item count declared by the array.
+        declared: u64,
     },
     /// The frame array's length contradicts its signal's body arity.
     #[error("frame array carries {found} item(s) where its signal takes {expected}")]
@@ -180,13 +240,42 @@ pub enum DecodeErrorKind {
         /// The number of items declared by the frame.
         found: u64,
     },
-    /// A frame component has the wrong CBOR shape or value.
-    #[error("frame's {part} is malformed: {detail}")]
-    Malformed {
-        /// The malformed component.
-        part: FramePart,
-        /// A concise description of the defect.
-        detail: &'static str,
+    /// One opener item is not an unsigned integer.
+    #[error("frame's {item} has head {actual:?}; expected an unsigned integer")]
+    OpenerType {
+        /// Opener item being decoded.
+        item: OpenerItem,
+        /// Head found where its unsigned integer belongs.
+        actual: Head,
+    },
+    /// A query body does not begin with a child-listing map.
+    #[error("query body has head {actual:?}; expected a child-listing map")]
+    QueryType {
+        /// Head found where the child-listing map belongs.
+        actual: Head,
+    },
+    /// A query signal carries an empty child listing.
+    #[error("a query frame carries an empty child listing; use the empty-query signal")]
+    EmptyQuery,
+    /// A supply body does not begin with the embedded-sequence tag.
+    #[error("supply tag is {actual:?}; expected the embedded-sequence tag")]
+    SupplyTag {
+        /// Head found where the supply tag belongs.
+        actual: Head,
+    },
+    /// The supply tag does not wrap a byte string.
+    #[error("supply body has head {actual:?}; expected a byte string")]
+    SupplyType {
+        /// Head found where the supply byte string belongs.
+        actual: Head,
+    },
+    /// The supply body exceeds the wire format's length range.
+    #[error("supply run declares {declared} bytes; the wire permits at most {maximum}")]
+    SupplyTooLarge {
+        /// Body length declared by the byte string.
+        declared: u64,
+        /// Largest body length admitted by the wire.
+        maximum: u32,
     },
     /// A supplied run has invalid record framing.
     #[error(transparent)]

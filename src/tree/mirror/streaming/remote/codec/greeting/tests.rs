@@ -1,5 +1,7 @@
 use super::*;
 
+use proptest::prelude::*;
+
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 /// A greeting with a real version and a caller-chosen root listing.
@@ -16,38 +18,85 @@ fn sample(listing: Vec<(u8, Hash)>) -> Greeting {
     }
 }
 
-/// Greeting encode and parse are inverses, listing shapes included:
-/// empty, small-radix, and large-radix listings all round-trip through
-/// the one wire spelling.
-#[test]
-fn greetings_round_trip() {
-    for listing in [
-        Vec::new(),
-        vec![(0, Hash([1; MERKLE_HASH_LEN]))],
-        vec![
-            (3, Hash([1; MERKLE_HASH_LEN])),
-            (24, Hash([2; MERKLE_HASH_LEN])),
-            (255, Hash([3; MERKLE_HASH_LEN])),
-        ],
-    ] {
-        let greeting = sample(listing);
+/// Generate integers across every canonical CBOR head width, including
+/// exact width transitions.
+fn arb_uint() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        4 => any::<u64>(),
+        1 => prop::sample::select(vec![
+            0,
+            23,
+            24,
+            u8::MAX.into(),
+            u64::from(u8::MAX) + 1,
+            u16::MAX.into(),
+            u64::from(u16::MAX) + 1,
+            u32::MAX.into(),
+            u64::from(u32::MAX) + 1,
+            u64::MAX,
+        ]),
+    ]
+}
+
+/// Extract the rejection from a deliberately malformed greeting.
+fn rejection(bytes: &[u8]) -> GreetingError {
+    match parse_greeting(bytes) {
+        Err(error) => error,
+        Ok(_) => panic!("the malformed greeting was accepted"),
+    }
+}
+
+proptest::proptest! {
+    /// Greeting encode and parse are inverses across versions, listings,
+    /// and integer values at every head width.
+    #[test]
+    fn greetings_round_trip(
+        version in crate::tree::arb::arb_version(),
+        listing in proptest::collection::btree_map(any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>(), 0..=256),
+        set_len in arb_uint(),
+        max_version_bytes in arb_uint(),
+        payload_depth_limit in arb_uint(),
+        target_message_size in arb_uint(),
+    ) {
+        let greeting = Greeting {
+            version,
+            listing: listing.into_iter().map(|(radix, hash)| (radix, Hash(hash))).collect(),
+            set_len,
+            max_version_bytes,
+            payload_depth_limit,
+            target_message_size,
+        };
         let item = encode_greeting(&greeting);
         // Strip the embedded-item tag and byte-string head, the layer the
         // async reader consumes.
         let mut input = item.as_slice();
         let head = cbor::read_head(&mut input).expect("the item opens with a head");
-        assert_eq!((head.major, head.value), (MAJOR_TAG, TAG_EMBEDDED_ITEM));
+        prop_assert_eq!((head.major, head.value), (MAJOR_TAG, TAG_EMBEDDED_ITEM));
         let head = cbor::read_head(&mut input).expect("the tag wraps a byte string");
-        assert_eq!(head.major, MAJOR_BSTR);
-        assert_eq!(head.value as usize, input.len());
+        prop_assert_eq!(head.major, MAJOR_BSTR);
+        prop_assert_eq!(head.value as usize, input.len());
         let parsed = parse_greeting(input).expect("a written greeting parses");
-        assert_eq!(parsed.version, greeting.version);
-        assert_eq!(parsed.set_len, greeting.set_len);
-        assert_eq!(parsed.max_version_bytes, greeting.max_version_bytes);
-        assert_eq!(parsed.payload_depth_limit, greeting.payload_depth_limit);
-        assert_eq!(parsed.target_message_size, greeting.target_message_size);
-        assert_eq!(parsed.listing, greeting.listing);
+        prop_assert_eq!(parsed.version, greeting.version);
+        prop_assert_eq!(parsed.set_len, greeting.set_len);
+        prop_assert_eq!(parsed.max_version_bytes, greeting.max_version_bytes);
+        prop_assert_eq!(parsed.payload_depth_limit, greeting.payload_depth_limit);
+        prop_assert_eq!(parsed.target_message_size, greeting.target_message_size);
+        prop_assert_eq!(parsed.listing, greeting.listing);
     }
+}
+
+/// Greeting keys are ordered by their complete canonical CBOR encodings.
+#[test]
+fn greeting_keys_are_in_deterministic_order() {
+    let encoded: Vec<Vec<u8>> = FIELDS
+        .iter()
+        .map(|&field| {
+            let mut bytes = Vec::new();
+            super::write_key(&mut bytes, field);
+            bytes
+        })
+        .collect();
+    assert!(encoded.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 proptest::proptest! {
@@ -55,13 +104,11 @@ proptest::proptest! {
     /// a valid greeting also rejects every nonempty trailing byte sequence.
     #[test]
     fn greeting_key_roster_is_exact(
-        index in 0usize..KEYS.len(),
-        distance in 1usize..KEYS.len(),
+        index in 0usize..FIELDS.len(),
+        distance in 1usize..FIELDS.len(),
         suffix in proptest::collection::vec(proptest::num::u8::ANY, 1..32),
     ) {
         use ciborium::Value;
-        use proptest::prelude::*;
-
         let map = greeting_map(&sample(Vec::new()));
         let Value::Map(fields) = ciborium::de::from_reader(map.as_slice()).unwrap() else {
             panic!("a greeting is a map");
@@ -83,11 +130,52 @@ proptest::proptest! {
             bytes
         };
         prop_assert_eq!(encode(fields), map.clone());
-        for fields in [removed, renamed, duplicated, swapped] {
-            prop_assert!(matches!(parse_greeting(&encode(fields)), Err(GreetingError::Shape(_))));
-        }
+        let removed_error = rejection(&encode(removed));
+        let removed_is_precise = matches!(
+            removed_error,
+            GreetingError::Structure(GreetingStructureError::Map { expected, actual })
+                if expected == FIELDS.len()
+                    && actual.major == cbor::MAJOR_MAP
+                    && actual.value == (FIELDS.len() - 1) as u64
+        );
+        prop_assert!(removed_is_precise, "wrong removal diagnostic: {removed_error:?}");
+
+        let renamed_error = rejection(&encode(renamed));
+        let renamed_is_precise = matches!(
+            renamed_error,
+            GreetingError::Structure(GreetingStructureError::Key { expected, .. })
+                if expected == FIELDS[index]
+        );
+        prop_assert!(renamed_is_precise, "wrong renamed-key diagnostic: {renamed_error:?}");
+
+        let duplicated_error = rejection(&encode(duplicated));
+        let duplicated_is_precise = matches!(
+            duplicated_error,
+            GreetingError::Structure(GreetingStructureError::Map { expected, actual })
+                if expected == FIELDS.len()
+                    && actual.major == cbor::MAJOR_MAP
+                    && actual.value == (FIELDS.len() + 1) as u64
+        );
+        prop_assert!(duplicated_is_precise, "wrong duplicate diagnostic: {duplicated_error:?}");
+
+        let first_changed = index.min((index + distance) % FIELDS.len());
+        let swapped_error = rejection(&encode(swapped));
+        let swapped_is_precise = matches!(
+            swapped_error,
+            GreetingError::Structure(GreetingStructureError::Key { expected, .. })
+                if expected == FIELDS[first_changed]
+        );
+        prop_assert!(swapped_is_precise, "wrong swapped-key diagnostic: {swapped_error:?}");
+
+        let suffix_len = suffix.len();
         let trailing = [map, suffix].concat();
-        prop_assert!(matches!(parse_greeting(&trailing), Err(GreetingError::Shape(_))));
+        let trailing_error = rejection(&trailing);
+        let trailing_is_precise = matches!(
+            trailing_error,
+            GreetingError::Structure(GreetingStructureError::Trailing { remaining })
+                if remaining == suffix_len
+        );
+        prop_assert!(trailing_is_precise, "wrong trailing-byte diagnostic: {trailing_error:?}");
     }
 }
 
@@ -206,10 +294,9 @@ fn greeting_listing_order_is_enforced() {
     ));
 }
 
-// Defensive-variant exemption: the two unaddressable-length shapes —
-// `Shape("greeting declares an unaddressable length")` in the greeting
-// reader and `Shape("greeting version outsizes memory")` in the map
-// parser — deliberately have no construction tests. Each guards a
+// Defensive-variant exemption: `Structure(ItemTooLarge)` in the greeting
+// reader and `Structure(VersionTooLarge)` in the map parser deliberately
+// have no construction tests. Each guards a
 // u64-to-usize length conversion that cannot fail on a 64-bit host; only
 // a 32-bit target (e.g. wasm32) can present a declarable length past
 // `usize::MAX`, and this suite has no 32-bit test host.

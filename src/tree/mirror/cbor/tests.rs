@@ -57,6 +57,12 @@ fn indefinite_and_reserved_heads_are_rejected() {
             let bytes = [(major << 5) | info];
             let mut input = bytes.as_slice();
             assert_eq!(read_head(&mut input), Err(expected));
+
+            let mut input = bytes.as_slice();
+            let error = crate::testing::run_to_quiescence(read_head_async(&mut input))
+                .expect("a one-byte malformed head makes progress")
+                .expect_err("a reserved or indefinite head is rejected");
+            assert!(matches!(error, HeadReadError::Malformed(actual) if actual == expected));
         }
     }
 }

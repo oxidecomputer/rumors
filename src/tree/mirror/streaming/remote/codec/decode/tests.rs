@@ -13,8 +13,11 @@ use crate::tree::mirror::cbor::{HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, TAG
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 use super::super::{
-    error::{DecodeLeafError, Origin, QueryOrderError},
-    frame::{LeafRunError, ListingIssue, MAX_QUERY_CHILDREN, MIN_RECORD_HEADS_LEN, RECORD_TAG_LEN},
+    error::{DecodeLeafError, OpenerItem, Origin, QueryOrderError, VersionDecodeError},
+    frame::{
+        LeafRunError, ListingIssue, ListingStructureError, MAX_QUERY_CHILDREN,
+        MIN_RECORD_HEADS_LEN, RECORD_TAG_LEN,
+    },
     signal::{DecodeSignalError, End, Flow, Speaker, Stream},
 };
 
@@ -155,8 +158,8 @@ fn invalid_openers_are_rejected() {
         assert_eq!(error.origin, Origin::direction(speaker));
         assert!(matches!(
             error.kind,
-            DecodeErrorKind::Malformed {
-                part: FramePart::Signal,
+            DecodeErrorKind::OpenerType {
+                item: OpenerItem::Stream,
                 ..
             }
         ));
@@ -167,8 +170,8 @@ fn invalid_openers_are_rejected() {
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert!(matches!(
             error.kind,
-            DecodeErrorKind::Malformed {
-                part: FramePart::Signal,
+            DecodeErrorKind::OpenerType {
+                item: OpenerItem::State,
                 ..
             }
         ));
@@ -183,11 +186,11 @@ fn frame_shape_is_enforced() {
     for speaker in SPEAKERS {
         // Not an array at all.
         let error = decode_exact(speaker, RunBudget::default(), &[0x00]).unwrap_err();
-        assert!(matches!(error.kind, DecodeErrorKind::FrameShape { .. }));
+        assert!(matches!(error.kind, DecodeErrorKind::FrameType { .. }));
         // A one-item array, and a four-item array.
         for head in [0x81, 0x84] {
             let error = decode_exact(speaker, RunBudget::default(), &[head]).unwrap_err();
-            assert!(matches!(error.kind, DecodeErrorKind::FrameShape { .. }));
+            assert!(matches!(error.kind, DecodeErrorKind::FrameLength { .. }));
         }
         // A body-free signal inside a three-item array.
         let encoded = frame_head(3, stream, Signal::Match(Flow::Continue));
@@ -391,10 +394,10 @@ fn a_zero_length_record_is_structurally_valid() {
             .next()
             .unwrap()
             .unwrap_err();
-        let DecodeLeafError::Version(source) = error else {
-            panic!("unexpected record error");
-        };
-        assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+        assert!(matches!(
+            error,
+            DecodeLeafError::Version(VersionDecodeError::TagHead(HeadError::Truncated))
+        ));
     }
 }
 
@@ -412,10 +415,13 @@ fn supplied_record_errors_are_typed() {
         .next()
         .unwrap()
         .unwrap_err();
-    let DecodeLeafError::Version(source) = error else {
-        panic!("unexpected record error");
-    };
-    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+    assert!(matches!(
+        error,
+        DecodeLeafError::Version(VersionDecodeError::Truncated {
+            declared: 2,
+            available: 1,
+        })
+    ));
 
     // An untagged version where the tagged atom belongs.
     let mut content = Vec::new();
@@ -426,10 +432,10 @@ fn supplied_record_errors_are_typed() {
         .next()
         .unwrap()
         .unwrap_err();
-    let DecodeLeafError::Version(source) = error else {
-        panic!("unexpected record error");
-    };
-    assert_eq!(source.kind(), std::io::ErrorKind::InvalidData);
+    assert!(matches!(
+        error,
+        DecodeLeafError::Version(VersionDecodeError::Tag { .. })
+    ));
 
     // A tagged version with no message behind it.
     let content = record_content(&Version::new(), &Message::new(0u64));
@@ -462,73 +468,58 @@ fn supplied_record_errors_are_typed() {
     assert_eq!(source.kind(), std::io::ErrorKind::InvalidData);
 }
 
-/// Pins the stated ingress boundary: the version atom's CBOR head is not
-/// spelling-judged (the atom's content is, by `Version::decode`).
-///
-/// A record whose version byte string wears a widened two-byte-length
-/// head still decodes. Flipping this to rejection is a deliberate
-/// contract change, not drift.
-#[test]
-fn widened_version_atom_head_is_not_spelling_judged() {
-    // The canonical atom bytes: ciborium serializes a version as a byte
-    // string whose one-byte head's low bits carry the length; strip that
-    // head to get the content alone.
-    let mut atom = Vec::new();
-    ciborium::ser::into_writer(&Version::new(), &mut atom).unwrap();
-    let content_bytes = &atom[1..];
-
-    let mut content = Vec::new();
-    cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
-    // The same byte string, its length spelled in the widened two-byte
-    // form (major 2, additional info 25) instead of the shortest head.
-    content.push(0x59);
-    content.extend_from_slice(&u16::try_from(content_bytes.len()).unwrap().to_be_bytes());
-    content.extend_from_slice(content_bytes);
-    content.extend_from_slice(Message::new(0u64).as_slice());
-
-    let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
-    let (version, _message) = run
+/// Assert that `content` fails at the version head with `expected`.
+fn assert_version_head_error(content: &[u8], expected: HeadError) {
+    let run = LeafRun::from_encoded(raw_record(content)).unwrap();
+    let error = run
         .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
         .next()
         .unwrap()
-        .expect("a widened version-atom head decodes: spelling is not re-judged here");
-    assert_eq!(version, Version::new());
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        DecodeLeafError::Version(VersionDecodeError::BytesHead(actual))
+            if actual == expected
+    ));
 }
 
-/// Pins the stated ingress boundary: the version atom's CBOR head is not
-/// spelling-judged, indefinite lengths included.
-///
-/// A record whose version byte string is spelled indefinite-length (one
-/// definite segment of the canonical content, then the break) still
-/// decodes. Flipping this to rejection is a deliberate contract change,
-/// not drift.
+/// A widened version byte-string head is rejected with its typed
+/// shortest-form defect.
 #[test]
-fn indefinite_version_atom_head_is_not_spelling_judged() {
-    // The canonical atom bytes: ciborium serializes a version as a byte
-    // string whose one-byte head's low bits carry the length; strip that
-    // head to get the content alone.
-    let mut atom = Vec::new();
-    ciborium::ser::into_writer(&Version::new(), &mut atom).unwrap();
-    let content_bytes = &atom[1..];
+fn widened_version_atom_head_is_rejected() {
+    let version = Version::new();
+    let atom = version.as_bytes();
 
     let mut content = Vec::new();
     cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
-    // The same bytes as an indefinite-length byte string: the start
-    // marker (major 2, additional info 31), one definite segment holding
-    // the canonical content, and the break.
+    // Additional information 25 encodes the small atom length two bytes
+    // wider than its canonical one-byte head.
+    content.push(0x59);
+    content.extend_from_slice(&u16::try_from(atom.len()).unwrap().to_be_bytes());
+    content.extend_from_slice(atom);
+    content.extend_from_slice(Message::new(0u64).as_slice());
+
+    assert_version_head_error(&content, HeadError::NotShortest);
+}
+
+/// An indefinite version byte string is rejected with its typed
+/// definite-length defect.
+#[test]
+fn indefinite_version_atom_head_is_rejected() {
+    let version = Version::new();
+    let atom = version.as_bytes();
+
+    let mut content = Vec::new();
+    cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
+    // An indefinite byte string: its start marker, one definite segment,
+    // and the break. The decoder rejects the start before reading either.
     content.push(0x5f);
-    cbor::write_head(&mut content, MAJOR_BSTR, content_bytes.len() as u64);
-    content.extend_from_slice(content_bytes);
+    cbor::write_head(&mut content, MAJOR_BSTR, atom.len() as u64);
+    content.extend_from_slice(atom);
     content.push(0xff);
     content.extend_from_slice(Message::new(0u64).as_slice());
 
-    let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
-    let (version, _message) = run
-        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
-        .next()
-        .unwrap()
-        .expect("an indefinite version-atom head decodes: spelling is not re-judged here");
-    assert_eq!(version, Version::new());
+    assert_version_head_error(&content, HeadError::Indefinite);
 }
 
 /// Pins the stated ingress boundary: the application payload is decoded
@@ -680,13 +671,7 @@ fn empty_query_listing_is_rejected() {
     for speaker in SPEAKERS {
         let error = decode_both(speaker, RunBudget::default(), &encoded)
             .expect_err("an empty listing cannot decode");
-        assert!(matches!(
-            error.kind,
-            DecodeErrorKind::Malformed {
-                part: FramePart::QueryChildren,
-                ..
-            }
-        ));
+        assert!(matches!(error.kind, DecodeErrorKind::EmptyQuery));
     }
 }
 
@@ -707,7 +692,12 @@ fn oversized_query_listing_is_rejected() {
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,
-            DecodeErrorKind::InvalidListing(ListingIssue::Shape("listing exceeds the radix space"))
+            DecodeErrorKind::InvalidListing(ListingIssue::Structure(
+                ListingStructureError::TooMany {
+                    declared,
+                    maximum: MAX_QUERY_CHILDREN,
+                }
+            )) if declared == MAX_QUERY_CHILDREN as u64 + 1
         ));
     }
 }

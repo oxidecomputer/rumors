@@ -1,6 +1,10 @@
 # Rumors review checklist
 
-**Next:** parse the version head directly and simplify the fixed greeting vocabulary.
+**Current:** version-head and greeting decoding is ready for review on
+`codex/greeting-decoder`, based on `d9e5a477`.
+
+**Next:** demonstrate decode-channel progress below a fan and remove
+per-reply overhead only if measured.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →

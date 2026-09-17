@@ -32,15 +32,14 @@ use crate::{
 use super::error::QueryOrderError;
 use super::frame::{ListingIssue, parse_listing_map, write_listing};
 
-/// The greeting map's keys, in the deterministic (bytewise lexicographic)
-/// order the wire requires.
-const KEYS: [&str; 6] = [
-    "listing",
-    "set_len",
-    "version",
-    "max_version_bytes",
-    "payload_depth_limit",
-    "target_message_size",
+/// The greeting fields, in the deterministic order the wire requires.
+const FIELDS: [GreetingField; 6] = [
+    GreetingField::Listing,
+    GreetingField::SetLen,
+    GreetingField::Version,
+    GreetingField::MaxVersionBytes,
+    GreetingField::PayloadDepthLimit,
+    GreetingField::TargetMessageSize,
 ];
 
 /// Render one greeting as its complete control-stream item:
@@ -59,32 +58,170 @@ pub(crate) fn encode_greeting(greeting: &Greeting) -> Vec<u8> {
 /// Render the greeting map alone.
 fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     let mut map = Vec::new();
-    cbor::write_head(&mut map, cbor::MAJOR_MAP, KEYS.len() as u64);
-    for key in KEYS {
-        cbor::write_head(&mut map, MAJOR_TEXT, key.len() as u64);
-        map.extend_from_slice(key.as_bytes());
-        match key {
-            "listing" => write_listing(&mut map, &greeting.listing),
-            "set_len" => cbor::write_head(&mut map, MAJOR_UINT, greeting.set_len),
-            "version" => {
-                let version = greeting.version.as_bytes();
-                cbor::write_tag(&mut map, crate::tags::VERSION_TAG);
-                cbor::write_head(&mut map, MAJOR_BSTR, version.len() as u64);
-                map.extend_from_slice(version);
-            }
-            "max_version_bytes" => {
-                cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
-            }
-            "payload_depth_limit" => {
-                cbor::write_head(&mut map, MAJOR_UINT, greeting.payload_depth_limit);
-            }
-            "target_message_size" => {
-                cbor::write_head(&mut map, MAJOR_UINT, greeting.target_message_size);
-            }
-            _ => unreachable!("the key roster is exhaustive"),
+    cbor::write_head(&mut map, cbor::MAJOR_MAP, FIELDS.len() as u64);
+    write_key(&mut map, GreetingField::Listing);
+    write_listing(&mut map, &greeting.listing);
+    write_key(&mut map, GreetingField::SetLen);
+    cbor::write_head(&mut map, MAJOR_UINT, greeting.set_len);
+    write_key(&mut map, GreetingField::Version);
+    let version = greeting.version.as_bytes();
+    cbor::write_tag(&mut map, crate::tags::VERSION_TAG);
+    cbor::write_head(&mut map, MAJOR_BSTR, version.len() as u64);
+    map.extend_from_slice(version);
+    write_key(&mut map, GreetingField::MaxVersionBytes);
+    cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
+    write_key(&mut map, GreetingField::PayloadDepthLimit);
+    cbor::write_head(&mut map, MAJOR_UINT, greeting.payload_depth_limit);
+    write_key(&mut map, GreetingField::TargetMessageSize);
+    cbor::write_head(&mut map, MAJOR_UINT, greeting.target_message_size);
+    map
+}
+
+/// Append one field's text key to a greeting map.
+fn write_key(out: &mut Vec<u8>, field: GreetingField) {
+    let key = field.name();
+    cbor::write_head(out, MAJOR_TEXT, key.len() as u64);
+    out.extend_from_slice(key.as_bytes());
+}
+
+/// One field in the greeting map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GreetingField {
+    /// The sender's root-fan listing.
+    Listing,
+    /// The sender's live message count.
+    SetLen,
+    /// The sender's causal version.
+    Version,
+    /// The sender's largest version encoding.
+    MaxVersionBytes,
+    /// The sender's payload nesting limit.
+    PayloadDepthLimit,
+    /// The sender's supply-run byte target.
+    TargetMessageSize,
+}
+
+impl GreetingField {
+    /// Return this field's wire key.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Listing => "listing",
+            Self::SetLen => "set_len",
+            Self::Version => "version",
+            Self::MaxVersionBytes => "max_version_bytes",
+            Self::PayloadDepthLimit => "payload_depth_limit",
+            Self::TargetMessageSize => "target_message_size",
         }
     }
-    map
+}
+
+/// Render a greeting field as its wire key.
+impl std::fmt::Display for GreetingField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// Why the next greeting key did not name the expected field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum GreetingKeyError {
+    /// The key's CBOR head has the wrong major type or byte length.
+    #[error("received CBOR head {0:?}, expected a text key of this field's length")]
+    Head(cbor::Head),
+    /// The key's head declares more text bytes than remain.
+    #[error("only {available} of its {declared} declared text bytes remain")]
+    Truncated {
+        /// Text bytes declared by the key's head.
+        declared: usize,
+        /// Text bytes still present in the greeting.
+        available: usize,
+    },
+    /// The key has the expected length but different bytes.
+    #[error("received different text of the expected length")]
+    Spelling,
+}
+
+/// A structural defect in a complete greeting item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum GreetingStructureError {
+    /// The embedded content does not begin with the fixed-size greeting map.
+    #[error("map head is {actual:?}; expected a map with {expected} fields")]
+    Map {
+        /// Number of fields in the greeting vocabulary.
+        expected: usize,
+        /// Head found where the map should begin.
+        actual: cbor::Head,
+    },
+    /// The next map key does not name the field required at this position.
+    #[error("expected the {expected} key next, but {issue}")]
+    Key {
+        /// Field whose key belongs at this position.
+        expected: GreetingField,
+        /// How the received key differs.
+        issue: GreetingKeyError,
+    },
+    /// A numeric field is encoded as another CBOR major type.
+    #[error("{field} value has head {actual:?}; expected an unsigned integer")]
+    Unsigned {
+        /// Field whose value was being decoded.
+        field: GreetingField,
+        /// Head found where its unsigned integer belongs.
+        actual: cbor::Head,
+    },
+    /// The version value does not begin with the version-atom tag.
+    #[error("version value has tag head {actual:?}; expected tag {expected}")]
+    VersionTag {
+        /// Version-atom tag number required by the protocol.
+        expected: u64,
+        /// Head found where the tag belongs.
+        actual: cbor::Head,
+    },
+    /// The version tag does not wrap a byte string.
+    #[error("version atom has head {actual:?}; expected a byte string")]
+    VersionBytes {
+        /// Head found where the byte string belongs.
+        actual: cbor::Head,
+    },
+    /// The version byte string cannot be addressed on this platform.
+    #[error("version atom declares {declared} bytes, which do not fit in memory")]
+    VersionTooLarge {
+        /// Byte length declared by the version atom.
+        declared: u64,
+    },
+    /// The greeting ends inside the version byte string.
+    #[error("version atom declares {declared} bytes, but only {available} remain")]
+    VersionTruncated {
+        /// Byte length declared by the version atom.
+        declared: usize,
+        /// Bytes available after its head.
+        available: usize,
+    },
+    /// Bytes remain after all greeting fields have been decoded.
+    #[error("{remaining} trailing bytes follow the greeting map")]
+    Trailing {
+        /// Bytes remaining after the final field.
+        remaining: usize,
+    },
+    /// The control-stream item does not begin with the embedded-item tag.
+    #[error("item has tag head {actual:?}; expected tag {expected}")]
+    ItemTag {
+        /// Embedded-item tag number required by the protocol.
+        expected: u64,
+        /// Head found where the tag belongs.
+        actual: cbor::Head,
+    },
+    /// The embedded-item tag does not wrap a byte string.
+    #[error("embedded item has head {actual:?}; expected a byte string")]
+    ItemBytes {
+        /// Head found where the byte string belongs.
+        actual: cbor::Head,
+    },
+    /// The greeting item's declared body cannot be addressed on this platform.
+    #[error("greeting item declares {declared} bytes, which do not fit in memory")]
+    ItemTooLarge {
+        /// Byte length declared by the item.
+        declared: u64,
+    },
 }
 
 /// A greeting whose structure or encoding violates the wire format.
@@ -94,9 +231,9 @@ pub enum GreetingError {
     /// A head was truncated, indefinite, reserved, or widened.
     #[error("greeting head is not canonical: {0}")]
     Head(HeadError),
-    /// An item had the wrong major type, value, or position.
+    /// The greeting's fixed structure is malformed.
     #[error("greeting is malformed: {0}")]
-    Shape(&'static str),
+    Structure(GreetingStructureError),
     /// The listing map violated a structural rule.
     #[error("greeting listing is malformed: {0}")]
     Listing(ListingIssue),
@@ -109,100 +246,107 @@ pub enum GreetingError {
 pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     let mut input = bytes;
     let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
-    if head.major != cbor::MAJOR_MAP || head.value != KEYS.len() as u64 {
-        return Err(GreetingError::Shape(
-            "greeting is not a map of one entry per roster key",
+    if head.major != cbor::MAJOR_MAP || head.value != FIELDS.len() as u64 {
+        return Err(GreetingError::Structure(GreetingStructureError::Map {
+            expected: FIELDS.len(),
+            actual: head,
+        }));
+    }
+    expect_key(&mut input, GreetingField::Listing)?;
+    let listing = parse_listing_map(&mut input).map_err(GreetingError::Listing)?;
+    expect_key(&mut input, GreetingField::SetLen)?;
+    let set_len = uint(&mut input, GreetingField::SetLen)?;
+    expect_key(&mut input, GreetingField::Version)?;
+    let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
+    if head.major != MAJOR_TAG || head.value != crate::tags::VERSION_TAG {
+        return Err(GreetingError::Structure(
+            GreetingStructureError::VersionTag {
+                expected: crate::tags::VERSION_TAG,
+                actual: head,
+            },
         ));
     }
-    let mut version = None;
-    let mut set_len = None;
-    let mut max_version_bytes = None;
-    let mut payload_depth_limit = None;
-    let mut target_message_size = None;
-    let mut listing = None;
-    for key in KEYS {
-        let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
-        if head.major != MAJOR_TEXT || head.value != key.len() as u64 {
-            return Err(GreetingError::Shape(
-                "greeting keys are not the deterministic roster",
-            ));
-        }
-        let Some((text, rest)) = split(input, key.len()) else {
-            return Err(GreetingError::Shape("greeting key is truncated"));
-        };
-        input = rest;
-        if text != key.as_bytes() {
-            return Err(GreetingError::Shape(
-                "greeting keys are not the deterministic roster",
-            ));
-        }
-        match key {
-            "listing" => {
-                listing = Some(parse_listing_map(&mut input).map_err(GreetingError::Listing)?);
-            }
-            "set_len" => set_len = Some(uint(&mut input, "set_len is not an unsigned int")?),
-            "version" => {
-                let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
-                if head.major != MAJOR_TAG || head.value != crate::tags::VERSION_TAG {
-                    return Err(GreetingError::Shape(
-                        "greeting version does not carry the version-atom tag",
-                    ));
-                }
-                let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
-                if head.major != MAJOR_BSTR {
-                    return Err(GreetingError::Shape(
-                        "greeting version tag does not wrap a byte string",
-                    ));
-                }
-                let Ok(len) = usize::try_from(head.value) else {
-                    return Err(GreetingError::Shape("greeting version outsizes memory"));
-                };
-                let Some((atom, rest)) = split(input, len) else {
-                    return Err(GreetingError::Shape("greeting version is truncated"));
-                };
-                input = rest;
-                version = Some(Version::decode(atom).map_err(GreetingError::Version)?);
-            }
-            "max_version_bytes" => {
-                max_version_bytes = Some(uint(
-                    &mut input,
-                    "max_version_bytes is not an unsigned int",
-                )?);
-            }
-            "payload_depth_limit" => {
-                payload_depth_limit = Some(uint(
-                    &mut input,
-                    "payload_depth_limit is not an unsigned int",
-                )?);
-            }
-            "target_message_size" => {
-                target_message_size = Some(uint(
-                    &mut input,
-                    "target_message_size is not an unsigned int",
-                )?);
-            }
-            _ => unreachable!("the key roster is exhaustive"),
-        }
+    let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
+    if head.major != MAJOR_BSTR {
+        return Err(GreetingError::Structure(
+            GreetingStructureError::VersionBytes { actual: head },
+        ));
     }
+    let Ok(len) = usize::try_from(head.value) else {
+        return Err(GreetingError::Structure(
+            GreetingStructureError::VersionTooLarge {
+                declared: head.value,
+            },
+        ));
+    };
+    let Some((atom, rest)) = split(input, len) else {
+        return Err(GreetingError::Structure(
+            GreetingStructureError::VersionTruncated {
+                declared: len,
+                available: input.len(),
+            },
+        ));
+    };
+    input = rest;
+    let version = Version::decode(atom).map_err(GreetingError::Version)?;
+    expect_key(&mut input, GreetingField::MaxVersionBytes)?;
+    let max_version_bytes = uint(&mut input, GreetingField::MaxVersionBytes)?;
+    expect_key(&mut input, GreetingField::PayloadDepthLimit)?;
+    let payload_depth_limit = uint(&mut input, GreetingField::PayloadDepthLimit)?;
+    expect_key(&mut input, GreetingField::TargetMessageSize)?;
+    let target_message_size = uint(&mut input, GreetingField::TargetMessageSize)?;
     if !input.is_empty() {
-        return Err(GreetingError::Shape("greeting carries trailing bytes"));
+        return Err(GreetingError::Structure(GreetingStructureError::Trailing {
+            remaining: input.len(),
+        }));
     }
     Ok(Greeting {
-        version: version.expect("the roster visits version"),
-        set_len: set_len.expect("the roster visits set_len"),
-        max_version_bytes: max_version_bytes.expect("the roster visits max_version_bytes"),
-        payload_depth_limit: payload_depth_limit.expect("the roster visits payload_depth_limit"),
-        target_message_size: target_message_size.expect("the roster visits target_message_size"),
-        listing: listing.expect("the roster visits listing"),
+        version,
+        set_len,
+        max_version_bytes,
+        payload_depth_limit,
+        target_message_size,
+        listing,
     })
 }
 
-/// Read one unsigned-int value, returning `detail` as the shape
-/// diagnostic when the item is not an unsigned int.
-fn uint(input: &mut &[u8], detail: &'static str) -> Result<u64, GreetingError> {
+/// Consume the next greeting key, requiring `expected` exactly.
+fn expect_key(input: &mut &[u8], expected: GreetingField) -> Result<(), GreetingError> {
+    let name = expected.name();
+    let head = cbor::read_head(input).map_err(GreetingError::Head)?;
+    if head.major != MAJOR_TEXT || head.value != name.len() as u64 {
+        return Err(GreetingError::Structure(GreetingStructureError::Key {
+            expected,
+            issue: GreetingKeyError::Head(head),
+        }));
+    }
+    let Some((text, rest)) = split(input, name.len()) else {
+        return Err(GreetingError::Structure(GreetingStructureError::Key {
+            expected,
+            issue: GreetingKeyError::Truncated {
+                declared: name.len(),
+                available: input.len(),
+            },
+        }));
+    };
+    *input = rest;
+    if text != name.as_bytes() {
+        return Err(GreetingError::Structure(GreetingStructureError::Key {
+            expected,
+            issue: GreetingKeyError::Spelling,
+        }));
+    }
+    Ok(())
+}
+
+/// Read one unsigned integer for `field`.
+fn uint(input: &mut &[u8], field: GreetingField) -> Result<u64, GreetingError> {
     let head = cbor::read_head(input).map_err(GreetingError::Head)?;
     if head.major != MAJOR_UINT {
-        return Err(GreetingError::Shape(detail));
+        return Err(GreetingError::Structure(GreetingStructureError::Unsigned {
+            field,
+            actual: head,
+        }));
     }
     Ok(head.value)
 }
@@ -233,8 +377,11 @@ where
             ))
         })?;
     if head.major != MAJOR_TAG || head.value != TAG_EMBEDDED_ITEM {
-        return Err(ReadGreetingError::Decode(GreetingError::Shape(
-            "greeting does not open with the embedded-item tag",
+        return Err(ReadGreetingError::Decode(GreetingError::Structure(
+            GreetingStructureError::ItemTag {
+                expected: TAG_EMBEDDED_ITEM,
+                actual: head,
+            },
         )));
     }
     let head = cbor::read_head_async(read)
@@ -247,13 +394,15 @@ where
             ))
         })?;
     if head.major != MAJOR_BSTR {
-        return Err(ReadGreetingError::Decode(GreetingError::Shape(
-            "greeting tag does not wrap a byte string",
+        return Err(ReadGreetingError::Decode(GreetingError::Structure(
+            GreetingStructureError::ItemBytes { actual: head },
         )));
     }
     let Ok(len) = usize::try_from(head.value) else {
-        return Err(ReadGreetingError::Decode(GreetingError::Shape(
-            "greeting declares an unaddressable length",
+        return Err(ReadGreetingError::Decode(GreetingError::Structure(
+            GreetingStructureError::ItemTooLarge {
+                declared: head.value,
+            },
         )));
     };
     let bytes = read_payload(read, len)

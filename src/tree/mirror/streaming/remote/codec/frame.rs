@@ -103,13 +103,10 @@ pub type WireFrame = (Stream, Frame);
 /// [`from_encoded`](Self::from_encoded) rejects wire bytes whose record
 /// items do not chain exactly to the end in canonical form. A [`records`]
 /// iterator therefore never fails structurally, only on a record's
-/// content: a version-atom tag that is missing, non-canonical, or cut
-/// short by the record's end (the tag's head is hand-parsed and
-/// spelling-judged), a version item the general CBOR reader cannot
-/// decode behind that tag, a version atom whose content bytes fail the
-/// strict [`Version`] decoder (the atom's byte-string head is read by
-/// that general reader and not re-judged for spelling), or an
-/// application payload that does not decode.
+/// content: malformed version-atom framing, version bytes that fail the
+/// strict [`Version`] decoder, or an application payload that does not
+/// decode. The version's tag and byte-string head are spelling-judged;
+/// the application payload remains general CBOR.
 ///
 /// [`push`]: Self::push
 /// [`records`]: Self::records
@@ -234,14 +231,14 @@ impl LeafRun {
                 Err(RecordHeadError::Head(source)) => {
                     return Err(LeafRunError::Head { remaining, source });
                 }
-                Err(RecordHeadError::NotARecord(detail)) => {
-                    return Err(LeafRunError::NotARecord { remaining, detail });
+                Err(RecordHeadError::NotARecord(issue)) => {
+                    return Err(LeafRunError::NotARecord { remaining, issue });
                 }
             };
             let Ok(len) = usize::try_from(len) else {
                 return Err(LeafRunError::NotARecord {
                     remaining,
-                    detail: "record exceeds the run byte cap",
+                    issue: RecordStructureError::TooLarge { declared: len },
                 });
             };
             if rest.len() < len {
@@ -302,8 +299,10 @@ impl<'a> Iterator for RecordSlices<'a> {
 /// A record's leading heads were not a canonical embedded-sequence item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RecordHeadError {
+    /// A record head itself is not canonical CBOR.
     Head(HeadError),
-    NotARecord(&'static str),
+    /// The heads are canonical CBOR but do not spell a record.
+    NotARecord(RecordStructureError),
 }
 
 /// Parse one record's leading heads — the embedded-sequence tag and its
@@ -312,15 +311,15 @@ pub(super) enum RecordHeadError {
 pub(super) fn record_head(input: &mut &[u8]) -> Result<u64, RecordHeadError> {
     let head = cbor::read_head(input).map_err(RecordHeadError::Head)?;
     if head.major != MAJOR_TAG || head.value != TAG_CBOR_SEQUENCE {
-        return Err(RecordHeadError::NotARecord(
-            "record does not open with the embedded-sequence tag",
-        ));
+        return Err(RecordHeadError::NotARecord(RecordStructureError::Tag {
+            actual: head,
+        }));
     }
     let head = cbor::read_head(input).map_err(RecordHeadError::Head)?;
     if head.major != MAJOR_BSTR {
-        return Err(RecordHeadError::NotARecord(
-            "record tag does not wrap a byte string",
-        ));
+        return Err(RecordHeadError::NotARecord(RecordStructureError::Bytes {
+            actual: head,
+        }));
     }
     Ok(head.value)
 }
@@ -358,44 +357,51 @@ pub(super) fn lone_record_spans(len: usize, record_content: u64) -> bool {
 
 /// Decode one exact record content into its canonical pair.
 fn parse_record(record: &[u8], codec: PayloadCodec) -> Result<(Version, Message), DecodeLeafError> {
-    // The version atom's tag is protocol vocabulary, read here by hand;
-    // the byte string behind it and the payload are self-delimiting CBOR
-    // values, so the exact record content parses without retrying, and
-    // whatever the payload's parse does not consume is trailing.
-    fn de_error(e: ciborium::de::Error<std::io::Error>) -> std::io::Error {
-        match e {
-            ciborium::de::Error::Io(e) => e,
-            e => std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
-        }
-    }
-    fn invalid(message: &str) -> std::io::Error {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, message.to_string())
-    }
+    use super::error::VersionDecodeError;
+
     let mut input = record;
     match cbor::read_head(&mut input) {
         Ok(head) if head.major == MAJOR_TAG && head.value == crate::tags::VERSION_TAG => {}
-        Ok(_) => {
-            return Err(DecodeLeafError::Version(invalid(
-                "supplied version does not carry the version-atom tag",
+        Ok(actual) => return Err(DecodeLeafError::Version(VersionDecodeError::Tag { actual })),
+        Err(source) => {
+            return Err(DecodeLeafError::Version(VersionDecodeError::TagHead(
+                source,
             )));
         }
-        // A record too short to hold the version's tag ran out of bytes,
-        // the same class as a version cut mid-encoding.
-        Err(HeadError::Truncated) => {
-            return Err(DecodeLeafError::Version(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "record ends inside the version atom's tag",
-            )));
-        }
-        Err(e) => return Err(DecodeLeafError::Version(invalid(&e.to_string()))),
     }
-    let version: Version =
-        ciborium::de::from_reader(&mut input).map_err(|e| DecodeLeafError::Version(de_error(e)))?;
+    let head = match cbor::read_head(&mut input) {
+        Ok(head) => head,
+        Err(source) => {
+            return Err(DecodeLeafError::Version(VersionDecodeError::BytesHead(
+                source,
+            )));
+        }
+    };
+    if head.major != MAJOR_BSTR {
+        return Err(DecodeLeafError::Version(VersionDecodeError::Bytes {
+            actual: head,
+        }));
+    }
+    let Ok(len) = usize::try_from(head.value) else {
+        return Err(DecodeLeafError::Version(VersionDecodeError::TooLarge {
+            declared: head.value,
+        }));
+    };
+    if input.len() < len {
+        return Err(DecodeLeafError::Version(VersionDecodeError::Truncated {
+            declared: len,
+            available: input.len(),
+        }));
+    }
+    let (atom, payload) = input.split_at(len);
+    let version = Version::decode(atom)
+        .map_err(|error| DecodeLeafError::Version(VersionDecodeError::Value(error)))?;
     // The payload codec owns the payload parse, including the
     // exactly-one-value check the record framing otherwise cannot make
     // (the payload runs to the record's end), so trailing bytes surface
-    // as its InvalidData.
-    let message = Message::from_wire(bytes::Bytes::copy_from_slice(input), codec)
+    // as its InvalidData. The copy also lets a retained message release
+    // the rest of its supply-run buffer.
+    let message = Message::from_wire(bytes::Bytes::copy_from_slice(payload), codec)
         .map_err(DecodeLeafError::Message)?;
     Ok((version, message))
 }
@@ -416,13 +422,13 @@ pub enum LeafRunError {
         #[source]
         source: HeadError,
     },
-    /// The bytes where a record belongs are some other CBOR item.
-    #[error("a {remaining}-byte run tail is not a leaf record: {detail}")]
+    /// The bytes where a record belongs do not spell a record item.
+    #[error("a {remaining}-byte run tail is not a leaf record: {issue}")]
     NotARecord {
         /// Bytes remaining where the next record should begin.
         remaining: usize,
-        /// A concise description of the unexpected item.
-        detail: &'static str,
+        /// How the item's structure differs from a record.
+        issue: RecordStructureError,
     },
     /// A record's content overruns the run's declared length.
     #[error("a leaf record of {len} bytes overruns the {remaining} bytes left in its run")]
@@ -431,6 +437,29 @@ pub enum LeafRunError {
         len: usize,
         /// Bytes left in the run.
         remaining: usize,
+    },
+}
+
+/// How canonical CBOR heads fail to spell one supplied record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RecordStructureError {
+    /// The record does not begin with the embedded-sequence tag.
+    #[error("record tag is {actual:?}; expected the embedded-sequence tag")]
+    Tag {
+        /// Head found where the record tag belongs.
+        actual: cbor::Head,
+    },
+    /// The embedded-sequence tag does not wrap a byte string.
+    #[error("record body has head {actual:?}; expected a byte string")]
+    Bytes {
+        /// Head found where the record byte string belongs.
+        actual: cbor::Head,
+    },
+    /// The record's declared body cannot be addressed on this platform.
+    #[error("record declares {declared} bytes, which do not fit in memory")]
+    TooLarge {
+        /// Byte length declared by the record.
+        declared: u64,
     },
 }
 
@@ -445,15 +474,48 @@ pub enum ListingIssue {
     /// A head was truncated, indefinite, reserved, or widened.
     #[error("{0}")]
     Head(HeadError),
-    /// An item had the wrong major type, value range, or count.
+    /// Canonical heads do not spell a valid child-listing map.
     #[error("{0}")]
-    Shape(&'static str),
+    Structure(ListingStructureError),
     /// The digest bytes behind a value head were cut short.
     #[error("listing hash bytes are truncated")]
     Truncated,
     /// Adjacent keys were not strictly ascending.
     #[error("{0}")]
     Order(QueryOrderError),
+}
+
+/// How canonical CBOR heads fail to spell a child listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ListingStructureError {
+    /// The listing does not begin with a map.
+    #[error("listing head is {actual:?}; expected a map")]
+    Map {
+        /// Head found where the listing map belongs.
+        actual: cbor::Head,
+    },
+    /// The map declares more children than the radix can contain.
+    #[error("listing declares {declared} children; at most {maximum} radixes exist")]
+    TooMany {
+        /// Child count declared by the map.
+        declared: u64,
+        /// Number of distinct radixes in the tree.
+        maximum: usize,
+    },
+    /// A map key is not one radix value.
+    #[error("listing key has head {actual:?}; expected an unsigned 8-bit radix")]
+    Radix {
+        /// Head found where a radix belongs.
+        actual: cbor::Head,
+    },
+    /// A map value is not one fixed-width Merkle hash.
+    #[error("listing value has head {actual:?}; expected a {expected}-byte hash")]
+    Hash {
+        /// Head found where a hash belongs.
+        actual: cbor::Head,
+        /// Hash width required by the tree.
+        expected: usize,
+    },
 }
 
 /// Incrementally validated state of one child-listing map's entries.
@@ -475,7 +537,10 @@ impl ListingBuilder {
     /// Accept a map head of `count` entries within the radix space.
     pub(super) fn new(count: u64) -> Result<Self, ListingIssue> {
         if count > MAX_QUERY_CHILDREN as u64 {
-            return Err(ListingIssue::Shape("listing exceeds the radix space"));
+            return Err(ListingIssue::Structure(ListingStructureError::TooMany {
+                declared: count,
+                maximum: MAX_QUERY_CHILDREN,
+            }));
         }
         Ok(Self {
             children: Vec::with_capacity(count as usize),
@@ -491,7 +556,9 @@ impl ListingBuilder {
     /// ([`entry`](Self::entry)) is what advances the order.
     pub(super) fn key(&self, head: cbor::Head) -> Result<u8, ListingIssue> {
         if head.major != MAJOR_UINT || head.value > u64::from(u8::MAX) {
-            return Err(ListingIssue::Shape("listing key is not a radix"));
+            return Err(ListingIssue::Structure(ListingStructureError::Radix {
+                actual: head,
+            }));
         }
         let radix = head.value as u8;
         if let Some(previous) = self.previous
@@ -505,7 +572,10 @@ impl ListingBuilder {
     /// Accept one entry's value head: a byte string of exactly one digest.
     pub(super) fn value_head(head: cbor::Head) -> Result<(), ListingIssue> {
         if head.major != MAJOR_BSTR || head.value != MERKLE_HASH_LEN as u64 {
-            return Err(ListingIssue::Shape("listing value is not a Merkle hash"));
+            return Err(ListingIssue::Structure(ListingStructureError::Hash {
+                actual: head,
+                expected: MERKLE_HASH_LEN,
+            }));
         }
         Ok(())
     }
@@ -528,7 +598,9 @@ impl ListingBuilder {
 pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<(u8, Hash)>, ListingIssue> {
     let head = cbor::read_head(input).map_err(ListingIssue::Head)?;
     if head.major != MAJOR_MAP {
-        return Err(ListingIssue::Shape("listing is not a map"));
+        return Err(ListingIssue::Structure(ListingStructureError::Map {
+            actual: head,
+        }));
     }
     let count = head.value;
     let mut listing = ListingBuilder::new(count)?;

@@ -1,5 +1,6 @@
 ---
 source: src/tree/mirror/streaming/remote/codec/tests/error_atlas.rs
+assertion_line: 128
 expression: build_atlas()
 ---
 ENCODE
@@ -135,20 +136,20 @@ DECODE
     kind: InvalidSignal::State(stream=8, state=10)
     source[0]: frame carries state 10, outside the state roster
   Initiator/frame/not-an-array
-    display: Initiator direction: frame is not a CBOR reaction array: frame item is not an array
+    display: Initiator direction: frame head is Head { major: 0, value: 0 }; expected an array
     origin: Initiator direction
-    kind: FrameShape(frame item is not an array)
-    source[0]: frame is not a CBOR reaction array: frame item is not an array
+    kind: FrameShape(expected=array, actual=Head { major: 0, value: 0 })
+    source[0]: frame head is Head { major: 0, value: 0 }; expected an array
   Initiator/frame/arity
     display: Initiator stream 8: frame array carries 3 item(s) where its signal takes 2
     origin: Initiator stream 8
     kind: FrameArity(expected=2, found=3)
     source[0]: frame array carries 3 item(s) where its signal takes 2
   Initiator/frame/non-integer-stream
-    display: Initiator direction: frame's signal is malformed: stream item is not an unsigned int
+    display: Initiator direction: frame's stream index has head Head { major: 2, value: 0 }; expected an unsigned integer
     origin: Initiator direction
-    kind: Malformed(part=Signal, stream item is not an unsigned int)
-    source[0]: frame's signal is malformed: stream item is not an unsigned int
+    kind: Malformed(part=Signal, item=stream index, actual=Head { major: 2, value: 0 })
+    source[0]: frame's stream index has head Head { major: 2, value: 0 }; expected an unsigned integer
   Initiator/frame/widened-signal
     display: Initiator direction: frame's signal head is invalid: CBOR head is not in shortest form
     origin: Initiator direction
@@ -168,21 +169,21 @@ DECODE
     source[0]: query child listing is invalid: CBOR head is not in shortest form
     source[1]: CBOR head is not in shortest form
   Initiator/query/shape
-    display: Initiator stream 8: query child listing is invalid: listing key is not a radix
+    display: Initiator stream 8: query child listing is invalid: listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix
     origin: Initiator stream 8
-    kind: InvalidListing::Shape(listing key is not a radix)
-    source[0]: query child listing is invalid: listing key is not a radix
-    source[1]: listing key is not a radix
+    kind: InvalidListing::Shape(listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix)
+    source[0]: query child listing is invalid: listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix
+    source[1]: listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix
   Initiator/run/empty
     display: Initiator stream 8: a supply run carries no leaf records
     origin: Initiator stream 8
     kind: InvalidRun::Empty
     source[0]: a supply run carries no leaf records
   Initiator/run/not-a-record
-    display: Initiator stream 8: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
+    display: Initiator stream 8: a 2-byte run tail is not a leaf record: record tag is Head { major: 0, value: 0 }; expected the embedded-sequence tag
     origin: Initiator stream 8
-    kind: InvalidRun::NotARecord(remaining=2, record does not open with the embedded-sequence tag)
-    source[0]: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
+    kind: InvalidRun::NotARecord(remaining=2, record tag is Head { major: 0, value: 0 }; expected the embedded-sequence tag)
+    source[0]: a 2-byte run tail is not a leaf record: record tag is Head { major: 0, value: 0 }; expected the embedded-sequence tag
   Initiator/run/widened-head
     display: Initiator stream 8: a leaf record's heads are invalid in the 5 bytes left in its run: CBOR head is not in shortest form
     origin: Initiator stream 8
@@ -275,20 +276,20 @@ DECODE
     kind: InvalidSignal::State(stream=8, state=10)
     source[0]: frame carries state 10, outside the state roster
   Responder/frame/not-an-array
-    display: Responder direction: frame is not a CBOR reaction array: frame item is not an array
+    display: Responder direction: frame head is Head { major: 0, value: 0 }; expected an array
     origin: Responder direction
-    kind: FrameShape(frame item is not an array)
-    source[0]: frame is not a CBOR reaction array: frame item is not an array
+    kind: FrameShape(expected=array, actual=Head { major: 0, value: 0 })
+    source[0]: frame head is Head { major: 0, value: 0 }; expected an array
   Responder/frame/arity
     display: Responder stream 8: frame array carries 3 item(s) where its signal takes 2
     origin: Responder stream 8
     kind: FrameArity(expected=2, found=3)
     source[0]: frame array carries 3 item(s) where its signal takes 2
   Responder/frame/non-integer-stream
-    display: Responder direction: frame's signal is malformed: stream item is not an unsigned int
+    display: Responder direction: frame's stream index has head Head { major: 2, value: 0 }; expected an unsigned integer
     origin: Responder direction
-    kind: Malformed(part=Signal, stream item is not an unsigned int)
-    source[0]: frame's signal is malformed: stream item is not an unsigned int
+    kind: Malformed(part=Signal, item=stream index, actual=Head { major: 2, value: 0 })
+    source[0]: frame's stream index has head Head { major: 2, value: 0 }; expected an unsigned integer
   Responder/frame/widened-signal
     display: Responder direction: frame's signal head is invalid: CBOR head is not in shortest form
     origin: Responder direction
@@ -308,21 +309,21 @@ DECODE
     source[0]: query child listing is invalid: CBOR head is not in shortest form
     source[1]: CBOR head is not in shortest form
   Responder/query/shape
-    display: Responder stream 8: query child listing is invalid: listing key is not a radix
+    display: Responder stream 8: query child listing is invalid: listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix
     origin: Responder stream 8
-    kind: InvalidListing::Shape(listing key is not a radix)
-    source[0]: query child listing is invalid: listing key is not a radix
-    source[1]: listing key is not a radix
+    kind: InvalidListing::Shape(listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix)
+    source[0]: query child listing is invalid: listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix
+    source[1]: listing key has head Head { major: 2, value: 0 }; expected an unsigned 8-bit radix
   Responder/run/empty
     display: Responder stream 8: a supply run carries no leaf records
     origin: Responder stream 8
     kind: InvalidRun::Empty
     source[0]: a supply run carries no leaf records
   Responder/run/not-a-record
-    display: Responder stream 8: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
+    display: Responder stream 8: a 2-byte run tail is not a leaf record: record tag is Head { major: 0, value: 0 }; expected the embedded-sequence tag
     origin: Responder stream 8
-    kind: InvalidRun::NotARecord(remaining=2, record does not open with the embedded-sequence tag)
-    source[0]: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
+    kind: InvalidRun::NotARecord(remaining=2, record tag is Head { major: 0, value: 0 }; expected the embedded-sequence tag)
+    source[0]: a 2-byte run tail is not a leaf record: record tag is Head { major: 0, value: 0 }; expected the embedded-sequence tag
   Responder/run/widened-head
     display: Responder stream 8: a leaf record's heads are invalid in the 5 bytes left in its run: CBOR head is not in shortest form
     origin: Responder stream 8
@@ -361,9 +362,10 @@ DECODE
     source[0]: match followed by another reaction on stream 16 is invalid for the responder's terminal leaf replies
 RECORD
   record/version
-    display: supplied Version could not be decoded
-    kind: Record::Version(io=UnexpectedEof)
-    source[0]: Io(UnexpectedEof)
+    display: supplied Version could not be decoded: version tag head is invalid: input ends inside a CBOR head
+    kind: Record::Version(version tag head is invalid: input ends inside a CBOR head)
+    source[0]: version tag head is invalid: input ends inside a CBOR head
+    source[1]: input ends inside a CBOR head
   record/message
     display: supplied Message could not be decoded
     kind: Record::Message(io=UnexpectedEof)

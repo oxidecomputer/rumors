@@ -255,11 +255,38 @@ proptest! {
         prop_assert!(as_oracle, "decode disagreed with the oracle: {:?}", result);
     }
 
-    /// Arbitrary bytes in the preamble's place decode to an error or
-    /// a valid preamble, never a panic: the parser is total over its
-    /// fixed-width input.
+    /// Every preamble field remains total over arbitrary bytes once the
+    /// fields before it have passed validation.
+    ///
+    /// The weighted arms enter with progressively longer valid prefixes,
+    /// so random data reaches the version, network, and intent decoders
+    /// instead of almost always stopping at the magic prefix.
     #[test]
-    fn arbitrary_bytes_never_panic(bytes in any::<[u8; V2_PREAMBLE_LEN]>()) {
+    fn arbitrary_bytes_never_panic(bytes in prop_oneof![
+        1 => any::<[u8; V2_PREAMBLE_LEN]>(),
+        4 => any::<[u8; V2_PREAMBLE_LEN - V2_PREFIX.len()]>().prop_map(|tail| {
+            let mut bytes = [0; V2_PREAMBLE_LEN];
+            bytes[..V2_PREFIX.len()].copy_from_slice(&V2_PREFIX);
+            bytes[V2_PREFIX.len()..].copy_from_slice(&tail);
+            bytes
+        }),
+        4 => any::<[u8; V2_PREAMBLE_LEN - V2_PREFIX.len() - 1]>().prop_map(|tail| {
+            let mut bytes = [0; V2_PREAMBLE_LEN];
+            bytes[..V2_PREFIX.len()].copy_from_slice(&V2_PREFIX);
+            bytes[V2_PREFIX.len()] = Protocol::V2 as u8;
+            bytes[V2_PREFIX.len() + 1..].copy_from_slice(&tail);
+            bytes
+        }),
+        4 => (any::<[u8; 16]>(), any::<u8>()).prop_map(|(network, intent)| {
+            let mut bytes = [0; V2_PREAMBLE_LEN];
+            bytes[..V2_PREFIX.len()].copy_from_slice(&V2_PREFIX);
+            bytes[V2_PREFIX.len()] = Protocol::V2 as u8;
+            bytes[V2_PREFIX.len() + 1] = 0x50;
+            bytes[V2_PREFIX.len() + 2..V2_PREAMBLE_LEN - 1].copy_from_slice(&network);
+            bytes[V2_PREAMBLE_LEN - 1] = intent;
+            bytes
+        }),
+    ]) {
         let _ = Preamble::decode(&bytes);
     }
 }

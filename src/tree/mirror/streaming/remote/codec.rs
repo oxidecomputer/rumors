@@ -1,19 +1,12 @@
 //! The self-delimiting frame grammar shared by every logical wire stream.
 //!
-//! Every frame is one CBOR array item, so a directed stream's frames form
-//! an RFC 8742 CBOR sequence a generic tool can walk: `[stream, state]`
-//! for a body-free frame, `[stream, state, body]` otherwise. The wire is
-//! *emitted* as
-//! deterministic-encoding CBOR — shortest-form heads everywhere, definite
-//! lengths only, one spelling per value
-//! ([`cbor`](crate::tree::mirror::cbor)) — which is what keeps the
-//! byte-pinning snapshot discipline meaningful. Ingress validates
-//! structure everywhere; every head the codec hand-parses additionally
-//! rejects indefinite lengths and non-shortest spellings, while the two
-//! positions a general CBOR reader decodes — a record's version atom
-//! (its byte-string head) and the application payload — judge neither
-//! spelling rule; the atom's *content* canonicality is enforced by its
-//! own strict decoder.
+//! Every frame is one CBOR array item, so a directed stream's frames form an
+//! RFC 8742 CBOR sequence a generic tool can walk: `[stream, state]` for a
+//! body-free frame, `[stream, state, body]` otherwise. Ingress validates
+//! structure everywhere; every head the codec parses rejects indefinite lengths
+//! and non-shortest spellings. Application payloads remain the sole
+//! general-CBOR position and may use any spelling their configured decoder
+//! accepts.
 //!
 //! A frame opens with two unsigned ints: the index of the logical stream
 //! it rides (one of 17) and its signal's state code (one of ten frame
@@ -91,6 +84,8 @@ pub use encode::FrameWrite;
 pub use encode::encode;
 #[cfg(any(test, feature = "test-internals"))]
 pub use error::FramePart;
+#[cfg(test)]
+pub(crate) use error::VersionDecodeError;
 pub use error::{
     DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, Origin,
     QueryOrderError,
