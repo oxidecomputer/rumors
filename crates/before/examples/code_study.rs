@@ -48,8 +48,8 @@ use std::collections::BTreeMap;
 
 use before::meter::board;
 use before::{Clock, Version};
-use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rayon::prelude::*;
 
 // ─── realistic-simulation parameters ────────────────────────────────────────
@@ -371,24 +371,24 @@ fn build_population(n: usize) -> Vec<Clock> {
     clocks
 }
 
-fn step_data(clocks: &mut Vec<Clock>, rng: &mut StdRng) {
-    let parent = rng.gen_range(0..clocks.len());
+fn step_data(clocks: &mut Vec<Clock>, rng: &mut ChaChaRng) {
+    let parent = rng.random_range(0..clocks.len());
     let child = clocks[parent].fork();
     clocks.push(child);
-    let who = rng.gen_range(0..clocks.len());
+    let who = rng.random_range(0..clocks.len());
     clocks[who].tick();
-    let donor = clocks.swap_remove(rng.gen_range(0..clocks.len()));
-    let target = rng.gen_range(0..clocks.len());
+    let donor = clocks.swap_remove(rng.random_range(0..clocks.len()));
+    let target = rng.random_range(0..clocks.len());
     clocks[target]
         .join(donor)
         .expect("clocks forked from one seed are disjoint");
 }
 
-fn step_process(clocks: &mut [Clock], n: usize, rng: &mut StdRng) {
-    let who = rng.gen_range(0..n);
+fn step_process(clocks: &mut [Clock], n: usize, rng: &mut ChaChaRng) {
+    let who = rng.random_range(0..n);
     clocks[who].tick();
-    let sender = rng.gen_range(0..n);
-    let mut receiver = rng.gen_range(0..n);
+    let sender = rng.random_range(0..n);
+    let mut receiver = rng.random_range(0..n);
     if receiver == sender {
         receiver = (receiver + 1) % n;
     }
@@ -401,7 +401,7 @@ fn step_process(clocks: &mut [Clock], n: usize, rng: &mut StdRng) {
 /// corpus).
 fn simulate(tag: u64, n: usize, iters: u64, run: u64) -> (Corpus, Corpus) {
     let cps = checkpoints(iters);
-    let mut rng = StdRng::seed_from_u64(seed_for(tag, n, run));
+    let mut rng = ChaChaRng::seed_from_u64(seed_for(tag, n, run));
     let mut clocks = build_population(n);
     let mut all = Corpus::new();
     let mut fin = Corpus::new();

@@ -3,14 +3,14 @@
 
 use before::Clock;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 mod common;
 use common::{SEED, SIZES};
 
-fn rng(salt: u64) -> StdRng {
-    StdRng::seed_from_u64(SEED.wrapping_add(salt))
+fn rng(salt: u64) -> ChaChaRng {
+    ChaChaRng::seed_from_u64(SEED.wrapping_add(salt))
 }
 
 /// `tick`: advance this clock's own component. Destructive; fresh per iteration.

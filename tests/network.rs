@@ -8,7 +8,7 @@
 mod common;
 
 use rand::SeedableRng;
-use rand::rngs::SmallRng;
+use rand_chacha::ChaChaRng;
 use rumors::error::Mismatch;
 use rumors::{Error, Peer};
 
@@ -19,7 +19,7 @@ use crate::common::wire::{assert_control_drained, block_on};
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>(
     stream: u64,
 ) -> Peer<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(stream)).sync_window_floor()
+    Peer::seed_rng(&mut ChaChaRng::seed_from_u64(stream)).sync_window_floor()
 }
 
 /// Every handle on one rumor set belongs to the same universe.

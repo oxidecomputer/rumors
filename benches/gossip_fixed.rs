@@ -45,9 +45,9 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
 
 // The shared grid module exposes a superset of helpers; this bench only needs
@@ -301,12 +301,12 @@ fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
 
 fn random_bytes(n: usize, seed: u64) -> Vec<u8> {
     let mut bytes = vec![0; n];
-    SmallRng::seed_from_u64(seed).fill_bytes(&mut bytes);
+    ChaChaRng::seed_from_u64(seed).fill_bytes(&mut bytes);
     bytes
 }
 
 fn shuffled_versions(mut versions: Vec<Version>, seed: u64) -> Vec<Version> {
-    versions.shuffle(&mut SmallRng::seed_from_u64(seed));
+    versions.shuffle(&mut ChaChaRng::seed_from_u64(seed));
     versions
 }
 

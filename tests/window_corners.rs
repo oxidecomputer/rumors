@@ -17,8 +17,8 @@ mod latency;
 
 use std::time::Duration;
 
-use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::testing::run_to_quiescence;
 use rumors::{Peer, Rumors};
 
@@ -48,7 +48,7 @@ fn pair(
     right_extra: usize,
 ) -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_c07e_0003);
+    let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0003);
     send_random(&left, common.max(1), &mut rng);
 
     let right = pollster::block_on(async {
@@ -72,7 +72,7 @@ fn pair(
 }
 
 /// Commit `n` random payloads as one batch.
-fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
+fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
@@ -202,7 +202,7 @@ fn growth_during_a_session_only_serializes() {
     let racer = left.clone();
     pollster::block_on(async {
         let (mut a, mut b) = rumors::link::memory_with_capacity(LINK_CAPACITY);
-        let mut rng = SmallRng::seed_from_u64(0x0b05_2026_c07e_0004);
+        let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0004);
         let race = async {
             for _ in 0..64 {
                 racer.send_all((0..32).map(|_| rng.next_u64())).unwrap();

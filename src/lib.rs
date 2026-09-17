@@ -259,6 +259,7 @@
 //! - `conformance`: the public validation suite for caller-built [`link`]
 //!   instantiations (the [`conformance::link`] module). Enable it from a
 //!   dev-dependency; it is safe, though pointless, in an application.
+//! - `fs`: [`FileBookmark`] and its caller-driven blocking-I/O bridge.
 //! - `test-internals`: this crate's own test scaffolding, enabled through
 //!   its self-referential dev-dependency. Never enable it in an application.
 //!
@@ -317,6 +318,9 @@ pub use batch::Batch;
 // the widget's assets are attached to rustdoc's own view of before only).
 #[doc(no_inline)]
 pub use before::{Ticks, Version, causally};
+#[cfg(feature = "fs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
+pub use bookmark::FileBookmark;
 pub use bookmark::{
     BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, DEFAULT_BOOKMARK_SIZE_LIMIT, FormatError,
     NoBookmark,

@@ -37,8 +37,8 @@ mod latency;
 
 use std::time::Duration;
 
-use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::testing::{
     dispute_overhead_bytes, envelope_and_wire_bytes, supply_decode_envelope_bytes,
     window_capacities,
@@ -65,13 +65,13 @@ const DIVERGENT: usize = 62_500;
 const UNBOUNDED: usize = 8 << 30;
 
 /// Fork after shared history, then add distinct messages on each side.
-fn diverged<T>(budget: usize, make: &mut impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
+fn diverged<T>(budget: usize, make: &mut impl FnMut(&mut ChaChaRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_7ade_0ff1);
-    let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut SmallRng| {
+    let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_7ade_0ff1);
+    let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut ChaChaRng| {
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();
     };
     send(&left, COMMON, &mut rng);
@@ -103,7 +103,7 @@ where
 /// advances only while every task is blocked on the wire, so wall
 /// compute is excluded and the count is deterministic (the hop-trace
 /// principle: every wire event lands on an exact delay multiple).
-fn wire_hops<T>(budget: usize, pipe: usize, make: &mut impl FnMut(&mut SmallRng) -> T) -> u64
+fn wire_hops<T>(budget: usize, pipe: usize, make: &mut impl FnMut(&mut ChaChaRng) -> T) -> u64
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -138,7 +138,7 @@ fn run_cells<T>(
     encoded_m: usize,
     pipe: usize,
     targets: &[f64],
-    make: &mut impl FnMut(&mut SmallRng) -> T,
+    make: &mut impl FnMut(&mut ChaChaRng) -> T,
 ) where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -205,13 +205,13 @@ fn tradeoff_closed_form_validation_run() {
         9,
         256 * 1024,
         &[4.0, 1.3, 0.4],
-        &mut |rng: &mut SmallRng| rng.next_u64(),
+        &mut |rng: &mut ChaChaRng| rng.next_u64(),
     );
 
     // A 98-byte byte string has a two-byte CBOR header, matching the
     // table's 100-byte reference message. The wider pipe keeps this
     // constrained window above the near-root capacity limits.
-    let mut design = |rng: &mut SmallRng| {
+    let mut design = |rng: &mut ChaChaRng| {
         let mut payload = vec![0u8; 98];
         rng.fill_bytes(&mut payload);
         bytes::Bytes::from(payload)

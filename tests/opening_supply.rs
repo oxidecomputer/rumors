@@ -13,7 +13,7 @@
 mod common;
 
 use rand::SeedableRng;
-use rand::rngs::SmallRng;
+use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
 use sha3::Digest;
 
@@ -24,7 +24,7 @@ use crate::common::wire::{block_on, bootstrap_fork_async};
 /// A peer seeded from a fixed RNG so the capture is deterministic.
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
 -> Rumors<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
+    Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0)).into_rumors()
 }
 
 /// Pool size for the one-byte path search staging the disputed sibling.

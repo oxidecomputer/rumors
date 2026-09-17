@@ -19,7 +19,7 @@ use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
-use rand::rngs::SmallRng;
+use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version, causally};
 
 use crate::common::observer::{
@@ -397,7 +397,7 @@ fn folding_delivered_versions_can_lose_a_message() {
     let later_value = 1u64;
     let rumors = (0u64..256)
         .find_map(|seed| {
-            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(seed))
+            let rumors = Peer::<u64>::seed_rng(&mut ChaChaRng::seed_from_u64(seed))
                 .sync_window_floor()
                 .into_rumors();
             rumors.send(0).unwrap();

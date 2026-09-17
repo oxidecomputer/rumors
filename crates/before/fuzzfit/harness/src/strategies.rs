@@ -64,7 +64,7 @@
 use proptest::prelude::*;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha8Rng;
+use rand_chacha::ChaChaRng;
 
 use crate::ops::{Op, Reg};
 
@@ -363,7 +363,7 @@ struct B {
     slots: Vec<Ty>,
     ticks: u32,
     forks: u32,
-    rng: ChaCha8Rng,
+    rng: ChaChaRng,
     budget: Budget,
 }
 
@@ -374,7 +374,7 @@ impl B {
             slots: Vec::new(),
             ticks: 0,
             forks: 0,
-            rng: ChaCha8Rng::seed_from_u64(seed),
+            rng: ChaChaRng::seed_from_u64(seed),
             budget,
         }
     }
@@ -877,7 +877,7 @@ impl B {
 }
 
 /// Uniformly pick from a slice (None when empty).
-fn pick<'s, T>(rng: &mut ChaCha8Rng, xs: &'s [T]) -> Option<&'s T> {
+fn pick<'s, T>(rng: &mut ChaChaRng, xs: &'s [T]) -> Option<&'s T> {
     xs.choose(rng)
 }
 
@@ -1723,7 +1723,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
 }
 
 /// A reduced-parameter family for one universe of the independent regime.
-fn reduced_family(rng: &mut ChaCha8Rng) -> Family {
+fn reduced_family(rng: &mut ChaChaRng) -> Family {
     match rng.gen_range(0..6u32) {
         0 => Family::DenseSpine {
             depth: rng.gen_range(2..=48),

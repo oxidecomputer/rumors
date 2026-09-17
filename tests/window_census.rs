@@ -17,8 +17,8 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::testing::{
     node_census, node_census_reset, supply_decode_envelope_bytes, window_capacities,
 };
@@ -65,7 +65,7 @@ const TRANSIENT_SLACK: usize = 8 * 1024;
 /// messages on each side, both configured with `budget`.
 fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x00c0_ffee_0b05_cafe);
+    let mut rng = ChaChaRng::seed_from_u64(0x00c0_ffee_0b05_cafe);
     send_random(&left, 1_024, &mut rng);
 
     let right = pollster::block_on(async {
@@ -89,7 +89,7 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
 }
 
 /// Commit `n` random payloads as one batch.
-fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
+fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
@@ -228,7 +228,7 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
         .sync_memory_budget(TIGHT_BUDGET)
         .into_rumors()
     });
-    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_1e77_a51a);
+    let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_1e77_a51a);
     send_random(&third, 2_048, &mut rng);
     reconcile(&third, &left);
 
@@ -283,7 +283,7 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     // party intervals stay shallow and stamps stay small — the many
     // frontiers accumulate in the join, not in any one leaf.
     let seed = Peer::seed().sync_window_floor().into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_f207_713a);
+    let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_f207_713a);
     send_random(&seed, 4, &mut rng);
     let mut swarm = vec![seed];
     for _ in 0..5 {

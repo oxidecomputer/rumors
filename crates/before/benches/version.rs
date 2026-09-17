@@ -6,21 +6,21 @@
 
 use before::{Party, Version};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 mod common;
 use common::{SEED, SIZES};
 
-fn rng(salt: u64) -> StdRng {
-    StdRng::seed_from_u64(SEED.wrapping_add(salt))
+fn rng(salt: u64) -> ChaChaRng {
+    ChaChaRng::seed_from_u64(SEED.wrapping_add(salt))
 }
 
 /// A randomized version paired with the party that owns its id-space — the operand `tick`
 /// needs. Returns the impl version's bytes (for fresh `decode`s) and the impl party, plus
 /// the oracle version and party.
 fn version_and_party(
-    r: &mut StdRng,
+    r: &mut ChaChaRng,
     n: usize,
 ) -> (
     Vec<u8>,

@@ -22,26 +22,12 @@
 
 mod common;
 
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
 use rumors::{Peer, Rumors};
 
-use crate::common::gossip_snapshot::{capture_session, observed};
+use crate::common::gossip_snapshot::{capture_session, observed, seeded};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-/// A provider seeded from a fixed RNG, so the [`rumors::Network`] id carried in
-/// the preamble — and the party region it forks off for the newcomer — are
-/// deterministic and these captures stay reproducible.
-///
-/// Mirrors `gossip_snapshot::seeded`.
-fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
--> Rumors<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
-        .sync_window_floor()
-        .into_rumors()
-}
-
 /// Capture one successful bootstrap: `provider` serves its state via `gossip`
 /// (party A) while a fresh newcomer runs [`Peer::bootstrap`] (party B) and is
 /// expected to be served a successor.

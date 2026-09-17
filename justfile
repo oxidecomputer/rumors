@@ -568,6 +568,7 @@ features:
     cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
+    cargo check -p rumors --no-default-features --features fs
     cargo check -p rumors --features meter
     cargo check -p rumors --no-default-features --features conformance
 

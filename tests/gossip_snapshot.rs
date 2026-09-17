@@ -14,25 +14,13 @@
 
 mod common;
 
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
-use rumors::{Peer, Rumors, Version};
+use rumors::{Rumors, Version};
 
-use crate::common::gossip_snapshot::{capture_gossip, capture_gossip_returning};
+use crate::common::gossip_snapshot::{capture_gossip, capture_gossip_returning, seeded};
 use crate::common::shape::{
     ballast_avoiding, keep_only, leaf_path, path_radix, pool, send_pool, shaped_pair,
 };
 use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
-
-/// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
-/// the preamble is deterministic and these byte-level captures stay
-/// reproducible across runs.
-fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
--> Rumors<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
-        .sync_window_floor()
-        .into_rumors()
-}
 
 /// The version of the live message holding `value`: how a scenario picks
 /// out a specific message for redaction. The scenarios use distinct

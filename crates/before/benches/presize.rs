@@ -41,8 +41,8 @@
 use before::{Clock, Party, Version};
 use criterion::{black_box, criterion_group, BenchmarkId, Criterion};
 use peak_alloc::PeakAlloc;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 mod common;
 use common::{SEED, SIZES};
@@ -50,8 +50,8 @@ use common::{SEED, SIZES};
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
 
-fn rng(salt: u64) -> StdRng {
-    StdRng::seed_from_u64(SEED.wrapping_add(salt))
+fn rng(salt: u64) -> ChaChaRng {
+    ChaChaRng::seed_from_u64(SEED.wrapping_add(salt))
 }
 
 /// Tooth count of the `projection_outgrow` family's fragmented party.
@@ -77,7 +77,7 @@ fn resident<T>(build: impl FnOnce() -> T) -> (T, usize) {
 
 /// The projection operands for one universe size: the merged two-group
 /// version and the first group's (fragmented) party.
-fn projection_operands(r: &mut StdRng, n: usize) -> (Version, Party) {
+fn projection_operands(r: &mut ChaChaRng, n: usize) -> (Version, Party) {
     let plan = common::plan(r, n, 2);
     let mut clocks = common::impl_clocks(&plan, 2);
     let (_, vb) = clocks.pop().expect("two groups").into_parts();

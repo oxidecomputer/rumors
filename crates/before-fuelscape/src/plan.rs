@@ -173,7 +173,7 @@ impl Samplers {
 /// parts peak at `k ≈ total/2`) — so every arity gets equal
 /// representation per column, and the split below stays exactly uniform
 /// at the drawn arity.
-fn draw_arity(cap: usize, rng: &mut rand_chacha::ChaCha12Rng) -> usize {
+fn draw_arity(cap: usize, rng: &mut rand_chacha::ChaChaRng) -> usize {
     rng.gen_range(1..=cap)
 }
 
@@ -186,7 +186,7 @@ fn draw_arity(cap: usize, rng: &mut rand_chacha::ChaCha12Rng) -> usize {
 ///
 /// For one part this draws nothing; for two it is a single
 /// `gen_range(1..total)` — the binary split rule, unchanged.
-fn split_budget(total: usize, parts: usize, rng: &mut rand_chacha::ChaCha12Rng) -> Vec<usize> {
+fn split_budget(total: usize, parts: usize, rng: &mut rand_chacha::ChaChaRng) -> Vec<usize> {
     assert!(
         total >= parts && parts >= 1,
         "a column of {total} bytes cannot feed {parts} one-byte-minimum operands"
@@ -214,7 +214,7 @@ fn draw_packed(
     operands: &[Operand],
     samplers: &Samplers,
     size: usize,
-    rng: &mut rand_chacha::ChaCha12Rng,
+    rng: &mut rand_chacha::ChaChaRng,
 ) -> (Vec<Vec<u8>>, u64) {
     let sizes = split_budget(size, operands.len(), rng);
     let mut rejected = 0;
@@ -251,7 +251,7 @@ fn draw_inputs(
     op: &OpSpec,
     samplers: &Samplers,
     size: usize,
-    rng: &mut rand_chacha::ChaCha12Rng,
+    rng: &mut rand_chacha::ChaChaRng,
 ) -> (Vec<Vec<u8>>, usize, u64) {
     match op.inputs {
         Inputs::Packed(operands) => {

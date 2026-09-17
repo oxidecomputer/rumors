@@ -14,8 +14,8 @@ mod latency;
 
 use std::time::Duration;
 
-use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::testing::{supply_decode_envelope_bytes, window_capacities};
 use rumors::{Peer, Rumors};
 
@@ -43,7 +43,7 @@ const UNBOUNDED: usize = 8 << 30;
 /// messages on each side, both configured with `budget`.
 fn diverged(budget: usize) -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_09e7_a707);
+    let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_09e7_a707);
     send_random(&left, COMMON, &mut rng);
 
     let right = pollster::block_on(async {
@@ -67,7 +67,7 @@ fn diverged(budget: usize) -> (Rumors<u64>, Rumors<u64>) {
 }
 
 /// Commit `n` random payloads as one batch.
-fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
+fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 

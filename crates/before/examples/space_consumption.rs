@@ -83,8 +83,8 @@ use std::io::{self, Write};
 
 use before::Clock;
 use indicatif::{ProgressBar, ProgressStyle};
-use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rayon::prelude::*;
 
 /// Paper defaults (§6, Figure 1).
@@ -234,7 +234,7 @@ fn simulate(
     seed: u64,
     pb: &ProgressBar,
 ) -> Vec<(f64, f64)> {
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = ChaChaRng::seed_from_u64(seed);
     let mut clocks = build_population(n);
 
     let mut sizes = Vec::with_capacity(checkpoints.len());
@@ -266,20 +266,20 @@ fn simulate(
 /// Data causality, dynamic setting (paper §6): fork a random replica (+1), record
 /// an event on a random replica, then join a random pair (−1). Population is
 /// constant across the iteration; ids churn.
-fn step_data(clocks: &mut Vec<Clock>, rng: &mut StdRng) {
+fn step_data(clocks: &mut Vec<Clock>, rng: &mut ChaChaRng) {
     // fork: clone a random replica's causal past into a fresh id.
-    let parent = rng.gen_range(0..clocks.len());
+    let parent = rng.random_range(0..clocks.len());
     let child = clocks[parent].fork();
     clocks.push(child);
 
     // event: advance a random replica.
-    let who = rng.gen_range(0..clocks.len());
+    let who = rng.random_range(0..clocks.len());
     clocks[who].tick();
 
     // join: merge a random donor into a different random target, retiring the
     // donor's id. Forked clocks are always disjoint, so the join never fails.
-    let donor = clocks.swap_remove(rng.gen_range(0..clocks.len()));
-    let target = rng.gen_range(0..clocks.len());
+    let donor = clocks.swap_remove(rng.random_range(0..clocks.len()));
+    let target = rng.random_range(0..clocks.len());
     clocks[target]
         .join(donor)
         .expect("clocks forked from one seed are disjoint");
@@ -290,14 +290,14 @@ fn step_data(clocks: &mut Vec<Clock>, rng: &mut StdRng) {
 ///
 /// `peek` yields an anonymous stamp `(0, e)`
 /// (the snapshot `Version`); the receiver joins it, leaving its own id intact.
-fn step_process(clocks: &mut [Clock], n: usize, rng: &mut StdRng) {
+fn step_process(clocks: &mut [Clock], n: usize, rng: &mut ChaChaRng) {
     // internal event on a random process.
-    let who = rng.gen_range(0..n);
+    let who = rng.random_range(0..n);
     clocks[who].tick();
 
     // message: a random sender's peek is joined by a different random receiver.
-    let sender = rng.gen_range(0..n);
-    let mut receiver = rng.gen_range(0..n);
+    let sender = rng.random_range(0..n);
+    let mut receiver = rng.random_range(0..n);
     if receiver == sender {
         receiver = (receiver + 1) % n;
     }

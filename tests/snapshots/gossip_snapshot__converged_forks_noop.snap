@@ -7,7 +7,7 @@ control item 0 (30 bytes) / preamble /
 55799_1([
     "rumors",
     2,
-    h'8c189668c9e4837237bf31e02d7f6b70',
+    h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
 control item 1 (159 bytes) / greeting /
@@ -30,7 +30,7 @@ control item 0 (30 bytes) / preamble /
 55799_1([
     "rumors",
     2,
-    h'8c189668c9e4837237bf31e02d7f6b70',
+    h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
 control item 1 (159 bytes) / greeting /

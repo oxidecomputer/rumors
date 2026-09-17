@@ -60,8 +60,8 @@ peak_alloc = "0.3"
 pollster = { version = "0.4", features = ["macro"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 proptest = "1"
-rand = "0.8"
-rand_chacha = "0.3"
+rand = "0.9"
+rand_chacha = "0.9"
 rayon = "1"
 rumors = { path = "." }
 schnellru = { version = "0.2.4", default-features = false }
@@ -74,6 +74,7 @@ static_assertions = "1.1"
 stats_alloc = "0.1"
 suanpan = { path = "crates/suanpan" }
 surface-scan = { path = "crates/surface-scan" }
+tempfile = "=3.23.0"
 thiserror = "2"
 tinyvec = { version = "1.11", features = ["alloc"] }
 tokio = { version = "1", default-features = false }
@@ -118,6 +119,8 @@ test-internals = ["tokio/rt", "dep:cbor-diag"]
 # Conformance suites for caller-built links and bookmark storage.
 # Enable from a dev-dependency to validate an application's adapters.
 conformance = []
+# Atomic file storage for bookmarks, driven by caller-supplied blocking execution.
+fs = ["dep:tempfile"]
 # Lights `before`'s deterministic resource counters for this crate's own
 # metering tests (the branch bound memos' fold-cost comparison). Test-only
 # and off by default, in `before`'s limb-meter idiom: the counters add an
@@ -144,6 +147,7 @@ futures-util = { workspace = true }
 async-stream = { workspace = true }
 rand = { workspace = true }
 schnellru = { workspace = true }
+tempfile = { workspace = true, optional = true }
 # The wire-capture renderer behind `test-internals` renders every captured
 # item in diagnostic notation through this crate.
 cbor-diag = { workspace = true, optional = true }
@@ -170,10 +174,9 @@ tokio = { workspace = true, features = [
     # delay to virtual time so sweeps cost wall-clock compute only.
     "test-util",
 ] }
-rand = { workspace = true, features = ["small_rng"] }
-# The bookmark causality simulation seeds its network ids from ChaCha8: its
-# output is fixed across platforms and rand versions, which SmallRng's is not,
-# and the suite pins paths derived from those ids.
+rand = { workspace = true }
+# Deterministic tests and benchmarks use ChaCha: its output is fixed across
+# platforms and Rand versions, so a committed seed continues to name one corpus.
 rand_chacha = { workspace = true }
 pollster = { workspace = true }
 # Count allocation traffic in focused resource tests.

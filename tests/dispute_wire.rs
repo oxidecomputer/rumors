@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::link::{Connector, Done, Link, MemoryLink};
 use rumors::testing::{dispute_overhead_bytes, envelope_and_wire_bytes};
 use rumors::{Peer, Rumors};
@@ -159,14 +159,14 @@ fn diverged<T>(
     common: usize,
     divergent: usize,
     window: WindowChoice,
-    mut make: impl FnMut(&mut SmallRng) -> T,
+    mut make: impl FnMut(&mut ChaChaRng) -> T,
 ) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let left = window.apply(Peer::seed()).into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_d15b_073e);
-    let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut SmallRng| {
+    let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_d15b_073e);
+    let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut ChaChaRng| {
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();
     };
     send(&left, common, &mut rng);
@@ -197,7 +197,7 @@ where
 
 /// The smaller fixture's mean bytes per differing message, rounded down.
 /// Both directions contribute writes; each new message crosses once.
-fn implied_bytes_per_message<T>(make: impl FnMut(&mut SmallRng) -> T) -> usize
+fn implied_bytes_per_message<T>(make: impl FnMut(&mut ChaChaRng) -> T) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -215,7 +215,7 @@ where
 /// The reference fixture's rounded mean equals the calibrated wire cost.
 #[test]
 fn dispute_wire_bytes_is_the_design_record_cost() {
-    let mut make = |rng: &mut SmallRng| {
+    let mut make = |rng: &mut ChaChaRng| {
         let mut payload = vec![0u8; DESIGN_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)
@@ -248,7 +248,7 @@ fn minimal_records_cost_less_than_the_reference_estimate() {
 /// At 64 encoded bytes, the fixture's rounded mean equals payload plus overhead.
 #[test]
 fn mid_size_records_match_the_reference_estimate() {
-    let mut make = |rng: &mut SmallRng| {
+    let mut make = |rng: &mut ChaChaRng| {
         let mut payload = vec![0u8; MID_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)

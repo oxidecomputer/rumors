@@ -15,6 +15,8 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use crate::Network;
 
 mod error;
+#[cfg(feature = "fs")]
+mod file;
 pub(crate) mod format;
 mod record;
 mod serde;
@@ -25,6 +27,8 @@ use record::Record;
 pub const DEFAULT_BOOKMARK_SIZE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub use error::FormatError;
+#[cfg(feature = "fs")]
+pub use file::FileBookmark;
 pub use format::BOOKMARK_FORMAT_VERSION;
 
 /// Persistent restart bookkeeping that limits growth of message versions.
@@ -88,6 +92,32 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// Use `conformance::bookmark` from a dev-dependency with the `conformance`
 /// feature to check an implementation's loads, replacements, and interruptions.
 /// Backend-specific crash tests must still establish durability.
+///
+/// # Examples
+///
+/// The `fs` feature provides [`FileBookmark`]. Its constructor accepts the
+/// application's way to run blocking work; this Tokio example supplies
+/// `spawn_blocking`; Rumors requires this to be supplied because it does not
+/// itself depend on any async runtime.
+///
+/// ```
+/// # #[cfg(feature = "fs")]
+/// # {
+/// use std::io;
+///
+/// use rumors::{FileBookmark, Peer};
+///
+/// # async fn attach(peer: Peer<String>) {
+/// let bookmark = FileBookmark::new("peer.bookmark", |job| async move {
+///     tokio::task::spawn_blocking(job)
+///         .await
+///         .map_err(io::Error::other)
+/// });
+/// let peer = peer.bookmark(bookmark).await;
+/// # let _ = peer;
+/// # }
+/// # }
+/// ```
 ///
 /// A slow store delays synchronization or completion when accepting a
 /// retirement. A session may already have exchanged its connection preamble

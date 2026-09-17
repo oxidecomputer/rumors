@@ -52,8 +52,8 @@ mod tests;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use rand::rngs::StdRng;
 use rand::Rng;
+use rand_chacha::ChaChaRng;
 
 use crate::codec::Base;
 use crate::oracle;
@@ -314,7 +314,7 @@ fn cell_at(x: Dyadic, level: u32) -> usize {
 /// fresh, `e' ≰` any other live stamp, and dominates nothing new, because the
 /// id owns its region exclusively) — so the causal order is identical to
 /// `add-one`'s and `grow`'s. That invariance is what the replay exercises.
-pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
+pub(crate) fn event(i: &Id, e: Event, rng: &mut ChaChaRng) -> Event {
     let level = id_res(i);
     let owned = owned_cells(i, level);
     // Per-cell bump, keyed by cell index at the id's resolution: each owned
@@ -326,9 +326,9 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
         .enumerate()
         .map(|(n, &c)| {
             let amount = if n == 0 {
-                rng.gen_range(1..=3) // first owned cell: strictly positive
+                rng.random_range(1..=3) // first owned cell: strictly positive
             } else {
-                rng.gen_range(0..=3) // any other owned cell: 0 leaves it untouched (partial inflation)
+                rng.random_range(0..=3) // any other owned cell: 0 leaves it untouched (partial inflation)
             };
             (c, amount)
         })
@@ -368,7 +368,7 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
 /// nonempty is stronger than §4 — which permits the empty `peek` split — but a
 /// child handed an empty id could never advance, diverging from the impl; the
 /// replay needs both children live.)
-pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
+pub(crate) fn fork(i: &Id, rng: &mut ChaChaRng) -> (Id, Id) {
     let res = id_res(i);
     // Deal out the region's pieces at its own resolution; if it is a single
     // piece, bisect it.
@@ -389,7 +389,7 @@ pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
     // pinned left and `hi` right so both halves are nonempty (`lo != hi`, the
     // region having ≥ 2 pieces at `level`).
     let mut left: std::collections::HashMap<usize, bool> =
-        owned.iter().map(|&c| (c, rng.gen())).collect();
+        owned.iter().map(|&c| (c, rng.random())).collect();
     left.insert(lo, true);
     left.insert(hi, false);
     let left = Rc::new(left);
@@ -676,13 +676,13 @@ impl FunctionClock {
         }
     }
 
-    pub(crate) fn tick(&mut self, rng: &mut StdRng) {
+    pub(crate) fn tick(&mut self, rng: &mut ChaChaRng) {
         self.ev = event(&self.id, self.ev.clone(), rng);
     }
 
     /// Split off a child; `self` keeps the left half, the child takes the right
     /// (mirroring the crate's fork, which returns the child and keeps `self`).
-    pub(crate) fn fork(&mut self, rng: &mut StdRng) -> FunctionClock {
+    pub(crate) fn fork(&mut self, rng: &mut ChaChaRng) -> FunctionClock {
         let (left, right) = fork(&self.id, rng);
         self.id = left;
         FunctionClock {
@@ -708,7 +708,11 @@ impl FunctionClock {
     /// Reconcile two clocks: merge events to their LUB, union ids, re-split
     /// the union. The disjointness scan runs at the ids' tracked ceilings,
     /// which resolve both exactly.
-    pub(crate) fn sync(&mut self, other: &mut FunctionClock, rng: &mut StdRng) -> Result<(), ()> {
+    pub(crate) fn sync(
+        &mut self,
+        other: &mut FunctionClock,
+        rng: &mut ChaChaRng,
+    ) -> Result<(), ()> {
         let g = self.id.res_ceiling().max(other.id.res_ceiling());
         if disjoint(&self.id, &other.id, g) {
             let merged = join(self.ev.clone(), other.ev.clone());
@@ -724,13 +728,13 @@ impl FunctionClock {
     }
 
     /// Advance, then snapshot the event to transmit.
-    pub(crate) fn send(&mut self, rng: &mut StdRng) -> Event {
+    pub(crate) fn send(&mut self, rng: &mut ChaChaRng) -> Event {
         self.tick(rng);
         self.ev.clone()
     }
 
     /// Merge a received event, then advance.
-    pub(crate) fn receive(&mut self, msg: Event, rng: &mut StdRng) {
+    pub(crate) fn receive(&mut self, msg: Event, rng: &mut ChaChaRng) {
         self.ev = event(&self.id, join(self.ev.clone(), msg), rng);
     }
 }

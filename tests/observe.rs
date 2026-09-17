@@ -17,7 +17,7 @@ use ciborium::value::Value;
 use futures::FutureExt;
 use proptest::prelude::*;
 use rand::SeedableRng;
-use rand::rngs::SmallRng;
+use rand_chacha::ChaChaRng;
 use rumors::observe::{
     Direction, Observer, Role, SessionErrorKind, SessionInfo, SessionKind, SessionObserver,
     SessionOutcome, StreamId, StreamInfo, StreamObserver,
@@ -333,7 +333,7 @@ fn cancelled_session_reports_cancellation_once() {
 fn seeded(observer: Option<&Arc<Recording>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
     // The wire-neutrality test runs two separate networks. A fixed network ID
     // makes their captures comparable; peers from those runs never interact.
-    let mut peer = Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).sync_window_floor();
+    let mut peer = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0)).sync_window_floor();
     if let Some(observer) = observer {
         peer = peer.observe(observer.clone());
     }

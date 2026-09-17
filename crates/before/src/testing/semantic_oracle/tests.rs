@@ -11,8 +11,8 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use proptest::prelude::*;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 use super::{
     descend, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
@@ -59,7 +59,7 @@ fn grid_for(parts: &[u32]) -> u32 {
 fn replay(
     seeds: usize,
     ops: &[Op],
-    rng: &mut StdRng,
+    rng: &mut ChaChaRng,
 ) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<FunctionClock>) {
     let mut im: Vec<Clock> = (0..seeds).map(|_| Clock::seed()).collect();
     let mut or: Vec<oracle::Clock> = (0..seeds).map(|_| oracle::Clock::seed()).collect();
@@ -180,7 +180,7 @@ proptest! {
     /// seed makes a failure replay deterministically.
     #[test]
     fn replay_matches_across_references(ops in world_strategy(), seed in any::<u64>()) {
-        let (im, or, se) = replay(1, &ops, &mut StdRng::seed_from_u64(seed));
+        let (im, or, se) = replay(1, &ops, &mut ChaChaRng::seed_from_u64(seed));
         let n = im.len();
         // One granularity for all the function-space scans: the finest boundary
         // actually present in the population's own closures (probed, then
@@ -287,7 +287,7 @@ proptest! {
         // Children refine ≤ 2 levels below the id's depth; scan deep enough to resolve them.
         let g = (id_depth(&p) + 3).min(GRID_N);
         let i = lift_id(p);
-        let (l, r) = super::fork(&i, &mut StdRng::seed_from_u64(seed));
+        let (l, r) = super::fork(&i, &mut ChaChaRng::seed_from_u64(seed));
         prop_assert!(disjoint(&l, &r, g), "fork halves overlap");
         prop_assert!(id_eq(&sum(l.clone(), r.clone()), &i, g), "fork halves do not recombine");
         prop_assert_ne!(id_res(&l), 0, "left half is empty or all"); // both halves nonempty:
@@ -303,7 +303,7 @@ proptest! {
         let g = grid_for(&[id_depth(&p), ev_depth(&e) + 1]);
         let id = lift_id(p);
         let before = lift_ev(e);
-        let after = event(&id, before.clone(), &mut StdRng::seed_from_u64(seed));
+        let after = event(&id, before.clone(), &mut ChaChaRng::seed_from_u64(seed));
         let mut advanced = false;
         for k in 0..(1u64 << g) {
             let x = Dyadic::grid(k, g);
@@ -555,7 +555,7 @@ fn grid_cap_is_never_reached() {
     let max_d = AtomicU32::new(0);
     runner
         .run(&(world_strategy(), any::<u64>()), |(ops, seed)| {
-            let (_, or, se) = replay(1, &ops, &mut StdRng::seed_from_u64(seed));
+            let (_, or, se) = replay(1, &ops, &mut ChaChaRng::seed_from_u64(seed));
             for c in &or {
                 max_d.fetch_max(ev_depth(&c.version()), AOrd::Relaxed);
                 max_d.fetch_max(id_depth(c.party()), AOrd::Relaxed);
@@ -600,7 +600,7 @@ fn fork_chain_raises_resolution_one_level_per_fork() {
         u32::try_from(MAX_TRACE_OPS).expect("small cap") <= GRID_N,
         "the grid ceiling no longer clears the deepest in-support bisection"
     );
-    let mut rng = StdRng::seed_from_u64(0);
+    let mut rng = ChaChaRng::seed_from_u64(0);
     let mut kept = FunctionClock::seed();
     for k in 1..=16u32 {
         let child = kept.fork(&mut rng);

@@ -37,7 +37,7 @@ use std::sync::{Arc, Mutex};
 use before::Party;
 use proptest::prelude::*;
 use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
+use rand_chacha::ChaChaRng;
 use rumors::error::{Mismatch, ProtocolViolation};
 use rumors::{Bookmark, BookmarkIo, Error, Network, Peer, Retire, Rumors, Snapshot, Version};
 
@@ -58,7 +58,7 @@ type Msg = u64;
 /// Each universe the simulation creates draws its [`Network`] identifier
 /// from this stream, so the `(min_ticks, network)` tie-break between fresh
 /// peers is the same on every run and every replay of a plan. The stream is
-/// ChaCha8, whose output for a seed is fixed across platforms and `rand`
+/// ChaCha, whose output for a seed is fixed across platforms and `rand`
 /// versions; the reconstructed tests pin paths derived from it.
 const NETWORK_SEED: u64 = 0;
 
@@ -284,7 +284,7 @@ struct World {
     protected: BTreeMap<Network, Version>,
     /// The source of every universe's [`Network`] identifier, seeded with
     /// [`NETWORK_SEED`] so the tie-break between fresh peers replays.
-    rng: ChaCha8Rng,
+    rng: ChaChaRng,
     /// Every network this world has seeded, to assert they are pairwise
     /// distinct: two universes sharing an identifier would gossip as one
     /// network while holding incomparable histories.
@@ -347,7 +347,7 @@ impl World {
             emissions: EmissionLog::default(),
             next_seq: 0,
             protected: BTreeMap::new(),
-            rng: ChaCha8Rng::seed_from_u64(NETWORK_SEED),
+            rng: ChaChaRng::seed_from_u64(NETWORK_SEED),
             networks: BTreeSet::new(),
             path: Vec::new(),
             redacted: BTreeMap::new(),
@@ -1543,7 +1543,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     block_on(async move {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
-        let a = Peer::<Msg>::seed_rng(&mut ChaCha8Rng::seed_from_u64(NETWORK_SEED))
+        let a = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(NETWORK_SEED))
             .sync_window_floor()
             .bookmark(bm_a())
             .await
@@ -1665,7 +1665,7 @@ fn run_reliable_plan(plan: Plan) -> World {
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
-    let network = Peer::<Msg>::seed_rng(&mut ChaCha8Rng::seed_from_u64(NETWORK_SEED))
+    let network = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(NETWORK_SEED))
         .sync_window_floor()
         .network();
     let mut version = Version::new();

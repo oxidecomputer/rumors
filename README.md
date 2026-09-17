@@ -263,6 +263,7 @@ Every feature is off by default.
 - `conformance`: the public validation suite for caller-built `link`
   instantiations (the `conformance::link` module). Enable it from a
   dev-dependency; it is safe, though pointless, in an application.
+- `fs`: `FileBookmark` and its caller-driven blocking-I/O bridge.
 - `test-internals`: this crate's own test scaffolding, enabled through
   its self-referential dev-dependency. Never enable it in an application.
 

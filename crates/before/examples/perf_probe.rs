@@ -9,9 +9,9 @@
 //! Usage: cargo run -p before --profile bench --example perf_probe --features oracle [n]
 
 use before::{Clock, Party, Version};
-use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
+use rand_chacha::ChaChaRng;
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -24,8 +24,8 @@ struct Plan {
     ticks: Vec<u32>,
 }
 
-fn plan(rng: &mut StdRng, n: usize, groups: u8) -> Plan {
-    let schedule: Vec<usize> = (0..n - 1).map(|i| rng.gen_range(0..=i)).collect();
+fn plan(rng: &mut ChaChaRng, n: usize, groups: u8) -> Plan {
+    let schedule: Vec<usize> = (0..n - 1).map(|i| rng.random_range(0..=i)).collect();
     let mut order: Vec<usize> = (0..n).collect();
     order.shuffle(rng);
     let mut label = vec![DISCARD; n];
@@ -33,13 +33,13 @@ fn plan(rng: &mut StdRng, n: usize, groups: u8) -> Plan {
         label[m] = g as u8;
     }
     for &m in &order[groups as usize..] {
-        label[m] = if rng.gen_bool(0.33) {
+        label[m] = if rng.random_bool(0.33) {
             DISCARD
         } else {
-            rng.gen_range(0..groups)
+            rng.random_range(0..groups)
         };
     }
-    let ticks: Vec<u32> = (0..n).map(|_| rng.gen_range(0..4)).collect();
+    let ticks: Vec<u32> = (0..n).map(|_| rng.random_range(0..4)).collect();
     Plan {
         schedule,
         label,
@@ -219,9 +219,9 @@ fn main() {
 
     // Same salts as benches/clock.rs: tick uses salt 1 (1 group), join salt 3
     // (2 groups).
-    let mut r1 = StdRng::seed_from_u64(SEED.wrapping_add(1));
+    let mut r1 = ChaChaRng::seed_from_u64(SEED.wrapping_add(1));
     let p1 = plan(&mut r1, n, 1);
-    let mut r3 = StdRng::seed_from_u64(SEED.wrapping_add(3));
+    let mut r3 = ChaChaRng::seed_from_u64(SEED.wrapping_add(3));
     let p3 = plan(&mut r3, n, 2);
 
     let tick_clock = impl_clocks(&p1, 1).pop().unwrap();
@@ -254,7 +254,7 @@ fn main() {
         println!("version_tick   {t:>12.1} ns/op ({i} iters)");
     }
     if run("holetick") {
-        let mut rh = StdRng::seed_from_u64(SEED.wrapping_add(1));
+        let mut rh = ChaChaRng::seed_from_u64(SEED.wrapping_add(1));
         let ph = plan(&mut rh, n, 1);
         let (hole_party, hole_version) = hole_pair(&ph);
         println!(
@@ -266,7 +266,7 @@ fn main() {
         println!("version_holetick {t:>10.1} ns/op ({i} iters)");
     }
     if run("holeproj") {
-        let mut rh = StdRng::seed_from_u64(SEED.wrapping_add(1));
+        let mut rh = ChaChaRng::seed_from_u64(SEED.wrapping_add(1));
         let ph = plan(&mut rh, n, 1);
         let (hole_party, hole_version) = hole_pair(&ph);
         let (i, t) = time_loop(budget, || {
@@ -275,7 +275,7 @@ fn main() {
         println!("version_holeproj {t:>10.1} ns/op ({i} iters)");
     }
     if run("holecmp") {
-        let mut rh = StdRng::seed_from_u64(SEED.wrapping_add(1));
+        let mut rh = ChaChaRng::seed_from_u64(SEED.wrapping_add(1));
         let ph = plan(&mut rh, n, 1);
         let (hole_party, hole_version) = hole_pair(&ph);
         // A second, byte-identical pair in distinct buffers: the

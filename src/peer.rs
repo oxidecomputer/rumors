@@ -8,7 +8,7 @@ use std::{
 };
 
 use before::Party;
-use rand::{RngCore, rngs::OsRng};
+use rand::RngCore;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
@@ -427,11 +427,11 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     /// with each other. The payload type must follow the
     /// [payload contract](crate#choosing-a-payload-type).
     pub fn seed() -> Self {
-        Self::seed_rng(&mut OsRng)
+        Self::seed_rng(&mut rand::rng())
     }
 
     /// Like [`seed`](Self::seed), but draws the universe's [`Network`]
-    /// identifier from a caller-supplied RNG instead of [`OsRng`].
+    /// identifier from a caller-supplied RNG.
     #[doc(hidden)]
     pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
         Self {

@@ -9,8 +9,8 @@
 
 mod common;
 
-use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
 
 use crate::common::gossip_snapshot::{capture_gossip, capture_session, observed};
@@ -37,7 +37,7 @@ fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumor
             .target_message_size(right_target)
             .into_rumors();
 
-        let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
+        let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..DIVERGENT_PER_SIDE {
             left.send(rng.next_u64()).unwrap();
             right.send(rng.next_u64()).unwrap();
@@ -82,7 +82,7 @@ fn seeded_diverged_pair(
     (left_messages, right_messages): (usize, usize),
 ) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
-        let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
             .sync_window_floor()
             .target_message_size(left_target)
             .into_rumors();
@@ -94,7 +94,7 @@ fn seeded_diverged_pair(
             .target_message_size(right_target)
             .into_rumors();
 
-        let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
+        let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..left_messages {
             left.send(rng.next_u64()).unwrap();
         }
@@ -271,10 +271,10 @@ fn nonzero_minimum_binds_both_encoders() {
 /// A deterministically seeded, populated provider: the same corpus for
 /// every bootstrap capture, so their supply-frame counts are comparable.
 fn seeded_provider() -> Rumors<u64> {
-    let provider = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+    let provider = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
+    let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
     for _ in 0..DIVERGENT_PER_SIDE {
         provider.send(rng.next_u64()).unwrap();
     }

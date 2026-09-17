@@ -8,18 +8,17 @@
 
 use proptest::test_runner::{RngAlgorithm, TestRng};
 use rand::{RngCore, SeedableRng};
-use rand_chacha::ChaCha8Rng;
+use rand_chacha::ChaChaRng;
 
 /// A deterministic 64-bit word stream from a fixed seed.
 ///
-/// Backed by [`ChaCha8Rng`], whose output is documented-portable across
-/// platforms (unlike `rand`'s `StdRng`, which explicitly reserves the
-/// right to change), and seeded through `rand_core` 0.6's `seed_from_u64`
-/// expansion, which that version documents as value-stable — so a
+/// Backed by [`ChaChaRng`], whose output is documented-portable across
+/// platforms (unlike `rand`'s `StdRng`, which explicitly reserves the right to
+/// change), and seeded through `seed_from_u64`'s documented expansion, so a
 /// committed seed constant names a corpus, not a session, and a major
 /// `rand_core` bump is a deliberate corpus-regeneration event.
 pub(crate) fn word_stream(seed: u64) -> impl FnMut() -> u64 {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut rng = ChaChaRng::seed_from_u64(seed);
     move || rng.next_u64()
 }
 

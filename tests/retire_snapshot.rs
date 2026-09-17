@@ -26,22 +26,10 @@
 
 mod common;
 
-use rand::{SeedableRng as _, rngs::SmallRng};
 use rumors::{Peer, Retire, Rumors};
 
-use crate::common::gossip_snapshot::{capture_session, observed};
+use crate::common::gossip_snapshot::{capture_session, observed, seeded};
 use crate::common::wire::bootstrap_fork;
-
-/// A seed universe from a fixed RNG, so the [`rumors::Network`] id and every
-/// party forked from it are deterministic and these captures stay reproducible.
-///
-/// The retiree is always a [`bootstrap_fork`] of this seed: a genuine disjoint
-/// originator, which is what retirement reclaims.
-fn seeded() -> Rumors<u64> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
-        .sync_window_floor()
-        .into_rumors()
-}
 
 /// Capture one successful retire: `retiree` runs [`Peer::retire`] (party B)
 /// while `absorber` drives `gossip` (party A), reconciling content and then

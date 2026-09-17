@@ -28,7 +28,7 @@
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::Zero;
 use rand::SeedableRng;
-use rand_chacha::ChaCha12Rng;
+use rand_chacha::ChaChaRng;
 
 use crate::count::{
     bit_window, version_leaf_count, PartyCounts, VersionCounts, MIN_PARTY_BITS, MIN_VERSION_BITS,
@@ -109,7 +109,7 @@ enum Mode {
 /// through splitmix64 (a fixed, documented expansion — no entropy from
 /// time or the OS anywhere), so any cell replays exactly and cells are
 /// independent of execution order.
-pub fn cell_rng(base_seed: u64, op: &str, size: usize, index: usize) -> ChaCha12Rng {
+pub fn cell_rng(base_seed: u64, op: &str, size: usize, index: usize) -> ChaChaRng {
     let mut h = base_seed ^ 0x9e37_79b9_7f4a_7c15;
     let mut mix = |v: u64| {
         h ^= v;
@@ -127,7 +127,7 @@ pub fn cell_rng(base_seed: u64, op: &str, size: usize, index: usize) -> ChaCha12
         s = splitmix64(s);
         chunk.copy_from_slice(&s.to_le_bytes());
     }
-    ChaCha12Rng::from_seed(seed)
+    ChaChaRng::from_seed(seed)
 }
 
 /// One splitmix64 round: the standard finalizer-quality mixer.
@@ -209,7 +209,7 @@ impl VersionSampler {
     /// Draw one version uniformly from the canonical versions whose packed
     /// encoding is exactly `bytes` bytes. `None` if the space is empty
     /// (it is not, for any `bytes >= 1` within the table).
-    pub fn sample_bytes(&self, bytes: usize, rng: &mut ChaCha12Rng) -> Option<VersionDraw> {
+    pub fn sample_bytes(&self, bytes: usize, rng: &mut ChaChaRng) -> Option<VersionDraw> {
         let window = bit_window(bytes, MIN_VERSION_BITS);
         let total: BigUint = window.clone().map(|m| self.counts.whole(m)).sum();
         if total.is_zero() {
@@ -253,7 +253,7 @@ impl VersionSampler {
         mode: Mode,
         sink: &mut BitSink,
         walk: &mut HeightWalk,
-        rng: &mut ChaCha12Rng,
+        rng: &mut ChaChaRng,
     ) -> bool {
         let leaf_w = match mode {
             Mode::NoLeaf => BigUint::zero(),
@@ -401,7 +401,7 @@ impl PartySampler {
 
     /// Draw one party uniformly from the canonical parties whose packed
     /// encoding is exactly `bytes` bytes.
-    pub fn sample_bytes(&self, bytes: usize, rng: &mut ChaCha12Rng) -> Option<PartyDraw> {
+    pub fn sample_bytes(&self, bytes: usize, rng: &mut ChaChaRng) -> Option<PartyDraw> {
         let window = bit_window(bytes, MIN_PARTY_BITS);
         let total: BigUint = window.clone().map(|m| self.counts.whole(m)).sum();
         if total.is_zero() {
@@ -428,7 +428,7 @@ impl PartySampler {
     /// Emit one uniform id subtree of exactly `bits` bits into `sink`.
     /// `no_terminal` excludes the bare terminal (the sibling of a terminal,
     /// or a position whose terminal mass was already drawn away).
-    fn subtree(&self, bits: usize, no_terminal: bool, sink: &mut BitSink, rng: &mut ChaCha12Rng) {
+    fn subtree(&self, bits: usize, no_terminal: bool, sink: &mut BitSink, rng: &mut ChaChaRng) {
         let terminal_w = if bits == 2 && !no_terminal {
             BigUint::from(1u32)
         } else {

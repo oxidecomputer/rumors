@@ -36,9 +36,9 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Rumors, Version};
 use sha3::Digest;
@@ -444,7 +444,7 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
+    let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork(&left);
 
@@ -461,19 +461,19 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
+    let mut rng = ChaChaRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork(&left);
 
     let versions: Vec<Version> = left.snapshot().versions().cloned().collect();
     let mut shuffled = versions;
-    shuffled.shuffle(&mut SmallRng::seed_from_u64(0x84f6_7932_1265_9eec));
+    shuffled.shuffle(&mut ChaChaRng::seed_from_u64(0x84f6_7932_1265_9eec));
     left.redact_all(&shuffled[..REDACT_PER_SIDE]);
     right.redact_all(&shuffled[REDACT_PER_SIDE..2 * REDACT_PER_SIDE]);
     (left, right)
 }
 
-fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut SmallRng) {
+fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..count).map(|_| rng.next_u64())).unwrap();
 }
 
@@ -545,7 +545,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         rumors.redact_all(&losers);
     };
 
-    let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+    let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let right = bootstrap_fork(&left);
@@ -639,7 +639,7 @@ fn trace_empty_session() {
     let left = Peer::seed()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
-    let mut rng = SmallRng::seed_from_u64(0x1234_5678_9abc_def0);
+    let mut rng = ChaChaRng::seed_from_u64(0x1234_5678_9abc_def0);
     send_random(&left, 64, &mut rng);
     let right = bootstrap_fork(&left);
     let trace = traced_session(left.clone(), right.clone());

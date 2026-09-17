@@ -28,9 +28,9 @@
 pub mod sidecar;
 
 use before::{oracle, Clock, Party, Version};
-use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rand_chacha::ChaChaRng;
 
 /// Fixed RNG seed: identical, reproducible inputs on every run.
 pub const SEED: u64 = 0x1737_C10C_C0DE;
@@ -64,11 +64,11 @@ pub struct Plan {
 /// Every group is guaranteed at least one member, so each joins into a nonempty
 /// tree; the rest are spread across the groups, with about a third discarded to punch
 /// holes (structure) into the result.
-pub fn plan(rng: &mut StdRng, n: usize, groups: u8) -> Plan {
+pub fn plan(rng: &mut ChaChaRng, n: usize, groups: u8) -> Plan {
     assert!((1..=2).contains(&groups), "1 or 2 preserve groups");
     assert!(n >= groups as usize, "need at least one member per group");
 
-    let schedule: Vec<usize> = (0..n - 1).map(|i| rng.gen_range(0..=i)).collect();
+    let schedule: Vec<usize> = (0..n - 1).map(|i| rng.random_range(0..=i)).collect();
 
     // Hand the first `groups` shuffled members one-each to guarantee non-emptiness, then
     // label the remainder: a third discarded, the rest spread across the groups.
@@ -79,14 +79,14 @@ pub fn plan(rng: &mut StdRng, n: usize, groups: u8) -> Plan {
         label[m] = g as u8;
     }
     for &m in &order[groups as usize..] {
-        label[m] = if rng.gen_bool(0.33) {
+        label[m] = if rng.random_bool(0.33) {
             DISCARD
         } else {
-            rng.gen_range(0..groups)
+            rng.random_range(0..groups)
         };
     }
 
-    let ticks: Vec<u32> = (0..n).map(|_| rng.gen_range(0..4)).collect();
+    let ticks: Vec<u32> = (0..n).map(|_| rng.random_range(0..4)).collect();
     Plan {
         schedule,
         label,

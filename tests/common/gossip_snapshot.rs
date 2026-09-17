@@ -22,13 +22,15 @@ use std::task::{Context, Poll};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 use rumors::link::{Connector, Done, Link, MemoryAcceptor, MemoryConnector};
 use rumors::observe::{
     Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
 use rumors::{
-    Rumors,
+    Peer, Rumors,
     testing::{
         HookCapture, HookStream, LinkCapture, assert_items_account_for, render_hook_capture,
         stream_label,
@@ -40,6 +42,12 @@ use crate::common::wire::block_on;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+
+/// Create a peer from the snapshots' stable deterministic random stream.
+pub fn seeded<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static>() -> Rumors<T> {
+    let mut rng = ChaChaRng::seed_from_u64(0);
+    Peer::seed_rng(&mut rng).sync_window_floor().into_rumors()
+}
 
 /// Short byte-payload collections, including empty sets, for wire tests.
 pub fn payloads() -> impl Strategy<Value = Vec<Vec<u8>>> + Clone {
