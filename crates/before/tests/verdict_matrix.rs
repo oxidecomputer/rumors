@@ -17,7 +17,7 @@ use before::meter::Encoding;
 use before::{
     Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };
-use dashu_int::UBig;
+use num_bigint::BigUint;
 
 // ─── the roster-derived operand pool ─────────────────────────────────────────
 
@@ -215,7 +215,7 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             vec![
                 Shape::PlateauPuncture.build2(10, 3).version(),
                 Shape::PunctureProduct
-                    .build_product(&UBig::from(3u8), &UBig::from(5u8))
+                    .build_product(&BigUint::from(3u8), &BigUint::from(5u8))
                     .version(),
             ],
             vec![],

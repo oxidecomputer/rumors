@@ -10,28 +10,28 @@ use crate::codec::{self, Base, BitCursor, BitsBuf, SliceCursor};
 use super::DsiCursor;
 
 /// The gamma reader decodes the same value from the same bits as the
-/// committed decoder at and across the machine-word seam.
+/// committed decoder across the machine-word boundary.
 ///
-/// Witnessed at the largest machine-arm code (`k = 63`), the first
-/// wide-arm code (`k = 64`), the next (`k = 65`), and far-wide codes
+/// Witnessed at the largest machine-word code (`k = 63`), the first
+/// big-integer code (`k = 64`), the next (`k = 65`), and wider codes
 /// (`k ≈ 100`) — widths a reader passing on narrow values alone cannot
 /// fake, since our coding has no value cap while dsi-bitstream's own
 /// `read_gamma` stops at `u64`.
 #[test]
 fn gamma_reader_matches_decoder_across_the_word_seam() {
-    use dashu_int::UBig;
+    use num_bigint::BigUint;
 
-    let wide = |p: u32| Base::from(UBig::ONE << p as usize);
+    let wide = |p: u32| Base::from(BigUint::ONE << p as usize);
     let values: Vec<Base> = vec![
         Base::from(0u64),
         Base::from(1u64),
         Base::from(30u64),        // last table-tier value
         Base::from(31u64),        // first past the 9-bit table
-        Base::from(u64::MAX - 1), // k = 63: the machine arm's ceiling
-        Base::from(u64::MAX),     // k = 64: the first wide-arm code
+        Base::from(u64::MAX - 1), // k = 63: the machine-word ceiling
+        Base::from(u64::MAX),     // k = 64: the first big-integer code
         wide(64),                 // k = 65
         wide(100),                // far wide
-        Base::from((UBig::ONE << 100usize) + 12345u32),
+        Base::from((BigUint::ONE << 100usize) + 12345u32),
     ];
     for value in &values {
         let mut bits = BitsBuf::new();
@@ -70,17 +70,17 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
 /// stored rate, so a silenced or partial skip tap clears every slack
 /// floor and is otherwise caught only by an argmax ranking table. The
 /// pin is two-sided — an undercount and an overcount both move it —
-/// and covers both gamma arms (machine-word and wide).
+/// and covers both gamma paths (machine-word and big-integer).
 #[cfg(feature = "scan-meter")]
 #[test]
 fn skip_int_meters_exactly_the_code_width_read_int_pays() {
-    use dashu_int::UBig;
+    use num_bigint::BigUint;
     for value in [
         Base::from(0u64),
         Base::from(30u64),
-        Base::from(u64::MAX - 1), // k = 63: the machine arm's ceiling
-        Base::from(u64::MAX),     // k = 64: the first wide-arm code
-        Base::from(UBig::ONE << 100usize),
+        Base::from(u64::MAX - 1), // k = 63: the machine-word ceiling
+        Base::from(u64::MAX),     // k = 64: the first big-integer code
+        Base::from(BigUint::ONE << 100usize),
     ] {
         let mut bits = BitsBuf::new();
         codec::encode_int(&mut bits, &value);
@@ -113,12 +113,12 @@ fn skip_int_meters_exactly_the_code_width_read_int_pays() {
 /// widths on both sides of the word seam.
 #[test]
 fn truncated_codes_reject_at_every_cut_point() {
-    use dashu_int::UBig;
+    use num_bigint::BigUint;
     for value in [
         Base::from(0u64),
         Base::from(500u64),
         Base::from(u64::MAX),
-        Base::from(UBig::ONE << 100usize),
+        Base::from(BigUint::ONE << 100usize),
     ] {
         let mut bits = BitsBuf::new();
         codec::encode_int(&mut bits, &value);

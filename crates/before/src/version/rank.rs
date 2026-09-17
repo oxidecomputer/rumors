@@ -142,11 +142,6 @@ use suanpan::Accumulator;
 use crate::codec::Base;
 use crate::error::{Decode, ParseRank};
 
-mod num;
-use num::{arm_ceiling_bits, Num};
-#[cfg(test)]
-pub(crate) use num::{ceiling as arm_ceiling, BACKEND_CAPACITY_BITS};
-
 /// The causal rank of a [`Version`](crate::Version) as an exact dyadic
 /// rational.
 ///
@@ -242,12 +237,7 @@ pub struct Rank {
     /// The numerator. Normalized: odd, or zero with `exp` zero, so each
     /// value has exactly one representation.
     ///
-    /// Stored on the canonical arm of the two-arm [`Num`] (the backend
-    /// magnitude up to the backend's capacity, a raw limb vector past
-    /// it), so numerators wider than the backend can hold on a 32-bit
-    /// target are exact values, not panics; the [`num`] module doc
-    /// carries the arm dispatch and its invariants.
-    num: Num,
+    num: Base,
     /// The (binary) exponent of the denominator `2^exp`. Bounded by the
     /// event tree's depth, since each level halves the interval width.
     exp: u64,
@@ -268,7 +258,7 @@ impl Rank {
     /// assert_eq!(seven.rank() + Rank::ZERO, seven.rank());
     /// ```
     pub const ZERO: Rank = Rank {
-        num: Num::ZERO,
+        num: Base::ZERO,
         exp: 0,
     };
 
@@ -308,20 +298,11 @@ impl Rank {
             Ordering::Less => None,
             Ordering::Equal => Some(Rank::ZERO),
             Ordering::Greater => {
-                // Two exact routes, split by whether the backend can
-                // materialize the aligned operands (`Add`'s note carries
-                // the routing argument): the backend's shift-and-subtract
-                // wherever the aligned widths fit it, the accumulator
-                // route past that. A strictly positive difference cannot
-                // carry past its wider operand, so the backend route needs
-                // no width headroom beyond the operands' own.
                 let e = self.exp.max(other.exp);
-                if let (Num::Base(a), Num::Base(b)) = (&self.num, &other.num) {
-                    if backend_alignment_fits(a, self.exp, b, other.exp, e, 0) {
-                        let a = a.clone() << (e - self.exp);
-                        let b = b.clone() << (e - other.exp);
-                        return Some(Rank::from_raw(a - &b, e));
-                    }
+                if alignment_fits(self.exp, other.exp, e) {
+                    let a = self.num.clone() << (e - self.exp);
+                    let b = other.num.clone() << (e - other.exp);
+                    return Some(Rank::from_raw(a - &b, e));
                 }
                 let difference = accumulate(self, other, e, true);
                 debug_assert!(
@@ -498,13 +479,6 @@ impl Rank {
         decode_bytes(bytes)
     }
 
-    /// Whether this rank's numerator is stored on the wide arm, for the
-    /// test suites' canonicity assertions.
-    #[cfg(test)]
-    pub(crate) fn numerator_is_wide(&self) -> bool {
-        self.num.is_wide()
-    }
-
     /// The rank's value content in bits: `bits(num) + exp`.
     ///
     /// The meter denominator for `Rank` operands, which have no byte encoding:
@@ -527,7 +501,7 @@ impl Rank {
     /// It is **VERY IMPORTANT** that these not be exposed together, with the
     /// `from_raw` constructor, as this creates an affordance for constructing
     /// exponential serialization-size bombs.
-    pub(crate) fn raw_parts(&self) -> (&Num, u64) {
+    pub(crate) fn raw_parts(&self) -> (&Base, u64) {
         (&self.num, self.exp)
     }
 
@@ -542,25 +516,15 @@ impl Rank {
     /// `raw_parts` destructor, as this creates an affordance for constructing
     /// exponential serialization-size bombs.
     pub(crate) fn from_raw(num: Base, exp: u64) -> Self {
-        Rank::from_num(Num::from_base(num), exp)
-    }
-
-    /// [`from_raw`](Rank::from_raw) over either numerator arm.
-    ///
-    /// The shared normalization every raw `(numerator, exponent)`
-    /// producer — the folds, the decoder, the accumulator readout — lands
-    /// through, which also re-dispatches the stripped numerator onto its
-    /// canonical arm.
-    fn from_num(num: Num, exp: u64) -> Self {
         match num.trailing_zeros() {
             None => Rank {
-                num: Num::ZERO,
+                num: Base::ZERO,
                 exp: 0,
             },
             Some(tz) => {
                 let shift = tz.min(exp);
                 Rank {
-                    num: num.shr(shift),
+                    num: num >> shift,
                     exp: exp - shift,
                 }
             }
@@ -568,56 +532,16 @@ impl Rank {
     }
 }
 
-/// Whether the backend can materialize both aligned operands and the
-/// result at the common exponent `e`.
-///
-/// The routing predicate between the backend's shift-and-combine and the
-/// accumulator route, for rank addition and positive subtraction.
-///
-/// Three clauses, all width facts: each exponent gap must fit the
-/// backend's `usize` shift amount, and each aligned operand — plus
-/// `headroom` bits for the operation's possible carry (one for addition,
-/// none for subtraction) — must fit the backend's capacity. The routing is
-/// value-indistinguishable: both routes are exact, so this predicate moves
-/// cost, never results. On 64-bit targets the capacity clause is
-/// unreachable below allocatable memory and the gap clause below any
-/// honest exponent, so every rank that exists routes to the backend there;
-/// the accumulator route is live exactly where 32-bit targets need it, and
-/// under the test ceiling.
-fn backend_alignment_fits(
-    a: &Base,
-    a_exp: u64,
-    b: &Base,
-    b_exp: u64,
-    e: u64,
-    headroom: u64,
-) -> bool {
-    let fits = |num: &Base, exp: u64| {
-        let gap = e - exp;
-        let aligned = if num.bits() == 0 {
-            0
-        } else {
-            num.bits().saturating_add(gap).saturating_add(headroom)
-        };
-        usize::try_from(gap).is_ok() && aligned <= arm_ceiling_bits()
-    };
-    fits(a, a_exp) && fits(b, b_exp)
+/// Whether both exponent gaps can be passed to the big-integer shifts.
+fn alignment_fits(a_exp: u64, b_exp: u64, common_exp: u64) -> bool {
+    usize::try_from(common_exp - a_exp).is_ok() && usize::try_from(common_exp - b_exp).is_ok()
 }
 
 /// Combine `lhs ± rhs` at the common exponent `e` through the streaming
 /// accumulator.
 ///
-/// The route on which no aligned numerator is ever materialized in the
-/// backend, so the only width bounds are digit positions and allocatable
-/// memory itself. Digit positions are `usize`-indexed — a panic from
-/// gaps at 2³⁷ on a 32-bit target — but sit orders of magnitude above
-/// any honest exponent: a decoded exponent is counted from fraction bits
-/// actually read, under 2³⁵ from a whole 32-bit address space, and a
-/// version-derived exponent is bounded by its tree's stored bit length.
-///
 /// The buffer is reserved to the widest aligned operand up front, so the
-/// peak transient is the buffer, not a growth-doubling of it; the readout
-/// streams back as limbs and lands on the canonical arm.
+/// peak transient is the buffer, not a growth-doubling of it.
 fn accumulate(lhs: &Rank, rhs: &Rank, e: u64, subtract_rhs: bool) -> Rank {
     let mut acc = Accumulator::new();
     let aligned_bits = |rank: &Rank| {
@@ -633,14 +557,13 @@ fn accumulate(lhs: &Rank, rhs: &Rank, e: u64, subtract_rhs: bool) -> Rank {
     }
     lhs.num.fold_into(&mut acc, e - lhs.exp, false);
     rhs.num.fold_into(&mut acc, e - rhs.exp, subtract_rhs);
-    let (sign, limbs) = acc.sign_limbs();
+    let (sign, num) = Base::from_accumulator(&acc);
     debug_assert_ne!(
         sign,
         Ordering::Less,
         "rank addition and pre-checked subtraction are nonnegative"
     );
-    drop(acc);
-    Rank::from_num(Num::from_limbs(limbs), e)
+    Rank::from_raw(num, e)
 }
 
 /// Emit the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ` (the module doc
@@ -649,16 +572,14 @@ fn accumulate(lhs: &Rank, rhs: &Rank, e: u64, subtract_rhs: bool) -> Rank {
 /// `pub(crate)` alongside [`Rank::encode`] so the ranked view's fused emission
 /// can emit straight from its rank fold's `(numerator, exponent)` output, with
 /// no walk beyond the fold's own.
-pub(crate) fn encode_parts(num: &Num, exp: u64) -> Vec<u8> {
+pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
     // The integral part, biased so zero has a (smallest) codeword:
     // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1. The shift is total at any
-    // exponent — both numerator arms clamp a shift past their width — so
+    // exponent — right shift clamps past the value's width — so
     // a fraction-heavy rank whose `exp` outruns a 32-bit `usize` (from
     // ~604 MB of decoded input) floors to zero here exactly as any other
-    // sub-unit value does; the bias re-dispatches arms, so an integral
-    // part carried past the backend's last representable bit is emitted
-    // from the wide arm rather than handed to the backend.
-    let biased = num.clone().shr(exp).plus_one();
+    // sub-unit value does.
+    let biased = (num.clone() >> exp).plus_one();
     let w = biased.bits();
     let rho = u64::from(63 - w.leading_zeros());
     let groups = exp.div_ceil(FRACTION_GROUP_BITS);
@@ -770,11 +691,7 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
         w = w << 1 | u64::from(src.bit()?);
     }
     // The biased integral m: its implied leading bit, then w − 1 stream bits,
-    // sunk MSB-first and unbiased at materialization. The materialization
-    // lands on the numerator's canonical arm, so a mantissa wider than the
-    // backend's capacity (reachable on a 32-bit target from ~512 MiB of
-    // input, well inside its address space) is a value, never a backend
-    // panic.
+    // sunk MSB-first and unbiased at materialization.
     let mut mantissa = BitSink::new();
     mantissa.push(true);
     for _ in 0..w - 1 {
@@ -831,18 +748,13 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
         // `integral << exp` spelling is not available at every scale this
         // decoder accepts: on a 32-bit target `exp` outruns `usize` from
         // ~604 MB of input. Leading zero bytes are stripped before
-        // materializing because the backend sizes its buffer from the
-        // image's byte count, and a fraction opening with zero expansion
-        // bits would otherwise pay capacity for value it does not carry.
-        // The materialization lands on the canonical arm: an image wider
-        // than the backend's capacity (~604 MB of input on a 32-bit
-        // target) assembles as the wide arm's limbs, bounded only by
-        // memory.
+        // materializing so the allocation reflects the value rather than
+        // zero padding in its byte image.
         let mut image = integral.to_be_bytes();
         image.extend_from_slice(&groups);
         drop(groups);
         let lead = image.iter().take_while(|&&byte| byte == 0).count();
-        Num::materialize_be(&image[lead..], pad)
+        Base::materialize_be(&image[lead..], pad)
     };
     debug_assert!(
         exp == 0 || num.bit(0),
@@ -890,19 +802,18 @@ impl BitSink {
         self.bytes
     }
 
-    /// The pushed bits as a magnitude, MSB-first, on the numerator's
-    /// canonical arm.
+    /// The pushed bits as a magnitude, MSB-first.
     ///
     /// The final byte's zero padding is stripped by one shift, and the
     /// materialization rides the width-metered assembly
-    /// ([`Num::materialize_be`]).
+    /// ([`Base::materialize_be`]).
     ///
     /// The caller's first pushed bit is set (the mantissa's implied
     /// leading one), which is the materialization's no-leading-zero-byte
     /// contract.
-    fn into_num(self) -> Num {
+    fn into_num(self) -> Base {
         let pad = if self.used == 0 { 0 } else { 8 - self.used };
-        Num::materialize_be(&self.bytes, u32::from(pad))
+        Base::materialize_be(&self.bytes, u32::from(pad))
     }
 }
 
@@ -937,7 +848,7 @@ impl Ord for Rank {
         let class = |r: &Rank| i128::from(r.num.bits()) - i128::from(r.exp);
         class(self)
             .cmp(&class(other))
-            .then_with(|| Num::msb_cmp(&self.num, &other.num))
+            .then_with(|| Base::msb_cmp(&self.num, &other.num))
     }
 }
 
@@ -973,22 +884,13 @@ impl PartialOrd for Rank {
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
-        // Two exact routes, split by [`backend_alignment_fits`]: the
-        // backend's shift-and-add wherever it can materialize both aligned
-        // numerators and the possible carry bit, the streaming accumulator
-        // past that. The split is pure routing — both routes compute the
-        // identical exact sum — so the backend keeps the common case (on
-        // 64-bit targets, every case below allocatable memory) at its
-        // historical cost, and a 32-bit target's wide sums (a gap at or
-        // past `usize`, or an aligned width past the backend's capacity)
-        // are values priced by memory instead of backend panics.
+        // Shift and add directly when both exponent gaps fit `usize`. The
+        // accumulator handles larger gaps without narrowing the exponent.
         let e = self.exp.max(rhs.exp);
-        if let (Num::Base(a), Num::Base(b)) = (&self.num, &rhs.num) {
-            if backend_alignment_fits(a, self.exp, b, rhs.exp, e, 1) {
-                let a = a.clone() << (e - self.exp);
-                let b = b.clone() << (e - rhs.exp);
-                return Rank::from_raw(a + &b, e);
-            }
+        if alignment_fits(self.exp, rhs.exp, e) {
+            let a = self.num.clone() << (e - self.exp);
+            let b = rhs.num.clone() << (e - rhs.exp);
+            return Rank::from_raw(a + &b, e);
         }
         accumulate(self, rhs, e, false)
     }
@@ -1061,10 +963,7 @@ fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> R
     // 2^35 even if a whole 32-bit address space were one fraction — and a
     // version-derived exponent is bounded by its tree's stored bit length
     // (under 2^32, the storage bound), so the documented panic is
-    // unreachable from this fold. Summands enter at the width their arm
-    // stores — the wide arm through the streaming limb entry — and the
-    // readout streams back as limbs onto the canonical arm, so no backend
-    // width bounds the total.
+    // unreachable from this fold.
     let mut acc = Accumulator::new();
     let mut exp = 0u64;
     for rank in iter {
@@ -1075,14 +974,13 @@ fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> R
         }
         rank.num.fold_into(&mut acc, exp - rank.exp, false);
     }
-    let (sign, limbs) = acc.sign_limbs();
+    let (sign, num) = Base::from_accumulator(&acc);
     debug_assert_ne!(
         sign,
         Ordering::Less,
         "a sum of nonnegative ranks is nonnegative"
     );
-    drop(acc);
-    Rank::from_num(Num::from_limbs(limbs), exp)
+    Rank::from_raw(num, exp)
 }
 
 /// [`Rank::ZERO`], the additive identity.
@@ -1211,7 +1109,7 @@ impl FromStr for Rank {
         let bits_per_limb = u64::BITS as usize;
         let mut limbs = vec![0u64; digit_count.div_ceil(bits_per_limb)];
 
-        // Text is most-significant-bit first, while `Num` takes
+        // Text is most-significant-bit first, while `Base` takes
         // little-endian `u64` limbs. The rightmost digit is therefore bit zero
         // regardless of where the point appeared.
         for (offset, digit) in integer.iter().chain(fraction).enumerate() {
@@ -1224,7 +1122,7 @@ impl FromStr for Rank {
         }
 
         Ok(Rank {
-            num: Num::from_limbs(limbs),
+            num: Base::from_limbs(&limbs),
             exp: exponent,
         })
     }

@@ -1,9 +1,9 @@
 # `before` review checklist
 
-**Active:** remove `dashu` without replacing it with a custom arithmetic
-layer. The suanpan limb-stream boundary is ready for review; moving `before`
-to `num-bigint` and collapsing `Num` remains. Preserve public values,
-encodings, bounds, and low auxiliary space throughout.
+**Active:** replace `dashu` with the existing `num-bigint` dependency and one
+arbitrary-width rank representation. The implementation is ready for review.
+Next, re-rank the time and auxiliary-space findings around inputs that can
+induce disproportionate work or temporary storage.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -75,10 +75,13 @@ triage's dispositions and branches are leads only.
       `skyline-query-24`, `party-23`.
       Complete in `f61f3fed`.
 
-- [ ] Reject wide gamma values at the backend's real capacity and keep the
+- [ ] Remove the backend-capacity boundary from wide gamma values and keep the
       wasm guest's own arithmetic from becoming the tested failure.
       Sources: `codec-bits-23`, `fuzz-guests-pins-26`,
       `fuzz-guests-pins-27`.
+      Ready for review: gamma positions remain `u64` through decoding, and
+      `BigUint` accepts them without an intermediate machine-word cap. The
+      retained wasm pin crosses the 32-bit exponent boundary directly.
 
 ## 03. Canonical encoding and serialization
 
@@ -128,6 +131,11 @@ triage's dispositions and branches are leads only.
       worst-case implementations and useful properties.
       Sources: `rank-20`, `rank-33`, `skyline-query-9`.
 
+- [ ] Decode `Rank` directly from `Read` without retaining a redundant copy of
+      the complete input. Preserve truncation, padding, trailing-input, and I/O
+      errors, then reassess the fraction and numeric-assembly temporaries.
+      Source: owner review, 2026-09-17.
+
 - [ ] Make multi-hole query refinement scale with the declared inputs, with
       properties varying both tree size and hole count.
       Sources: `span-causally-24`, `span-causally-36`,
@@ -166,16 +174,21 @@ triage's dispositions and branches are leads only.
       Sources: `codec-bits-*`, `codec-base-text-tree-*`, codec performance
       entries.
 
-- [ ] Simplify suanpan's representation and verification surface around the
+- [x] Simplify suanpan's representation and verification surface around the
       operations `before` actually needs, preserving generality only where it
       carries a clear contract.
       Sources: `suanpan-*`, `suanpan-tests-*`.
+      Complete in `e71caf8cc`: suanpan streams normalized `u64` limbs and no
+      longer owns a big-integer backend or its adapter layer.
 
 - [ ] Eliminate `dashu` if the remaining rank and accumulator arithmetic can
       be expressed more simply without it. The intended outcome is one
       arbitrary-width representation, with no backend-capacity boundary or
       small/wide `Num` split, while retaining input-proportionate memory use.
       Sources: `rank-*`, `suanpan-*`, `deps-*`; owner handoff, 2026-09-16.
+      Ready for review: `Base` and `Rank` use one `BigUint` representation;
+      backend tiers and their private tests and pins are gone, while general
+      arithmetic properties and resource instruments remain.
 
 ## 07. Semantic instruments and generators
 

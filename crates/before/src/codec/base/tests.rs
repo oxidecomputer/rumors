@@ -6,7 +6,7 @@
 
 use core::cmp::Ordering;
 
-use dashu_int::{IBig, Sign, UBig};
+use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
@@ -16,36 +16,37 @@ use super::Base;
 #[test]
 fn base_word_conversion_has_the_right_boundary() {
     assert_eq!(Base::from(u64::MAX).to_u64(), Some(u64::MAX));
-    assert_eq!(Base::from(UBig::from(u64::MAX) + 1u8).to_u64(), None);
+    assert_eq!(Base::from(BigUint::from(u64::MAX) + 1u8).to_u64(), None);
 }
 
 /// The oracle's sign as the accumulator reports it.
-fn oracle_sign(oracle: &IBig) -> Ordering {
-    if *oracle == IBig::ZERO {
+fn oracle_sign(oracle: &BigInt) -> Ordering {
+    if *oracle == BigInt::ZERO {
         Ordering::Equal
     } else {
         match oracle.sign() {
-            Sign::Negative => Ordering::Less,
-            Sign::Positive => Ordering::Greater,
+            Sign::Minus => Ordering::Less,
+            Sign::Plus => Ordering::Greater,
+            Sign::NoSign => unreachable!("zero was handled above"),
         }
     }
 }
 
 /// Assert the accumulator's full value equals the oracle.
-fn assert_value(acc: &Accumulator, oracle: &IBig) {
+fn assert_value(acc: &Accumulator, oracle: &BigInt) {
     let (sign, magnitude) = Base::from_accumulator(acc);
     assert_eq!(sign, oracle_sign(oracle), "accumulator sign");
     let rebuilt = match sign {
-        Ordering::Less => -IBig::from(magnitude.0),
-        _ => IBig::from(magnitude.0),
+        Ordering::Less => -BigInt::from(magnitude.0),
+        _ => BigInt::from(magnitude.0),
     };
     assert_eq!(&rebuilt, oracle, "accumulator magnitude");
 }
 
 /// A wide magnitude from little-endian 64-bit limbs.
-fn from_limbs(limbs: &[u64]) -> UBig {
+fn from_limbs(limbs: &[u64]) -> BigUint {
     let bytes: Vec<u8> = limbs.iter().flat_map(|l| l.to_le_bytes()).collect();
-    UBig::from_le_bytes(&bytes)
+    BigUint::from_bytes_le(&bytes)
 }
 
 proptest! {
@@ -60,7 +61,7 @@ proptest! {
         ),
     ) {
         let mut acc = Accumulator::new();
-        let mut oracle = IBig::from(0);
+        let mut oracle = BigInt::from(0);
         for (negative, limbs) in &ops {
             let value = from_limbs(limbs);
             // One to three limbs per value, so the stream exercises the
@@ -68,10 +69,10 @@ proptest! {
             let base = Base::from(value.clone());
             if *negative {
                 base.fold_into(&mut acc, 0, true);
-                oracle -= IBig::from(value);
+                oracle -= BigInt::from(value);
             } else {
                 base.fold_into(&mut acc, 0, false);
-                oracle += IBig::from(value);
+                oracle += BigInt::from(value);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
         }
@@ -90,16 +91,16 @@ proptest! {
         ),
     ) {
         let mut acc = Accumulator::new();
-        let mut oracle = IBig::from(0);
+        let mut oracle = BigInt::from(0);
         for (negative, limbs, shift) in &ops {
             let value = from_limbs(limbs);
             let base = Base::from(value.clone());
             if *negative {
                 base.fold_into(&mut acc, *shift, true);
-                oracle -= IBig::from(value << *shift as usize);
+                oracle -= BigInt::from(value << *shift as usize);
             } else {
                 base.fold_into(&mut acc, *shift, false);
-                oracle += IBig::from(value << *shift as usize);
+                oracle += BigInt::from(value << *shift as usize);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
         }

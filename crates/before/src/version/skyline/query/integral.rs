@@ -205,23 +205,15 @@
 //! reaches with the ledger never armed (the plateau-puncture family, whose
 //! exact rank numerator *is* the plateau times the punctured turn mass).
 //!
-//! Two facts make the whole settle `O(M(|v|))` under every power-law tier of
-//! the backend's multiplication. Cluster splitting keeps every densified span
+//! Two facts make the whole settle `O(M(|v|))` when multiplication grows by a
+//! fixed power. Cluster splitting keeps every densified span
 //! funded: gaps wider than the factor split, so separated products total
 //! `O(span)` traffic, and bridged gaps cost less than the product a split would
 //! add. And the mass balance makes node products shrink geometrically down the
 //! tree, telescoping their costs into the root's.
 //!
-//! The shipped backend dispatches power-law tiers up to 4,000-word operand
-//! sides (~32 KiB parked sums per side). Past that its quasilinear tier's
-//! per-level costs stop telescoping, and the settle pays at most one extra
-//! tree-depth factor, `O(M(|v|) · log |v|)` — and the log factor is tight there
-//! [derived; a committed witness at this scale would need 65 KiB+ encoded
-//! operands]: `Θ(log |v|)` armings whose parked widths grow as `4,000 · 2^i`
-//! words, each banked ahead of a trailing window span `Θ(|v|)`, keep `Θ(log
-//! |v|)` tree levels' products in the quasilinear tier at `Θ(M(|v|))` each,
-//! fully funded — the public worst case cannot tighten without a deeper
-//! mechanism change.
+//! With near-linear multiplication, each tree level may instead contribute
+//! `O(M(|v|))`, giving the general `O(M(|v|) · log |v|)` bound.
 //!
 //! ## The multiplication floor
 //!
@@ -241,10 +233,9 @@
 
 use core::cmp::Ordering;
 
-use dashu_int::UBig;
+use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::codec::base::Limbs;
 use crate::codec::{Base, Int};
 
 use super::super::signed::{fold_signed, fold_signed_int, Sign};
@@ -340,7 +331,7 @@ pub(super) fn clusters(
 /// spanning an avoidable sparse gap therefore increases the recorded traffic.
 /// This compiles to nothing without `limb-meter`.
 #[inline(always)]
-fn meter_product(factor: &UBig, part: &UBig, product: &UBig) {
+fn meter_product(factor: &BigUint, part: &BigUint, product: &BigUint) {
     #[cfg(feature = "limb-meter")]
     {
         crate::codec::limb_meter::record_wide(factor);
@@ -486,13 +477,13 @@ pub(super) fn charge_digits(
             if !live {
                 continue;
             }
-            let part = UBig::from_le_bytes(image);
+            let part = BigUint::from_bytes_le(image);
             let product = &factor.0 * &part;
             meter_product(&factor.0, &part, &product);
             if sign.is_negative() == (side == 1) {
-                total.add_limbs_shl(Limbs::new(&product), 32 * floor_index);
+                total.add_limbs_shl(product.iter_u64_digits(), 32 * floor_index);
             } else {
-                total.sub_limbs_shl(Limbs::new(&product), 32 * floor_index);
+                total.sub_limbs_shl(product.iter_u64_digits(), 32 * floor_index);
             }
         }
     }

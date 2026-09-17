@@ -15,7 +15,7 @@
 //! ([`decode_int_window`]) and emitted with one store, with per-bit loops as
 //! the fallback — and, on decode, the sole arbiter of every reject.
 
-use dashu_int::UBig;
+use num_bigint::BigUint;
 
 use crate::error::Decode;
 
@@ -137,7 +137,7 @@ const WINDOW_BITS: u64 = u64::BITS as u64;
 ///   stream ends first (the bit loop reports `Truncated`) or because the code
 ///   is wider than the window (the bit loop decodes it: its machine-word path
 ///   reads every `k ≤ 63` mantissa — the `k + 1`-bit mantissa is the value
-///   itself and fits `u64` — and only wider codes take the wide fallback).
+///   itself and fits `u64` — and only wider codes take the big-integer path).
 ///
 /// The conditions are conservative, never guesses: `Some` is returned only when
 /// every bit of the code lies within the window *and* within the stream, so the
@@ -240,20 +240,11 @@ where
     // at the same `read_bit` position it would reading into an accumulator, so
     // the accept/reject boundary is unchanged.
     //
-    // A mantissa at or past `usize` bits names a value the big-integer
-    // backend cannot hold on this target (it caps magnitudes below
-    // `usize::MAX` bits), so the reject genre is the value's, not the
-    // machine's — the word-parallel reader (`DsiCursor::read_int`) rejects
-    // at the same width with the same genre. On 64-bit targets the arm is
-    // dead: reading 2^64 prefix bits first needs an unallocatable input.
-    let Ok(k) = usize::try_from(k) else {
-        return Err(Decode::NotCanonical);
-    };
-    let mut m = UBig::ZERO;
-    m.set_bit(k);
+    let mut m = BigUint::ZERO;
+    m.set_bit(k, true);
     for i in (0..k).rev() {
         if cursor.read_bit()? {
-            m.set_bit(i);
+            m.set_bit(i, true);
         }
     }
     // One width-proportional record per wide value: sizing `m`'s storage and

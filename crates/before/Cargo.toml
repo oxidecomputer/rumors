@@ -24,7 +24,7 @@ serde_json = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
-dashu-int = { workspace = true }
+num-bigint = { workspace = true }
 suanpan = { workspace = true }
 dsi-bitstream = { workspace = true }
 static_assertions = { workspace = true }

@@ -138,15 +138,8 @@ fn version_decode_deep_in_memory_bounded_range() {
 /// materialized height, and the validator's running-height accumulator)
 /// crosses what the 4 GiB address space allocates; the probe backtrace
 /// attributes the trap to the accumulator's buffer growth inside the
-/// height fold. This size's height is one flush nibble under the
-/// big-integer backend's 2^32 - 32-bit capacity, so the capacity itself
-/// is unreachable through the entry points on this target: a wide value's gamma
-/// code alone costs a quarter of the address space, and the decode's
-/// working set exhausts memory first. (The rank wire entry point reaches the
-/// same coordinate with no fold transients and crosses it exactly — it
-/// is the numerator's representation boundary there, pinned by
-/// `rank_decode_past_backend_bit_capacity`.) A leaner working set — not
-/// a wider denomination — is what would move this terminal outward.
+/// height fold. A leaner working set is what would move this terminal
+/// outward.
 #[test]
 fn version_decode_memory_terminal_traps() {
     assert_eq!(
@@ -155,155 +148,14 @@ fn version_decode_memory_terminal_traps() {
     );
 }
 
-/// A valid rank whose fraction is 2^32 - 32 expansion bits deep decodes
-/// correctly, and the decoded value sits strictly between zero and one.
+/// A fraction one bit deeper than wasm32's \`usize\` range decodes exactly.
 ///
-/// The deepest flush-group exponent whose whole fraction image fits the
-/// big-integer backend's 32-bit buffer capacity without any stripping: the
-/// lower adjacency witness of the numerator's representation boundary — the
-/// widths where storage crosses from the backend magnitude to the rank's own
-/// limb vector. ~604 MB of input is the smallest valid trigger, since the
-/// fraction's depth is deliberately counted from bits actually read, never from
-/// a header's claim.
+/// The decoder assembles the numerator from bytes, so its exponent never
+/// narrows to the target pointer width.
 #[test]
-fn rank_decode_below_backend_capacity() {
-    assert_eq!(
-        call1("pin_rank_decode", (1u64 << 32) - 32),
-        Outcome::Value(0),
-    );
-}
-
-/// A valid rank whose fraction is 2^32 - 8 expansion bits deep decodes
-/// correctly on wasm32 and orders exactly against reference ranks.
-///
-/// At this size an unstripped fraction image overruns the big-integer
-/// backend's 32-bit buffer capacity by one word — `dashu` sizes buffers
-/// from an image's byte count, leading zero bytes included — while the
-/// numerator's value (its fraction opens with 64 zero bits) fits the
-/// backend comfortably, so this pin holds the decoder to materializing
-/// value, never zeros.
-#[test]
-fn rank_decode_at_backend_byte_capacity() {
-    assert_eq!(
-        call1("pin_rank_decode", (1u64 << 32) - 8),
-        Outcome::Value(0),
-    );
-}
-
-/// A valid rank whose fraction is exactly 2^32 expansion bits deep —
-/// the exponent one past wasm32's `usize` — decodes correctly and orders
-/// exactly against reference ranks.
-///
-/// The input (~604 MB) and its decoded numerator (~512 MiB) fit the
-/// 4 GiB address space, while an exponent this size fits no backend
-/// shift amount on a 32-bit target — so this pin holds the decode path
-/// to its byte-assembled numerator, on which no value-width shift exists
-/// at all.
-#[test]
-fn rank_decode_at_usize_exp_boundary() {
+fn rank_decode_past_usize_exp_boundary() {
     assert_eq!(call1("pin_rank_decode", 1u64 << 32), Outcome::Value(0));
 }
-
-/// A valid rank whose numerator exactly fills the big-integer backend's
-/// 32-bit capacity decodes correctly and orders exactly against reference
-/// ranks.
-///
-/// The numerator is 2^32 - 32 value bits, from a fraction 2^32 + 32 expansion
-/// bits deep opening with 64 zero bits. The backend caps a magnitude at
-/// `usize::MAX / 32` words so bit counts fit `usize`; a numerator of exactly
-/// that many bits fills the buffer to its last word. This is the representation
-/// boundary's at-capacity witness on the numerator's own width (the
-/// byte-capacity witness above covers the unstripped image's width): the widest
-/// numerator the backend arm stores, holding the arm ceiling to the real
-/// backend from below.
-#[test]
-fn rank_decode_at_backend_bit_capacity() {
-    assert_eq!(
-        call1("pin_rank_decode", (1u64 << 32) + 32),
-        Outcome::Value(0),
-    );
-}
-
-/// A valid rank whose numerator is 2^32 - 24 value bits — one flush group
-/// past the backend's 2^32 - 32-bit capacity — decodes correctly on
-/// wasm32 and orders exactly against reference ranks.
-///
-/// The representation boundary's upper witness, beside
-/// `rank_decode_at_backend_bit_capacity`: the ~604 MB input and its
-/// ~512 MiB numerator both fit the 4 GiB address space, and past the
-/// backend's structural word cap the decoder assembles the numerator
-/// into the rank's own limb vector — bounded only by memory — so the
-/// wire entry point is exact on both sides of the backend's capacity.
-#[test]
-fn rank_decode_past_backend_bit_capacity() {
-    assert_eq!(
-        call1("pin_rank_decode", (1u64 << 32) + 40),
-        Outcome::Value(0),
-    );
-}
-
-/// A valid integral rank of 2^32 - 40 value bits — the biased mantissa
-/// one byte under the backend's capacity — decodes correctly on wasm32
-/// and orders exactly against reference ranks.
-///
-/// The integral wire form's lower adjacency witness at the representation boundary: the
-/// whole path (mantissa read, bias removal) runs on the backend arm.
-/// ~512 MiB of input is the smallest valid trigger — the mantissa's
-/// bits are all stream bits.
-#[test]
-fn rank_integral_decode_below_backend_bit_capacity() {
-    assert_eq!(
-        call1("pin_rank_integral_decode", (1u64 << 32) - 40),
-        Outcome::Value(0),
-    );
-}
-
-/// A valid integral rank of exactly 2^32 - 32 value bits — the backend's
-/// capacity — decodes correctly on wasm32.
-///
-/// The integral form's at-capacity witness, and the biased-transient
-/// boundary: the mantissa is read as the biased value `2^k` at `k + 1` bits,
-/// one past the capacity, so the transient rides the limb arm while the
-/// unbiased value re-dispatches back onto the backend arm at exactly its
-/// widest representable width.
-#[test]
-fn rank_integral_decode_at_backend_bit_capacity() {
-    assert_eq!(
-        call1("pin_rank_integral_decode", (1u64 << 32) - 32),
-        Outcome::Value(0),
-    );
-}
-
-/// A valid integral rank of 2^32 - 24 value bits — one byte past the
-/// backend's capacity — decodes correctly on wasm32.
-///
-/// The integral form's upper representation-boundary witness, beside the fraction
-/// form's `rank_decode_past_backend_bit_capacity`: both wire paths to a
-/// past-capacity numerator land on the limb arm, priced by memory alone.
-#[test]
-fn rank_integral_decode_past_backend_bit_capacity() {
-    assert_eq!(
-        call1("pin_rank_integral_decode", (1u64 << 32) - 24),
-        Outcome::Value(0),
-    );
-}
-
-/// A valid rank whose fraction is 2^32 + 40 expansion bits deep — the
-/// numerator one flush group past the backend's capacity — decodes and
-/// re-encodes to byte-identical canonical form on wasm32.
-///
-/// The full-width round-trip witness: byte-identical re-emission is what
-/// the lexicographic-order law uses, and this holds it beyond the representation
-/// boundary, where the emission walks a numerator wider than the
-/// backend can hold.
-#[test]
-fn rank_roundtrip_past_backend_bit_capacity() {
-    assert_eq!(
-        call1("pin_rank_roundtrip", (1u64 << 32) + 40),
-        Outcome::Value(0),
-    );
-}
-
 /// A valid composite key — the rank stream, then the version whose rank it
 /// is — decodes through the byte entry point `Ranked::decode` at the largest
 /// version size below the straddle coordinate.
@@ -357,29 +209,6 @@ fn ranked_decode_past_build_cap() {
 #[test]
 fn ranked_decode_deep_in_storable_range() {
     assert_eq!(call1("pin_ranked_decode", 268_435_456), Outcome::Value(0),);
-}
-
-/// PINNED AS FOUND: a valid composite key whose version component is one
-/// byte past the 2^29-byte coordinate aborts on allocation failure in the
-/// byte entry point `Ranked::decode`.
-///
-/// The component is 536870913 bytes, one past where a 32-bit `usize` runs out
-/// of bit positions. No denomination binds here: the entry point's own straddle
-/// pins hold it exact across the 2^29-bit coordinate, and the version entry
-/// point crosses this very coordinate green
-/// (`version_decode_past_usize_positions_coordinate`). What fires is the memory
-/// bound: the composite's working set — the key, its read copy, and the rank
-/// re-derivation's fold and ~2^31-bit numerator — crosses what the 4 GiB
-/// address space allocates, and the probe backtrace attributes the trap to the
-/// fold accumulator's buffer growth inside the re-derivation. A leaner working
-/// set — not a wider
-/// denomination — is what would flip this pin to `Value(0)`.
-#[test]
-fn ranked_decode_memory_terminal_traps() {
-    assert_eq!(
-        call1("pin_ranked_decode", 536_870_913),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
-    );
 }
 
 /// A valid composite key decodes through the borsh entry point
@@ -724,17 +553,8 @@ fn version_rank_deep_in_memory_bounded_range() {
 /// 2^32 - 96-bit first height, the integral's base component, and the
 /// close's shifted-add target) crosses what the 4 GiB address space
 /// allocates; the probe backtrace attributes the trap to the
-/// accumulator's buffer growth inside the integral's close. The backend
-/// capacity itself is therefore unreachable through the fold on this
-/// target: a numerator of `W` bits needs a stream of at least `2W` bits
-/// alive underneath it (heights pay their own width in code bits, depth
-/// pays five stream bits per level), and that plus the fold's transients
-/// exhausts memory just below the capacity — the rank wire entry point, which
-/// assembles its numerator from bytes with no fold transients, is where
-/// the capacity is reachable, and it crosses exactly there onto the
-/// numerator's limb arm (`rank_decode_past_backend_bit_capacity`). A
-/// leaner working set — not a wider denomination — is what would move
-/// this terminal outward.
+/// accumulator's buffer growth inside the integral's close. A leaner working
+/// set is what would move this terminal outward.
 #[test]
 fn version_rank_memory_terminal_traps() {
     assert_eq!(

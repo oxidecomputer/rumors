@@ -4,7 +4,7 @@
 use crate::codec;
 use crate::{Party, Rank, Ticks, Version};
 
-use dashu_int::UBig;
+use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use super::{
@@ -25,7 +25,7 @@ const ISOLATION_NOTE: &str = "note: the counter is process-global and meaningful
      test per process: run under cargo nextest, not a shared-process cargo test";
 
 /// Convert the arbitrary-precision oracle value directly into a tick count.
-fn ticks_from_big(value: &UBig) -> Ticks {
+fn ticks_from_big(value: &BigUint) -> Ticks {
     Ticks(codec::Base(value.clone()))
 }
 
@@ -160,9 +160,9 @@ fn freeze_position_decodes_canonically_at_predicted_length() {
     for (k, bitlen) in [(1usize, 1usize), (5, 3), (200, 8)] {
         let band = 289 + bitlen;
         check_version(&freeze_position(k), 4 * k * (band + 2) + 2);
-        let expected = (UBig::from(2 * k as u64) << band)
-            + UBig::from((k * (k - 1)) as u64) * ((UBig::ONE << 288usize) + UBig::ONE)
-            + UBig::from(k as u64);
+        let expected = (BigUint::from(2 * k as u64) << band)
+            + BigUint::from((k * (k - 1)) as u64) * ((BigUint::ONE << 288usize) + BigUint::ONE)
+            + BigUint::from(k as u64);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             freeze_position(k).version().min_ticks(),
@@ -184,8 +184,9 @@ fn freeze_position_decodes_canonically_at_predicted_length() {
 fn promotion_rearm_decodes_canonically_at_predicted_length() {
     for p in [1usize, 5, 200] {
         check_version(&promotion_rearm(p), 1972 * p + 4);
-        let expected = UBig::from(16 * p as u64)
-            + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+        let expected = BigUint::from(16 * p as u64)
+            + BigUint::from(p as u64)
+                * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
             + 1u8;
         let ticks = ticks_from_big(&expected);
         assert_eq!(
@@ -209,10 +210,11 @@ fn promotion_rearm_decodes_canonically_at_predicted_length() {
 fn lone_freeze_decodes_canonically_at_predicted_length() {
     for (pre, post) in [(2usize, 2usize), (2, 6), (6, 2), (40, 40)] {
         check_version(&lone_freeze(pre, post), 580 * pre + 6 * post + 14);
-        let expected = UBig::from(pre as u64) * ((UBig::ONE << 288usize) + UBig::from(2u8))
-            + UBig::from((pre / 2) as u64)
-            + UBig::from((3 * post / 2) as u64)
-            + UBig::from(3u8);
+        let expected = BigUint::from(pre as u64)
+            * ((BigUint::ONE << 288usize) + BigUint::from(2u8))
+            + BigUint::from((pre / 2) as u64)
+            + BigUint::from((3 * post / 2) as u64)
+            + BigUint::from(3u8);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             lone_freeze(pre, post).version().min_ticks(),
@@ -809,8 +811,9 @@ fn concurrent_pair_alternates_dominance_at_every_boundary() {
 fn dense_suffix_decodes_canonically_at_predicted_length() {
     for (p, d) in [(1usize, 1usize), (5, 4), (40, 40)] {
         check_version(&dense_suffix(p, d), 134 * d + 1812 * p + 4);
-        let expected = UBig::from(d as u64)
-            + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+        let expected = BigUint::from(d as u64)
+            + BigUint::from(p as u64)
+                * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
             + 1u8;
         let ticks = ticks_from_big(&expected);
         assert_eq!(
@@ -860,7 +863,7 @@ fn wide_arming_decodes_canonically_at_predicted_length() {
     for (w, d) in [(10usize, 1usize), (12, 5), (40, 40)] {
         check_version(&wide_arming(w, d), 134 * d + 64 * w + 600);
         let expected =
-            UBig::from(d as u64) + (UBig::ONE << (32 * w)) + (UBig::ONE << 288usize) + 3u8;
+            BigUint::from(d as u64) + (BigUint::ONE << (32 * w)) + (BigUint::ONE << 288usize) + 3u8;
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             wide_arming(w, d).version().min_ticks(),
@@ -883,7 +886,7 @@ fn hoisted_window_decodes_canonically_at_predicted_length() {
     for (w, d, t) in [(10usize, 1usize, 384usize), (12, 5, 448), (12, 5, 896)] {
         check_version(&hoisted_window(w, d, t), 134 * d + 64 * w + 4 * t + 600);
         let expected =
-            UBig::from(d as u64) + (UBig::ONE << (32 * w)) + (UBig::ONE << 288usize) + 3u8;
+            BigUint::from(d as u64) + (BigUint::ONE << (32 * w)) + (BigUint::ONE << 288usize) + 3u8;
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             hoisted_window(w, d, t).version().min_ticks(),
@@ -907,13 +910,13 @@ fn hoisted_window_decodes_canonically_at_predicted_length() {
 }
 
 /// Returns the boundary shapes' shared narrow value.
-fn boundary_rung_ubig() -> UBig {
-    UBig::from(5u8) << 64usize
+fn boundary_rung_ubig() -> BigUint {
+    BigUint::from(5u8) << 64usize
 }
 
 /// Returns the boundary shapes' `w`-digit operand `5·2^(32(w−1))`.
-fn boundary_wide_ubig(w: usize) -> UBig {
-    UBig::from(5u8) << (32 * (w - 1))
+fn boundary_wide_ubig(w: usize) -> BigUint {
+    BigUint::from(5u8) << (32 * (w - 1))
 }
 
 /// `seam_plunge(k, r)` is canonical normal form at exactly
@@ -928,8 +931,8 @@ fn descending_boundary_decodes_canonically_at_predicted_length() {
     for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
         let p = seam_plunge(k, r);
         check_version(&p, (k + 1) * (64 * r - 56) + 2);
-        let expected = boundary_wide_ubig(r) * UBig::from((k + 1) as u64)
-            + boundary_rung_ubig() * UBig::from(((k + 1) * (k + 2) / 2) as u64);
+        let expected = boundary_wide_ubig(r) * BigUint::from((k + 1) as u64)
+            + boundary_rung_ubig() * BigUint::from(((k + 1) * (k + 2) / 2) as u64);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
@@ -952,7 +955,7 @@ fn descending_boundary_control_decodes_at_predicted_length() {
     for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
         let p = seam_plunge_control(k, r);
         check_version(&p, 136 * k + 64 * r + 78);
-        let expected = boundary_wide_ubig(r) + boundary_rung_ubig() * UBig::from((k + 2) as u64);
+        let expected = boundary_wide_ubig(r) + boundary_rung_ubig() * BigUint::from((k + 2) as u64);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
@@ -1007,10 +1010,10 @@ fn stopping_boundary_decodes_canonically_at_predicted_length() {
 
 /// The boundary-stop shapes' shared stored-base sum: the pair differs only in
 /// zero-base wrapping, so one closed form serves both pins.
-fn stopping_boundary_ticks(k: usize) -> UBig {
-    (UBig::from(5u8) << 128usize)
-        + (UBig::from((k - 1) as u64) << 80usize)
-        + boundary_rung_ubig() * UBig::from((k * (k - 1) / 2) as u64)
+fn stopping_boundary_ticks(k: usize) -> BigUint {
+    (BigUint::from(5u8) << 128usize)
+        + (BigUint::from((k - 1) as u64) << 80usize)
+        + boundary_rung_ubig() * BigUint::from((k * (k - 1) / 2) as u64)
 }
 
 /// `seam_stop_control(k)` is canonical normal form at exactly `164k + 262`
@@ -1045,8 +1048,8 @@ fn latent_ladder_decodes_canonically_at_predicted_length() {
     for (w, k) in [(3usize, 1usize), (4, 5), (10, 8)] {
         let p = latent_ladder(w, k);
         check_version(&p, k * (64 * w - 56) + 64 * w - 48);
-        let expected = boundary_wide_ubig(w) * UBig::from((k + 1) as u64) + UBig::ONE
-            - UBig::from((k * (k + 1) / 2) as u64);
+        let expected = boundary_wide_ubig(w) * BigUint::from((k + 1) as u64) + BigUint::ONE
+            - BigUint::from((k * (k + 1) / 2) as u64);
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
@@ -1089,7 +1092,7 @@ fn plateau_puncture_decodes_canonically_at_predicted_length() {
             "the stored stream must stay linear in the factors' widths"
         );
         let (x, y) = plateau_puncture_factors(w, d);
-        let expected = UBig::from(d as u64) * &x + 1u8;
+        let expected = BigUint::from(d as u64) * &x + 1u8;
         let ticks = ticks_from_big(&expected);
         assert_eq!(
             plateau_puncture(w, d).version().min_ticks(),
@@ -1128,18 +1131,18 @@ fn arming_train_decodes_canonically_at_predicted_length() {
         );
         // The mirror: replay the generator's plateau recurrence and sum every
         // leaf value (the bottom and trailing leaves are all 0).
-        let arm = UBig::ONE << (32 * w);
-        let kicker = UBig::ONE << 288usize;
-        let mut plateau = (UBig::ONE << band) + (&arm << 1);
-        let mut expected = UBig::ZERO;
+        let arm = BigUint::ONE << (32 * w);
+        let kicker = BigUint::ONE << 288usize;
+        let mut plateau = (BigUint::ONE << band) + (&arm << 1);
+        let mut expected = BigUint::ZERO;
         for b in 0..n {
-            expected += &plateau * UBig::from(g as u64); // the window turns
+            expected += &plateau * BigUint::from(g as u64); // the window turns
             if alt && b % 2 == 1 {
                 plateau -= &arm;
             } else {
                 plateau += &arm;
             }
-            for kick in [UBig::ZERO, UBig::ONE, kicker.clone(), UBig::ONE] {
+            for kick in [BigUint::ZERO, BigUint::ONE, kicker.clone(), BigUint::ONE] {
                 plateau += kick;
                 expected += &plateau;
             }
@@ -1191,13 +1194,13 @@ fn freeze_parade_decodes_canonically_at_predicted_length() {
     for k in [1usize, 2, 8] {
         check_version(&freeze_parade(k), 1546 * k - 2);
         let j = bitlen(k) - 1;
-        let w = UBig::ONE << 288usize;
-        let stride = &w + UBig::ONE;
-        let expected = UBig::from((64 * k - 1) as u64)
-            + (UBig::ONE << (290 + bitlen(k)))
-            + UBig::from(k as u64) * &w
-            + UBig::from((k / 2 * j) as u64) * &stride
-            - UBig::from((k - 1) as u64) * &stride
+        let w = BigUint::ONE << 288usize;
+        let stride = &w + BigUint::ONE;
+        let expected = BigUint::from((64 * k - 1) as u64)
+            + (BigUint::ONE << (290 + bitlen(k)))
+            + BigUint::from(k as u64) * &w
+            + BigUint::from((k / 2 * j) as u64) * &stride
+            - BigUint::from((k - 1) as u64) * &stride
             - &w;
         let ticks = ticks_from_big(&expected);
         assert_eq!(
@@ -1221,7 +1224,7 @@ fn tooth_tail_decodes_canonically_at_predicted_length() {
         check_version(&a, 6 * m + 64 * g);
         check_version(&b, 6 * m + 64 * g);
         for (p, h) in [(&a, 1u64), (&b, 2u64)] {
-            let expected = UBig::from(m as u64 * h) + (UBig::ONE << (32 * g));
+            let expected = BigUint::from(m as u64 * h) + (BigUint::ONE << (32 * g));
             let ticks = ticks_from_big(&expected);
             assert_eq!(
                 p.version().min_ticks(),

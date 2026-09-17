@@ -8,14 +8,9 @@
 //! they run, and the wide-gamma decode in `codec::gamma` records one
 //! value-width count per decoded value — so amortized-linear algorithms count
 //! linearly in encoded input bits and magnitude-quadratic ones count
-//! quadratically. The denomination is the value's width in 64-bit limbs,
-//! not any particular storage: the rank numerator's wide arm
-//! (`version::rank::num`, magnitudes past the backend's capacity on
-//! 32-bit targets) records its operations' operand and materialization
-//! widths into this same counter under the same unit, so limb-denominated
-//! envelopes read continuously across that arm seam. Relaxed ordering
-//! suffices: the metering binaries run one
-//! scenario per process and read the counters only after the metered call
+//! quadratically. The denomination is the value's width in 64-bit limbs, not
+//! any particular storage. Relaxed ordering suffices: the metering binaries run
+//! one scenario per process and read the counters only after the metered call
 //! returns.
 //!
 //! A second column ([`record_densified`]) counts the query folds' densified
@@ -35,10 +30,9 @@ pub(crate) fn record(n: u64) {
     LIMB_OPS.fetch_add(n, Ordering::Relaxed);
 }
 
-/// Record the limb width of a raw `UBig` working value.
-pub(crate) fn record_wide(n: &dashu_int::UBig) {
-    use dashu_int::ops::BitTest;
-    record((n.bit_len() as u64).div_ceil(64).max(1));
+/// Record the limb width of a raw big-integer working value.
+pub(crate) fn record_wide(n: &num_bigint::BigUint) {
+    record(n.bits().div_ceil(64).max(1));
 }
 
 /// The limb operations recorded since the last [`reset`].

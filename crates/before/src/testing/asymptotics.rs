@@ -343,14 +343,13 @@ fn clock_join_all_log_factor_is_alive() {
 #[cfg(feature = "meter")]
 #[test]
 fn mul_bound_embedding_is_alive() {
-    use dashu_int::ops::BitTest;
-    use dashu_int::UBig;
+    use num_bigint::BigUint;
 
     /// The count of nonzero balanced signed digits the settle's own
     /// compaction (`mul_into`'s recentering, replicated) spells a
     /// magnitude into.
-    fn balanced_terms(value: &UBig) -> usize {
-        let bytes = value.to_le_bytes();
+    fn balanced_terms(value: &BigUint) -> usize {
+        let bytes = value.to_bytes_le();
         let digits = bytes
             .chunks(4)
             .map(|c| {
@@ -382,8 +381,8 @@ fn mul_bound_embedding_is_alive() {
     let v = Shape::PlateauPuncture.build2(w, d).version();
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
     assert_eq!(
-        (x.bit_len(), y.bit_len()),
-        (32 * w, 66 * d - 1),
+        (x.bits(), y.bits()),
+        ((32 * w) as u64, (66 * d - 1) as u64),
         "both factors must scale with the family parameters: a degenerate \
          factor would make the embedded product one-sided"
     );
@@ -400,14 +399,14 @@ fn mul_bound_embedding_is_alive() {
     // The mass's content: exactly d isolated bits, pairwise more than
     // a full base-2^32 digit apart (incompressible), and not an
     // arithmetic progression (no geometric-series closed form).
-    let positions: Vec<usize> = (0..y.bit_len()).filter(|&b| y.bit(b)).collect();
+    let positions: Vec<u64> = (0..y.bits()).filter(|&b| y.bit(b)).collect();
     assert_eq!(positions.len(), d, "the mass spells one bit per turn");
     assert!(
         positions.windows(2).all(|p| p[1] - p[0] > 32),
         "every mass gap must exceed a full digit: the compaction could \
          merge closer terms"
     );
-    let strides: std::collections::BTreeSet<usize> =
+    let strides: std::collections::BTreeSet<u64> =
         positions.windows(2).map(|p| p[1] - p[0]).collect();
     assert!(
         strides.len() > 1,

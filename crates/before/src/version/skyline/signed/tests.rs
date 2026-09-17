@@ -10,12 +10,12 @@
 //! deterministically under the boundary sweep and committed property seeds.
 //!
 //! [`signed_le`] and [`signed_max`] are pinned against the exact value order
-//! (an [`IBig`] oracle): the sign-tag case analysis and its negative-zero
+//! (an [`BigInt`] oracle): the sign-tag case analysis and its negative-zero
 //! slack are the contract under test, over both magnitude spellings — a
 //! word-scale value may travel as [`Int::Small`] or parked in [`Int::Wide`],
 //! and the order must not see the difference.
 
-use dashu_int::IBig;
+use num_bigint::BigInt;
 use proptest::prelude::*;
 
 use crate::codec::{self, Base, BitsBuf, Code, Int};
@@ -140,8 +140,8 @@ proptest! {
 /// The exact signed value a [`Signed`] denotes: the magnitude under the sign
 /// tag, a zero magnitude denoting zero under either tag (the module doc's
 /// conventions, which [`signed_le`] tolerates by contract).
-fn value_of(x: &Signed) -> IBig {
-    let magnitude = IBig::from(x.magnitude.clone().into_base().0);
+fn value_of(x: &Signed) -> BigInt {
+    let magnitude = BigInt::from(x.magnitude.clone().into_base().0);
     match x.sign {
         Sign::Positive => magnitude,
         Sign::Negative => -magnitude,

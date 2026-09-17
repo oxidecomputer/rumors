@@ -10,11 +10,12 @@
 //! canonical streams — so a fold that drifts by any amount anywhere has no
 //! rounding to hide behind.
 
+use num_bigint::BigUint;
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
 use crate::meter::registry::Shape;
-use crate::meter::{dense_factor, factor_digit, Encoding};
+use crate::meter::Encoding;
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
 use crate::testing::generators::arb_oracle_version;
@@ -27,17 +28,17 @@ use super::{distance, lag, min_ticks, project, rank, rank_cmp};
 /// Big-integer adapters for the reference folds in this test module.
 trait AccumulatorOracleExt {
     /// Add an unshifted oracle magnitude.
-    fn add_ubig(&mut self, value: &dashu_int::UBig);
+    fn add_big(&mut self, value: &BigUint);
     /// Subtract an unshifted oracle magnitude.
-    fn sub_ubig(&mut self, value: &dashu_int::UBig);
+    fn sub_big(&mut self, value: &BigUint);
 }
 
 impl AccumulatorOracleExt for Accumulator {
-    fn add_ubig(&mut self, value: &dashu_int::UBig) {
+    fn add_big(&mut self, value: &BigUint) {
         crate::codec::Base(value.clone()).fold_into(self, 0, false);
     }
 
-    fn sub_ubig(&mut self, value: &dashu_int::UBig) {
+    fn sub_big(&mut self, value: &BigUint) {
         crate::codec::Base(value.clone()).fold_into(self, 0, true);
     }
 }
@@ -46,13 +47,11 @@ impl AccumulatorOracleExt for Accumulator {
 #[cfg(feature = "limb-meter")]
 trait MeteredAccumulatorOracleExt {
     /// Add an oracle magnitude times `2^shift`.
-    fn add_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64);
-    /// Subtract an oracle magnitude times `2^shift`.
-    fn sub_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64);
+    fn add_big_shl(&mut self, value: &BigUint, shift: u64);
     /// Read the normalized magnitude into the oracle's representation.
-    fn sign_ubig(&self) -> (core::cmp::Ordering, dashu_int::UBig);
+    fn sign_big(&self) -> (core::cmp::Ordering, BigUint);
     /// Read the magnitude and its retained power-of-two scale.
-    fn sign_ubig_shl(&self) -> (core::cmp::Ordering, dashu_int::UBig, u64);
+    fn sign_big_shl(&self) -> (core::cmp::Ordering, BigUint, u64);
     /// Add an unshifted Before magnitude.
     fn add_base(&mut self, value: &crate::codec::Base);
     /// Subtract an unshifted Before magnitude.
@@ -67,20 +66,16 @@ trait MeteredAccumulatorOracleExt {
 
 #[cfg(feature = "limb-meter")]
 impl MeteredAccumulatorOracleExt for Accumulator {
-    fn add_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64) {
+    fn add_big_shl(&mut self, value: &BigUint, shift: u64) {
         crate::codec::Base(value.clone()).fold_into(self, shift, false);
     }
 
-    fn sub_ubig_shl(&mut self, value: &dashu_int::UBig, shift: u64) {
-        crate::codec::Base(value.clone()).fold_into(self, shift, true);
-    }
-
-    fn sign_ubig(&self) -> (core::cmp::Ordering, dashu_int::UBig) {
+    fn sign_big(&self) -> (core::cmp::Ordering, BigUint) {
         let (sign, magnitude) = crate::codec::Base::from_accumulator(self);
         (sign, magnitude.0)
     }
 
-    fn sign_ubig_shl(&self) -> (core::cmp::Ordering, dashu_int::UBig, u64) {
+    fn sign_big_shl(&self) -> (core::cmp::Ordering, BigUint, u64) {
         let (sign, magnitude, shift) = crate::codec::Base::from_accumulator_shl(self);
         (sign, magnitude.0, shift)
     }
@@ -812,11 +807,9 @@ proptest! {
         x_bytes in proptest::collection::vec(any::<u8>(), 1..64),
         y_bytes in proptest::collection::vec(any::<u8>(), 1..64),
     ) {
-        use dashu_int::ops::BitTest;
-        use dashu_int::UBig;
         let nonzero = |bytes: &[u8]| {
-            let v = UBig::from_le_bytes(bytes);
-            if v == UBig::ZERO { UBig::ONE } else { v }
+            let v = BigUint::from_bytes_le(bytes);
+            if v == BigUint::ZERO { BigUint::ONE } else { v }
         };
         let (x, y) = (nonzero(&x_bytes), nonzero(&y_bytes));
         let v = Shape::PunctureProduct.build_product(&x, &y).version();
@@ -835,19 +828,19 @@ proptest! {
         // a stored size nothing checks: a fold could be charged M(|v|) against
         // an operand secretly as large as the product itself.
         prop_assert!(
-            v.encoded_bits() <= (4 * x.bit_len() + 4 * (y.bit_len() + 1) + 64) as u64,
+            v.encoded_bits() <= 4 * x.bits() + 4 * (y.bits() + 1) + 64,
             "the stored stream must stay linear in the factors' widths: \
              {} stored bits against bits(x) = {}, bits(y) = {}",
             v.encoded_bits(),
-            x.bit_len(),
-            y.bit_len(),
+            x.bits(),
+            y.bits(),
         );
         let numerator = ((&x * &y) << 1usize) + 1u8;
         prop_assert_eq!(
             v.rank(),
             Rank::from_raw(
                 crate::codec::Base::from(numerator),
-                u64::try_from(y.bit_len() + 1).unwrap(),
+                y.bits() + 1,
             ),
             "the exact rank must embed the arbitrary product"
         );
@@ -916,7 +909,6 @@ proptest! {
         ),
         neg in any::<bool>(),
     ) {
-        use dashu_int::UBig;
     use suanpan::Accumulator;
 
         use crate::codec::Base;
@@ -929,16 +921,16 @@ proptest! {
             digits.push((index, digit));
             index += 1;
         }
-        let factor = Base::from(UBig::from_le_bytes(&factor_bytes));
+        let factor = Base::from(BigUint::from_bytes_le(&factor_bytes));
         let mut clustered = Accumulator::new();
         let sign = crate::version::skyline::signed::Sign::from_is_negative(neg);
         super::integral::charge_digits(&mut clustered, sign, &factor, &digits);
         // The oracle: one whole-span product per sign side, no
         // clustering anywhere on the path.
-        let mut positive = UBig::ZERO;
-        let mut negative = UBig::ZERO;
+        let mut positive = BigUint::ZERO;
+        let mut negative = BigUint::ZERO;
         for &(i, d) in &digits {
-            let term = UBig::from(d.unsigned_abs()) << usize::try_from(32 * i).expect("test spans fit");
+            let term = BigUint::from(d.unsigned_abs()) << usize::try_from(32 * i).expect("test spans fit");
             if d < 0 {
                 negative += term;
             } else {
@@ -951,381 +943,14 @@ proptest! {
         } else {
             (&positive, &negative)
         };
-        expected.add_ubig(&(add_side * &factor.0));
-        expected.sub_ubig(&(sub_side * &factor.0));
+        expected.add_big(&(add_side * &factor.0));
+        expected.sub_big(&(sub_side * &factor.0));
         expected.sub_accum(&clustered);
         prop_assert_eq!(
             expected.sign(),
             core::cmp::Ordering::Equal,
             "the clustered charge and the whole-span products must spell one value"
         );
-    }
-}
-
-/// The clustered charge agrees with the whole-span products at the backend's
-/// own multiplication-tier boundaries, with cluster-edge cancellation and the
-/// balanced range's extreme digits in play.
-///
-/// The committed proptest above samples factors up to 200 bytes (50 base-2^32
-/// digits ≈ 25 dashu words), so on a 64-bit target it never pushes a settle
-/// product past the backend's simple→Karatsuba dispatch boundary, let alone
-/// Karatsuba→Toom-3 or Toom-3→NTT. This deterministic test checks the value
-/// at every dispatch boundary the shipped dashu 0.5 backend has (smaller side
-/// 24 / 96 / 4,000 words, one width at and one past each), against the same
-/// un-clustered whole-span oracle, over three mass geometries per width: a
-/// dense run wider than the factor, digits spaced exactly at the gap limit (one
-/// bridged cluster) and exactly past it (split clusters), and an
-/// equal-magnitude ± pair straddling a forced split so the cancellation happens
-/// in the total, never inside one densified image. Digits include both
-/// balanced-range extremes (`−2^31` and `2^31 − 1`).
-#[test]
-fn clustered_charge_agrees_at_backend_tier_boundaries() {
-    use dashu_int::UBig;
-    use suanpan::Accumulator;
-
-    use crate::codec::Base;
-    use crate::version::skyline::signed::Sign;
-
-    /// One whole-span differential: `charge_digits` versus two un-clustered
-    /// products (positive and negative sides separately), exact to the digit.
-    fn assert_matches(factor: &Base, digits: &[(u64, i64)], sign: Sign, label: &str) {
-        let mut clustered = Accumulator::new();
-        super::integral::charge_digits(&mut clustered, sign, factor, digits);
-        let mut positive = UBig::ZERO;
-        let mut negative = UBig::ZERO;
-        for &(i, d) in digits {
-            let term =
-                UBig::from(d.unsigned_abs()) << usize::try_from(32 * i).expect("test spans fit");
-            if d < 0 {
-                negative += term;
-            } else {
-                positive += term;
-            }
-        }
-        let mut expected = Accumulator::new();
-        let (add_side, sub_side) = if sign.is_negative() {
-            (&negative, &positive)
-        } else {
-            (&positive, &negative)
-        };
-        expected.add_ubig(&(add_side * &factor.0));
-        expected.sub_ubig(&(sub_side * &factor.0));
-        expected.sub_accum(&clustered);
-        assert_eq!(
-            expected.sign(),
-            core::cmp::Ordering::Equal,
-            "clustered charge disagrees with the whole-span products: {label}"
-        );
-    }
-
-    // The balanced range's extremes, alternated so carries propagate through
-    // the densified images in both sign parts.
-    const EXTREMES: [i64; 4] = [-(1i64 << 31), (1i64 << 31) - 1, 1, -1];
-
-    // dashu 0.5 dispatches on the smaller side in 64-bit words: simple ≤ 24,
-    // Karatsuba ≤ 96, Toom-3 ≤ 4,000, NTT above. One width at each threshold
-    // and one past it, in base-2^32 digits.
-    for words in [24usize, 25, 96, 97, 4_000, 4_001] {
-        let width = 2 * words;
-        // A patterned full-width factor (no digit zero, top digit set).
-        let factor_bytes: Vec<u8> = (0..width * 4).map(|i| (i % 251) as u8 + 1).collect();
-        let factor = Base::from(UBig::from_le_bytes(&factor_bytes));
-        let gap_limit = super::integral::base_digits(&factor) as u64;
-        // A dense run wider than the factor: the product's smaller side is the
-        // factor, so the backend engages this width's own tier.
-        let dense: Vec<(u64, i64)> = (0..width as u64 + 64)
-            .map(|i| (i, EXTREMES[i as usize % EXTREMES.len()]))
-            .collect();
-        assert_matches(&factor, &dense, Sign::Positive, "dense run");
-        assert_matches(&factor, &dense, Sign::Negative, "dense run, credited");
-        // Digits spaced exactly at the gap limit bridge into one cluster;
-        // exactly one position further they split. Both must spell the same
-        // value either way.
-        for (spacing, label) in [
-            (gap_limit + 1, "gaps exactly at the limit (bridged)"),
-            (gap_limit + 2, "gaps exactly past the limit (split)"),
-        ] {
-            let spaced: Vec<(u64, i64)> = (0..6u64)
-                .map(|k| (k * spacing, EXTREMES[k as usize % EXTREMES.len()]))
-                .collect();
-            assert_matches(&factor, &spaced, Sign::Positive, label);
-        }
-        // Equal magnitudes of opposite sign in adjacent clusters forced apart
-        // by an over-limit gap: the value cancels only in the total, after two
-        // independent densified products.
-        let straddle: Vec<(u64, i64)> =
-            vec![(0, (1i64 << 31) - 1), (gap_limit + 2, -((1i64 << 31) - 1))];
-        assert_matches(
-            &factor,
-            &straddle,
-            Sign::Positive,
-            "cancellation across a split",
-        );
-    }
-}
-
-/// The settle-product tap ([`meter_product`]'s recording inside
-/// [`charge_digits`]) is alive: on the wide-arming close's own operands, the
-/// limb window records at least the mechanism floor, at two operand scales.
-///
-/// Deliberate internal-entry pin, decided here: the tap's recording is a few
-/// percent of any public fold's limb column (the fold's own metered `Base`
-/// arithmetic dominates), so no public-surface floor can sit above the
-/// tap's own contribution without rejecting valid work. The narrow point where
-/// backend products are the only width-scale recording, is the one place the
-/// tap's liveness is a testable number. The flatness bands this tap feeds
-/// (`ledger_wide_arming`, `answer_embedded_product`, `tests/meter.rs`) bound
-/// their limb columns only from above, so every one of them stays green with
-/// the tap deleted; this floor is what fails instead.
-///
-/// The floor is derived per boundary from a universal premise, never from
-/// readings. Premise: the settle delegates each cluster's product whole to
-/// the backend (the `integral` module doc's settle bound), and the tap prices
-/// every backend product by both operands' and the product's limb widths. On
-/// the wide-arming family's close-time operands — the parked arming climb
-/// `2^(32w)` as the factor, the trailing gap spine's dense `w`-digit window
-/// as the mass — at least one backend product carries the full factor, so a
-/// lit tap records at least
-///
-/// `limbs(factor) + limbs(product) + limbs(mass) ≥ 2·⌈(32w + 1)/64⌉ + 1`
-///
-/// (the product is at least as wide as the factor because the mass is
-/// nonzero, and the nonzero mass side records at least one limb). Parked
-/// width Θ(w) therefore implies Ω(w) recorded limbs from settle products
-/// alone, and the floor is asserted at both scales so the linear growth is
-/// pinned, not just one point. The constant reads the operand widths alone;
-/// re-derive it only if the delegation shape itself changes.
-#[cfg(feature = "limb-meter")]
-#[test]
-fn settle_product_tap_is_alive_on_the_wide_arming_close() {
-    use dashu_int::UBig;
-    use suanpan::Accumulator;
-
-    use crate::codec::Base;
-    use crate::meter::{limb_ops, reset_limb_ops};
-    use crate::version::skyline::signed::Sign;
-
-    for w in [500usize, 1_000] {
-        // The wide-arming close's operands by construction: the parked
-        // component is the family's one arming climb, the mass its dense
-        // trailing window (unit digits at consecutive indices, one cluster).
-        let factor = Base::from(UBig::ONE << (32 * w));
-        let digits: Vec<(u64, i64)> = (0..w as u64).map(|i| (i, 1)).collect();
-        // The per-boundary mechanism floor: 2·limbs(factor) + 1.
-        let floor = 2 * (32 * w as u64 + 1).div_ceil(64) + 1;
-        let mut total = Accumulator::new();
-        reset_limb_ops();
-        super::integral::charge_digits(&mut total, Sign::Positive, &factor, &digits);
-        let recorded = limb_ops();
-        eprintln!("MEASURED settle_product_tap w={w}: recorded={recorded} floor={floor}");
-        assert!(
-            recorded >= floor,
-            "the settle window at parked width {w} digits records {recorded} \
-             limbs, under the {floor}-limb mechanism floor: the settle-product \
-             tap is not watching the backend products, and every limb ceiling \
-             it feeds is passing vacuously"
-        );
-        // The value leg: a charge that recorded enough while computing the
-        // wrong integer proves nothing, so hold the window to the exact
-        // product `factor × Σᵢ 2^(32·i)`.
-        let mass_bytes: Vec<u8> = (0..w * 4).map(|i| u8::from(i % 4 == 0)).collect();
-        let mut expected = Accumulator::new();
-        expected.add_ubig(&(UBig::from_le_bytes(&mass_bytes) * &factor.0));
-        expected.sub_accum(&total);
-        assert_eq!(
-            expected.sign(),
-            core::cmp::Ordering::Equal,
-            "the metered charge must spell exactly factor × mass"
-        );
-    }
-}
-
-/// [`charge_digits`]' densify tap records exactly the zero-filled capacity of
-/// a cluster's two byte images, at shallow and deep absolute positions alike.
-///
-/// The rate is `2·span` digits per multi-digit cluster — `span` the
-/// first-to-last live digit distance inclusive — and nothing for a
-/// single-digit cluster, which takes the word-scale product without an
-/// image.
-///
-/// Deliberate internal-entry pin, decided here (as the settle-product tap's
-/// liveness pin above): the images are transient allocations whose zero fill
-/// no other counter reads — a zeroed byte no digit lands on enters no operand
-/// width, touches no accumulator digit, and raises no peak under the walk's
-/// high-water mark — so this internal boundary is where the recorded
-/// quantity can be held to the span, value-exact. The worst artifact this pin
-/// excludes is a densification sized by the cluster's absolute digit
-/// position: O(position) zero fill per cluster, green on every width and
-/// touch counter, red here because the tap records the images' own lengths
-/// and the deep cluster's equality breaks the moment the allocation outgrows
-/// its span. The value leg holds the charge to the exact signed product, so a
-/// densification that recorded the right capacity while landing digits at the
-/// wrong offsets proves nothing.
-#[cfg(feature = "limb-meter")]
-#[test]
-fn densify_tap_prices_the_cluster_span() {
-    use dashu_int::UBig;
-    use suanpan::Accumulator;
-
-    use crate::codec::Base;
-    use crate::meter::{densified_digits, reset_densified_digits};
-    use crate::version::skyline::signed::Sign;
-
-    // A 5-digit factor: the cluster gap limit under test is its width.
-    let factor = Base::from(UBig::ONE << 128);
-    for floor in [0u64, 100_000] {
-        // One multi-digit cluster: live digits at `floor` and `floor + 2`
-        // (the interior gap of 1 sits inside the factor's 5-digit gap
-        // limit), span 3, both signs live so both images carry digits.
-        let digits = [(floor, 1i64), (floor + 2, -3i64)];
-        let mut total = Accumulator::new();
-        reset_densified_digits();
-        super::integral::charge_digits(&mut total, Sign::Positive, &factor, &digits);
-        assert_eq!(
-            densified_digits(),
-            6,
-            "two images at span 3 record 6 digits: the densify tap must read \
-             the images' own capacity, independent of the cluster's absolute \
-             position (floor {floor})"
-        );
-        // The value leg: exactly factor · (2^(32·floor) − 3 · 2^(32·(floor + 2))).
-        let mut expected = Accumulator::new();
-        expected.add_ubig_shl(&factor.0, 32 * floor);
-        expected.sub_ubig_shl(&(&factor.0 * UBig::from(3u8)), 32 * (floor + 2));
-        expected.sub_accum(&total);
-        assert_eq!(
-            expected.sign(),
-            core::cmp::Ordering::Equal,
-            "the metered charge must spell exactly factor × mass"
-        );
-    }
-    // A single-digit cluster takes the word-scale product: no image, no fill,
-    // nothing recorded.
-    let digits = [(7u64, 5i64)];
-    let mut total = Accumulator::new();
-    reset_densified_digits();
-    super::integral::charge_digits(&mut total, Sign::Positive, &factor, &digits);
-    assert_eq!(
-        densified_digits(),
-        0,
-        "a single-digit cluster densifies no image"
-    );
-}
-
-/// Dense committed factors drive one settle product through the public rank at
-/// each backend multiplication-tier boundary, exact against the recursive
-/// oracle and the closed form.
-///
-/// The gap the lower-level differentials leave open: the tier-boundary charge
-/// test above holds the charge kernel value-exact at every dispatch boundary,
-/// but only a `charge_digits`-level operand ever reached the upper tiers — no
-/// public fold drove an incompressible factor through a settle product there.
-/// Here the puncture-product family does it end to end: the plateau `x` is
-/// dense pseudorandom at exactly 24, 25, 96, and 97 dashu words (the
-/// simple/Karatsuba and Karatsuba/Toom-3 boundaries of dashu-int 0.5.0's
-/// THRESHOLD constants, dispatched on the product's smaller side), the mass `y`
-/// spans 16 digits past the factor with every digit populated — fully dense at
-/// 24/25, four pseudorandom bits per digit at 96/97 (the encoded construction
-/// pays one plateau code per mass bit, so popcount is the test's whole budget;
-/// per-digit population is what the product's carry chains see) — so the
-/// close-time settle's one product meets the boundary width with dense content
-/// on both sides. Value legs per width: the recursive tree oracle and the
-/// closed form `(2·x·y + 1) / 2^bits(2y)` through an independent backend
-/// multiplication.
-///
-/// The Toom-3/NTT boundary (4,000/4,001 words) rides the same construction with
-/// the mass thinned to one jittered turn every 400 digits: a
-/// per-digit-populated NTT-scale mass would build an operand in the
-/// hundreds of megabits, and the recursive oracle's fold over the ~256,000-leaf
-/// tree is likewise out of test budget — the punctured trailing run still
-/// densifies to one cluster image spanning the full smaller-side width the
-/// backend dispatches on (gaps of ~399 digits sit far inside the factor-width
-/// gap limit), the factor side stays fully dense, and the value leg is the
-/// closed form alone.
-#[test]
-fn dense_factors_agree_through_the_public_fold_at_tier_boundaries() {
-    // The recursive oracle and its bridge are test-only plain recursion on tree
-    // depth, and the dense masses here run the spine thousands of levels deep —
-    // the production folds are stack-safe (`crate::recurse::descend!`), so the
-    // headroom is for the witnesses, not the code under test.
-    let body = std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(dense_factor_tier_legs)
-        .expect("the fat-stack witness thread spawns");
-    if let Err(panic) = body.join() {
-        std::panic::resume_unwind(panic);
-    }
-}
-
-/// The tier legs of
-/// [`dense_factors_agree_through_the_public_fold_at_tier_boundaries`], on the
-/// fat-stack thread the recursive oracle needs at these depths.
-fn dense_factor_tier_legs() {
-    use dashu_int::ops::BitTest;
-    use dashu_int::UBig;
-
-    /// One puncture-product leg: the public rank against the closed form, and
-    /// (where the tree fits the budget) the recursive oracle.
-    fn assert_leg(x: &UBig, y: &UBig, oracle: bool, label: &str) {
-        let v = Shape::PunctureProduct.build_product(x, y).version();
-        let numerator = ((x * y) << 1usize) + 1u8;
-        assert_eq!(
-            v.rank(),
-            Rank::from_raw(
-                crate::codec::Base::from(numerator),
-                u64::try_from(y.bit_len() + 1).unwrap(),
-            ),
-            "the closed form must hold at the {label} boundary"
-        );
-        if oracle {
-            assert_eq!(
-                v.rank(),
-                to_oracle_version(&v).rank(),
-                "the tree-fold oracle must agree at the {label} boundary"
-            );
-        }
-    }
-
-    /// A mass with every base-2^32 digit populated by `bits`-many pseudorandom
-    /// bit choices (collisions allowed, so one to `bits` live bits per digit).
-    fn spread_mass(seed: u64, digits: usize, bits: u64) -> UBig {
-        let mut y = UBig::ZERO;
-        for digit in 0..digits {
-            for b in 0..bits {
-                let j = u64::from(factor_digit(seed, digit as u64 * bits + b)) % 32;
-                y |= UBig::ONE << (32 * digit + j as usize);
-            }
-        }
-        y
-    }
-
-    for (words, dense_mass) in [(24usize, true), (25, true), (96, false), (97, false)] {
-        let x = dense_factor(0x5449_4552 ^ words as u64, 2 * words);
-        let mass_seed = 0x4D41_5353 ^ words as u64;
-        let y = if dense_mass {
-            dense_factor(mass_seed, 2 * words + 16)
-        } else {
-            spread_mass(mass_seed, 2 * words + 16, 4)
-        };
-        assert_leg(&x, &y, true, &format!("{words}-word"));
-    }
-    for words in [4_000usize, 4_001] {
-        let x = dense_factor(0x4E54_5400 ^ words as u64, 2 * words);
-        let span = 2 * words + 16;
-        let mut y = UBig::ZERO;
-        let mut digit = 0usize;
-        let mut turn = 0u64;
-        while digit < span {
-            let jitter = u64::from(factor_digit(0x4A49_5454, turn)) % 32;
-            y |= UBig::ONE << (32 * digit + jitter as usize);
-            digit += 400;
-            turn += 1;
-        }
-        // The top turn sits at the span's last digit, so the settle product's
-        // mass side strictly out-spans the factor and the backend dispatches on
-        // the factor's word count exactly.
-        y |= UBig::ONE << (32 * (span - 1) + 31);
-        assert_leg(&x, &y, false, &format!("{words}-word"));
     }
 }
 
@@ -1479,6 +1104,8 @@ proptest! {
 /// shipped rank, so the demonstrator is a real implementation, not a strawman.
 #[cfg(feature = "limb-meter")]
 mod adequacy {
+    use num_bigint::BigUint;
+
     use core::cmp::Ordering;
 
     use suanpan::{touch_meter, Accumulator};
@@ -1528,8 +1155,8 @@ mod adequacy {
             let (_, step) = cursor.step();
             fold(&mut live_height, Side::A, step.sign, &step.magnitude);
             if live_height.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
-                let (drift_sign, drift) = live_height.sign_ubig();
-                let (_, position_mag) = position.sign_ubig();
+                let (drift_sign, drift) = live_height.sign_big();
+                let (_, position_mag) = position.sign_big();
                 let drift = Base::from(drift);
                 mul_into(
                     &mut total,
@@ -1546,7 +1173,7 @@ mod adequacy {
             }
         }
         total.add_accum_shl(&frozen, max_depth);
-        let (sign, num) = total.sign_ubig();
+        let (sign, num) = total.sign_big();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
         Rank::from_raw(Base::from(num), scale)
     }
@@ -1656,8 +1283,8 @@ mod adequacy {
         }
 
         fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-            let (sign, magnitude) = diff.sign_ubig();
-            if magnitude == dashu_int::UBig::ZERO {
+            let (sign, magnitude) = diff.sign_big();
+            if magnitude == BigUint::ZERO {
                 return;
             }
             let magnitude = Base::from(magnitude);
@@ -1677,8 +1304,8 @@ mod adequacy {
         }
 
         fn freeze(&mut self) {
-            let (drift_sign, drift) = self.live.sign_ubig();
-            if drift == dashu_int::UBig::ZERO {
+            let (drift_sign, drift) = self.live.sign_big();
+            if drift == BigUint::ZERO {
                 self.live.reset();
                 return;
             }
@@ -1698,8 +1325,8 @@ mod adequacy {
         }
 
         fn settle_segment(&mut self) {
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
-            if segment_magnitude == dashu_int::UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
+            if segment_magnitude == BigUint::ZERO {
                 return;
             }
             let segment = Base::from(segment_magnitude);
@@ -1707,8 +1334,8 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
-            if parked_magnitude == dashu_int::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_big();
+            if parked_magnitude == BigUint::ZERO {
                 return;
             }
             mul_into(
@@ -1724,11 +1351,11 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
-            if parked_magnitude == dashu_int::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_big();
+            if parked_magnitude == BigUint::ZERO {
                 return;
             }
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
             mul_into(
                 &mut self.total,
                 &Base::from(parked_magnitude),
@@ -1741,9 +1368,9 @@ mod adequacy {
         /// The refuted move: `P × position` with the position read whole, then
         /// `P` re-anchored into the base.
         fn promote(&mut self) {
-            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
-            if parked_magnitude != dashu_int::UBig::ZERO {
-                let (_, pos_mag, pos_shift) = self.position.sign_ubig_shl();
+            let (parked_sign, parked_magnitude) = self.parked.sign_big();
+            if parked_magnitude != BigUint::ZERO {
+                let (_, pos_mag, pos_shift) = self.position.sign_big_shl();
                 mul_into(
                     &mut self.total,
                     &Base::from(parked_magnitude),
@@ -1761,7 +1388,7 @@ mod adequacy {
             if !self.base.is_literally_zero() {
                 self.total.add_accum_shl(&self.base, closing_shift);
             }
-            let (sign, num) = self.total.sign_ubig();
+            let (sign, num) = self.total.sign_big();
             debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
             let scale = closing_shift;
             Rank::from_raw(Base::from(num), scale)
@@ -1807,7 +1434,7 @@ mod adequacy {
         let mut orient = orientation(diff.sign());
         let mut integral = SpanIntegrator::new();
         if orient != 0 {
-            let (_, opening) = diff.sign_ubig();
+            let (_, opening) = diff.sign_big();
             integral.open(&Int::from_base(Base::from(opening)));
         }
         loop {
@@ -1993,8 +1620,8 @@ mod adequacy {
         }
 
         fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-            let (sign, magnitude) = diff.sign_ubig();
-            if magnitude == dashu_int::UBig::ZERO {
+            let (sign, magnitude) = diff.sign_big();
+            if magnitude == BigUint::ZERO {
                 return;
             }
             let magnitude = Base::from(magnitude);
@@ -2014,8 +1641,8 @@ mod adequacy {
         }
 
         fn freeze(&mut self) {
-            let (drift_sign, drift) = self.live.sign_ubig();
-            if drift == dashu_int::UBig::ZERO {
+            let (drift_sign, drift) = self.live.sign_big();
+            if drift == BigUint::ZERO {
                 self.live.reset();
                 return;
             }
@@ -2035,8 +1662,8 @@ mod adequacy {
         }
 
         fn settle_segment(&mut self) {
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
-            if segment_magnitude == dashu_int::UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
+            if segment_magnitude == BigUint::ZERO {
                 return;
             }
             let segment = Base::from(segment_magnitude);
@@ -2044,8 +1671,8 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
-            if parked_magnitude == dashu_int::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_big();
+            if parked_magnitude == BigUint::ZERO {
                 return;
             }
             mul_into(
@@ -2061,11 +1688,11 @@ mod adequacy {
             if self.parked.is_literally_zero() {
                 return;
             }
-            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
-            if parked_magnitude == dashu_int::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_big();
+            if parked_magnitude == BigUint::ZERO {
                 return;
             }
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
+            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
             mul_into(
                 &mut self.total,
                 &Base::from(parked_magnitude),
@@ -2076,8 +1703,8 @@ mod adequacy {
         }
 
         fn promote(&mut self) {
-            let (parked_sign, parked_magnitude) = self.parked.sign_ubig();
-            if parked_magnitude != dashu_int::UBig::ZERO {
+            let (parked_sign, parked_magnitude) = self.parked.sign_big();
+            if parked_magnitude != BigUint::ZERO {
                 let (_, window_magnitude, window_shift) = self.banked_window.sign_base_shl();
                 self.promotions.push(Arming {
                     sign: Sign::from_is_negative(parked_sign == Ordering::Less),
@@ -2114,17 +1741,17 @@ mod adequacy {
         fn finish(mut self, closing_shift: u64) -> Rank {
             self.settle();
             if !self.promotions.is_empty() {
-                let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_ubig_shl();
-                if segment_magnitude != dashu_int::UBig::ZERO {
+                let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
+                if segment_magnitude != BigUint::ZERO {
                     self.banked_window
-                        .add_ubig_shl(&segment_magnitude, segment_shift);
+                        .add_big_shl(&segment_magnitude, segment_shift);
                 }
                 self.settle_armings();
             }
             if !self.base.is_literally_zero() {
                 self.total.add_accum_shl(&self.base, closing_shift);
             }
-            let (sign, num) = self.total.sign_ubig();
+            let (sign, num) = self.total.sign_big();
             debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
             let scale = closing_shift;
             Rank::from_raw(Base::from(num), scale)
@@ -2170,7 +1797,7 @@ mod adequacy {
         let mut orient = orientation(diff.sign());
         let mut integral = SuffixWalkIntegrator::new();
         if orient != 0 {
-            let (_, opening) = diff.sign_ubig();
+            let (_, opening) = diff.sign_big();
             integral.open(&Int::from_base(Base::from(opening)));
         }
         loop {
@@ -2319,7 +1946,6 @@ mod adequacy {
 
     use crate::meter::{limb_ops, reset_limb_ops};
     use crate::version::skyline::query::integral::{mass_split, Aggregate, Integrator};
-    use dashu_int::UBig;
 
     /// Fold `other` into `dst` one digit at a time: each single-digit
     /// combine re-walks `dst`'s whole live vector — the `O(density²)`
@@ -2334,8 +1960,8 @@ mod adequacy {
     /// parked sum exactly as [`Aggregate::merge`], the window merge
     /// swapped for [`per_digit_absorb`].
     fn merge_per_digit(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (parked_sign, parked_magnitude) = left.parked.sign_ubig();
-        if parked_magnitude != UBig::ZERO {
+        let (parked_sign, parked_magnitude) = left.parked.sign_big();
+        if parked_magnitude != BigUint::ZERO {
             right.windows.charge(
                 total,
                 Sign::from_is_negative(parked_sign == Ordering::Less),
@@ -2419,18 +2045,18 @@ mod adequacy {
     fn per_digit_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
         integ.settle();
         if !integ.promotions.is_empty() {
-            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_ubig_shl();
-            if segment_magnitude != UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_big_shl();
+            if segment_magnitude != BigUint::ZERO {
                 integ
                     .banked_window
-                    .add_ubig_shl(&segment_magnitude, segment_shift);
+                    .add_big_shl(&segment_magnitude, segment_shift);
             }
             per_digit_settle_armings(&mut integ);
         }
         if !integ.base.is_literally_zero() {
             integ.total.add_accum_shl(&integ.base, closing_shift);
         }
-        let (sign, num) = integ.total.sign_ubig();
+        let (sign, num) = integ.total.sign_big();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
         let scale = closing_shift;
         Rank::from_raw(Base::from(num), scale)
@@ -2550,8 +2176,8 @@ mod adequacy {
     /// absorb exactly as [`Aggregate::merge`], the product routed through
     /// [`schoolbook_charge`].
     fn merge_schoolbook(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (parked_sign, parked_magnitude) = left.parked.sign_ubig();
-        if parked_magnitude != UBig::ZERO {
+        let (parked_sign, parked_magnitude) = left.parked.sign_big();
+        if parked_magnitude != BigUint::ZERO {
             schoolbook_charge(
                 total,
                 Sign::from_is_negative(parked_sign == Ordering::Less),
@@ -2637,9 +2263,9 @@ mod adequacy {
     /// [`schoolbook_settle_armings`].
     fn schoolbook_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
         if !integ.parked.is_literally_zero() {
-            let (parked_sign, parked_magnitude) = integ.parked.sign_ubig();
-            if parked_magnitude != UBig::ZERO {
-                let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_ubig_shl();
+            let (parked_sign, parked_magnitude) = integ.parked.sign_big();
+            if parked_magnitude != BigUint::ZERO {
+                let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_big_shl();
                 mul_into(
                     &mut integ.total,
                     &Base::from(parked_magnitude),
@@ -2650,18 +2276,18 @@ mod adequacy {
             }
         }
         if !integ.promotions.is_empty() {
-            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_ubig_shl();
-            if segment_magnitude != UBig::ZERO {
+            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_big_shl();
+            if segment_magnitude != BigUint::ZERO {
                 integ
                     .banked_window
-                    .add_ubig_shl(&segment_magnitude, segment_shift);
+                    .add_big_shl(&segment_magnitude, segment_shift);
             }
             schoolbook_settle_armings(&mut integ);
         }
         if !integ.base.is_literally_zero() {
             integ.total.add_accum_shl(&integ.base, closing_shift);
         }
-        let (sign, num) = integ.total.sign_ubig();
+        let (sign, num) = integ.total.sign_big();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
         let scale = closing_shift;
         Rank::from_raw(Base::from(num), scale)

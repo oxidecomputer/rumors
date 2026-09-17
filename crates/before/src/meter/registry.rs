@@ -19,7 +19,7 @@
 #[cfg(test)]
 mod tests;
 
-use dashu_int::UBig;
+use num_bigint::BigUint;
 
 use super::Encoding;
 use crate::Version;
@@ -221,7 +221,7 @@ enum Builder {
     /// The arming-train signature: three knobs and a sign schedule.
     Train(fn(usize, usize, usize, bool) -> Encoding),
     /// Two arbitrary factors to one encoded shape.
-    Product(fn(&UBig, &UBig) -> Encoding),
+    Product(fn(&BigUint, &BigUint) -> Encoding),
     /// Two size knobs to a geometrically coupled encoded pair.
     Pair2(fn(usize, usize) -> (Encoding, Encoding)),
     /// Three size knobs to a geometrically coupled encoded pair.
@@ -396,7 +396,7 @@ impl Shape {
     ///
     /// Panics if this shape's constructor takes a different signature,
     /// or on the constructor's own factor preconditions.
-    pub fn build_product(self, x: &UBig, y: &UBig) -> Encoding {
+    pub fn build_product(self, x: &BigUint, y: &BigUint) -> Encoding {
         match self.builder() {
             Builder::Product(f) => f(x, y),
             _ => self.wrong_builder("build_product"),

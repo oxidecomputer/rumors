@@ -6,7 +6,7 @@
 
 use core::cmp::Ordering;
 
-use dashu_int::UBig;
+use num_bigint::BigUint;
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
@@ -26,12 +26,12 @@ fn below(n: u64) -> Signed {
 /// The magnitude `n` spelled wide.
 ///
 /// This forces the accumulator's multi-word path even for small values.
-fn wide(n: &UBig) -> Int {
+fn wide(n: &BigUint) -> Int {
     Int::Wide(Base::from(n.clone()))
 }
 
 /// A priced offset `−n` at a wide-spelled magnitude.
-fn below_wide(n: &UBig) -> Signed {
+fn below_wide(n: &BigUint) -> Signed {
     Signed {
         sign: Sign::Negative,
         magnitude: wide(n),
@@ -173,7 +173,7 @@ fn a_drop_short_of_the_latent_minimum_refuses_the_undercut() {
 /// the expected ordering easy to calculate. Three probes establish the result.
 #[test]
 fn a_spilled_latent_refuses_the_drop_on_the_folded_certificate() {
-    let lambda = UBig::from(1u8) << 200;
+    let lambda = BigUint::from(1u8) << 200;
     let mut web: MinWeb<()> = MinWeb::new();
     web.open(2);
     web.emit_here(); // both ranges arm at v = 0
@@ -188,19 +188,19 @@ fn a_spilled_latent_refuses_the_drop_on_the_folded_certificate() {
         web.latent_live(),
         "a dominating latent answers the drop with no state change"
     );
-    let height = &lambda - UBig::from(50u8);
+    let height = &lambda - BigUint::from(50u8);
     assert_eq!(
         web.compare_above(&below_wide(&height)),
         Ordering::Equal,
         "the probe at the true minimum reads exact"
     );
     assert_eq!(
-        web.compare_above(&below_wide(&(&height - UBig::from(1u8)))),
+        web.compare_above(&below_wide(&(&height - BigUint::from(1u8)))),
         Ordering::Greater,
         "a probe above the minimum reads above"
     );
     assert_eq!(
-        web.compare_above(&below_wide(&(&height + UBig::from(1u8)))),
+        web.compare_above(&below_wide(&(&height + BigUint::from(1u8)))),
         Ordering::Less,
         "a probe below the minimum reads below"
     );
@@ -225,7 +225,7 @@ proptest! {
         start in 0u64..=1_000_000,
     ) {
         const SLOT: usize = 0;
-        let drop = UBig::from(1u8) << b;
+        let drop = BigUint::from(1u8) << b;
         let mut web: MinWeb<()> = MinWeb::new();
         web.open(1);
         web.emit_here(); // the range arms at v = 0: A = 0, m = 0
@@ -237,7 +237,7 @@ proptest! {
         let taken = web.follower_take(SLOT);
         let moved = web.materialize(taken);
         // start − (2^b + k), necessarily negative: the residue dwarfs `start`.
-        let residue = &drop + UBig::from(k);
+        let residue = &drop + BigUint::from(k);
         prop_assert_eq!(
             moved.sign,
             Sign::Negative,
@@ -245,7 +245,7 @@ proptest! {
         );
         prop_assert_eq!(
             moved.magnitude,
-            wide(&(residue - UBig::from(start))),
+            wide(&(residue - BigUint::from(start))),
             "the follower moved by exactly the residue m − v"
         );
     }
@@ -263,7 +263,7 @@ proptest! {
         b in 34usize..=260,
         d in 1u64..=(1u64 << 33),
     ) {
-        let lambda = UBig::from(1u8) << b;
+        let lambda = BigUint::from(1u8) << b;
         let mut web: MinWeb<()> = MinWeb::new();
         web.open(2);
         web.emit_here(); // both ranges arm at v = 0
@@ -275,25 +275,25 @@ proptest! {
         web.fold_height(Sign::Negative, &Int::Small(d)); // h = Λ − d
         web.emit_here(); // v = Λ − d: strictly inside (m, A)
         // The minimum is still 0, whichever arm answered.
-        let height = &lambda - UBig::from(d);
+        let height = &lambda - BigUint::from(d);
         prop_assert_eq!(
             web.compare_above(&below_wide(&height)),
             Ordering::Equal,
             "the probe at the true minimum reads exact"
         );
         prop_assert_eq!(
-            web.compare_above(&below_wide(&(&height - UBig::from(1u8)))),
+            web.compare_above(&below_wide(&(&height - BigUint::from(1u8)))),
             Ordering::Greater,
             "a probe above the minimum reads above"
         );
         prop_assert_eq!(
-            web.compare_above(&below_wide(&(&height + UBig::from(1u8)))),
+            web.compare_above(&below_wide(&(&height + BigUint::from(1u8)))),
             Ordering::Less,
             "a probe below the minimum reads below"
         );
         // The refusal left the web intact: a drop that does pass the minimum
         // still seats it exactly.
-        web.fold_height(Sign::Negative, &wide(&(&height + UBig::from(1u8)))); // h = −1
+        web.fold_height(Sign::Negative, &wide(&(&height + BigUint::from(1u8)))); // h = −1
         web.emit_here(); // v = −1: past m = 0, a true undercut
         // The undercut runs with the outer range still armed, so it propagates
         // to a live follower. Close the dropped range and read the outer

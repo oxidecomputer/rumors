@@ -671,7 +671,7 @@ fn gamma_truncated_inside_wide_mantissa() {
 /// semantics of record that `Base`'s manual limb-metered impls must reproduce
 /// exactly.
 #[derive(PartialEq, Hash)]
-struct DerivedBase(dashu_int::UBig);
+struct DerivedBase(num_bigint::BigUint);
 
 impl DerivedBase {
     /// The same value as `b`, carried by the derived-impl mirror.

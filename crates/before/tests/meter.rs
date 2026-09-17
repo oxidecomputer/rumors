@@ -74,13 +74,12 @@ fn uniform_version(ticks: impl Into<Ticks>) -> Version {
 }
 
 /// Convert a test oracle's integer without routing through decimal text.
-fn ticks_from_big(value: &dashu_int::UBig) -> Ticks {
+fn ticks_from_big(value: &num_bigint::BigUint) -> Ticks {
     value
-        .as_words()
-        .iter()
+        .iter_u64_digits()
         .rev()
-        .fold(Ticks::ZERO, |mut ticks, &word| {
-            for _ in 0..usize::BITS {
+        .fold(Ticks::ZERO, |mut ticks, word| {
+            for _ in 0..u64::BITS {
                 ticks += ticks.clone();
             }
             ticks += Ticks::from(word);
@@ -2082,7 +2081,7 @@ mod skyline_flatness {
     /// one-touch-per-operand-byte liveness floor.
     fn min_ticks_family_run(
         encoded: before::meter::Encoding,
-        expected: &dashu_int::UBig,
+        expected: &num_bigint::BigUint,
     ) -> QueryRun {
         let v = encoded.version();
         let bytes = v.encode().len() as u64;
@@ -2163,9 +2162,9 @@ mod skyline_flatness {
     /// `min_ticks = k·2^b` exact at both scales.
     #[test]
     fn skyline_min_ticks_pure_comb_is_flat_per_unit() {
-        use dashu_int::UBig;
         let k = MIN_TICKS_COMB_SMALL;
-        let expected = |k: usize| (UBig::ONE << k) * UBig::from(k as u64);
+        let expected =
+            |k: usize| (num_bigint::BigUint::ONE << k) * num_bigint::BigUint::from(k as u64);
         let small = min_ticks_family_run(Shape::PureComb.build2(k, k), &expected(k));
         let large = min_ticks_family_run(Shape::PureComb.build2(2 * k, 2 * k), &expected(2 * k));
         assert_ceilings(
@@ -2203,9 +2202,9 @@ mod skyline_flatness {
     /// superlinear here).
     #[test]
     fn skyline_min_ticks_reveal_comb_is_flat_per_unit() {
-        use dashu_int::UBig;
         let k = MIN_TICKS_COMB_SMALL;
-        let expected = |k: usize| (UBig::ONE << k) * UBig::from(k as u64);
+        let expected =
+            |k: usize| (num_bigint::BigUint::ONE << k) * num_bigint::BigUint::from(k as u64);
         let small = min_ticks_family_run(Shape::RevealComb.build2(k, k), &expected(k));
         let large = min_ticks_family_run(Shape::RevealComb.build2(2 * k, 2 * k), &expected(2 * k));
         assert_ceilings(
@@ -2266,27 +2265,28 @@ mod skyline_flatness {
 
     /// The descending-boundary closed form: `(k + 1)` ascending leaves over all-zero
     /// minima plus the plunge.
-    fn descending_boundary_ticks(k: usize, r: usize) -> dashu_int::UBig {
-        use dashu_int::UBig;
-        (UBig::from(5u8) << (32 * (r - 1))) * UBig::from((k + 1) as u64)
-            + (UBig::from(5u8) << 64usize) * UBig::from(((k + 1) * (k + 2) / 2) as u64)
+    fn descending_boundary_ticks(k: usize, r: usize) -> num_bigint::BigUint {
+        (num_bigint::BigUint::from(5u8) << (32 * (r - 1)))
+            * num_bigint::BigUint::from((k + 1) as u64)
+            + (num_bigint::BigUint::from(5u8) << 64usize)
+                * num_bigint::BigUint::from(((k + 1) * (k + 2) / 2) as u64)
     }
 
     /// The leveled control's closed form: the ascent on the bases, the
     /// terminal one rung up.
-    fn descending_boundary_control_ticks(k: usize, r: usize) -> dashu_int::UBig {
-        use dashu_int::UBig;
-        (UBig::from(5u8) << (32 * (r - 1)))
-            + (UBig::from(5u8) << 64usize) * UBig::from((k + 2) as u64)
+    fn descending_boundary_control_ticks(k: usize, r: usize) -> num_bigint::BigUint {
+        (num_bigint::BigUint::from(5u8) << (32 * (r - 1)))
+            + (num_bigint::BigUint::from(5u8) << 64usize)
+                * num_bigint::BigUint::from((k + 2) as u64)
     }
 
     /// The stopping pair's shared closed form (the control differs only in
     /// zero-base wrapping).
-    fn stopping_boundary_ticks(k: usize) -> dashu_int::UBig {
-        use dashu_int::UBig;
-        (UBig::from(5u8) << 128usize)
-            + (UBig::from((k - 1) as u64) << 80usize)
-            + (UBig::from(5u8) << 64usize) * UBig::from((k * (k - 1) / 2) as u64)
+    fn stopping_boundary_ticks(k: usize) -> num_bigint::BigUint {
+        (num_bigint::BigUint::from(5u8) << 128usize)
+            + (num_bigint::BigUint::from((k - 1) as u64) << 80usize)
+            + (num_bigint::BigUint::from(5u8) << 64usize)
+                * num_bigint::BigUint::from((k * (k - 1) / 2) as u64)
     }
 
     /// Touch liveness floor on the descending shape's larger run, derived from
@@ -2557,10 +2557,11 @@ mod skyline_flatness {
 
     /// The latent-ladder closed form: the parked pair over the floor plus
     /// `k` ladder leaves one to `k` under the anchor.
-    fn latent_ladder_ticks(w: usize, k: usize) -> dashu_int::UBig {
-        use dashu_int::UBig;
-        (UBig::from(5u8) << (32 * (w - 1))) * UBig::from((k + 1) as u64) + UBig::ONE
-            - UBig::from((k * (k + 1) / 2) as u64)
+    fn latent_ladder_ticks(w: usize, k: usize) -> num_bigint::BigUint {
+        (num_bigint::BigUint::from(5u8) << (32 * (w - 1)))
+            * num_bigint::BigUint::from((k + 1) as u64)
+            + num_bigint::BigUint::ONE
+            - num_bigint::BigUint::from((k * (k + 1) / 2) as u64)
     }
 
     /// Touch liveness floor on the ladder's per-width `k`-marginal, derived
@@ -2645,14 +2646,14 @@ mod skyline_flatness {
     /// (proving the generator builds the tree this band reasons about)
     /// and the one-touch-per-operand-byte liveness floor.
     fn rank_freeze_position_run(k: usize) -> QueryRun {
-        use dashu_int::UBig;
         let encoded = Shape::FreezePosition.build1(k);
         let v = encoded.version();
         let bytes = v.encode().len() as u64;
         let band = 289 + (usize::BITS - k.leading_zeros()) as usize;
-        let expected = (UBig::from(2 * k as u64) << band)
-            + UBig::from((k * (k - 1)) as u64) * ((UBig::ONE << 288usize) + UBig::ONE)
-            + UBig::from(k as u64);
+        let expected = (num_bigint::BigUint::from(2 * k as u64) << band)
+            + num_bigint::BigUint::from((k * (k - 1)) as u64)
+                * ((num_bigint::BigUint::ONE << 288usize) + num_bigint::BigUint::ONE)
+            + num_bigint::BigUint::from(k as u64);
         assert_eq!(
             v.min_ticks(),
             ticks_from_big(&expected),
@@ -2838,11 +2839,13 @@ mod skyline_flatness {
     /// reasons about) and the one-touch-per-operand-byte liveness
     /// floor.
     fn rank_promotion_rearm_run(p: usize) -> QueryRun {
-        use dashu_int::UBig;
         let v = Shape::PromotionRearm.build1(p).version();
         let bytes = v.encode().len() as u64;
-        let expected = UBig::from(16 * p as u64)
-            + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+        let expected = num_bigint::BigUint::from(16 * p as u64)
+            + num_bigint::BigUint::from(p as u64)
+                * ((num_bigint::BigUint::ONE << 608usize)
+                    + (num_bigint::BigUint::ONE << 288usize)
+                    + 2u8)
             + 1u8;
         assert_eq!(
             v.min_ticks(),
@@ -2934,13 +2937,13 @@ mod skyline_flatness {
     /// (proving the generator builds the spine this band reasons
     /// about) and the one-touch-per-operand-byte liveness floor.
     fn rank_lone_freeze_run(pre: usize, post: usize) -> QueryRun {
-        use dashu_int::UBig;
         let v = Shape::LoneFreeze.build2(pre, post).version();
         let bytes = v.encode().len() as u64;
-        let expected = UBig::from(pre as u64) * ((UBig::ONE << 288usize) + UBig::from(2u8))
-            + UBig::from((pre / 2) as u64)
-            + UBig::from((3 * post / 2) as u64)
-            + UBig::from(3u8);
+        let expected = num_bigint::BigUint::from(pre as u64)
+            * ((num_bigint::BigUint::ONE << 288usize) + num_bigint::BigUint::from(2u8))
+            + num_bigint::BigUint::from((pre / 2) as u64)
+            + num_bigint::BigUint::from((3 * post / 2) as u64)
+            + num_bigint::BigUint::from(3u8);
         assert_eq!(
             v.min_ticks(),
             ticks_from_big(&expected),
@@ -3091,12 +3094,12 @@ mod skyline_flatness {
     /// frozen-component accounting.
     #[test]
     fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
-        use dashu_int::UBig;
         let expected = |k: usize| {
             let band = 289 + (usize::BITS - k.leading_zeros()) as usize;
-            (UBig::from(2 * k as u64) << band)
-                + UBig::from((k * (k - 1)) as u64) * ((UBig::ONE << 288usize) + UBig::ONE)
-                + UBig::from(k as u64)
+            (num_bigint::BigUint::from(2 * k as u64) << band)
+                + num_bigint::BigUint::from((k * (k - 1)) as u64)
+                    * ((num_bigint::BigUint::ONE << 288usize) + num_bigint::BigUint::ONE)
+                + num_bigint::BigUint::from(k as u64)
         };
         let k = RANK_FREEZE_POSITION_SMALL;
         let small = min_ticks_family_run(Shape::FreezePosition.build1(k), &expected(k));
@@ -3148,10 +3151,12 @@ mod skyline_flatness {
     /// many-epochs coverage.
     #[test]
     fn skyline_min_ticks_promotion_rearm_is_flat_per_unit() {
-        use dashu_int::UBig;
         let expected = |p: usize| {
-            UBig::from(16 * p as u64)
-                + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+            num_bigint::BigUint::from(16 * p as u64)
+                + num_bigint::BigUint::from(p as u64)
+                    * ((num_bigint::BigUint::ONE << 608usize)
+                        + (num_bigint::BigUint::ONE << 288usize)
+                        + 2u8)
                 + 1u8
         };
         let p = PROMOTION_REARM_SMALL;
@@ -3621,12 +3626,11 @@ mod skyline_flatness {
     /// with the tick total as the semantic leg and a
     /// one-touch-per-topology-byte liveness floor.
     fn rank_weight_comb_run(n: usize) -> QueryRun {
-        use dashu_int::UBig;
         let v = Shape::WeightComb.build1(n).version();
         let bytes = v.encode().len() as u64;
         // Σ stored bases: the spine's 32n − 1 unit leaves plus the
         // block's n twos.
-        let expected = UBig::from((34 * n - 1) as u64);
+        let expected = num_bigint::BigUint::from((34 * n - 1) as u64);
         assert_eq!(
             v.min_ticks(),
             ticks_from_big(&expected),
@@ -3713,7 +3717,6 @@ mod skyline_flatness {
     /// (`meter::freeze_parade`): the same harness as the weight
     /// comb's.
     fn rank_freeze_parade_run(k: usize) -> QueryRun {
-        use dashu_int::UBig;
         let v = Shape::FreezeParade.build1(k).version();
         let bytes = v.encode().len() as u64;
         // Σ printed bases in closed form: the spine's 64k − 1 unit
@@ -3724,13 +3727,13 @@ mod skyline_flatness {
         // 2^band − (k − 1)(2^288 + 1) − 2^288.
         let j = (usize::BITS - k.leading_zeros()) as usize - 1;
         let band = 290 + (usize::BITS - k.leading_zeros()) as usize;
-        let w = UBig::ONE << 288usize;
-        let stride = &w + UBig::ONE;
-        let expected = UBig::from((64 * k - 1) as u64)
-            + (UBig::ONE << band)
-            + UBig::from(k as u64) * &w
-            + UBig::from((k / 2 * j) as u64) * &stride
-            - UBig::from((k - 1) as u64) * &stride
+        let w = num_bigint::BigUint::ONE << 288usize;
+        let stride = &w + num_bigint::BigUint::ONE;
+        let expected = num_bigint::BigUint::from((64 * k - 1) as u64)
+            + (num_bigint::BigUint::ONE << band)
+            + num_bigint::BigUint::from(k as u64) * &w
+            + num_bigint::BigUint::from((k / 2 * j) as u64) * &stride
+            - num_bigint::BigUint::from((k - 1) as u64) * &stride
             - &w;
         assert_eq!(
             v.min_ticks(),
@@ -3905,11 +3908,13 @@ mod skyline_flatness {
     /// schedule this band reasons about) and the
     /// one-touch-per-operand-byte liveness floor.
     fn rank_dense_suffix_run(p: usize) -> QueryRun {
-        use dashu_int::UBig;
         let v = Shape::DenseSuffix.build2(p, p).version();
         let bytes = v.encode().len() as u64;
-        let expected = UBig::from(p as u64)
-            + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+        let expected = num_bigint::BigUint::from(p as u64)
+            + num_bigint::BigUint::from(p as u64)
+                * ((num_bigint::BigUint::ONE << 608usize)
+                    + (num_bigint::BigUint::ONE << 288usize)
+                    + 2u8)
             + 1u8;
         assert_eq!(
             v.min_ticks(),
@@ -4258,13 +4263,9 @@ mod eq_early_exit {
 // plateau's cancelling descent lands after the sweep — outside every
 // aggregate — so the settle's one aggregate product is exactly the
 // wide × dense cross term, unaffected by boundary cancellation. The
-// settle rides it through one backend multiplication (the query
-// module doc's settle bound), so the deterministic counters — which
-// price the traffic the fold itself moves: operand reads, window
-// digits, the product's width — read flat per byte, and the
-// multiplication's own superlinear work runs inside the backend at
-// its bound, below the limb shim (the delegation convention the
-// `parse_decimal` shim set). The committed schoolbook kernel
+// boundary cancellation does not affect it. The deterministic counters price the fold's
+// operand, window, and result traffic; the multiplication itself remains
+// inside the big-integer implementation. The committed schoolbook kernel
 // (`schoolbook_settle_reads_superlinear_on_wide_arming`, the query
 // fold's test suite) keeps the per-digit charge failing on this very
 // family, value-exact, so this band is never decoration. The
@@ -4285,11 +4286,12 @@ mod ledger_wide_arming {
     /// this band reasons about) and the one-touch-per-operand-byte
     /// liveness floor.
     fn run(w: usize) -> (u64, u64, u64, u64) {
-        use dashu_int::UBig;
         let v = Shape::WideArming.build2(w, w).version();
         let bytes = v.encode().len() as u64;
-        let expected =
-            UBig::from(w as u64) + (UBig::ONE << (32 * w)) + (UBig::ONE << 288usize) + 3u8;
+        let expected = num_bigint::BigUint::from(w as u64)
+            + (num_bigint::BigUint::ONE << (32 * w))
+            + (num_bigint::BigUint::ONE << 288usize)
+            + 3u8;
         assert_eq!(
             v.min_ticks(),
             ticks_from_big(&expected),
@@ -4450,14 +4452,13 @@ mod hoisted_window {
     /// no stored-base mass — and the one-touch-per-operand-byte liveness
     /// floor.
     fn run(t: usize) -> (u64, u64, u64, u64) {
-        use dashu_int::UBig;
         let v = Shape::HoistedWindow
             .build3(HOISTED_WINDOW_WIDTH, HOISTED_WINDOW_GAPS, t)
             .version();
         let bytes = v.encode().len() as u64;
-        let expected = UBig::from(HOISTED_WINDOW_GAPS as u64)
-            + (UBig::ONE << (32 * HOISTED_WINDOW_WIDTH))
-            + (UBig::ONE << 288usize)
+        let expected = num_bigint::BigUint::from(HOISTED_WINDOW_GAPS as u64)
+            + (num_bigint::BigUint::ONE << (32 * HOISTED_WINDOW_WIDTH))
+            + (num_bigint::BigUint::ONE << 288usize)
             + 3u8;
         assert_eq!(
             v.min_ticks(),
@@ -4653,7 +4654,7 @@ mod answer_embedded_product {
     use suanpan::touch_meter;
 
     /// Places a binary point `exp` digits from the right of an odd numerator.
-    fn binary_rank_text(num: &dashu_int::UBig, exp: usize) -> String {
+    fn binary_rank_text(num: &num_bigint::BigUint, exp: usize) -> String {
         let mut digits = format!("{num:b}");
         if exp == 0 {
             return digits;
@@ -4674,11 +4675,10 @@ mod answer_embedded_product {
     /// `Ω(M(|v|))` mandate's witness), and the
     /// one-touch-per-operand-byte liveness floor.
     fn run(s: usize) -> (u64, u64, u64, u64) {
-        use dashu_int::UBig;
         let v = Shape::PlateauPuncture.build2(s, s).version();
         let bytes = v.encode().len() as u64;
         let (x, y) = meter::plateau_puncture_factors(s, s);
-        let expected = UBig::from(s as u64) * &x + 1u8;
+        let expected = num_bigint::BigUint::from(s as u64) * &x + 1u8;
         assert_eq!(
             v.min_ticks(),
             ticks_from_big(&expected),
@@ -4918,23 +4918,27 @@ mod settle_flatness {
 
     /// One arming-train rank run with the mirrored `min_ticks` leg.
     fn train_run(n: usize, alternate: bool) -> (u64, u64, u64) {
-        use dashu_int::UBig;
         let v = Shape::ArmingTrain
             .build_train(n, TRAIN_WIDTH, TRAIN_GAPS, alternate)
             .version();
         let band = 32 * TRAIN_WIDTH + (usize::BITS - n.leading_zeros()) as usize + 2;
-        let arm = UBig::ONE << (32 * TRAIN_WIDTH);
-        let kicker = UBig::ONE << 288usize;
-        let mut plateau = (UBig::ONE << band) + (&arm << 1);
-        let mut expected = UBig::ZERO;
+        let arm = num_bigint::BigUint::ONE << (32 * TRAIN_WIDTH);
+        let kicker = num_bigint::BigUint::ONE << 288usize;
+        let mut plateau = (num_bigint::BigUint::ONE << band) + (&arm << 1);
+        let mut expected = num_bigint::BigUint::ZERO;
         for b in 0..n {
-            expected += &plateau * UBig::from(TRAIN_GAPS as u64);
+            expected += &plateau * num_bigint::BigUint::from(TRAIN_GAPS as u64);
             if alternate && b % 2 == 1 {
                 plateau -= &arm;
             } else {
                 plateau += &arm;
             }
-            for kick in [UBig::ZERO, UBig::ONE, kicker.clone(), UBig::ONE] {
+            for kick in [
+                num_bigint::BigUint::ZERO,
+                num_bigint::BigUint::ONE,
+                kicker.clone(),
+                num_bigint::BigUint::ONE,
+            ] {
                 plateau += kick;
                 expected += &plateau;
             }
@@ -5427,18 +5431,11 @@ fn id_fork_envelope() {
 mod accum_streams {
     use std::cmp::Ordering;
 
-    use dashu_int::{UBig, Word};
     use suanpan::{touch_meter, Accumulator};
 
     /// Fold a backend magnitude into the accumulator without materializing it.
-    fn fold_ubig(acc: &mut Accumulator, value: &UBig, subtract: bool) {
-        let words_per_limb = (u64::BITS / Word::BITS) as usize;
-        let limbs = value.as_words().chunks(words_per_limb).map(|chunk| {
-            #[allow(clippy::unnecessary_cast)]
-            chunk.iter().enumerate().fold(0u64, |limb, (index, &word)| {
-                limb | ((word as u64) << (index as u32 * Word::BITS))
-            })
-        });
+    fn fold_big(acc: &mut Accumulator, value: &num_bigint::BigUint, subtract: bool) {
+        let limbs = value.iter_u64_digits();
         if subtract {
             acc.sub_limbs_shl(limbs, 0);
         } else {
@@ -5519,7 +5516,11 @@ mod accum_streams {
     /// `±1` oscillating across the `2^k` cliff, sign read after each.
     fn comb_run(k: u32, n: usize) -> Run {
         let mut acc = Accumulator::new();
-        fold_ubig(&mut acc, &((UBig::from(1u8) << k as usize) - 1u8), false);
+        fold_big(
+            &mut acc,
+            &((num_bigint::BigUint::from(1u8) << k as usize) - 1u8),
+            false,
+        );
         touch_meter::reset();
         for _ in 0..n {
             acc.add_small(1);
@@ -5537,14 +5538,18 @@ mod accum_streams {
     /// The wide-tooth delta stream: setup `2^k`, then `2n` deltas of `±2^w`
     /// oscillating across the `2^k` cliff, sign read after each.
     fn wide_tooth_run(k: u32, w: u32, n: usize) -> Run {
-        let tooth = UBig::from(1u8) << w as usize;
+        let tooth = num_bigint::BigUint::from(1u8) << w as usize;
         let mut acc = Accumulator::new();
-        fold_ubig(&mut acc, &(UBig::from(1u8) << k as usize), false);
+        fold_big(
+            &mut acc,
+            &(num_bigint::BigUint::from(1u8) << k as usize),
+            false,
+        );
         touch_meter::reset();
         for _ in 0..n {
-            fold_ubig(&mut acc, &tooth, true);
+            fold_big(&mut acc, &tooth, true);
             assert_eq!(acc.sign(), Ordering::Greater, "below the cliff");
-            fold_ubig(&mut acc, &tooth, false);
+            fold_big(&mut acc, &tooth, false);
             assert_eq!(acc.sign(), Ordering::Greater, "back at the cliff");
         }
         Run {
@@ -5561,14 +5566,18 @@ mod accum_streams {
     /// denominator is the stream's own coded size — `2n` zigzag-gamma codes
     /// of `2k + 3` bits each — in bytes, not the delta count.
     fn cancelling_run(k: u32, n: usize) -> Run {
-        let drop = (UBig::from(1u8) << k as usize) - 1u8;
+        let drop = (num_bigint::BigUint::from(1u8) << k as usize) - 1u8;
         let mut acc = Accumulator::new();
-        fold_ubig(&mut acc, &(UBig::from(1u8) << k as usize), false);
+        fold_big(
+            &mut acc,
+            &(num_bigint::BigUint::from(1u8) << k as usize),
+            false,
+        );
         touch_meter::reset();
         for _ in 0..n {
-            fold_ubig(&mut acc, &drop, true);
+            fold_big(&mut acc, &drop, true);
             assert_eq!(acc.sign(), Ordering::Greater, "down at 1");
-            fold_ubig(&mut acc, &drop, false);
+            fold_big(&mut acc, &drop, false);
             assert_eq!(acc.sign(), Ordering::Greater, "back at the peak");
         }
         Run {
@@ -5592,10 +5601,14 @@ mod accum_streams {
     /// here, so its per-read cost grows linearly with `k` instead of
     /// staying flat.
     fn static_prefix_run(k: u32, n: usize) -> Run {
-        let drop = (UBig::from(1u8) << k as usize) - 1u8;
+        let drop = (num_bigint::BigUint::from(1u8) << k as usize) - 1u8;
         let mut acc = Accumulator::new();
-        fold_ubig(&mut acc, &(UBig::from(1u8) << k as usize), false);
-        fold_ubig(&mut acc, &drop, true);
+        fold_big(
+            &mut acc,
+            &(num_bigint::BigUint::from(1u8) << k as usize),
+            false,
+        );
+        fold_big(&mut acc, &drop, true);
         touch_meter::reset();
         for _ in 0..n {
             acc.add_small(1);
@@ -5916,9 +5929,9 @@ fn skyline_min_ticks_ascend_envelope() {
     // The family's closed form: k leaves at 2^b + i over spine minima
     // all zero (the terminal cliff), so min_ticks = k·2^b + k(k+1)/2.
     let k = ASCEND_STACK_DEPTH;
-    let expected = dashu_int::UBig::from(k as u64)
-        * (dashu_int::UBig::ONE << ASCEND_STACK_MAGNITUDE_BITS)
-        + dashu_int::UBig::from((k * (k + 1) / 2) as u64);
+    let expected = num_bigint::BigUint::from(k as u64)
+        * (num_bigint::BigUint::ONE << ASCEND_STACK_MAGNITUDE_BITS)
+        + num_bigint::BigUint::from((k * (k + 1) / 2) as u64);
     assert_eq!(
         r.to_string(),
         expected.to_string(),
@@ -8185,7 +8198,6 @@ mod pool_recycle {
     use super::ticks_from_big;
     use before::meter;
     use before::meter::registry::Shape;
-    use dashu_int::UBig;
 
     /// Sites of the pool row's small run (the large run doubles it — a
     /// doubling of the arm/retire churn).
@@ -8193,10 +8205,11 @@ mod pool_recycle {
 
     /// The stopping pair's closed form (the semantic check, proving the
     /// generator builds the churn this row reasons about).
-    fn stopping_boundary_ticks(k: usize) -> UBig {
-        (UBig::from(5u8) << 128usize)
-            + (UBig::from((k - 1) as u64) << 80usize)
-            + (UBig::from(5u8) << 64usize) * UBig::from((k * (k - 1) / 2) as u64)
+    fn stopping_boundary_ticks(k: usize) -> num_bigint::BigUint {
+        (num_bigint::BigUint::from(5u8) << 128usize)
+            + (num_bigint::BigUint::from((k - 1) as u64) << 80usize)
+            + (num_bigint::BigUint::from(5u8) << 64usize)
+                * num_bigint::BigUint::from((k * (k - 1) / 2) as u64)
     }
 
     /// Pool-miss ceiling, derived from the walk's peak simultaneous

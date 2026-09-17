@@ -48,7 +48,6 @@ cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", rev = "a6a7
 ciborium = "=0.2.2"
 console_error_panic_hook = "0.1"
 criterion = "0.5"
-dashu-int = { version = "0.5", default-features = false, features = ["std"] }
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

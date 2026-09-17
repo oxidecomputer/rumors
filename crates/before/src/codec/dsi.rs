@@ -8,14 +8,14 @@
 //! instead of `dsi-bitstream`'s bounded gamma decoder.
 //!
 //! [`read_int`](DsiCursor::read_int) handles short codes by table or machine
-//! word and longer codes with [`UBig`].
+//! word and longer codes with [`BigUint`].
 
 use core::fmt::Display;
 
-use dashu_int::UBig;
 use dsi_bitstream::codes::gamma_tables;
 use dsi_bitstream::impls::BufBitReader;
 use dsi_bitstream::traits::{BitRead, WordRead, BE};
+use num_bigint::BigUint;
 
 use crate::error::Decode;
 
@@ -183,7 +183,7 @@ impl BitCursor for DsiCursor<'_> {
     ///   codes (`k < 64`) — `dsi-bitstream`'s own `read_gamma` is
     ///   unusable here because its supported range caps at `u64` while
     ///   this coding has no value cap;
-    /// - the wide arm (`k >= 64`), bit-identical to
+    /// - the big-integer path (`k >= 64`), bit-identical to
     ///   [`decode_int_from`](super::decode_int_from)'s wide
     ///   fallback: mantissa top bit at `k`, then `k` stream bits filled
     ///   from word chunks.
@@ -204,7 +204,7 @@ impl BitCursor for DsiCursor<'_> {
         let k = self.unary_raw().map_err(|_| Decode::Truncated)?;
         // The unary prefix's terminating 1 is a live bit, so the prefix fits;
         // the whole `2k + 1`-bit code must too. Rejecting here — before either
-        // mantissa arm runs — is where this reader parts from the per-bit loop
+        // mantissa path runs — is where this reader parts from the per-bit loop
         // on cost: a truncated wide code allocates nothing, where the loop
         // sizes the wide value before its mantissa read can fail.
         let code_len = 2 * k + 1;
@@ -222,42 +222,27 @@ impl BitCursor for DsiCursor<'_> {
             self.position += code_len;
             return Ok(Int::Small(m - 1));
         }
-        // Wide arm: the mantissa's top bit is at position `k`; the next `k`
+        // Wide value: the mantissa's top bit is at position `k`; the next `k`
         // stream bits fill positions `k - 1 ..= 0`, most-significant first,
-        // read in machine-word chunks. A mantissa at or past `usize` bits
-        // names a value the big-integer backend cannot hold on this target
-        // (it caps magnitudes below `usize::MAX` bits), so the reject genre
-        // is the value's, not the machine's — the same genre the per-bit
-        // loop (`decode_int_from`) reports at the same width.
-        let Ok(k) = usize::try_from(k) else {
-            // The examined prefix (its terminating 1 included) records
-            // before the reject surfaces — exactly the bits the per-bit
-            // loop's own reads have recorded when it rejects at this
-            // width — and the cursor parks just past it, where the loop's
-            // cursor stands at the same reject.
-            let prefix = k + 1;
-            super::scan::record_bits_u64(prefix);
-            self.position += prefix;
-            return Err(Decode::NotCanonical);
-        };
-        let mut m = UBig::ZERO;
-        m.set_bit(k);
+        // read in machine-word chunks.
+        let mut m = BigUint::ZERO;
+        m.set_bit(k, true);
         let mut remaining = k;
         while remaining > 0 {
-            let chunk_bits = remaining.min(u64::BITS as usize);
+            let chunk_bits = remaining.min(u64::from(u64::BITS));
             let chunk = self
                 .reader
-                .read_bits(chunk_bits)
+                .read_bits(chunk_bits as usize)
                 .expect("the mantissa was proven to fit the live length");
             remaining -= chunk_bits;
             for j in 0..chunk_bits {
                 if (chunk >> j) & 1 == 1 {
-                    m.set_bit(remaining + j);
+                    m.set_bit(remaining + j, true);
                 }
             }
         }
         // One width-proportional record per wide value, exactly as the per-bit
-        // wide fallback records.
+        // big-integer fallback records.
         #[cfg(feature = "limb-meter")]
         super::limb_meter::record_wide(&m);
         super::scan::record_bits_u64(code_len);

@@ -20,7 +20,7 @@
 //! additionally held to the oracle's inflation, the brute-force search, and a
 //! reference route probe in `grow/tests.rs`.
 
-use dashu_int::UBig;
+use num_bigint::BigUint;
 use proptest::prelude::*;
 use rayon::prelude::*;
 
@@ -527,7 +527,7 @@ fn dominated_undercut_residue_carries_its_offset() {
                 3u8,
                 V::node(
                     0u8,
-                    V::leaf(UBig::from(237_684_487_543_081_243_156_783_562_749u128)),
+                    V::leaf(BigUint::from(237_684_487_543_081_243_156_783_562_749u128)),
                     V::leaf(0u8),
                 ),
                 V::leaf(1u8),
@@ -578,7 +578,7 @@ fn dominated_undercut_family_ticks_identically() {
         for (c, m, b, r) in sites.iter().rev() {
             let site = V::node(
                 *c,
-                V::node(0u8, V::leaf(UBig::from(*m) << *b), V::leaf(0u8)),
+                V::node(0u8, V::leaf(BigUint::from(*m) << *b), V::leaf(0u8)),
                 V::leaf(*r),
             );
             tree = V::node(0u8, V::node(0u8, V::leaf(0u8), site), tree);
@@ -1875,7 +1875,7 @@ proptest! {
         r in 1u64..=4,
     ) {
         let k = raises.len();
-        let wide = UBig::from(m) << b;
+        let wide = BigUint::from(m) << b;
         use crate::oracle::{Party as P, Version as V};
         let mut tree = V::node(
             c,

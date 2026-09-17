@@ -3,8 +3,7 @@ use core::fmt;
 use core::hash::{Hash, Hasher};
 use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Shr, Sub, SubAssign};
 
-use dashu_int::ops::BitTest;
-use dashu_int::{UBig, Word};
+use num_bigint::{BigUint, U64Digits};
 use suanpan::Accumulator;
 
 // Test-only metering for big-arithmetic operations:
@@ -17,116 +16,59 @@ use limb_metered::*;
 ///
 /// ITC event counts (path sums of `tick`s, the `max`/`join` of two such sums)
 /// grow without bound, so the value type preserves arbitrary precision: no
-/// `u64` overflow class, in any build profile. A thin metered wrapper around
-/// [`UBig`]: every operation records its operands' 64-bit limb widths into the
-/// limb meter, then delegates the arithmetic whole. Values up to two machine
-/// words stay inline in the wrapped representation, so the common small
-/// magnitudes never allocate.
+/// `u64` overflow class, in any build profile. This thin wrapper around
+/// [`BigUint`] records operand widths when the limb meter is enabled, then
+/// delegates the arithmetic.
 #[derive(Clone, Debug, Eq)]
-pub struct Base(pub(crate) UBig);
+pub struct Base(pub(crate) BigUint);
 
-/// Stored words per 64-bit limb on the current target.
-const WORDS_PER_LIMB: usize = (u64::BITS / Word::BITS) as usize;
-
-/// The stored magnitude as borrowed little-endian 64-bit limbs.
-pub(crate) struct Limbs<'a> {
-    chunks: core::slice::Chunks<'a, Word>,
-}
-
-impl<'a> Limbs<'a> {
-    /// Borrow the limbs of `value` without allocating.
-    pub(crate) fn new(value: &'a UBig) -> Limbs<'a> {
-        Limbs {
-            chunks: value.as_words().chunks(WORDS_PER_LIMB),
-        }
-    }
-}
-
-impl Iterator for Limbs<'_> {
-    type Item = u64;
-
-    fn next(&mut self) -> Option<u64> {
-        self.chunks.next().map(pack_limb)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.chunks.size_hint()
-    }
-}
-
-impl DoubleEndedIterator for Limbs<'_> {
-    fn next_back(&mut self) -> Option<u64> {
-        self.chunks.next_back().map(pack_limb)
-    }
-}
-
-impl ExactSizeIterator for Limbs<'_> {}
-
-impl core::iter::FusedIterator for Limbs<'_> {}
-
-/// Combine one target-word chunk into a 64-bit limb.
-fn pack_limb(chunk: &[Word]) -> u64 {
-    #[allow(clippy::unnecessary_cast)]
-    chunk.iter().enumerate().fold(0u64, |limb, (index, &word)| {
-        limb | ((word as u64) << (index as u32 * Word::BITS))
-    })
-}
+/// A borrowed little-endian iterator over a magnitude's 64-bit limbs.
+pub(crate) type Limbs<'a> = U64Digits<'a>;
 
 impl Base {
-    pub(crate) const ZERO: Base = Base(UBig::ZERO);
+    pub(crate) const ZERO: Base = Base(BigUint::ZERO);
 
     /// Whether this magnitude is zero.
     pub(crate) fn is_zero(&self) -> bool {
-        self.0 == UBig::ZERO
+        self.0 == BigUint::ZERO
     }
 
     /// The magnitude's bit length: zero for zero, `floor(log2 n) + 1`
     /// otherwise.
     pub(crate) fn bits(&self) -> u64 {
-        self.0.bit_len() as u64
+        self.0.bits()
     }
 
     /// This magnitude as a `u64`, or `None` past the `u64` range.
     ///
-    /// The dispatch point for the word-sized fast paths (the rank fold's
-    /// inline arithmetic, the accumulator's amortized-O(1) small adds):
-    /// O(1), no allocation.
+    /// The dispatch point for word-sized fast paths. O(1), no allocation.
     pub(crate) fn to_u64(&self) -> Option<u64> {
         u64::try_from(&self.0).ok()
     }
 
     /// Borrow this magnitude as minimal little-endian 64-bit limbs.
     pub(crate) fn iter_limbs(&self) -> Limbs<'_> {
-        Limbs::new(&self.0)
+        self.0.iter_u64_digits()
     }
 
     /// Build a magnitude from a borrowed little-endian limb slice.
     fn from_limb_slice(limbs: &[u64]) -> Base {
-        #[cfg(target_pointer_width = "64")]
-        {
-            match limbs {
-                [] => return Base::ZERO,
-                &[low] => return Base(UBig::from(low)),
-                &[low, high] => {
-                    return Base(UBig::from(u128::from(low) | (u128::from(high) << 64)));
-                }
-                _ => {}
-            }
-            Base(UBig::from_words(limbs))
+        match limbs {
+            [] => Base::ZERO,
+            &[low] => Base(BigUint::from(low)),
+            &[low, high] => Base(BigUint::from(u128::from(low) | (u128::from(high) << 64))),
+            _ => Base(BigUint::new(
+                limbs
+                    .iter()
+                    .flat_map(|&limb| [limb as u32, (limb >> 32) as u32])
+                    .collect(),
+            )),
         }
-        #[cfg(target_pointer_width = "32")]
-        {
-            match limbs {
-                [] => return Base::ZERO,
-                &[limb] => return Base(UBig::from(limb)),
-                _ => {}
-            }
-            let words: Vec<Word> = limbs
-                .iter()
-                .flat_map(|&limb| [limb as Word, (limb >> 32) as Word])
-                .collect();
-            Base(UBig::from_words(&words))
-        }
+    }
+
+    /// Build a magnitude from minimal little-endian 64-bit limbs.
+    pub(crate) fn from_limbs(limbs: &[u64]) -> Base {
+        Base::from_limb_slice(limbs)
     }
 
     /// Read an accumulator into this normalized magnitude representation.
@@ -150,21 +92,17 @@ impl Base {
     }
 
     pub(crate) fn bit(&self, i: u64) -> bool {
-        // A bit index past `usize` can only address zeros: the value's own
-        // bit length always fits a `usize`.
-        usize::try_from(i).map(|i| self.0.bit(i)).unwrap_or(false)
+        self.0.bit(i)
     }
 
     /// The number of trailing zero bits, or `None` for zero (which has no
     /// lowest set bit). Used by [`Rank`](crate::Rank) normalization to strip
     /// factors of two out of a dyadic numerator.
     ///
-    /// Width-scale work — the backend scans limbs bottom-up for the lowest
-    /// set bit — so the limb meter records the operand's width like every
-    /// other width-scale operation here.
+    /// Width-scale work, so the limb meter records the operand's width.
     pub(crate) fn trailing_zeros(&self) -> Option<u64> {
         meter_limbs_solo(self);
-        self.0.trailing_zeros().map(|n| n as u64)
+        self.0.trailing_zeros()
     }
 
     /// The number of 64-bit limbs this magnitude occupies, at least one:
@@ -193,7 +131,7 @@ impl Base {
 
     #[cfg(test)]
     pub(crate) fn to_bytes_le(&self) -> Vec<u8> {
-        self.0.to_le_bytes().into_vec()
+        self.0.to_bytes_le()
     }
 
     /// The magnitude's minimal big-endian bytes: empty for zero, no leading
@@ -206,28 +144,43 @@ impl Base {
     /// operand's width.
     pub(crate) fn to_be_bytes(&self) -> Vec<u8> {
         meter_limbs_solo(self);
-        self.0.to_be_bytes().into_vec()
+        self.0.to_bytes_be()
     }
 
     /// Assemble a magnitude from big-endian bytes.
     ///
     /// The materialization point for values parsed out of a bit stream
     /// (the rank decoder's integral and fraction reads), so it records
-    /// one width-proportional limb count — the wide-gamma decode and
-    /// `parse_decimal` convention: the backend materializes every limb
-    /// of the value, and a meter that missed it would let a decoder
-    /// build arbitrarily wide values while reading zero.
+    /// one width-proportional limb count. A meter that missed this point
+    /// would let a decoder build arbitrarily wide values while recording
+    /// no arithmetic work.
     pub(crate) fn from_be_bytes(bytes: &[u8]) -> Base {
-        let value = UBig::from_be_bytes(bytes);
+        let value = BigUint::from_bytes_be(bytes);
         #[cfg(feature = "limb-meter")]
         limb_meter::record_wide(&value);
         Base(value)
     }
+
+    /// Assemble `BE(bytes) >> pad` without constructing an aligned copy.
+    pub(crate) fn materialize_be(bytes: &[u8], pad: u32) -> Base {
+        debug_assert!(pad < 8, "pad is a sub-byte alignment");
+        Base::from_be_bytes(bytes) >> pad
+    }
+
+    /// Add one to this magnitude.
+    pub(crate) fn plus_one(self) -> Base {
+        self + 1u32
+    }
+
+    /// Subtract one from this nonzero magnitude.
+    pub(crate) fn minus_one(self) -> Base {
+        debug_assert!(!self.is_zero(), "cannot subtract one from zero");
+        self - &Base::from(1u8)
+    }
 }
 
 /// Compare two MSB-aligned window streams ([`MsbWindows`]): the shared
-/// kernel behind [`Base::msb_cmp`] and the rank numerator's cross-arm
-/// class-tie comparison.
+/// kernel behind [`Base::msb_cmp`].
 ///
 /// Streams 64-bit windows most-significant-first — no alignment shift is
 /// ever materialized — and stops at the first differing window, so the
@@ -235,7 +188,6 @@ impl Base {
 /// window agrees, the longer bit string is the larger value: this rides on
 /// the caller's normalization invariant that the strings end in a set bit
 /// (an odd numerator), so the longer string's extension is nonzero. The
-/// limb meter records one limb per streamed window pair, keeping the
 /// limb meter records one limb per streamed window pair, matching the work of
 /// the scan.
 pub(crate) fn msb_cmp_windows(
@@ -265,9 +217,7 @@ pub(crate) fn msb_cmp_windows(
 /// bit 63); the last is zero-padded below the final significant bit. A
 /// zero value has no windows. Streams the stored limbs top-down with one
 /// register of carry, so a window costs O(1) and no shifted copy of the
-/// value ever exists. Generic over the reversed limb source so both
-/// numerator arms (the stored magnitude here, the rank's wide limb vector)
-/// stream through one implementation.
+/// value ever exists.
 pub(crate) struct MsbWindows<I> {
     /// Remaining limbs, top first; exhausted once the tail is consumed.
     limbs: I,
@@ -363,33 +313,33 @@ impl fmt::Display for Base {
     }
 }
 
-impl From<UBig> for Base {
-    fn from(n: UBig) -> Self {
+impl From<BigUint> for Base {
+    fn from(n: BigUint) -> Self {
         Base(n)
     }
 }
 
 impl From<u8> for Base {
     fn from(n: u8) -> Self {
-        Base(UBig::from(n))
+        Base(BigUint::from(n))
     }
 }
 
 impl From<u32> for Base {
     fn from(n: u32) -> Self {
-        Base(UBig::from(n))
+        Base(BigUint::from(n))
     }
 }
 
 impl From<u64> for Base {
     fn from(n: u64) -> Self {
-        Base(UBig::from(n))
+        Base(BigUint::from(n))
     }
 }
 
 impl From<u128> for Base {
     fn from(n: u128) -> Self {
-        Base(UBig::from(n))
+        Base(BigUint::from(n))
     }
 }
 
@@ -526,27 +476,15 @@ impl Shr<u32> for Base {
     }
 }
 
-// The u64 shift forms serve exponent-denominated callers (a `Rank`'s
-// exponent is u64). The two directions part on totality. A left shift's
-// checked conversion fails only for amounts at or past usize bits: never
-// on 64-bit targets (the shifted value would dwarf the address space
-// first), and on 32-bit targets only where the shifted result exceeds
-// the backend's representable width anyway (its buffer caps at
-// usize::MAX / word-bits words), so the expect and the backend's own
-// capacity assert bound the same values — results the dependency cannot
-// hold, failing loudly by name instead of wrapping. A right shift is
-// total: an amount at or past the value's width yields zero, and on a
-// 32-bit target an amount past usize can only name that case (the
-// value's width is capped below usize::MAX bits by the same backend
-// bound), so the conversion clamps, value-preserving.
+// Rank exponents are `u64`, so both shift directions accept that width. The
+// big integer converts bit shifts to digit offsets internally, preserving the
+// full addressable range on 32-bit targets. Right shift is total.
 
 impl Shl<u64> for Base {
     type Output = Base;
 
     fn shl(self, rhs: u64) -> Base {
         meter_limbs_shl(&self, rhs);
-        let rhs = usize::try_from(rhs)
-            .expect("a left shift this wide exceeds the backend's representable width");
         Base(self.0 << rhs)
     }
 }
@@ -556,9 +494,6 @@ impl Shr<u64> for Base {
 
     fn shr(self, rhs: u64) -> Base {
         meter_limbs1(&self);
-        // The clamp is exact, never a truncation: any amount at or past the
-        // value's width — everything past usize included — yields zero.
-        let rhs = usize::try_from(rhs).unwrap_or(usize::MAX);
         Base(self.0 >> rhs)
     }
 }
