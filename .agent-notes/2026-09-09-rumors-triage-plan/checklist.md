@@ -1,8 +1,9 @@
 # Rumors review checklist
 
-**Current:** the opening-supply cursor is complete at `8ac4b1c9`.
+**Current:** the streaming-wrapper cleanup is complete at `60094492`.
 
-**Next:** remove pass-through backend wrappers and duplicate runtime checks.
+**Next:** make fault-injection reply corruption states explicit and share their
+countdown logic.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -405,8 +406,12 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Represent opening-supply cursor states directly and pin radix pairing — `8ac4b1c9`.
       Sources: `remote-proxy-30`, `remote-proxy-31` (pairing property), T132.
 
-- [ ] Remove pass-through backend wrappers and duplicate runtime checks.
-      Sources: `streaming-backend-window-20`, `streaming-backend-window-23`, `streaming-backend-window-29`, T132.
+- [x] Remove the pass-through assembly relay and duplicate runtime pricing checks — `60094492`.
+      Sources: `streaming-backend-window-20`, `streaming-backend-window-29`, T132.
+
+- [ ] Make fault-injection reply corruption states explicit and share their
+      countdown logic.
+      Sources: `streaming-backend-window-23`, T132.
 
 - [ ] Collapse the handshake handoff and name its actual premises once.
       Sources: `async-hazards-5`, `materialized-11`, `materialized-34`, `mirror-common-16`, `remote-proxy-4`, `remote-proxy-7`, `remote-proxy-24`, `streaming-tests-24`, T99, T118, T119, T128, T132.
