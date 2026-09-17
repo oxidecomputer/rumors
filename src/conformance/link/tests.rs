@@ -10,7 +10,7 @@ use std::task::{Context, Poll, Waker};
 use futures::future::BoxFuture;
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 use tokio::sync::mpsc;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
 use crate::link::{
     Acceptor, Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink, STREAM_COUNT,
@@ -126,6 +126,109 @@ fn lossy(
         inner,
         before_dequeue: 0,
     })
+}
+
+/// A connector whose open completes only after the peer accepts its stream.
+#[derive(Clone)]
+struct RendezvousConnector {
+    /// The stream supply being decorated.
+    inner: MemoryConnector,
+    /// Acceptance acknowledgements for this direction.
+    accepted: mpsc::Sender<oneshot::Sender<()>>,
+}
+
+impl Connector for RendezvousConnector {
+    /// The underlying memory stream writer.
+    type Tx = DuplexStream;
+
+    /// Open a stream, then wait until its peer has accepted it.
+    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
+        let stream = self.inner.connect().await?;
+        let (accepted, acknowledgement) = oneshot::channel();
+        self.accepted
+            .send(accepted)
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "peer link is gone"))?;
+        acknowledgement
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "peer link is gone"))?;
+        Ok(stream)
+    }
+}
+
+/// An acceptor that releases the corresponding rendezvous open.
+struct RendezvousAcceptor {
+    /// The stream supply being decorated.
+    inner: MemoryAcceptor,
+    /// Acceptance acknowledgements from the peer's connector.
+    accepted: mpsc::Receiver<oneshot::Sender<()>>,
+}
+
+impl Acceptor for RendezvousAcceptor {
+    /// The underlying memory stream reader.
+    type Rx = DuplexStream;
+
+    /// Accept a stream and let its peer's open finish.
+    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
+        // The connector queues both values before awaiting this acknowledgement,
+        // so this join never holds a dequeued stream across a pending return.
+        let (stream, accepted) =
+            futures::future::join(self.inner.accept(), self.accepted.recv()).await;
+        let stream = stream?;
+        let accepted = accepted
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "peer link is gone"))?;
+        let _ = accepted.send(());
+        Ok(stream)
+    }
+}
+
+/// One end of the accept-driven test transport.
+type RendezvousLink = Link<DuplexStream, DuplexStream, RendezvousConnector, RendezvousAcceptor>;
+
+/// Wrap both directions so each connect waits for its matching accept.
+fn rendezvous_pair() -> (RendezvousLink, RendezvousLink) {
+    let (a, b) = memory();
+    let (a_accepted, b_accepts) = mpsc::channel(1);
+    let (b_accepted, a_accepts) = mpsc::channel(1);
+    let a = a.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            RendezvousConnector {
+                inner: connector,
+                accepted: a_accepted,
+            },
+            RendezvousAcceptor {
+                inner: acceptor,
+                accepted: a_accepts,
+            },
+        )
+    });
+    let b = b.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            RendezvousConnector {
+                inner: connector,
+                accepted: b_accepted,
+            },
+            RendezvousAcceptor {
+                inner: acceptor,
+                accepted: b_accepts,
+            },
+        )
+    });
+    (a, b)
+}
+
+/// Replace both control pipes with self-loops while keeping healthy data streams.
+fn loopback_control_pair() -> (MemoryLink, MemoryLink) {
+    let (a, b) = memory();
+    let (a_read, a_write) = tokio::io::duplex(1024);
+    let (b_read, b_write) = tokio::io::duplex(1024);
+    let a = a.map_transport(|_, _, connector, acceptor| (a_read, a_write, connector, acceptor));
+    let b = b.map_transport(|_, _, connector, acceptor| (b_read, b_write, connector, acceptor));
+    (a, b)
 }
 
 // ─── The shared-FIFO mux: head-of-line coupling built as a fixture ──────────
@@ -641,17 +744,18 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for WindowedTx<W> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let grant = {
-            let mut window = self.window.lock().expect("window lock");
-            if window.available == 0 {
-                window.writers.push(cx.waker().clone());
-                return Poll::Pending;
-            }
-            window.available.min(buf.len())
-        };
+        // Reserve and debit under one lock. Two tasks may poll cloned writers
+        // concurrently on a real executor; separating these steps would let
+        // both spend the same remaining credit.
+        let window = Arc::clone(&self.window);
+        let mut window = window.lock().expect("window lock");
+        if window.available == 0 {
+            window.writers.push(cx.waker().clone());
+            return Poll::Pending;
+        }
+        let grant = window.available.min(buf.len());
         let result = Pin::new(&mut self.inner).poll_write(cx, &buf[..grant]);
         if let Poll::Ready(Ok(written)) = &result {
-            let mut window = self.window.lock().expect("window lock");
             window.available -= written;
         }
         result
@@ -855,18 +959,20 @@ fn reordering_acceptor_passes_independence() {
 }
 
 /// Cancelling an accept after it dequeues a stream must expose the lost
-/// delivery: a later accept stalls while waiting for that stream.
+/// delivery at both the smallest and ordinary stream capacities.
 #[test]
 fn lossy_accept_cancellation_is_caught() {
-    let (a, b) = memory();
-    assert_eq!(
-        run_to_quiescence(super::check_accept_cancellation(
-            async || (a, lossy(b)),
-            std::future::pending
-        )),
-        Err(Quiescence::Stalled),
-        "the lost delivery must surface as a stall at the collecting accept",
-    );
+    for capacity in [1, 8 * 1024] {
+        let (a, b) = memory_with_capacity(capacity);
+        assert_eq!(
+            run_to_quiescence(super::check_accept_cancellation(
+                async || (a, lossy(b)),
+                std::future::pending,
+            )),
+            Err(Quiescence::Stalled),
+            "the lost delivery must surface as a stall at capacity {capacity}",
+        );
+    }
 }
 
 /// Loss confined to the reverse direction must still fail the check.
@@ -883,6 +989,26 @@ fn asymmetric_lossiness_is_caught() {
     );
 }
 
+/// Cancellation conformance must not require connects to finish before the
+/// peer polls its acceptor.
+#[test]
+fn rendezvous_connects_conform_to_cancellation() {
+    let (a, peer) = rendezvous_pair();
+    assert!(
+        matches!(
+            run_to_quiescence(a.connector.connect()),
+            Err(Quiescence::Stalled)
+        ),
+        "the fixture's connect must wait until its peer accepts",
+    );
+    drop(peer);
+    run_to_quiescence(super::check_accept_cancellation(
+        async || rendezvous_pair(),
+        std::future::pending,
+    ))
+    .expect("the cancellation probe polls accepts while rendezvous opens finish");
+}
+
 /// Control reads that wait for their own blocked writes must fail the probe.
 /// Both pipes fill, so neither side can read or write and the driver stalls.
 #[test]
@@ -896,6 +1022,17 @@ fn coupled_control_duplex_is_caught() {
         Err(Quiescence::Stalled),
         "direction-coupled control halves must surface as a stall",
     );
+}
+
+/// The control check must reject bytes looped back to their sender.
+#[test]
+#[should_panic(expected = "not this side's own")]
+fn looped_control_is_caught() {
+    run_to_quiescence(super::check_control(
+        async || loopback_control_pair(),
+        std::future::pending,
+    ))
+    .unwrap();
 }
 
 /// Per-stream pipe capacity of the pooled-budget fixtures.

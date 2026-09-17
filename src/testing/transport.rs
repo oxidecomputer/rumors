@@ -13,7 +13,7 @@ use std::{
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::link::Done;
+use crate::link::{Done, yield_once};
 
 /// Which endpoint owns an observed transport operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -781,25 +781,6 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
         }
         Ok(self.held.pop_front().expect("at least one arrival is held"))
     }
-}
-
-/// Yield to the executor exactly once: `Pending` with an immediate
-/// self-wake.
-///
-/// Runtime-agnostic (the deterministic driver is no runtime at all), unlike
-/// `tokio::task::yield_now`. The `conformance` module keeps its own copy:
-/// this module must not depend on the public `conformance` feature.
-async fn yield_once() {
-    let mut yielded = false;
-    std::future::poll_fn(|cx| {
-        if std::mem::replace(&mut yielded, true) {
-            Poll::Ready(())
-        } else {
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        }
-    })
-    .await;
 }
 
 /// Wrap `link`'s acceptor so arrivals release in reversed batches of `batch`,

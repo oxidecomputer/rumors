@@ -732,8 +732,7 @@ fn sweep_bounds() -> Vec<usize> {
 /// proves monotonicity for every possible bound.
 fn node_bytes_monotone<B>()
 where
-    B: Measure + Clone,
-    B::Error: std::fmt::Debug,
+    B: Measure,
 {
     let bounds = sweep_bounds();
     for &bound in &bounds {
@@ -795,7 +794,7 @@ const DIVERGENT: usize = 1_024;
 ///   less than their union.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     node_bytes_monotone::<B>();
@@ -865,7 +864,7 @@ pub(super) async fn run<B>(
     omitted: usize,
 ) -> (usize, SessionStats)
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     let charged = Charged::new(backend);
@@ -945,7 +944,7 @@ where
 /// run.
 async fn walk<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     let Some(root) = corpus.root.clone() else {
@@ -964,7 +963,7 @@ where
 /// content only when the walked prefix is not the root's empty one.
 async fn walk_children<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     let Some(root) = corpus.root.clone() else {
@@ -996,7 +995,7 @@ async fn sorted_leaves<B>(
     messages: impl Iterator<Item = &(Version, u64)>,
 ) -> Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     let mut leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)> = Vec::new();
@@ -1018,7 +1017,7 @@ where
 #[allow(clippy::type_complexity)]
 async fn fold_default<B>(charged: &Charged<B>, leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>)
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     let mut folded = pin!(<height::UnderRoot as Convert>::assemble::<Charged<B>>(
@@ -1039,7 +1038,7 @@ where
 /// presence check's second direction has no reachable input.
 async fn empty_group<B>(charged: &Charged<B>)
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     let answered = charged
@@ -1057,7 +1056,7 @@ where
 #[allow(clippy::type_complexity)]
 async fn assemble_runs<B>(charged: &Charged<B>, leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>)
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     let mut assembled = pin!(
@@ -1080,7 +1079,7 @@ async fn corpus<B>(
     leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>,
 ) -> Root<Charged<B>>
 where
-    B: Measure + Clone,
+    B: Measure,
     B::Error: std::fmt::Debug,
 {
     // The spans are bound to a local so their borrowed join endpoints

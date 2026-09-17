@@ -163,6 +163,25 @@ use tokio::sync::mpsc;
 
 use crate::tree::mirror::streaming::remote::STREAM_COUNT as PROTOCOL_STREAM_COUNT;
 
+/// Yield once without requiring Tokio's runtime feature.
+///
+/// The conformance and deterministic test drivers may run on any executor.
+/// This self-waking future gives their peers one scheduling opportunity while
+/// keeping the library's Tokio dependency limited to I/O and synchronization.
+#[cfg(any(test, feature = "conformance", feature = "test-internals"))]
+pub(crate) async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if std::mem::replace(&mut yielded, true) {
+            std::task::Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+}
+
 /// Logical data streams a session may open in one direction.
 ///
 /// The protocol never opens more, and instantiations must admit this many
