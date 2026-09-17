@@ -1,9 +1,10 @@
 # Rumors review checklist
 
-**Current:** materialized resolution is complete at `c1898773`.
+**Current:** proxy request erasure and decode-loop consolidation is complete at
+`45bd3df3`.
 
-**Next:** consolidate the proxy's request erasure and decode pumps without
-changing its failure attribution or scheduling.
+**Next:** represent the opening-supply cursor's states directly and pin its
+radix-pairing invariant.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -400,8 +401,11 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
       Sources: `materialized-13`, `materialized-26`, `materialized-31`, `materialized-35`, `materialized-36`, `materialized-40`, T128, T132, N04, N05.
       `materialized-13`'s task-registration proposal is superseded by `f643bd60`'s fixed terminal-first error priority.
 
-- [ ] Consolidate request erasure and the proxy's decode pumps.
-      Sources: `remote-proxy-23`, `remote-proxy-25`, `remote-proxy-28–30`, T132.
+- [x] Consolidate request erasure and the proxy's decode loops — `45bd3df3`.
+      Sources: `remote-proxy-23`, `remote-proxy-25`, `remote-proxy-28`, `remote-proxy-29`, T132.
+
+- [ ] Represent opening-supply cursor states directly and pin radix pairing.
+      Sources: `remote-proxy-30`, T132.
 
 - [ ] Remove pass-through backend wrappers and duplicate runtime checks.
       Sources: `streaming-backend-window-20`, `streaming-backend-window-23`, `streaming-backend-window-29`, T132.
