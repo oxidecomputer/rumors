@@ -10,33 +10,18 @@
 //!   `party_join_all`): the
 //!   balanced reduction's documented `O(D log k)` puts a `log2(2k)`
 //!   factor in the deterministic counters that no flat ceiling admits at
-//!   scale. The limb/scan/touch exponent ceilings become the model's own
+//!   scale. The scan/touch exponent ceilings become the model's own
 //!   predicted exponent plus the linear cells' slack, and the scan
 //!   constant [`FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL`] per reduction
 //!   level; a quadratic left fold still reads ~2 and stays red, and the
 //!   log factor's own liveness is held per public entry point by the claims
 //!   suite's `*_log_factor_is_alive` pins.
-//! - **The comb-scatter projection pair** (`own_version_to_version`,
-//!   `clock_own_version_to_version` on the output-domination cross): peak
-//!   heap is the output builder's doubling chain anchored at the
-//!   operand-size reserve — [`capacity_chain_peak`]'s
-//!   `3·(n+m)·2^(k−1)`, ratified against the committed probe points. The
-//!   heap reading is banded around the model at every measured size
-//!   ([`CAPACITY_MODEL_FLOOR`], [`CAPACITY_MODEL_CEILING`]) and the heap
-//!   exponent fit is retired as unjudgeable there — the chain quantizes
-//!   peak by powers of two, so a probe pair straddling a `k` step
-//!   manufactures an exponent out of exactly the profile the model
-//!   prices.
 //! - **Family-stated heap ceilings** (the ascend-cliff tick trio and
-//!   the ascend-cliff `version_min_ticks` cell): honest flat-exponent
-//!   work state a ratified derivation puts over the global heap
-//!   allowance — the zero-run ledger's certificate memory on the one
-//!   shape that defeats consumption, and the anchor web's `Θ(k)` live
-//!   reign records on the one shape that defeats batching. The heap
-//!   *constant* is judged at the stated ceiling (each declaring
-//!   constant carries its derivation; the measured profiles live in
-//!   the pin commits); the exponent leg stays at the global bound, so
-//!   a flat-constant declaration can never absorb growth.
+//!   the ascend-cliff `version_min_ticks` cell, and the output-dominated
+//!   comb-scatter projections): a tighter or larger flat heap bound derived
+//!   for that operation and shape. Each constant carries its derivation. The
+//!   exponent leg stays at the global bound, so a constant declaration cannot
+//!   hide superlinear growth.
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
 //
@@ -72,17 +57,6 @@ pub const HEAP_FLAT_ALLOWANCE_BYTES: usize = 8_192;
 /// per-byte.
 pub const MAX_GROWN_STACK_SEGMENTS: u64 = 1;
 
-/// Green requires at most this many big-integer limb operations per encoded
-/// input byte (asserted only when the `limb-meter` feature is lit).
-///
-/// Calibrated against the benign control: an amortized-linear walk records a
-/// handful of unit-limb operations per node (tens per encoded byte at ~2 bits
-/// per node, over a hundred for multi-walk operations like `distance`), and
-/// that per-node arithmetic is exactly the contract's linear regime. The
-/// ceiling sits above it; width blowups are caught by the exponent bound long
-/// before the constant.
-pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
-
 /// Green requires at most this many encoded bits scanned per denominator
 /// byte (asserted only when the `scan-meter` feature is lit).
 ///
@@ -95,7 +69,7 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 
 /// Green requires at most this many accumulator digit touches per denominator
-/// byte (asserted only when the `limb-meter` feature is lit).
+/// byte (asserted only when the `touch-meter` feature is lit).
 ///
 /// Calibrated against the worst honest reader at the release profile of
 /// record: the delta-folding kernels (validate, sweep, emit, the query folds,
@@ -134,7 +108,8 @@ pub const SCAN_TOUCH_FLOOR_BITS: u64 = 2;
 pub(super) const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;
 
 /// Magnitudes at most this wide may legitimately be handled in machine words;
-/// wider values force big-integer arithmetic, so limb floors bind only on them.
+/// wider values enter the accumulator word by word, so touch floors bind only
+/// on them.
 pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 
 /// The fixed count the `version_ticks` cell registers per measurement.
@@ -162,15 +137,11 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 // ─── declared per-cell models ────────────────────────────────────────────────
 //
 // Some cells carry a *declared model* in place of one global ceiling: a
-// ratified cost law, derived and priced at the cell with a dated owner
-// rationale, that the readings must match — the global ceiling would otherwise
-// be unsatisfiable by construction on work the operation's own contract
-// mandates. A declared model is disclosed on the row face (`decl[...]`) and
-// replaces only the legs it names; its under side is held honest by a banded
-// floor where the model predicts a quantity, or by a committed liveness pin
-// where it declares a class, so a reading under the model means it has gone
-// stale against an improved kernel and must be re-declared in a diff that shows
-// the new derivation (the same ratchet as a liveness floor).
+// ratified upper bound derived for work the operation's contract requires,
+// where the global ceiling would otherwise reject the intended algorithm. A
+// declared model is disclosed on the row face (`decl[...]`) and replaces only
+// the legs it names. Liveness floors independently ensure that the relevant
+// counters still observe the work they claim to bound.
 
 /// Maximum scan bits per input byte and balanced-reduction level.
 ///
@@ -179,46 +150,8 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// rows, with 25% headroom and rounding. The board fails if a fold exceeds it.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 
-/// The declared-model band: a modeled reading must sit within
-/// `[CAPACITY_MODEL_FLOOR, CAPACITY_MODEL_CEILING] × model`.
-///
-/// The model is exact for the anchored doubling chain, and the walk's
-/// non-chain allocations are small beside it (the ratified fit is pinned in
-/// the capacity probe's committed fixtures; the live readings of record live
-/// in the pin commit), so ±10% absorbs them while a regressed builder — an
-/// unanchored doubling chain, an extra buffer copy, each a factor-scale
-/// effect — overshoots the ceiling, and an improved builder undershoots the
-/// floor and forces a deliberate re-declaration.
-pub const CAPACITY_MODEL_CEILING: f64 = 1.10;
-/// The declared-model band's lower edge; see [`CAPACITY_MODEL_CEILING`].
-pub const CAPACITY_MODEL_FLOOR: f64 = 0.90;
-
-/// The ratified capacity-chain peak-heap model for the output-dominated
-/// projection's builder: `3·(n+m)·2^(k−1)` bytes.
-///
-/// `k = ⌈log2(output/(n+m))⌉`, clamped to at least 1 — the committed shapes sit
-/// at output ≥ 32× input, so the clamp never binds and exists only to keep the
-/// formula total.
-///
-/// Derivation: the projection's output is not size-derivable from its operands
-/// (mandatory `Θ(|v|·|p|)` output on `Θ(|v|+|p|)` input), so no reserve-once
-/// bound exists; the output builder anchors its buffer at the operand-size
-/// reserve `n+m` and doubles `k` times to reach the output, and peak heap is
-/// the last realloc's old+new coexistence: `(n+m)·2^(k−1) + (n+m)·2^k =
-/// 3·(n+m)·2^(k−1)`. The board's exponent fit is honestly unjudgeable across
-/// this chain — a probe pair straddling a `k` step manufactures an exponent out
-/// of the quantized capacity, one inside a step reads sublinear — which is
-/// exactly why these cells are judged against the model instead
-/// (owner-ratified: the doubling-chain band is the accepted stated-band
-/// residual — no pre-walk, no segmented output).
-pub(super) fn capacity_chain_peak(input_bytes: usize, output_bytes: usize) -> f64 {
-    let anchor = input_bytes as f64;
-    let k = (output_bytes as f64 / anchor).log2().ceil().max(1.0);
-    3.0 * anchor * (k - 1.0).exp2()
-}
-
-/// The fold rows' declared exponent ceiling over the fold currencies (limb,
-/// scan, touch): the fold scan model's own predicted exponent plus the global
+/// The fold rows' declared exponent ceiling over scan and touch: the fold scan
+/// model's own predicted exponent plus the global
 /// noise slack.
 ///
 /// Work `c·D·log2(2k)` fitted across the cell's two probes (`D₁, k₁) → (D₂,
@@ -238,6 +171,15 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
     let denom_growth = (n2 as f64 / n1 as f64).log2();
     1.0 + (levels2 / levels1).log2() / denom_growth + (MAX_SCALING_EXPONENT - 1.0)
 }
+
+/// Heap ceiling for materializing the output-dominated comb-scatter
+/// projection, in bytes per total-I/O byte.
+///
+/// The direct payload writer and split skyline builder hold a constant number
+/// of stream-sized buffers. Both projection spellings measure a flat 2.0 B/B
+/// at the board's largest committed scale; the ceiling applies the standard
+/// 25% margin and rounds up. Their exponent remains judged independently.
+pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 3.0;
 
 /// The ascending-cliff tick trio's family-stated heap ceiling, in bytes per
 /// encoded input byte.

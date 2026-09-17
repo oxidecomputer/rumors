@@ -29,7 +29,12 @@ pub(crate) mod skyline;
 
 pub use own::OwnVersion;
 #[cfg(feature = "borsh")]
-pub(crate) use rank::decode_stream as decode_rank_stream;
+/// Decode one self-delimiting rank from a byte source.
+pub(crate) fn decode_rank_stream(
+    next_byte: impl FnMut() -> Result<u8, Decode>,
+) -> Result<Rank, Decode> {
+    Rank::decode_stream(next_byte)
+}
 pub use rank::Rank;
 pub use ranked::Ranked;
 pub use ticks::{Limbs, Ticks};
@@ -162,8 +167,8 @@ impl Version {
     /// ```
     pub fn is_empty(&self) -> bool {
         // The canonical empty version is exactly the 2-bit stream `11`: a `1`
-        // leaf flag, then gamma(0), the single bit `1` (see `Version::new` and
-        // `codec::encode_int`). The stored skyline stream is a unique
+        // leaf flag followed by gamma(0), the single bit `1`. The stored
+        // skyline stream is a unique
         // representation, so this O(1) bit test is the whole question — no
         // allocation, no walk.
         skyline::is_empty_stream(self.0.live())
@@ -221,8 +226,7 @@ impl Version {
     /// ```
     pub fn ticks(&mut self, party: &Party, k: impl Into<Ticks>) {
         let k = k.into();
-        // The empty run is the identity, settled without re-freezing the stream
-        // (a width test, not a value compare: no limb work).
+        // The empty run is the identity, settled without re-freezing the stream.
         if k.0.bits() == 0 {
             return;
         }

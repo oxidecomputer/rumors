@@ -26,6 +26,7 @@
 
 use std::cmp::Ordering;
 
+use num_bigint::BigUint;
 use rayon::prelude::*;
 
 use super::{
@@ -535,13 +536,12 @@ fn corpus_counts_are_exact() {
     /// The step-function vector of an oracle event tree over the level-`depth`
     /// dyadic grid: cell `c`'s value is the sum of bases along `c`'s path
     /// (an independent evaluation — no `node`, no normalization, no dedup key).
-    fn ev_vector(t: &oracle::Version, depth: usize) -> Vec<crate::codec::Base> {
-        use crate::codec::Base;
+    fn ev_vector(t: &oracle::Version, depth: usize) -> Vec<BigUint> {
         use oracle::Version as V;
         (0..(1usize << depth))
             .map(|cell| {
                 let mut node = t;
-                let mut acc = Base::ZERO;
+                let mut acc = BigUint::ZERO;
                 for level in 0..depth {
                     match node {
                         V::Leaf(_) => break,

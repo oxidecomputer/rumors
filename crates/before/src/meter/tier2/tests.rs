@@ -11,7 +11,6 @@
 
 use proptest::prelude::*;
 
-use crate::codec::Base;
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
 };
@@ -21,6 +20,7 @@ use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::{generators, optrace};
 use crate::version::skyline;
 use crate::{oracle, Clock, Party, Version};
+use num_bigint::BigUint;
 
 use super::{tier2_size, Tier2Size};
 
@@ -220,54 +220,6 @@ fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
     }
 }
 
-/// A plain running-value accumulator over the comb's Tier 2 delta stream costs
-/// limb work quadratic in the wire bits: per-wire-bit cost roughly doubles when
-/// the size doubles.
-///
-/// This is the executable witness that carry-run amortization does not transfer
-/// to the delta coding: each 3-bit `±1` delta lands exactly on the `2^k` carry
-/// boundary, so applying it to a plain big-integer accumulator propagates a
-/// full `k`-bit carry or borrow — `Θ(k)` limb work bought by `O(1)` wire bits,
-/// `Θ(W²)` total in wire bits `W`. Under today's coding the same tree pays
-/// `2k + 1` stored bits per crossing (the envelope suite pins those operations
-/// linear). Any Tier 2 sweep that must materialize running leaf values — strict
-/// decode's nonnegativity validation included, since values are naturals and a
-/// plain 2-bit/level topology check cannot see a delta drive one negative —
-/// inherits this cost unless it uses a cliff-free accumulator design.
-#[cfg(feature = "limb-meter")]
-#[test]
-fn cliff_comb_plain_delta_sweep_is_quadratic_in_tier2_wire_bits() {
-    // Apply the comb's delta stream to a plain accumulator: v1 = 2^k − 1,
-    // then the 2n − 1 oscillation deltas (+1, −1, …) and the closing −2^k,
-    // exactly the values a Tier 2 leaf sweep must materialize in order.
-    let limb_ops_per_wire_bit = |scale: usize| {
-        let (k, n) = (scale, scale);
-        let one = Base::from(1u8);
-        let mut v = (Base::from(1u8) << k as u32) - &one;
-        crate::meter::reset_limb_ops();
-        for i in 1..(2 * n) {
-            v = if i % 2 == 1 { &v + &one } else { v - &one };
-        }
-        let closing = Base::from(1u8) << k as u32;
-        v -= &closing;
-        let ops = crate::meter::limb_ops();
-        assert_eq!(
-            v,
-            Base::ZERO,
-            "the delta stream telescopes back to the terminal leaf 0"
-        );
-        ops as f64 / (14 * n + 2) as f64
-    };
-    let small = limb_ops_per_wire_bit(512);
-    let large = limb_ops_per_wire_bit(1024);
-    assert!(
-        large / small >= 1.8,
-        "per-wire-bit limb cost must roughly double per size doubling \
-         (measured {small:.2} then {large:.2} limb ops per wire bit): \
-         a plain accumulator over the comb's delta stream is quadratic"
-    );
-}
-
 proptest! {
     /// Join and meet of arbitrary normal-form event trees hold the 1-Lipschitz
     /// coding pin: output boundaries within the union of the inputs', output
@@ -452,10 +404,10 @@ fn check_join_meet_subadditive(a: &Version, b: &Version) {
     }
 }
 
-/// `2^bits - 1` as a [`Base`]: the all-ones magnitude of a given bit width.
-fn all_ones(bits: usize) -> Base {
-    (Base::from(1u8) << u32::try_from(bits).expect("magnitude bit count fits u32"))
-        - &Base::from(1u8)
+/// `2^bits - 1` as a [`BigUint`]: the all-ones magnitude of a given bit width.
+fn all_ones(bits: usize) -> BigUint {
+    (BigUint::from(1u8) << u32::try_from(bits).expect("magnitude bit count fits u32"))
+        - &BigUint::from(1u8)
 }
 
 /// Build the version whose skyline takes `values[i]` on the `i`th cell of a
@@ -465,8 +417,8 @@ fn all_ones(bits: usize) -> Base {
 /// constructors collapse equal-valued uniform runs, so the result is
 /// canonical whatever the values. Recursive over the grid's `O(log)` depth
 /// (test-only; the measured paths are iterative).
-fn grid_version(values: &[Base]) -> Version {
-    fn build(values: &[Base]) -> oracle::Version {
+fn grid_version(values: &[BigUint]) -> Version {
+    fn build(values: &[BigUint]) -> oracle::Version {
         match values {
             [v] => oracle::Version::leaf(v.clone()),
             _ => {
@@ -569,12 +521,12 @@ fn hugeleaf_vs_step_holds_subadditivity() {
 fn comb_vs_flat_holds_subadditivity() {
     for (k, n) in [(3usize, 2usize), (48, 48)] {
         let comb_version = cliff_comb(k, n).version();
-        let cliff = Base::from(1u8) << u32::try_from(k).expect("cliff bit count fits u32");
+        let cliff = BigUint::from(1u8) << u32::try_from(k).expect("cliff bit count fits u32");
         let heights = [
             all_ones(k),     // the valleys' height: join is the comb, meet is flat
             cliff.clone(),   // the teeth's height: meet is the comb, join is flat
             &cliff + &cliff, // above every tooth: join is flat, meet is the comb
-            Base::ZERO,      // below everything: the empty version
+            BigUint::ZERO,   // below everything: the empty version
         ];
         for height in heights {
             let flat = from_oracle_version(&oracle::Version::leaf(height));
@@ -648,11 +600,11 @@ proptest! {
         const CELLS: usize = 32;
         let high_a = all_ones(ma);
         let high_b = all_ones(mb);
-        let a: Vec<Base> = (0..CELLS)
-            .map(|i| if (i / pa) % 2 == 0 { high_a.clone() } else { Base::ZERO })
+        let a: Vec<BigUint> = (0..CELLS)
+            .map(|i| if (i / pa) % 2 == 0 { high_a.clone() } else { BigUint::ZERO })
             .collect();
-        let b: Vec<Base> = (0..CELLS)
-            .map(|i| if ((i + phase) / pb) % 2 == 0 { Base::ZERO } else { high_b.clone() })
+        let b: Vec<BigUint> = (0..CELLS)
+            .map(|i| if ((i + phase) / pb) % 2 == 0 { BigUint::ZERO } else { high_b.clone() })
             .collect();
         check_join_meet_subadditive(&grid_version(&a), &grid_version(&b));
     }
@@ -668,11 +620,11 @@ proptest! {
     ) {
         let high_a = all_ones(ma);
         let high_b = all_ones(mb);
-        let a: Vec<Base> = (0..4)
-            .map(|i| if i % 2 == 0 { Base::ZERO } else { high_a.clone() })
+        let a: Vec<BigUint> = (0..4)
+            .map(|i| if i % 2 == 0 { BigUint::ZERO } else { high_a.clone() })
             .collect();
-        let b: Vec<Base> = (0..64)
-            .map(|i| if (i + phase) % 2 == 0 { high_b.clone() } else { Base::ZERO })
+        let b: Vec<BigUint> = (0..64)
+            .map(|i| if (i + phase) % 2 == 0 { high_b.clone() } else { BigUint::ZERO })
             .collect();
         check_join_meet_subadditive(&grid_version(&a), &grid_version(&b));
     }
@@ -689,13 +641,13 @@ proptest! {
         const CELLS: usize = 16;
         // The staircase floor 2^k - CELLS/2, so the ascent crosses the
         // cliff at the grid's midpoint.
-        let floor = (Base::from(1u8) << u32::try_from(k).expect("cliff bit count fits u32"))
-            - &Base::from((CELLS / 2) as u8);
-        let a: Vec<Base> = (0..CELLS).map(|i| &floor + &Base::from(i as u64)).collect();
-        let b: Vec<Base> = (0..CELLS)
+        let floor = (BigUint::from(1u8) << u32::try_from(k).expect("cliff bit count fits u32"))
+            - &BigUint::from((CELLS / 2) as u8);
+        let a: Vec<BigUint> = (0..CELLS).map(|i| &floor + &BigUint::from(i as u64)).collect();
+        let b: Vec<BigUint> = (0..CELLS)
             .map(|i| {
                 let step = if descending { CELLS - 1 - i } else { i + shift };
-                &floor + &Base::from(step as u64)
+                &floor + &BigUint::from(step as u64)
             })
             .collect();
         check_join_meet_subadditive(&grid_version(&a), &grid_version(&b));

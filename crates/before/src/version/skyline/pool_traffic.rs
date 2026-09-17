@@ -8,23 +8,21 @@
 //! buffer. No other meter can see that property — a heap meter reads
 //! peak *live* bytes, and skipping the recycle entirely leaves the peak
 //! untouched (each dropped buffer's bytes are released before the fresh
-//! allocation that replaces it) with every touch and limb reading
-//! byte-identical, since a fresh accumulator and a reset one fold
-//! identically. This counter records the one observable the claim is
+//! allocation that replaces it), while a fresh accumulator and a reset one
+//! perform identical folds. This counter records the one observable the claim is
 //! made of: a lease that found the pool empty, which is exactly an
 //! allocation the pool could not serve. Steady-state churn reads a
 //! constant bounded by the walk's peak outstanding leases (the fill
 //! phase); churn-proportional misses mean the recycle is dead. The
 //! seam-stop pool row in `tests/meter.rs` pins both directions.
 //!
-//! The recording compiles to nothing without the `limb-meter` feature —
-//! its siblings' idiom (`codec::limb_meter`, `suanpan::touch_meter`) —
-//! and the reading is process-global with the same isolation requirement
+//! The recording compiles to nothing without the `meter` feature. The reading
+//! is process-global with the same isolation requirement
 //! as every other meter: meaningful one scenario per process (nextest's
 //! model) or under a single-threaded caller. The read surface is
 //! `meter::pool_misses` / `meter::reset_pool_misses`.
 
-#[cfg(feature = "limb-meter")]
+#[cfg(feature = "meter")]
 mod counter {
     use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -46,15 +44,15 @@ mod counter {
     }
 }
 
-#[cfg(feature = "limb-meter")]
+#[cfg(feature = "meter")]
 pub(crate) use counter::{misses, reset};
 
 /// Count one lease the pool could not serve.
 ///
-/// Compiles to nothing without the `limb-meter` feature, so the lease
+/// Compiles to nothing without the `meter` feature, so the lease
 /// path can call it unconditionally.
 #[inline(always)]
 pub(crate) fn record_miss() {
-    #[cfg(feature = "limb-meter")]
+    #[cfg(feature = "meter")]
     counter::record_miss();
 }

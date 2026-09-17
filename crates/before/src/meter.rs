@@ -2,8 +2,8 @@
 //!
 //! Available only through the `meter` feature. The generators construct
 //! canonical binary inputs chosen to exercise worst-case time and transient
-//! memory. The counters observe peak heap, stack segments, big-integer limb
-//! work, and encoded bits read as those inputs grow.
+//! memory. The counters observe peak heap, stack growth, encoded traversal,
+//! accumulator work, and a few focused internal events.
 //!
 //! The generators themselves are private: every instrument mints its shapes
 //! through the family registry ([`registry`]), whose roster is the single
@@ -60,8 +60,7 @@ pub mod tier2;
 
 use num_bigint::BigUint;
 
-/// The skyline transcoding codec, re-exported so the resource-envelope suite
-/// can pin its validator's transient state and limb behavior.
+/// The skyline transcoding codec used by the resource-envelope suite.
 pub use crate::version::skyline;
 
 /// The pair-hull rung snapshot, re-exported beside its readers
@@ -72,7 +71,7 @@ pub use crate::version::hull_traffic::SpanTraffic;
 /// readers ([`emit_traffic`]/[`reset_emit_traffic`]).
 pub use crate::version::skyline::web_traffic::EmitTraffic;
 
-use crate::codec::{self, Base, BitsBuf};
+use crate::codec::{self, gamma, BitsBuf};
 
 /// A generator's output: canonical encoded bytes plus the exact bit length.
 ///
@@ -115,14 +114,14 @@ impl Encoding {
 
 /// Append an event leaf with base `n`: flag `0`, then `gamma(n)`.
 fn ev_leaf(bits: &mut BitsBuf, n: u64) {
-    ev_leaf_wide(bits, &Base::from(n));
+    ev_leaf_wide(bits, &BigUint::from(n));
 }
 
 /// Append an event leaf with an arbitrary-width stored base: flag `0`, then
 /// `gamma(base)`.
-fn ev_leaf_wide(bits: &mut BitsBuf, base: &Base) {
+fn ev_leaf_wide(bits: &mut BitsBuf, base: &BigUint) {
     bits.push(false);
-    codec::encode_int(bits, base);
+    gamma::encode(base, bits);
 }
 
 /// Append the dense event spine body: `d` zero-base internal nodes leaning
@@ -138,7 +137,7 @@ fn ev_leaf_wide(bits: &mut BitsBuf, base: &Base) {
 fn ev_spine(bits: &mut BitsBuf, d: usize) {
     for _ in 0..d {
         bits.push(true); // internal-node flag
-        codec::encode_int(bits, &Base::from(0u8)); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, bits); // gamma(0) = "1"
     }
     ev_leaf(bits, 0); // bottom node's left child
     ev_leaf(bits, 1); // bottom node's right child: distinct, so no collapse
@@ -178,7 +177,7 @@ fn bigroot(b: usize, d: usize) -> Encoding {
     assert!(d >= 1, "bigroot needs a nonzero spine depth");
     let mut bits = BitsBuf::with_capacity((2 * b + 4 * d + 8) as u64);
     bits.push(true); // root node flag
-    codec::encode_int(&mut bits, &pow2_minus_1(b));
+    gamma::encode(&pow2_minus_1(b), &mut bits);
     ev_spine(&mut bits, d); // left child: the dense spine (its root has base 0)
     ev_leaf(&mut bits, 0); // right child: the root's required zero-base leaf
     Encoding::from_bits(bits)
@@ -197,7 +196,7 @@ fn hugeleaf(b: usize) -> Encoding {
     assert!(b >= 1, "hugeleaf needs a nonzero magnitude");
     let mut bits = BitsBuf::with_capacity((2 * b + 2) as u64);
     bits.push(false); // leaf flag
-    codec::encode_int(&mut bits, &pow2_minus_1(b));
+    gamma::encode(&pow2_minus_1(b), &mut bits);
     Encoding::from_bits(bits)
 }
 
@@ -232,9 +231,9 @@ fn cliff_comb(k: usize, n: usize) -> Encoding {
     let tooth = pow2_minus_1(k);
     for _ in 0..n {
         bits.push(true); // spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         bits.push(true); // tooth node flag
-        codec::encode_int(&mut bits, &tooth);
+        gamma::encode(&tooth, &mut bits);
         ev_leaf(&mut bits, 0); // tooth's left leaf: value 2^k − 1
         ev_leaf(&mut bits, 1); // tooth's right leaf: value 2^k
     }
@@ -271,12 +270,12 @@ fn jump_comb(k: usize, n: usize) -> Encoding {
     assert!(n >= 2, "jump comb needs a low tooth and a cliff tooth");
     let mut bits = BitsBuf::with_capacity(((n - 1) * (2 * k + 10) + 14) as u64);
     let tooth = pow2_minus_1(k);
-    let one = Base::from(1u8);
+    let one = BigUint::from(1u8);
     for i in 0..n {
         bits.push(true); // spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         bits.push(true); // tooth node flag
-        codec::encode_int(&mut bits, if i == 0 { &one } else { &tooth });
+        gamma::encode(if i == 0 { &one } else { &tooth }, &mut bits);
         ev_leaf(&mut bits, 0); // tooth's left leaf
         ev_leaf(&mut bits, 1); // tooth's right leaf: distinct, no collapse
     }
@@ -321,9 +320,9 @@ fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Encoding {
     let tooth_base = pow2(k) - &tooth_width;
     for _ in 0..n {
         bits.push(true); // spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         bits.push(true); // tooth node flag
-        codec::encode_int(&mut bits, &tooth_base);
+        gamma::encode(&tooth_base, &mut bits);
         ev_leaf(&mut bits, 0); // tooth's left leaf: value 2^k − 2^w
         ev_leaf_wide(&mut bits, &tooth_width); // tooth's right leaf: value 2^k
     }
@@ -343,7 +342,7 @@ fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Encoding {
 /// costs only 12 stored bits. One comparably-coded magnitude (the root's, paid
 /// once) funds `n` crossings: the excursions are siblings, not nested, so no
 /// Dyck-structure argument bounds them, and any accumulator that materializes
-/// each crossing as a full-width carry does Θ(nk) limb work in a Θ(n + k)-bit
+/// each crossing as a full-width carry does Θ(nk) word operations in a Θ(n + k)-bit
 /// input. Consecutive-leaf *values* stay cliff-free (`2^k ↔ 2^k + 1`): the fan
 /// prices entry/exit accumulation, the boundary comb prices leaf deltas.
 ///
@@ -361,13 +360,13 @@ fn cliff_fan(k: usize, n: usize) -> Encoding {
     assert!(n >= 1, "cliff fan needs at least one tooth");
     let mut bits = BitsBuf::with_capacity((12 * n + 2 * k + 6) as u64);
     bits.push(true); // root node flag
-    codec::encode_int(&mut bits, &pow2_minus_1(k));
-    let one = Base::from(1u8);
+    gamma::encode(&pow2_minus_1(k), &mut bits);
+    let one = BigUint::from(1u8);
     for _ in 0..n {
         bits.push(true); // fan spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         bits.push(true); // tooth node flag
-        codec::encode_int(&mut bits, &one); // gamma(1) = "010"
+        gamma::encode(&one, &mut bits); // gamma(1) = "010"
         ev_leaf(&mut bits, 0); // tooth's left leaf: value 2^k
         ev_leaf(&mut bits, 1); // tooth's right leaf: value 2^k + 1
     }
@@ -407,12 +406,12 @@ fn cancelling_chain(k: usize, n: usize) -> Encoding {
     assert!(n >= 1, "cancelling chain needs at least one tooth");
     let mut bits = BitsBuf::with_capacity((n * (2 * k + 10) + 2) as u64);
     let peak_drop = pow2_minus_1(k);
-    let one = Base::from(1u8);
+    let one = BigUint::from(1u8);
     for _ in 0..n {
         bits.push(true); // spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         bits.push(true); // tooth node flag
-        codec::encode_int(&mut bits, &one); // gamma(1) = "010"
+        gamma::encode(&one, &mut bits); // gamma(1) = "010"
         ev_leaf_wide(&mut bits, &peak_drop); // left leaf: value 2^k
         ev_leaf(&mut bits, 0); // right leaf: value 1
     }
@@ -429,7 +428,7 @@ fn cancelling_chain(k: usize, n: usize) -> Encoding {
 /// module's tests pin. The numerator is the all-ones `d`-bit odd integer, so
 /// the rank fold's running numerator is as wide as the depth already walked at
 /// *every* level: any fold that re-shifts its accumulated numerator per level
-/// does `Θ(d²)` limb work against `Θ(d)` input bits, which is what makes this
+/// does `Θ(d²)` word operations against `Θ(d)` input bits, which is what makes this
 /// the separating family for the rank/distance/lag delta algebra. [`dense`] is
 /// the control: same density, but its single 1-leaf keeps the fold's numerator
 /// one bit wide.
@@ -448,7 +447,7 @@ fn harmonic(d: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((6 * d + 2) as u64);
     for _ in 0..d {
         bits.push(true); // internal-node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
     }
     ev_leaf(&mut bits, 0); // the bottom node's left child
     for _ in 0..d {
@@ -487,7 +486,7 @@ fn alt_spine(d: usize) -> Encoding {
     // right at odd); level d−1 is the bottom node with leaves (0, 1).
     for level in 0..d {
         bits.push(true); // internal-node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         if level + 1 < d && level % 2 == 1 {
             ev_leaf(&mut bits, 0); // leaf sibling first: internal child right
         }
@@ -650,7 +649,7 @@ fn wide_tail(b: usize, d: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((4 * d + 2 * b + 3) as u64);
     for _ in 0..d {
         bits.push(true); // spine node flag ...
-        codec::encode_int(&mut bits, &Base::from(0u8)); // ... base 0
+        gamma::encode(&BigUint::ZERO, &mut bits); // ... base 0
         ev_leaf(&mut bits, 0); // its zero left leaf
     }
     ev_leaf_wide(&mut bits, &pow2_minus_1(b)); // the bottom's wide tail
@@ -678,10 +677,10 @@ fn staircase(d: usize) -> Encoding {
     assert!(d >= 1, "the staircase needs at least one internal node");
     let mut bits = BitsBuf::with_capacity((5 * d + 8) as u64);
     bits.push(true); // the root: base 0 (the whole tree's minimum)
-    codec::encode_int(&mut bits, &Base::from(0u8));
+    gamma::encode(&BigUint::ZERO, &mut bits);
     for _ in 1..d {
         bits.push(true); // each deeper spine node ...
-        codec::encode_int(&mut bits, &Base::from(1u8)); // ... lifts by 1
+        gamma::encode(&BigUint::from(1u8), &mut bits); // ... lifts by 1
     }
     ev_leaf(&mut bits, 1); // bottom-left leaf: the staircase's top
     ev_leaf(&mut bits, 0); // bottom-right leaf: one step down
@@ -721,14 +720,14 @@ fn hole_region(bits: &mut BitsBuf, lead: usize, m: usize) {
     debug_assert!(m >= 1, "a hole region needs at least one descending step");
     for _ in 0..lead - 1 {
         bits.push(true); // wrapper node: its floor leaf trails the region
-        codec::encode_int(bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, bits);
     }
     bits.push(true); // the staircase root
-    codec::encode_int(bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, bits);
     ev_leaf(bits, m as u64); // the top step: the region's first leaf
     for v in (1..m).rev() {
         bits.push(true); // each spine node ...
-        codec::encode_int(bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, bits);
         ev_leaf(bits, v as u64); // ... steps its left leaf one down
     }
     ev_leaf(bits, 0); // the terminal step: the region minimum
@@ -770,9 +769,9 @@ fn collapse_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     let mut ev = BitsBuf::new();
     for i in 0..k {
         ev.push(true); // spine node
-        codec::encode_int(&mut ev, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut ev);
         ev.push(true); // the unit's site node
-        codec::encode_int(&mut ev, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut ev);
         hole_region(&mut ev, 2 + (i % 2), m); // the collapse range
         ev_leaf(&mut ev, 0); // the site's absent-side sibling leaf
     }
@@ -821,11 +820,11 @@ fn copy_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     assert!(m >= 1, "the copy hole needs a nonzero region size");
     let mut ev = BitsBuf::new();
     ev.push(true); // the root site's node
-    codec::encode_int(&mut ev, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut ev);
     ev_leaf(&mut ev, 0); // its collapsed left leaf
     for i in 0..k {
         ev.push(true); // spine node
-        codec::encode_int(&mut ev, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut ev);
         hole_region(&mut ev, 2 + (i % 2), m); // the absent-child range
     }
     ev_leaf(&mut ev, 0); // the owned tail leaf
@@ -875,7 +874,7 @@ fn raise_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     let mut ev = BitsBuf::new();
     for _ in 0..k {
         ev.push(true); // each chain node: its region trails in preorder
-        codec::encode_int(&mut ev, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut ev);
     }
     ev_leaf(&mut ev, 0); // the chain's bottom leaf
     for i in (0..k).rev() {
@@ -934,13 +933,13 @@ fn site_hole(k: usize, m: usize) -> (Encoding, Encoding) {
     assert!(m >= 1, "the site hole needs a nonzero region size");
     let mut ev = BitsBuf::new();
     ev.push(true); // the root site's node
-    codec::encode_int(&mut ev, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut ev);
     ev_leaf(&mut ev, 0); // its collapsed left leaf
     for i in 0..k {
         ev.push(true); // spine node
-        codec::encode_int(&mut ev, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut ev);
         ev.push(true); // the unit's site node
-        codec::encode_int(&mut ev, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut ev);
         hole_region(&mut ev, 2 + (i % 2), m); // the collapse range
         ev_leaf(&mut ev, 0); // the site's absent-side sibling leaf
     }
@@ -985,13 +984,13 @@ fn memo_chain(k: usize, distinct: bool) -> Encoding {
     assert!(k >= 1, "the memo chain needs at least one interior site");
     let mut bits = BitsBuf::with_capacity((14 * k + 9) as u64);
     bits.push(true); // the root: the covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
     for j in 1..=k {
         bits.push(true); // spine node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(true); // the interior site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf(&mut bits, 0); // its collapsed left leaf
         ev_leaf(&mut bits, if distinct { j as u64 } else { 1 }); // its range: one leaf, the site minimum
     }
@@ -1062,17 +1061,17 @@ fn memo_comb(d: usize) -> Encoding {
     assert!(d >= 1, "the memo comb needs at least one level");
     let mut bits = BitsBuf::with_capacity((20 * d + 24) as u64);
     bits.push(true); // the root: the outermost covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // its collapsed left leaf
     for i in 1..=d {
         bits.push(true); // the covering range's root
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(true); // the single-leaf site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf(&mut bits, 0); // its collapsed left leaf
         ev_leaf(&mut bits, i as u64); // its range: minimum `i`
         bits.push(true); // the next covering site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf(&mut bits, 0); // its collapsed left leaf
     }
     ev_leaf(&mut bits, d as u64 + 1); // the innermost range: one leaf
@@ -1144,16 +1143,16 @@ fn memo_fanout(k: usize, b: usize) -> Encoding {
     assert!(k >= 1, "the memo fan-out needs at least one site");
     assert!(b >= 1, "the memo fan-out needs a nonzero magnitude");
     let wide = pow2_minus_1(b);
-    let below = wide.clone() - &Base::from(1u8);
+    let below = wide.clone() - &BigUint::from(1u8);
     let mut bits = BitsBuf::with_capacity((13 * k + 4 * b + 9) as u64);
     bits.push(true); // the root: the covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
     for _ in 0..k {
         bits.push(true); // spine node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(true); // the interior site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf_wide(&mut bits, &below); // its collapsed left leaf, one below the plateau
         ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
     }
@@ -1178,16 +1177,16 @@ fn memo_oscillating(k: usize, b: usize) -> Encoding {
     assert!(k >= 1, "the oscillating siblings need at least one site");
     assert!(b >= 1, "the oscillating siblings need a nonzero magnitude");
     let wide = pow2_minus_1(b);
-    let one = Base::from(1u8);
+    let one = BigUint::from(1u8);
     let mut bits = BitsBuf::with_capacity((13 * k + k * b + 9) as u64);
     bits.push(true); // the root: the covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
     for j in 0..k {
         bits.push(true); // spine node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(true); // the interior site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf(&mut bits, 0); // its collapsed left leaf
                                // the range: minima oscillating wide/narrow, funded by the
                                // input codes that store them
@@ -1219,13 +1218,13 @@ fn memo_churn(d: usize) -> Encoding {
     assert!(d >= 1, "the memo churn needs at least one site");
     let mut bits = BitsBuf::with_capacity((18 * d + 10 * (2 * d) + 20) as u64);
     bits.push(true); // the root: the covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
     for i in 1..=d {
         bits.push(true); // the nested carrier node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(true); // the site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf(&mut bits, 0); // its collapsed left leaf
         ev_leaf(&mut bits, i as u64 + 1); // its range: minimum i + 1
     }
@@ -1233,10 +1232,10 @@ fn memo_churn(d: usize) -> Encoding {
     // above every site minimum at entry, below them all at exit.
     let run = 2 * d;
     bits.push(true); // the run's root: base 0
-    codec::encode_int(&mut bits, &Base::from(0u8));
+    gamma::encode(&BigUint::ZERO, &mut bits);
     for _ in 1..run {
         bits.push(true); // each deeper run node lifts by one
-        codec::encode_int(&mut bits, &Base::from(1u8));
+        gamma::encode(&BigUint::from(1u8), &mut bits);
     }
     ev_leaf(&mut bits, 1); // bottom-left leaf: the run's top
     ev_leaf(&mut bits, 0); // bottom-right leaf: one step down
@@ -1301,16 +1300,16 @@ fn descending_raises(d: usize) -> Encoding {
     assert!(d >= 1, "the descending raises need at least one site");
     let mut bits = BitsBuf::with_capacity((13 * d + 30) as u64);
     bits.push(true); // the root: the covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
     bits.push(true); // the floor carrier
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, d as u64 + 2); // the floor: armed before any site
     for j in 1..=d {
         bits.push(true); // spine node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(true); // the interior site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf(&mut bits, 0); // its collapsed left leaf
         ev_leaf(&mut bits, (d as u64 + 2) - j as u64); // its range: below the floor so far
     }
@@ -1387,16 +1386,16 @@ fn reveal_comb(k: usize, b: usize) -> Encoding {
     let below = pow2_minus_1(b);
     let mut bits = BitsBuf::with_capacity((k * (4 * b + 8) + 6) as u64);
     bits.push(true); // the root: the covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
     for _ in 0..k {
         bits.push(true); // comb node a_i, i = k..1
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
     }
     ev_leaf(&mut bits, 0); // the floor: a_1's left child
     for _ in 0..k {
         bits.push(true); // site_i's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf_wide(&mut bits, &below); // its collapsed left leaf: 2^b − 1
         ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
     }
@@ -1422,19 +1421,19 @@ fn reveal_comb_hifloor(k: usize, b: usize) -> Encoding {
     assert!(b >= 1, "the reveal comb needs a nonzero magnitude");
     let wide = pow2(b);
     let below = pow2_minus_1(b);
-    let floor = wide.clone() - &Base::from(2u8);
+    let floor = wide.clone() - &BigUint::from(2u8);
     let mut bits = BitsBuf::with_capacity((k * (4 * b + 8) + 2 * b + 4) as u64);
     bits.push(true); // the root: the covering site's node
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
     for _ in 0..k {
         bits.push(true); // comb node a_i, i = k..1
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
     }
     ev_leaf_wide(&mut bits, &floor); // the raised floor: 2^b − 2
     for _ in 0..k {
         bits.push(true); // site_i's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf_wide(&mut bits, &below); // its collapsed left leaf: 2^b − 1
         ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
     }
@@ -1504,7 +1503,7 @@ fn pure_comb(k: usize, b: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((k * (2 * b + 4) + 2) as u64);
     for _ in 0..k {
         bits.push(true); // comb node a_i, i = k..1
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
     }
     ev_leaf(&mut bits, 0); // the floor: a_1's left child
     for _ in 0..k {
@@ -1604,7 +1603,7 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Encoding {
     let mut bits = BitsBuf::with_capacity((k * (2 * b + 4) + 2) as u64);
     for i in 1..=k {
         bits.push(true); // spine node S_i, i = 1..=k
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         let step = if ascend { i as u64 } else { 1 };
         ev_leaf_wide(&mut bits, &(&wide + step)); // its wide left leaf
     }
@@ -1656,9 +1655,9 @@ fn freeze_position(k: usize) -> Encoding {
     for _ in 0..k {
         for drop in [&wide, &unit] {
             bits.push(true); // spine node: base 0, leaf left, spine right
-            codec::encode_int(&mut bits, &Base::ZERO);
+            gamma::encode(&BigUint::ZERO, &mut bits);
             value -= drop;
-            ev_leaf_wide(&mut bits, &Base::from(value.clone()));
+            ev_leaf_wide(&mut bits, &value);
         }
     }
     ev_leaf(&mut bits, 0); // the terminal leaf: every ancestor's minimum
@@ -1726,18 +1725,18 @@ fn promotion_rearm(p: usize) -> Encoding {
     );
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
     let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
-    let zero = Base::ZERO;
-    let one = Base::from(1u8);
+    let zero = BigUint::ZERO;
+    let one = BigUint::from(1u8);
     let mut bits = BitsBuf::with_capacity((1972 * p + 4) as u64);
     for level in 0..PROMOTION_REARM_LEVELS_PER_BLOCK * p {
         bits.push(true); // span-builder node: alternating leaf left
-        codec::encode_int(&mut bits, &zero);
+        gamma::encode(&zero, &mut bits);
         ev_leaf(&mut bits, u64::from(level % 2 == 0)); // 1, 0, 1, 0, …
     }
     for _ in 0..p {
         for base in [&arm, &one, &settle, &one] {
             bits.push(true); // block node: 0-leaf left, spine right
-            codec::encode_int(&mut bits, base);
+            gamma::encode(base, &mut bits);
             ev_leaf(&mut bits, 0);
         }
     }
@@ -1766,14 +1765,14 @@ fn promotion_rearm(p: usize) -> Encoding {
 /// Panics if `p == 0`.
 fn promotion_rearm_mate(p: usize) -> Encoding {
     assert!(p >= 1, "the re-arm mate needs at least one block's worth");
-    let zero = Base::ZERO;
+    let zero = BigUint::ZERO;
     // The spine matches PR(p) node for node: 32p span-builder levels
     // plus the 4p block levels, the alternation running through both.
     let levels = (PROMOTION_REARM_LEVELS_PER_BLOCK + 4) * p;
     let mut bits = BitsBuf::with_capacity((180 * p + 4) as u64);
     for level in 0..levels {
         bits.push(true); // spine node: alternating leaf left
-        codec::encode_int(&mut bits, &zero);
+        gamma::encode(&zero, &mut bits);
         ev_leaf(&mut bits, u64::from(level % 2 == 0)); // 1, 0, 1, 0, …
     }
     ev_leaf(&mut bits, 1); // the terminal leaf: the unequal closer
@@ -1819,13 +1818,13 @@ fn dense_suffix(p: usize, d: usize) -> Encoding {
     assert!(d >= 1, "the dense-suffix family needs at least one gap");
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
     let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
-    let one = Base::from(1u8);
+    let one = BigUint::from(1u8);
     let mut bits = BitsBuf::with_capacity((134 * d + 1812 * p + 4) as u64);
     let trailing = gap_spine(&mut bits, d);
     for _ in 0..p {
         for base in [&arm, &one, &settle, &one] {
             bits.push(true); // block node: 0-leaf left, chain right
-            codec::encode_int(&mut bits, base);
+            gamma::encode(base, &mut bits);
             ev_leaf(&mut bits, 0);
         }
     }
@@ -1855,12 +1854,12 @@ fn dense_suffix(p: usize, d: usize) -> Encoding {
 fn dense_suffix_mate(p: usize, d: usize) -> Encoding {
     assert!(p >= 1, "the dense-suffix mate needs at least one block");
     assert!(d >= 1, "the dense-suffix mate needs at least one gap");
-    let one = Base::from(1u8);
+    let one = BigUint::from(1u8);
     let mut bits = BitsBuf::with_capacity((134 * d + 24 * p + 4) as u64);
     let trailing = gap_spine(&mut bits, d);
     for _ in 0..4 * p {
         bits.push(true); // block node: 0-leaf left, chain right
-        codec::encode_int(&mut bits, &one);
+        gamma::encode(&one, &mut bits);
         ev_leaf(&mut bits, 0);
     }
     ev_leaf(&mut bits, 1); // the block terminal
@@ -1884,11 +1883,8 @@ fn dense_suffix_mate(p: usize, d: usize) -> Encoding {
 /// `d` spine turns), and the cancelling descent lands outside the ledger, so no
 /// seam cancellation can dodge it: the settle's one aggregate product is the
 /// ledger's wide × dense multiplication genre at its purest, priced at the
-/// multiplication bound by the query fold's `integral` module doc's settle
-/// bound — where a
-/// per-digit schoolbook charge pays `Θ(w · d)` digit work against a `Θ(w +
-/// d)`-bit operand, quadratic at `w = d`, the reading the committed schoolbook
-/// kernel keeps failing beside the `ledger_wide_arming` flatness band.
+/// multiplication bound. A per-digit schoolbook charge instead pays `Θ(w · d)`
+/// digit work against a `Θ(w + d)`-bit operand and is quadratic at `w = d`.
 /// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^288 + 2 + 1` is the closed-form
 /// semantic leg. Normal form: as [`dense_suffix`]'s.
 ///
@@ -1904,12 +1900,12 @@ fn wide_arming(w: usize, d: usize) -> Encoding {
     assert!(d >= 1, "the wide-arming family needs at least one gap");
     let arm = pow2(32 * w);
     let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
-    let one = Base::from(1u8);
+    let one = BigUint::from(1u8);
     let mut bits = BitsBuf::with_capacity((134 * d + 64 * w + 600) as u64);
     let trailing = gap_spine(&mut bits, d);
     for base in [&arm, &one, &settle, &one] {
         bits.push(true); // the one block: 0-leaf left, chain right
-        codec::encode_int(&mut bits, base);
+        gamma::encode(base, &mut bits);
         ev_leaf(&mut bits, 0);
     }
     ev_leaf(&mut bits, 1); // the block terminal
@@ -1959,12 +1955,12 @@ fn hoisted_window(w: usize, d: usize, t: usize) -> Encoding {
     );
     let arm = pow2(32 * w);
     let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
-    let one = Base::from(1u8);
+    let one = BigUint::from(1u8);
     let mut bits = BitsBuf::with_capacity((134 * d + 64 * w + 4 * t + 600) as u64);
     let trailing = gap_spine(&mut bits, d);
     for base in [&arm, &one, &settle, &one] {
         bits.push(true); // the one block: 0-leaf left, chain right
-        codec::encode_int(&mut bits, base);
+        gamma::encode(base, &mut bits);
         ev_leaf(&mut bits, 0);
     }
     ev_spine(&mut bits, t); // the block terminal, deepened into the tail
@@ -1984,7 +1980,7 @@ fn gap_spine(bits: &mut BitsBuf, d: usize) -> usize {
     let mut trailing = 0usize;
     for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * d {
         bits.push(true); // spine node flag
-        codec::encode_int(bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, bits);
         if level % DENSE_SUFFIX_DIGIT_STRIDE == 0 {
             ev_leaf(bits, 1); // the turn: its leaf leads the descent
         } else {
@@ -2013,7 +2009,7 @@ fn parked_unit_spine(bits: &mut BitsBuf, s: usize) {
     assert!(s >= 2, "the parked-unit spine needs at least two levels");
     for _ in 0..s {
         bits.push(true); // spine node flag, base 0
-        codec::encode_int(bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, bits);
     }
     ev_leaf(bits, 1); // the innermost node's left leaf
     ev_leaf(bits, 0); // its right leaf: the parked digit-0 unit
@@ -2057,7 +2053,7 @@ fn weight_comb(n: usize) -> Encoding {
     // every internal base 0.
     fn block(bits: &mut BitsBuf, width: usize) {
         bits.push(true); // block node flag, base 0
-        codec::encode_int(bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, bits);
         if width == 2 {
             ev_leaf(bits, 0);
             ev_leaf(bits, 2);
@@ -2084,9 +2080,9 @@ fn weight_comb(n: usize) -> Encoding {
 /// sets the scale). The write watermark is what lets each scaled read start at
 /// the written span; a read that starts at digit 0 walks the `Θ(k)`-digit
 /// never-written prefix per freeze — `Θ(k²)` touches on linear input, the
-/// zero-padded magnitudes dragging the limb column with it (the
-/// `skyline_flatness` freeze-parade band in `tests/meter.rs` carries both
-/// readings). The block is min-lifted over a strictly descending run, every
+/// zero-padded magnitudes with it. The `skyline_flatness` freeze-parade band in
+/// `tests/meter.rs` measures the resulting accumulator work. The block is
+/// min-lifted over a strictly descending run, every
 /// node's minimum its last leaf, so right children code base 0 and left
 /// children the difference of the halves' minima; `min_ticks(FZ(k))` is the
 /// printed-base sum, re-derived in closed form by this module's tests and the
@@ -2120,12 +2116,12 @@ fn freeze_parade(k: usize) -> Encoding {
     // The min-lifted complete subtree over the descending run.
     fn block(bits: &mut BitsBuf, vals: &[BigUint], parent_min: &BigUint) {
         if let [leaf] = vals {
-            ev_leaf_wide(bits, &Base::from(leaf - parent_min));
+            ev_leaf_wide(bits, &(leaf - parent_min));
             return;
         }
         let my_min = vals.last().expect("the parade block is nonempty");
         bits.push(true); // block node flag
-        codec::encode_int(bits, &Base::from(my_min - parent_min));
+        gamma::encode(&(my_min - parent_min), bits);
         let (l, r) = vals.split_at(vals.len() / 2);
         block(bits, l, my_min);
         block(bits, r, my_min);
@@ -2195,8 +2191,8 @@ fn lone_freeze(pre: usize, post: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((580 * pre + 6 * post + 14) as u64);
     let leaf = |bits: &mut BitsBuf, value: BigUint| {
         bits.push(true); // spine node: base 0, leaf left, spine right
-        codec::encode_int(bits, &Base::ZERO);
-        ev_leaf_wide(bits, &Base::from(value));
+        gamma::encode(&BigUint::ZERO, bits);
+        ev_leaf_wide(bits, &value);
     };
     for j in 0..pre {
         leaf(&mut bits, &plateau + BigUint::from((j % 2) as u64));
@@ -2240,9 +2236,9 @@ fn tooth_tail(g: usize, m: usize) -> (Encoding, Encoding) {
         let mut bits = BitsBuf::with_capacity((6 * m + 64 * g) as u64);
         for i in 0..m {
             bits.push(true); // chain node: leaf left, chain right, base 0
-            codec::encode_int(&mut bits, &Base::ZERO);
+            gamma::encode(&BigUint::ZERO, &mut bits);
             if i == 1 {
-                ev_leaf_wide(&mut bits, &(&spike + Base::from(base_h)));
+                ev_leaf_wide(&mut bits, &(&spike + BigUint::from(base_h)));
             } else {
                 ev_leaf(&mut bits, base_h);
             }
@@ -2287,12 +2283,12 @@ fn puncture_product(x: &BigUint, y: &BigUint) -> Encoding {
     let mass = y.clone() << 1usize;
     let levels = mass.bits();
     let turns = (0..levels).filter(|&b| mass.bit(b)).count();
-    let plateau = Base::from(x.clone());
+    let plateau = x.clone();
     let mut bits = BitsBuf::with_capacity(4 * levels + turns as u64 * 2 * (x.bits() + 1) + 8);
     let mut trailing = 0u64;
     for level in 0..levels {
         bits.push(true); // spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         if mass.bit(levels - 1 - level) {
             ev_leaf_wide(&mut bits, &plateau); // the turn: on the plateau
         } else {
@@ -2482,11 +2478,11 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
     for b in 0..n {
         for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * g {
             bits.push(true); // window spine node flag
-            codec::encode_int(&mut bits, &Base::ZERO);
+            gamma::encode(&BigUint::ZERO, &mut bits);
             if level % DENSE_SUFFIX_DIGIT_STRIDE == 0 {
                 // The turn: on the plateau, so the window's dense mass
                 // is topology-funded (a zero delta in the store).
-                ev_leaf_wide(&mut bits, &Base::from(plateau.clone()));
+                ev_leaf_wide(&mut bits, &plateau);
             } else {
                 trailing += 1;
             }
@@ -2504,8 +2500,8 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
         ] {
             plateau += kick;
             bits.push(true); // block node: wide leaf left, chain right
-            codec::encode_int(&mut bits, &Base::ZERO);
-            ev_leaf_wide(&mut bits, &Base::from(plateau.clone()));
+            gamma::encode(&BigUint::ZERO, &mut bits);
+            ev_leaf_wide(&mut bits, &plateau);
         }
     }
     // The bottom 0: the last block node's right child, unequal to its wide left
@@ -2598,19 +2594,19 @@ fn dominated_undercut(k: usize, b: usize) -> Encoding {
         "the wide width must decide the word-bound domination read"
     );
     let wide = pow2(b + 2) + pow2(b); // 5 · 2^b
-    let raise = Base::from(DOMINATED_UNDERCUT_RAISE);
-    let rise = Base::from(DOMINATED_UNDERCUT_EXIT_RISE);
+    let raise = BigUint::from(DOMINATED_UNDERCUT_RAISE);
+    let rise = BigUint::from(DOMINATED_UNDERCUT_EXIT_RISE);
     let mut bits = BitsBuf::with_capacity((k * (2 * b + 26) + 2) as u64);
     for _ in 0..k {
         bits.push(true); // spine node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(true); // the site's node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf(&mut bits, 0); // the raise leaf (the site's owned left half)
         bits.push(true); // the copied region's root: base = the raise value
-        codec::encode_int(&mut bits, &raise);
+        gamma::encode(&raise, &mut bits);
         bits.push(true); // the climb carrier
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf_wide(&mut bits, &wide); // the wide climb: 5 · 2^b
         ev_leaf(&mut bits, 0); // the return to the region's minimum
         ev_leaf_wide(&mut bits, &rise); // the exit, one above the minimum
@@ -2659,7 +2655,7 @@ fn dominated_undercut_id(k: usize) -> Encoding {
 /// store it inline (`u64` covers two digits), narrow enough that the dying
 /// side's one fold is three digit touches — the unit the seam bands' floors
 /// count in.
-fn seam_rung() -> Base {
+fn seam_rung() -> BigUint {
     pow2(66) + pow2(64)
 }
 
@@ -2671,7 +2667,7 @@ fn seam_rung() -> Base {
 /// digit itself, so `sign_dominates_at` decides — or honestly refuses — on
 /// the digit-index clearance alone, with no descent, in one digit touch
 /// (suanpan's witness `decision_bound_top_decides_on_the_first_touch`).
-fn seam_wide(w: usize) -> Base {
+fn seam_wide(w: usize) -> BigUint {
     pow2(32 * (w - 1) + 2) + pow2(32 * (w - 1))
 }
 
@@ -2727,7 +2723,7 @@ fn seam_plunge(k: usize, r: usize) -> Encoding {
     for _ in 0..=k {
         value += &rung;
         bits.push(true); // spine node, base 0
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         ev_leaf_wide(&mut bits, &value); // the ascending arming leaf
     }
     ev_leaf(&mut bits, 0); // the plunge: the whole tree's floor
@@ -2773,11 +2769,11 @@ fn seam_plunge_control(k: usize, r: usize) -> Encoding {
     let rung = seam_rung();
     let mut bits = BitsBuf::with_capacity((136 * k + 64 * r + 78) as u64);
     bits.push(true); // node 1: base = the first arming's absolute height
-    codec::encode_int(&mut bits, &(seam_wide(r) + &rung));
+    gamma::encode(&(seam_wide(r) + &rung), &mut bits);
     ev_leaf(&mut bits, 0);
     for _ in 0..k {
         bits.push(true); // each deeper node climbs one rung
-        codec::encode_int(&mut bits, &rung);
+        gamma::encode(&rung, &mut bits);
         ev_leaf(&mut bits, 0);
     }
     ev_leaf_wide(&mut bits, &rung); // the terminal: one more rung up
@@ -2820,7 +2816,7 @@ fn seam_plunge_control(k: usize, r: usize) -> Encoding {
 fn seam_stop(k: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((164 * k + 266) as u64);
     bits.push(true); // the root, base 0
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the floor leaf: arms the root at 0
     seam_stop_descent(&mut bits, k);
     Encoding::from_bits(bits)
@@ -2867,11 +2863,11 @@ fn seam_stop_descent(bits: &mut BitsBuf, k: usize) {
     // then exactly 5·2^128, the stacked boundary's value.
     let base = (pow2(130) + pow2(128)) - &ladder(k);
     bits.push(true); // the descent node carries the subtree's floor
-    codec::encode_int(bits, &base);
+    gamma::encode(&base, bits);
     for j in (1..=k).rev() {
         if j < k {
             bits.push(true); // spine node, base 0
-            codec::encode_int(bits, &Base::ZERO);
+            gamma::encode(&BigUint::ZERO, bits);
         }
         ev_leaf_wide(bits, &ladder(j));
     }
@@ -2923,19 +2919,19 @@ fn latent_ladder(w: usize, k: usize) -> Encoding {
     let mut bits = BitsBuf::with_capacity((k * (leaf_bits + 2) + 64 * w - 48) as u64);
     for _ in 0..k {
         bits.push(true); // spine node, base 0
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
     }
     bits.push(true); // the head node, base 0
-    codec::encode_int(&mut bits, &Base::ZERO);
+    gamma::encode(&BigUint::ZERO, &mut bits);
     ev_leaf(&mut bits, 0); // the floor leaf: arms every open range at 0
     bits.push(true); // the parked pair: base = the anchor
-    codec::encode_int(&mut bits, &anchor);
+    gamma::encode(&anchor, &mut bits);
     ev_leaf(&mut bits, 0);
     ev_leaf(&mut bits, 1);
     // The ladder: preorder emits the deepest spine node's right leaf first,
     // so the values descend one per leaf from anchor − 1 to anchor − k.
     for j in 1..=k {
-        let value = anchor.clone() - &Base::from(j as u64);
+        let value = anchor.clone() - &BigUint::from(j as u64);
         ev_leaf_wide(&mut bits, &value);
     }
     Encoding::from_bits(bits)
@@ -2981,7 +2977,7 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 /// the drift). The spine makes every absolute position `d` incompressible
 /// digits while the per-crest *segment* masses compact to O(1) digits: an
 /// accounting that multiplies parked drift by absolute positions pays `Θ(m · d
-/// · k)` limb work against a `Θ(m·k + d)`-bit input, and the anchored-segment
+/// · k)` word operations against a `Θ(m·k + d)`-bit input, and the anchored-segment
 /// co-sweep (`version/skyline/query/integral.rs`'s module doc) settles each
 /// crest against its own segment and stays linear — the separation the
 /// `skyline_flatness` band test and the board cell hold. The **join** (the band
@@ -3025,7 +3021,7 @@ fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Encoding {
     let depth = JUMP_PAIR_DIGIT_STRIDE * d;
     let tooth = &pow2(k) + 3u64;
     let plateau = &pow2(k) + 1u64;
-    let zero = Base::ZERO;
+    let zero = BigUint::ZERO;
     let mut bits = BitsBuf::with_capacity((132 * d + m * (2 * k + 14) + 2) as u64);
     // The shared descent spine: right turns every 33rd level consume
     // their 0-leaf before the comb (the freeze-position bits), left
@@ -3033,7 +3029,7 @@ fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Encoding {
     let mut trailing = 0usize;
     for level in 0..depth {
         bits.push(true); // spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         if (level + 1) % JUMP_PAIR_DIGIT_STRIDE == 0 {
             ev_leaf(&mut bits, 0); // right turn: the leaf leads the descent
         } else {
@@ -3043,24 +3039,21 @@ fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Encoding {
     // The comb: c_i = node(pair_i, c_{i+1}), terminal leaf under c_m.
     for i in 0..m {
         bits.push(true); // comb spine node c_i
-        codec::encode_int(
-            &mut bits,
-            // The band stream's one wide code: the plateau lift, hoisted
-            // to the comb root by min-lifted normal form.
-            if band && i == 0 { &plateau } else { &zero },
-        );
+                         // The band stream's one wide code: the plateau lift, hoisted to the
+                         // comb root by min-lifted normal form.
+        gamma::encode(if band && i == 0 { &plateau } else { &zero }, &mut bits);
         bits.push(true); // the tooth/gap pair node
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         if band {
             bits.push(true); // the band node across the tooth interval
-            codec::encode_int(&mut bits, &Base::ZERO);
+            gamma::encode(&BigUint::ZERO, &mut bits);
             ev_leaf(&mut bits, 1); // band leaf 2^k + 2, relative 1
             ev_leaf(&mut bits, 0); // band leaf 2^k + 1, relative 0
             ev_leaf(&mut bits, 0); // gap leaf 2^k + 1, relative 0
         } else {
             ev_leaf_wide(&mut bits, &tooth); // the tooth: 2^k + 3
             bits.push(true); // the gap pair node
-            codec::encode_int(&mut bits, &Base::ZERO);
+            gamma::encode(&BigUint::ZERO, &mut bits);
             ev_leaf(&mut bits, 1); // gap leaf 1
             ev_leaf(&mut bits, 0); // gap leaf 0
         }
@@ -3186,7 +3179,7 @@ fn stagger_comb(n: usize, m: usize, i: usize) -> Encoding {
     // are test-only construction code).
     fn path(bits: &mut BitsBuf, levels: u32, i: usize, t: u32) {
         bits.push(true); // path node flag
-        codec::encode_int(bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, bits);
         let deeper = |bits: &mut BitsBuf| {
             if t + 1 == levels {
                 ev_leaf(bits, 1); // the tooth: operand i's unit height
@@ -3208,7 +3201,7 @@ fn stagger_comb(n: usize, m: usize, i: usize) -> Encoding {
             return;
         }
         bits.push(true); // top node flag
-        codec::encode_int(bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, bits);
         top(bits, levels, i, m / 2);
         top(bits, levels, i, m / 2);
     }
@@ -3316,11 +3309,8 @@ fn stagger_population(n: usize, m: usize) -> (Vec<Encoding>, Vec<Encoding>) {
 /// empties. A sequential reduce therefore pays `Θ(k · d)` on a `Θ(d + k)`-byte
 /// population, while the balanced reduction re-walks the carrier once per
 /// counter level, `O(d log k + k)`. Neither operand shape is adversarial alone
-/// — both are committed linear families. The committed flatness band and the
-/// sequential-reduce adequacy tripwire (`meet_all_shade_is_flat_per_unit` and
-/// `sequential_meet_reduce_reads_superlinear_on_shade` in `tests/meter.rs`)
-/// carry both measured readings; the population's semantic leg is exactness —
-/// the fold returns the carrier.
+/// — both are linear families. The meet-fold band measures the balanced
+/// reduction and verifies that the fold returns the carrier.
 ///
 /// Each shade is built independently: byte-equal streams in *distinct* buffers,
 /// so the equal-shade combines are answered by the byte compare the band
@@ -3360,7 +3350,7 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
 /// − 2^k` inside owned teeth — a near-zero value spelled by cancelling wide
 /// digits, oscillating across the `2^k` carry boundary behind 3-bit stored
 /// deltas — and the zero-check `sign(h_plateau)` on unowned intervals. An
-/// integrator that materializes either read pays `Θ(k)` limb work per 3-bit
+/// integrator that materializes either read pays `Θ(k)` word operations per 3-bit
 /// code; the balanced signed-digit accumulator answers both in amortized O(1)
 /// touches (the envelope rows and the flatness band in `tests/meter.rs` hold it
 /// there). The verdict is `Less` — the projected comb sits under the plateau
@@ -3435,10 +3425,10 @@ fn sparse_cliff_comb(k: usize, n: usize) -> Encoding {
     let tooth = pow2_minus_1(k);
     for level in 0..n {
         bits.push(true); // spine node flag
-        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        gamma::encode(&BigUint::ZERO, &mut bits); // gamma(0) = "1"
         if level % 2 == 1 {
             bits.push(true); // tooth node flag
-            codec::encode_int(&mut bits, &tooth);
+            gamma::encode(&tooth, &mut bits);
             ev_leaf(&mut bits, 0); // tooth's left leaf: value 2^k − 1
             ev_leaf(&mut bits, 1); // tooth's right leaf: value 2^k
         } else {
@@ -3510,14 +3500,14 @@ fn masked_hole(d: usize, h: usize) -> (Encoding, Encoding, Encoding) {
 }
 
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
-fn pow2_minus_1(b: usize) -> Base {
-    pow2(b) - &Base::from(1u8)
+fn pow2_minus_1(b: usize) -> BigUint {
+    pow2(b) - &BigUint::from(1u8)
 }
 
 /// The base `2^b`.
-fn pow2(b: usize) -> Base {
+fn pow2(b: usize) -> BigUint {
     let b = u32::try_from(b).expect("magnitude bit count fits u32");
-    Base::from(1u8) << b
+    BigUint::from(1u8) << b
 }
 
 /// The number of heap stack segments the deep traversals have grown since the
@@ -3538,73 +3528,46 @@ pub fn reset_stack_segments() {
     crate::recurse::reset_segments_grown()
 }
 
-/// The big-integer limb operations counted since the last [`reset_limb_ops`].
-///
-/// The deterministic stand-in for arithmetic-width cost, which no other meter
-/// can see: a magnitude blowup allocates little and visits no extra nodes — the
-/// work is wider, not more frequent. The count is the operands' 64-bit limb
-/// counts per `Base` operation (arithmetic, comparison, equality, and hashing;
-/// a widening left shift records its output width, operand plus shifted-in
-/// limbs, so a shift-and-discard loop cannot read near-zero) plus one
-/// value-width record per wide-gamma decode, so an amortized-linear algorithm
-/// counts linearly in encoded input bits and a magnitude-quadratic one counts
-/// quadratically. Process-global, same isolation requirement as
-/// [`stack_segments`]; only compiled under the `limb-meter` feature, which adds
-/// the counting to the arithmetic itself.
-#[cfg(feature = "limb-meter")]
-pub fn limb_ops() -> u64 {
-    crate::codec::limb_meter::limb_ops()
-}
-
-/// Reset the limb-operation counter behind [`limb_ops`] to zero.
-#[cfg(feature = "limb-meter")]
-pub fn reset_limb_ops() {
-    crate::codec::limb_meter::reset()
-}
-
 /// The settle's densified-image digits zero-filled since the last
 /// [`reset_densified_digits`].
 ///
 /// The deterministic stand-in for allocation-fill work, which no other meter
 /// can see: the query folds' settle densifies each balanced-digit cluster
 /// into two zero-filled byte images before multiplying, and a zeroed byte no
-/// digit lands on enters no operand width (the limb column's proxy), touches
-/// no accumulator digit, and raises no peak while the image stays under the
-/// walk's own high-water mark. The count is the images' capacity in
+/// digit lands on touches no accumulator digit or raises the peak while the
+/// image stays under the walk's own high-water mark. The count is the images' capacity in
 /// base-2^32 digits — two images per multi-digit cluster, each at the
 /// cluster's span — so span-priced densification counts linearly in the
 /// settle's cluster spans, and a densification sized by cluster *positions*
 /// counts by those positions instead (the axis the hoisted-window family
 /// isolates). Process-global, same isolation requirement as
-/// [`stack_segments`]; only compiled under the `limb-meter` feature.
-#[cfg(feature = "limb-meter")]
+/// [`stack_segments`].
+#[cfg(feature = "meter")]
 pub fn densified_digits() -> u64 {
-    crate::codec::limb_meter::densified_digits()
+    crate::version::skyline::query::integral::densified_digits()
 }
 
 /// Reset the densified-image counter behind [`densified_digits`] to zero.
-#[cfg(feature = "limb-meter")]
+#[cfg(feature = "meter")]
 pub fn reset_densified_digits() {
-    crate::codec::limb_meter::reset_densified()
+    crate::version::skyline::query::integral::reset_densified_digits()
 }
 
 /// The accumulator digit touches since the last [`reset_touch_ops`].
 ///
-/// The deterministic stand-in for accumulator *fold* work, which the limb
-/// counter no longer sees on narrow values: a word-scale fold rides the
-/// accumulator's quick register (one touch, no `Base` arithmetic, no digit
-/// traffic), so an algorithm that folds per leaf where another folds per block
-/// separates here even when both read zero limb operations. Delegates to
-/// `suanpan`'s own counter (`suanpan::touch_meter`), which the `limb-meter`
+/// The deterministic stand-in for accumulator fold work. A word-scale fold
+/// rides the accumulator's quick register, so an algorithm that folds per leaf
+/// separates from one that folds per block. Delegates to
+/// `suanpan`'s own counter (`suanpan::touch_meter`), which the `touch-meter`
 /// feature compiles in. Process-global, same isolation requirement as
 /// [`stack_segments`].
-#[cfg(feature = "limb-meter")]
+#[cfg(feature = "touch-meter")]
 pub fn touch_ops() -> u64 {
     suanpan::touch_meter::touches()
 }
 
 /// Reset the digit-touch counter behind [`touch_ops`] to zero.
-#[cfg(feature = "limb-meter")]
+#[cfg(feature = "touch-meter")]
 pub fn reset_touch_ops() {
     suanpan::touch_meter::reset()
 }
@@ -3660,20 +3623,20 @@ pub fn reset_emit_traffic() {
 /// The deterministic stand-in for steady-state churn allocation, which no
 /// other meter can see: the web recycles dying accumulators through a pool,
 /// and a dead recycle changes no peak-heap reading (each dropped buffer is
-/// released before the fresh allocation replacing it) and no touch or limb
-/// reading (a fresh accumulator folds exactly like a reset one) — only the
+/// released before the fresh allocation replacing it) and no touch reading (a
+/// fresh accumulator folds exactly like a reset one) — only the
 /// miss count separates a pool that recycles (misses bounded by peak
 /// simultaneous demand) from one that leaks its churn (misses proportional
 /// to it). The seam-stop pool row in `tests/meter.rs` pins both directions.
-/// Process-global, same isolation requirement as [`stack_segments`]; only
-/// compiled under the `limb-meter` feature.
-#[cfg(feature = "limb-meter")]
+/// Process-global, with the same isolation requirement as [`stack_segments`];
+/// compiled under the `meter` feature.
+#[cfg(feature = "meter")]
 pub fn pool_misses() -> u64 {
     crate::version::skyline::pool_traffic::misses()
 }
 
 /// Reset the pool-miss counter behind [`pool_misses`] to zero.
-#[cfg(feature = "limb-meter")]
+#[cfg(feature = "meter")]
 pub fn reset_pool_misses() {
     crate::version::skyline::pool_traffic::reset()
 }
@@ -3683,9 +3646,9 @@ pub fn reset_pool_misses() {
 ///
 /// The deterministic stand-in for traversal work over the encoded forms, which
 /// every other meter can miss at once: an id-tree fold allocates little (no
-/// heap delta), loops rather than recurses (no segments), and does no `Base`
-/// arithmetic (no limb operations) — the work is *reading and writing stream
-/// bits*, and this counter records exactly those, at the encoded
+/// heap delta), loops rather than recurses (no segments), and does no `BigUint`
+/// magnitude arithmetic — the work is *reading and writing stream bits*, and
+/// this counter records exactly those, at the encoded
 /// primitives (id tag reads and skip steps, id-builder bit writes and splice
 /// lengths, event topology cursor advances and gamma code-skips, every
 /// sequential decoder/validator bit read). Unit: bits. Process-global, same

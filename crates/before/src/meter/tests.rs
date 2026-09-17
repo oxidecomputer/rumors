@@ -26,7 +26,7 @@ const ISOLATION_NOTE: &str = "note: the counter is process-global and meaningful
 
 /// Convert the arbitrary-precision oracle value directly into a tick count.
 fn ticks_from_big(value: &BigUint) -> Ticks {
-    Ticks(codec::Base(value.clone()))
+    Ticks(value.clone())
 }
 
 /// Build a uniform version through the public tick operation.
@@ -371,42 +371,6 @@ fn stack_segment_meter_counts_deterministically_and_resets() {
         super::stack_segments(),
         0,
         "the iterative fill walk grows no stack segments: {ISOLATION_NOTE}"
-    );
-}
-
-/// The limb meter observes arithmetic width, resets to zero, and reads the same
-/// count for the same operation repeated (determinism is what makes it
-/// envelope-able); doubling a decoded magnitude grows the count.
-///
-/// The counter is process-global, so the repeat-run comparison is meaningful
-/// under nextest's one-test-per-process isolation (this workspace's runner).
-#[cfg(feature = "limb-meter")]
-#[test]
-fn limb_meter_counts_deterministically_and_resets() {
-    // Wide-gamma decode is the arithmetic-width worst case: the whole input is
-    // one code, so the decoded value's width is the input's bit length.
-    let count_decode = |b: usize| {
-        let p = hugeleaf(b);
-        super::reset_limb_ops();
-        let _ = p.version();
-        super::limb_ops()
-    };
-    let first = count_decode(10_000);
-    assert!(first > 0, "a spilled-gamma decode must count limb work");
-    super::reset_limb_ops();
-    assert_eq!(
-        super::limb_ops(),
-        0,
-        "reset returns the meter to zero: {ISOLATION_NOTE}"
-    );
-    assert_eq!(
-        count_decode(10_000),
-        first,
-        "identical operations count identical limb work: {ISOLATION_NOTE}"
-    );
-    assert!(
-        count_decode(20_000) > first,
-        "a wider magnitude must count more limb work: {ISOLATION_NOTE}"
     );
 }
 
@@ -1103,7 +1067,7 @@ fn plateau_puncture_decodes_canonically_at_predicted_length() {
         let numerator = ((&x * &y) << 1usize) + 1u8;
         assert_eq!(
             plateau_puncture(w, d).version().rank(),
-            Rank::from_raw(codec::Base::from(numerator), (66 * d) as u64),
+            Rank::from_raw(numerator, (66 * d) as u64),
             "the exact rank is the plateau times the punctured turn mass"
         );
     }

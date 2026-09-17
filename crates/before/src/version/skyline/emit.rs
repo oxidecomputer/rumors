@@ -80,34 +80,73 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitsBuf, BitsView, Code, Int};
+use num_bigint::{BigInt, BigUint, Sign};
 
-use super::build::SkylineBuilder;
+use crate::codec::{accumulator, gamma, BitsBuf, BitsView};
+
+use super::build::{PayloadBuilder, SkylineBuilder};
 use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
-use super::signed::{gamma_code_int, gamma_code_signed_int, signed_sum_int, Sign, Signed};
 use super::sweep::Directions;
 
-/// The side a pointwise max follows on one elementary interval: the higher
-/// side by the running difference's sign (`D = height_a − height_b`), sticky
-/// at ties — `D = 0` keeps the current side, which both inputs then agree on.
-///
-/// The whole difference between join and meet is which of this pair of pick
-/// functions the sweep consults (the module doc's side-switch algebra).
-fn follow_max(sign: Ordering, current: Side) -> Side {
-    match sign {
-        Ordering::Greater => Side::A,
-        Ordering::Less => Side::B,
-        Ordering::Equal => current,
+impl Side {
+    /// The output delta when switching to this side.
+    fn switch_delta(self, diff: &Accumulator, old_step: Option<&Step>) -> BigInt {
+        let (diff_sign, magnitude) = accumulator::value(diff);
+        debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches sides");
+        let negative = match self {
+            Side::A => diff_sign == Ordering::Less,
+            Side::B => diff_sign == Ordering::Greater,
+        };
+        let switched =
+            BigInt::from_biguint(if negative { Sign::Minus } else { Sign::Plus }, magnitude);
+        match old_step {
+            Some(step) => switched + step,
+            None => switched,
+        }
+    }
+
+    /// Write the output delta after a boundary, switching sides when needed.
+    fn write_delta(
+        self,
+        out: &mut PayloadBuilder<'_>,
+        diff: &Accumulator,
+        next: Side,
+        step_a: Option<&Step>,
+        step_b: Option<&Step>,
+    ) {
+        let step = match self {
+            Side::A => step_a,
+            Side::B => step_b,
+        };
+        if next == self {
+            match step {
+                Some(step) => gamma::encode_signed(step, out),
+                None => gamma::encode_positive(&BigUint::ZERO, out),
+            }
+            return;
+        }
+        let delta = next.switch_delta(diff, step);
+        gamma::encode_signed(&delta, out);
     }
 }
 
-/// The side a pointwise min follows on one elementary interval:
-/// [`follow_max`] mirrored — the lower side wins, sticky at ties.
-fn follow_min(sign: Ordering, current: Side) -> Side {
-    match sign {
-        Ordering::Less => Side::A,
-        Ordering::Greater => Side::B,
-        Ordering::Equal => current,
+/// Which pointwise extreme an emission follows.
+#[derive(Clone, Copy)]
+enum Extreme {
+    /// The lower height.
+    Lower,
+    /// The higher height.
+    Higher,
+}
+
+impl Extreme {
+    /// Select a side from the height difference, staying put at ties.
+    fn pick(self, sign: Ordering, current: Side) -> Side {
+        match (self, sign) {
+            (_, Ordering::Equal) => current,
+            (Extreme::Higher, Ordering::Greater) | (Extreme::Lower, Ordering::Less) => Side::A,
+            (Extreme::Higher, Ordering::Less) | (Extreme::Lower, Ordering::Greater) => Side::B,
+        }
     }
 }
 
@@ -127,7 +166,7 @@ fn follow_min(sign: Ordering, current: Side) -> Side {
 /// collapsible sibling pair, a delta driving the running height negative) sweep
 /// silently, and the output is then unspecified.
 pub fn join(a: BitsView<'_>, b: BitsView<'_>) -> BitsBuf {
-    emit(a, b, follow_max)
+    Extreme::Higher.emit(a, b)
 }
 
 /// The meet (pointwise min) of the versions two skyline streams denote, as a
@@ -140,7 +179,7 @@ pub fn join(a: BitsView<'_>, b: BitsView<'_>) -> BitsBuf {
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output.
 pub fn meet(a: BitsView<'_>, b: BitsView<'_>) -> BitsBuf {
-    emit(a, b, follow_min)
+    Extreme::Lower.emit(a, b)
 }
 
 /// The fused hull's product: the two endpoint streams beside the pair's causal
@@ -192,7 +231,7 @@ pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
     /// — the only point where the two outputs differ), the side it is currently
     /// following, and its builder.
     struct Emission {
-        pick: fn(Ordering, Side) -> Side,
+        extreme: Extreme,
         side: Side,
         out: SkylineBuilder,
     }
@@ -218,12 +257,12 @@ pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
     // real opening side.
     let mut outputs = [
         Emission {
-            pick: follow_min,
+            extreme: Extreme::Lower,
             side: Side::A,
             out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
         },
         Emission {
-            pick: follow_max,
+            extreme: Extreme::Higher,
             side: Side::A,
             out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
         },
@@ -231,15 +270,16 @@ pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
     for emission in &mut outputs {
         // The sticky-tie seed `Side::A` is arbitrary: at a tie the two
         // first heights are equal, so either side opens identically.
-        emission.side = (emission.pick)(sign, Side::A);
+        emission.side = emission.extreme.pick(sign, Side::A);
         let first = match emission.side {
             Side::A => &a_first,
             Side::B => &b_first,
         };
-        emission.out.leaf(
-            cursor_a.depth().max(cursor_b.depth()),
-            gamma_code_int(first),
-        );
+        emission
+            .out
+            .leaf(cursor_a.depth().max(cursor_b.depth()), |out| {
+                gamma::encode(first, out)
+            });
     }
 
     while !(cursor_a.done() && cursor_b.done()) {
@@ -249,16 +289,12 @@ pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
         directions.fold(sign);
         let depth = cursor_a.depth().max(cursor_b.depth());
         for emission in &mut outputs {
-            let new_side = (emission.pick)(sign, emission.side);
-            let code = delta_code(
-                &diff,
-                emission.side,
-                new_side,
-                step_a.as_ref(),
-                step_b.as_ref(),
-            );
+            let new_side = emission.extreme.pick(sign, emission.side);
+            let old_side = emission.side;
             emission.side = new_side;
-            emission.out.leaf(depth, code);
+            emission.out.leaf(depth, |out| {
+                old_side.write_delta(out, &diff, new_side, step_a.as_ref(), step_b.as_ref())
+            });
         }
     }
 
@@ -270,102 +306,51 @@ pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
     }
 }
 
-/// Run the emission sweep, generic over the side selection.
-///
-/// `pick` selects the side the output follows on each interval, from the
-/// difference's sign and the current side — the winner by sign, sticky at ties,
-/// and the only point where join and meet differ (see the module doc's
-/// side-switch algebra).
-fn emit(
-    a_bits: BitsView<'_>,
-    b_bits: BitsView<'_>,
-    pick: impl Fn(Ordering, Side) -> Side,
-) -> BitsBuf {
-    let OpenedPair {
-        a: mut cursor_a,
-        b: mut cursor_b,
-        mut diff,
-        a_first,
-        b_first,
-    } = OpenedPair::open(a_bits, b_bits);
+impl Extreme {
+    /// Emit this pointwise extreme in one overlay walk.
+    fn emit(self, a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> BitsBuf {
+        let OpenedPair {
+            a: mut cursor_a,
+            b: mut cursor_b,
+            mut diff,
+            a_first,
+            b_first,
+        } = OpenedPair::open(a_bits, b_bits);
 
-    // The first interval: the winning side's absolute height opens the output.
-    // The inputs' combined length is the capacity *estimate*: the union
-    // topology and the carried-over step codes fit under it, but a switch code
-    // is bounded by the boundary's input codes only up to a constant, so a
-    // pathological switch-heavy pair could outgrow it — costing one
-    // reallocation, never correctness. The envelope rows (`tests/meter.rs`,
-    // `skyline_join_*`/`skyline_meet_*`) pin the measured peak heap,
-    // switch-heavy families included. The sticky-tie seed `Side::A` is
-    // arbitrary: at a tie the two first heights are equal, so either side opens
-    // the output identically.
-    let mut side = pick(diff.sign(), Side::A);
-    let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
-    let first = match side {
-        Side::A => &a_first,
-        Side::B => &b_first,
-    };
-    out.leaf(
-        cursor_a.depth().max(cursor_b.depth()),
-        gamma_code_int(first),
-    );
-
-    while !(cursor_a.done() && cursor_b.done()) {
-        let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-        let new_side = pick(diff.sign(), side);
-        let code = delta_code(&diff, side, new_side, step_a.as_ref(), step_b.as_ref());
-        side = new_side;
-        out.leaf(cursor_a.depth().max(cursor_b.depth()), code);
-    }
-
-    // Sealing the marker padding is the job of `Version::from_bits`, the
-    // single gate a stream passes through when it becomes a stored value;
-    // intermediate streams stay unsealed.
-    out.finish()
-}
-
-/// The output's delta code at the boundary just crossed: the followed side's
-/// own step on the same-side path, the switch algebra otherwise (the module
-/// doc).
-///
-/// The same-side path borrows the step and codes it in place; only a switch
-/// materializes a magnitude.
-fn delta_code(
-    diff: &Accumulator,
-    side: Side,
-    new_side: Side,
-    step_a: Option<&Step>,
-    step_b: Option<&Step>,
-) -> Code {
-    let step = match side {
-        Side::A => step_a,
-        Side::B => step_b,
-    };
-    if new_side == side {
-        return match step {
-            Some(step) => gamma_code_signed_int(step.sign, &step.magnitude),
-            None => gamma_code_signed_int(Sign::Positive, &Int::ZERO),
+        // The first interval: the winning side's absolute height opens the output.
+        // The inputs' combined length is the capacity *estimate*: the union
+        // topology and the carried-over step codes fit under it, but a switch code
+        // is bounded by the boundary's input codes only up to a constant, so a
+        // pathological switch-heavy pair could outgrow it — costing one
+        // reallocation, never correctness. The envelope rows (`tests/meter.rs`,
+        // `skyline_join_*`/`skyline_meet_*`) pin the measured peak heap,
+        // switch-heavy families included. The sticky-tie seed `Side::A` is
+        // arbitrary: at a tie the two first heights are equal, so either side opens
+        // the output identically.
+        let mut side = self.pick(diff.sign(), Side::A);
+        let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
+        let first = match side {
+            Side::A => &a_first,
+            Side::B => &b_first,
         };
-    }
-    let delta = switch_delta(diff, new_side, step);
-    gamma_code_signed_int(delta.sign, &delta.magnitude)
-}
+        out.leaf(cursor_a.depth().max(cursor_b.depth()), |out| {
+            gamma::encode(first, out)
+        });
 
-/// The output delta across a side switch: `±D′` oriented toward the new side,
-/// plus the old side's step delta (the module doc's algebra).
-fn switch_delta(diff: &Accumulator, new_side: Side, old_step: Option<&Step>) -> Signed {
-    let (diff_sign, magnitude) = Base::from_accumulator(diff);
-    debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches the side");
-    let sign = Sign::from_is_negative(match new_side {
-        Side::A => diff_sign == Ordering::Less,
-        Side::B => diff_sign == Ordering::Greater,
-    });
-    match old_step {
-        Some(step) => signed_sum_int(sign, Int::from_base(magnitude), step.sign, &step.magnitude),
-        None => Signed {
-            sign,
-            magnitude: Int::from_base(magnitude),
-        },
+        while !(cursor_a.done() && cursor_b.done()) {
+            let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
+            let new_side = self.pick(diff.sign(), side);
+            let old_side = side;
+            side = new_side;
+            out.leaf(cursor_a.depth().max(cursor_b.depth()), |out| {
+                old_side.write_delta(out, &diff, new_side, step_a.as_ref(), step_b.as_ref())
+            });
+        }
+
+        // Sealing the marker padding is the job of `Version::from_bits`, the
+        // single gate a stream passes through when it becomes a stored value;
+        // intermediate streams stay unsealed.
+        out.finish()
     }
 }
 

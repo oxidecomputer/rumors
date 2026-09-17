@@ -11,8 +11,7 @@
 //! copies therefore operate bytewise even when the destination is unaligned.
 //! All primitive reads and writes update the scan meter.
 
-use super::code::SMALL_CODE_BITS;
-use super::{BitsBuf, BitsView, Code};
+use super::{BitsBuf, BitsView};
 
 /// Builds one encoded bit stream.
 ///
@@ -55,41 +54,34 @@ impl BitBuilder {
         self.append_bits(u64::from(bit), 1);
     }
 
-    /// Copy the completed range `start..` back out of the output as a
-    /// [`Code`], recording the read.
-    ///
-    /// Collapse repairs re-anchor a surviving code before truncating the
-    /// region it sits in; this is the read half of that repair (the
-    /// skyline builder's cascade, on the production join/meet path).
-    pub(crate) fn extract_code(&self, start: u64) -> Code {
-        let n = self.len() - start;
-        super::scan::record_bits_u64(n);
-        if n <= SMALL_CODE_BITS {
-            return Code::Small {
-                bits: self.read_bits(start, n as u32),
-                len: n as u8,
-            };
+    /// Append the low `len <= 64` bits of `value`, most-significant first.
+    pub(crate) fn push_bits(&mut self, value: u64, len: u32) {
+        debug_assert!(len <= 64, "an append holds at most one machine word");
+        debug_assert!(
+            len == 64 || value >> len == 0,
+            "append value has bits above its stated width"
+        );
+        super::scan::record_bits(len as usize);
+        if len == 64 {
+            self.append_bits(value >> 1, 63);
+            self.append_bits(value & 1, 1);
+        } else {
+            self.append_bits(value, len);
         }
-        let mut out = BitsBuf::with_capacity(n);
-        for i in start..start + n {
-            out.push(self.bit_at(i));
-        }
-        Code::Wide(out)
     }
 
-    /// Append one complete payload code.
-    pub(crate) fn push_code(&mut self, code: &Code) {
-        match code {
-            Code::Small { bits, len } => {
-                super::scan::record_bits(usize::from(*len));
-                self.append_bits(*bits, u32::from(*len));
-            }
-            // The splice records its own write.
-            Code::Wide(bits) => {
-                let src = super::buf::built_view(bits);
-                self.splice(src, 0, src.len());
-            }
-        }
+    /// Read `len <= 63` bits at `start` as a right-aligned word.
+    ///
+    /// # Panics
+    ///
+    /// The range must lie within the bits already written.
+    pub(crate) fn read_word(&self, start: u64, len: u32) -> u64 {
+        assert!(
+            len <= 63 && start + u64::from(len) <= self.len(),
+            "word read lies within the builder"
+        );
+        super::scan::record_bits(len as usize);
+        self.read_bits(start, len)
     }
 
     /// Append `width` zero bits as a header slot to be
@@ -255,7 +247,7 @@ impl BitBuilder {
     /// Read `n <= 63` bits at `pos` back out of the output, right-aligned
     /// at the low end of the result.
     fn read_bits(&self, pos: u64, n: u32) -> u64 {
-        debug_assert!(u64::from(n) <= SMALL_CODE_BITS && pos + u64::from(n) <= self.len());
+        debug_assert!(n < u64::BITS && pos + u64::from(n) <= self.len());
         let committed = self.bytes.len() as u64 * 8;
         let mut acc = 0u64;
         let mut got = 0u32;
@@ -280,18 +272,5 @@ impl BitBuilder {
             }
         }
         acc
-    }
-
-    /// The bit at `pos`, read back out of the committed prefix or the
-    /// staging register.
-    fn bit_at(&self, pos: u64) -> bool {
-        let committed = self.bytes.len() as u64 * 8;
-        if pos < committed {
-            self.bytes[(pos / 8) as usize] >> (7 - pos % 8) & 1 == 1
-        } else {
-            let offset = (pos - committed) as u32;
-            debug_assert!(offset < self.staged_len, "read past the output");
-            self.staged >> (self.staged_len - 1 - offset) & 1 == 1
-        }
     }
 }

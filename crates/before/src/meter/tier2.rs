@@ -11,14 +11,16 @@
 //! the representation decision turns on, so the walk here is written for
 //! obvious correctness over economy: one preorder pass over the encoded form,
 //! absolute leaf values accumulated as root-to-leaf path sums in
-//! arbitrary-precision arithmetic (the crate's `Base`, so no magnitude
+//! arbitrary-precision arithmetic (the crate's `BigUint`, so no magnitude
 //! saturates or overflows the measurement).
 //!
 //! The zigzag map is the canonical sign convention `k >= 0 -> 2k`, `k < 0 ->
 //! 2|k| - 1` (no negative zero), and each mapped delta is then gamma-coded
 //! exactly like today's stored bases.
 
-use crate::codec::{self, Base, BitsView};
+use num_bigint::BigUint;
+
+use crate::codec::{self, BitsView};
 
 /// The Tier 2 encoded bit length of a [`Version`](crate::Version), split into
 /// the terms the compactness envelope is stated over.
@@ -60,17 +62,18 @@ pub fn tier2_size(bits: BitsView<'_>) -> Tier2Size {
     // stack belonging to the next node in the preorder stream. Both children of
     // an internal node inherit the same sum, and the stream lists the whole
     // left subtree before the right, so a plain stack stays aligned.
-    let mut offsets: Vec<Base> = vec![Base::ZERO];
+    let mut offsets: Vec<BigUint> = vec![BigUint::ZERO];
     let mut nodes = 0u64;
     let mut leaves = 0u64;
     let mut first_leaf_bits = 0u64;
     let mut delta_bits = 0u64;
-    let mut prev_leaf: Option<Base> = None;
+    let mut prev_leaf: Option<BigUint> = None;
 
     while let Some(offset) = offsets.pop() {
         let internal = bits.bit(pos);
         pos += 1;
-        let (base, next) = codec::decode_int(bits, pos).expect("canonical Version parses cleanly");
+        let (base, next) =
+            codec::gamma::decode(bits, pos).expect("canonical Version parses cleanly");
         pos = next;
         nodes += 1;
         let value = &offset + &base;
@@ -103,19 +106,19 @@ pub fn tier2_size(bits: BitsView<'_>) -> Tier2Size {
 
 /// The Elias-gamma code length of `n` in bits: `2 * floor(log2(n + 1)) + 1`.
 ///
-/// Matches [`codec::encode_int`] exactly: the code for `m = n + 1` is
+/// Matches [`crate::codec::gamma::encode`] exactly: the code for `m = n + 1` is
 /// `floor(log2(m))` zeros then `m` in `floor(log2(m)) + 1` bits.
-fn gamma_bits(n: &Base) -> u64 {
+fn gamma_bits(n: &BigUint) -> u64 {
     2 * (n + 1u32).bits() - 1
 }
 
 /// Map the signed difference `cur - prev` to its zigzag magnitude:
 /// `k >= 0 -> 2k`, `k < 0 -> 2|k| - 1`.
-fn zigzag(prev: &Base, cur: &Base) -> Base {
+fn zigzag(prev: &BigUint, cur: &BigUint) -> BigUint {
     if cur >= prev {
         (cur.clone() - prev) << 1u32
     } else {
-        ((prev.clone() - cur) << 1u32) - &Base::from(1u8)
+        ((prev.clone() - cur) << 1u32) - &BigUint::from(1u8)
     }
 }
 

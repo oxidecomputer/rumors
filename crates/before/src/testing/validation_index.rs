@@ -78,8 +78,8 @@
 //! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
 //! worst-case family, a four-size measurement ladder per cell, judged on
-//! deterministic counters only (heap, stack segments, limb ops, scan bits,
-//! digit touches) against one fitted exponent trend per currency, per-size
+//! deterministic counters only (heap, stack segments, scan bits, and digit
+//! touches) against one fitted exponent trend per currency, per-size
 //! constants, liveness floors, and owner-declared models. What
 //! it alone catches: **structural blindness** — a resource regression on
 //! a shape × operation pairing nobody thought to pin, and meter vacuity
@@ -93,14 +93,10 @@
 //! **The resource-envelope suite** (`tests/meter.rs`). The enforced
 //! per-operation record: process-isolated scenarios (nextest, one
 //! process per test) pinning exact counter envelopes with ×1.25 slack,
-//! flatness bands over doubling schedules, liveness floors, and the
-//! committed known-bad kernels (schoolbook converters, sequential-reduce
-//! folds, retired quadratic walks) held red beside the green pins. What
-//! it alone catches: **constant-factor regressions and cure
-//! backslides** — the board's ceilings are class-scale and would forgive
-//! a doubled constant; the envelope pins move only through a reviewed
-//! diff. Its adequacy kernels are also the tripwires proving the
-//! criteria can fail at all.
+//! flatness bands over doubling schedules, and liveness floors. What it alone
+//! catches: **constant-factor regressions and cure backslides** — the board's
+//! ceilings are class-scale and would forgive a doubled constant; the envelope
+//! pins move only through a reviewed diff.
 //!
 //! **The fuzz-fit bands** (the `fuzzfit` workspace under this crate).
 //! Public operations compiled to wasm and metered in wasmtime *fuel*

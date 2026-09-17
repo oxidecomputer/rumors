@@ -49,9 +49,9 @@
 
 use std::cmp::Ordering;
 
-use crate::codec::Base;
 use crate::testing::{bridge, semantic_oracle, shape_rows};
 use crate::{oracle, Party, Rank, Ticks, Version};
+use num_bigint::BigUint;
 
 /// One descriptor: its name and the check the drivers run.
 ///
@@ -134,8 +134,8 @@ impl Matches<Rank> for Rank {
 /// Shape rows — plateau, region, overlay, and refinement-cell listings —
 /// compare directly: both sides are already folded into the same
 /// absolute vocabulary.
-impl Matches<Vec<(Base, u64)>> for Vec<(Base, u64)> {
-    fn matches(&self, reference: &Vec<(Base, u64)>) -> bool {
+impl Matches<Vec<(BigUint, u64)>> for Vec<(BigUint, u64)> {
+    fn matches(&self, reference: &Vec<(BigUint, u64)>) -> bool {
         self == reference
     }
 }
@@ -146,14 +146,14 @@ impl Matches<Vec<(bool, u64)>> for Vec<(bool, u64)> {
     }
 }
 
-impl Matches<Vec<(u64, Base, bool)>> for Vec<(u64, Base, bool)> {
-    fn matches(&self, reference: &Vec<(u64, Base, bool)>) -> bool {
+impl Matches<Vec<(u64, BigUint, bool)>> for Vec<(u64, BigUint, bool)> {
+    fn matches(&self, reference: &Vec<(u64, BigUint, bool)>) -> bool {
         self == reference
     }
 }
 
-impl Matches<Vec<(u64, Vec<Base>)>> for Vec<(u64, Vec<Base>)> {
-    fn matches(&self, reference: &Vec<(u64, Vec<Base>)>) -> bool {
+impl Matches<Vec<(u64, Vec<BigUint>)>> for Vec<(u64, Vec<BigUint>)> {
+    fn matches(&self, reference: &Vec<(u64, Vec<BigUint>)>) -> bool {
         self == reference
     }
 }
@@ -220,8 +220,8 @@ impl FsMatches<Rank> for Rank {
 /// collapses any refinement fragments), and the existing
 /// tree-versus-function scans decide. The rows come from the
 /// descriptor's tree spelling, whose depths the grid already covers.
-impl FsMatches<Vec<(Base, u64)>> for semantic_oracle::Event {
-    fn fs_matches(&self, reference: &Vec<(Base, u64)>, grid: u32) -> bool {
+impl FsMatches<Vec<(BigUint, u64)>> for semantic_oracle::Event {
+    fn fs_matches(&self, reference: &Vec<(BigUint, u64)>, grid: u32) -> bool {
         let tree = shape_rows::version_from_rows(reference);
         <semantic_oracle::Event as FsMatches<oracle::Version>>::fs_matches(self, &tree, grid)
     }
@@ -234,9 +234,9 @@ impl FsMatches<Vec<(bool, u64)>> for semantic_oracle::Id {
     }
 }
 
-impl FsMatches<Vec<(u64, Base, bool)>> for semantic_oracle::FunctionClock {
-    fn fs_matches(&self, reference: &Vec<(u64, Base, bool)>, grid: u32) -> bool {
-        let heights: Vec<(Base, u64)> = reference
+impl FsMatches<Vec<(u64, BigUint, bool)>> for semantic_oracle::FunctionClock {
+    fn fs_matches(&self, reference: &Vec<(u64, BigUint, bool)>, grid: u32) -> bool {
+        let heights: Vec<(BigUint, u64)> = reference
             .iter()
             .map(|(depth, height, _)| (height.clone(), *depth))
             .collect();
@@ -248,9 +248,9 @@ impl FsMatches<Vec<(u64, Base, bool)>> for semantic_oracle::FunctionClock {
     }
 }
 
-impl FsMatches<Vec<(u64, Vec<Base>)>> for (semantic_oracle::Event, semantic_oracle::Event) {
-    fn fs_matches(&self, reference: &Vec<(u64, Vec<Base>)>, grid: u32) -> bool {
-        let column = |index: usize| -> Vec<(Base, u64)> {
+impl FsMatches<Vec<(u64, Vec<BigUint>)>> for (semantic_oracle::Event, semantic_oracle::Event) {
+    fn fs_matches(&self, reference: &Vec<(u64, Vec<BigUint>)>, grid: u32) -> bool {
+        let column = |index: usize| -> Vec<(BigUint, u64)> {
             reference
                 .iter()
                 .map(|(depth, heights)| (heights[index].clone(), *depth))
@@ -519,14 +519,14 @@ diff_ops! {
     fn clock_shape_matches_the_oracle {
         prod: shape_rows::fold_overlay(c.shape()),
         tree: shape_rows::oracle_cells(vec![
-            (crate::codec::Base::ZERO, c.version()),
-            (crate::codec::Base::ZERO, shape_rows::party_as_steps(c.party())),
+            (BigUint::ZERO, c.version()),
+            (BigUint::ZERO, shape_rows::party_as_steps(c.party())),
         ])
         .into_iter()
         .map(|(depth, heights)| {
-            let [height, owned] = <[crate::codec::Base; 2]>::try_from(heights)
+            let [height, owned] = <[BigUint; 2]>::try_from(heights)
                 .expect("two inputs, two heights");
-            (depth, height, owned == crate::codec::Base::from(1u8))
+            (depth, height, owned == BigUint::from(1u8))
         })
         .collect::<Vec<_>>(),
         fs(_g): c,
@@ -711,8 +711,8 @@ diff_ops! {
     fn shape_combine_matches_the_oracle {
         prod: shape_rows::fold_cells(crate::shape::combine([&a, &b])),
         tree: shape_rows::oracle_cells(vec![
-            (crate::codec::Base::ZERO, a),
-            (crate::codec::Base::ZERO, b),
+            (BigUint::ZERO, a),
+            (BigUint::ZERO, b),
         ]),
         fs(_g): (a, b),
     }

@@ -217,10 +217,7 @@ impl<const N: usize> From<Party> for [Party; N] {
                 .next()
                 .expect("a split into N shares yields exactly N leaves")
         });
-        debug_assert!(
-            split.next().is_none(),
-            "a split into N shares yields no more than N"
-        );
+        debug_assert!(split.remaining == Ticks::ZERO, "the split yielded N shares");
         shares
     }
 }

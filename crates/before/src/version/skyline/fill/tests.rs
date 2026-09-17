@@ -15,7 +15,7 @@
 //! value comparison, so that axis is pinned separately — the full-width worked
 //! witnesses below (a multiple-of-`2^64` raise offset must read nonzero; a wide
 //! value-reproducing raise must read a full-width zero) and
-//! `generators::arb_base`'s `2^64`-aligned arm, which keeps generator mass on
+//! `generators::arb_magnitude`'s `2^64`-aligned arm, which keeps generator mass on
 //! offsets whose low limb is zero. The unchanged branch's splice is
 //! additionally held to the oracle's inflation, the brute-force search, and a
 //! reference route probe in `grow/tests.rs`.
@@ -24,7 +24,7 @@ use num_bigint::BigUint;
 use proptest::prelude::*;
 use rayon::prelude::*;
 
-use crate::codec::Base;
+use crate::codec::gamma;
 use crate::idbits::IdReader;
 use crate::meter::registry::Shape;
 use crate::meter::Encoding;
@@ -419,11 +419,11 @@ fn flag_reads_plateau_divergence_not_arm_firing() {
 /// operands, and the comparison must read that zero at full width — the flag
 /// must stay clear. Both directions assert the flag and the tick output against
 /// the recursive oracle. Ongoing generator mass for the class lives in
-/// `generators::arb_base`'s `2^64`-aligned arm.
+/// `generators::arb_magnitude`'s `2^64`-aligned arm.
 #[test]
 fn flag_compares_offsets_at_full_width() {
     use crate::oracle::{Party as P, Version as V};
-    let wide = Base::from(1u8) << 64u32;
+    let wide = BigUint::from(1u8) << 64u32;
     // Left-full raise over a single zero leaf against min(er) = 2^64: the
     // emitted offset is exactly 2^64 — nonzero only above the low limb — so the
     // flag must trip, and the tick is fill's collapse to the single wide leaf.
@@ -615,7 +615,7 @@ fn dominated_undercut_family_ticks_identically() {
 fn live_relation_undercut_pair(
     outer: u64,
     pre: &[(u64, u64)],
-    climb: &Base,
+    climb: &BigUint,
     exit_rise: u64,
     posts: &[u64],
     (min_side, margin): (bool, u64),
@@ -670,7 +670,7 @@ fn live_relation_undercut_pair(
 /// a shared process only adds).
 #[test]
 fn dominated_undercut_moves_the_live_ledger_relation() {
-    let climb = (Base::from(1u8) << 96u32) + (Base::from(1u8) << 98u32);
+    let climb = (BigUint::from(1u8) << 96u32) + (BigUint::from(1u8) << 98u32);
     let (v, p) = live_relation_undercut_pair(7, &[(5, 3)], &climb, 9, &[], (true, 1));
     crate::meter::reset_emit_traffic();
     assert_tick(&v, &p);
@@ -696,7 +696,7 @@ fn dominated_undercut_moves_the_live_ledger_relation() {
 /// independently of the generator.
 #[test]
 fn narrow_undercut_moves_the_live_ledger_relation() {
-    let (v, p) = live_relation_undercut_pair(0, &[(1, 0)], &Base::from(1u8), 0, &[], (true, 1));
+    let (v, p) = live_relation_undercut_pair(0, &[(1, 0)], &BigUint::from(1u8), 0, &[], (true, 1));
     assert_tick(&v, &p);
 }
 
@@ -730,7 +730,7 @@ proptest! {
         terminal in (proptest::bool::ANY, 1u64..=6),
     ) {
         let (m, b) = climb;
-        let climb = Base::from(m) << b;
+        let climb = BigUint::from(m) << b;
         let (v, p) = live_relation_undercut_pair(outer, &pre, &climb, exit_rise, &posts, terminal);
         assert_tick(&v, &p);
     }
@@ -755,11 +755,11 @@ proptest! {
 fn undecided_residue_pair(m: u64, c: u32, w: u64, eps: u64) -> (Version, Party) {
     use crate::oracle::{Party as P, Version as V};
     let over_leaf = || P::node(P::seed(), P::Leaf(false));
-    let big = Base::from(m) << (32 * c);
+    let big = BigUint::from(m) << (32 * c);
     let upper = V::node(
         0u64,
-        V::leaf(big.clone() + &Base::from(w)),
-        V::leaf(Base::from(eps)),
+        V::leaf(big.clone() + &BigUint::from(w)),
+        V::leaf(BigUint::from(eps)),
     );
     let site = V::node(0u64, V::leaf(big), upper);
     let er = V::node(0u64, site, V::leaf(0u64));
@@ -845,7 +845,7 @@ fn left_full_raise_decides_at_the_site_not_its_close() {
 /// exit that misplaces the web (a wrong fold-restore, a wrong post-collapse
 /// re-test) surfaces as wrong bytes rather than dying unread when the last
 /// armed range retires.
-fn latent_ladder_pair(bases: &[Base], tip: &Base, peak: &Base) -> (Version, Party) {
+fn latent_ladder_pair(bases: &[BigUint], tip: &BigUint, peak: &BigUint) -> (Version, Party) {
     use crate::oracle::{Party as P, Version as V};
     // (1, 0): an id node over a consumed leaf — the leaf's emission arms the
     // web without the id owning or moving anything.
@@ -858,7 +858,7 @@ fn latent_ladder_pair(bases: &[Base], tip: &Base, peak: &Base) -> (Version, Part
         spine = V::node(b.clone(), V::leaf(0u64), spine);
         spine_id = P::node(owned(), spine_id);
     }
-    let sibling = if *peak == Base::ZERO {
+    let sibling = if *peak == BigUint::ZERO {
         V::leaf(0u64)
     } else {
         V::node(0u64, V::leaf(peak.clone()), V::leaf(0u64))
@@ -880,8 +880,8 @@ fn latent_ladder_pair(bases: &[Base], tip: &Base, peak: &Base) -> (Version, Part
 }
 
 /// `5 · 2^96`: a ladder operand past the `2^97` certificate line.
-fn five_p96() -> Base {
-    (Base::from(1u8) << 96u32) + (Base::from(1u8) << 98u32)
+fn five_p96() -> BigUint {
+    (BigUint::from(1u8) << 96u32) + (BigUint::from(1u8) << 98u32)
 }
 
 /// A dominating latent declines a word-scale drop: the emission lands between
@@ -897,7 +897,7 @@ fn five_p96() -> Base {
 #[test]
 fn wide_latent_dominates_a_word_scale_drop() {
     let (v, p) = latent_ladder_pair(
-        &[Base::from(1u8)],
+        &[BigUint::from(1u8)],
         &(five_p96() + 7u64),
         &(five_p96() + 1u64),
     );
@@ -915,7 +915,7 @@ fn wide_latent_dominates_a_word_scale_drop() {
 /// here against the recursive oracle.
 #[test]
 fn wide_drop_dominates_a_word_scale_latent() {
-    let (v, p) = latent_ladder_pair(&[five_p96()], &Base::from(9u8), &Base::ZERO);
+    let (v, p) = latent_ladder_pair(&[five_p96()], &BigUint::from(9u8), &BigUint::ZERO);
     assert_tick(&v, &p);
 }
 
@@ -932,9 +932,9 @@ fn wide_drop_dominates_a_word_scale_latent() {
 #[test]
 fn comparable_scales_collapse_above_the_true_minimum() {
     let (v, p) = latent_ladder_pair(
-        &[Base::from(1u8)],
-        &(Base::from(1u8) << 97u32),
-        &((Base::from(1u8) << 96u32) + 1u64),
+        &[BigUint::from(1u8)],
+        &(BigUint::from(1u8) << 97u32),
+        &((BigUint::from(1u8) << 96u32) + 1u64),
     );
     assert_tick(&v, &p);
 }
@@ -950,7 +950,7 @@ fn comparable_scales_collapse_above_the_true_minimum() {
 /// here against the recursive oracle.
 #[test]
 fn comparable_scales_collapse_under_the_true_minimum() {
-    let (v, p) = latent_ladder_pair(&[Base::from(5u8)], &five_p96(), &Base::from(2u8));
+    let (v, p) = latent_ladder_pair(&[BigUint::from(5u8)], &five_p96(), &BigUint::from(2u8));
     assert_tick(&v, &p);
 }
 
@@ -960,22 +960,22 @@ fn comparable_scales_collapse_under_the_true_minimum() {
 /// The register certifies from `3·2^(32·(floor+1))`; the digit fold from a
 /// partial of `3` at digit index `floor + 2` — here index 3 against
 /// word-scale floors.
-fn arb_ladder_dominant() -> impl Strategy<Value = Base> {
-    (5u128 << 64..1u128 << 68).prop_map(|n| Base::from(n) << 32u32)
+fn arb_ladder_dominant() -> impl Strategy<Value = BigUint> {
+    (5u128 << 64..1u128 << 68).prop_map(|n| BigUint::from(n) << 32u32)
 }
 
 /// One comparable-scale ladder operand: `[2^96, 2^99)` — top digit index 3
 /// with a small partial, so no draw dominates another draw (or a sum of two)
 /// and every pairing takes the collapse arm.
-fn arb_ladder_comparable() -> impl Strategy<Value = Base> {
-    (1u128 << 64..1u128 << 67).prop_map(|n| Base::from(n) << 32u32)
+fn arb_ladder_comparable() -> impl Strategy<Value = BigUint> {
+    (1u128 << 64..1u128 << 67).prop_map(|n| BigUint::from(n) << 32u32)
 }
 
 /// One latent-ladder case for [`latent_ladder_pair`] — `(bases, tip, peak)` —
 /// drawn to land in a chosen ladder relation, with the spine depth (one to
 /// three parks: one new record plus up to two merges) and every scale free.
-fn arb_latent_ladder() -> impl Strategy<Value = (Vec<Base>, Base, Base)> {
-    let inner = proptest::collection::vec((1u64..1000).prop_map(Base::from), 0..=2);
+fn arb_latent_ladder() -> impl Strategy<Value = (Vec<BigUint>, BigUint, BigUint)> {
+    let inner = proptest::collection::vec((1u64..1000).prop_map(BigUint::from), 0..=2);
     prop_oneof![
         // Latent-dominates: Λ ≥ 5·2^96 against a word-scale drop δ, the
         // emission landing between the true minimum and the anchor.
@@ -986,8 +986,8 @@ fn arb_latent_ladder() -> impl Strategy<Value = (Vec<Base>, Base, Base)> {
             1u64..1 << 63
         )
             .prop_map(|(mut bases, outer, dominant, delta)| {
-                bases.push(Base::from(outer));
-                let sum = bases.iter().fold(Base::ZERO, |a, b| a + b);
+                bases.push(BigUint::from(outer));
+                let sum = bases.iter().fold(BigUint::ZERO, |a, b| a + b);
                 (bases, dominant.clone() + delta, sum + dominant)
             },),
         // Gap-dominates: a drop past a huge outermost minimum against a
@@ -1000,7 +1000,7 @@ fn arb_latent_ladder() -> impl Strategy<Value = (Vec<Base>, Base, Base)> {
         )
             .prop_map(|(mut bases, outer, tip, peak)| {
                 bases.push(outer);
-                (bases, Base::from(tip), Base::from(peak))
+                (bases, BigUint::from(tip), BigUint::from(peak))
             },),
         // Comparable scales, the drop stopping above the true minimum: the
         // collapse re-bases the anchor and the raise still emits v itself.
@@ -1011,8 +1011,8 @@ fn arb_latent_ladder() -> impl Strategy<Value = (Vec<Base>, Base, Base)> {
             arb_ladder_comparable(),
         )
             .prop_map(|(mut bases, outer, u, t)| {
-                bases.push(Base::from(outer));
-                (bases, u + &t, Base::from(outer) + t)
+                bases.push(BigUint::from(outer));
+                (bases, u + &t, BigUint::from(outer) + t)
             }),
         // Comparable scales, the drop passing the true minimum: the
         // post-collapse re-test reads a plain undercut and the raise lifts
@@ -1024,8 +1024,8 @@ fn arb_latent_ladder() -> impl Strategy<Value = (Vec<Base>, Base, Base)> {
             arb_ladder_comparable(),
         )
             .prop_map(|(mut bases, (outer, peak), u, t)| {
-                bases.push(Base::from(outer));
-                (bases, u + t, Base::from(peak))
+                bases.push(BigUint::from(outer));
+                (bases, u + t, BigUint::from(peak))
             }),
     ]
 }
@@ -1429,7 +1429,7 @@ proptest! {
 
 /// [`ticks`] lifted to the stored-value level, through the same `from_bits`
 /// gate the public entry commits through.
-fn ticks_version(v: &Version, id: &Party, n: &Base) -> Version {
+fn ticks_version(v: &Version, id: &Party, n: &BigUint) -> Version {
     Version::from_bits(ticks(crate::codec::built_view(&encode(v)), id, n))
 }
 
@@ -1444,7 +1444,7 @@ fn check_ticks_equivalence(v: &Version, p: &Party, ns: &[u32]) {
             iterated.tick(p);
             done += 1;
         }
-        let fused = ticks_version(v, p, &Base::from(n));
+        let fused = ticks_version(v, p, &BigUint::from(n));
         assert_eq!(
             fused, iterated,
             "ticks({n}) diverged from {n} iterated ticks: {v:?} with {p:?}"
@@ -1480,7 +1480,7 @@ proptest! {
     ) {
         let v = from_oracle_version(&ov);
         let p = from_oracle_party(&op);
-        let one = ticks_version(&v, &p, &Base::from(1u8));
+        let one = ticks_version(&v, &p, &BigUint::from(1u8));
         let mut ticked = v.clone();
         ticked.tick(&p);
         prop_assert_eq!(&one, &ticked, "ticks(1) diverged from tick: {:?} with {:?}", v, p);
@@ -1541,7 +1541,7 @@ proptest! {
 
 proptest! {
     /// Deep and wide together: every deep shape at swept depths 8..=128,
-    /// carrying one [`generators::arb_base`]-drawn leaf at the tip or an
+    /// carrying one [`generators::arb_magnitude`]-drawn leaf at the tip or an
     /// interior node, ticks byte-identical to the iterated public tick.
     ///
     /// The conjunction no other family reaches: the depth-capped arbitrary
@@ -1558,7 +1558,7 @@ proptest! {
         ev_shape in generators::arb_shape(),
         id_shape in generators::arb_shape(),
         depth in 8usize..=128,
-        wide in generators::arb_base(),
+        wide in generators::arb_magnitude(),
         at_tip in any::<bool>(),
     ) {
         let v = generators::shape_version_wide(ev_shape, depth, &wide, at_tip);
@@ -1626,7 +1626,7 @@ fn ticks_covers_fill_changed_branch() {
 fn ticks_from_empty_is_the_counter() {
     let v = Version::new();
     let seed = Party::seed();
-    let n = Base::from(123_456_789_012_345u64);
+    let n = BigUint::from(123_456_789_012_345u64);
     let ticked = ticks_version(&v, &seed, &n);
     assert_eq!(ticked, uniform(123_456_789_012_345u64));
     // Small counts also match repeated ticking directly.
@@ -1644,7 +1644,7 @@ fn ticks_from_empty_is_the_counter() {
 #[test]
 fn ticks_composes_at_wide_n() {
     use generators::{shape_party, shape_version, Shape};
-    let big = Base::from(1u8) << 100u32;
+    let big = BigUint::from(1u8) << 100u32;
     let shapes = [
         Shape::LeftSpine,
         Shape::RightSpine,
@@ -1685,11 +1685,11 @@ mod prescan_raise_shapes {
     /// internal node = `1 · gamma(0)`, leaf = `0 · gamma(n)`.
     fn nd(ev: &mut BitsBuf) {
         ev.push(true);
-        codec::encode_int(ev, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, ev);
     }
     fn lf(ev: &mut BitsBuf, n: u64) {
         ev.push(false);
-        codec::encode_int(ev, &Base::from(n));
+        gamma::encode(&BigUint::from(n), ev);
     }
     /// A deep staircase region (the meter `hole_region`'s lead-2 shape):
     /// wrapper node, staircase `m..0`, wrapper floor leaf — deep enough to

@@ -38,7 +38,7 @@ use crate::version::skyline::fill::{fused_fill, tick, FillOutcome};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Ticks, Version};
 
-use super::{id_tag, Cost, EvScan, Route};
+use super::{Cost, EvScan, IdScan, Route};
 
 /// Lift a meter-generated encoded event shape into a [`Version`].
 fn version_of(p: &Encoding) -> Version {
@@ -187,7 +187,7 @@ fn rec(
         }
         RefId::At => {
             let key = *id_pos;
-            let (l, r) = id_tag(id_bits, *id_pos);
+            let (l, r) = IdScan::tag_at(id_bits, *id_pos);
             *id_pos += 2;
             if !l && !r {
                 return rec(route, ev, id_bits, id_pos, RefId::Full, ev_zero, depth);

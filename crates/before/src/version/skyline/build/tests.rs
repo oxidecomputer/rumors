@@ -1,29 +1,62 @@
-//! Deterministic pins for the output builder's collapse genres.
+//! Deterministic examples of skyline construction and collapse.
 //!
 //! Each test feeds a hand-written leaf sequence and asserts the exact canonical
-//! stream, so a bookkeeping error in absorb, re-anchor, or the cascade fails
-//! against bits a reader can re-derive in the margin.
+//! stream, keeping the topology and payload effects visible together.
 
-use crate::codec::{self, Base, BitsBuf, Code};
-use crate::version::skyline::signed::{gamma_code_signed, Sign};
+use num_bigint::{BigInt, BigUint, Sign};
+
+use crate::codec::{gamma, gamma::Sink, BitsBuf};
 
 use super::SkylineBuilder;
 
-/// One leaf payload code: `gamma(value)` for absolutes.
-fn gamma(value: u64) -> Code {
-    codec::code_int(&Base::from(value))
+/// A semantic payload used by the hand-written leaf sequences.
+enum Payload {
+    /// An absolute first-leaf height.
+    Absolute(u64),
+    /// A signed delta for a later leaf.
+    Delta(Sign, u64),
 }
 
-/// One leaf payload code: `gamma(zigzag(delta))` for later leaves.
-fn delta(sign: Sign, magnitude: u64) -> Code {
-    gamma_code_signed(sign, &Base::from(magnitude))
+impl Payload {
+    /// Write this payload's canonical gamma code.
+    fn write(&self, out: &mut (impl Sink + ?Sized)) {
+        match self {
+            Payload::Absolute(value) => gamma::encode(&BigUint::from(*value), out),
+            Payload::Delta(sign, magnitude) => {
+                let value = BigInt::from_biguint(*sign, BigUint::from(*magnitude));
+                gamma::encode_signed(&value, out);
+            }
+        }
+    }
+
+    /// The encoded payload length.
+    fn len(&self) -> u64 {
+        let mut bits = BitsBuf::new();
+        self.write(&mut bits);
+        bits.len()
+    }
 }
 
-/// Drive a builder over `(depth, code)` leaves and return the stream.
-fn built(leaves: Vec<(u64, Code)>) -> BitsBuf {
+/// One absolute first-leaf payload.
+fn gamma(value: u64) -> Payload {
+    Payload::Absolute(value)
+}
+
+/// One signed delta payload.
+fn delta(sign: Sign, magnitude: u64) -> Payload {
+    Payload::Delta(sign, magnitude)
+}
+
+/// Append one test payload to a builder.
+fn feed(builder: &mut SkylineBuilder, depth: u64, payload: Payload) {
+    builder.leaf(depth, |out| payload.write(out));
+}
+
+/// Drive a builder over `(depth, payload)` leaves and return the stream.
+fn built(leaves: Vec<(u64, Payload)>) -> BitsBuf {
     let mut builder = SkylineBuilder::with_capacity(64);
-    for (depth, code) in leaves {
-        builder.leaf(depth, code);
+    for (depth, payload) in leaves {
+        feed(&mut builder, depth, payload);
     }
     builder.finish()
 }
@@ -51,43 +84,39 @@ fn single_leaf_is_flag_plus_code() {
 /// gamma(3) 1 zigzag(+3)` with no truncation anywhere.
 #[test]
 fn distinct_siblings_stay_a_pair() {
-    let stream = built(vec![(1, gamma(3)), (1, delta(Sign::Positive, 3))]);
+    let stream = built(vec![(1, gamma(3)), (1, delta(Sign::Plus, 3))]);
     // gamma(3) = 00100, zigzag(+3) = 6 -> gamma(6) = 00111.
     assert_eq!(stream, bits("0 1 00100 1 00111"));
 }
 
-/// A zero-delta right sibling absorbs into its held left sibling: the pair's
-/// parent flag truncates and the merged leaf keeps the left code, collapsing
-/// `(5, 5)` at depth 1 to the single leaf 5.
+/// Equal sibling leaves collapse to their parent, preserving the left leaf's
+/// payload.
 #[test]
 fn equal_siblings_absorb() {
-    let stream = built(vec![(1, gamma(5)), (1, delta(Sign::Positive, 0))]);
+    let stream = built(vec![(1, gamma(5)), (1, delta(Sign::Plus, 0))]);
     // gamma(5) = 00110; the depth-1 pair collapsed to one depth-0 leaf.
     assert_eq!(stream, bits("1 00110"));
 }
 
-/// The absorb cascade climbs: four equal leaves at depth 2 collapse pairwise
-/// all the way to a single depth-0 leaf, one parent-flag truncation per level,
-/// with the held code never moving.
+/// Four equal depth-two leaves collapse pairwise to a single root leaf.
 #[test]
 fn uniform_region_cascades_to_one_leaf() {
     let stream = built(vec![
         (2, gamma(7)),
-        (2, delta(Sign::Positive, 0)),
-        (1, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Plus, 0)),
+        (1, delta(Sign::Plus, 0)),
     ]);
     assert_eq!(stream, bits("1 0001000"));
 }
 
-/// Re-anchor: a right subtree that merges into a leaf equal to its
-/// already-flushed left sibling truncates back over that sibling's code and
-/// keeps it as the held code — `(4, (4, 4))` collapses to the leaf 4.
+/// When a right subtree collapses to match its left sibling, their parent also
+/// collapses: `(4, (4, 4))` becomes one leaf.
 #[test]
 fn merged_right_subtree_reanchors_over_left_leaf() {
     let stream = built(vec![
         (1, gamma(4)),
-        (2, delta(Sign::Positive, 0)),
-        (2, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Plus, 0)),
+        (2, delta(Sign::Plus, 0)),
     ]);
     assert_eq!(stream, bits("1 00101"));
 }
@@ -99,52 +128,46 @@ fn merged_right_subtree_reanchors_over_left_leaf() {
 fn zero_delta_against_internal_sibling_survives() {
     let stream = built(vec![
         (2, gamma(3)),
-        (2, delta(Sign::Positive, 2)),
-        (1, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Plus, 2)),
+        (1, delta(Sign::Plus, 0)),
     ]);
     // 0 (root) 0 (left pair) 1 gamma(3) 1 zigzag(+2)=4 1 zigzag(0).
     assert_eq!(stream, bits("0 0 1 00100 1 00101 1 1"));
 }
 
-/// Deep uniformity around a wide code stays a single leaf: a depth-8
-/// left spine of equal plateaus collapses level by level while the wide
-/// held code is written exactly once.
+/// A deep uniform region with a wide payload still collapses to one leaf.
 #[test]
-fn deep_uniform_collapse_holds_the_wide_code() {
+fn deep_uniform_collapse_preserves_the_wide_payload() {
     const DEPTH: u64 = 8;
     const WIDE: u64 = u64::MAX >> 1;
-    let mut leaves = vec![(DEPTH, gamma(WIDE)), (DEPTH, delta(Sign::Positive, 0))];
+    let mut leaves = vec![(DEPTH, gamma(WIDE)), (DEPTH, delta(Sign::Plus, 0))];
     for level in (1..DEPTH).rev() {
-        leaves.push((level, delta(Sign::Positive, 0)));
+        leaves.push((level, delta(Sign::Plus, 0)));
     }
     assert_eq!(built(leaves), built(vec![(0, gamma(WIDE))]));
 }
 
-/// The absorb cascade climbs a left spine: the tiling of `((((3, 3), 3), 3),
-/// 3)` collapses to the single leaf 3 through one parent-flag truncation per
-/// level, never moving the held code.
+/// Nested equal left pairs collapse repeatedly to a single root leaf.
 #[test]
 fn absorb_cascade_climbs_a_left_spine() {
     let leaves = vec![
         (4, gamma(3)),
-        (4, delta(Sign::Positive, 0)),
-        (3, delta(Sign::Positive, 0)),
-        (2, delta(Sign::Positive, 0)),
-        (1, delta(Sign::Positive, 0)),
+        (4, delta(Sign::Plus, 0)),
+        (3, delta(Sign::Plus, 0)),
+        (2, delta(Sign::Plus, 0)),
+        (1, delta(Sign::Plus, 0)),
     ];
     assert_eq!(built(leaves), bits("1 00100"));
 }
 
-/// Re-anchor cascades down a right spine: the uniform tiling of `(5, (5, (5,
-/// 5)))` collapses through chained re-anchors — each level's flushed
-/// left-sibling code is truncated back out and re-held — to the single leaf 5.
+/// Nested equal right pairs collapse repeatedly to a single root leaf.
 #[test]
 fn reanchor_cascade_climbs_chained_levels() {
     let leaves = vec![
         (1, gamma(5)),
-        (2, delta(Sign::Positive, 0)),
-        (3, delta(Sign::Positive, 0)),
-        (3, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Plus, 0)),
+        (3, delta(Sign::Plus, 0)),
+        (3, delta(Sign::Plus, 0)),
     ];
     assert_eq!(built(leaves), bits("1 00110"));
 }
@@ -156,14 +179,14 @@ fn reanchor_cascade_climbs_chained_levels() {
 fn partial_equality_collapses_only_the_equal_pair() {
     let collapsed = built(vec![
         (1, gamma(2)),
-        (2, delta(Sign::Positive, 0)),
-        (2, delta(Sign::Positive, 0)),
+        (2, delta(Sign::Plus, 0)),
+        (2, delta(Sign::Plus, 0)),
     ]);
     assert_eq!(collapsed, bits("1 011"));
     let kept = built(vec![
         (1, gamma(2)),
-        (2, delta(Sign::Positive, 0)),
-        (2, delta(Sign::Positive, 7)),
+        (2, delta(Sign::Plus, 0)),
+        (2, delta(Sign::Plus, 7)),
     ]);
     // 0 (root) 1 gamma(2) 0 (right pair) 1 zigzag(0) 1 zigzag(+7)=14.
     assert_eq!(kept, bits("0 1 011 0 1 1 1 0001111"));
@@ -175,18 +198,17 @@ fn partial_equality_collapses_only_the_equal_pair() {
 ///
 /// `first_depth` is the already-fed first leaf's depth; `leaves` are the
 /// remaining leaves in preorder. Returns the range with the first and last
-/// leaves' relative depths and the last code's length — the coordinates the
-/// splice re-anchors the builder around.
+/// leaves' relative depths and the last code's length.
 fn continuation(
     root_depth: u64,
     first_depth: u64,
-    leaves: &[(u64, Code)],
+    leaves: &[(u64, Payload)],
 ) -> (BitsBuf, u64, u64, u64) {
     let mut range = BitsBuf::new();
     // The within-subtree path to the previous leaf; the subtree's first leaf is
     // its leftmost, so the path starts all left branches.
     let mut path = vec![false; (first_depth - root_depth) as usize];
-    for (depth, code) in leaves {
+    for (depth, payload) in leaves {
         // Close the ancestors the previous leaf completed and flip the
         // deepest left branch, then descend, emitting one internal flag
         // per level entered (the builder's own derivation, mirrored).
@@ -201,21 +223,14 @@ fn continuation(
         range.extend(std::iter::repeat_n(false, entered));
         path.extend(std::iter::repeat_n(false, entered));
         range.push(true);
-        match code {
-            Code::Small { bits, len } => {
-                for i in (0..*len).rev() {
-                    range.push(bits >> i & 1 == 1);
-                }
-            }
-            Code::Wide(code) => range.extend_from_buf(code),
-        }
+        payload.write(&mut range);
     }
-    let (last_depth, last_code) = leaves.last().expect("a continuation has at least one leaf");
+    let (last_depth, last_payload) = leaves.last().expect("a continuation has at least one leaf");
     (
         range,
         first_depth - root_depth,
         last_depth - root_depth,
-        last_code.len(),
+        last_payload.len(),
     )
 }
 
@@ -232,15 +247,14 @@ fn continue_verbatim_matches_per_leaf_feeding() {
     // canonical zero delta across the subtree boundary.
     let per_leaf = built(vec![
         (2, gamma(3)),
-        (3, delta(Sign::Positive, 2)),
-        (3, delta(Sign::Positive, 1)),
-        (1, delta(Sign::Negative, 1)),
+        (3, delta(Sign::Plus, 2)),
+        (3, delta(Sign::Plus, 1)),
+        (1, delta(Sign::Minus, 1)),
     ]);
     let mut spliced = SkylineBuilder::with_capacity(64);
-    spliced.leaf(2, gamma(3));
-    spliced.leaf(3, delta(Sign::Positive, 2));
-    let (range, first_rel, last_rel, last_len) =
-        continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
+    feed(&mut spliced, 2, gamma(3));
+    feed(&mut spliced, 3, delta(Sign::Plus, 2));
+    let (range, first_rel, last_rel, last_len) = continuation(2, 3, &[(3, delta(Sign::Plus, 1))]);
     let range_view = crate::codec::built_view(&range);
     spliced.continue_verbatim(
         range_view,
@@ -251,32 +265,31 @@ fn continue_verbatim_matches_per_leaf_feeding() {
         last_rel,
         last_len,
     );
-    spliced.leaf(1, delta(Sign::Negative, 1));
+    feed(&mut spliced, 1, delta(Sign::Minus, 1));
     assert_eq!(spliced.finish(), per_leaf);
 }
 
-/// A spliced continuation spanning several levels re-anchors the path to the
-/// subtree's rightmost leaf, so the very next leaf's close/flip bookkeeping
-/// matches per-leaf feeding bit for bit.
+/// After a multi-level continuation, the next leaf closes the same ancestors
+/// as leaf-by-leaf construction.
 #[test]
 fn continue_verbatim_reanchors_across_levels() {
     // Tiling of `((2, ((4, 7), 6)), 9)`: the depth-2 subtree's last
     // leaf sits two levels below its root.
     let leaves = vec![
         (2, gamma(2)),
-        (4, delta(Sign::Positive, 2)),
-        (4, delta(Sign::Positive, 3)),
-        (3, delta(Sign::Negative, 1)),
-        (1, delta(Sign::Positive, 3)),
+        (4, delta(Sign::Plus, 2)),
+        (4, delta(Sign::Plus, 3)),
+        (3, delta(Sign::Minus, 1)),
+        (1, delta(Sign::Plus, 3)),
     ];
     let per_leaf = built(leaves);
     let mut spliced = SkylineBuilder::with_capacity(64);
-    spliced.leaf(2, gamma(2));
-    spliced.leaf(4, delta(Sign::Positive, 2));
+    feed(&mut spliced, 2, gamma(2));
+    feed(&mut spliced, 4, delta(Sign::Plus, 2));
     let (range, first_rel, last_rel, last_len) = continuation(
         2,
         4,
-        &[(4, delta(Sign::Positive, 3)), (3, delta(Sign::Negative, 1))],
+        &[(4, delta(Sign::Plus, 3)), (3, delta(Sign::Minus, 1))],
     );
     let range_view = crate::codec::built_view(&range);
     spliced.continue_verbatim(
@@ -288,29 +301,27 @@ fn continue_verbatim_reanchors_across_levels() {
         last_rel,
         last_len,
     );
-    spliced.leaf(1, delta(Sign::Positive, 3));
+    feed(&mut spliced, 1, delta(Sign::Plus, 3));
     assert_eq!(spliced.finish(), per_leaf);
 }
 
-/// An absorb arriving right after a spliced sibling still collapses: the held
-/// last leaf of the continuation participates in the normal flush, and a later
-/// equal-sibling pair merges exactly as under per-leaf feeding.
+/// An equal pair after a spliced continuation collapses exactly as it does
+/// under leaf-by-leaf construction.
 #[test]
 fn collapse_after_a_splice_matches_per_leaf_feeding() {
     // Tiling of `((3, (5, 6)), (8, 8))`: the right pair collapses to
     // one leaf whichever way the left subtree arrived.
     let per_leaf = built(vec![
         (2, gamma(3)),
-        (3, delta(Sign::Positive, 2)),
-        (3, delta(Sign::Positive, 1)),
-        (2, delta(Sign::Positive, 2)),
-        (2, delta(Sign::Positive, 0)),
+        (3, delta(Sign::Plus, 2)),
+        (3, delta(Sign::Plus, 1)),
+        (2, delta(Sign::Plus, 2)),
+        (2, delta(Sign::Plus, 0)),
     ]);
     let mut spliced = SkylineBuilder::with_capacity(64);
-    spliced.leaf(2, gamma(3));
-    spliced.leaf(3, delta(Sign::Positive, 2));
-    let (range, first_rel, last_rel, last_len) =
-        continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
+    feed(&mut spliced, 2, gamma(3));
+    feed(&mut spliced, 3, delta(Sign::Plus, 2));
+    let (range, first_rel, last_rel, last_len) = continuation(2, 3, &[(3, delta(Sign::Plus, 1))]);
     let range_view = crate::codec::built_view(&range);
     spliced.continue_verbatim(
         range_view,
@@ -321,84 +332,50 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
         last_rel,
         last_len,
     );
-    spliced.leaf(2, delta(Sign::Positive, 2));
-    spliced.leaf(2, delta(Sign::Positive, 0));
+    feed(&mut spliced, 2, delta(Sign::Plus, 2));
+    feed(&mut spliced, 2, delta(Sign::Plus, 0));
     assert_eq!(spliced.finish(), per_leaf);
 }
 
-/// The held-leaf predicate reads the most recent leaf's surviving depth, and
-/// nothing else.
-///
-/// False at every depth before any leaf arrives (nothing is held, whatever
-/// the path length), true at exactly the fed depth after an unmerged leaf,
-/// false at every other depth. Both conjuncts are load-bearing. The fresh-builder probe at depth 0 —
-/// where the empty path's length *equals* the probed depth — fails any
-/// reading that holds on either conjunct alone, and the off-depth probes
-/// fail a reading that ignores the depth.
+/// After a wide collapse selects split output, copying a canonical subtree
+/// continuation remains identical to feeding each of its leaves.
 #[test]
-fn held_at_reads_the_held_leafs_depth() {
-    let builder = SkylineBuilder::with_capacity(64);
-    assert!(!builder.held_at(0), "no leaf is held before the first feed");
-    assert!(!builder.held_at(1), "no leaf is held at any depth");
-    let mut builder = SkylineBuilder::with_capacity(64);
-    builder.leaf(2, gamma(3));
-    assert!(builder.held_at(2), "the fed leaf is held at its own depth");
-    assert!(
-        !builder.held_at(0),
-        "a held leaf answers only its own depth"
-    );
-    assert!(
-        !builder.held_at(1),
-        "a held leaf answers only its own depth"
-    );
-    assert!(
-        !builder.held_at(3),
-        "a held leaf answers only its own depth"
-    );
-}
+fn split_output_splices_like_leaf_feeding() {
+    const WIDE: u64 = u64::MAX >> 1;
+    let per_leaf = built(vec![
+        (2, gamma(WIDE)),
+        (3, delta(Sign::Plus, 0)),
+        (3, delta(Sign::Plus, 0)),
+        (2, delta(Sign::Plus, 1)),
+        (3, delta(Sign::Plus, 1)),
+        (3, delta(Sign::Plus, 1)),
+    ]);
 
-/// A merge moves the held leaf's depth: after an absorb the merged leaf is
-/// held one level up — no longer at the depth it was fed — and a cascade
-/// walks it further, one level per merged pair.
-#[test]
-fn held_at_follows_merges_upward() {
-    // Absorb: `(5, 5)` at depth 1 merges to the held depth-0 leaf.
-    let mut builder = SkylineBuilder::with_capacity(64);
-    builder.leaf(1, gamma(5));
-    assert!(builder.held_at(1), "the left leaf is held where it was fed");
-    builder.leaf(1, delta(Sign::Positive, 0));
-    assert!(
-        builder.held_at(0),
-        "the absorbed pair is held at its parent"
+    let mut spliced = SkylineBuilder::with_capacity(256);
+    feed(&mut spliced, 2, gamma(WIDE));
+    feed(&mut spliced, 3, delta(Sign::Plus, 0));
+    feed(&mut spliced, 3, delta(Sign::Plus, 0));
+    feed(&mut spliced, 2, delta(Sign::Plus, 1));
+    let (range, first_rel, last_rel, last_len) = continuation(
+        1,
+        2,
+        &[(3, delta(Sign::Plus, 1)), (3, delta(Sign::Plus, 1))],
     );
-    assert!(!builder.held_at(1), "the fed depth no longer holds a leaf");
-    // Cascade: four equal depth-2 leaves collapse pairwise to depth 0.
-    let mut builder = SkylineBuilder::with_capacity(64);
-    builder.leaf(2, gamma(7));
-    builder.leaf(2, delta(Sign::Positive, 0));
-    assert!(
-        builder.held_at(1),
-        "the first pair's merge is held at depth 1"
-    );
-    builder.leaf(1, delta(Sign::Positive, 0));
-    assert!(builder.held_at(0), "the cascade ends held at the root");
-    assert!(!builder.held_at(1), "the cascade vacated the mid depth");
-    assert!(!builder.held_at(2), "the cascade vacated the fed depth");
+    let range = crate::codec::built_view(&range);
+    spliced.continue_verbatim(range, 0, range.len(), 1, first_rel, last_rel, last_len);
+    assert_eq!(spliced.finish(), per_leaf);
 }
 
 /// The collapse recognition's coupling pin: the zero delta's payload code is
 /// exactly `ZERO_DELTA_CODE_BITS` bits, and every nonzero delta's is wider.
 ///
-/// Recognizing a zero delta by code length alone is sound only under that pair
-/// of facts. The recognizer and the coder implement the arithmetic
-/// independently; a different integer code (the `implementation` essay
-/// contemplates ζ₂, whose zero costs two bits) would silently turn every
-/// collapse check into a no-op — this pin turns that into a red test.
+/// The builder recognizes zero by width, so the codec and the collapse
+/// predicate must continue to agree on both zero and nonzero deltas.
 #[test]
 fn zero_delta_has_the_lone_shortest_code() {
-    assert_eq!(delta(Sign::Positive, 0).len(), super::ZERO_DELTA_CODE_BITS);
+    assert_eq!(delta(Sign::Plus, 0).len(), super::ZERO_DELTA_CODE_BITS);
     for magnitude in 1..=64u64 {
-        assert!(delta(Sign::Positive, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
-        assert!(delta(Sign::Negative, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
+        assert!(delta(Sign::Plus, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
+        assert!(delta(Sign::Minus, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
     }
 }

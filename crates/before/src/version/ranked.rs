@@ -6,7 +6,6 @@ use core::cmp::Ordering;
 use std::borrow::Cow;
 use std::io::{self, Read, Write};
 
-use super::rank::{decode_stream, encode_parts};
 use super::{skyline, Rank, Version};
 use crate::error::Decode;
 
@@ -233,7 +232,7 @@ impl<'a> Ranked<'a> {
     pub fn encode_rank(&self) -> Vec<u8> {
         let rank = self.version.rank();
         let (num, exp) = rank.raw_parts();
-        encode_parts(num, exp)
+        Rank::encode_parts(num, exp)
     }
 
     /// Encodes the rank's canonical bytes to an arbitrary writer.
@@ -316,7 +315,7 @@ impl<'a> Ranked<'a> {
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Ranked<'static>, Decode> {
         // The rank stream is self-delimiting: consume exactly its bytes.
         let mut consumed = 0usize;
-        let rank = decode_stream(|| {
+        let rank = Rank::decode_stream(|| {
             let byte = buf.get(consumed).copied().ok_or(Decode::Truncated)?;
             consumed += 1;
             Ok(byte)

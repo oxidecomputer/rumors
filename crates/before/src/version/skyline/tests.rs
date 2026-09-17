@@ -19,7 +19,9 @@ use std::collections::BTreeSet;
 
 use proptest::prelude::*;
 
-use crate::codec::{self, Base, BitsBuf};
+use num_bigint::{BigUint, Sign};
+
+use crate::codec::{self, gamma, BitsBuf};
 use crate::error::Decode;
 use crate::meter::registry::Shape;
 use crate::meter::tier2::tier2_size;
@@ -30,7 +32,6 @@ use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
 use crate::{oracle, Clock, Version};
 
-use super::signed::{unzigzag, zigzag};
 use super::{decode_bits, validate_bits};
 
 /// Lift a meter-generated encoded shape into a [`Version`].
@@ -93,7 +94,7 @@ fn one_fork_matches_hand_derivation() {
 /// Append a leaf carrying a raw payload value (the caller pre-zigzags).
 fn push_leaf(bits: &mut BitsBuf, payload: u64) {
     bits.push(true);
-    codec::encode_int(bits, &Base::from(payload));
+    gamma::encode(&BigUint::from(payload), bits);
 }
 
 /// An internal node whose two leaf children carry a zero right delta is
@@ -148,7 +149,7 @@ fn leaf_code_ranges(bits: &BitsBuf) -> Vec<(u64, u64)> {
             pending += 2;
             continue;
         }
-        let (_, next) = codec::decode_int(crate::codec::built_view(bits), pos)
+        let (_, next) = codec::gamma::decode(crate::codec::built_view(bits), pos)
             .expect("a stored stream is canonical");
         out.push((pos - 1, next));
         pos = next;
@@ -310,26 +311,24 @@ fn rejects_trailing_bits() {
 fn zigzag_is_a_bijection_without_negative_zero() {
     let mut seen: BTreeSet<(bool, u64)> = BTreeSet::new();
     for m in 0..=100u64 {
-        let (sign, magnitude) = unzigzag(crate::codec::Int::Small(m));
-        let mag = magnitude
-            .to_u64()
-            .expect("small codes decode to small magnitudes");
+        let (sign, magnitude) = gamma::decode_signed(BigUint::from(m)).into_parts();
+        let mag = u64::try_from(&magnitude).expect("small codes decode to small magnitudes");
         assert!(
-            !(sign.is_negative() && mag == 0),
+            !(sign == Sign::Minus && mag == 0),
             "no code may spell a negative zero"
         );
         assert!(
-            seen.insert((sign.is_negative(), mag)),
+            seen.insert((sign == Sign::Minus, mag)),
             "two codes decoded to one delta: the map is not injective"
         );
         // Re-encode through the encoder's map: the round-trip pins the two
         // helpers as mutual inverses over the same sign convention.
-        let (prev, cur) = if sign.is_negative() {
-            (Base::from(mag), Base::ZERO)
+        let (prev, cur) = if sign == Sign::Minus {
+            (BigUint::from(mag), BigUint::ZERO)
         } else {
-            (Base::ZERO, Base::from(mag))
+            (BigUint::ZERO, BigUint::from(mag))
         };
-        assert_eq!(zigzag(&prev, &cur), Base::from(m));
+        assert_eq!(gamma::zigzag_difference(&prev, &cur), BigUint::from(m));
     }
 }
 
@@ -349,14 +348,14 @@ fn zigzag_is_a_bijection_without_negative_zero() {
 /// per-node preorder flag `1` internal / `0` leaf, payloads exactly the stored
 /// coding's (first leaf absolute, later leaves zigzag deltas).
 fn inverted_flag_stream(t: &oracle::Version) -> BitsBuf {
-    fn walk(t: &oracle::Version, offset: &Base, prev: &mut Option<Base>, out: &mut BitsBuf) {
+    fn walk(t: &oracle::Version, offset: &BigUint, prev: &mut Option<BigUint>, out: &mut BitsBuf) {
         match t {
             oracle::Version::Leaf(n) => {
                 out.push(false); // leaf flag, inverted spelling
                 let height = offset + n;
                 match prev.replace(height.clone()) {
-                    None => codec::encode_int(out, &height),
-                    Some(p) => codec::encode_int(out, &zigzag(&p, &height)),
+                    None => gamma::encode(&height, out),
+                    Some(p) => gamma::encode(&gamma::zigzag_difference(&p, &height), out),
                 }
             }
             oracle::Version::Node(n, l, r) => {
@@ -368,7 +367,7 @@ fn inverted_flag_stream(t: &oracle::Version) -> BitsBuf {
         }
     }
     let mut out = BitsBuf::new();
-    walk(t, &Base::ZERO, &mut None, &mut out);
+    walk(t, &BigUint::ZERO, &mut None, &mut out);
     out
 }
 
@@ -388,7 +387,7 @@ fn flip_topology_flags(bits: &BitsBuf, internal: bool) -> BitsBuf {
             pending += 2;
             continue;
         }
-        let (_, next) = codec::decode_int(crate::codec::built_view(bits), pos)
+        let (_, next) = codec::gamma::decode(crate::codec::built_view(bits), pos)
             .expect("a payload code per leaf");
         crate::codec::extend_from_view(&mut out, crate::codec::built_view(bits), pos, next);
         pos = next;

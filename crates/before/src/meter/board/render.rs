@@ -8,9 +8,8 @@
 use std::io::{self, Write};
 
 use super::ceilings::{
-    CAPACITY_MODEL_CEILING, CAPACITY_MODEL_FLOOR, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
-    HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,
-    MAX_LIMB_OPS_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE,
+    FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS,
+    MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE,
     MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::currency::Liveness;
@@ -78,12 +77,6 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
             None => "     ".to_string(),
         }
     };
-    let limb = match (r.scores.limb.exp, r.scores.limb.per_unit) {
-        (Some(_), Some(c)) => {
-            format!("limb[e{} {c:>10.1}/B]", exp_text(&r.scores.limb))
-        }
-        _ => "limb[      off      ]".to_string(),
-    };
     let scan = match (r.scores.scan.exp, r.scores.scan.per_unit) {
         (Some(_), Some(c)) => format!("scan[e{} {c:>10.1}/B]", exp_text(&r.scores.scan)),
         _ => "scan[      off      ]".to_string(),
@@ -112,15 +105,11 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     };
     // A declared per-cell model is disclosed on the row it judges; the legend
     // above the matrix carries the derivations.
-    let decl = match (r.s1.heap_model, r.s2.heap_model, r.s2.fold_arity) {
-        _ if r.s2.declared_heap.is_some() => {
-            let d = r.s2.declared_heap.expect("just matched");
+    let decl = match (r.s2.declared_heap, r.s2.fold_arity) {
+        (Some(d), _) => {
             format!("  decl[heap {d:.0} B/B family-stated]")
         }
-        (Some(m1), Some(m2), _) => {
-            format!("  decl[heap cap-chain {m1:.0}->{m2:.0} B]")
-        }
-        (_, _, Some(k2)) => {
+        (_, Some(k2)) => {
             let k1 = r.s1.fold_arity.expect("fold cells declare both scales");
             format!("  decl[fold k {k1}->{k2}]")
         }
@@ -129,8 +118,8 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     writeln!(
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
-         heap[e{he} {hc:>10.1}/B]  seg[e{se} {sc:>4}]  {limb}  {scan}  {touch}  \
-         flr[h {fh:>6} l {fl:>6} s {fs:>6} t {ft:>6}]{expd}{decl}{reasons}",
+         heap[e{he} {hc:>10.1}/B]  seg[e{se} {sc:>4}]  {scan}  {touch}  \
+         flr[h {fh:>6} s {fs:>6} t {ft:>6}]{expd}{decl}{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
@@ -140,7 +129,6 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         se = exp_text(&r.scores.segments),
         sc = r.s2.readings.segments.unwrap_or(0),
         fh = floor_value(r.s2.floors.heap),
-        fl = floor_value(r.s2.floors.limb),
         fs = floor_value(r.s2.floors.scan),
         ft = floor_value(r.s2.floors.touch),
     )
@@ -197,7 +185,6 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
         "green iff every meter's exponent <= {MAX_SCALING_EXPONENT}, constants within: \
          heap <= {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B over {HEAP_FLAT_ALLOWANCE_BYTES} B flat, \
          segments <= {MAX_GROWN_STACK_SEGMENTS}, \
-         limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B \
          scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B, \
          touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B; \
          and every committed liveness floor met (flr[...]: a counter below its floor is red: \
@@ -229,18 +216,9 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
         writeln!(
             out,
             "  declared fold model (decl[fold ...] rows): the balanced reduction's O(D log k) \
-             class - exponent ceilings on limb/scan/touch at the model's predicted exponent \
+             class - exponent ceilings on scan/touch at the model's predicted exponent \
              plus the linear cells' slack, scan constant at \
              {FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL} bits/B per log2(2k) reduction level"
-        )?;
-    }
-    if results.iter().any(|r| r.s2.heap_model.is_some()) {
-        writeln!(
-            out,
-            "  declared capacity model (decl[heap ...] rows): peak = 3(n+m)2^(k-1) B, \
-             k = ceil(log2(output/(n+m))) - the output builder's doubling chain anchored at \
-             the operand-size reserve; readings banded within x{CAPACITY_MODEL_FLOOR} to \
-             x{CAPACITY_MODEL_CEILING} of the model at both sizes"
         )?;
     }
     if results.iter().any(|r| r.s2.declared_heap.is_some()) {

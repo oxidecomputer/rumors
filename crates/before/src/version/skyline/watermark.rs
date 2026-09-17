@@ -139,9 +139,10 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, Int};
+use num_bigint::{BigInt, Sign};
 
-use super::signed::{fold_signed_int, Sign, Signed};
+use crate::codec::accumulator;
+
 use super::web_traffic;
 
 /// Follower slots the web carries (the fill walk's two relations; a const
@@ -283,9 +284,9 @@ impl<P> MinWeb<P> {
     ///
     /// `h` moved while every `m` stayed: exactly the innermost range's
     /// `gap` shifts; the differences and followers are height-free.
-    pub(super) fn fold_height(&mut self, sign: Sign, magnitude: &Int) {
+    pub(super) fn fold_height(&mut self, delta: &BigInt) {
         if self.armed > 0 {
-            fold_signed_int(&mut self.gap, sign, magnitude);
+            accumulator::fold_signed(&mut self.gap, delta);
         }
     }
 
@@ -853,9 +854,9 @@ impl<P> MinWeb<P> {
     /// would not fit.
     fn compact(&mut self, difference: Accumulator) -> Boundary {
         if self.compact_words && difference.digit_count() <= 2 {
-            let (sign, magnitude) = Base::from_accumulator(&difference);
+            let (sign, magnitude) = accumulator::value(&difference);
             debug_assert_eq!(sign, Ordering::Greater, "boundaries are strictly positive");
-            if let Some(word) = magnitude.to_u64() {
+            if let Ok(word) = u64::try_from(&magnitude) {
                 self.retire(difference);
                 return Boundary::Word(word);
             }
@@ -944,22 +945,22 @@ impl MinWeb<()> {
     ///    folded offset funds the residue (`gap` holds `v − A`, negated
     ///    into `m − v`) — and the re-seated `gap` is `h − v = −offset`
     ///    exactly.
-    pub(super) fn emit_offset(&mut self, offset: &Signed) {
-        if offset.is_zero() {
+    pub(super) fn emit_offset(&mut self, offset: &BigInt) {
+        if offset.sign() == Sign::NoSign {
             self.emit_here();
             return;
         }
         if self.pending > 0 {
             // below = h − v = −offset.
             let mut below = self.lease();
-            fold_signed_int(&mut below, offset.sign.negate(), &offset.magnitude);
+            accumulator::subtract_signed(&mut below, offset);
             self.arm_below(below, || (), |()| ());
             return;
         }
         // v − A = gap + offset. With no latent, post-sign domination decides
         // against a word-scale offset with no fold (with one live, the
         // O(offset) fold below is cheap for a word and the ladder decides).
-        if self.latent.is_none() && offset.magnitude.to_u64().is_some() {
+        if self.latent.is_none() && u64::try_from(offset.magnitude()).is_ok() {
             let (sign, decided) = self.gap.sign_dominates_word();
             if decided {
                 if sign == Ordering::Greater {
@@ -971,12 +972,12 @@ impl MinWeb<()> {
                 // drop dwarfs the offset. Residue = m − v = −gap − offset.
                 let mut residue = core::mem::take(&mut self.gap);
                 residue.negate();
-                fold_signed_int(&mut residue, offset.sign.negate(), &offset.magnitude);
+                accumulator::subtract_signed(&mut residue, offset);
                 for follower in self.followers.iter_mut().flatten() {
                     follower.sub_accum(&residue);
                 }
                 let mut gap = self.lease();
-                fold_signed_int(&mut gap, offset.sign.negate(), &offset.magnitude);
+                accumulator::subtract_signed(&mut gap, offset);
                 self.gap = gap;
                 self.propagate(residue, |()| ());
                 return;
@@ -984,20 +985,20 @@ impl MinWeb<()> {
             web_traffic::record(web_traffic::Decision::Undecided);
         }
         // Fold the priced side; restore it unless it funds the residue.
-        fold_signed_int(&mut self.gap, offset.sign, &offset.magnitude);
+        accumulator::fold_signed(&mut self.gap, offset);
         if self.gap.sign() != Ordering::Less {
             // v at or above the anchor, hence at or above the minimum.
-            fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
+            accumulator::subtract_signed(&mut self.gap, offset);
             return;
         }
         // v < A: only a drop past the latent too is a true undercut.
         if self.latent.is_some() && !self.decide_undercut_through_latent() {
-            fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
+            accumulator::subtract_signed(&mut self.gap, offset);
             return;
         }
         if self.gap.sign() != Ordering::Less {
             // A collapse re-based the anchor to m and v is not below it.
-            fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
+            accumulator::subtract_signed(&mut self.gap, offset);
             return;
         }
         // Undercut: gap holds v − A, offset stays folded to fund the
@@ -1006,7 +1007,7 @@ impl MinWeb<()> {
         residue.negate();
         self.drop_below(residue, |()| ());
         let mut gap = self.lease();
-        fold_signed_int(&mut gap, offset.sign.negate(), &offset.magnitude);
+        accumulator::subtract_signed(&mut gap, offset);
         self.gap = gap;
     }
 
@@ -1033,15 +1034,15 @@ impl MinWeb<()> {
     /// May retire the latent (a funded collapse): the web's *value* is
     /// unchanged, its representation is not — unlike the fold-and-restore
     /// readers, which restore exactly.
-    pub(super) fn compare_above(&mut self, above: &Signed) -> Ordering {
+    pub(super) fn compare_above(&mut self, above: &BigInt) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed range");
-        if self.latent.is_none() && above.magnitude.to_u64().is_some() {
+        if self.latent.is_none() && u64::try_from(above.magnitude()).is_ok() {
             let (sign, decided) = self.gap.sign_dominates_word();
             if decided {
                 return sign;
             }
         }
-        fold_signed_int(&mut self.gap, above.sign, &above.magnitude);
+        accumulator::fold_signed(&mut self.gap, above);
         let mut sign = self.gap.sign();
         if self.latent.is_some() {
             sign = match sign {
@@ -1061,7 +1062,7 @@ impl MinWeb<()> {
                 }
             };
         }
-        fold_signed_int(&mut self.gap, above.sign.negate(), &above.magnitude);
+        accumulator::subtract_signed(&mut self.gap, above);
         sign
     }
 
@@ -1078,14 +1079,14 @@ impl MinWeb<()> {
     /// the parked boundary is.
     pub(super) fn compare_above_vs(
         &mut self,
-        above: &Signed,
+        above: &BigInt,
         arm_offset: &Accumulator,
     ) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed range");
         self.gap.sub_accum(arm_offset);
-        fold_signed_int(&mut self.gap, above.sign, &above.magnitude);
+        accumulator::fold_signed(&mut self.gap, above);
         let sign = self.gap.sign();
-        fold_signed_int(&mut self.gap, above.sign.negate(), &above.magnitude);
+        accumulator::subtract_signed(&mut self.gap, above);
         self.gap.add_accum(arm_offset);
         sign
     }
@@ -1140,13 +1141,11 @@ impl MinWeb<()> {
     /// Materialize a dying accumulator: collapse, then read the sign and
     /// magnitude (held digits exceed the value's width by at most the collapse
     /// slack), retiring the buffer.
-    pub(super) fn materialize(&mut self, mut dying: Accumulator) -> Signed {
-        // Collapse for an honest width before the read-out: `sign()` is
-        // called for its compaction side effect, the value unread.
-        let _sign = dying.sign();
-        let (sign, magnitude) = Base::from_accumulator(&dying);
+    pub(super) fn materialize(&mut self, mut dying: Accumulator) -> BigInt {
+        dying.sign();
+        let value = accumulator::signed_value(&dying);
         self.retire(dying);
-        Signed::from_sign_magnitude(sign, magnitude)
+        value
     }
 
     /// Fold the stored `gap` into `delta` (`delta += h − A`): the

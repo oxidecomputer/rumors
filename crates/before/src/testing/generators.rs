@@ -6,6 +6,7 @@
 
 mod tests;
 
+use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use crate::codec;
@@ -54,23 +55,21 @@ fn bushy_version(lo: u64, leaves: usize) -> oracle::Version {
     bushy_version_with(lo, leaves, &|k| k.into())
 }
 
-/// [`bushy_version`] with the leaf base drawn from `leaf_base` per leaf
-/// number, so a caller can graft a wide value onto one leaf while keeping
-/// every base distinct.
+/// [`bushy_version`] with a caller-provided value for each leaf.
 fn bushy_version_with(
     lo: u64,
     leaves: usize,
-    leaf_base: &impl Fn(u64) -> codec::Base,
+    leaf_value: &impl Fn(u64) -> BigUint,
 ) -> oracle::Version {
     use oracle::Version as V;
     if leaves <= 1 {
-        return V::leaf(leaf_base(lo));
+        return V::leaf(leaf_value(lo));
     }
     let half = leaves / 2;
     V::node(
         0u64,
-        bushy_version_with(lo, half, leaf_base),
-        bushy_version_with(lo + half as u64, leaves - half, leaf_base),
+        bushy_version_with(lo, half, leaf_value),
+        bushy_version_with(lo + half as u64, leaves - half, leaf_value),
     )
 }
 
@@ -131,7 +130,7 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
 /// interior position is the spines' mid-level off-spine leaf and the bushy
 /// shape's middle leaf.
 ///
-/// The deep-operand differentials draw `wide` from [`arb_base`], so a walk's
+/// The deep-operand differentials draw `wide` from [`arb_magnitude`], so a walk's
 /// suspended-ancestor state and pre-scan latents carry genuinely wide values
 /// across real depth — the conjunction that neither the depth-capped
 /// arbitrary trees nor the small-valued deep shapes reach on their own.
@@ -140,7 +139,7 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
 pub(crate) fn shape_version_wide(
     shape: Shape,
     scale: usize,
-    wide: &codec::Base,
+    wide: &BigUint,
     at_tip: bool,
 ) -> Version {
     use oracle::Version as V;
@@ -151,28 +150,28 @@ pub(crate) fn shape_version_wide(
         } else {
             (scale as u64).div_ceil(2)
         };
-        let leaf_base = |k: u64| {
+        let leaf_value = |k: u64| {
             if k == wide_at {
                 wide.clone() + k
             } else {
                 k.into()
             }
         };
-        return from_oracle_version(&bushy_version_with(0, scale + 1, &leaf_base));
+        return from_oracle_version(&bushy_version_with(0, scale + 1, &leaf_value));
     }
     let mid = (scale as u64).div_ceil(2);
     let mut t = V::leaf(if at_tip {
         wide.clone()
     } else {
-        codec::Base::from(0u64)
+        BigUint::from(0u64)
     });
     for k in 1..=scale as u64 {
-        let base = if !at_tip && k == mid {
+        let value = if !at_tip && k == mid {
             wide.clone() + k
         } else {
-            codec::Base::from(k)
+            BigUint::from(k)
         };
-        let leaf = V::leaf(base);
+        let leaf = V::leaf(value);
         t = match shape {
             Shape::LeftSpine => V::node(0u64, t, leaf),
             Shape::RightSpine => V::node(0u64, leaf, t),
@@ -233,10 +232,10 @@ pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
 
 // ───────────────────────── arbitrary normal-form ─────────────────────────
 //
-// Base magnitudes deliberately span small values AND values near/beyond
+// BigUint magnitudes deliberately span small values AND values near/beyond
 // `u64::MAX`: this is the natural home for the path-sum-overflow regression
 // class (path sums that would overflow a `u64`). With arbitrary-precision
-// `Base` values the impl threads them losslessly, so the large-base
+// `BigUint` values the impl threads them losslessly, so the large-base
 // differentials must agree with the oracle exactly.
 
 /// Recursion-depth cap for the arbitrary generators.
@@ -250,7 +249,7 @@ const ARB_DEPTH: u32 = 4;
 /// count, which bounds how bushy a generated tree gets.
 const ARB_NODES: u32 = 16;
 
-/// An arbitrary event base magnitude.
+/// An arbitrary event magnitude.
 ///
 /// Mixes a dense small range (where collapses and `one_zero` corners live) with
 /// values straddling `u64::MAX`, so a generated event tree can have
@@ -268,15 +267,15 @@ const ARB_NODES: u32 = 16;
 /// reads on wide top digits) are inside every random differential's sampled
 /// universe, not beyond it. [`tests::generator_classes_stay_under_mass`]
 /// pins each of these classes alive.
-pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
+pub(crate) fn arb_magnitude() -> impl Strategy<Value = BigUint> {
     prop_oneof![
-        6 => (0u64..6).prop_map(codec::Base::from),
-        2 => any::<u64>().prop_map(codec::Base::from),
-        1 => (u64::MAX - 4..=u64::MAX).prop_map(codec::Base::from),
-        1 => any::<u128>().prop_map(|n| codec::Base::from(n) + codec::Base::from(u64::MAX)),
-        1 => (0u32..96).prop_map(|k| (codec::Base::from(1u8) << k) + codec::Base::from(1u8)),
-        1 => (1u64..8).prop_map(|k| codec::Base::from(k) << 64u32),
-        1 => (0u64..4, 0u32..512).prop_map(|(j, k)| codec::Base::from(2 * j + 1) << k),
+        6 => (0u64..6).prop_map(BigUint::from),
+        2 => any::<u64>().prop_map(BigUint::from),
+        1 => (u64::MAX - 4..=u64::MAX).prop_map(BigUint::from),
+        1 => any::<u128>().prop_map(|n| BigUint::from(n) + BigUint::from(u64::MAX)),
+        1 => (0u32..96).prop_map(|k| (BigUint::from(1u8) << k) + BigUint::from(1u8)),
+        1 => (1u64..8).prop_map(|k| BigUint::from(k) << 64u32),
+        1 => (0u64..4, 0u32..512).prop_map(|(j, k)| BigUint::from(2 * j + 1) << k),
     ]
 }
 
@@ -303,14 +302,14 @@ pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = oracle::Party
 
 /// An arbitrary normal-form event tree.
 ///
-/// Random recursive shape with random base magnitudes from [`arb_base`]
+/// Random recursive shape with random base magnitudes from [`arb_magnitude`]
 /// (including values near/beyond `u64::MAX`); every interior node goes through
 /// the oracle's normalizing `Version::node`, so the result is always in normal
 /// form (a zero-base child at every node, no collapsible `(n, m, m)`).
 pub(crate) fn arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
-    let leaf = arb_base().prop_map(oracle::Version::Leaf);
+    let leaf = arb_magnitude().prop_map(oracle::Version::Leaf);
     leaf.prop_recursive(ARB_DEPTH, ARB_NODES, 2, |inner| {
-        (arb_base(), inner.clone(), inner).prop_map(|(n, l, r)| oracle::Version::node(n, l, r))
+        (arb_magnitude(), inner.clone(), inner).prop_map(|(n, l, r)| oracle::Version::node(n, l, r))
     })
 }
 

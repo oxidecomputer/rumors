@@ -27,9 +27,9 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{Base, BitCursor, BitStack, DsiCursor, Int};
+use num_bigint::{BigInt, Sign};
 
-use super::signed::{fold_signed_int, unzigzag, Sign, Signed};
+use crate::codec::{accumulator, gamma, BitCursor, BitStack, DsiCursor};
 
 /// The topology walk over one skyline subtree's leaves, in preorder.
 ///
@@ -167,16 +167,16 @@ impl Extremum {
 
     /// Fold one consumed leaf-to-leaf step; the arming first call
     /// folds nothing.
-    pub(super) fn fold(&mut self, sign: Sign, magnitude: &Int) {
+    pub(super) fn fold(&mut self, delta: &BigInt) {
         if !self.armed {
             self.armed = true;
             return;
         }
-        self.fold_armed(sign, magnitude);
+        self.fold_armed(delta);
     }
 
-    fn fold_armed(&mut self, sign: Sign, magnitude: &Int) {
-        fold_signed_int(&mut self.register, sign.negate(), magnitude);
+    fn fold_armed(&mut self, delta: &BigInt) {
+        accumulator::subtract_signed(&mut self.register, delta);
         let overtaken = match self.direction {
             Direction::Max => Ordering::Less,
             Direction::Min => Ordering::Greater,
@@ -206,11 +206,11 @@ impl Extremum {
 /// that splice the range's bits verbatim.
 pub(super) struct RegionSkip {
     /// The range's net signed height movement: `h(exit) − h(entry)`.
-    pub(super) net: Signed,
+    pub(super) net: BigInt,
     /// The range's minimum leaf height relative to the exit height:
     /// `min − h(exit)`, nonpositive (the exit height is the last
     /// leaf's, itself in the minimum's range).
-    pub(super) min_from_exit: Signed,
+    pub(super) min_from_exit: BigInt,
     /// The last leaf's depth below the walked subtree's root.
     ///
     /// `u64`, as every depth on the walk surface: each level below the
@@ -262,14 +262,14 @@ pub(super) fn fold_region(
         };
         let start = cursor.position();
         let code = cursor.read_int().expect("canonical skyline bits");
-        let (sign, magnitude) = if first {
+        let delta = if first {
             first = false;
-            (Sign::Positive, code)
+            BigInt::from(code)
         } else {
-            unzigzag(code)
+            gamma::decode_signed(code)
         };
-        fold_signed_int(net, sign, &magnitude);
-        extremum.fold(sign, &magnitude);
+        accumulator::fold_signed(net, &delta);
+        extremum.fold(&delta);
         last = Some((depth, cursor.position() - start));
     }
     last
@@ -320,18 +320,17 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>) -> RegionSkip {
 /// notices — truncation, malformation — panic; the rest walk silently
 /// with an unspecified result (the contract of
 /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-pub(super) fn net_leaves(walk: &mut LeafWalk, cursor: &mut DsiCursor<'_>) -> Signed {
+pub(super) fn net_leaves(walk: &mut LeafWalk, cursor: &mut DsiCursor<'_>) -> BigInt {
     let mut net = Accumulator::new();
     loop {
         let code = cursor.read_int().expect("canonical skyline bits");
-        let (sign, magnitude) = unzigzag(code);
-        fold_signed_int(&mut net, sign, &magnitude);
+        let delta = gamma::decode_signed(code);
+        accumulator::fold_signed(&mut net, &delta);
         if walk.descend(cursor).is_none() {
             break;
         }
     }
-    let (sign, magnitude) = Base::from_accumulator(&net);
-    Signed::from_sign_magnitude(sign, magnitude)
+    accumulator::signed_value(&net)
 }
 
 /// Block-scan the remaining leaves of a subtree whose walk is already open —
@@ -358,17 +357,17 @@ pub(super) fn skip_leaves(
     let mut min = Extremum::min(Accumulator::new());
     let (last_depth, last_code_len) =
         fold_region(walk, cursor, first, &mut net, &mut min, pending)?;
-    let (net_sign, net_magnitude) = Base::from_accumulator(&net);
+    let net = accumulator::signed_value(&net);
     let min = min.into_offset();
-    let (min_sign, min_magnitude) = Base::from_accumulator(&min);
+    let min_from_exit = accumulator::signed_value(&min);
     debug_assert_ne!(
-        min_sign,
-        Ordering::Greater,
+        min_from_exit.sign(),
+        Sign::Plus,
         "the minimum is at or below the exit height"
     );
     Some(RegionSkip {
-        net: Signed::from_sign_magnitude(net_sign, net_magnitude),
-        min_from_exit: Signed::from_sign_magnitude(min_sign, min_magnitude),
+        net,
+        min_from_exit,
         last_depth,
         last_code_len,
     })

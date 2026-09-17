@@ -24,17 +24,6 @@
 //!   whose contract is a wholesale byte move or compare (encode, hash,
 //!   same-form equality) or whose operands have no encoded stream at all
 //!   (the rank pair).
-//! - **Limb** floors bind where big-integer arithmetic is semantically
-//!   mandatory, at two derivations. The rows that read the stored form
-//!   as-is (decode, the rank/distance/lag folds, and the tick walk)
-//!   floor at the *stream's own codes*: one limb per 64 bits of every
-//!   stored payload code wider than [`MACHINE_WORD_MAGNITUDE_BITS`](super::ceilings::MACHINE_WORD_MAGNITUDE_BITS) — a
-//!   plateau of equal wide leaves stores its width once and steps by
-//!   unit deltas after, and a conforming walk provably need not
-//!   materialize each leaf's absolute value, so a tree-derived floor
-//!   would demand limb work no conforming walk does. The value-
-//!   Narrow cells are not-applicable (machine words suffice), as are
-//!   operations whose contract forces no arithmetic at all.
 //! - **Touch** floors are deterministic-liveness declarations, like the
 //!   fork rows' heap floor, at three derivations. The single-operand
 //!   delta-folding kernels (the query rank folds, the tick walk, the
@@ -57,8 +46,7 @@
 //!   under the same premise). The validator batches word-scale deltas in the accumulator's
 //!   lazy zone, so the decode rows floor only what it must fold digit by
 //!   digit: one touch per 64 bits of every stored code wider than the
-//!   machine-word bound (the stream-derived
-//!   convention the tick rows' limb floor uses). Either floor is what a
+//!   machine-word bound. Either floor is what a
 //!   representation change trips deliberately: height or difference state
 //!   moving off the metered accumulator into an unmetered big integer is
 //!   exactly the migration this column exists to catch, so the trip is the
@@ -84,7 +72,7 @@
 //! The rejection rows floor scan alone: their committed shapes place the defect
 //! at the stream's end, and a self-delimiting stream's terminal defect (or an
 //! overlap at both operands' preorder ends, under a coding with no random
-//! access) is only discoverable by parsing to it, while heap, limb, and touch
+//! access) is only discoverable by parsing to it, while heap and touch
 //! are honestly not-applicable — rejection materializes no result and forces
 //! neither value work nor an accumulator fold.
 //!
@@ -100,7 +88,7 @@ use super::ceilings::{
     SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE,
 };
 use super::currency::{Floors, Liveness};
-use super::operand::{mandatory_limbs_stream, stored_nonzero_deltas};
+use super::operand::{stored_nonzero_deltas, wide_code_words};
 
 /// Scan floor: the operation must examine its encoded operands in full.
 pub(super) const WHY_SCAN_EXAMINES: &str =
@@ -131,47 +119,11 @@ pub(super) const NA_SCAN_SEED_PARTY: &str =
 pub(super) const NA_SCAN_SEED_PROJECTION: &str = "the whole-interval (seed) party's projection \
      is the version itself, handed back as a buffer-sharing clone: no stream walk is in the \
      contract";
-/// Limb floor: a walk over the stored form decodes every wide payload code.
-const WHY_LIMB_STREAM: &str = "every payload code of the stored stream wider than the \
-     machine-word bound must be decoded limb by limb: one op per 64 code bits (the stream's \
-     own codes, not the decoded tree's values — a plateau of equal wide leaves stores its \
-     width once)";
-/// Limb floor: the rank pair's sum spans the wider operand's content.
-pub(super) const WHY_LIMB_RANK_PAIR: &str =
-    "the mismatched pair's sum carries a numerator as wide as the \
-     wider operand's value content: one limb write per 64 content bits";
-/// Limb floor: the rank fold's sum spans its widest summand's content.
-pub(super) const WHY_LIMB_RANK_SUM: &str =
-    "the fold's sum carries a numerator as wide as its widest \
-     summand's value content: one limb write per 64 content bits";
-/// Limb floor (deterministic-liveness): the rank encoder materializes
-/// the biased integral through numerator-wide arithmetic.
-pub(super) const WHY_LIMB_RANK_ENCODE: &str =
-    "deterministic-liveness: the encoder extracts and biases the integral part through \
-     one arithmetic pass over the numerator today, one op per 64 numerator bits; a \
-     pure bit-walk emission (riding the bias as a carry) would lower this floor \
-     deliberately";
-/// Limb floor (deterministic-liveness): the rank decoder materializes
-/// the numerator.
-pub(super) const WHY_LIMB_RANK_DECODE: &str =
-    "deterministic-liveness: the decoder materializes the numerator through \
-     width-recorded assembly and one shift-and-or pass today, one op per 64 numerator \
-     bits; an unmetered assembly would lower this floor deliberately";
 /// Scan NA: the canonical rank bytes are read outside the stream
 /// primitives.
 pub(super) const NA_SCAN_RANK_BYTES: &str =
     "the canonical rank bytes are read through a plain slice walk, not the metered \
-     encoded primitives: no counter watches this read (the heap and limb floors \
-     carry the row's liveness)";
-/// Limb NA: every operand magnitude fits machine words.
-pub(super) const NA_LIMB_NARROW: &str =
-    "no operand magnitude exceeds the machine-word bound: word arithmetic suffices";
-/// Limb NA: the contract forces no arithmetic.
-pub(super) const NA_LIMB_NOT_FORCED: &str =
-    "magnitudes may be moved or compared without arithmetic: no limb work is in the contract";
-/// Limb NA: id trees have no magnitudes at all.
-pub(super) const NA_LIMB_ID_TREE: &str =
-    "id trees store no magnitudes: there is no arithmetic to meter";
+     encoded primitives; the heap floor carries the row's liveness";
 /// Heap floor: the result materializes at least its encoded bytes.
 const WHY_HEAP_MATERIALIZES: &str =
     "materializes a result at least as large as the encoded bytes it codes";
@@ -242,11 +194,10 @@ pub(super) const NA_TOUCH_ID_TREE: &str =
 pub(super) const NA_TOUCH_NOT_FORCED: &str =
     "magnitudes may be moved, hashed, or compared wholesale \
      without a running fold: no accumulator work is in the contract";
-/// Touch NA: decoded rank values combine through plain big-integer
-/// arithmetic (the limb column's work).
+/// Touch NA: decoded rank values combine without an accumulator.
 pub(super) const NA_TOUCH_RANK_ARITHMETIC: &str =
-    "decoded rank values combine through big-integer \
-     arithmetic the limb column prices: no accumulator is in the contract";
+    "decoded rank values combine through ordinary big-integer arithmetic: \
+     no accumulator is in the contract";
 /// Touch NA: the operand streams store no delta codes that force a fold.
 const NA_TOUCH_NO_DELTAS: &str =
     "the operand streams store no fold-forcing delta codes: there is no fold to meter";
@@ -269,16 +220,14 @@ pub(super) const NA_TOUCH_PROJECTION: &str =
 /// stored code wider than the machine-word bound, or NA when every code
 /// is word-scale.
 ///
-/// This is the stream-derived convention the tick rows' limb floor uses:
-/// a tree-derived floor would demand fold work no conforming validator
-/// does.
+/// A tree-derived floor would demand fold work no conforming validator does.
 pub(super) fn touch_wide_stream(v: &Version) -> Liveness {
-    let limbs = mandatory_limbs_stream(v);
-    if limbs == 0 {
+    let words = wide_code_words(v);
+    if words == 0 {
         na(NA_TOUCH_LAZY_BATCH)
     } else {
         Liveness::Floor {
-            min: limbs,
+            min: words,
             why: WHY_TOUCH_WIDE_STREAM,
         }
     }
@@ -315,9 +264,6 @@ pub(super) const WHY_SCAN_OVERLAP_END: &str = "the pair's one overlapping region
 const NA_HEAP_REJECTION: &str = "a rejecting or empty outcome materializes no result, and \
      buffering the fed stream is not semantically forced: allocation stays the \
      implementation's choice";
-/// Limb NA on rejection rows: value work may be deferred past the defect.
-pub(super) const NA_LIMB_REJECTION: &str = "rejection forces no value materialization: a strict \
-     validator may defer magnitude work past the walk that finds the defect";
 /// Touch NA on rejection rows: no accumulator fold is forced.
 pub(super) const NA_TOUCH_REJECTION: &str =
     "rejection forces no accumulator fold: digit-state work \
@@ -332,7 +278,6 @@ pub(super) const NA_TOUCH_REJECTION: &str =
 pub(super) fn rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
-        limb: na(NA_LIMB_REJECTION),
         segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (fed_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
@@ -348,7 +293,6 @@ pub(super) fn rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
 pub(super) fn id_rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
-        limb: na(NA_LIMB_ID_TREE),
         segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (fed_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
@@ -373,7 +317,6 @@ const WHY_SCAN_OVERLAP_CLOCK: &str = "the pair's one overlapping region sits at 
 pub(super) fn clock_overlap_floors(id_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
-        limb: na(NA_LIMB_REJECTION),
         segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (id_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
@@ -514,29 +457,9 @@ pub(super) fn sync_floors(v: &Version, w: &Version) -> Floors {
     };
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        limb: na(NA_LIMB_NOT_FORCED),
         segments: seg_ceiling_only(),
         scan,
         touch: touch_pair_fold(v, w),
-    }
-}
-
-/// A stored-stream limb floor (one limb per 64 bits of every wide payload
-/// code), or NA when every code fits machine words.
-///
-/// The honest floor for rows that read the stored form as-is (decode, the query
-/// folds, the tick walk), which provably need not materialize the decoded
-/// tree's absolute values.
-pub(super) fn limb_stream(mandatory_limbs: u64) -> Liveness {
-    if mandatory_limbs == 0 {
-        Liveness::NotApplicable {
-            reason: NA_LIMB_NARROW,
-        }
-    } else {
-        Liveness::Floor {
-            min: mandatory_limbs,
-            why: WHY_LIMB_STREAM,
-        }
     }
 }
 
@@ -565,14 +488,13 @@ pub(super) fn seg_ceiling_only() -> Liveness {
 }
 
 /// The floors of the many rows that must walk their operands but are forced
-/// into neither allocation nor arithmetic: scan floored, heap and limb NA.
+/// into neither allocation nor accumulator work: scan and touch are explicit.
 ///
 /// The touch declaration is the caller's: each walk row answers the accumulator
 /// question for its own kernel.
 pub(super) fn walk_floors(encoded_bytes: usize, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        limb: na(NA_LIMB_NOT_FORCED),
         segments: seg_ceiling_only(),
         scan: scan_examines(encoded_bytes),
         touch,
@@ -598,7 +520,6 @@ pub(super) fn comparison_floors(v: &Version, w: &Version, encoded_bytes: usize) 
     if v == w {
         return Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            limb: na(NA_LIMB_NOT_FORCED),
             segments: seg_ceiling_only(),
             scan: na(NA_SCAN_EQ_BYTES),
             touch: na(NA_TOUCH_EQUAL_PAIR),
@@ -609,7 +530,6 @@ pub(super) fn comparison_floors(v: &Version, w: &Version, encoded_bytes: usize) 
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            limb: na(NA_LIMB_NOT_FORCED),
             segments: seg_ceiling_only(),
             scan: scan_touch(),
             touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
@@ -648,7 +568,6 @@ pub(super) fn membership_floors(v: &Version, w: &Version, encoded_bytes: usize) 
     if v == w {
         return Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            limb: na(NA_LIMB_NOT_FORCED),
             segments: seg_ceiling_only(),
             scan: na(NA_SCAN_EQ_BYTES),
             touch: na(NA_TOUCH_EQUAL_PAIR),
@@ -659,7 +578,6 @@ pub(super) fn membership_floors(v: &Version, w: &Version, encoded_bytes: usize) 
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            limb: na(NA_LIMB_NOT_FORCED),
             segments: seg_ceiling_only(),
             scan: scan_touch(),
             touch: na(NA_TOUCH_ONE_WITNESS),
@@ -688,7 +606,6 @@ pub(super) fn masked_cmp_floors(
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            limb: na(NA_LIMB_NOT_FORCED),
             segments: seg_ceiling_only(),
             scan: scan_touch(),
             touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
@@ -696,22 +613,16 @@ pub(super) fn masked_cmp_floors(
     }
 }
 
-/// The tick-cross rows' floors: full-examination scan, per-stored-code limb,
-/// in-place heap.
+/// The tick-cross rows' floors: full-examination scan, delta-fold touches,
+/// and in-place heap.
 ///
 /// The paired fill walk examines every bit of both encoded operands (a
 /// full-examination scan floor, 8 bits per byte — the measured tick-walk
-/// constants sit 2–5× above it), and every wide payload code of the version's
-/// own stored stream must be decoded limb by limb (the mandatory limb floor; NA
-/// on the word-scale families). The limb floor derives from the stream's codes,
-/// not the decoded tree's min-lifted bases: a plateau of equal wide leaves
-/// stores its width once and steps by unit deltas after, and the walk provably
-/// need not materialize each leaf's absolute value — a tree-derived floor would
-/// demand limb work no conforming walk does.
+/// constants sit 2–5× above it). Each nonzero stored delta must also reach the
+/// accumulator, which supplies the touch floor.
 pub(super) fn tick_walk_floors(version: &Version, encoded_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        limb: limb_stream(mandatory_limbs_stream(version)),
         segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (encoded_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),

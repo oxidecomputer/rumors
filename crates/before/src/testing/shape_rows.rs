@@ -15,21 +15,21 @@
 
 use std::sync::Arc;
 
-use crate::codec::Base;
 use crate::oracle;
 use crate::shape::{Cell, Plateau, Region, Rise};
+use num_bigint::BigUint;
 
 /// Apply one rise to a running height, asserting the vocabulary's
 /// invariants in passing: magnitudes are nonzero and the height never
 /// goes negative.
-pub(crate) fn apply_rise(height: &mut Base, rise: &Option<Rise>) {
+pub(crate) fn apply_rise(height: &mut BigUint, rise: &Option<Rise>) {
     match rise {
         Some(Rise::Up(count)) => {
-            assert_ne!(count.0, Base::ZERO, "rise magnitudes are nonzero");
+            assert_ne!(count.0, BigUint::ZERO, "rise magnitudes are nonzero");
             *height += &count.0;
         }
         Some(Rise::Down(count)) => {
-            assert_ne!(count.0, Base::ZERO, "rise magnitudes are nonzero");
+            assert_ne!(count.0, BigUint::ZERO, "rise magnitudes are nonzero");
             assert!(count.0 <= *height, "the running height never goes negative");
             *height -= &count.0;
         }
@@ -55,9 +55,9 @@ pub(crate) fn assert_tiles(depths: impl IntoIterator<Item = u64>) {
 
 /// Fold a plateau stream into absolute `(height, depth)` rows, asserting
 /// canonicality and tiling in passing.
-pub(crate) fn fold_heights(plateaus: impl IntoIterator<Item = Plateau>) -> Vec<(Base, u64)> {
-    let mut height = Base::ZERO;
-    let rows: Vec<(Base, u64)> = plateaus
+pub(crate) fn fold_heights(plateaus: impl IntoIterator<Item = Plateau>) -> Vec<(BigUint, u64)> {
+    let mut height = BigUint::ZERO;
+    let rows: Vec<(BigUint, u64)> = plateaus
         .into_iter()
         .map(|plateau| {
             apply_rise(&mut height, &plateau.rise);
@@ -83,9 +83,9 @@ pub(crate) fn fold_regions(regions: impl IntoIterator<Item = Region>) -> Vec<(bo
 /// canonicality and tiling in passing.
 pub(crate) fn fold_cells<const N: usize>(
     cells: impl IntoIterator<Item = Cell<N>>,
-) -> Vec<(u64, Vec<Base>)> {
-    let mut heights = vec![Base::ZERO; N];
-    let rows: Vec<(u64, Vec<Base>)> = cells
+) -> Vec<(u64, Vec<BigUint>)> {
+    let mut heights = vec![BigUint::ZERO; N];
+    let rows: Vec<(u64, Vec<BigUint>)> = cells
         .into_iter()
         .map(|cell| {
             for (height, rise) in heights.iter_mut().zip(&cell.rises) {
@@ -102,9 +102,9 @@ pub(crate) fn fold_cells<const N: usize>(
 /// asserting canonicality and tiling in passing.
 pub(crate) fn fold_overlay(
     overlay: impl IntoIterator<Item = (Plateau, bool)>,
-) -> Vec<(u64, Base, bool)> {
-    let mut height = Base::ZERO;
-    let rows: Vec<(u64, Base, bool)> = overlay
+) -> Vec<(u64, BigUint, bool)> {
+    let mut height = BigUint::ZERO;
+    let rows: Vec<(u64, BigUint, bool)> = overlay
         .into_iter()
         .map(|(plateau, owned)| {
             apply_rise(&mut height, &plateau.rise);
@@ -117,8 +117,8 @@ pub(crate) fn fold_overlay(
 
 /// The plateaus of an oracle event tree: absolute height and depth per
 /// preorder leaf. Recursive, as the oracle is.
-pub(crate) fn oracle_plateaus(tree: &oracle::Version) -> Vec<(Base, u64)> {
-    fn walk(tree: &oracle::Version, offset: &Base, depth: u64, out: &mut Vec<(Base, u64)>) {
+pub(crate) fn oracle_plateaus(tree: &oracle::Version) -> Vec<(BigUint, u64)> {
+    fn walk(tree: &oracle::Version, offset: &BigUint, depth: u64, out: &mut Vec<(BigUint, u64)>) {
         match tree {
             oracle::Version::Leaf(n) => out.push((offset + n, depth)),
             oracle::Version::Node(n, l, r) => {
@@ -129,7 +129,7 @@ pub(crate) fn oracle_plateaus(tree: &oracle::Version) -> Vec<(Base, u64)> {
         }
     }
     let mut out = Vec::new();
-    walk(tree, &Base::ZERO, 0, &mut out);
+    walk(tree, &BigUint::ZERO, 0, &mut out);
     out
 }
 
@@ -153,8 +153,12 @@ pub(crate) fn oracle_regions(tree: &oracle::Party) -> Vec<(bool, u64)> {
 /// The coarsest common refinement of oracle event trees, directly by
 /// recursion: split while any input is a node, emit a cell when all are
 /// leaves. `(depth, absolute height per input)` rows, left to right.
-pub(crate) fn oracle_cells(inputs: Vec<(Base, oracle::Version)>) -> Vec<(u64, Vec<Base>)> {
-    fn walk(inputs: Vec<(Base, oracle::Version)>, depth: u64, out: &mut Vec<(u64, Vec<Base>)>) {
+pub(crate) fn oracle_cells(inputs: Vec<(BigUint, oracle::Version)>) -> Vec<(u64, Vec<BigUint>)> {
+    fn walk(
+        inputs: Vec<(BigUint, oracle::Version)>,
+        depth: u64,
+        out: &mut Vec<(u64, Vec<BigUint>)>,
+    ) {
         if inputs
             .iter()
             .all(|(_, tree)| matches!(tree, oracle::Version::Leaf(_)))
@@ -198,9 +202,9 @@ pub(crate) fn oracle_cells(inputs: Vec<(Base, oracle::Version)>) -> Vec<(u64, Ve
 /// `(0, 0)` unrepresentable).
 pub(crate) fn party_as_steps(tree: &oracle::Party) -> oracle::Version {
     match tree {
-        oracle::Party::Leaf(owned) => oracle::Version::Leaf(Base::from(u8::from(*owned))),
+        oracle::Party::Leaf(owned) => oracle::Version::Leaf(BigUint::from(u8::from(*owned))),
         oracle::Party::Node(l, r) => oracle::Version::Node(
-            Base::ZERO,
+            BigUint::ZERO,
             Arc::new(party_as_steps(l)),
             Arc::new(party_as_steps(r)),
         ),
@@ -215,7 +219,7 @@ pub(crate) fn party_as_steps(tree: &oracle::Party) -> oracle::Version {
 /// # Panics
 ///
 /// Panics if the rows do not tile the unit interval.
-pub(crate) fn version_from_rows(rows: &[(Base, u64)]) -> oracle::Version {
+pub(crate) fn version_from_rows(rows: &[(BigUint, u64)]) -> oracle::Version {
     let mut stack: Vec<(oracle::Version, u64)> = Vec::new();
     for (height, depth) in rows {
         stack.push((oracle::Version::Leaf(height.clone()), *depth));
@@ -223,7 +227,7 @@ pub(crate) fn version_from_rows(rows: &[(Base, u64)]) -> oracle::Version {
             let (right, depth) = stack.pop().expect("two entries are on the stack");
             let (left, _) = stack.pop().expect("one entry remains");
             assert!(depth > 0, "two whole intervals cannot both be present");
-            stack.push((oracle::Version::node(Base::ZERO, left, right), depth - 1));
+            stack.push((oracle::Version::node(BigUint::ZERO, left, right), depth - 1));
         }
     }
     let [(tree, 0)] =

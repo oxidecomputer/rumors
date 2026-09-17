@@ -659,11 +659,9 @@ pub enum FamilyId {
     /// stream positions — every comb fires O(1) freezes, which was exactly the
     /// coverage hole — and any freeze accounting that reads an absolute
     /// position (or any whole-history state) per freeze goes quadratic here
-    /// while the family's positions compact to O(1) digits. The committed
-    /// known-bad kernel reads ×1.50 per byte across the doubling on this shape
-    /// (the query fold's adequacy tripwire); the anchored-segment discipline
-    /// reads flat (the `skyline_flatness` freeze-position band). Designed
-    /// against the linear-functional query rows.
+    /// while the family's positions compact to O(1) digits. The
+    /// freeze-position band requires the anchored-segment implementation to
+    /// remain flat. Designed against the linear-functional query rows.
     FreezePos,
     /// The promotion re-arm spine `promotion_rearm(s)`: the many-armings
     /// sentinel.
@@ -674,11 +672,8 @@ pub enum FamilyId {
     /// every comb promotes never and the freeze-position spine's parked drift
     /// is monotone. Any promotion accounting that re-reads whole-history state
     /// per arming goes quadratic here while the family's suffix masses compact
-    /// to O(1) balanced terms. The committed known-bad kernel reads ×1.74 per
-    /// byte across the doubling on this shape (the query fold's span-promotion
-    /// tripwire); the promotion ledger reads flat (the `skyline_flatness`
-    /// promotion re-arm bands). Designed against the linear-functional query
-    /// rows.
+    /// to O(1) balanced terms. The promotion re-arm bands require the ledger's
+    /// cost to remain flat. Designed against the linear-functional query rows.
     PromoRearm,
     /// The weight-comb spine `weight_comb(n)`: the many-jumps sentinel.
     ///
@@ -702,10 +697,8 @@ pub enum FamilyId {
     /// segment read starts `Θ(k)` digits up. The accumulator's write watermark
     /// prices each read at the segment's written span; a scaled read that
     /// starts at digit 0 walks the never-written prefix per freeze and goes
-    /// quadratic in the touch and limb currencies together (demonstrated by
-    /// a probe build whose scaled reads
-    /// start at digit 0); the watermark reads flat (the `skyline_flatness`
-    /// freeze-parade band). The freeze-position spine prices the query layer's
+    /// quadratic in accumulator touches; the watermark stays flat in the
+    /// `skyline_flatness` freeze-parade band. The freeze-position spine prices the query layer's
     /// per-freeze accounting; this family prices the accumulator's read side
     /// under the same schedule. Designed against the linear-functional query
     /// rows.
@@ -721,10 +714,7 @@ pub enum FamilyId {
     /// per arming (or re-reads a promoted prefix once per window) goes
     /// quadratic here while the mass-balanced product tree charges every
     /// arming-window cross term inside one aggregate product and reads flat.
-    /// The committed tripwire beside the kernel
-    /// (`suffix_walk_settle_reads_superlinear_on_dense_suffix`, the query
-    /// fold's test suite) keeps the per-arming walk failing on this family. The
-    /// mate is the same topology at unit bases, and the wide operand dominates
+    /// The mate is the same topology at unit bases, and the wide operand dominates
     /// it pointwise, so the pair rows run the co-sweep whose freezes and
     /// promotions fire on drift only the wide operand deposited (the
     /// `skyline_flatness` dense-suffix rank and distance bands carry the
@@ -747,10 +737,7 @@ pub enum FamilyId {
     /// multiplication run inside the backend at its bound `M(|v|)` — and
     /// because the same constructor embeds the product of arbitrary factors,
     /// any fold that answers exactly multiplies arbitrary input-funded
-    /// integers, so `Ω(M(|v|))` floors every settle. The committed kernel
-    /// (`schoolbook_settle_reads_superlinear_on_plateau_puncture`, the query
-    /// fold's test suite) keeps the per-digit charge failing on this family
-    /// (the `skyline_flatness` plateau-puncture band carries the enforcement).
+    /// integers, so `Ω(M(|v|))` floors every settle.
     /// Designed against the linear-functional query rows.
     PlateauPuncture,
     /// The lone-freeze spine `lone_freeze(s, s)`: the first-freeze gate
@@ -881,7 +868,7 @@ pub enum FamilyId {
     /// stays put, so span-priced densification reads flat across a tail
     /// doubling and position-priced densification scales with the knob (the
     /// `hoisted_window` band in `tests/meter.rs` prices the family). Designed
-    /// against the settle's densified-image allocation in `charge_digits`.
+    /// against the settle's densified-image allocation in `WindowMass::charge`.
     HoistedWindow,
     /// The propagate-seam family: the anchor web's wide-hop domination
     /// guards at their clearance line, both arms.

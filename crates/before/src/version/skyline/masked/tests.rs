@@ -6,7 +6,9 @@
 //! lives here is the Panics contract's negative space — the silent sweep over
 //! the canonicality violations the walk does not structurally notice.
 
-use crate::codec::{self, Base, BitsBuf};
+use num_bigint::BigUint;
+
+use crate::codec::{gamma, BitsBuf};
 use crate::error::Decode;
 use crate::version::skyline::validate_bits;
 
@@ -28,9 +30,9 @@ fn collapsible_sibling_pair_sweeps_without_panicking() {
     let mut bad = BitsBuf::new();
     bad.push(false); // root: internal
     bad.push(true); // left leaf
-    codec::encode_int(&mut bad, &Base::from(5u64));
+    gamma::encode(&BigUint::from(5u64), &mut bad);
     bad.push(true); // right leaf
-    codec::encode_int(&mut bad, &Base::from(0u64)); // zigzag(0): equal sibling
+    gamma::encode(&BigUint::ZERO, &mut bad); // zigzag(0): equal sibling
     assert!(
         matches!(
             validate_bits(crate::codec::built_view(&bad)),
@@ -41,7 +43,7 @@ fn collapsible_sibling_pair_sweeps_without_panicking() {
     // The canonical spelling of the same step function: the single leaf 5.
     let mut good = BitsBuf::new();
     good.push(true);
-    codec::encode_int(&mut good, &Base::from(5u64));
+    gamma::encode(&BigUint::from(5u64), &mut good);
     validate_bits(crate::codec::built_view(&good)).expect("the peer operand is canonical");
     // Both entry points, both operand positions: each call must return. The
     // verdicts are unspecified and deliberately unpinned.

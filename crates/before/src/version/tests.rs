@@ -7,6 +7,7 @@
 use crate::meter::registry::Shape;
 use std::cmp::Ordering;
 
+use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use super::{skyline, Ranked, Version};
@@ -398,16 +399,14 @@ fn path_sum_beyond_u64_compares_greater() {
 /// boundary, not only path sums made from individually-small nodes.
 #[test]
 fn stored_base_beyond_u64_ticks_and_merges() {
-    let height = crate::codec::Base::from(1u8) << 64u32;
+    let height = BigUint::from(1u8) << 64u32;
     let big = from_oracle_version(&crate::oracle::Version::leaf(height.clone()));
     let mut ticked = big.clone();
     ticked.tick(&Party::seed());
 
     assert_eq!(
         ticked,
-        from_oracle_version(&crate::oracle::Version::leaf(
-            height + crate::codec::Base::from(1u8),
-        ))
+        from_oracle_version(&crate::oracle::Version::leaf(height + BigUint::from(1u8),))
     );
     assert_eq!(big.clone() | ticked.clone(), ticked);
     assert_eq!(Version::decode(&ticked.encode()[..]).unwrap(), ticked);
@@ -804,10 +803,7 @@ fn rank_text_known_values_and_boundaries() {
     ] {
         assert_eq!(
             text.parse::<Rank>(),
-            Ok(Rank::from_raw(
-                crate::codec::Base::from(numerator),
-                exponent
-            )),
+            Ok(Rank::from_raw(BigUint::from(numerator), exponent)),
         );
     }
 
@@ -868,9 +864,9 @@ fn alignment_cmp(a: &super::Rank, b: &super::Rank) -> core::cmp::Ordering {
 
 /// A rank's raw parts for the oracle, as plain `BigUint` arithmetic
 /// operands.
-fn rank_parts(r: &super::Rank) -> (num_bigint::BigUint, u64) {
+fn rank_parts(r: &super::Rank) -> (BigUint, u64) {
     let (num, exp) = r.raw_parts();
-    (num_bigint::BigUint::from_bytes_le(&num.to_bytes_le()), exp)
+    (BigUint::from_bytes_le(&num.to_bytes_le()), exp)
 }
 
 /// Build one worst-case `Rank` from a deterministic
@@ -900,7 +896,7 @@ fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
     }
     words[0] |= 1; // odd: the stored normalization invariant
     let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-    let num = crate::codec::Base::from(num_bigint::BigUint::from_bytes_le(&bytes));
+    let num = BigUint::from_bytes_le(&bytes);
     let exp = next() % 100_000;
     super::Rank::from_raw(num, exp)
 }
@@ -931,18 +927,15 @@ fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
             // mismatch with an identical mantissa.
             2 => {
                 let (num, exp) = rank_parts(&a);
-                super::Rank::from_raw(
-                    crate::codec::Base::from(num),
-                    exp.saturating_add(next() % 64 + 1),
-                )
+                super::Rank::from_raw(num, exp.saturating_add(next() % 64 + 1))
             }
             // A forced class tie: same exponent, same width, a low bit
             // perturbed, so the streamed windows share a deep prefix.
             _ => {
                 let (num, exp) = rank_parts(&a);
-                let flipped = num ^ (num_bigint::BigUint::from(2u8) << ((next() % 16) as usize));
+                let flipped = num ^ (BigUint::from(2u8) << ((next() % 16) as usize));
                 let bits_kept = flipped.bits() == a_bits(&a);
-                let candidate = super::Rank::from_raw(crate::codec::Base::from(flipped), exp);
+                let candidate = super::Rank::from_raw(flipped, exp);
                 if bits_kept {
                     candidate
                 } else {
@@ -1026,9 +1019,8 @@ fn seeded_rank(seed: u64) -> super::Rank {
 /// ascending in rank order.
 #[test]
 fn rank_encoding_known_values() {
-    let fraction = |numerator: u8, exponent| {
-        super::Rank::from_raw(crate::codec::Base::from(numerator), exponent)
-    };
+    let fraction =
+        |numerator: u8, exponent| super::Rank::from_raw(BigUint::from(numerator), exponent);
     let int = |n: u64| uniform(n).rank();
     // (value, its pinned canonical bytes), in strictly ascending order.
     let battery: Vec<(super::Rank, Vec<u8>)> = vec![
@@ -1049,7 +1041,7 @@ fn rank_encoding_known_values() {
         // vs fractional at a shared integral part is decided at the
         // continuation-vs-close bit.
         (
-            super::Rank::from_raw(crate::codec::Base::from(3u8), 1),
+            super::Rank::from_raw(BigUint::from(3u8), 1),
             vec![0x8C, 0x00],
         ),
         (int(2), vec![0x90]),
@@ -1062,11 +1054,11 @@ fn rank_encoding_known_values() {
         // its close bit, never by a byte-prefix relation.
         (int(5), vec![0xB0]),
         (
-            super::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40),
+            super::Rank::from_raw(BigUint::from(5u128 << 40 | 1), 40),
             vec![0xB4, 0x02, 0x01, 0x00, 0x80, 0x40, 0x40],
         ),
         (
-            super::Rank::from_raw(crate::codec::Base::from(5u128 << 41 | 3), 41),
+            super::Rank::from_raw(BigUint::from(5u128 << 41 | 3), 41),
             vec![0xB4, 0x02, 0x01, 0x00, 0x80, 0x40, 0x70, 0x00],
         ),
         // 6 and 7: the last mantissa of width 2 against the first of
@@ -1265,7 +1257,7 @@ fn rank_encoding_size_is_provenance_linear() {
         from_oracle_version(&tree)
     }
     // A wide counter behind a spine: both axes at once.
-    fn deep_counter(depth: usize, counter: &crate::codec::Base) -> Version {
+    fn deep_counter(depth: usize, counter: &BigUint) -> Version {
         use crate::oracle::Version as V;
         let mut tree = V::leaf(counter.clone());
         for _ in 0..depth {
@@ -1273,7 +1265,7 @@ fn rank_encoding_size_is_provenance_linear() {
         }
         from_oracle_version(&tree)
     }
-    let wide = crate::codec::Base((num_bigint::BigUint::ONE << 128usize) - 1u8);
+    let wide = (BigUint::ONE << 128usize) - 1u8;
     let families: [(&str, Version); 5] = [
         ("wide counter", from_oracle_version(&V::leaf(wide.clone()))),
         ("deep spine", spine(800)),
@@ -1318,19 +1310,19 @@ fn rank_encoding_is_suffix_safe_at_the_padding_boundary() {
         // 5 against 5 + 2⁻⁴⁰: equal integral parts, one fraction empty.
         (
             uniform(5u8).rank(),
-            super::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40),
+            super::Rank::from_raw(BigUint::from(5u128 << 40 | 1), 40),
         ),
         // Zero against 2⁻⁹: the empty stream tail against a fraction
         // whose first byte's worth of expansion bits is all zero.
         (
             super::Rank::ZERO,
-            super::Rank::from_raw(crate::codec::Base::from(1u8), 9),
+            super::Rank::from_raw(BigUint::from(1u8), 9),
         ),
         // 1/2 against 1/2 + 2⁻⁸: the extension's extra expansion bits
         // are exactly the shorter stream's padding, then a set bit.
         (
-            super::Rank::from_raw(crate::codec::Base::from(1u8), 1),
-            super::Rank::from_raw(crate::codec::Base::from(129u8), 8),
+            super::Rank::from_raw(BigUint::from(1u8), 1),
+            super::Rank::from_raw(BigUint::from(129u8), 8),
         ),
     ];
     for (small, large) in &pairs {
@@ -1376,7 +1368,7 @@ proptest! {
             // one stream continues past the other's content.
             let (num, exp) = rank_parts(&a);
             super::Rank::from_raw(
-                crate::codec::Base::from((num << (deepen as usize)) + 1u8),
+                (num << (deepen as usize)) + 1u8,
                 exp.saturating_add(u64::from(deepen)),
             )
         } else {

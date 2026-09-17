@@ -3,9 +3,8 @@
 //! floors, per currency.
 
 use super::ceilings::{
-    fold_exponent_ceiling, CAPACITY_MODEL_CEILING, CAPACITY_MODEL_FLOOR,
-    FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS,
-    MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_LIMB_OPS_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
+    fold_exponent_ceiling, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES,
+    MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
     MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::currency::{ByCurrency, Currency, Liveness};
@@ -61,9 +60,6 @@ pub(super) const HEAP_FLOOR_TRIP: &str =
 /// segments floor binds without a code change).
 pub(super) const SEG_FLOOR_TRIP: &str =
     "segments floor: counter reads below floor: the meter is not watching this work";
-/// The limb column's floor-trip message.
-pub(super) const LIMB_FLOOR_TRIP: &str =
-    "limb floor: counter reads below floor: the meter is not watching this work";
 /// The scan column's floor-trip message.
 pub(super) const SCAN_FLOOR_TRIP: &str =
     "scan floor: counter reads below floor: the meter is not watching this work";
@@ -96,11 +92,7 @@ struct Fit {
 ///
 /// - the denominator span must scale ([`MIN_EXPONENT_DENOM_GROWTH`] from the
 ///   first used point to the last), or the fit divides by a vanishing log;
-/// - a capacity-model cell's heap trend is honestly unjudgeable — the
-///   doubling chain quantizes the peak by powers of two, so points straddling
-///   a `k` step manufacture an exponent and points inside a step read
-///   sublinear; the band judgment binds instead;
-/// - every other cell's heap trend is fitted only over the points that clear
+/// - a heap trend is fitted only over the points that clear
 ///   the flat allowance the constant leg already forgives (a point inside the
 ///   forgiven flat zone deflates the fit and manufactures an exponent at the
 ///   allowance boundary), and judged only when at least two such points
@@ -122,12 +114,6 @@ fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
         last as f64 >= first as f64 * MIN_EXPONENT_DENOM_GROWTH
     };
     if c == Currency::Heap {
-        if samples.iter().any(|s| s.heap_model.is_some()) {
-            return Fit {
-                exp: Some(trend(&points)),
-                judged: false,
-            };
-        }
         let cleared: Vec<(usize, u64)> = points
             .iter()
             .copied()
@@ -156,7 +142,6 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
     ByCurrency {
         heap: fit_currency(Currency::Heap, samples),
         segments: fit_currency(Currency::Segments, samples),
-        limb: fit_currency(Currency::Limb, samples),
         scan: fit_currency(Currency::Scan, samples),
         touch: fit_currency(Currency::Touch, samples),
     }
@@ -164,10 +149,8 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
 
 /// The per-currency exponent ceilings over the fitted span.
 ///
-/// Resolved from the declared models (the `ceilings` module's
-/// declared-models section): the fold rows' predicted-marginal ceiling on
-/// the fold currencies, a family-stated limb exponent where one is
-/// declared, and the global bound everywhere else.
+/// Fold rows use their declared marginal-work bound for scan and touch;
+/// every other row and currency uses the global bound.
 fn exp_ceilings(first: &Sample, last: &Sample) -> ByCurrency<f64> {
     let spans =
         last.exp_denom_bytes as f64 >= first.exp_denom_bytes as f64 * MIN_EXPONENT_DENOM_GROWTH;
@@ -183,7 +166,6 @@ fn exp_ceilings(first: &Sample, last: &Sample) -> ByCurrency<f64> {
     ByCurrency {
         heap: MAX_SCALING_EXPONENT,
         segments: MAX_SCALING_EXPONENT,
-        limb: fold.unwrap_or(MAX_SCALING_EXPONENT),
         scan: fold.unwrap_or(MAX_SCALING_EXPONENT),
         touch: fold.unwrap_or(MAX_SCALING_EXPONENT),
     }
@@ -234,7 +216,6 @@ fn judge_window(
     fits: ByCurrency<Fit>,
     ceilings: ByCurrency<f64>,
 ) -> CellResult {
-    let capacity_model = s1.heap_model.is_some() && s2.heap_model.is_some();
     let score = |c: Currency| -> Score {
         let fit = *fits.get(c);
         let (Some(_), Some(m2)) = (*s1.readings.get(c), *s2.readings.get(c)) else {
@@ -249,7 +230,6 @@ fn judge_window(
                 m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64
             }
             Currency::Segments => m2 as f64,
-            Currency::Limb => m2 as f64 / s2.denom_bytes as f64,
             Currency::Scan | Currency::Touch => m2 as f64 / s2.denom_bytes as f64,
         };
         Score {
@@ -261,7 +241,6 @@ fn judge_window(
     let scores = ByCurrency {
         heap: score(Currency::Heap),
         segments: score(Currency::Segments),
-        limb: score(Currency::Limb),
         scan: score(Currency::Scan),
         touch: score(Currency::Touch),
     };
@@ -279,11 +258,6 @@ fn judge_window(
                 "segments exponent",
                 "segments count",
             ),
-            Currency::Limb => (
-                MAX_LIMB_OPS_PER_INPUT_BYTE,
-                "limb exponent",
-                "limb constant",
-            ),
             Currency::Scan => (
                 MAX_SCAN_BITS_PER_INPUT_BYTE,
                 "scan exponent",
@@ -295,34 +269,6 @@ fn judge_window(
                 "touch constant",
             ),
         };
-        // The capacity-model heap leg: both samples' readings must sit inside
-        // the declared band around the model — over the ceiling is the
-        // regression the model prices, under the floor is a stale model that
-        // must be re-declared against the improved kernel.
-        if c == Currency::Heap && capacity_model {
-            let banded = |sample: &Sample, edge: f64| -> Option<bool> {
-                let reading = (*sample.readings.get(c))? as f64;
-                let model = sample.heap_model?;
-                Some(if edge > 1.0 {
-                    reading > model * edge
-                } else {
-                    reading < model * edge
-                })
-            };
-            if [&s1, &s2]
-                .iter()
-                .any(|s| banded(s, CAPACITY_MODEL_CEILING).is_some_and(|over| over))
-            {
-                red.push("heap capacity-model ceiling");
-            }
-            if [&s1, &s2]
-                .iter()
-                .any(|s| banded(s, CAPACITY_MODEL_FLOOR).is_some_and(|under| under))
-            {
-                red.push("heap capacity-model floor (stale model)");
-            }
-            continue;
-        }
         // A family-stated flat heap ceiling replaces the global heap constant
         // on the cells that declare one; the exponent leg is untouched.
         if c == Currency::Heap {
@@ -350,7 +296,6 @@ fn judge_window(
         let trip = match c {
             Currency::Heap => HEAP_FLOOR_TRIP,
             Currency::Segments => SEG_FLOOR_TRIP,
-            Currency::Limb => LIMB_FLOOR_TRIP,
             Currency::Scan => SCAN_FLOOR_TRIP,
             Currency::Touch => TOUCH_FLOOR_TRIP,
         };

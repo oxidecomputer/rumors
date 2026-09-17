@@ -392,7 +392,7 @@ Every feature is off by default.
   encoding is a prefix of another's — and values therefore compose
   inside larger borsh messages without a length prefix.
 - **`oracle`**, **`meter`** (plus the meter's counter switches
-  `limb-meter` and `scan-meter`), and **`laws`:** expose the crate's own
+  `touch-meter` and `scan-meter`), and **`laws`:** expose the crate's own
   verification instruments (the reference implementation,
   the input generators and resource meters behind the performance tests,
   and the named algebraic-law predicates) to its bench, metering,

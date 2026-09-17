@@ -1,50 +1,14 @@
-//! The worst-case map: the argmax family per operation × currency, folded from
-//! the same judged cells the rendered matrix walks, with a committed ranking
-//! pin.
+//! Ranks the board's input families by measured cost for each operation.
 //!
-//! "Which committed shape is worst for operation X" is a mechanically
-//! re-derivable fact, never a curated list: the map is a pure fold over a
-//! sweep's cell results — the board's own readings, normalized by each cell's
-//! own denominator of record — and the rankings are drift-detected by
-//! [`WORST_RANKINGS`], a tamper-evident pin whose diff a reviewer sees
-//! ([`check_worst_map`](super::shard::check_worst_map)).
+//! The map folds the board's normalized heap, scan, and touch readings. It does
+//! not claim that the measured roster contains every possible worst case;
+//! complexity arguments and focused tests establish that. Stack segments are
+//! excluded because they use an absolute ceiling rather than a per-byte cost.
 //!
-//! # Honest scope
-//!
-//! The map names the **worst instrumented shape**: the maximum over the
-//! committed family roster. The claim that this is the true worst case is
-//! carried by the rustdoc's `# Complexity` sections and the asymptotics
-//! liveness pins, not by this table.
-//!
-//! The ranking pin defends **relative structure**: which family names hold the
-//! argmax within each operation × currency cell. That is the whole of its
-//! jurisdiction. Absolute deterministic counter readings belong to the
-//! envelope tests. A change that moves every family's reading in proportion
-//! leaves this pin green by design because the fact it holds—which shape is
-//! worst—has not moved.
-//!
-//! # The reading and its denominator
-//!
-//! Each cell contributes the board's normalized constant of record at the
-//! cell's larger sample (`Score::per_unit`, exactly the number the matrix
-//! prints): heap bytes net of the flat allowance per denominator byte, limb
-//! ops, scan bits, and touches per denominator byte. The denominator is the
-//! cell's own denominator of record — input, or total I/O where the board
-//! re-denominates (the `cell` module's Denomination rules) — so the map ranks
-//! cost *density*, and a row may mix denominators exactly where the board does.
-//!
-//! Segments is deliberately absent from the map: it is an absolute,
-//! ceiling-only count by policy (the target is walks that never grow the
-//! stack), not a per-byte density a normalized argmax can rank.
-//!
-//! # Ties and near-ties
-//!
-//! Every judged quantity is a deterministic counter, so an exact tie at the top
-//! is a stable fact: the fold records **all** tied families, sorted by name,
-//! and the pin carries the whole set — a tie can never make the pin flappy.
-//! Near-ties are a *reading* hazard, not a pin hazard: a runner-up within
-//! [`NEAR_TIE_RATIO`] is flagged in the rendered table so rank 1 vs rank 2 is
-//! not over-read, but the pin still records the exact argmax.
+//! [`WORST_RANKINGS`] pins the family with the largest reading in each cell.
+//! Exact ties retain every family in name order. The renderer also flags a
+//! runner-up within [`NEAR_TIE_RATIO`] so a small constant difference is not
+//! mistaken for a distinct complexity class.
 
 use std::collections::BTreeSet;
 use std::io::{self, Write};
@@ -76,17 +40,10 @@ pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance",
 /// inside the band is still news worth a look.
 pub const NEAR_TIE_RATIO: f64 = 1.25;
 
-/// The map's currency axis: the four normalized counter columns, in render and
-/// pin order (segments is excluded; the module doc says why).
-const MAP_CURRENCIES: [Currency; 4] = [
-    Currency::Heap,
-    Currency::Limb,
-    Currency::Scan,
-    Currency::Touch,
-];
+/// The normalized measurements ranked by the map, in display order.
+const MAP_CURRENCIES: [Currency; 3] = [Currency::Heap, Currency::Scan, Currency::Touch];
 
-/// One family's candidacy for a row's argmax: its normalized reading and
-/// whether that reading sits under a declared per-cell model.
+/// One family's normalized reading in a map row.
 pub(super) struct Entry {
     /// The family name.
     pub(super) family: &'static str,
@@ -97,13 +54,12 @@ pub(super) struct Entry {
     pub(super) modeled: bool,
 }
 
-/// One operation × currency argmax: the worst set, and the best family
-/// strictly below it.
+/// The highest reading and runner-up for one operation and measurement.
 pub(super) struct CurrencyWorst {
     /// The currency this column ranks.
     pub(super) currency: Currency,
     /// True when the counter is not compiled into this run (the
-    /// feature-gated columns without `limb-meter`/`scan-meter`).
+    /// feature-gated columns without `touch-meter`/`scan-meter`).
     pub(super) off: bool,
     /// Every family at the maximum reading, sorted by name; empty when no
     /// committed shape drives the currency on this row.
@@ -113,7 +69,7 @@ pub(super) struct CurrencyWorst {
     pub(super) runner_up: Option<Entry>,
 }
 
-/// One operation row of the map: the argmax per mapped currency.
+/// One operation's ranked measurements.
 pub(super) struct OpWorst {
     /// The board row's operation name.
     pub(super) op: &'static str,
@@ -121,14 +77,9 @@ pub(super) struct OpWorst {
     pub(super) per_currency: Vec<CurrencyWorst>,
 }
 
-/// The argmax kernel: the worst set and the runner-up from one row's
-/// candidates.
+/// Find the largest nonzero reading and the largest reading below it.
 ///
-/// Zero readings never place (a shape that does none of this work is not a
-/// worst case); an empty result means the currency is dead on the row. Exact
-/// ties — stable facts, since every reading is a deterministic counter over a
-/// fixed denominator — are all recorded, sorted by family name; the runner-up
-/// is the best entry strictly below the maximum, name-order first on a tie.
+/// Exact ties are sorted by family name. An all-zero row has no winner.
 pub(super) fn rank(mut candidates: Vec<Entry>) -> (Vec<Entry>, Option<Entry>) {
     candidates.retain(|e| e.value > 0.0);
     let Some(max) = candidates.iter().map(|e| e.value).max_by(f64::total_cmp) else {
@@ -152,13 +103,11 @@ pub(super) fn rank(mut candidates: Vec<Entry>) -> (Vec<Entry>, Option<Entry>) {
 /// Whether a cell's reading in `currency` is judged under a declared per-cell
 /// model (the `ceilings` module's declared-models section).
 ///
-/// The models by currency: the capacity-chain band and family-stated heap
-/// ceilings on heap and the fold rows' `O(D log k)` model on limb, scan, and
-/// touch.
+/// The models by currency: family-stated heap ceilings on heap and the fold
+/// rows' `O(D log k)` model on scan and touch.
 fn modeled(r: &CellResult, currency: Currency) -> bool {
     match currency {
-        Currency::Heap => r.s2.declared_heap.is_some() || r.s2.heap_model.is_some(),
-        Currency::Limb => r.s2.fold_arity.is_some(),
+        Currency::Heap => r.s2.declared_heap.is_some(),
         Currency::Scan | Currency::Touch => r.s2.fold_arity.is_some(),
         Currency::Segments => false,
     }
@@ -240,7 +189,7 @@ pub(super) fn row(out: &mut dyn Write, op: &str, c: &CurrencyWorst) -> io::Resul
     if c.off {
         return writeln!(
             out,
-            "{lead}  worst off  (counter not compiled into this run: limb-meter/scan-meter)"
+            "{lead}  worst off  (counter not compiled into this run: touch-meter/scan-meter)"
         );
     }
     if c.worst.is_empty() {
@@ -304,8 +253,7 @@ pub(super) fn render_map(
     writeln!(
         out,
         "  reading: the board's normalized constant of record at the cell's larger sample: heap \
-         bytes net of the {HEAP_FLAT_ALLOWANCE_BYTES} B flat allowance per denominator byte, \
-         limb ops per denominator byte (text rows: per radix-work unit R), scan bits and touches \
+         bytes net of the {HEAP_FLAT_ALLOWANCE_BYTES} B flat allowance, scan bits, and touches \
          per denominator byte; the denominator is the cell's own denominator of record (encoded \
          input, or total I/O where the board re-denominates), so readings rank cost density and \
          a row may mix denominators exactly where the board does."
@@ -338,200 +286,160 @@ pub(super) fn render_map(
     )
 }
 
-/// The committed argmax rankings: `(scale, operation, [heap, limb, scan,
-/// touch])`.
+/// Expected winners as `(scale, operation, [heap, scan, touch])`.
 ///
-/// Each column is the worst family set, comma-joined in family-name order, `-`
-/// where no committed shape drives the currency; one entry per operation per
-/// sampling scale, in board row order.
-///
-/// The tamper-evident ranking pin:
-/// [`check_worst_map`](super::shard::check_worst_map) entry-compares the live
-/// fold against this table, so "which committed shape is worst for operation X"
-/// is a drift-detected fact. A ranking flip is news: either a family
-/// legitimately overtook (re-pin deliberately, with the movement annotated in
-/// the re-pinning commit) or a code change made some shape relatively worse
-/// (investigate first). Exact ties are stable deterministic facts and the whole
-/// tied set is pinned, so a tie cannot flap this table.
-///
-/// Pinned from the release-profile fold (the board's profile of record) at both
-/// [`WORST_MAP_SCALES`].
-///
-/// # Reading the map
-///
-/// The rationale for any single entry — why that family maximizes that
-/// operation x currency cell — lives in the commit that pinned the entry; `git
-/// blame` on the row is the lookup. Genre-level regularities hold across the
-/// table:
-///
-/// - **Materialization rows rank by per-byte payload density.** Cells
-///   whose cost is a materialized wide value (decode, merge outputs,
-///   the query settles' aggregate-product buffers) land on the families
-///   that pack the widest magnitude behind the fewest bytes (hugeleaf,
-///   plateau-puncture, wide-arming), and the contests between those
-///   families are hairline near-ties inside the flat-allowance band.
-/// - **Accumulator walks rank by nonzero-delta density.** Comparison and query
-///   walks cost most on streams with many stored deltas per encoded byte.
-/// - **Saturated scans tie exactly.** Whole-stream reads saturate at
-///   8 bits per encoded byte (16 on the two-walk projections), so a
-///   scan argmax among saturated families is a hairline deterministic
-///   constant, and a rejection defect that scans every byte identically
-///   pins the whole tied set.
-/// - **O(1) fast paths unrank their families.** Refcount-bump clones,
-///   owned-subtree splices, and identity projections drop a family's
-///   reading to size-independent machinery, so the argmax lands on the
-///   families the operation still walks — the organic control ranking
-///   first on a cell is the adversaries having been cured, not the
-///   control regressing.
-pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
-    ("default", "version_decode", ["hugeleaf", "freeze-pos", "freeze-pos", "staircase"]),
-    ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),
-    ("default", "version_cmp", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "version_eq", ["-", "-", "-", "-"]),
-    ("default", "version_concurrent", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "version_join", ["hugeleaf", "jump-pair", "mirror-wide", "staircase"]),
-    ("default", "version_join_assign", ["hugeleaf", "jump-pair", "mirror-wide", "staircase"]),
-    ("default", "version_meet", ["hugeleaf", "jump-pair", "weight-comb", "staircase"]),
-    ("default", "version_meet_assign", ["hugeleaf", "jump-pair", "weight-comb", "staircase"]),
-    ("default", "version_span", ["jump-pair", "jump-pair", "jump-pair", "concurrent-pair"]),
-    ("default", "span_encode", ["promo-rearm", "-", "-", "-"]),
-    ("default", "span_decode", ["hugeleaf", "freeze-pos", "weight-comb", "staircase"]),
-    ("default", "version_tick", ["ascend-cliff", "dominated-undercut", "hugeleaf", "mirror-narrow"]),
-    ("default", "version_ticks", ["ascend-cliff", "dominated-undercut", "dominated-undercut", "mirror-narrow"]),
-    ("default", "version_tick_adv_party", ["id-pair", "comb-scatter", "id-pair", "-"]),
-    ("default", "version_rank", ["wide-arming", "wide-arming", "freeze-pos", "harmonic"]),
-    ("default", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
-    ("default", "rank_sum", ["plateau-puncture", "hugeleaf", "-", "freeze-pos"]),
-    ("default", "rank_encode", ["hugeleaf", "concurrent-pair", "-", "-"]),
-    ("default", "rank_decode", ["plateau-puncture", "benign,concurrent-pair", "-", "-"]),
-    ("default", "version_distance", ["wide-arming", "wide-arming", "promo-rearm", "harmonic"]),
-    ("default", "version_lag", ["wide-arming", "wide-arming", "promo-rearm", "harmonic"]),
-    ("default", "ranked_cmp", ["wide-arming", "wide-arming", "promo-rearm", "harmonic"]),
-    ("default", "ranked_encode", ["wide-arming", "wide-arming", "freeze-pos", "harmonic"]),
-    ("default", "ranked_encode_rank", ["wide-arming", "wide-arming", "freeze-pos", "harmonic"]),
-    ("default", "ranked_decode", ["wide-arming", "wide-arming", "dominated-undercut", "staircase"]),
-    ("default", "version_min_ticks", ["ascend-cliff", "staircase", "freeze-pos", "staircase"]),
-    ("default", "version_join_all", ["-", "-", "benign", "stagger"]),
-    ("default", "version_meet_all", ["-", "-", "stagger", "stagger"]),
-    ("default", "version_span_all", ["stagger", "-", "benign", "stagger"]),
-    ("default", "own_version_to_version", ["hugeleaf", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("default", "own_version_cmp", ["hugeleaf", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("default", "own_version_pair_cmp", ["hugeleaf", "jump-pair", "jump-pair", "dense"]),
-    ("default", "version_hash", ["-", "-", "-", "-"]),
-    ("default", "causally_contains", ["hugeleaf", "dense-suffix", "dense-suffix", "ascend-plateau"]),
-    ("default", "span_place", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "span_dominance", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "span_precedence", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "span_contains", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "query_contains", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "query_coverage", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "party_decode", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "party_encode", ["-", "-", "-", "-"]),
-    ("default", "party_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
-    ("default", "party_join", ["id-pair", "-", "benign", "-"]),
-    ("default", "party_join_all", ["-", "-", "stagger", "-"]),
-    ("default", "party_covers", ["-", "-", "id-pair", "-"]),
-    ("default", "party_disjoint", ["-", "-", "id-pair", "-"]),
-    ("default", "party_without", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "party_hash", ["-", "-", "-", "-"]),
-    ("default", "clock_decode", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("default", "clock_encode", ["id-pair", "-", "-", "-"]),
-    ("default", "clock_tick", ["ascend-cliff", "dominated-undercut", "hugeleaf", "mirror-narrow"]),
-    ("default", "clock_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
-    ("default", "clock_join", ["hugeleaf", "jump-pair", "id-pair", "lone-freeze"]),
-    ("default", "clock_sync", ["hugeleaf", "jump-pair", "benign", "lone-freeze"]),
-    ("default", "clock_recv", ["id-pair", "hugeleaf", "hugeleaf", "lone-freeze"]),
-    ("default", "clock_own_version_to_version", ["id-pair", "dominated-undercut", "nested-wide", "staircase"]),
-    ("default", "clock_hash", ["-", "-", "-", "-"]),
-    ("default", "version_decode_truncated", ["wide-arming", "freeze-pos", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
-    ("default", "version_decode_trailing", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "version_decode_noncanon", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("default", "span_decode_truncated", ["wide-arming", "jump-pair", "jump-pair", "staircase"]),
-    ("default", "span_decode_trailing", ["hugeleaf", "freeze-pos", "weight-comb", "staircase"]),
-    ("default", "span_decode_crossed", ["hugeleaf", "freeze-pos", "hugeleaf", "ascend-plateau"]),
-    ("default", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,dominated-undercut,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
-    ("default", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "party_decode_noncanon", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "clock_decode_truncated", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("default", "clock_decode_trailing", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("default", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
-    ("default", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "party_without_none", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "version_decode", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "version_encode", ["promo-rearm", "-", "-", "-"]),
-    ("acceptance", "version_cmp", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "version_eq", ["-", "-", "-", "-"]),
-    ("acceptance", "version_concurrent", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "version_join", ["hugeleaf", "jump-pair", "mirror-wide", "staircase"]),
-    ("acceptance", "version_join_assign", ["hugeleaf", "jump-pair", "mirror-wide", "staircase"]),
-    ("acceptance", "version_meet", ["hugeleaf", "jump-pair", "weight-comb", "staircase"]),
-    ("acceptance", "version_meet_assign", ["hugeleaf", "jump-pair", "weight-comb", "staircase"]),
-    ("acceptance", "version_span", ["jump-pair", "jump-pair", "jump-pair", "concurrent-pair"]),
-    ("acceptance", "span_encode", ["promo-rearm", "-", "-", "-"]),
-    ("acceptance", "span_decode", ["hugeleaf", "freeze-pos", "weight-comb", "staircase"]),
-    ("acceptance", "version_tick", ["ascend-cliff", "dominated-undercut", "hugeleaf", "mirror-narrow"]),
-    ("acceptance", "version_ticks", ["ascend-cliff", "dominated-undercut", "dominated-undercut", "comb-scatter"]),
-    ("acceptance", "version_tick_adv_party", ["id-pair", "comb-scatter", "id-pair", "-"]),
-    ("acceptance", "version_rank", ["wide-arming", "wide-arming", "dense-suffix", "harmonic"]),
-    ("acceptance", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
-    ("acceptance", "rank_sum", ["bigroot", "hugeleaf", "-", "freeze-pos"]),
-    ("acceptance", "rank_encode", ["hugeleaf", "concurrent-pair", "-", "-"]),
-    ("acceptance", "rank_decode", ["bigroot", "concurrent-pair", "-", "-"]),
-    ("acceptance", "version_distance", ["wide-arming", "wide-arming", "dense-suffix", "harmonic"]),
-    ("acceptance", "version_lag", ["wide-arming", "wide-arming", "dense-suffix", "harmonic"]),
-    ("acceptance", "ranked_cmp", ["wide-arming", "wide-arming", "dense-suffix", "harmonic"]),
-    ("acceptance", "ranked_encode", ["wide-arming", "wide-arming", "dense-suffix", "harmonic"]),
-    ("acceptance", "ranked_encode_rank", ["wide-arming", "wide-arming", "dense-suffix", "harmonic"]),
-    ("acceptance", "ranked_decode", ["wide-arming", "wide-arming", "dominated-undercut", "staircase"]),
-    ("acceptance", "version_min_ticks", ["ascend-cliff", "staircase", "dense-suffix", "staircase"]),
-    ("acceptance", "version_join_all", ["weave", "-", "benign", "stagger"]),
-    ("acceptance", "version_meet_all", ["weave", "-", "stagger", "stagger"]),
-    ("acceptance", "version_span_all", ["weave", "-", "benign", "stagger"]),
-    ("acceptance", "own_version_to_version", ["hugeleaf", "freeze-pos", "dense-suffix", "lone-freeze"]),
-    ("acceptance", "own_version_cmp", ["hugeleaf", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("acceptance", "own_version_pair_cmp", ["hugeleaf", "jump-pair", "jump-pair", "dense"]),
-    ("acceptance", "version_hash", ["-", "-", "-", "-"]),
-    ("acceptance", "causally_contains", ["hugeleaf", "dense-suffix", "dense-suffix", "ascend-plateau"]),
-    ("acceptance", "span_place", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "span_dominance", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "span_precedence", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("acceptance", "span_contains", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "query_contains", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "query_coverage", ["hugeleaf", "freeze-pos", "dominated-undercut", "staircase"]),
-    ("acceptance", "party_decode", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "party_encode", ["id-pair", "-", "-", "-"]),
-    ("acceptance", "party_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
-    ("acceptance", "party_join", ["id-pair", "-", "benign", "-"]),
-    ("acceptance", "party_join_all", ["weave", "-", "stagger", "-"]),
-    ("acceptance", "party_covers", ["-", "-", "id-pair", "-"]),
-    ("acceptance", "party_disjoint", ["-", "-", "id-pair", "-"]),
-    ("acceptance", "party_without", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "party_hash", ["-", "-", "-", "-"]),
-    ("acceptance", "clock_decode", ["id-pair", "freeze-pos", "dense-suffix", "lone-freeze"]),
-    ("acceptance", "clock_encode", ["id-pair", "-", "-", "-"]),
-    ("acceptance", "clock_tick", ["ascend-cliff", "dominated-undercut", "hugeleaf", "mirror-narrow"]),
-    ("acceptance", "clock_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
-    ("acceptance", "clock_join", ["hugeleaf", "jump-pair", "id-pair", "lone-freeze"]),
-    ("acceptance", "clock_sync", ["hugeleaf", "jump-pair", "benign", "lone-freeze"]),
-    ("acceptance", "clock_recv", ["id-pair", "hugeleaf", "hugeleaf", "lone-freeze"]),
-    ("acceptance", "clock_own_version_to_version", ["id-pair", "dominated-undercut", "nested-wide", "staircase"]),
-    ("acceptance", "clock_hash", ["-", "-", "-", "-"]),
-    ("acceptance", "version_decode_truncated", ["wide-arming", "freeze-pos", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
-    ("acceptance", "version_decode_trailing", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
-    ("acceptance", "version_decode_noncanon", ["hugeleaf", "freeze-pos", "promo-rearm", "staircase"]),
-    ("acceptance", "span_decode_truncated", ["wide-arming", "jump-pair", "jump-pair", "staircase"]),
-    ("acceptance", "span_decode_trailing", ["hugeleaf", "freeze-pos", "weight-comb", "staircase"]),
-    ("acceptance", "span_decode_crossed", ["hugeleaf", "freeze-pos", "hugeleaf", "ascend-plateau"]),
-    ("acceptance", "party_decode_truncated", ["id-pair", "-", "ascend-cliff,ascend-plateau,benign,comb-scatter,dominated-undercut,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
-    ("acceptance", "party_decode_trailing", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "party_decode_noncanon", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "clock_decode_truncated", ["id-pair", "freeze-pos", "promo-rearm", "lone-freeze"]),
-    ("acceptance", "clock_decode_trailing", ["id-pair", "freeze-pos", "dense-suffix", "lone-freeze"]),
-    ("acceptance", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
-    ("acceptance", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "party_without_none", ["id-pair", "-", "id-pair", "-"]),
+/// Tied family names are comma-separated in name order; `-` means every family
+/// read zero. [`check_worst_map`](super::shard::check_worst_map) compares this
+/// table with fresh release-profile measurements at [`WORST_MAP_SCALES`].
+pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
+    ("default", "version_decode", ["hugeleaf", "freeze-pos", "staircase"]),
+    ("default", "version_encode", ["promo-rearm", "-", "-"]),
+    ("default", "version_cmp", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "version_eq", ["-", "-", "-"]),
+    ("default", "version_concurrent", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "version_join", ["plateau-puncture", "bigroot", "staircase"]),
+    ("default", "version_join_assign", ["plateau-puncture", "bigroot", "staircase"]),
+    ("default", "version_meet", ["hugeleaf", "weight-comb", "staircase"]),
+    ("default", "version_meet_assign", ["hugeleaf", "weight-comb", "staircase"]),
+    ("default", "version_span", ["jump-pair", "jump-pair", "concurrent-pair"]),
+    ("default", "span_encode", ["promo-rearm", "-", "-"]),
+    ("default", "span_decode", ["hugeleaf", "weight-comb", "staircase"]),
+    ("default", "version_tick", ["ascend-cliff", "hugeleaf", "mirror-narrow"]),
+    ("default", "version_ticks", ["ascend-cliff", "dominated-undercut", "mirror-narrow"]),
+    ("default", "version_tick_adv_party", ["id-pair", "id-pair", "-"]),
+    ("default", "version_rank", ["wide-arming", "freeze-pos", "harmonic"]),
+    ("default", "rank_pair_ops", ["hugeleaf", "-", "-"]),
+    ("default", "rank_sum", ["plateau-puncture", "-", "freeze-pos"]),
+    ("default", "rank_encode", ["hugeleaf", "-", "-"]),
+    ("default", "rank_decode", ["plateau-puncture", "-", "-"]),
+    ("default", "version_distance", ["wide-arming", "promo-rearm", "harmonic"]),
+    ("default", "version_lag", ["wide-arming", "promo-rearm", "harmonic"]),
+    ("default", "ranked_cmp", ["wide-arming", "promo-rearm", "harmonic"]),
+    ("default", "ranked_encode", ["wide-arming", "freeze-pos", "harmonic"]),
+    ("default", "ranked_encode_rank", ["wide-arming", "freeze-pos", "harmonic"]),
+    ("default", "ranked_decode", ["wide-arming", "dominated-undercut", "staircase"]),
+    ("default", "version_min_ticks", ["ascend-cliff", "freeze-pos", "staircase"]),
+    ("default", "version_join_all", ["-", "benign", "stagger"]),
+    ("default", "version_meet_all", ["-", "stagger", "stagger"]),
+    ("default", "version_span_all", ["stagger", "benign", "stagger"]),
+    ("default", "own_version_to_version", ["hugeleaf", "comb-scatter", "lone-freeze"]),
+    ("default", "own_version_cmp", ["hugeleaf", "promo-rearm", "lone-freeze"]),
+    ("default", "own_version_pair_cmp", ["hugeleaf", "jump-pair", "dense"]),
+    ("default", "version_hash", ["-", "-", "-"]),
+    ("default", "causally_contains", ["hugeleaf", "dense-suffix", "ascend-plateau"]),
+    ("default", "span_place", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "span_dominance", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "span_precedence", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "span_contains", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "query_contains", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "query_coverage", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "party_decode", ["id-pair", "id-pair", "-"]),
+    ("default", "party_encode", ["-", "-", "-"]),
+    ("default", "party_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
+    ("default", "party_join", ["id-pair", "benign", "-"]),
+    ("default", "party_join_all", ["-", "stagger", "-"]),
+    ("default", "party_covers", ["-", "id-pair", "-"]),
+    ("default", "party_disjoint", ["-", "id-pair", "-"]),
+    ("default", "party_without", ["id-pair", "id-pair", "-"]),
+    ("default", "party_hash", ["-", "-", "-"]),
+    ("default", "clock_decode", ["id-pair", "promo-rearm", "lone-freeze"]),
+    ("default", "clock_encode", ["id-pair", "-", "-"]),
+    ("default", "clock_tick", ["ascend-cliff", "hugeleaf", "mirror-narrow"]),
+    ("default", "clock_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
+    ("default", "clock_join", ["plateau-puncture", "bigroot", "lone-freeze"]),
+    ("default", "clock_sync", ["plateau-puncture", "bigroot", "lone-freeze"]),
+    ("default", "clock_recv", ["id-pair", "hugeleaf", "lone-freeze"]),
+    ("default", "clock_own_version_to_version", ["id-pair", "comb-scatter", "staircase"]),
+    ("default", "clock_hash", ["-", "-", "-"]),
+    ("default", "version_decode_truncated", ["wide-arming", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
+    ("default", "version_decode_trailing", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "version_decode_noncanon", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("default", "span_decode_truncated", ["wide-arming", "jump-pair", "staircase"]),
+    ("default", "span_decode_trailing", ["hugeleaf", "weight-comb", "staircase"]),
+    ("default", "span_decode_crossed", ["hugeleaf", "hugeleaf", "ascend-plateau"]),
+    ("default", "party_decode_truncated", ["id-pair", "ascend-cliff,ascend-plateau,benign,comb-scatter,dominated-undercut,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
+    ("default", "party_decode_trailing", ["id-pair", "id-pair", "-"]),
+    ("default", "party_decode_noncanon", ["id-pair", "id-pair", "-"]),
+    ("default", "clock_decode_truncated", ["id-pair", "promo-rearm", "lone-freeze"]),
+    ("default", "clock_decode_trailing", ["id-pair", "promo-rearm", "lone-freeze"]),
+    ("default", "party_join_overlap", ["id-pair", "mirror-narrow", "-"]),
+    ("default", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
+    ("default", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
+    ("default", "party_without_none", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "version_decode", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "version_encode", ["promo-rearm", "-", "-"]),
+    ("acceptance", "version_cmp", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "version_eq", ["-", "-", "-"]),
+    ("acceptance", "version_concurrent", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "version_join", ["bigroot", "bigroot", "staircase"]),
+    ("acceptance", "version_join_assign", ["bigroot", "bigroot", "staircase"]),
+    ("acceptance", "version_meet", ["hugeleaf", "weight-comb", "staircase"]),
+    ("acceptance", "version_meet_assign", ["hugeleaf", "weight-comb", "staircase"]),
+    ("acceptance", "version_span", ["jump-pair", "jump-pair", "concurrent-pair"]),
+    ("acceptance", "span_encode", ["promo-rearm", "-", "-"]),
+    ("acceptance", "span_decode", ["hugeleaf", "weight-comb", "staircase"]),
+    ("acceptance", "version_tick", ["ascend-cliff", "hugeleaf", "mirror-narrow"]),
+    ("acceptance", "version_ticks", ["ascend-cliff", "dominated-undercut", "comb-scatter"]),
+    ("acceptance", "version_tick_adv_party", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "version_rank", ["wide-arming", "dense-suffix", "harmonic"]),
+    ("acceptance", "rank_pair_ops", ["hugeleaf", "-", "-"]),
+    ("acceptance", "rank_sum", ["bigroot", "-", "freeze-pos"]),
+    ("acceptance", "rank_encode", ["hugeleaf", "-", "-"]),
+    ("acceptance", "rank_decode", ["bigroot", "-", "-"]),
+    ("acceptance", "version_distance", ["wide-arming", "dense-suffix", "harmonic"]),
+    ("acceptance", "version_lag", ["wide-arming", "dense-suffix", "harmonic"]),
+    ("acceptance", "ranked_cmp", ["wide-arming", "dense-suffix", "harmonic"]),
+    ("acceptance", "ranked_encode", ["wide-arming", "dense-suffix", "harmonic"]),
+    ("acceptance", "ranked_encode_rank", ["wide-arming", "dense-suffix", "harmonic"]),
+    ("acceptance", "ranked_decode", ["wide-arming", "dominated-undercut", "staircase"]),
+    ("acceptance", "version_min_ticks", ["ascend-cliff", "dense-suffix", "staircase"]),
+    ("acceptance", "version_join_all", ["weave", "benign", "stagger"]),
+    ("acceptance", "version_meet_all", ["weave", "stagger", "stagger"]),
+    ("acceptance", "version_span_all", ["weave", "benign", "stagger"]),
+    ("acceptance", "own_version_to_version", ["hugeleaf", "comb-scatter", "lone-freeze"]),
+    ("acceptance", "own_version_cmp", ["hugeleaf", "promo-rearm", "lone-freeze"]),
+    ("acceptance", "own_version_pair_cmp", ["hugeleaf", "jump-pair", "dense"]),
+    ("acceptance", "version_hash", ["-", "-", "-"]),
+    ("acceptance", "causally_contains", ["hugeleaf", "dense-suffix", "ascend-plateau"]),
+    ("acceptance", "span_place", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "span_dominance", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "span_precedence", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("acceptance", "span_contains", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "query_contains", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "query_coverage", ["hugeleaf", "dominated-undercut", "staircase"]),
+    ("acceptance", "party_decode", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "party_encode", ["id-pair", "-", "-"]),
+    ("acceptance", "party_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
+    ("acceptance", "party_join", ["id-pair", "benign", "-"]),
+    ("acceptance", "party_join_all", ["weave", "stagger", "-"]),
+    ("acceptance", "party_covers", ["-", "id-pair", "-"]),
+    ("acceptance", "party_disjoint", ["-", "id-pair", "-"]),
+    ("acceptance", "party_without", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "party_hash", ["-", "-", "-"]),
+    ("acceptance", "clock_decode", ["id-pair", "dense-suffix", "lone-freeze"]),
+    ("acceptance", "clock_encode", ["id-pair", "-", "-"]),
+    ("acceptance", "clock_tick", ["ascend-cliff", "hugeleaf", "mirror-narrow"]),
+    ("acceptance", "clock_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
+    ("acceptance", "clock_join", ["bigroot", "bigroot", "lone-freeze"]),
+    ("acceptance", "clock_sync", ["bigroot", "bigroot", "lone-freeze"]),
+    ("acceptance", "clock_recv", ["id-pair", "hugeleaf", "lone-freeze"]),
+    ("acceptance", "clock_own_version_to_version", ["id-pair", "comb-scatter", "staircase"]),
+    ("acceptance", "clock_hash", ["-", "-", "-"]),
+    ("acceptance", "version_decode_truncated", ["wide-arming", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
+    ("acceptance", "version_decode_trailing", ["hugeleaf", "dense-suffix", "staircase"]),
+    ("acceptance", "version_decode_noncanon", ["hugeleaf", "promo-rearm", "staircase"]),
+    ("acceptance", "span_decode_truncated", ["wide-arming", "jump-pair", "staircase"]),
+    ("acceptance", "span_decode_trailing", ["hugeleaf", "weight-comb", "staircase"]),
+    ("acceptance", "span_decode_crossed", ["hugeleaf", "hugeleaf", "ascend-plateau"]),
+    ("acceptance", "party_decode_truncated", ["id-pair", "ascend-cliff,ascend-plateau,benign,comb-scatter,dominated-undercut,id-pair,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
+    ("acceptance", "party_decode_trailing", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "party_decode_noncanon", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "clock_decode_truncated", ["id-pair", "promo-rearm", "lone-freeze"]),
+    ("acceptance", "clock_decode_trailing", ["id-pair", "dense-suffix", "lone-freeze"]),
+    ("acceptance", "party_join_overlap", ["id-pair", "mirror-narrow", "-"]),
+    ("acceptance", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "party_without_none", ["id-pair", "id-pair", "-"]),
 ];
 
 /// Entry-compare the live worst-case fold against the committed ranking pin
@@ -548,7 +456,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
 /// # Panics
 ///
 /// Panics if a mapped counter is not compiled into this run (the pin is stated
-/// over all four currencies, so the check requires the `limb-meter` and
+/// over all three mapped currencies, so the check requires the `touch-meter` and
 /// `scan-meter` features), or if the pin table itself is malformed (duplicate
 /// or unknown scale/operation keys).
 pub(super) fn check_with(
@@ -580,7 +488,7 @@ pub(super) fn check_with(
                 assert!(
                     !c.off,
                     "worst-case pin: the {} counter is not compiled into this run: the check \
-                     needs the limb-meter and scan-meter features",
+                     needs the touch-meter and scan-meter features",
                     c.currency.label()
                 );
                 let live = if c.worst.is_empty() {

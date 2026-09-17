@@ -82,7 +82,7 @@ use crate::meter::registry::{Coverage, FamilyId};
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
 /// so a stale child binary can never be merged as current.
-const PROTOCOL: &str = "amp-board-shard v2";
+const PROTOCOL: &str = "amp-board-shard v3";
 
 /// Runs every shard child at one scale and returns their raw stdout captures in
 /// shard-index order.
@@ -211,9 +211,8 @@ fn emit_sample(out: &mut dyn Write, s: &Sample) -> io::Result<()> {
     )?;
     write!(
         out,
-        "\t{arity}\t{model}\t{declared_heap}",
+        "\t{arity}\t{declared_heap}",
         arity = opt(s.fold_arity),
-        model = opt(s.heap_model.map(bits)),
         declared_heap = opt(s.declared_heap.map(bits)),
     )?;
     for (_, reading) in s.readings.each() {
@@ -306,10 +305,6 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
     let denom_bytes = number(field(fields, line), line);
     let exp_denom_bytes = number(field(fields, line), line);
     let fold_arity = opt_number(field(fields, line), line);
-    let heap_model = {
-        let text = field(fields, line);
-        (text != "-").then(|| from_bits(text, line))
-    };
     let declared_heap = {
         let text = field(fields, line);
         (text != "-").then(|| from_bits(text, line))
@@ -318,7 +313,6 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
     let readings = ByCurrency {
         heap: reading(),
         segments: reading(),
-        limb: reading(),
         scan: reading(),
         touch: reading(),
     };
@@ -326,7 +320,6 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
     let floors = ByCurrency {
         heap: floor(),
         segments: floor(),
-        limb: floor(),
         scan: floor(),
         touch: floor(),
     };
@@ -335,7 +328,6 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
         exp_denom_bytes,
         floors,
         fold_arity,
-        heap_model,
         declared_heap,
         readings,
     }
@@ -612,7 +604,7 @@ pub fn worst_map(
 /// # Panics
 ///
 /// Panics if a mapped counter is not compiled into this run (the pin is stated
-/// over all four currencies, so the check requires the `limb-meter` and
+/// over all three mapped currencies, so the check requires the `touch-meter` and
 /// `scan-meter` features), if the pin table itself is malformed (duplicate or
 /// unknown scale/operation keys), or on any protocol violation in a child
 /// capture.

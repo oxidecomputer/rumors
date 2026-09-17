@@ -5,7 +5,9 @@
 use proptest::prelude::*;
 
 use crate::codec::cursor::Truncated;
-use crate::codec::{self, Base, BitCursor, BitsBuf, SliceCursor};
+use num_bigint::BigUint;
+
+use crate::codec::{self, gamma, BitCursor, BitsBuf, SliceCursor};
 
 use super::DsiCursor;
 
@@ -19,30 +21,28 @@ use super::DsiCursor;
 /// `read_gamma` stops at `u64`.
 #[test]
 fn gamma_reader_matches_decoder_across_the_word_seam() {
-    use num_bigint::BigUint;
-
-    let wide = |p: u32| Base::from(BigUint::ONE << p as usize);
-    let values: Vec<Base> = vec![
-        Base::from(0u64),
-        Base::from(1u64),
-        Base::from(30u64),        // last table-tier value
-        Base::from(31u64),        // first past the 9-bit table
-        Base::from(u64::MAX - 1), // k = 63: the machine-word ceiling
-        Base::from(u64::MAX),     // k = 64: the first big-integer code
-        wide(64),                 // k = 65
-        wide(100),                // far wide
-        Base::from((BigUint::ONE << 100usize) + 12345u32),
+    let wide = |p: u32| BigUint::ONE << p as usize;
+    let values: Vec<BigUint> = vec![
+        BigUint::from(0u64),
+        BigUint::from(1u64),
+        BigUint::from(30u64),        // last table-tier value
+        BigUint::from(31u64),        // first past the 9-bit table
+        BigUint::from(u64::MAX - 1), // k = 63: the machine-word ceiling
+        BigUint::from(u64::MAX),     // k = 64: the first big-integer code
+        wide(64),                    // k = 65
+        wide(100),                   // far wide
+        (BigUint::ONE << 100usize) + 12345u32,
     ];
     for value in &values {
         let mut bits = BitsBuf::new();
-        codec::encode_int(&mut bits, value);
-        let (want, want_end) = codec::decode_int(crate::codec::built_view(&bits), 0)
+        gamma::encode(value, &mut bits);
+        let (want, want_end) = codec::gamma::decode(crate::codec::built_view(&bits), 0)
             .expect("the committed decoder reads its own encoding");
         let mut cursor = DsiCursor::new(crate::codec::built_view(&bits));
         let got = cursor
             .read_int()
             .expect("the word-parallel reader reads the same code");
-        assert_eq!(&got.clone().into_base(), &want, "value diverges at {value}");
+        assert_eq!(&got, &want, "value diverges at {value}");
         assert_eq!(
             cursor.position(),
             want_end,
@@ -74,16 +74,15 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
 #[cfg(feature = "scan-meter")]
 #[test]
 fn skip_int_meters_exactly_the_code_width_read_int_pays() {
-    use num_bigint::BigUint;
     for value in [
-        Base::from(0u64),
-        Base::from(30u64),
-        Base::from(u64::MAX - 1), // k = 63: the machine-word ceiling
-        Base::from(u64::MAX),     // k = 64: the first big-integer code
-        Base::from(BigUint::ONE << 100usize),
+        BigUint::from(0u64),
+        BigUint::from(30u64),
+        BigUint::from(u64::MAX - 1), // k = 63: the machine-word ceiling
+        BigUint::from(u64::MAX),     // k = 64: the first big-integer code
+        BigUint::ONE << 100usize,
     ] {
         let mut bits = BitsBuf::new();
-        codec::encode_int(&mut bits, &value);
+        gamma::encode(&value, &mut bits);
         let mut reader = DsiCursor::new(crate::codec::built_view(&bits));
         crate::meter::reset_scan_bits();
         reader
@@ -113,19 +112,18 @@ fn skip_int_meters_exactly_the_code_width_read_int_pays() {
 /// widths on both sides of the word seam.
 #[test]
 fn truncated_codes_reject_at_every_cut_point() {
-    use num_bigint::BigUint;
     for value in [
-        Base::from(0u64),
-        Base::from(500u64),
-        Base::from(u64::MAX),
-        Base::from(BigUint::ONE << 100usize),
+        BigUint::from(0u64),
+        BigUint::from(500u64),
+        BigUint::from(u64::MAX),
+        BigUint::ONE << 100usize,
     ] {
         let mut bits = BitsBuf::new();
-        codec::encode_int(&mut bits, &value);
+        gamma::encode(&value, &mut bits);
         for cut in 0..bits.len() {
             let prefix = codec::BitsView::new(bits.as_raw_slice(), cut);
             assert!(
-                codec::decode_int(prefix, 0).is_err(),
+                codec::gamma::decode(prefix, 0).is_err(),
                 "the per-bit loop accepts a truncated code at {cut} of {value}"
             );
             let mut cursor = DsiCursor::new(prefix);
@@ -194,7 +192,7 @@ fn mid_stream_opens_read_the_same_suffix() {
         (false, 12),
     ] {
         bits.push(flag);
-        codec::encode_int(&mut bits, &Base::from(value));
+        gamma::encode(&BigUint::from(value), &mut bits);
     }
     for pos in 0..=bits.len() {
         let mut fresh = DsiCursor::new_at(crate::codec::built_view(&bits), pos);
@@ -246,7 +244,7 @@ proptest! {
                 }
                 bits.push(true);
             } else {
-                codec::encode_int(&mut bits, &Base::from(*v));
+                gamma::encode(&BigUint::from(*v), &mut bits);
             }
         }
         let mut dsi = DsiCursor::new(crate::codec::built_view(&bits));

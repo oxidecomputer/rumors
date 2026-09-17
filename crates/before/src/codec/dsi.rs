@@ -20,7 +20,7 @@ use num_bigint::BigUint;
 use crate::error::Decode;
 
 use super::cursor::Truncated;
-use super::{Base, BitCursor, BitsView, Int};
+use super::{BitCursor, BitsView};
 
 /// A word-parallel sequential cursor over a bit view.
 ///
@@ -171,7 +171,7 @@ impl BitCursor for DsiCursor<'_> {
     }
 
     /// Read one Elias-gamma-coded integer: accepting and rejecting on exactly
-    /// the same inputs as [`decode_int_from`](super::decode_int_from), per-bit
+    /// the same inputs as [`gamma::decode_from`](super::gamma::decode_from), per-bit
     /// over this cursor.
     ///
     /// Three tiers, all word-parallel through the buffered reader:
@@ -184,7 +184,7 @@ impl BitCursor for DsiCursor<'_> {
     ///   unusable here because its supported range caps at `u64` while
     ///   this coding has no value cap;
     /// - the big-integer path (`k >= 64`), bit-identical to
-    ///   [`decode_int_from`](super::decode_int_from)'s wide
+    ///   [`gamma::decode_from`](super::gamma::decode_from)'s wide
     ///   fallback: mantissa top bit at `k`, then `k` stream bits filled
     ///   from word chunks.
     ///
@@ -192,13 +192,13 @@ impl BitCursor for DsiCursor<'_> {
     /// prefix always ends inside the stream; the explicit length checks bound
     /// the mantissa, and a stream ending mid-code reads `Truncated` exactly as
     /// the per-bit loop does.
-    fn read_int(&mut self) -> Result<Int, Decode> {
+    fn read_int(&mut self) -> Result<BigUint, Decode> {
         // Table tier: only when the peeked 9 bits are all live.
         if self.len - self.position >= gamma_tables::READ_BITS as u64 {
             if let Some((value, used)) = gamma_tables::read_table_be(&mut self.reader) {
                 super::scan::record_bits(used);
                 self.position += used as u64;
-                return Ok(Int::Small(value));
+                return Ok(BigUint::from(value));
             }
         }
         let k = self.unary_raw().map_err(|_| Decode::Truncated)?;
@@ -220,7 +220,7 @@ impl BitCursor for DsiCursor<'_> {
             let m = (1u64 << k) | rest;
             super::scan::record_bits_u64(code_len);
             self.position += code_len;
-            return Ok(Int::Small(m - 1));
+            return Ok(BigUint::from(m - 1));
         }
         // Wide value: the mantissa's top bit is at position `k`; the next `k`
         // stream bits fill positions `k - 1 ..= 0`, most-significant first,
@@ -241,13 +241,10 @@ impl BitCursor for DsiCursor<'_> {
                 }
             }
         }
-        // One width-proportional record per wide value, exactly as the per-bit
-        // big-integer fallback records.
-        #[cfg(feature = "limb-meter")]
-        super::limb_meter::record_wide(&m);
+        // Record the complete code once, as the per-bit fallback does.
         super::scan::record_bits_u64(code_len);
         self.position += code_len;
-        Ok(Int::from_base(Base::from(m - 1u32)))
+        Ok(m - 1u32)
     }
 }
 

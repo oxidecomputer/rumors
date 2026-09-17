@@ -9,7 +9,7 @@
 //!
 //! Usage: `just amp-board` (release, the profile of record — dev runs are
 //! a debugging view whose readings are never pinned), or directly
-//! `cargo run -p before --example amp_board --features limb-meter,scan-meter
+//! `cargo run -p before --example amp_board --features touch-meter,scan-meter
 //! -- [scale]` where the optional `scale` (a positive number, default 1)
 //! multiplies every input family's base size and renders a single-scale
 //! debugging view whose verdicts never bind. The literal `acceptance`
@@ -22,7 +22,7 @@
 //! ladder exits nonzero, so every gate leg that runs the board of record
 //! consumes it. The default sizes keep the whole board at seconds of
 //! runtime. The counter features are `required-features`: a build
-//! without them would render limb, scan, and touch unjudged while still
+//! without them would render scan and touch unjudged while still
 //! printing verdict colors, so cargo refuses it outright.
 //!
 //! Two further modes consume the same sweep instead of rendering the

@@ -6,36 +6,21 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
-use crate::codec::{Base, Int};
-
-use super::super::signed::{fold_signed_int, Sign, Signed};
 use super::{Close, MinWeb};
+use crate::codec::accumulator;
 
 /// A priced word-scale offset `−n`: an emission `n` below the running height.
-fn below(n: u64) -> Signed {
-    Signed {
-        sign: Sign::Negative,
-        magnitude: Int::Small(n),
-    }
+fn below(n: u64) -> BigInt {
+    BigInt::from_biguint(Sign::Minus, BigUint::from(n))
 }
 
-/// The magnitude `n` spelled wide.
-///
-/// This forces the accumulator's multi-word path even for small values.
-fn wide(n: &BigUint) -> Int {
-    Int::Wide(Base::from(n.clone()))
-}
-
-/// A priced offset `−n` at a wide-spelled magnitude.
-fn below_wide(n: &BigUint) -> Signed {
-    Signed {
-        sign: Sign::Negative,
-        magnitude: wide(n),
-    }
+/// A priced offset `−n` for an arbitrary-width magnitude.
+fn below_magnitude(n: &BigUint) -> BigInt {
+    BigInt::from_biguint(Sign::Minus, n.clone())
 }
 
 /// Collapsing a comparable-scale latent preserves the tracked minimum.
@@ -48,7 +33,7 @@ fn post_collapse_restore_returns_the_priced_fold() {
     web.open(2);
     web.emit_here(); // both ranges arm at v = 0
     web.open(1);
-    web.fold_height(Sign::Positive, &Int::Small(1000)); // h = 1000
+    web.fold_height(&BigInt::from(1000u64)); // h = 1000
     web.emit_here(); // the inner range arms at v = 1000
     web.close(); // parks the popped boundary: Λ = 1000, A = 1000, m = 0
     assert!(web.latent_live(), "the close parks the popped boundary");
@@ -88,10 +73,10 @@ fn dominated_latent_annihilates_into_the_undercut_residue() {
     let mut web: MinWeb<()> = MinWeb::new();
     web.open(2);
     web.emit_here(); // both ranges arm at v = 0
-    web.fold_height(Sign::Positive, &Int::Small(D));
+    web.fold_height(&BigInt::from(D));
     web.open(1);
     web.emit_here(); // the middle range arms at v = D
-    web.fold_height(Sign::Positive, &Int::Small(50)); // h = D + 50
+    web.fold_height(&BigInt::from(50u64)); // h = D + 50
     web.open(1);
     web.emit_here(); // the inner range arms at v = D + 50
     web.close(); // parks Λ = 50: A = D + 50, innermost minimum m = D
@@ -139,11 +124,11 @@ fn a_drop_short_of_the_latent_minimum_refuses_the_undercut() {
     web.open(2);
     web.emit_here(); // both ranges arm at v = 0
     web.open(1);
-    web.fold_height(Sign::Positive, &Int::Small(D)); // h = D
+    web.fold_height(&BigInt::from(D)); // h = D
     web.emit_here(); // the inner range arms at v = D
     web.close(); // parks Λ = D: A = D, m = 0
     assert!(web.latent_live(), "the close parks the popped boundary");
-    web.fold_height(Sign::Negative, &Int::Small(50)); // h = D − 50
+    web.fold_height(&BigInt::from(-50)); // h = D − 50
     web.emit_here(); // v = D − 50: below the anchor, above the minimum
     assert!(
         web.latent_live(),
@@ -173,16 +158,16 @@ fn a_drop_short_of_the_latent_minimum_refuses_the_undercut() {
 /// the expected ordering easy to calculate. Three probes establish the result.
 #[test]
 fn a_spilled_latent_refuses_the_drop_on_the_folded_certificate() {
-    let lambda = BigUint::from(1u8) << 200;
+    let lambda = BigUint::from(1u8) << 200usize;
     let mut web: MinWeb<()> = MinWeb::new();
     web.open(2);
     web.emit_here(); // both ranges arm at v = 0
     web.open(1);
-    web.fold_height(Sign::Positive, &wide(&lambda)); // h = Λ
+    web.fold_height(&BigInt::from(lambda.clone())); // h = Λ
     web.emit_here(); // the inner range arms at v = Λ
     web.close(); // parks Λ = 2^200: A = Λ, m = 0
     assert!(web.latent_live(), "the close parks the popped boundary");
-    web.fold_height(Sign::Negative, &Int::Small(50)); // h = Λ − 50
+    web.fold_height(&BigInt::from(-50)); // h = Λ − 50
     web.emit_here(); // v = Λ − 50: below the anchor, above the minimum
     assert!(
         web.latent_live(),
@@ -190,17 +175,17 @@ fn a_spilled_latent_refuses_the_drop_on_the_folded_certificate() {
     );
     let height = &lambda - BigUint::from(50u8);
     assert_eq!(
-        web.compare_above(&below_wide(&height)),
+        web.compare_above(&below_magnitude(&height)),
         Ordering::Equal,
         "the probe at the true minimum reads exact"
     );
     assert_eq!(
-        web.compare_above(&below_wide(&(&height - BigUint::from(1u8)))),
+        web.compare_above(&below_magnitude(&(&height - BigUint::from(1u8)))),
         Ordering::Greater,
         "a probe above the minimum reads above"
     );
     assert_eq!(
-        web.compare_above(&below_wide(&(&height + BigUint::from(1u8)))),
+        web.compare_above(&below_magnitude(&(&height + BigUint::from(1u8)))),
         Ordering::Less,
         "a probe below the minimum reads below"
     );
@@ -230,22 +215,22 @@ proptest! {
         web.open(1);
         web.emit_here(); // the range arms at v = 0: A = 0, m = 0
         let mut follower = Accumulator::new();
-        fold_signed_int(&mut follower, Sign::Positive, &Int::Small(start));
+        accumulator::fold(&mut follower, &BigUint::from(start), 0, false);
         web.follower_set(SLOT, follower); // a live follower at m − X = start
-        web.fold_height(Sign::Negative, &wide(&drop)); // h = −2^b
+        web.fold_height(&-BigInt::from(drop.clone())); // h = −2^b
         web.emit_offset(&below(k)); // v = −2^b − k: the dominated undercut
         let taken = web.follower_take(SLOT);
         let moved = web.materialize(taken);
         // start − (2^b + k), necessarily negative: the residue dwarfs `start`.
         let residue = &drop + BigUint::from(k);
         prop_assert_eq!(
-            moved.sign,
-            Sign::Negative,
+            moved.sign(),
+            Sign::Minus,
             "the residue leaves the follower below where it stood, never above"
         );
         prop_assert_eq!(
-            moved.magnitude,
-            wide(&(residue - BigUint::from(start))),
+            moved.magnitude(),
+            &(residue - BigUint::from(start)),
             "the follower moved by exactly the residue m − v"
         );
     }
@@ -268,39 +253,39 @@ proptest! {
         web.open(2);
         web.emit_here(); // both ranges arm at v = 0
         web.open(1);
-        web.fold_height(Sign::Positive, &wide(&lambda)); // h = Λ
+        web.fold_height(&BigInt::from(lambda.clone())); // h = Λ
         web.emit_here(); // the inner range arms at v = Λ
         web.close(); // parks Λ: A = Λ, m = 0
         prop_assert!(web.latent_live(), "the close parks the popped boundary");
-        web.fold_height(Sign::Negative, &Int::Small(d)); // h = Λ − d
+        web.fold_height(&-BigInt::from(d)); // h = Λ − d
         web.emit_here(); // v = Λ − d: strictly inside (m, A)
         // The minimum is still 0, whichever arm answered.
         let height = &lambda - BigUint::from(d);
         prop_assert_eq!(
-            web.compare_above(&below_wide(&height)),
+            web.compare_above(&below_magnitude(&height)),
             Ordering::Equal,
             "the probe at the true minimum reads exact"
         );
         prop_assert_eq!(
-            web.compare_above(&below_wide(&(&height - BigUint::from(1u8)))),
+            web.compare_above(&below_magnitude(&(&height - BigUint::from(1u8)))),
             Ordering::Greater,
             "a probe above the minimum reads above"
         );
         prop_assert_eq!(
-            web.compare_above(&below_wide(&(&height + BigUint::from(1u8)))),
+            web.compare_above(&below_magnitude(&(&height + BigUint::from(1u8)))),
             Ordering::Less,
             "a probe below the minimum reads below"
         );
         // The refusal left the web intact: a drop that does pass the minimum
         // still seats it exactly.
-        web.fold_height(Sign::Negative, &wide(&(&height + BigUint::from(1u8)))); // h = −1
+        web.fold_height(&-BigInt::from(&height + BigUint::from(1u8))); // h = −1
         web.emit_here(); // v = −1: past m = 0, a true undercut
         // The undercut runs with the outer range still armed, so it propagates
         // to a live follower. Close the dropped range and read the outer
         // minimum back through the boundary that parked: the value survives
         // only if the follower's residue moved at the right polarity.
         web.close();
-        web.fold_height(Sign::Positive, &Int::Small(100)); // h = 99
+        web.fold_height(&BigInt::from(100u64)); // h = 99
         prop_assert_eq!(
             web.compare_above(&below(100)),
             Ordering::Equal,
@@ -331,7 +316,7 @@ proptest! {
         let mut web: MinWeb<()> = MinWeb::new();
         web.open(1);
         web.emit_here(); // the outer range arms at v = 0
-        web.fold_height(Sign::Positive, &Int::Small(7)); // h = 7
+        web.fold_height(&BigInt::from(7u64)); // h = 7
         web.open(n as u64);
         web.emit_here(); // all n inner ranges arm at v = 7: one boundary, n − 1 zeros
         for i in 0..n {

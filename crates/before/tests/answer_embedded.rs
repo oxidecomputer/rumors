@@ -22,20 +22,15 @@
 //! of the top cell refutes any n x w coupling while tolerating
 //! amortization wobble.
 
-#![cfg(all(feature = "meter", feature = "scan-meter", feature = "limb-meter"))]
+#![cfg(all(feature = "meter", feature = "scan-meter", feature = "touch-meter"))]
 
 use before::{meter, Party, Ticks, Version};
 
-fn counters(f: impl FnOnce()) -> (u64, u64, u64) {
+fn counters(f: impl FnOnce()) -> (u64, u64) {
     meter::reset_scan_bits();
-    meter::reset_limb_ops();
     suanpan::touch_meter::reset();
     f();
-    (
-        meter::scan_bits(),
-        meter::limb_ops(),
-        suanpan::touch_meter::touches(),
-    )
+    (meter::scan_bits(), suanpan::touch_meter::touches())
 }
 
 /// `n` parties tiling the seed's space, by repeated fork.
@@ -99,9 +94,9 @@ fn wl(n: usize, w: usize) -> Version {
     v
 }
 
-/// One grid cell: (scan, limb, touch) for both measure folds plus the
+/// One grid cell: scan and touch counts for both measure folds, plus the
 /// encoded size.
-fn measure(v: &Version) -> ((u64, u64, u64), (u64, u64, u64), usize) {
+fn measure(v: &Version) -> ((u64, u64), (u64, u64), usize) {
     let mt = counters(|| {
         let _ = v.min_ticks();
     });
@@ -145,12 +140,12 @@ fn measure_folds_are_additive_on_wide_base_tiny_tail() {
         );
     }
     for (op, pick) in [("min_ticks", 0usize), ("rank", 1usize)] {
-        for (label, idx) in [("scan", 0usize), ("limb", 1), ("touch", 2)] {
+        for (label, idx) in [("scan", 0usize), ("touch", 1)] {
             let t: Vec<u64> = cells
                 .iter()
                 .map(|c| {
                     let trio = if pick == 0 { c.0 } else { c.1 };
-                    [trio.0, trio.1, trio.2][idx]
+                    [trio.0, trio.1][idx]
                 })
                 .collect();
             assert_no_product("wt", op, label, [t[0], t[1], t[2], t[3]]);
@@ -183,12 +178,12 @@ fn measure_folds_are_flat_per_byte_on_wide_ladder() {
         );
     }
     for (op, pick) in [("min_ticks", 0usize), ("rank", 1usize)] {
-        for (label, idx) in [("scan", 0usize), ("limb", 1), ("touch", 2)] {
+        for (label, idx) in [("scan", 0usize), ("touch", 1)] {
             let per_byte: Vec<f64> = cells
                 .iter()
                 .map(|c| {
                     let trio = if pick == 0 { c.0 } else { c.1 };
-                    [trio.0, trio.1, trio.2][idx] as f64 / c.2 as f64
+                    [trio.0, trio.1][idx] as f64 / c.2 as f64
                 })
                 .collect();
             let base = per_byte[0];

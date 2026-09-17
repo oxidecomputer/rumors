@@ -55,9 +55,9 @@ use std::rc::Rc;
 use rand::Rng;
 use rand_chacha::ChaChaRng;
 
-use crate::codec::Base;
 use crate::oracle;
 use crate::testing::optrace;
+use num_bigint::BigUint;
 
 /// Grid exponent ceiling for the comparison and resolution scans: a scan
 /// samples `2^g` points with `g` the resolution actually in hand
@@ -197,14 +197,14 @@ impl Id {
 /// on its resolution (see [`Id`]).
 #[derive(Clone)]
 pub(crate) struct Event {
-    f: Rc<dyn Fn(Dyadic) -> Base>,
+    f: Rc<dyn Fn(Dyadic) -> BigUint>,
     /// The finest dyadic level at which the function can change value.
     res_ceiling: u32,
 }
 
 impl Event {
     /// Wrap a closure that never changes value below dyadic level `ceiling`.
-    fn new(ceiling: u32, f: impl Fn(Dyadic) -> Base + 'static) -> Event {
+    fn new(ceiling: u32, f: impl Fn(Dyadic) -> BigUint + 'static) -> Event {
         Event {
             f: Rc::new(f),
             res_ceiling: ceiling,
@@ -212,7 +212,7 @@ impl Event {
     }
 
     /// Evaluate `⟦e⟧` at `x`.
-    pub(crate) fn at(&self, x: Dyadic) -> Base {
+    pub(crate) fn at(&self, x: Dyadic) -> BigUint {
         (self.f)(x)
     }
 }
@@ -224,7 +224,7 @@ pub(crate) fn seed_id() -> Id {
 
 /// `⟦Version::new()⟧`: the zero function.
 pub(crate) fn new_ev() -> Event {
-    Event::new(0, |_| Base::ZERO)
+    Event::new(0, |_| BigUint::ZERO)
 }
 
 /// Id union `⟦i1⟧ + ⟦i2⟧` (used by `join`/`sum`; operands must be disjoint for
@@ -251,7 +251,10 @@ pub(crate) fn diff(a: Id, b: Id) -> Id {
 /// The function-space realization of the quotient [`Version / &Party`](crate::Version).
 pub(crate) fn project(e: Event, i: Id) -> Event {
     let ceiling = e.res_ceiling.max(i.res_ceiling);
-    Event::new(ceiling, move |x| if i.at(x) { e.at(x) } else { Base::ZERO })
+    Event::new(
+        ceiling,
+        move |x| if i.at(x) { e.at(x) } else { BigUint::ZERO },
+    )
 }
 
 /// Event least-upper-bound `⟦e1⟧ ⊔ ⟦e2⟧`: pointwise max.
@@ -338,7 +341,7 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut ChaChaRng) -> Event {
     Event::new(ceiling, move |x| {
         let v = e.at(x);
         if i.at(x) {
-            v + Base::from(bump.get(&cell_at(x, level)).copied().unwrap_or(0))
+            v + BigUint::from(bump.get(&cell_at(x, level)).copied().unwrap_or(0))
         } else {
             v
         }
@@ -438,7 +441,7 @@ pub(crate) fn id_res(i: &Id) -> u32 {
 /// The resolution of an event step function (see [`id_res`]).
 pub(crate) fn ev_res(e: &Event) -> u32 {
     let ceiling = e.res_ceiling;
-    let samples: Vec<Base> = (0..(1u64 << ceiling))
+    let samples: Vec<BigUint> = (0..(1u64 << ceiling))
         .map(|k| e.at(Dyadic::center(k, ceiling)))
         .collect();
     resolution(&samples, ceiling)
@@ -493,10 +496,10 @@ fn eval_id(t: &oracle::Party, mut x: Dyadic) -> bool {
     }
 }
 
-fn eval_ev(t: &oracle::Version, mut x: Dyadic) -> Base {
+fn eval_ev(t: &oracle::Version, mut x: Dyadic) -> BigUint {
     use oracle::Version as V;
     let mut node = t;
-    let mut acc = Base::ZERO;
+    let mut acc = BigUint::ZERO;
     loop {
         match node {
             V::Leaf(n) => return acc + n,
@@ -606,14 +609,14 @@ pub(crate) fn disjoint(a: &Id, b: &Id, g: u32) -> bool {
 /// tree — exactly [`oracle::Version::min_ticks`](crate::oracle::Version). `g` must
 /// resolve `e` (every real boundary at level `≤ g`), so each level-`g` cell is a
 /// single constant point.
-pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
-    fn rec(e: &Event, k: u64, level: u32, g: u32, off: &Base) -> Base {
+pub(crate) fn min_ticks(e: &Event, g: u32) -> BigUint {
+    fn rec(e: &Event, k: u64, level: u32, g: u32, off: &BigUint) -> BigUint {
         let span = 1u64 << (g - level);
         let start = k << (g - level);
         // The cell's values relative to the floor already pulled up above it.
         // Every value here is `≥ off` (a containing cell's running minimum), so
-        // the `Base` subtraction never underflows.
-        let vals: Vec<Base> = (start..start + span)
+        // the `BigUint` subtraction never underflows.
+        let vals: Vec<BigUint> = (start..start + span)
             .map(|j| e.at(Dyadic::grid(j, g)) - off)
             .collect();
         let local = vals
@@ -630,7 +633,7 @@ pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
         let r = rec(e, 2 * k + 1, level + 1, g, &off2);
         local + l + r
     }
-    rec(e, 0, 0, g, &Base::ZERO)
+    rec(e, 0, 0, g, &BigUint::ZERO)
 }
 
 /// `rank` recovered from the step function `⟦e⟧`: the plain Riemann sum
@@ -642,7 +645,7 @@ pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
 /// sink): the geometric ground truth for
 /// [`Version::rank`](crate::Version::rank) and the oracle's tree fold.
 pub(crate) fn rank(e: &Event, g: u32) -> crate::Rank {
-    let mut total = Base::ZERO;
+    let mut total = BigUint::ZERO;
     for k in 0..(1u64 << g) {
         total += &e.at(Dyadic::grid(k, g));
     }

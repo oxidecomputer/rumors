@@ -41,14 +41,14 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitCursor, BitStack, BitsView, PopStack};
+use crate::codec::{self, accumulator, gamma, BitCursor, BitStack, BitsView, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
-use super::super::signed::{fold_signed_int, unzigzag, Signed};
 use super::super::walk::{fold_region, net_leaves, skip_leaves, Extremum, LeafWalk};
 use super::super::watermark::MinWeb;
 use super::memo::Memo;
 use super::{DeltaReg, REL_FOLLOWER};
+use num_bigint::{BigInt, Sign};
 
 /// The pre-scan's cursor, web, and recording state (module doc); the `&mut`
 /// [`IdReader`] threads alongside as [`run`](Self::run)'s argument, exactly as
@@ -409,14 +409,14 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// stream's absolute first payload — the one coded as a height — is
     /// behind every scan's entry ([`run`](Self::run)'s doc), so the scan
     /// never reads it.
-    fn payload(&mut self) -> Signed {
+    fn payload(&mut self) -> BigInt {
         let code = self.cursor.read_int().expect("canonical skyline bits");
-        let (sign, magnitude) = unzigzag(code);
-        self.web.fold_height(sign, &magnitude);
+        let delta = gamma::decode_signed(code);
+        self.web.fold_height(&delta);
         if let Some(net) = &mut self.entry_net {
-            fold_signed_int(net, sign, &magnitude);
+            accumulator::fold_signed(net, &delta);
         }
-        Signed { sign, magnitude }
+        delta
     }
 
     /// A virtual emission at the current height.
@@ -427,7 +427,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     }
 
     /// A virtual emission at `h′ + offset`.
-    fn emit_offset(&mut self, offset: &Signed) {
+    fn emit_offset(&mut self, offset: &BigInt) {
         self.seed_relation(Some(offset));
         self.web.emit_offset(offset);
         self.install_relation();
@@ -435,7 +435,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
 
     /// Before the scan's first arming: seed the recording relation `rel = v −
     /// h(scan entry)` from the dying entry net.
-    fn seed_relation(&mut self, offset: Option<&Signed>) {
+    fn seed_relation(&mut self, offset: Option<&BigInt>) {
         if self.web.armed() {
             return;
         }
@@ -444,7 +444,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .take()
             .expect("the entry net lives until the first arming");
         if let Some(offset) = offset {
-            fold_signed_int(&mut relation, offset.sign, &offset.magnitude);
+            accumulator::fold_signed(&mut relation, offset);
         }
         self.pending_relation = Some(relation);
     }
@@ -483,9 +483,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
         // `first: false`: the scan reads only deltas (`payload`'s doc).
         let skip = skip_leaves(&mut walk, &mut self.cursor, false, Some(first_leaf_depth))
             .expect("the descended leaf is pending");
-        self.web.fold_height(skip.net.sign, &skip.net.magnitude);
+        self.web.fold_height(&skip.net);
         if let Some(net) = &mut self.entry_net {
-            fold_signed_int(net, skip.net.sign, &skip.net.magnitude);
+            accumulator::fold_signed(net, &skip.net);
         }
         self.emit_offset(&skip.min_from_exit);
     }
@@ -515,9 +515,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
             return;
         }
         let net = net_leaves(&mut walk, &mut self.cursor);
-        self.web.fold_height(net.sign, &net.magnitude);
+        self.web.fold_height(&net);
         if let Some(entry) = &mut self.entry_net {
-            fold_signed_int(entry, net.sign, &net.magnitude);
+            accumulator::fold_signed(entry, &net);
         }
     }
 
@@ -538,7 +538,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// arm's call sits outside the chain only because that arm is itself
     /// unreachable — a scan entry is never full (its own comment carries the
     /// argument) — so the assertion binds it too.
-    fn max_range(&mut self) -> Signed {
+    fn max_range(&mut self) -> BigInt {
         debug_assert!(
             self.entry_net.is_none(),
             "a completed range emits before any raise scans for its maximum, so the entry net is already retired"
@@ -552,10 +552,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // A tiny range (the first descent's depth routes for free):
             // per-leaf is cheaper than a block summary.
             let step = self.payload();
-            above.fold(step.sign, &step.magnitude);
+            above.fold(&step);
             while walk.descend(&mut self.cursor).is_some() {
                 let step = self.payload();
-                above.fold(step.sign, &step.magnitude);
+                above.fold(&step);
             }
         } else {
             let mut net = Accumulator::new();
@@ -568,12 +568,11 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 &mut above,
                 Some(first_leaf_depth),
             );
-            let (net_sign, net_magnitude) = Base::from_accumulator(&net);
-            let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
-            self.web.fold_height(net.sign, &net.magnitude);
+            let net = accumulator::signed_value(&net);
+            self.web.fold_height(&net);
         }
         let result = self.web.materialize(above.into_offset());
-        debug_assert!(!result.sign.is_negative(), "the fold floors at zero");
+        debug_assert!(result.sign() != Sign::Minus, "the fold floors at zero");
         result
     }
 }

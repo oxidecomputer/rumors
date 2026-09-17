@@ -2,7 +2,7 @@
 
 use std::ops::{BitOr, BitOrAssign};
 
-use crate::codec::Base;
+use num_bigint::BigUint;
 
 use super::{OverlapError, Party, Version};
 
@@ -93,7 +93,7 @@ impl Clock {
     }
 
     pub fn has_seen(&self, msg: &Version) -> bool {
-        msg.leq(&Base::ZERO, &self.version, &Base::ZERO)
+        msg.leq(&BigUint::ZERO, &self.version, &BigUint::ZERO)
     }
 
     pub fn happens_before(&self, other: &Clock) -> bool {

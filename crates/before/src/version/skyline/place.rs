@@ -8,7 +8,7 @@
 //! streams, each decoded once, maintaining one running difference per bound.
 //! The pair-difference algebra is [`overlay`](super::overlay)'s
 //! ([`OpenedPair`](super::overlay::OpenedPair) seeds a difference the same way;
-//! [`fold`] orients every crossing); only the arity and the verdict vocabulary
+//! [`Side::fold`] orients every crossing); only the arity and the verdict vocabulary
 //! are this walk's.
 //!
 //! # The walk
@@ -113,11 +113,12 @@ use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitsView, Int};
+use num_bigint::BigUint;
+
+use crate::codec::{accumulator, BitsView};
 use crate::span::{Dominance, Endpoint, Placement, Precedence};
 
-use super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
-use super::signed::Sign;
+use super::overlay::{advance_set, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::sweep::Directions;
 
 /// A side's disposition when a verdict hook leaves the walk running: keep
@@ -147,11 +148,11 @@ impl<'a> BoundSide<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    fn open(bits: BitsView<'a>, probe_first: &Int) -> BoundSide<'a> {
+    fn open(bits: BitsView<'a>, probe_first: &BigUint) -> BoundSide<'a> {
         let (cursor, first) = LeafCursor::open(bits);
         let mut diff = Accumulator::new();
-        super::signed::fold_signed_int(&mut diff, Sign::Positive, probe_first);
-        super::signed::fold_signed_int(&mut diff, Sign::Negative, &first);
+        accumulator::fold(&mut diff, probe_first, 0, false);
+        accumulator::fold(&mut diff, &first, 0, true);
         BoundSide {
             cursor,
             diff,
@@ -173,7 +174,7 @@ impl<'a> BoundSide<'a> {
     /// difference as the `B` operand; returns the flip level.
     fn step(&mut self) -> u64 {
         let (flip, step) = self.cursor.step();
-        fold(&mut self.diff, Side::B, step.sign, &step.magnitude);
+        Side::B.fold(&mut self.diff, &step);
         flip
     }
 }
@@ -553,7 +554,7 @@ impl CursorSet for Cursors<'_> {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
                 for side in [&mut self.start, &mut self.end].into_iter().flatten() {
-                    fold(&mut side.diff, Side::A, step.sign, &step.magnitude);
+                    Side::A.fold(&mut side.diff, &step);
                 }
                 flip
             }

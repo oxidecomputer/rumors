@@ -12,6 +12,7 @@
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
+use num_bigint::BigUint;
 
 use crate::{
     codec::{self, BitCursor},
@@ -107,7 +108,7 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         self.position
     }
 
-    fn read_int(&mut self) -> Result<codec::Int, Decode> {
+    fn read_int(&mut self) -> Result<BigUint, Decode> {
         // Word fast path over the bytes already read, exactly as
         // `SliceCursor::read_int`: the window's proven bits end at the
         // buffer's end, so it can never consume — or even inspect — a byte
@@ -117,12 +118,12 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         // bits buffered; everything else, every reject included, is decided
         // by the per-bit loop below, refilling byte by byte on demand.
         if let Some((n, next)) =
-            codec::decode_int_window(codec::BitsView::whole(&self.bytes), self.position)
+            codec::gamma::decode_window(codec::BitsView::whole(&self.bytes), self.position)
         {
             self.position = next;
-            return Ok(codec::Int::Small(n));
+            return Ok(BigUint::from(n));
         }
-        codec::decode_int_from(self).map(codec::Int::from_base)
+        codec::gamma::decode_from(self)
     }
 }
 

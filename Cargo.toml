@@ -125,10 +125,10 @@ conformance = []
 fs = ["dep:tempfile"]
 # Lights `before`'s deterministic resource counters for this crate's own
 # metering tests (the branch bound memos' fold-cost comparison). Test-only
-# and off by default, in `before`'s limb-meter idiom: the counters add an
+# and off by default: the counters add an
 # atomic bump per operation, so they stay out of the default test and
 # bench builds and are lit by `--all-features` runs (the gate's test-all).
-meter = ["before/limb-meter", "before/scan-meter"]
+meter = ["before/touch-meter", "before/scan-meter"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }
@@ -191,8 +191,8 @@ debug = "line-tables-only"
 # (the skyline walks and the bignum arithmetic), so optimizing them cuts
 # test execution while leaving every other crate's compile untouched.
 # `debug-assertions` stays on, as the dev profile grants: the envelope
-# suite's limb, scan, and touch pins count work the `debug_assert!`
-# comparisons perform, and those are what `--release` would remove.
+# suite's scan and touch pins count work the `debug_assert!` comparisons
+# perform, and those are what `--release` would remove.
 [profile.dev.package.before]
 opt-level = 2
 

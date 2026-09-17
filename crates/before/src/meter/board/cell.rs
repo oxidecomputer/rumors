@@ -90,24 +90,13 @@ pub(super) struct Cell {
     /// rows only, where it drives the declared fold scan model (the `ceilings`
     /// module's declared-models section).
     pub(super) fold_arity: Option<u64>,
-    /// Whether the heap column is judged against the ratified capacity-chain
-    /// model instead of the flat ceiling.
-    ///
-    /// The output-dominated projection on the comb-scatter cross only;
-    /// [`capacity_chain_peak`](super::ceilings::capacity_chain_peak) carries
-    /// the model.
-    pub(super) capacity_model: bool,
     /// A family-stated flat heap ceiling in bytes per denominator byte, judged
     /// in place of
     /// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::MAX_HEAP_BYTES_PER_INPUT_BYTE)'s.
     ///
-    /// The declared-models mechanism at a flat constant, for the cell classes
-    /// whose honest constant a ratified derivation puts over the global
-    /// allowance (each declaring constant —
-    /// [`ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE),
-    /// [`ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE)
-    /// — carries its derivation). The exponent leg is untouched: the
-    /// declaration buys a constant, never growth.
+    /// The declaring constant carries its derivation. The exponent leg remains
+    /// global, so this can tighten or relax a constant without admitting
+    /// faster growth.
     pub(super) declared_heap: Option<f64>,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]
@@ -143,7 +132,6 @@ impl Cell {
             denom: Denom::Input,
             floors,
             fold_arity: None,
-            capacity_model: false,
             declared_heap: None,
             body: Box::new(move || Box::new(body())),
         }
@@ -154,13 +142,6 @@ impl Cell {
     /// section).
     pub(super) fn with_fold_arity(mut self, arity: u64) -> Cell {
         self.fold_arity = Some(arity);
-        self
-    }
-
-    /// Declare this cell's heap judged against the ratified capacity-chain
-    /// model (the `ceilings` module's declared-models section).
-    pub(super) fn with_capacity_model(mut self) -> Cell {
-        self.capacity_model = true;
         self
     }
 
@@ -185,7 +166,6 @@ impl Cell {
             denom: Denom::Io(IoSpec { output_bytes }),
             floors,
             fold_arity: None,
-            capacity_model: false,
             declared_heap: None,
             body: Box::new(move || Box::new(body())),
         }

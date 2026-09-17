@@ -102,7 +102,7 @@
 //! epoch ledger's one product per freeze at the evicted drift's width — the
 //! `web` submodule certifies every charge (the `skyline_flatness` module's
 //! pure-comb and reveal-comb bands hold the cost of closing revealed ranges
-//! flat in both the touch and limb counters).
+//! flat in the touch counter).
 //!
 //! Projection adds one height materialization per ownership transition, priced
 //! by the code it emits. A leaf's next boundary is derived once and cached, so
@@ -129,15 +129,16 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitsBuf, BitsView, Int};
+use num_bigint::{BigInt, BigUint, Sign};
+
+use crate::codec::{self, accumulator, gamma, BitsBuf, BitsView};
 use crate::Rank;
 
-use self::integral::{int_digits, Integrator, FREEZE_ALLOWANCE_DIGITS};
+use self::integral::{Integrator, FREEZE_ALLOWANCE_DIGITS};
 use super::build::SkylineBuilder;
 use super::overlay::{
-    advance, advance_diff, fold, Crossed, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side,
+    advance, advance_diff, Crossed, IdLeafCursor, LeafCursor, OpenedPair, PlateauCursor, Side,
 };
-use super::signed::{fold_signed, fold_signed_int, gamma_code_int, signed_sum_int, Sign, Signed};
 use super::walk::LeafWalk;
 
 /// The exact causal rank of the version a skyline stream denotes.
@@ -154,7 +155,7 @@ use super::walk::LeafWalk;
 /// Panics if the operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes.
 pub fn rank(bits: BitsView<'_>) -> Rank {
-    let max_depth = max_depth(bits);
+    let max_depth = LeafCursor::max_depth(bits);
     // Depth counts levels of a stream held in memory, so it always fits the u64
     // rank exponent.
     let scale = max_depth;
@@ -163,7 +164,7 @@ pub fn rank(bits: BitsView<'_>) -> Rank {
     // integrand is the height itself, opened at the first leaf's absolute (the
     // plateau anchored at position zero) and folded delta-by-delta thereafter.
     let mut integral = Integrator::new();
-    integral.open(Sign::Positive, &first);
+    integral.open(&BigInt::from(first));
     loop {
         let weight_shift = max_depth - cursor.depth();
         integral.interval(weight_shift);
@@ -171,8 +172,8 @@ pub fn rank(bits: BitsView<'_>) -> Rank {
             break;
         }
         let (_, step) = cursor.step();
-        fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
-        integral.boundary(int_digits(&step.magnitude));
+        Side::A.fold(&mut integral.live, &step);
+        integral.boundary(accumulator::digit_len(step.magnitude()));
     }
     let (sign, numerator) = integral.finish(max_depth);
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
@@ -195,7 +196,7 @@ pub fn rank(bits: BitsView<'_>) -> Rank {
 /// Panics on a non-canonical operand, exactly as [`rank`](fn@rank) does.
 pub fn distance(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
     // `∫ |D|`: σ is `sign(D)` itself, so the integrand `σ·D` is `|D|`.
-    pair_integral(a, b, |sign| match sign {
+    Integrator::pair_rank(a, b, |sign| match sign {
         Ordering::Greater => 1,
         Ordering::Equal => 0,
         Ordering::Less => -1,
@@ -217,7 +218,7 @@ pub fn distance(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
 pub fn lag(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
     // `∫ (−D)⁺`: σ is `−1` exactly where `D < 0`, so the integrand keeps the
     // history `b` records beyond `a` and nothing else.
-    pair_integral(a, b, |sign| match sign {
+    Integrator::pair_rank(a, b, |sign| match sign {
         Ordering::Less => -1,
         _ => 0,
     })
@@ -241,118 +242,101 @@ pub fn lag(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
 pub fn rank_cmp(a: BitsView<'_>, b: BitsView<'_>) -> Ordering {
     // `∫ D`, signed: σ is constantly `+1`, the total is
     // `rank(a) − rank(b)`, and only its sign is kept.
-    pair_fold(a, b, |_| 1).0
+    Integrator::pair(a, b, |_| 1).0
 }
 
-/// Run the nonnegative pair co-sweep and normalize its raw total into a
-/// [`Rank`]: the distance/lag entry into [`pair_fold`].
-fn pair_integral(
-    a_bits: BitsView<'_>,
-    b_bits: BitsView<'_>,
-    orientation: impl Fn(Ordering) -> i8,
-) -> Rank {
-    let (sign, total, scale) = pair_fold(a_bits, b_bits, orientation);
-    debug_assert_ne!(
-        sign,
-        Ordering::Less,
-        "a Rank is nonnegative: a directed measure's integral cannot come out negative"
-    );
-    Rank::from_raw(total, scale)
-}
-
-/// Run the pair co-sweep: one merge walk over both streams, handing back the
-/// raw total as `(sign, magnitude, scale)`.
-///
-/// `orientation` is the integrand family's one degree of freedom (the module
-/// doc's σ table): handed `sign(D)`, it answers the coefficient `σ ∈ {−1, 0,
-/// +1}`, and the walk integrates `σ·D` on the anchored-segment split (the
-/// [`integral`] submodule). The contract is two clauses. σ depends on nothing
-/// but the sign — so σ is constant on intervals of constant `D`-sign, which
-/// is what prices every orientation change at the boundary that moved the
-/// sign. And σ is **monotone non-decreasing in the sign** (every row of the
-/// module doc's table is) — which makes every orientation-change term `(σ′ −
-/// σ) · D′` a debit, the invariant [`Integrator::jump`]'s unconditional add
-/// rests on. Each caller's closure is monomorphized, the
-/// [`super::overlay::advance`] / [`crate::fold::balanced_try_fold`] spelling
-/// for an open algebra over one fixed walk.
-///
-/// # Panics
-///
-/// Panics on a non-canonical operand, exactly as [`rank`](fn@rank) does.
-fn pair_fold(
-    a_bits: BitsView<'_>,
-    b_bits: BitsView<'_>,
-    orientation: impl Fn(Ordering) -> i8,
-) -> (Ordering, Base, u64) {
-    // The overlay's scale: elementary intervals nest inside both operands'
-    // leaves, so the deepest one sits at the deeper operand's maximum depth.
-    // Depth counts levels of streams held in memory, so it always fits the u64
-    // rank exponent.
-    let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
-    let scale = overlay_depth;
-    let OpenedPair {
-        a: mut cursor_a,
-        b: mut cursor_b,
-        mut diff,
-        ..
-    } = OpenedPair::open(a_bits, b_bits);
-    let mut current_orientation = orientation(diff.sign());
-    let mut integral = Integrator::new();
-    if current_orientation != 0 {
-        // The opening plateau: `h* = σ·D`, anchored at position zero and priced
-        // by the two absolute first codes (the sign read above has collapsed
-        // the spelling). Negative exactly when σ and `D` disagree in sign —
-        // never for the directed measures, whose nonzero σ is `D`'s own sign.
-        let (opening_sign, opening) = Base::from_accumulator(&diff);
-        let sign = Sign::from_is_negative(match opening_sign {
-            Ordering::Greater => current_orientation < 0,
-            Ordering::Less => current_orientation > 0,
-            Ordering::Equal => false,
-        });
-        integral.open(sign, &Int::from_base(opening));
+impl Integrator {
+    /// Integrate a nonnegative pair measure and normalize it as a rank.
+    fn pair_rank(
+        a_bits: BitsView<'_>,
+        b_bits: BitsView<'_>,
+        orientation: impl Fn(Ordering) -> i8,
+    ) -> Rank {
+        let (sign, total, scale) = Self::pair(a_bits, b_bits, orientation);
+        debug_assert_ne!(sign, Ordering::Less, "the measure is nonnegative");
+        Rank::from_raw(total, scale)
     }
-    loop {
-        let weight_shift = overlay_depth - cursor_a.depth().max(cursor_b.depth());
-        integral.interval(weight_shift);
-        if cursor_a.done() && cursor_b.done() {
-            break;
-        }
-        let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-        let new_orientation = orientation(diff.sign());
+
+    /// Integrate `orientation(sign(a - b)) * (a - b)` in one overlay walk.
+    ///
+    /// `orientation` must depend only on the sign and be monotone in it. This
+    /// makes every orientation-change term a debit, as [`Self::jump`] requires.
+    fn pair(
+        a_bits: BitsView<'_>,
+        b_bits: BitsView<'_>,
+        orientation: impl Fn(Ordering) -> i8,
+    ) -> (Ordering, BigUint, u64) {
+        // The overlay's scale: elementary intervals nest inside both operands'
+        // leaves, so the deepest one sits at the deeper operand's maximum depth.
+        // Depth counts levels of streams held in memory, so it always fits the u64
+        // rank exponent.
+        let overlay_depth = LeafCursor::max_depth(a_bits).max(LeafCursor::max_depth(b_bits));
+        let scale = overlay_depth;
+        let OpenedPair {
+            a: mut cursor_a,
+            b: mut cursor_b,
+            mut diff,
+            ..
+        } = OpenedPair::open(a_bits, b_bits);
+        let mut current_orientation = orientation(diff.sign());
+        let mut integral = Integrator::new();
         if current_orientation != 0 {
-            // The `σ·dD` term: each side's consumed delta re-folds into the
-            // integrand, oriented by `σ` — a side swap is exactly the negation.
-            for (side, step) in [(Side::A, &step_a), (Side::B, &step_b)] {
-                if let Some(step) = step {
-                    let toward = if current_orientation > 0 {
-                        side
-                    } else {
-                        side.other()
-                    };
-                    fold(&mut integral.live, toward, step.sign, &step.magnitude);
+            // The opening plateau: `h* = σ·D`, anchored at position zero and priced
+            // by the two absolute first codes (the sign read above has collapsed
+            // the spelling). Negative exactly when σ and `D` disagree in sign —
+            // never for the directed measures, whose nonzero σ is `D`'s own sign.
+            let (opening_sign, opening) = accumulator::value(&diff);
+            let negative = match opening_sign {
+                Ordering::Greater => current_orientation < 0,
+                Ordering::Less => current_orientation > 0,
+                Ordering::Equal => false,
+            };
+            let sign = if negative { Sign::Minus } else { Sign::Plus };
+            integral.open(&BigInt::from_biguint(sign, opening));
+        }
+        loop {
+            let weight_shift = overlay_depth - cursor_a.depth().max(cursor_b.depth());
+            integral.interval(weight_shift);
+            if cursor_a.done() && cursor_b.done() {
+                break;
+            }
+            let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
+            let new_orientation = orientation(diff.sign());
+            if current_orientation != 0 {
+                // The `σ·dD` term: each side's consumed delta re-folds into the
+                // integrand, oriented by `σ` — a side swap is exactly the negation.
+                for (side, step) in [(Side::A, &step_a), (Side::B, &step_b)] {
+                    if let Some(step) = step {
+                        let toward = if current_orientation > 0 {
+                            side
+                        } else {
+                            side.other()
+                        };
+                        toward.fold(&mut integral.live, step);
+                    }
                 }
             }
+            if new_orientation != current_orientation {
+                integral.jump(new_orientation - current_orientation, &diff);
+                current_orientation = new_orientation;
+            }
+            // The freeze trigger, relative to this boundary's own codes: the widest
+            // magnitude folded here is what funds the next interval's live add.
+            // The advance law always steps at least one side inside the loop, so
+            // a boundary with no step is programmer error — and a fabricated
+            // funded width would silently misprice the trigger, so the violation
+            // fails loudly instead.
+            let funded = step_a
+                .iter()
+                .chain(step_b.iter())
+                .map(|step| accumulator::digit_len(step.magnitude()))
+                .max()
+                .expect("the advance law steps at least one side per boundary");
+            integral.boundary(funded);
         }
-        if new_orientation != current_orientation {
-            integral.jump(new_orientation - current_orientation, &diff);
-            current_orientation = new_orientation;
-        }
-        // The freeze trigger, relative to this boundary's own codes: the widest
-        // magnitude folded here is what funds the next interval's live add.
-        // The advance law always steps at least one side inside the loop, so
-        // a boundary with no step is programmer error — and a fabricated
-        // funded width would silently misprice the trigger, so the violation
-        // fails loudly instead.
-        let funded = step_a
-            .iter()
-            .chain(step_b.iter())
-            .map(|step| int_digits(&step.magnitude))
-            .max()
-            .expect("the advance law steps at least one side per boundary");
-        integral.boundary(funded);
+        let (sign, total) = integral.finish(overlay_depth);
+        (sign, total, scale)
     }
-    let (sign, total) = integral.finish(overlay_depth);
-    (sign, total, scale)
 }
 
 /// The minimum number of ticks that could have produced the version a skyline
@@ -374,7 +358,7 @@ fn pair_fold(
 ///
 /// Panics if the operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes.
-pub fn min_ticks(bits: BitsView<'_>) -> Base {
+pub fn min_ticks(bits: BitsView<'_>) -> BigUint {
     let (mut cursor, first) = LeafCursor::open(bits);
     // The height split: `h = F + L`, with `L` folding every delta and `F`
     // living entirely in the epoch ledger — one drift per freeze, settled
@@ -384,19 +368,19 @@ pub fn min_ticks(bits: BitsView<'_>) -> Base {
     // The narrow side of the total: `Σ leaf offsets − Σ minima offsets`, every
     // term relative to its own epoch's frozen component.
     let mut total = Accumulator::new();
-    let mut ledger = web::EpochLedger::new(first.into_base());
+    let mut ledger = web::EpochLedger::new(first);
     // The minima side: subtree spans nest LIFO along the sweep, so each closing
     // node's minimum is the innermost open range's — the range-minimum web (the
     // `web` module carries the discipline and the funding argument).
     let mut web = web::ReignWeb::new();
     web.open(cursor.depth());
     ledger.leaf_ref();
-    web.leaf(Sign::Positive, &Base::ZERO, 0, &mut total, &mut ledger);
+    web.leaf(&BigInt::from(0u8), 0, &mut total, &mut ledger);
     while !cursor.done() {
         let depth_before = cursor.depth();
         let (flip, step) = cursor.step();
-        fold(&mut live, Side::A, step.sign, &step.magnitude);
-        web.fold_height(step.sign, &step.magnitude);
+        Side::A.fold(&mut live, &step);
+        web.fold_height(&step);
         // Every popped right-branch level closed one internal node: its subtree
         // minimum folds into the total (a count on the
         // web's reigning record) and merges into its parent.
@@ -408,26 +392,25 @@ pub fn min_ticks(bits: BitsView<'_>) -> Base {
         // The new leaf: a stale-wide live component is evicted first, so the
         // offset entering the total is paid by the codes that built it (the
         // freeze discipline's funding argument).
-        if live.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
+        if live.digit_count() > accumulator::digit_len(step.magnitude()) + FREEZE_ALLOWANCE_DIGITS {
             ledger.freeze(&mut live);
         }
-        let (live_sign, leaf_offset) = Base::from_accumulator(&live);
-        let leaf_sign = Sign::from_is_negative(live_sign == Ordering::Less);
-        fold_signed(&mut total, leaf_sign, &leaf_offset);
+        let (live_sign, leaf_offset) = accumulator::value(&live);
+        let leaf_sign = if live_sign == Ordering::Less {
+            Sign::Minus
+        } else {
+            Sign::Plus
+        };
+        accumulator::fold(&mut total, &leaf_offset, 0, leaf_sign == Sign::Minus);
         ledger.leaf_ref();
-        web.leaf(
-            leaf_sign,
-            &leaf_offset,
-            ledger.epoch(),
-            &mut total,
-            &mut ledger,
-        );
+        let leaf_offset = BigInt::from_biguint(leaf_sign, leaf_offset);
+        web.leaf(&leaf_offset, ledger.epoch(), &mut total, &mut ledger);
     }
     // The final leaf closes every remaining ancestor from the right, then the
     // ledger folds the frozen component's every reference.
     web.drain(&mut total, &mut ledger);
     ledger.settle(&mut total);
-    let (sign, magnitude) = Base::from_accumulator(&total);
+    let (sign, magnitude) = accumulator::value(&total);
     debug_assert_ne!(
         sign,
         Ordering::Less,
@@ -455,7 +438,7 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     let (mut event_cursor, first) = LeafCursor::open(event_bits);
     let mut id_cursor = IdLeafCursor::open(id_bits);
     let mut height = Accumulator::new();
-    fold_signed_int(&mut height, Sign::Positive, &first);
+    accumulator::fold(&mut height, &first, 0, false);
     let mut owned = id_cursor.owned();
     // The normal build pre-sizes to the operands'
     // summed lengths — an estimate, since the projection's output is not
@@ -469,11 +452,10 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     #[cfg(before_alloc_ab = "projection_growth")]
     let capacity = 0;
     let mut out = SkylineBuilder::with_capacity(capacity);
-    let opening = if owned { first } else { Int::ZERO };
-    out.leaf(
-        event_cursor.depth().max(id_cursor.depth()),
-        gamma_code_int(&opening),
-    );
+    let opening = if owned { first } else { BigUint::ZERO };
+    out.leaf(event_cursor.depth().max(id_cursor.depth()), |out| {
+        gamma::encode(&opening, out)
+    });
     while !(event_cursor.done() && id_cursor.done()) {
         // Ownership-gated block: while the region is unowned and the skyline
         // cursor's next flip level sits strictly below the region's depth, the
@@ -494,12 +476,9 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
                 }
                 let (stepped_flip, step) = event_cursor.step();
                 debug_assert_eq!(stepped_flip, flip, "the peeked flip is the step's own");
-                fold(&mut height, Side::A, step.sign, &step.magnitude);
+                Side::A.fold(&mut height, &step);
                 event_cursor.skip_deeper(flip, &mut height);
-                out.leaf(
-                    flip,
-                    super::signed::gamma_code_signed_int(Sign::Positive, &Int::ZERO),
-                );
+                out.leaf(flip, |out| gamma::encode_positive(&BigUint::ZERO, out));
             }
             if event_cursor.done() && id_cursor.done() {
                 break;
@@ -510,48 +489,41 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
         // deltas, each folded into the running height as it is consumed.
         let (ev_step, _) = advance(&mut event_cursor, &mut id_cursor, |crossing| {
             if let Crossed::A(step) = crossing {
-                fold(&mut height, Side::A, step.sign, &step.magnitude);
+                Side::A.fold(&mut height, step);
             }
         });
         let now_owned = id_cursor.owned();
-        let (sign, magnitude) = match (owned, now_owned) {
+        let delta = match (owned, now_owned) {
             // Inside an owned run the output moves with the skyline; a boundary
             // the id alone crossed is a zero delta.
-            (true, true) => match &ev_step {
-                Some(step) => (step.sign, step.magnitude.clone()),
-                None => (Sign::Positive, Int::ZERO),
-            },
-            (false, false) => (Sign::Positive, Int::ZERO),
+            (true, true) => ev_step.unwrap_or_else(|| BigInt::from(0u8)),
+            (false, false) => BigInt::from(0u8),
             // Entering the owned region: the output jumps to the current
             // absolute height.
-            (false, true) => (Sign::Positive, Int::from_base(absolute_height(&mut height))),
+            (false, true) => {
+                height.sign();
+                let height = accumulator::signed_value(&height);
+                debug_assert!(height.sign() != Sign::Minus, "heights are nonnegative");
+                height
+            }
             // Leaving it: the output drops from the height *before* this
             // boundary's fold — the new height minus the folded delta.
             (true, false) => {
-                let now = Int::from_base(absolute_height(&mut height));
-                let before = match &ev_step {
-                    Some(step) => {
-                        signed_sum_int(Sign::Positive, now, step.sign.negate(), &step.magnitude)
-                    }
-                    None => Signed {
-                        sign: Sign::Positive,
-                        magnitude: now,
-                    },
+                height.sign();
+                let now = accumulator::signed_value(&height);
+                debug_assert!(now.sign() != Sign::Minus, "heights are nonnegative");
+                let before = match ev_step {
+                    Some(step) => now - step,
+                    None => now,
                 };
-                debug_assert!(!before.sign.is_negative(), "heights are nonnegative");
-                let sign = if before.magnitude.is_zero() {
-                    Sign::Positive
-                } else {
-                    Sign::Negative
-                };
-                (sign, before.magnitude)
+                debug_assert!(before.sign() != Sign::Minus, "heights are nonnegative");
+                -before
             }
         };
         owned = now_owned;
-        out.leaf(
-            event_cursor.depth().max(id_cursor.depth()),
-            super::signed::gamma_code_signed_int(sign, &magnitude),
-        );
+        out.leaf(event_cursor.depth().max(id_cursor.depth()), |out| {
+            gamma::encode_signed(&delta, out)
+        });
     }
     let bits = out.finish();
     // Benchmark-only alternative: one exact-size
@@ -570,34 +542,24 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     bits
 }
 
-/// The current absolute height, materialized at an ownership transition.
-///
-/// The sign fold's collapse compacts the accumulator first, so the read is
-/// O(the height's own digits) — priced by the transition code the caller emits.
-fn absolute_height(height: &mut Accumulator) -> Base {
-    let sign = height.sign();
-    debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-    let (_, magnitude) = Base::from_accumulator(height);
-    magnitude
-}
-
 /// The maximum leaf depth of a skyline stream: one topology-only pre-scan,
 /// payload codes skipped unread.
 ///
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-fn max_depth(bits: BitsView<'_>) -> u64 {
-    let mut cursor = codec::DsiCursor::new(bits);
-    let mut deepest = 0u64;
-    let mut walk = LeafWalk::new();
-    while let Some(depth) = walk.descend(&mut cursor) {
-        deepest = deepest.max(depth);
-        // `skip_int` records the skipped code's full width itself, so the
-        // pre-scan's payload skips carry exactly one scan record each.
-        cursor.skip_int().expect("canonical skyline bits");
+impl LeafCursor<'_> {
+    /// Find the maximum leaf depth without decoding payloads.
+    fn max_depth(bits: BitsView<'_>) -> u64 {
+        let mut cursor = codec::DsiCursor::new(bits);
+        let mut deepest = 0u64;
+        let mut walk = LeafWalk::new();
+        while let Some(depth) = walk.descend(&mut cursor) {
+            deepest = deepest.max(depth);
+            cursor.skip_int().expect("canonical skyline bits");
+        }
+        deepest
     }
-    deepest
 }
 
 pub(crate) mod integral;

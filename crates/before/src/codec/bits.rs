@@ -185,29 +185,21 @@ impl<'a> BitsView<'a> {
         byte >> (7 - pos % 8) & 1 == 1
     }
 
-    /// The `len <= 64` bits at `start`, right-aligned in the
-    /// result: one gathered big-endian window, no per-bit loop.
-    ///
-    /// # Panics
-    ///
-    /// Debug-asserted: `start + len` must be within the live length (every
-    /// read bit is live, so no masking is needed).
+    /// Load `len <= 64` live bits at `start`, right-aligned in the result.
     pub(crate) fn load_be(&self, start: u64, len: u32) -> u64 {
         debug_assert!(
-            u64::from(len) <= 64 && start + u64::from(len) <= self.live,
+            len <= 64 && start + u64::from(len) <= self.live,
             "loaded range within the view's live length"
         );
         if len == 0 {
             return 0;
         }
-        // Gather the (up to) 9 bytes covering bits `start..start + 64`: 8
-        // whole bytes plus the partial ninth a mid-byte `start` shifts in.
         let byte = (start / 8) as usize;
         let shift = (start % 8) as u32;
         let mut buf = [0u8; 9];
         let end = (byte + buf.len()).min(self.bytes.len());
         buf[..end - byte].copy_from_slice(&self.bytes[byte..end]);
-        let word = u64::from_be_bytes(buf[..8].try_into().expect("buf holds 8 whole bytes"));
+        let word = u64::from_be_bytes(buf[..8].try_into().expect("buffer has eight bytes"));
         let window = if shift == 0 {
             word
         } else {

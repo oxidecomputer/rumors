@@ -16,13 +16,13 @@ use super::{
     descend, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
     lift_ev, lift_id, meet, rank, seed_id, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
 };
-use crate::codec::Base;
 use crate::oracle;
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::MAX_TRACE_OPS;
 use crate::testing::optrace::{world_strategy, Op};
 use crate::Clock;
+use num_bigint::BigUint;
 
 // ───────────────────────────── helpers ─────────────────────────────
 
@@ -318,10 +318,10 @@ fn embedding_matches_known_values() {
         )),
     );
     let f = lift_ev(e);
-    let got: Vec<Base> = (0..8).map(|k| f.at(Dyadic::grid(k, 3))).collect();
-    let want: Vec<Base> = [3u64, 3, 3, 3, 2, 4, 1, 1]
+    let got: Vec<BigUint> = (0..8).map(|k| f.at(Dyadic::grid(k, 3))).collect();
+    let want: Vec<BigUint> = [3u64, 3, 3, 3, 2, 4, 1, 1]
         .into_iter()
-        .map(Base::from)
+        .map(BigUint::from)
         .collect();
     assert_eq!(got, want);
 }
@@ -339,10 +339,10 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
         Arc::new(V::Leaf(9u64.into())),
     ));
     // Two finer-than-needed points inside [0,1/2) agree; two inside [1/2,1) agree.
-    assert_eq!(f.at(Dyadic::grid(1, 4)), Base::from(7u64)); // 1/16
-    assert_eq!(f.at(Dyadic::grid(7, 4)), Base::from(7u64)); // 7/16
-    assert_eq!(f.at(Dyadic::grid(9, 4)), Base::from(9u64)); // 9/16
-    assert_eq!(f.at(Dyadic::grid(15, 4)), Base::from(9u64)); // 15/16
+    assert_eq!(f.at(Dyadic::grid(1, 4)), BigUint::from(7u64)); // 1/16
+    assert_eq!(f.at(Dyadic::grid(7, 4)), BigUint::from(7u64)); // 7/16
+    assert_eq!(f.at(Dyadic::grid(9, 4)), BigUint::from(9u64)); // 9/16
+    assert_eq!(f.at(Dyadic::grid(15, 4)), BigUint::from(9u64)); // 15/16
 }
 
 // ─────────────── deliberately incorrect references ───────────────
@@ -368,7 +368,7 @@ fn right_comb(d: u32) -> oracle::Version {
 /// This deliberately incorrect implementation demonstrates that the rank
 /// differential detects an omitted cell.
 fn riemann_sum_dropping_the_last_cell(e: &Event, g: u32) -> crate::Rank {
-    let mut total = Base::ZERO;
+    let mut total = BigUint::ZERO;
     for k in 0..(1u64 << g) - 1 {
         total += &e.at(Dyadic::grid(k, g));
     }
@@ -407,10 +407,10 @@ fn rank_differential_rejects_a_cell_dropping_riemann_sum() {
 /// This deliberately incorrect implementation demonstrates why fixed samples
 /// complement the pointwise-operation differentials.
 fn mirrored_lift_ev(t: oracle::Version) -> Event {
-    fn eval(t: &oracle::Version, mut x: Dyadic) -> Base {
+    fn eval(t: &oracle::Version, mut x: Dyadic) -> BigUint {
         use oracle::Version as V;
         let mut node = t;
-        let mut acc = Base::ZERO;
+        let mut acc = BigUint::ZERO;
         loop {
             match node {
                 V::Leaf(n) => return acc + n,
@@ -455,10 +455,10 @@ fn worked_value_samples_reject_a_mirrored_embedding() {
         )),
     );
     let f = mirrored_lift_ev(e.clone());
-    let got: Vec<Base> = (0..8).map(|k| f.at(Dyadic::grid(k, 3))).collect();
-    let want: Vec<Base> = [3u64, 3, 3, 3, 2, 4, 1, 1]
+    let got: Vec<BigUint> = (0..8).map(|k| f.at(Dyadic::grid(k, 3))).collect();
+    let want: Vec<BigUint> = [3u64, 3, 3, 3, 2, 4, 1, 1]
         .into_iter()
-        .map(Base::from)
+        .map(BigUint::from)
         .collect();
     assert_ne!(
         got, want,

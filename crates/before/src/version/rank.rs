@@ -137,9 +137,10 @@ use core::ops::{Add, AddAssign};
 use core::str::FromStr;
 use std::io::{self, Write};
 
+use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::codec::Base;
+use crate::codec::accumulator;
 use crate::error::{Decode, ParseRank};
 
 /// The causal rank of a [`Version`](crate::Version) as an exact dyadic
@@ -237,7 +238,7 @@ pub struct Rank {
     /// The numerator. Normalized: odd, or zero with `exp` zero, so each
     /// value has exactly one representation.
     ///
-    num: Base,
+    num: BigUint,
     /// The (binary) exponent of the denominator `2^exp`. Bounded by the
     /// event tree's depth, since each level halves the interval width.
     exp: u64,
@@ -258,7 +259,7 @@ impl Rank {
     /// assert_eq!(seven.rank() + Rank::ZERO, seven.rank());
     /// ```
     pub const ZERO: Rank = Rank {
-        num: Base::ZERO,
+        num: BigUint::ZERO,
         exp: 0,
     };
 
@@ -299,12 +300,12 @@ impl Rank {
             Ordering::Equal => Some(Rank::ZERO),
             Ordering::Greater => {
                 let e = self.exp.max(other.exp);
-                if alignment_fits(self.exp, other.exp, e) {
+                if Self::alignment_fits(self.exp, other.exp, e) {
                     let a = self.num.clone() << (e - self.exp);
                     let b = other.num.clone() << (e - other.exp);
                     return Some(Rank::from_raw(a - &b, e));
                 }
-                let difference = accumulate(self, other, e, true);
+                let difference = self.accumulate(other, e, true);
                 debug_assert!(
                     difference > Rank::ZERO,
                     "the Greater pre-check promises a strictly positive difference"
@@ -391,7 +392,7 @@ impl Rank {
     /// [`Ranked`]: crate::Ranked
     /// [`Version`]: crate::Version
     pub fn encode(&self) -> Vec<u8> {
-        encode_parts(&self.num, self.exp)
+        Self::encode_parts(&self.num, self.exp)
     }
 
     /// Encodes this rank to an arbitrary writer: exactly
@@ -423,7 +424,7 @@ impl Rank {
     /// assert_eq!(buf, rank.encode());
     /// ```
     pub fn encode_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&encode_parts(&self.num, self.exp))
+        writer.write_all(&Self::encode_parts(&self.num, self.exp))
     }
 
     /// Decodes a rank from a reader of canonical [`encode`](Rank::encode)
@@ -476,7 +477,14 @@ impl Rank {
 
     /// Decodes canonical bytes already held in memory.
     pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
-        decode_bytes(bytes)
+        let mut iter = bytes.iter();
+        let rank = Self::decode_stream(|| iter.next().copied().ok_or(Decode::Truncated))?;
+        if iter.next().is_some() {
+            // The caller supplied the whole input, so bytes past the
+            // self-delimited stream are non-minimal packing.
+            return Err(Decode::TrailingBits);
+        }
+        Ok(rank)
     }
 
     /// The rank's value content in bits: `bits(num) + exp`.
@@ -494,14 +502,14 @@ impl Rank {
     /// The stored parts `(numerator, exponent)`.
     ///
     /// The fused encode's hand-off from a rank fold's output to the canonical
-    /// emission ([`encode_parts`]), and the raw normalized form the reference
+    /// emission ([`Self::encode_parts`]), and the raw normalized form the reference
     /// computations and differential oracles re-derive order and arithmetic
     /// from.
     ///
     /// It is **VERY IMPORTANT** that these not be exposed together, with the
     /// `from_raw` constructor, as this creates an affordance for constructing
     /// exponential serialization-size bombs.
-    pub(crate) fn raw_parts(&self) -> (&Base, u64) {
+    pub(crate) fn raw_parts(&self) -> (&BigUint, u64) {
         (&self.num, self.exp)
     }
 
@@ -515,10 +523,10 @@ impl Rank {
     /// It is **VERY IMPORTANT** that these not be exposed, together with the
     /// `raw_parts` destructor, as this creates an affordance for constructing
     /// exponential serialization-size bombs.
-    pub(crate) fn from_raw(num: Base, exp: u64) -> Self {
+    pub(crate) fn from_raw(num: BigUint, exp: u64) -> Self {
         match num.trailing_zeros() {
             None => Rank {
-                num: Base::ZERO,
+                num: BigUint::ZERO,
                 exp: 0,
             },
             Some(tz) => {
@@ -530,111 +538,95 @@ impl Rank {
             }
         }
     }
-}
 
-/// Whether both exponent gaps can be passed to the big-integer shifts.
-fn alignment_fits(a_exp: u64, b_exp: u64, common_exp: u64) -> bool {
-    usize::try_from(common_exp - a_exp).is_ok() && usize::try_from(common_exp - b_exp).is_ok()
-}
+    /// Whether both exponent gaps fit the big-integer shift interface.
+    fn alignment_fits(a_exp: u64, b_exp: u64, common_exp: u64) -> bool {
+        usize::try_from(common_exp - a_exp).is_ok() && usize::try_from(common_exp - b_exp).is_ok()
+    }
 
-/// Combine `lhs ± rhs` at the common exponent `e` through the streaming
-/// accumulator.
-///
-/// The buffer is reserved to the widest aligned operand up front, so the
-/// peak transient is the buffer, not a growth-doubling of it.
-fn accumulate(lhs: &Rank, rhs: &Rank, e: u64, subtract_rhs: bool) -> Rank {
-    let mut acc = Accumulator::new();
-    let aligned_bits = |rank: &Rank| {
-        if rank.num.bits() == 0 {
-            0
-        } else {
-            rank.num.bits().saturating_add(e - rank.exp)
+    /// Combine `self ± rhs` at exponent `exp` through the streaming
+    /// accumulator.
+    ///
+    /// Reserving for the wider aligned operand avoids a transient created by
+    /// growth-doubling the buffer.
+    fn accumulate(&self, rhs: &Rank, exp: u64, subtract_rhs: bool) -> Rank {
+        let mut acc = Accumulator::new();
+        let aligned_bits = |rank: &Rank| {
+            if rank.num.bits() == 0 {
+                0
+            } else {
+                rank.num.bits().saturating_add(exp - rank.exp)
+            }
+        };
+        let widest = aligned_bits(self).max(aligned_bits(rhs)).saturating_add(1);
+        if let Ok(digits) = usize::try_from(widest / 32 + 2) {
+            acc.reserve_digits(digits);
         }
-    };
-    let widest = aligned_bits(lhs).max(aligned_bits(rhs)).saturating_add(1);
-    if let Ok(digits) = usize::try_from(widest / 32 + 2) {
-        acc.reserve_digits(digits);
+        accumulator::fold(&mut acc, &self.num, exp - self.exp, false);
+        accumulator::fold(&mut acc, &rhs.num, exp - rhs.exp, subtract_rhs);
+        let (sign, num) = accumulator::value(&acc);
+        debug_assert_ne!(
+            sign,
+            Ordering::Less,
+            "rank addition and pre-checked subtraction are nonnegative"
+        );
+        Rank::from_raw(num, exp)
     }
-    lhs.num.fold_into(&mut acc, e - lhs.exp, false);
-    rhs.num.fold_into(&mut acc, e - rhs.exp, subtract_rhs);
-    let (sign, num) = Base::from_accumulator(&acc);
-    debug_assert_ne!(
-        sign,
-        Ordering::Less,
-        "rank addition and pre-checked subtraction are nonnegative"
-    );
-    Rank::from_raw(num, e)
-}
 
-/// Emit the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ` (the module doc
-/// carries the format and the order argument).
-///
-/// `pub(crate)` alongside [`Rank::encode`] so the ranked view's fused emission
-/// can emit straight from its rank fold's `(numerator, exponent)` output, with
-/// no walk beyond the fold's own.
-pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
-    // The integral part, biased so zero has a (smallest) codeword:
-    // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1. The shift is total at any
-    // exponent — right shift clamps past the value's width — so
-    // a fraction-heavy rank whose `exp` outruns a 32-bit `usize` (from
-    // ~604 MB of decoded input) floors to zero here exactly as any other
-    // sub-unit value does.
-    let biased = (num.clone() >> exp).plus_one();
-    let w = biased.bits();
-    let rho = u64::from(63 - w.leading_zeros());
-    let groups = exp.div_ceil(FRACTION_GROUP_BITS);
-    let mut sink =
-        BitSink::with_capacity_bits(2 * rho + w + groups * (FRACTION_GROUP_BITS + 1) + 1);
-    // The header: ρ ones, the terminating zero, then w's bits below its
-    // leading bit — the Elias delta length header with the run's bit
-    // sense inverted, so longer (larger) integral parts sort after
-    // shorter ones instead of before.
-    for _ in 0..rho {
-        sink.push(true);
-    }
-    sink.push(false);
-    for i in (0..rho).rev() {
-        sink.push(w >> i & 1 == 1);
-    }
-    // The integral mantissa: m's bits below its leading bit.
-    for i in (0..w - 1).rev() {
-        sink.push(biased.bit(i));
-    }
-    // The fraction: the binary expansion (expansion bit `j`, counting
-    // from the binary point, is the numerator's bit `exp − j`) in
-    // groups of eight, each opened by a set continuation bit, the last
-    // zero-padded; a clear bit closes the stream. Normalization (an odd
-    // numerator whenever exp > 0) puts the expansion's final set
-    // bit inside the last group, which keeps the padding recoverable
-    // and the group order numeric (the module doc's argument).
-    for g in 0..groups {
-        sink.push(true);
-        for j in g * FRACTION_GROUP_BITS + 1..=(g + 1) * FRACTION_GROUP_BITS {
-            sink.push(j <= exp && num.bit(exp - j));
+    /// Emit the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ`.
+    ///
+    /// The ranked view calls this after its fused rank fold, avoiding another
+    /// walk merely to construct a `Rank`.
+    pub(crate) fn encode_parts(num: &BigUint, exp: u64) -> Vec<u8> {
+        // The integral part, biased so zero has a (smallest) codeword:
+        // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1. The shift is total at any
+        // exponent — right shift clamps past the value's width — so
+        // a fraction-heavy rank whose `exp` outruns a 32-bit `usize` (from
+        // ~604 MB of decoded input) floors to zero here exactly as any other
+        // sub-unit value does.
+        let biased = (num.clone() >> exp) + 1u32;
+        let w = biased.bits();
+        let rho = u64::from(63 - w.leading_zeros());
+        let groups = exp.div_ceil(FRACTION_GROUP_BITS);
+        let mut sink =
+            BitSink::with_capacity_bits(2 * rho + w + groups * (FRACTION_GROUP_BITS + 1) + 1);
+        // The header: ρ ones, the terminating zero, then w's bits below its
+        // leading bit — the Elias delta length header with the run's bit
+        // sense inverted, so longer (larger) integral parts sort after
+        // shorter ones instead of before.
+        for _ in 0..rho {
+            sink.push(true);
         }
+        sink.push(false);
+        for i in (0..rho).rev() {
+            sink.push(w >> i & 1 == 1);
+        }
+        // The integral mantissa: m's bits below its leading bit.
+        for i in (0..w - 1).rev() {
+            sink.push(biased.bit(i));
+        }
+        // The fraction: the binary expansion (expansion bit `j`, counting
+        // from the binary point, is the numerator's bit `exp − j`) in
+        // groups of eight, each opened by a set continuation bit, the last
+        // zero-padded; a clear bit closes the stream. Normalization (an odd
+        // numerator whenever exp > 0) puts the expansion's final set
+        // bit inside the last group, which keeps the padding recoverable
+        // and the group order numeric (the module doc's argument).
+        for g in 0..groups {
+            sink.push(true);
+            for j in g * FRACTION_GROUP_BITS + 1..=(g + 1) * FRACTION_GROUP_BITS {
+                sink.push(j <= exp && num.bit(exp - j));
+            }
+        }
+        sink.push(false);
+        sink.into_bytes()
     }
-    sink.push(false);
-    sink.into_bytes()
 }
 
 /// The width of one fraction group: the expansion rides in byte-sized groups,
 /// each opened by a continuation bit, so the fraction costs nine bits per eight
 /// expansion bits plus the one closing bit.
 const FRACTION_GROUP_BITS: u64 = 8;
-
-/// Parse one canonical stream from the whole input (strictly:
-/// [`Rank::decode`]'s contract): the stream itself, then padding to the byte
-/// boundary and not a byte more.
-fn decode_bytes(bytes: &[u8]) -> Result<Rank, Decode> {
-    let mut iter = bytes.iter();
-    let rank = decode_stream(|| iter.next().copied().ok_or(Decode::Truncated))?;
-    if iter.next().is_some() {
-        // `decode` handed over the whole input, so bytes past the
-        // self-delimited stream are non-minimal packing.
-        return Err(Decode::TrailingBits);
-    }
-    Ok(rank)
-}
 
 /// A byte-at-a-time source dressed as an MSB-first bit reader: one byte
 /// buffered, refilled strictly on demand.
@@ -657,110 +649,109 @@ impl<F: FnMut() -> Result<u8, Decode>> BitSource<F> {
     }
 }
 
-/// Parse one canonical stream from a byte-at-a-time source, consuming exactly
-/// the bytes the stream spans.
-///
-/// The stream is self-delimiting (the fraction's close bit), so the parse never
-/// asks for a byte past the one holding the close bit — which is what lets a
-/// rank compose inside a larger stream (the `borsh` boundary): the bytes after
-/// it belong to the next field. Every allocation is fed by bits actually read,
-/// never by a width a header merely claims, so no small input can provoke a
-/// large buffer. Strictness is [`Rank::decode`]'s except whole-input minimality
-/// — a caller that owns the input's end rejects leftover bytes itself
-/// ([`decode_bytes`]).
-pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Result<Rank, Decode> {
-    let mut src = BitSource {
-        next_byte,
-        current: 0,
-        used: 8,
-    };
-    // The header's unary run: ρ ones ended by a zero.
-    let mut rho = 0u64;
-    while src.bit()? {
-        rho += 1;
-    }
-    if rho >= 64 {
-        // The format bound: an integral width of 2⁶⁴ or more bits exceeds both
-        // the numerator this crate can hold and any input under 2 EiB (the
-        // mantissa alone would need 2⁶⁴ − 1 bits).
-        return Err(Decode::NotCanonical);
-    }
-    // w's bits below its (implied) leading bit: ρ of them, so w < 2⁶⁴.
-    let mut w = 1u64;
-    for _ in 0..rho {
-        w = w << 1 | u64::from(src.bit()?);
-    }
-    // The biased integral m: its implied leading bit, then w − 1 stream bits,
-    // sunk MSB-first and unbiased at materialization.
-    let mut mantissa = BitSink::new();
-    mantissa.push(true);
-    for _ in 0..w - 1 {
-        mantissa.push(src.bit()?);
-    }
-    let integral = mantissa.into_num().minus_one();
-    // The fraction's groups, each opened by a set continuation bit; the
-    // stream's one clear closing bit ends the loop. Group bytes stay plain
-    // `u8`s until the single width-metered materialization below.
-    let mut groups: Vec<u8> = Vec::new();
-    loop {
-        if !src.bit()? {
-            break;
+impl Rank {
+    /// Parse one canonical stream from a byte source, consuming exactly the
+    /// bytes the stream spans.
+    ///
+    /// The closing bit makes the stream self-delimiting, so this never asks
+    /// for a byte belonging to a following field. Allocations grow only from
+    /// bits already read, never from a claimed width.
+    pub(crate) fn decode_stream(
+        next_byte: impl FnMut() -> Result<u8, Decode>,
+    ) -> Result<Rank, Decode> {
+        let mut src = BitSource {
+            next_byte,
+            current: 0,
+            used: 8,
+        };
+        // The header's unary run: ρ ones ended by a zero.
+        let mut rho = 0u64;
+        while src.bit()? {
+            rho += 1;
         }
-        let mut group = 0u8;
-        for _ in 0..FRACTION_GROUP_BITS {
-            group = group << 1 | u8::from(src.bit()?);
+        if rho >= 64 {
+            // The format bound: an integral width of 2⁶⁴ or more bits exceeds
+            // both the numerator this crate can hold and any input under 2 EiB
+            // (the mantissa alone would need 2⁶⁴ − 1 bits).
+            return Err(Decode::NotCanonical);
         }
-        groups.push(group);
-    }
-    // Strict minimal packing within the final byte: the bits after the close
-    // bit are padding and must be zero.
-    if src.used < 8 && src.current & (0xFF >> src.used) != 0 {
-        return Err(Decode::TrailingBits);
-    }
-    // The final group carries the expansion's last set bit (normalization: the
-    // expansion never ends in zero), so an all-zero final group is pure padding
-    // — non-minimal packing — and its trailing zeros locate the fraction's true
-    // depth.
-    let (frac_len, pad) = match groups.last() {
-        None => (0, 0),
-        Some(0) => return Err(Decode::TrailingBits),
-        Some(&last) => {
-            let pad = last.trailing_zeros();
-            (
-                groups.len() as u64 * FRACTION_GROUP_BITS - u64::from(pad),
-                pad,
-            )
+        // w's bits below its (implied) leading bit: ρ of them, so w < 2⁶⁴.
+        let mut w = 1u64;
+        for _ in 0..rho {
+            w = w << 1 | u64::from(src.bit()?);
         }
-    };
-    // The fraction's depth needs no bound of its own: every expansion bit was
-    // read from the stream, so `frac_len` never exceeds the input's own bit
-    // count and always fits the u64 exponent — an input long enough to overflow
-    // it cannot be allocated.
-    let exp = frac_len;
-    let num = if frac_len == 0 {
-        integral
-    } else {
-        // The numerator by byte assembly, never by a value-width shift:
-        // `num · 2^pad = integral · 2^(8·groups) + G` with `G` the groups'
-        // big-endian value, and the `pad` low bits shifted out are exactly
-        // the final group's trailing zeros — so `num` is the concatenated
-        // image's value shifted right by the sub-byte pad. The
-        // `integral << exp` spelling is not available at every scale this
-        // decoder accepts: on a 32-bit target `exp` outruns `usize` from
-        // ~604 MB of input. Leading zero bytes are stripped before
-        // materializing so the allocation reflects the value rather than
-        // zero padding in its byte image.
-        let mut image = integral.to_be_bytes();
-        image.extend_from_slice(&groups);
-        drop(groups);
-        let lead = image.iter().take_while(|&&byte| byte == 0).count();
-        Base::materialize_be(&image[lead..], pad)
-    };
-    debug_assert!(
-        exp == 0 || num.bit(0),
-        "a nonempty fraction ends in its last set bit, so the numerator is odd"
-    );
-    Ok(Rank { num, exp })
+        // The biased integral m: its implied leading bit, then w − 1 stream
+        // bits, sunk MSB-first and unbiased at materialization.
+        let mut mantissa = BitSink::new();
+        mantissa.push(true);
+        for _ in 0..w - 1 {
+            mantissa.push(src.bit()?);
+        }
+        let integral = mantissa.into_num() - 1u32;
+        // The fraction's groups, each opened by a set continuation bit; the
+        // stream's one clear closing bit ends the loop. Group bytes stay plain
+        // `u8`s until the single `BigUint` materialization below.
+        let mut groups: Vec<u8> = Vec::new();
+        loop {
+            if !src.bit()? {
+                break;
+            }
+            let mut group = 0u8;
+            for _ in 0..FRACTION_GROUP_BITS {
+                group = group << 1 | u8::from(src.bit()?);
+            }
+            groups.push(group);
+        }
+        // Strict minimal packing within the final byte: the bits after the close
+        // bit are padding and must be zero.
+        if src.used < 8 && src.current & (0xFF >> src.used) != 0 {
+            return Err(Decode::TrailingBits);
+        }
+        // The final group carries the expansion's last set bit (normalization:
+        // the expansion never ends in zero), so an all-zero final group is pure
+        // padding — non-minimal packing — and its trailing zeros locate the
+        // fraction's true depth.
+        let (frac_len, pad) = match groups.last() {
+            None => (0, 0),
+            Some(0) => return Err(Decode::TrailingBits),
+            Some(&last) => {
+                let pad = last.trailing_zeros();
+                (
+                    groups.len() as u64 * FRACTION_GROUP_BITS - u64::from(pad),
+                    pad,
+                )
+            }
+        };
+        // The fraction's depth needs no bound of its own: every expansion bit
+        // was read from the stream, so `frac_len` never exceeds the input's own
+        // bit count and always fits the u64 exponent — an input long enough to
+        // overflow it cannot be allocated.
+        let exp = frac_len;
+        let num = if frac_len == 0 {
+            integral
+        } else {
+            // The numerator by byte assembly, never by a value-width shift:
+            // `num · 2^pad = integral · 2^(8·groups) + G` with `G` the groups'
+            // big-endian value, and the `pad` low bits shifted out are exactly
+            // the final group's trailing zeros — so `num` is the concatenated
+            // image's value shifted right by the sub-byte pad. The
+            // `integral << exp` spelling is not available at every scale this
+            // decoder accepts: on a 32-bit target `exp` outruns `usize` from
+            // ~604 MB of input. Leading zero bytes are stripped before
+            // materializing so the allocation reflects the value rather than
+            // zero padding in its byte image.
+            let mut image = integral.to_bytes_be();
+            image.extend_from_slice(&groups);
+            drop(groups);
+            let lead = image.iter().take_while(|&&byte| byte == 0).count();
+            BigUint::from_bytes_be(&image[lead..]) >> pad
+        };
+        debug_assert!(
+            exp == 0 || num.bit(0),
+            "a nonempty fraction ends in its last set bit, so the numerator is odd"
+        );
+        Ok(Rank { num, exp })
+    }
 }
 
 /// An MSB-first bit sink packing into bytes, the final byte zero-padded.
@@ -805,15 +796,43 @@ impl BitSink {
     /// The pushed bits as a magnitude, MSB-first.
     ///
     /// The final byte's zero padding is stripped by one shift, and the
-    /// materialization rides the width-metered assembly
-    /// ([`Base::materialize_be`]).
+    /// materialization does not require an aligned copy.
     ///
     /// The caller's first pushed bit is set (the mantissa's implied
     /// leading one), which is the materialization's no-leading-zero-byte
     /// contract.
-    fn into_num(self) -> Base {
+    fn into_num(self) -> BigUint {
         let pad = if self.used == 0 { 0 } else { 8 - self.used };
-        Base::materialize_be(&self.bytes, u32::from(pad))
+        BigUint::from_bytes_be(&self.bytes) >> u32::from(pad)
+    }
+}
+
+impl Rank {
+    /// The power-of-two range containing this rank; zero has no range.
+    fn magnitude_class(&self) -> Option<i128> {
+        (self.num.bits() != 0).then(|| i128::from(self.num.bits()) - i128::from(self.exp))
+    }
+
+    /// Stream the numerator's binary spelling in left-aligned words.
+    ///
+    /// Lexicographic iterator order is bit-string order, without materializing
+    /// a shifted integer.
+    fn aligned_words(&self) -> impl Iterator<Item = u64> + '_ {
+        let shift = ((64 - self.num.bits() % 64) % 64) as u32;
+        let mut words = self.num.iter_u64_digits().rev();
+        let mut current = words.next();
+        let mut next = words.next();
+        std::iter::from_fn(move || {
+            let word = current?;
+            let aligned = if shift == 0 {
+                word
+            } else {
+                (word << shift) | (next.unwrap_or(0) >> (64 - shift))
+            };
+            current = next;
+            next = words.next();
+            Some(aligned)
+        })
     }
 }
 
@@ -827,28 +846,12 @@ impl BitSink {
 #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(‖self‖ + ‖other‖)`")]
 impl Ord for Rank {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so unequal
-        // classes order the values in O(1) — value ranges `[2^(c−1), 2^c)` at
-        // distinct `c` never overlap. A class tie means the two numerators' bit
-        // strings are already MSB-aligned as binary fractions, and the streamed
-        // window comparison settles them without materializing an alignment
-        // shift; its longer-string-wins tail rule is sound because
-        // normalization keeps numerators odd (the longer string ends in a set
-        // bit). The order is exact at any magnitude — a false tie here would
-        // let a consumer deliver an effect before its cause. Zero (the one
-        // even-numerator form, pinned to exponent zero) is settled before
-        // classes: its class value would collide with genuine `(0, 1]`-range
-        // ranks.
-        match (self.num.bits() == 0, other.num.bits() == 0) {
-            (true, true) => return Ordering::Equal,
-            (true, false) => return Ordering::Less,
-            (false, true) => return Ordering::Greater,
-            (false, false) => {}
-        }
-        let class = |r: &Rank| i128::from(r.num.bits()) - i128::from(r.exp);
-        class(self)
-            .cmp(&class(other))
-            .then_with(|| Base::msb_cmp(&self.num, &other.num))
+        // The class orders disjoint power-of-two ranges, with zero first.
+        // Within one class, aligned numerator words are the exact binary
+        // fractions in lexicographic order.
+        self.magnitude_class()
+            .cmp(&other.magnitude_class())
+            .then_with(|| self.aligned_words().cmp(other.aligned_words()))
     }
 }
 
@@ -864,7 +867,7 @@ impl PartialOrd for Rank {
 // join takes a pointwise maximum, whereas this adds areas — but the two meet in
 // the valuation law `rank(a | b) + rank(a & b) == rank(a) + rank(b)`, which is
 // what makes [`Version::distance`](crate::Version::distance) a metric. The four
-// reference forms mirror [`Base`]'s own `Add` matrix so callers need not place
+// reference forms mirror [`BigUint`]'s own `Add` matrix so callers need not place
 // borrows by hand.
 
 /// Adds two ranks.
@@ -887,12 +890,12 @@ impl Add<&Rank> for &Rank {
         // Shift and add directly when both exponent gaps fit `usize`. The
         // accumulator handles larger gaps without narrowing the exponent.
         let e = self.exp.max(rhs.exp);
-        if alignment_fits(self.exp, rhs.exp, e) {
+        if Rank::alignment_fits(self.exp, rhs.exp, e) {
             let a = self.num.clone() << (e - self.exp);
             let b = rhs.num.clone() << (e - rhs.exp);
             return Rank::from_raw(a + &b, e);
         }
-        accumulate(self, rhs, e, false)
+        self.accumulate(rhs, e, false)
     }
 }
 
@@ -932,14 +935,14 @@ impl AddAssign<Rank> for Rank {
 /// The empty sum is [`Rank::ZERO`], the additive identity.
 impl Sum<Rank> for Rank {
     fn sum<I: Iterator<Item = Rank>>(iter: I) -> Rank {
-        sum_ranks(iter)
+        Rank::sum_iter(iter)
     }
 }
 
 /// The empty sum is [`Rank::ZERO`], the additive identity.
 impl<'a> Sum<&'a Rank> for Rank {
     fn sum<I: Iterator<Item = &'a Rank>>(iter: I) -> Rank {
-        sum_ranks(iter)
+        Rank::sum_iter(iter)
     }
 }
 
@@ -954,33 +957,35 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// high-exponent summand costs its own width once instead of once per later
 /// element, and the result is the identical [`Rank`] the pairwise fold produces
 /// (one exact value, one shared normalization at the end).
-fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
-    // The accumulator's shifted entry points document a panic at digit
-    // positions past `usize` (`shift / 32 > usize::MAX`, so from
-    // `shift = 2^37` on a 32-bit target). The exponent gaps fed here stay
-    // orders of magnitude below it on any addressable input: a decoded
-    // rank's exponent is counted from fraction bits actually read — under
-    // 2^35 even if a whole 32-bit address space were one fraction — and a
-    // version-derived exponent is bounded by its tree's stored bit length
-    // (under 2^32, the storage bound), so the documented panic is
-    // unreachable from this fold.
-    let mut acc = Accumulator::new();
-    let mut exp = 0u64;
-    for rank in iter {
-        let rank = rank.borrow();
-        if rank.exp > exp {
-            acc.shl(rank.exp - exp);
-            exp = rank.exp;
+impl Rank {
+    fn sum_iter<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
+        // The accumulator's shifted entry points document a panic at digit
+        // positions past `usize` (`shift / 32 > usize::MAX`, so from
+        // `shift = 2^37` on a 32-bit target). The exponent gaps fed here stay
+        // orders of magnitude below it on any addressable input: a decoded
+        // rank's exponent is counted from fraction bits actually read — under
+        // 2^35 even if a whole 32-bit address space were one fraction — and a
+        // version-derived exponent is bounded by its tree's stored bit length
+        // (under 2^32, the storage bound), so the documented panic is
+        // unreachable from this fold.
+        let mut acc = Accumulator::new();
+        let mut exp = 0u64;
+        for rank in iter {
+            let rank = rank.borrow();
+            if rank.exp > exp {
+                acc.shl(rank.exp - exp);
+                exp = rank.exp;
+            }
+            accumulator::fold(&mut acc, &rank.num, exp - rank.exp, false);
         }
-        rank.num.fold_into(&mut acc, exp - rank.exp, false);
+        let (sign, num) = accumulator::value(&acc);
+        debug_assert_ne!(
+            sign,
+            Ordering::Less,
+            "a sum of nonnegative ranks is nonnegative"
+        );
+        Rank::from_raw(num, exp)
     }
-    let (sign, num) = Base::from_accumulator(&acc);
-    debug_assert_ne!(
-        sign,
-        Ordering::Less,
-        "a sum of nonnegative ranks is nonnegative"
-    );
-    Rank::from_raw(num, exp)
 }
 
 /// [`Rank::ZERO`], the additive identity.
@@ -1106,23 +1111,23 @@ impl FromStr for Rank {
         let fraction = fraction.unwrap_or_default();
         let exponent = u64::try_from(fraction.len()).map_err(|_| ParseRank)?;
         let digit_count = integer.len() + fraction.len();
-        let bits_per_limb = u64::BITS as usize;
-        let mut limbs = vec![0u64; digit_count.div_ceil(bits_per_limb)];
+        let bits_per_digit = u32::BITS as usize;
+        let mut digits = vec![0u32; digit_count.div_ceil(bits_per_digit)];
 
-        // Text is most-significant-bit first, while `Base` takes
-        // little-endian `u64` limbs. The rightmost digit is therefore bit zero
-        // regardless of where the point appeared.
+        // Text is most-significant-bit first, while `BigUint::new` takes
+        // little-endian base-2^32 digits. The rightmost text digit is therefore
+        // bit zero regardless of where the point appeared.
         for (offset, digit) in integer.iter().chain(fraction).enumerate() {
             if *digit == b'1' {
                 let position = digit_count - offset - 1;
-                let limb = position / bits_per_limb;
-                let bit = position % bits_per_limb;
-                limbs[limb] |= 1u64 << bit;
+                let word = position / bits_per_digit;
+                let bit = position % bits_per_digit;
+                digits[word] |= 1u32 << bit;
             }
         }
 
         Ok(Rank {
-            num: Base::from_limbs(&limbs),
+            num: BigUint::new(digits),
             exp: exponent,
         })
     }

@@ -50,11 +50,12 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitsBuf, BitsView, Int};
+use num_bigint::BigUint;
+
+use crate::codec::{accumulator, gamma, BitCursor, BitsBuf, BitsView};
 use crate::error::Decode;
 
-use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
-use super::signed::{unzigzag, Sign};
+use super::overlay::{LeafCursor, PlateauCursor, Side, Step};
 
 /// A validating leaf cursor over one untrusted skyline stream.
 ///
@@ -98,7 +99,7 @@ where
 {
     /// Open the stream at its first leaf: the descent to it, and the leaf's
     /// absolute height code.
-    fn open(cursor: &'a mut C) -> Result<(Self, Int), Decode> {
+    fn open(cursor: &'a mut C) -> Result<(Self, BigUint), Decode> {
         let mut this = CheckedCursor {
             cursor,
             path: BitsBuf::new(),
@@ -113,7 +114,7 @@ where
     /// Descend to the next leaf in preorder, opening the internal nodes on the
     /// way: [`LeafCursor`]'s descent with the reads fallible and the
     /// validator's placeholder bits pushed alongside the path.
-    fn descend(&mut self) -> Result<Int, Decode> {
+    fn descend(&mut self) -> Result<BigUint, Decode> {
         let internal_nodes = self.cursor.read_unary()?;
         for _ in 0..internal_nodes {
             self.path.push(false);
@@ -196,9 +197,8 @@ where
         }
         let flip = self.depth();
         let code = self.descend()?;
-        self.last_delta_zero = code.is_zero();
-        let (sign, magnitude) = unzigzag(code);
-        Ok((flip, Step { sign, magnitude }))
+        self.last_delta_zero = code == BigUint::ZERO;
+        Ok((flip, gamma::decode_signed(code)))
     }
 
     /// Close out the whole tree at exhaustion.
@@ -294,8 +294,8 @@ where
     // `a` operand, seeded and folded in the sweep's own order so the
     // accumulator traffic is identical).
     let mut diff = Accumulator::new();
-    super::signed::fold_signed_int(&mut diff, Sign::Positive, &lo_first);
-    super::signed::fold_signed_int(&mut diff, Sign::Negative, &hi_first);
+    accumulator::fold(&mut diff, &lo_first, 0, false);
+    accumulator::fold(&mut diff, &hi_first, 0, true);
     // Equality rides the same sign reads: the pair is equal exactly when no
     // elementary interval reads a strict `Less` (and none reads `Greater`,
     // which refutes outright) — canonical uniqueness then makes the verdict
@@ -362,37 +362,37 @@ where
     match lo.depth().cmp(&hi.depth()) {
         Ordering::Greater => {
             let (flip_lo, step) = lo.step();
-            fold(diff, Side::A, step.sign, &step.magnitude);
+            Side::A.fold(diff, &step);
             if flip_lo <= hi.depth() {
                 let (flip_hi, step) = hi.step()?;
                 debug_assert_eq!(
                     flip_lo, flip_hi,
                     "tied boundaries close to one shared flip level"
                 );
-                fold(diff, Side::B, step.sign, &step.magnitude);
+                Side::B.fold(diff, &step);
             }
         }
         Ordering::Less => {
             let (flip_hi, step) = hi.step()?;
-            fold(diff, Side::B, step.sign, &step.magnitude);
+            Side::B.fold(diff, &step);
             if flip_hi <= lo.depth() {
                 let (flip_lo, step) = lo.step();
                 debug_assert_eq!(
                     flip_hi, flip_lo,
                     "tied boundaries close to one shared flip level"
                 );
-                fold(diff, Side::A, step.sign, &step.magnitude);
+                Side::A.fold(diff, &step);
             }
         }
         Ordering::Equal => {
             let (flip_lo, step) = lo.step();
-            fold(diff, Side::A, step.sign, &step.magnitude);
+            Side::A.fold(diff, &step);
             let (flip_hi, step) = hi.step()?;
             debug_assert_eq!(
                 flip_lo, flip_hi,
                 "equal-depth leaves share their whole path, so their flip levels agree"
             );
-            fold(diff, Side::B, step.sign, &step.magnitude);
+            Side::B.fold(diff, &step);
         }
     }
     Ok(())

@@ -75,25 +75,18 @@ meter = []
 # assert. Implies `meter`: the representational laws read the instrument-side
 # observations (`encoded_bits`) that feature exposes. Test/fuzz-only.
 laws = ["meter"]
-# Counts big-integer limb-scale work (operand limbs per `Base` operation:
-# arithmetic, comparison, equality, and hashing; plus one value-width record per
-# decoded wide-gamma value) into a process-global counter read via
-# `before::meter`, and lights the accumulator's digit-touch counter
-# (`suanpan/touch-meter`, read via `suanpan::touch_meter`) beside it.
-# Arithmetic-width blowups are invisible to node-count and heap meters; this one
-# sees them. Additive and off by default: it adds one relaxed atomic bump per
-# `Base` operation, so it stays out of the bench builds (deliberately not in the
-# self-dev-dependency above) and is lit by `--all-features` runs and the
-# metering envelopes that assert it.
-limb-meter = ["meter", "suanpan/touch-meter"]
+# Counts accumulator digit touches through `suanpan::touch_meter`. This exposes
+# arithmetic whose cost grows with retained accumulator width but does not
+# allocate or scan more input. Test-only and off by default.
+touch-meter = ["meter", "suanpan/touch-meter"]
 # Counts encoded-stream bits scanned and written (id tag reads and skip steps,
 # id-builder bit writes and splice lengths, event topology cursor advances and
 # gamma code-skips, every validator/decoder bit cursor) into a process-global
 # counter read via `before::meter`. Traversal work over the encoded forms is
-# invisible to the heap, segment, and limb meters when it allocates nothing,
-# recurses nothing, and does no `Base` arithmetic — the id-side walks are
+# invisible to the heap and segment meters when it allocates nothing,
+# recurses nothing, and does no integer arithmetic — the id-side walks are
 # exactly that — so this is the column that sees it. Additive and off by
-# default, in the `limb-meter` idiom: one relaxed atomic bump per primitive, out
+# default: one relaxed atomic bump per primitive, out
 # of the bench builds, lit by `--all-features` runs and the metering suites that
 # assert it.
 scan-meter = ["meter"]
@@ -104,14 +97,14 @@ unexpected_cfgs = { level = "deny", check-cfg = [
     'cfg(before_alloc_ab, values("projection_growth", "projection_shrink"))',
 ] }
 
-# The board example judges limb, scan, and touch work against pinned
-# floors and ceilings; built without the counter features those columns
+# The board example judges scan and touch work against pinned floors and
+# ceilings; built without the counter features those columns
 # read `off` and every one of their verdicts silently renders green.
 # Requiring the features makes the unfeatured invocation a loud cargo
 # error instead of a board that looks judged and isn't.
 [[example]]
 name = "amp_board"
-required-features = ["limb-meter", "scan-meter"]
+required-features = ["touch-meter", "scan-meter"]
 
 # The integer-code corpus study walks the board's shape bundles, which live
 # behind the meter surface. Measure-only: it re-parses stored streams and
@@ -121,15 +114,15 @@ required-features = ["limb-meter", "scan-meter"]
 name = "code_study"
 required-features = ["meter"]
 
-# The envelope suite pins limb, touch, and scan columns; built without the
-# counter features every one of those cells would judge nothing. Requiring
+# The envelope suite pins touch and scan columns; built without the counter
+# features both columns would judge nothing. Requiring
 # the features makes an explicit `--test meter` without them a loud cargo
 # error naming them, while blanket `check`, `clippy --tests`, and
 # `nextest --workspace` runs skip the target; `just test` passes the
 # features for the package so the inner loop runs the suite.
 [[test]]
 name = "meter"
-required-features = ["limb-meter", "scan-meter"]
+required-features = ["touch-meter", "scan-meter"]
 
 [[bench]]
 name = "party"

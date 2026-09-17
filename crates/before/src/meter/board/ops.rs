@@ -13,7 +13,7 @@ use crate::{causally, Clock, Party, Rank, Ranked, Span, Version};
 
 use super::ceilings::{
     ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE, ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE,
-    MACHINE_WORD_MAGNITUDE_BITS, TICKS_BOARD_COUNT,
+    COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, TICKS_BOARD_COUNT,
 };
 use super::cell::Cell;
 use super::currency::{Floors, Liveness};
@@ -22,18 +22,17 @@ use super::defect::{
 };
 use super::family::{decode_party, decode_version, FamilyData};
 use super::floors::{
-    clock_overlap_floors, comparison_floors, heap_materializes, id_rejection_floors, limb_stream,
+    clock_overlap_floors, comparison_floors, heap_materializes, id_rejection_floors,
     masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines, scan_touch,
     seg_ceiling_only, sync_floors, tick_walk_floors, touch_delta_fold, touch_fold_first_merges,
     touch_pair_fold, touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE,
-    NA_LIMB_ID_TREE, NA_LIMB_NARROW, NA_LIMB_NOT_FORCED, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES,
-    NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION,
-    NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
-    NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_LIMB_RANK_DECODE,
-    WHY_LIMB_RANK_ENCODE, WHY_LIMB_RANK_PAIR, WHY_LIMB_RANK_SUM, WHY_SCAN_EXAMINES,
-    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
+    NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY,
+    NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED,
+    NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE,
+    WHY_HEAP_FORK_HALF, WHY_SCAN_EXAMINES, WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED,
+    WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
 };
-use super::operand::{mandatory_limbs_stream, stored_nonzero_deltas, version_output_bytes};
+use super::operand::{stored_nonzero_deltas, version_output_bytes};
 use crate::meter::registry::FamilyId;
 
 /// One board row: a public operation and how to instantiate it per family.
@@ -59,7 +58,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let v = decode_version(&bytes);
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                     touch: touch_wide_stream(&v),
@@ -75,7 +73,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
@@ -100,7 +97,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_EQ_BYTES),
                     touch: na(NA_TOUCH_NOT_FORCED),
@@ -180,7 +176,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = span.encode().len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
@@ -209,7 +204,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (lo, hi) = span.into_parts();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    limb: limb_stream(mandatory_limbs_stream(&lo) + mandatory_limbs_stream(&hi)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&lo, &hi),
@@ -309,7 +303,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
@@ -330,10 +323,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = (a.content_bits() + b.content_bits()).div_ceil(8) as usize;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: Liveness::Floor {
-                        min: a.content_bits().max(b.content_bits()).div_ceil(64),
-                        why: WHY_LIMB_RANK_PAIR,
-                    },
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
                     touch: na(NA_TOUCH_RANK_ARITHMETIC),
@@ -374,18 +363,8 @@ pub(super) fn ops() -> Vec<Op> {
                         .iter()
                         .map(|r| r.content_bits().div_ceil(8) as usize)
                         .sum::<usize>();
-                let wide = a.content_bits();
-                let limb = if wide > MACHINE_WORD_MAGNITUDE_BITS {
-                    Liveness::Floor {
-                        min: wide.div_ceil(64),
-                        why: WHY_LIMB_RANK_SUM,
-                    }
-                } else {
-                    na(NA_LIMB_NARROW)
-                };
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb,
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
                     touch: Liveness::Floor {
@@ -426,10 +405,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    limb: Liveness::Floor {
-                        min: rank_numerator_limbs(&a),
-                        why: WHY_LIMB_RANK_ENCODE,
-                    },
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
                     touch: na(NA_TOUCH_RANK_ARITHMETIC),
@@ -457,13 +432,9 @@ pub(super) fn ops() -> Vec<Op> {
                 // every codec row (the coding is canonical 1:1).
                 let (a, _) = f.rank_pair.clone()?;
                 let bytes = a.encode();
-                let numerator_bytes = (rank_numerator_limbs(&a) * 8) as usize;
+                let numerator_bytes = rank_numerator_bytes(&a);
                 let floors = Floors {
                     heap: heap_materializes(numerator_bytes),
-                    limb: Liveness::Floor {
-                        min: rank_numerator_limbs(&a),
-                        why: WHY_LIMB_RANK_DECODE,
-                    },
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_RANK_BYTES),
                     touch: na(NA_TOUCH_RANK_ARITHMETIC),
@@ -479,7 +450,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&v, &w),
@@ -493,7 +463,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&v, &w),
@@ -511,7 +480,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&v, &w),
@@ -547,7 +515,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
@@ -576,7 +543,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
@@ -601,7 +567,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = Ranked::from(&v).encode();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
@@ -620,7 +585,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
@@ -723,12 +687,11 @@ pub(super) fn ops() -> Vec<Op> {
                         },
                         move || ((&v / &p).to_version(), v, p),
                     );
-                    // The comb-scatter cross's builder runs the ratified
-                    // capacity chain (the ceilings module's declared-models
-                    // section); the
-                    // plateau-comb crosses stay flat-judged and green.
+                    // Comb-scatter produces much more output than input, so it
+                    // carries the tighter total-I/O heap ceiling derived for
+                    // this materialization.
                     return Some(if matches!(f.kind, FamilyId::CombScatter) {
-                        cell.with_capacity_model()
+                        cell.with_declared_heap(COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE)
                     } else {
                         cell
                     });
@@ -843,7 +806,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
@@ -1011,7 +973,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = a.len() + b.len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1028,7 +989,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1059,7 +1019,6 @@ pub(super) fn ops() -> Vec<Op> {
                             why: WHY_HEAP_FORK_HALF,
                         }
                     },
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: if a.is_seed() {
                         na(NA_SCAN_SEED_PARTY)
@@ -1080,7 +1039,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (mut a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1102,7 +1060,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let rest: Vec<Party> = parties.collect();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1124,7 +1081,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_touch(),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1138,7 +1094,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1153,7 +1108,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(_, b)| b.len())?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1170,7 +1124,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_ID_TREE),
@@ -1190,7 +1143,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = clock.encode();
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    limb: limb_stream(mandatory_limbs_stream(clock.version())),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                     touch: touch_wide_stream(clock.version()),
@@ -1206,7 +1158,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
@@ -1255,7 +1206,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (mut clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_FORK_SHARES),
-                    limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: if clock.party().is_seed() {
                         na(NA_SCAN_SEED_PARTY)
@@ -1346,10 +1296,9 @@ pub(super) fn ops() -> Vec<Op> {
                         },
                         move || (clock.own_version().to_version(), clock),
                     );
-                    // The same ratified capacity chain as the version
-                    // spelling of this materialization.
+                    // The same total-I/O heap ceiling as the version spelling.
                     return Some(if matches!(f.kind, FamilyId::CombScatter) {
-                        cell.with_capacity_model()
+                        cell.with_declared_heap(COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE)
                     } else {
                         cell
                     });
@@ -1368,7 +1317,6 @@ pub(super) fn ops() -> Vec<Op> {
                     n,
                     Floors {
                         heap: na(NA_HEAP_IN_PLACE),
-                        limb: na(NA_LIMB_NOT_FORCED),
                         segments: seg_ceiling_only(),
                         scan,
                         touch: na(NA_TOUCH_PROJECTION),
@@ -1383,7 +1331,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
@@ -1679,12 +1626,7 @@ pub(super) fn ops() -> Vec<Op> {
     ]
 }
 
-/// A rank's numerator width in 64-bit limbs (minimum 1).
-///
-/// The limb floors of the wire rows, which materialize the numerator
-/// whatever the exponent (a spine rank's exponent is wide while its
-/// numerator is one word — the exponent costs fraction *bits* on the
-/// wire, never limbs).
-fn rank_numerator_limbs(rank: &Rank) -> u64 {
-    rank.raw_parts().0.bits().div_ceil(64).max(1)
+/// The bytes needed to store a rank's numerator, rounded up.
+fn rank_numerator_bytes(rank: &Rank) -> usize {
+    rank.raw_parts().0.bits().div_ceil(8).max(1) as usize
 }

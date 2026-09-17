@@ -46,7 +46,7 @@ const STRIDE: usize = 64;
 /// prologue `sub sp`. With [`STRIDE`] = 64 the inter-probe burst is therefore
 /// well under 32 KiB, so 256 KiB leaves roughly an 8x cushion — ample headroom
 /// for wider frames on other targets (e.g. x86_64) and for arbitrary-precision
-/// `Base` arithmetic temporaries in the deepest frame.
+/// `BigUint` arithmetic temporaries in the deepest frame.
 #[cfg(test)]
 const RED_ZONE: usize = 256 * 1024;
 

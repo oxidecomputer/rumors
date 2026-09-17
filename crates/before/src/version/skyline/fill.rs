@@ -73,7 +73,7 @@
 //! is one more bounded pass: a divergence replays the matched prefix once, and
 //! the unchanged branch's splice emit reads both streams once.
 //!
-//! Limb: accumulator digit touches are amortized linear in the two encoded
+//! Arithmetic: accumulator digit touches are amortized linear in the two encoded
 //! streams [measured: exponent 1.00 with flat constants across the committed
 //! families — the `width_circulation_cost` and memo modules of
 //! `tests/meter.rs` name each family, state its shape, and pin the readings
@@ -151,18 +151,16 @@
 
 use core::cmp::Ordering;
 
+use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitCursor, BitStack, BitsBuf, BitsView, Int, PopStack};
+use crate::codec::{self, accumulator, gamma, BitCursor, BitStack, BitsBuf, BitsView, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe};
 use self::memo::Memo;
 use self::prescan::PreScan;
 use super::grow::Cost;
-use super::signed::{
-    fold_signed_int, gamma_code_int, gamma_code_signed_int, signed_max, unzigzag, Sign, Signed,
-};
 use super::walk::{fold_region, skip_leaves, skip_region, Extremum, LeafWalk};
 use super::watermark::MinWeb;
 
@@ -209,10 +207,10 @@ const _: () = assert!(
 pub fn tick(event: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     // `n = 1` performs exactly one fused walk plus at most one splice:
     // the delta against a direct dispatch is two unmetered width tests
-    // and one non-allocating `Base` construction. The committed
+    // and one non-allocating `BigUint` construction. The committed
     // `tick_is_ticks_one` differential and the `ticks_one_is_tick` law
     // pin the outputs equal.
-    ticks(event, id, &Base::from(1u8))
+    ticks(event, id, &BigUint::from(1u8))
 }
 
 /// Register `n` events on the version a skyline stream denotes, from the
@@ -244,9 +242,8 @@ pub fn tick(event: BitsView<'_>, id: &crate::Party) -> BitsBuf {
 /// [`validate`](fn@super::validate) first on untrusted bytes. For `n >= 1` the
 /// id must own at least one region, exactly as [`tick`] (debug builds assert
 /// it; the result on an empty id is unspecified in release builds).
-pub fn ticks(event: BitsView<'_>, id: &crate::Party, n: &Base) -> BitsBuf {
-    // Width tests, not value compares: n = 0 has no bits, n = 1 is the
-    // one-bit magnitude, and neither test touches the limb meter.
+pub fn ticks(event: BitsView<'_>, id: &crate::Party, n: &BigUint) -> BitsBuf {
+    // Width distinguishes zero from one without inspecting the value's digits.
     if n.bits() == 0 {
         let mut out = BitsBuf::with_capacity(event.len());
         codec::extend_from_view(&mut out, event, 0, event.len());
@@ -258,7 +255,7 @@ pub fn ticks(event: BitsView<'_>, id: &crate::Party, n: &Base) -> BitsBuf {
                 // n = 1: the fill output is the whole event.
                 return bits;
             }
-            let remaining = n.clone() - &Base::from(1u8);
+            let remaining = n.clone() - &BigUint::from(1u8);
             match fused_fill(codec::built_view(&bits), id) {
                 FillOutcome::Unchanged(route) => {
                     super::grow::emit(codec::built_view(&bits), id.as_bits(), &route, &remaining)
@@ -499,8 +496,8 @@ impl FillWalk<'_> {
                         // min(er), priced by the scan that reads the range; the
                         // copy runs in its own frame, exactly as a child walk
                         // would.
-                        let raise = scan_min_from(self.event, self.pos());
-                        let value_offset = signed_max(&above, &raise);
+                        let raise = self.scan_min();
+                        let value_offset = above.max(raise);
                         self.emit_offset(depth + 1, value_offset);
                         self.web.open(1);
                         self.copy_subtree(depth + 1);
@@ -637,23 +634,23 @@ impl FillWalk<'_> {
     /// Decode the payload at the cursor as a signed step (the stream's first
     /// payload is its absolute height, a step from zero), folding it into the
     /// height-anchored accumulators, and advancing the cursor.
-    fn consume_payload(&mut self) -> Signed {
+    fn consume_payload(&mut self) -> BigInt {
         let code = self.cursor.read_int().expect("canonical skyline bits");
-        let (sign, magnitude) = if self.first_read {
+        let delta = if self.first_read {
             self.first_read = false;
-            (Sign::Positive, code)
+            BigInt::from(code)
         } else {
-            unzigzag(code)
+            gamma::decode_signed(code)
         };
-        fold_signed_int(&mut self.height, sign, &magnitude);
-        self.web.fold_height(sign, &magnitude);
+        accumulator::fold_signed(&mut self.height, &delta);
+        self.web.fold_height(&delta);
         if !self.w_anchored {
-            fold_signed_int(&mut self.gap, sign, &magnitude);
+            accumulator::fold_signed(&mut self.gap, &delta);
         }
         if let Relation::Height(relation) = &mut self.relation {
-            fold_signed_int(relation, sign, &magnitude);
+            accumulator::fold_signed(relation, &delta);
         }
-        Signed { sign, magnitude }
+        delta
     }
 
     /// Fold one consumed block's net movement into every height-carried
@@ -662,20 +659,20 @@ impl FillWalk<'_> {
     /// Exactly what [`consume_payload`](Self::consume_payload) would have
     /// folded leaf by leaf: nothing reads the registers between a block's
     /// leaves, so the batched fold is observationally the per-leaf sequence.
-    fn fold_block(&mut self, net: &Signed) {
-        fold_signed_int(&mut self.height, net.sign, &net.magnitude);
-        self.web.fold_height(net.sign, &net.magnitude);
+    fn fold_block(&mut self, net: &BigInt) {
+        accumulator::fold_signed(&mut self.height, net);
+        self.web.fold_height(net);
         if !self.w_anchored {
-            fold_signed_int(&mut self.gap, net.sign, &net.magnitude);
+            accumulator::fold_signed(&mut self.gap, net);
         }
         if let Relation::Height(relation) = &mut self.relation {
-            fold_signed_int(relation, net.sign, &net.magnitude);
+            accumulator::fold_signed(relation, net);
         }
     }
 
     /// Consume the queue-front memoized site: resolve its minimum by one fold
     /// of its ledger link into the live relation, decide the raise, and emit.
-    fn consume_site(&mut self, above: &Signed, depth: u64) {
+    fn consume_site(&mut self, above: &BigInt, depth: u64) {
         debug_assert!(
             self.memo.cursor < self.memo.queue.len(),
             "a covered site has a recorded entry"
@@ -689,9 +686,9 @@ impl FillWalk<'_> {
         self.memo.cursor += 1;
         match core::mem::replace(&mut self.relation, Relation::None) {
             Relation::None => {
-                // Base: the outermost site's reference is the fresh scan's
-                // entry height, which is the walk's height right here — the
-                // relation starts at zero.
+                // The outermost site's reference is the fresh scan's entry
+                // height, which is the walk's height here, so the relation
+                // starts at zero.
                 let relation = self.web.lease();
                 self.consume_h_anchored(relation, link, above, depth);
             }
@@ -741,20 +738,20 @@ impl FillWalk<'_> {
         &mut self,
         mut relation: Accumulator,
         link: Option<Accumulator>,
-        above: &Signed,
+        above: &BigInt,
         depth: u64,
     ) {
         // The decision is sign((h + above) − m_s) = sign(relation + above −
         // link); the link stays folded in, so the accumulator then holds h −
         // m_s and the relation re-anchors to this site for free. The link dies
         // here — its one read.
-        fold_signed_int(&mut relation, above.sign, &above.magnitude);
+        accumulator::fold_signed(&mut relation, above);
         if let Some(link) = link {
             relation.sub_accum(&link);
             self.web.retire(link);
         }
         let sign = relation.sign();
-        fold_signed_int(&mut relation, above.sign.negate(), &above.magnitude);
+        accumulator::subtract_signed(&mut relation, above);
         if sign == Ordering::Less {
             // The minimum side: the raise lifts the emitted value strictly
             // above the consumed range's maximum, so a verbatim walk diverges
@@ -771,8 +768,9 @@ impl FillWalk<'_> {
                 absolute.sub_accum(&relation);
                 self.web.emit_below_accum(relation);
                 let value = self.web.materialize(absolute);
-                debug_assert!(!value.sign.is_negative(), "a raised height is a natural");
-                self.out.leaf(depth + 1, gamma_code_int(&value.magnitude));
+                debug_assert!(value.sign() != Sign::Minus, "a raised height is a natural");
+                self.out
+                    .leaf(depth + 1, |out| gamma::encode(value.magnitude(), out));
                 // prev_out = min: the output delta anchors to the
                 // watermark from the start.
                 let zero = self.web.lease();
@@ -868,13 +866,12 @@ impl FillWalk<'_> {
             // common case (nothing consumed since the last emit) reads the
             // single step just folded.
             self.gap.sign();
-            let (sign, magnitude) = Base::from_accumulator(&self.gap);
-            Signed::from_sign_magnitude(sign, magnitude)
+            accumulator::signed_value(&self.gap)
         };
         // The new gap is h − value = 0 exactly.
         self.gap.reset();
         self.out
-            .leaf(depth, gamma_code_signed_int(delta.sign, &delta.magnitude));
+            .leaf(depth, |out| gamma::encode_signed(&delta, out));
     }
 
     /// Emit a leaf whose value is `h + offset`: a collapsed region's max, or a
@@ -889,9 +886,9 @@ impl FillWalk<'_> {
     /// absolute: output position ≡ input position while the walk is verbatim,
     /// so a first leaf compares absolute against absolute). A value-reproducing
     /// raise is a match, never a divergence.
-    fn emit_offset(&mut self, depth: u64, offset: Signed) {
+    fn emit_offset(&mut self, depth: u64, offset: BigInt) {
         self.web.emit_offset(&offset);
-        if self.out.is_verbatim() && self.range_is_leaf && offset.is_zero() {
+        if self.out.is_verbatim() && self.range_is_leaf && offset.sign() == Sign::NoSign {
             // A value-reproducing emission on a verbatim walk always
             // matches (the doc's argument), unlike `emit_step`'s
             // unguarded call, where the bool genuinely discriminates.
@@ -911,37 +908,34 @@ impl FillWalk<'_> {
             // code plus consumed deltas), so the read is priced by the write.
             debug_assert!(!self.w_anchored, "the first emission finds no anchor");
             self.height.sign();
-            let (sign, magnitude) = Base::from_accumulator(&self.height);
-            debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-            let value = Signed {
-                sign: Sign::Positive,
-                magnitude: Int::from_base(magnitude),
-            }
-            .sum(&offset);
-            debug_assert!(!value.sign.is_negative(), "a collapsed height is a natural");
-            self.out.leaf(depth, gamma_code_int(&value.magnitude));
+            let value = accumulator::signed_value(&self.height) + &offset;
+            debug_assert!(
+                value.sign() != Sign::Minus,
+                "a collapsed height is a natural"
+            );
+            self.out
+                .leaf(depth, |out| gamma::encode(value.magnitude(), out));
         } else {
             let delta = if self.w_anchored {
                 // d_out = (h + offset) − prev_out: the bridge read plus
                 // the priced offset.
                 let mut out_delta = self.web.follower_take(OUT_FOLLOWER);
                 self.web.bridge_add_gap(&mut out_delta);
-                fold_signed_int(&mut out_delta, offset.sign, &offset.magnitude);
+                accumulator::fold_signed(&mut out_delta, &offset);
                 self.w_anchored = false;
                 self.web.materialize(out_delta)
             } else {
                 // d_out = (h + offset) − prev_out = gap + offset.
-                fold_signed_int(&mut self.gap, offset.sign, &offset.magnitude);
+                accumulator::fold_signed(&mut self.gap, &offset);
                 self.gap.sign();
-                let (sign, magnitude) = Base::from_accumulator(&self.gap);
-                Signed::from_sign_magnitude(sign, magnitude)
+                accumulator::signed_value(&self.gap)
             };
             self.out
-                .leaf(depth, gamma_code_signed_int(delta.sign, &delta.magnitude));
+                .leaf(depth, |out| gamma::encode_signed(&delta, out));
         }
         // The new gap is h − (h + offset) = −offset exactly.
         self.gap.reset();
-        fold_signed_int(&mut self.gap, offset.sign.negate(), &offset.magnitude);
+        accumulator::subtract_signed(&mut self.gap, &offset);
     }
 
     /// Emit a leaf at exactly the enclosing frame's tracked minimum (the
@@ -988,7 +982,7 @@ impl FillWalk<'_> {
         self.w_anchored = true;
         self.gap.reset();
         self.out
-            .leaf(depth, gamma_code_signed_int(delta.sign, &delta.magnitude));
+            .leaf(depth, |out| gamma::encode_signed(&delta, out));
     }
 
     /// Copy the event subtree at the cursor unchanged.
@@ -1047,9 +1041,7 @@ impl FillWalk<'_> {
         if first_leaf_depth >= 2 {
             // Post-divergence the rest of the region is byte-identical to the
             // input — every consecutive-leaf delta lies strictly inside the
-            // canonical subtree — and splices wholesale; the first leaf is
-            // still held at its own depth, which the builder's splice owns
-            // and asserts.
+            // canonical subtree — and splices wholesale from the first leaf.
             let rest_start = self.pos();
             let skip = skip_leaves(&mut walk, &mut self.cursor, false, None)
                 .expect("a region whose first leaf sits below its root has more leaves");
@@ -1082,7 +1074,7 @@ impl FillWalk<'_> {
     /// running height overtakes it (`h` then sits at the subtree's last leaf).
     /// The offset's width is bounded by the scanned range's own content, which
     /// prices every later fold of it.
-    fn scan_max_consuming(&mut self) -> Signed {
+    fn scan_max_consuming(&mut self) -> BigInt {
         // The changed flag's topology record: the emission replacing this range
         // reproduces the input's topology iff the range is a single leaf —
         // exactly its first flag bit (`1` = leaf). An unmetered peek of the bit
@@ -1100,10 +1092,10 @@ impl FillWalk<'_> {
             // the block side engaging on deep ranges, one per arm of this
             // scan (descend-site collapse, ascend-site raise).
             let step = self.consume_payload();
-            above.fold(step.sign, &step.magnitude);
+            above.fold(&step);
             while walk.descend(&mut self.cursor).is_some() {
                 let step = self.consume_payload();
-                above.fold(step.sign, &step.magnitude);
+                above.fold(&step);
             }
         } else {
             let mut net = Accumulator::new();
@@ -1116,13 +1108,20 @@ impl FillWalk<'_> {
                 Some(first_leaf_depth),
             );
             self.first_read = false;
-            let (net_sign, net_magnitude) = Base::from_accumulator(&net);
-            let net = Signed::from_sign_magnitude(net_sign, net_magnitude);
+            let net = accumulator::signed_value(&net);
             self.fold_block(&net);
         }
         let result = self.web.materialize(above.into_offset());
-        debug_assert!(!result.sign.is_negative(), "the fold floors at zero");
+        debug_assert!(result.sign() != Sign::Minus, "the fold floors at zero");
         result
+    }
+
+    /// Scan the next subtree's minimum without moving this walk.
+    fn scan_min(&self) -> BigInt {
+        let mut cursor = codec::DsiCursor::new_at(self.event, self.pos());
+        let skip = skip_region(&mut cursor);
+        // `min = h_entry + net + (min - h_exit)`.
+        skip.net + skip.min_from_exit
     }
 }
 
@@ -1294,18 +1293,6 @@ impl Frames {
         let outermost = self.aux_top();
         (self.pop_key(), outermost)
     }
-}
-
-/// A local, non-consuming scan of the event subtree at `pos`: the minimum of
-/// its leaf heights relative to the height at entry, as a signed offset.
-///
-/// The absent-right-sibling raise's argument (`min(fill(0, er)) = min(er)`),
-/// priced by the scan that reads the range.
-fn scan_min_from(event: BitsView<'_>, pos: u64) -> Signed {
-    let mut cursor = codec::DsiCursor::new_at(event, pos);
-    let skip = skip_region(&mut cursor);
-    // `min = h_entry + net + (min − h_exit)`.
-    skip.net.sum(&skip.min_from_exit)
 }
 
 #[cfg(test)]

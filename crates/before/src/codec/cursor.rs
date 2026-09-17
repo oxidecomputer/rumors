@@ -1,8 +1,10 @@
 //! Sequential access to encoded bits.
 
+use num_bigint::BigUint;
+
 use crate::error::Decode;
 
-use super::{decode_int_from, gamma, BitsView, Int};
+use super::{gamma, BitsView};
 
 /// A lightweight error used when an in-memory stream ends early.
 ///
@@ -44,12 +46,12 @@ pub(crate) trait BitCursor {
     ///
     /// The default implementation decodes one bit at a time. Cursors may
     /// override it with an equivalent word-at-a-time implementation.
-    fn read_int(&mut self) -> Result<Int, Decode>
+    fn read_int(&mut self) -> Result<BigUint, Decode>
     where
         Self: Sized,
         Decode: From<Self::Error>,
     {
-        decode_int_from(self).map(Int::from_base)
+        gamma::decode_from(self)
     }
 }
 
@@ -87,19 +89,19 @@ impl BitCursor for SliceCursor<'_> {
         self.position
     }
 
-    fn read_int(&mut self) -> Result<Int, Decode> {
+    fn read_int(&mut self) -> Result<BigUint, Decode> {
         // Word fast path over the view; anything the window cannot prove —
         // every reject included — is decided by the default per-bit loop, so
         // the two paths accept and reject identically by construction.
-        if let Some((n, next)) = gamma::decode_int_window(self.bits, self.position) {
+        if let Some((n, next)) = gamma::decode_window(self.bits, self.position) {
             // The window proves the same `2k + 1` code bits the per-bit loop
             // reads one at a time, so it records the same count: the scan meter
             // prices work by bits examined, not by how the examining path
             // batches them.
             super::scan::record_bits_u64(next - self.position);
             self.position = next;
-            return Ok(Int::Small(n));
+            return Ok(BigUint::from(n));
         }
-        decode_int_from(self).map(Int::from_base)
+        gamma::decode_from(self)
     }
 }

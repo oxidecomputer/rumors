@@ -2,7 +2,9 @@
 //! denominators are stated in, derived from encoded operands entirely outside
 //! any measurement.
 
-use crate::codec::{self, Base};
+use num_bigint::BigUint;
+
+use crate::codec;
 use crate::Version;
 
 use super::ceilings::MACHINE_WORD_MAGNITUDE_BITS;
@@ -33,9 +35,10 @@ pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
             pending += 2;
             continue;
         }
-        let (payload, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        let (payload, next) =
+            codec::gamma::decode(bits, pos).expect("a stored stream is canonical");
         pos = next;
-        if !first && payload != Base::ZERO {
+        if !first && payload != BigUint::ZERO {
             nonzero += 1;
         }
         first = false;
@@ -43,20 +46,16 @@ pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
     nonzero
 }
 
-/// The mandatory limb count of a version's stored stream: one limb per 64 bits
-/// of every payload code wider than [`MACHINE_WORD_MAGNITUDE_BITS`].
+/// The 64-bit words occupied by a version's wide stored payload codes.
 ///
-/// A walk over the stream must decode each stored code to fold it, and decoding
-/// a wide code cannot touch fewer limbs than the code has; narrower codes may
-/// legitimately live in machine words and count zero. This counts the stream's
-/// delta codes, not the decoded tree's absolute values, so it is the floor for
-/// operations that read the stored form directly. Iterative over the encoded
-/// form, outside measurement.
-pub(super) fn mandatory_limbs_stream(v: &Version) -> u64 {
+/// This supplies the touch floor for validation: wide codes enter the
+/// accumulator word by word, while narrower codes stay in its register.
+/// Iterative over the encoded form, outside measurement.
+pub(super) fn wide_code_words(v: &Version) -> u64 {
     let bits = v.as_bits();
     let mut pos = 0u64;
     let mut pending = 1usize;
-    let mut limbs = 0u64;
+    let mut words = 0u64;
     while pending > 0 {
         pending -= 1;
         let internal = !bits.bit(pos); // skyline flag: 0 internal, 1 leaf
@@ -65,14 +64,14 @@ pub(super) fn mandatory_limbs_stream(v: &Version) -> u64 {
             pending += 2;
             continue;
         }
-        let (code, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        let (code, next) = codec::gamma::decode(bits, pos).expect("a stored stream is canonical");
         pos = next;
         let width = code.bits();
         if width > MACHINE_WORD_MAGNITUDE_BITS {
-            limbs += width.div_ceil(64);
+            words += width.div_ceil(64);
         }
     }
-    limbs
+    words
 }
 
 /// A version's value content in bytes: the summed bit widths of its absolute
@@ -88,7 +87,7 @@ pub(super) fn value_content_bytes(v: &Version) -> usize {
     let bits = v.as_bits();
     let mut pos = 0u64;
     let mut pending = 1usize;
-    let mut last: Option<Base> = None;
+    let mut last: Option<BigUint> = None;
     let mut content = 0u64;
     while pending > 0 {
         pending -= 1;
@@ -98,7 +97,7 @@ pub(super) fn value_content_bytes(v: &Version) -> usize {
             pending += 2;
             continue;
         }
-        let (code, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        let (code, next) = codec::gamma::decode(bits, pos).expect("a stored stream is canonical");
         pos = next;
         let value = match last {
             None => code,

@@ -1,5 +1,6 @@
 use borsh::io::{Error, ErrorKind, Read};
 use borsh::{BorshDeserialize, BorshSerialize};
+use num_bigint::BigUint;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
@@ -645,7 +646,7 @@ proptest! {
         stream in arb_stream(prop_oneof![
             arb_oracle_version().prop_map(|t| from_oracle_version(&t).rank().encode()),
             (any::<u128>(), 0u64..64).prop_map(|(num, exp)| {
-                Rank::from_raw(codec::Base::from(num), exp).encode()
+                Rank::from_raw(BigUint::from(num), exp).encode()
             }),
         ]),
     ) {
@@ -848,7 +849,7 @@ fn rank_borsh_is_the_canonical_encoding() {
     let battery = [
         crate::Rank::ZERO,
         uniform(7u8).rank(),
-        crate::version::Rank::from_raw(crate::codec::Base::from(1u8), 40),
+        crate::version::Rank::from_raw(BigUint::from(1u8), 40),
     ];
     for rank in &battery {
         let bytes = borsh::to_vec(rank).unwrap();
@@ -924,7 +925,7 @@ fn ranked_borsh_composes_and_preserves_decode_errors() {
 /// each read consuming exactly its own bytes.
 #[test]
 fn rank_composes_in_a_borsh_stream() {
-    let a = crate::version::Rank::from_raw(crate::codec::Base::from(129u8), 8);
+    let a = crate::version::Rank::from_raw(BigUint::from(129u8), 8);
     let v = half();
     let b = uniform(5u8).rank();
     let mut stream = Vec::new();
@@ -943,7 +944,7 @@ fn rank_composes_in_a_borsh_stream() {
 /// `InvalidData` carrying the exact [`Decode`] variant.
 #[test]
 fn rank_borsh_preserves_decode_errors() {
-    let deep = crate::version::Rank::from_raw(crate::codec::Base::from(5u128 << 40 | 1), 40);
+    let deep = crate::version::Rank::from_raw(BigUint::from(5u128 << 40 | 1), 40);
     let bytes = borsh::to_vec(&deep).unwrap();
     assert!(bytes.len() >= 7, "the fraction spans several groups");
     for cut in 0..bytes.len() {
@@ -1111,7 +1112,7 @@ fn borsh_every_type_pair_composes_with_exact_boundaries() {
         let _ = c.fork(); // a non-seed party beside a non-empty version
         c
     };
-    let rank = crate::version::Rank::from_raw(crate::codec::Base::from(129u8), 8);
+    let rank = crate::version::Rank::from_raw(BigUint::from(129u8), 8);
     let ranked: Ranked<'static> = Ranked::from(version.clone());
     let span: Span<'static> = {
         let mut c = Clock::seed();

@@ -12,92 +12,124 @@
 //!
 //! Both directions keep the coding's cost word-scale: the stream is
 //! byte-backed, so a whole code is decoded from one 64-bit window
-//! ([`decode_int_window`]) and emitted with one store, with per-bit loops as
+//! ([`decode_window`]) and emitted with one store, with per-bit loops as
 //! the fallback — and, on decode, the sole arbiter of every reject.
 
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint, Sign};
 
 use crate::error::Decode;
 
-use super::code::SMALL_CODE_BITS;
-use super::{Base, BitCursor, BitsBuf, BitsView, Code, SliceCursor};
+use super::{BitCursor, BitsBuf, BitsView, SliceCursor};
 
-/// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
-/// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
-///
-/// Cost is `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
-/// prefix-free, for an arbitrary-width non-negative `n` (there is no value
-/// cap).
-pub(crate) fn encode_int(out: &mut BitsBuf, n: &Base) {
-    let m = n + 1u32;
-    match m.to_u64() {
-        // Word case: the mantissa fits a machine word, so append the whole code
-        // word-wise — the `k`-zero prefix in one append, then the `k+1`-bit
-        // mantissa (`m` right-aligned, its leading 1 included) in another —
-        // instead of one `push` per bit. Byte-identical to the per-bit emit
-        // below.
-        Some(m) => {
-            // m >= 1, so `leading_zeros < 64` and `k = floor(log2(m))` never
-            // underflows; both appends stay within one machine word.
-            let k = u64::BITS - 1 - m.leading_zeros();
-            out.push_bits(0, k);
-            out.push_bits(m, k + 1);
+/// A destination for a gamma code.
+pub(crate) trait Sink {
+    /// Append one bit.
+    fn push_bit(&mut self, bit: bool);
+
+    /// Append the low `len <= 64` bits of `value`, most-significant first.
+    fn push_bits(&mut self, value: u64, len: u32);
+
+    /// Append `len` zero bits.
+    fn push_zeros(&mut self, mut len: u64) {
+        while len >= u64::from(u64::BITS) {
+            self.push_bits(0, u64::BITS);
+            len -= u64::from(u64::BITS);
         }
-        // Wide case (`n >= u64::MAX`): per-bit emit of the wide mantissa.
-        None => {
-            // m >= 1, so `m.bits() >= 1` and computing `k = floor(log2(m)) =
-            // bit_length(m) - 1` never underflows. `k` is a bit count and fits
-            // a `u64` even when `m` itself does not.
-            let k = m.bits() - 1;
-            for _ in 0..k {
-                out.push(false);
-            }
-            // Emit `m` in `k + 1` bits, most-significant first.
-            for i in (0..=k).rev() {
-                out.push(m.bit(i));
-            }
+        self.push_bits(0, len as u32);
+    }
+
+    /// Append a magnitude's binary digits, most-significant first.
+    fn push_magnitude(&mut self, value: &BigUint) {
+        let bits = value.bits();
+        if bits == 0 {
+            return;
+        }
+        let mut words = value.iter_u64_digits().rev();
+        let top = words.next().expect("a nonzero magnitude has one word");
+        let top_len = ((bits - 1) % u64::from(u64::BITS) + 1) as u32;
+        self.push_bits(top, top_len);
+        for word in words {
+            self.push_bits(word, u64::BITS);
         }
     }
 }
 
-/// The Elias gamma code of `n` as a [`Code`] value.
-///
-/// [`encode_int`]'s value form: the same code bit for bit, carried as two
-/// machine words whenever it fits [`Code::Small`] — the whole gamma code of `m
-/// = n + 1` *is* `m` right-aligned under its `k` leading zeros, so the fast path
-/// is two shifts — and as an owned buffer past that.
-pub(crate) fn code_int(n: &Base) -> Code {
-    if let Some(m) = n.to_u64().and_then(|n| n.checked_add(1)) {
-        let k = u64::BITS - 1 - m.leading_zeros();
-        let len = u64::from(2 * k + 1);
-        if len <= SMALL_CODE_BITS {
-            return Code::Small {
-                bits: m,
-                len: len as u8,
-            };
-        }
+/// Writes gamma codes into a mutable bit buffer.
+impl Sink for BitsBuf {
+    fn push_bit(&mut self, bit: bool) {
+        self.push(bit);
     }
-    let mut out = BitsBuf::new();
-    encode_int(&mut out, n);
-    Code::Wide(out)
+
+    fn push_bits(&mut self, value: u64, len: u32) {
+        BitsBuf::push_bits(self, value, len);
+    }
 }
 
-/// The Elias gamma code of a word-scale `n` as a [`Code`] value: [`code_int`]'s
-/// machine-word form, with no intermediate [`Base`].
-pub(crate) fn code_int_small(n: u64) -> Code {
-    if let Some(m) = n.checked_add(1) {
-        let k = u64::BITS - 1 - m.leading_zeros();
-        let len = u64::from(2 * k + 1);
-        if len <= SMALL_CODE_BITS {
-            return Code::Small {
-                bits: m,
-                len: len as u8,
-            };
-        }
+/// Append `value`'s Elias gamma code.
+///
+/// The code for `n` is `floor(log2(n + 1))` zeros followed by the binary
+/// representation of `n + 1`. It is canonical and prefix-free; zero takes
+/// one bit, and arbitrary-width values have no upper bound.
+pub(crate) fn encode(value: &BigUint, out: &mut (impl Sink + ?Sized)) {
+    let mantissa = value + 1u32;
+    out.push_zeros(mantissa.bits() - 1);
+    out.push_magnitude(&mantissa);
+}
+
+/// Map `current - previous` through the signed zigzag encoding.
+#[cfg(any(test, feature = "meter"))]
+pub(crate) fn zigzag_difference(previous: &BigUint, current: &BigUint) -> BigUint {
+    if current >= previous {
+        (current.clone() - previous) << 1u32
+    } else {
+        ((previous.clone() - current) << 1u32) - 1u32
     }
-    let mut out = BitsBuf::new();
-    encode_int(&mut out, &Base::from(n));
-    Code::Wide(out)
+}
+
+/// Map a signed integer through the zigzag encoding.
+#[cfg(test)]
+pub(crate) fn zigzag(value: BigInt) -> BigUint {
+    let (sign, magnitude) = value.into_parts();
+    debug_assert!(sign != Sign::Minus || magnitude != BigUint::ZERO);
+    match sign {
+        Sign::Minus => (magnitude << 1u32) - 1u32,
+        Sign::NoSign | Sign::Plus => magnitude << 1u32,
+    }
+}
+
+/// Decode a zigzag magnitude as a signed integer.
+pub(crate) fn decode_signed(code: BigUint) -> BigInt {
+    if code.bit(0) {
+        BigInt::from_biguint(Sign::Minus, (code + 1u32) >> 1u32)
+    } else {
+        BigInt::from_biguint(Sign::Plus, code >> 1u32)
+    }
+}
+
+/// Write a signed integer's zigzag gamma code without materializing zigzag.
+pub(crate) fn encode_signed(value: &BigInt, out: &mut (impl Sink + ?Sized)) {
+    encode_zigzag(value.sign(), value.magnitude(), out);
+}
+
+/// Write a nonnegative magnitude's zigzag gamma code without allocating a
+/// signed integer.
+pub(crate) fn encode_positive(magnitude: &BigUint, out: &mut (impl Sink + ?Sized)) {
+    encode_zigzag(Sign::Plus, magnitude, out);
+}
+
+/// Write a negative magnitude's zigzag gamma code without allocating a
+/// signed integer.
+pub(crate) fn encode_negative(magnitude: &BigUint, out: &mut (impl Sink + ?Sized)) {
+    debug_assert_ne!(*magnitude, BigUint::ZERO, "negative zero has no encoding");
+    encode_zigzag(Sign::Minus, magnitude, out);
+}
+
+/// Write a zigzag gamma code from a sign and magnitude.
+fn encode_zigzag(sign: Sign, magnitude: &BigUint, out: &mut (impl Sink + ?Sized)) {
+    debug_assert!(sign != Sign::Minus || *magnitude != BigUint::ZERO);
+    out.push_zeros(magnitude.bits());
+    out.push_magnitude(magnitude);
+    out.push_bit(sign != Sign::Minus);
 }
 
 /// Read an Elias-gamma-coded integer at `pos`, returning the value and the new
@@ -108,18 +140,18 @@ pub(crate) fn code_int_small(n: u64) -> Code {
 /// the `Truncated` checks enforce, so a declared code can never exceed the
 /// input.
 ///
-/// Reads word-wise when [`decode_int_window`] can prove the whole code from one
+/// Reads word-wise when [`decode_window`] can prove the whole code from one
 /// window; every other input — including every reject — is decided by the
-/// per-bit loop ([`decode_int_from`]), so the two paths accept and reject
+/// per-bit loop ([`decode_from`]), so the two paths accept and reject
 /// identically by construction (the routing lives in
 /// [`SliceCursor::read_int`](BitCursor::read_int)).
-pub(crate) fn decode_int(bits: BitsView<'_>, pos: u64) -> Result<(Base, u64), Decode> {
+pub(crate) fn decode(bits: BitsView<'_>, pos: u64) -> Result<(BigUint, u64), Decode> {
     let mut cursor = SliceCursor::new(bits, pos);
-    let base = cursor.read_int()?.into_base();
+    let base = cursor.read_int()?;
     Ok((base, cursor.position()))
 }
 
-/// The number of bits a [`decode_int_window`] window holds.
+/// The number of bits a [`decode_window`] window holds.
 const WINDOW_BITS: u64 = u64::BITS as u64;
 
 /// One-window fast path of the gamma decoder: the value and end position of the
@@ -150,7 +182,7 @@ const WINDOW_BITS: u64 = u64::BITS as u64;
 /// Positions are the view's own `u64`: the wire-side reader windows its
 /// buffered bytes ([`BitsView::whole`]) at the same width its own position
 /// runs at.
-pub(crate) fn decode_int_window(bits: BitsView<'_>, pos: u64) -> Option<(u64, u64)> {
+pub(crate) fn decode_window(bits: BitsView<'_>, pos: u64) -> Option<(u64, u64)> {
     let (body, tail) = bits.body_tail();
     window_int(body, tail, bits.len(), pos)
 }
@@ -172,6 +204,9 @@ fn window_int(body: &[u8], tail: Option<u8>, len: u64, pos: u64) -> Option<(u64,
     let m = window >> (WINDOW_BITS - code_len);
     Some((m - 1, pos + code_len))
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Load a 64-bit big-endian window starting at bit `pos` of the stream held
 /// as `body` plus the masked partial `tail` byte: bit `pos` in the most
@@ -207,7 +242,7 @@ fn load_window(body: &[u8], tail: Option<u8>, pos: u64) -> u64 {
 }
 
 /// Read one Elias-gamma-coded integer from a sequential bit cursor.
-pub(crate) fn decode_int_from<C: BitCursor>(cursor: &mut C) -> Result<Base, Decode>
+pub(crate) fn decode_from<C: BitCursor>(cursor: &mut C) -> Result<BigUint, Decode>
 where
     Decode: From<C::Error>,
 {
@@ -228,18 +263,17 @@ where
                 m |= 1;
             }
         }
-        return Ok(Base::from(m - 1));
+        return Ok(BigUint::from(m - 1));
     }
 
     // Wide fallback: the leading 1 has already been consumed, and it is the
     // mantissa's top bit, at position `k`; the next `k` stream bits are the
     // mantissa's remaining bits, most-significant first. Setting the top bit
-    // first sizes the value's storage once, and each later set writes one limb
-    // in place, so the total limb work is linear in the code's bit width and
+    // first sizes the value's storage once, and each later set writes one word
+    // in place, so the total arithmetic is linear in the code's bit width and
     // the only allocation is the value itself. A truncated stream still fails
     // at the same `read_bit` position it would reading into an accumulator, so
     // the accept/reject boundary is unchanged.
-    //
     let mut m = BigUint::ZERO;
     m.set_bit(k, true);
     for i in (0..k).rev() {
@@ -247,9 +281,6 @@ where
             m.set_bit(i, true);
         }
     }
-    // One width-proportional record per wide value: sizing `m`'s storage and
-    // decrementing it below each cost one pass over its limbs.
-    #[cfg(feature = "limb-meter")]
-    super::base::limb_meter::record_wide(&m);
-    Ok(Base::from(m - 1u32))
+    // Sizing `m` and subtracting one each take one pass over its words.
+    Ok(m - 1u32)
 }

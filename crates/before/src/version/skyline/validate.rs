@@ -22,12 +22,11 @@
 
 use core::cmp::Ordering;
 
+use num_bigint::{BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitsBuf, BitsView, DsiCursor};
+use crate::codec::{accumulator, gamma, BitCursor, BitsBuf, BitsView, DsiCursor};
 use crate::error::Decode;
-
-use super::signed::{fold_signed_int, unzigzag, Sign};
 
 /// Strictly validate one whole skyline stream.
 ///
@@ -98,14 +97,14 @@ where
         // child and the collapsible-pair check never reads its flag.
         let mut zero_delta = false;
         if seen_leaf {
-            zero_delta = code.is_zero();
-            let (sign, magnitude) = unzigzag(code);
-            fold_signed_int(&mut height, sign, &magnitude);
-            if sign == Sign::Negative && height.sign() == Ordering::Less {
+            zero_delta = code == BigUint::ZERO;
+            let delta = gamma::decode_signed(code);
+            accumulator::fold_signed(&mut height, &delta);
+            if delta.sign() == Sign::Minus && height.sign() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            fold_signed_int(&mut height, Sign::Positive, &code);
+            accumulator::fold(&mut height, &code, 0, false);
             seen_leaf = true;
         }
 

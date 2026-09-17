@@ -44,10 +44,10 @@
 //! that shifts which leaf is first trips on topology (the replaced range was
 //! not a single leaf) before any code comparison is reached.
 
-use crate::codec::{BitCursor, BitStack, BitsBuf, BitsView, Code, PopStack};
+use crate::codec::{BitCursor, BitStack, BitsBuf, BitsView, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
-use super::super::build::SkylineBuilder;
+use super::super::build::{PayloadBuilder, SkylineBuilder};
 use super::super::grow::{Cost, Route};
 use super::super::walk::LeafWalk;
 use super::DeltaReg;
@@ -151,9 +151,9 @@ impl Out {
     ///
     /// Panics on a verbatim walk — unreachable there: matched emissions
     /// return before their bodies, and diverging ones materialize first.
-    pub(super) fn leaf(&mut self, depth: u64, code: Code) {
+    pub(super) fn leaf(&mut self, depth: u64, write: impl FnOnce(&mut PayloadBuilder<'_>)) {
         match self {
-            Out::Built(builder) => builder.leaf(depth, code),
+            Out::Built(builder) => builder.leaf(depth, write),
             Out::Unstarted | Out::Verbatim { .. } => {
                 unreachable!("a verbatim emission is matched or has diverged")
             }
@@ -164,8 +164,8 @@ impl Out {
     /// ([`SkylineBuilder::continue_verbatim`]).
     ///
     /// The caller has just fed the subtree's first leaf through
-    /// [`leaf`](Self::leaf); the builder owns — and debug-asserts — the
-    /// precondition that the leaf is still held at its own depth.
+    /// [`leaf`](Self::leaf); the builder verifies that the leaf remains at its
+    /// supplied depth.
     ///
     /// # Panics
     ///
@@ -229,7 +229,7 @@ impl Out {
                 .expect("a matched prefix is a proper prefix of the tiling");
             let start = cursor.position();
             cursor.skip_int().expect("canonical skyline bits");
-            builder.leaf(depth, Code::from_range(event, start, cursor.position()));
+            builder.leaf(depth, |out| out.splice(event, start, cursor.position()));
         }
         debug_assert_eq!(
             cursor.position(),

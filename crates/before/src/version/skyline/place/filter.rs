@@ -52,10 +52,11 @@ use core::cmp::Ordering;
 use suanpan::Accumulator;
 
 use crate::causally::Coverage;
-use crate::codec::{BitsView, Int};
+use num_bigint::BigUint;
 
-use super::super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
-use super::super::signed::Sign;
+use crate::codec::{accumulator, BitsView};
+
+use super::super::overlay::{advance_set, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::super::sweep::Directions;
 
 /// What a query demands of the relation between the probe and one bound stream,
@@ -95,10 +96,10 @@ struct Pair {
 
 impl Pair {
     /// Seed the pair from the two streams' absolute first heights.
-    fn open(probe_first: &Int, bound_first: &Int) -> Pair {
+    fn open(probe_first: &BigUint, bound_first: &BigUint) -> Pair {
         let mut diff = Accumulator::new();
-        super::super::signed::fold_signed_int(&mut diff, Sign::Positive, probe_first);
-        super::super::signed::fold_signed_int(&mut diff, Sign::Negative, bound_first);
+        accumulator::fold(&mut diff, probe_first, 0, false);
+        accumulator::fold(&mut diff, bound_first, 0, true);
         Pair {
             diff,
             directions: Directions::new(),
@@ -129,7 +130,7 @@ struct GatedPair {
 
 impl GatedPair {
     /// A live pair over the two streams' absolute first heights.
-    fn open(probe_first: &Int, bound_first: &Int) -> GatedPair {
+    fn open(probe_first: &BigUint, bound_first: &BigUint) -> GatedPair {
         GatedPair {
             pair: Pair::open(probe_first, bound_first),
             live: true,
@@ -281,7 +282,7 @@ impl CursorSet for MemberCursors<'_> {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
                 for side in self.sides.iter_mut().flatten() {
-                    fold(&mut side.pair.diff, Side::A, step.sign, &step.magnitude);
+                    Side::A.fold(&mut side.pair.diff, &step);
                 }
                 flip
             }
@@ -290,7 +291,7 @@ impl CursorSet for MemberCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                fold(&mut side.pair.diff, Side::B, step.sign, &step.magnitude);
+                Side::B.fold(&mut side.pair.diff, &step);
                 flip
             }
         }
@@ -583,7 +584,7 @@ impl CursorSet for SpanCursors<'_> {
                 let (flip, step) = self.hi.step();
                 for side in self.sides.iter_mut().flatten() {
                     if side.hi.live {
-                        fold(&mut side.hi.pair.diff, Side::A, step.sign, &step.magnitude);
+                        Side::A.fold(&mut side.hi.pair.diff, &step);
                     }
                 }
                 flip
@@ -592,7 +593,7 @@ impl CursorSet for SpanCursors<'_> {
                 let (flip, step) = self.lo.step();
                 for side in self.sides.iter_mut().flatten() {
                     if side.lo.live {
-                        fold(&mut side.lo.pair.diff, Side::A, step.sign, &step.magnitude);
+                        Side::A.fold(&mut side.lo.pair.diff, &step);
                     }
                 }
                 flip
@@ -604,7 +605,7 @@ impl CursorSet for SpanCursors<'_> {
                 let (flip, step) = side.cursor.step();
                 for gated in [&mut side.lo, &mut side.hi] {
                     if gated.live {
-                        fold(&mut gated.pair.diff, Side::B, step.sign, &step.magnitude);
+                        Side::B.fold(&mut gated.pair.diff, &step);
                     }
                 }
                 flip

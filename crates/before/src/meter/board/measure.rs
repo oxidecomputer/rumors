@@ -3,7 +3,6 @@
 
 use crate::meter;
 
-use super::ceilings::capacity_chain_peak;
 use super::cell::{Cell, Denom};
 use super::currency::{ByCurrency, Floors};
 
@@ -43,15 +42,11 @@ pub(super) struct Sample {
     /// The fold rows' operand count at this sample's scale, for the
     /// declared fold scan model.
     pub(super) fold_arity: Option<u64>,
-    /// The capacity-chain model's predicted peak heap for this sample
-    /// ([`capacity_chain_peak`] over the actual input and output bytes), on the
-    /// cells that declare it.
-    pub(super) heap_model: Option<f64>,
     /// The family-stated flat heap ceiling, on the cells that declare one (the
     /// `ceilings` module's declared-models section).
     pub(super) declared_heap: Option<f64>,
     /// Every currency's counter reading over the body; `None` where the counter
-    /// is not compiled in (the feature-gated limb, scan, and touch columns
+    /// is not compiled in (the feature-gated scan and touch columns
     /// render `off` and are exempt from judgment).
     pub(super) readings: ByCurrency<Option<u64>>,
 }
@@ -68,7 +63,6 @@ pub(super) fn measure(
     content: Option<usize>,
 ) -> Sample {
     meter::reset_stack_segments();
-    reset_limb();
     reset_scan();
     reset_touch();
     (heap.reset_peak)();
@@ -76,10 +70,8 @@ pub(super) fn measure(
     let result = (cell.body)();
     let peak_heap = (heap.peak)().saturating_sub(baseline);
     let segments = meter::stack_segments();
-    let limb = read_limb();
     let scan = read_scan();
     let touch = read_touch();
-    let mut heap_model = None;
     let (denom_bytes, exp_denom_bytes) = match cell.denom {
         // The flat-denominator shape's content denominator carries the exponent
         // legs of its input-denominated cells alone: an I/O-denominated cell's
@@ -90,9 +82,6 @@ pub(super) fn measure(
         }
         Denom::Io(spec) => {
             let output_bytes = (spec.output_bytes)(result.as_ref());
-            if cell.capacity_model {
-                heap_model = Some(capacity_chain_peak(cell.input_bytes, output_bytes));
-            }
             let n_io = cell.input_bytes + output_bytes;
             (n_io, n_io)
         }
@@ -103,58 +92,34 @@ pub(super) fn measure(
         exp_denom_bytes,
         floors: cell.floors,
         fold_arity: cell.fold_arity,
-        heap_model,
         declared_heap: cell.declared_heap,
         readings: ByCurrency {
             heap: Some(peak_heap as u64),
             segments: Some(segments),
-            limb,
             scan,
             touch,
         },
     }
 }
 
-/// Reset the limb counter when the `limb-meter` feature carries one.
-#[cfg(feature = "limb-meter")]
-fn reset_limb() {
-    meter::reset_limb_ops();
-}
-
-/// Without the `limb-meter` feature there is no counter to reset.
-#[cfg(not(feature = "limb-meter"))]
-fn reset_limb() {}
-
-/// Read the limb counter, or `None` without the `limb-meter` feature.
-#[cfg(feature = "limb-meter")]
-fn read_limb() -> Option<u64> {
-    Some(meter::limb_ops())
-}
-
-/// Without the `limb-meter` feature the limb column is absent.
-#[cfg(not(feature = "limb-meter"))]
-fn read_limb() -> Option<u64> {
-    None
-}
-
-/// Reset the touch counter when the `limb-meter` feature carries one.
-#[cfg(feature = "limb-meter")]
+/// Reset the touch counter when the `touch-meter` feature carries one.
+#[cfg(feature = "touch-meter")]
 fn reset_touch() {
     suanpan::touch_meter::reset();
 }
 
-/// Without the `limb-meter` feature there is no touch counter to reset.
-#[cfg(not(feature = "limb-meter"))]
+/// Without the `touch-meter` feature there is no touch counter to reset.
+#[cfg(not(feature = "touch-meter"))]
 fn reset_touch() {}
 
-/// Read the touch counter, or `None` without the `limb-meter` feature.
-#[cfg(feature = "limb-meter")]
+/// Read the touch counter, or `None` without the `touch-meter` feature.
+#[cfg(feature = "touch-meter")]
 fn read_touch() -> Option<u64> {
     Some(suanpan::touch_meter::touches())
 }
 
-/// Without the `limb-meter` feature the touch column is absent.
-#[cfg(not(feature = "limb-meter"))]
+/// Without the `touch-meter` feature the touch column is absent.
+#[cfg(not(feature = "touch-meter"))]
 fn read_touch() -> Option<u64> {
     None
 }

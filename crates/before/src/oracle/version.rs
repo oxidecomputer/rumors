@@ -4,8 +4,8 @@ use std::cmp::Ordering;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 use std::sync::Arc;
 
-use crate::codec::Base;
 use crate::version::skyline::grow::Cost as RouteCost;
+use num_bigint::BigUint;
 
 use super::Party;
 
@@ -23,10 +23,10 @@ fn deepen(component: u64) -> u64 {
 
 /// Event component.
 ///
-/// Bases are the arbitrary-precision `Base`, matching the implementation's leaf
+/// Bases are the arbitrary-precision `BigUint`, matching the implementation's leaf
 /// payloads, so large-base differentials lower losslessly — there is no `u64`
 /// truncation point. Literal/`u64` construction still works via
-/// `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
+/// `Version::leaf`/`Version::node` (both take `impl Into<BigUint>`) and the
 /// [`From<u64>`](Version) conversion.
 ///
 /// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
@@ -35,39 +35,39 @@ fn deepen(component: u64) -> u64 {
 /// deep-copying, which keeps every oracle walk linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
-    Leaf(Base),
-    Node(Base, Arc<Version>, Arc<Version>),
+    Leaf(BigUint),
+    Node(BigUint, Arc<Version>, Arc<Version>),
 }
 
 impl From<u64> for Version {
     fn from(n: u64) -> Self {
-        Version::Leaf(Base::from(n))
+        Version::Leaf(BigUint::from(n))
     }
 }
 
 impl Version {
     pub fn new() -> Self {
-        Version::Leaf(Base::ZERO)
+        Version::Leaf(BigUint::ZERO)
     }
 
-    pub(crate) fn leaf(n: impl Into<Base>) -> Version {
+    pub(crate) fn leaf(n: impl Into<BigUint>) -> Version {
         Version::Leaf(n.into())
     }
 
-    fn base(&self) -> &Base {
+    fn base(&self) -> &BigUint {
         match self {
             Version::Leaf(n) | Version::Node(n, ..) => n,
         }
     }
 
-    fn max_ev(&self) -> Base {
+    fn max_ev(&self) -> BigUint {
         match self {
             Version::Leaf(n) => n.clone(),
             Version::Node(n, l, r) => n + l.max_ev().max(r.max_ev()),
         }
     }
 
-    fn debase(self, m: &Base) -> Version {
+    fn debase(self, m: &BigUint) -> Version {
         match self {
             Version::Leaf(n) => Version::Leaf(n - m),
             Version::Node(n, l, r) => Version::Node(n - m, l, r),
@@ -76,8 +76,8 @@ impl Version {
 
     /// `norm((n,l,r))`, assuming `l`,`r` already normal. `pub(crate)` so the
     /// test-support shape builders can construct normal-form event trees. Takes
-    /// `impl Into<Base>` so callers can pass a `u64` literal.
-    pub(crate) fn node(n: impl Into<Base>, l: Version, r: Version) -> Version {
+    /// `impl Into<BigUint>` so callers can pass a `u64` literal.
+    pub(crate) fn node(n: impl Into<BigUint>, l: Version, r: Version) -> Version {
         let n = n.into();
         let m = l.base().min(r.base()).clone();
         let l = l.debase(&m);
@@ -96,7 +96,7 @@ impl Version {
     }
 
     /// `self+so <= other+oo` pointwise (offset-threaded).
-    pub(super) fn leq(&self, so: &Base, other: &Version, oo: &Base) -> bool {
+    pub(super) fn leq(&self, so: &BigUint, other: &Version, oo: &BigUint) -> bool {
         let sn = so + self.base();
         let on = oo + other.base();
         if sn > on {
@@ -112,7 +112,7 @@ impl Version {
     }
 
     /// Join (LUB) of two event trees, offset-threaded.
-    fn join_off(&self, so: &Base, other: &Version, oo: &Base) -> Version {
+    fn join_off(&self, so: &BigUint, other: &Version, oo: &BigUint) -> Version {
         if let (Version::Leaf(sn), Version::Leaf(on)) = (self, other) {
             return Version::Leaf((so + sn).max(oo + on));
         }
@@ -133,7 +133,7 @@ impl Version {
     }
 
     /// Meet (GLB) of two event trees, offset-threaded.
-    fn meet_off(&self, so: &Base, other: &Version, oo: &Base) -> Version {
+    fn meet_off(&self, so: &BigUint, other: &Version, oo: &BigUint) -> Version {
         if let (Version::Leaf(sn), Version::Leaf(on)) = (self, other) {
             return Version::Leaf((so + sn).min(oo + on));
         }
@@ -158,7 +158,7 @@ impl Version {
     ///
     /// Normal form is preserved — the children are untouched, so neither the
     /// one-zero-base nor the non-collapsible invariant can break.
-    fn shift(&self, off: &Base) -> Version {
+    fn shift(&self, off: &BigUint) -> Version {
         match self {
             Version::Leaf(n) => Version::Leaf(n + off),
             Version::Node(n, l, r) => Version::Node(n + off, l.clone(), r.clone()),
@@ -172,7 +172,7 @@ impl Version {
     /// Masking rebuilds from **absolute** values because a non-negative event
     /// base cannot be undone below a split — the same reason the impl's
     /// `project` threads its offset.
-    fn project_off(&self, id: &Party, off: &Base) -> Version {
+    fn project_off(&self, id: &Party, off: &BigUint) -> Version {
         match id {
             // Owned outright: keep the value, lifted to absolute by `off`.
             Party::Leaf(true) => self.shift(off),
@@ -201,7 +201,7 @@ impl Version {
     /// zero everywhere `id` does not own. The reference for the impl's quotient
     /// [`Version / &Party`](crate::Version).
     pub(crate) fn project(&self, id: &Party) -> Version {
-        self.project_off(id, &Base::ZERO)
+        self.project_off(id, &BigUint::ZERO)
     }
 
     /// The minimum number of [`tick`](Self::tick)s that could have produced this
@@ -213,7 +213,7 @@ impl Version {
     }
 
     /// The sum of every base in the event tree (node bases plus leaf values).
-    fn base_total(&self) -> Base {
+    fn base_total(&self) -> BigUint {
         match self {
             Version::Leaf(n) => n.clone(),
             Version::Node(n, l, r) => n.clone() + l.base_total() + r.base_total(),
@@ -230,7 +230,7 @@ impl Version {
 
     /// The raw `(numerator, exponent)` area fold, in subtree-relative units
     /// (this subtree's interval has width 1).
-    fn rank_raw(&self) -> (Base, u64) {
+    fn rank_raw(&self) -> (BigUint, u64) {
         match self {
             Version::Leaf(n) => (n.clone(), 0),
             Version::Node(n, l, r) => {
@@ -392,8 +392,8 @@ impl Version {
     /// composition laws and closed forms).
     pub fn ticks(&mut self, party: &Party, n: impl Into<crate::Ticks>) {
         let mut left = n.into().0;
-        let one = Base::from(1u8);
-        while left != Base::ZERO {
+        let one = BigUint::from(1u8);
+        while left != BigUint::ZERO {
             self.tick(party);
             left -= &one;
         }
@@ -403,7 +403,7 @@ impl Version {
         match self {
             Version::Leaf(_) => true,
             Version::Node(_, l, r) => {
-                let one_zero = *l.base() == Base::ZERO || *r.base() == Base::ZERO;
+                let one_zero = *l.base() == BigUint::ZERO || *r.base() == BigUint::ZERO;
                 let collapsible =
                     matches!((&**l, &**r), (Version::Leaf(a), Version::Leaf(b)) if a == b);
                 one_zero && !collapsible && l.is_normal() && r.is_normal()
@@ -422,8 +422,8 @@ impl PartialOrd for Version {
     /// Causal order; `None` means concurrent.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (
-            self.leq(&Base::ZERO, other, &Base::ZERO),
-            other.leq(&Base::ZERO, self, &Base::ZERO),
+            self.leq(&BigUint::ZERO, other, &BigUint::ZERO),
+            other.leq(&BigUint::ZERO, self, &BigUint::ZERO),
         ) {
             (true, true) => Some(Ordering::Equal),
             (true, false) => Some(Ordering::Less),
@@ -436,13 +436,13 @@ impl PartialOrd for Version {
 impl BitOr<Version> for Version {
     type Output = Version;
     fn bitor(self, rhs: Version) -> Version {
-        self.join_off(&Base::ZERO, &rhs, &Base::ZERO)
+        self.join_off(&BigUint::ZERO, &rhs, &BigUint::ZERO)
     }
 }
 
 impl BitOrAssign<Version> for Version {
     fn bitor_assign(&mut self, rhs: Version) {
-        *self = self.join_off(&Base::ZERO, &rhs, &Base::ZERO);
+        *self = self.join_off(&BigUint::ZERO, &rhs, &BigUint::ZERO);
     }
 }
 
@@ -454,13 +454,13 @@ impl BitOrAssign<Version> for Version {
 impl BitAnd<Version> for Version {
     type Output = Version;
     fn bitand(self, rhs: Version) -> Version {
-        self.meet_off(&Base::ZERO, &rhs, &Base::ZERO)
+        self.meet_off(&BigUint::ZERO, &rhs, &BigUint::ZERO)
     }
 }
 
 impl BitAndAssign<Version> for Version {
     fn bitand_assign(&mut self, rhs: Version) {
-        *self = self.meet_off(&Base::ZERO, &rhs, &Base::ZERO);
+        *self = self.meet_off(&BigUint::ZERO, &rhs, &BigUint::ZERO);
     }
 }
 

@@ -2,14 +2,16 @@
 
 use insta::assert_snapshot;
 
-use crate::codec::{encode_int, Base, BitsBuf, BitsView};
+use num_bigint::BigUint;
+
+use crate::codec::{gamma, BitsBuf, BitsView};
 use crate::error::{Crossed, Decode, Overlap, ParseRank};
 use crate::oracle;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`,
-/// the same order `encode_int` and the preorder codec emit. Empty stream
+/// the same order [`gamma::encode`] and the preorder codec emit. Empty stream
 /// renders as `""`.
 fn bits_to_string(bits: BitsView<'_>) -> String {
     (0..bits.len())
@@ -29,7 +31,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 /// One Elias-gamma row: `n` then its code as an MSB-first bit string and the bit count.
 fn gamma_row(n: u64) -> String {
     let mut bits = BitsBuf::new();
-    encode_int(&mut bits, &Base::from(n));
+    gamma::encode(&BigUint::from(n), &mut bits);
     format!(
         "{:>20} -> {} ({} bits)",
         n,
@@ -72,8 +74,8 @@ fn gamma_bit_layout_table() {
     // Arbitrary-width witness: 2^64 has no u64 representation, but the gamma code (and
     // therefore an event base of this magnitude) encodes and round-trips regardless.
     let mut big_bits = BitsBuf::new();
-    let big = Base::from(1u8) << 64u32; // 2^64
-    encode_int(&mut big_bits, &big);
+    let big = BigUint::from(1u8) << 64u32; // 2^64
+    gamma::encode(&big, &mut big_bits);
     assert_snapshot!(
         format!(
             "2^64 -> {} ({} bits)",
@@ -229,7 +231,7 @@ fn rank_rendered_forms() {
         .checked_sub(&half.rank())
         .expect("3/2 dominates 1/2");
     // 2^100 + 1 is odd, so the fractional form remains normalized.
-    let wide = (Base::from(1u8) << 100u32) + Base::from(1u8);
+    let wide = (BigUint::from(1u8) << 100u32) + BigUint::from(1u8);
     let wide_rank = from_oracle_version(&oracle::Version::node(
         0u8,
         oracle::Version::leaf(wide),

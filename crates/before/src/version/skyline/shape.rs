@@ -21,25 +21,13 @@
 //! once, so a refinement cell carries an input's rise on the first
 //! fragment of that input's plateau and `None` on every later fragment.
 
-use crate::codec::{BitsView, Int};
+use num_bigint::{BigInt, Sign};
+
+use crate::codec::BitsView;
 use crate::shape::Rise;
 use crate::Ticks;
 
 use super::overlay::{IdLeafCursor, LeafCursor, PlateauCursor};
-use super::signed::Sign;
-
-/// The rise a decoded signed delta denotes: `None` for the zero delta,
-/// the sign and magnitude lifted into the public vocabulary otherwise.
-fn rise(sign: Sign, magnitude: Int) -> Option<Rise> {
-    if magnitude.is_zero() {
-        return None;
-    }
-    let ticks = Ticks(magnitude.into_base());
-    Some(match sign {
-        Sign::Positive => Rise::Up(ticks),
-        Sign::Negative => Rise::Down(ticks),
-    })
-}
 
 /// A shape walk over one skyline stream: [`LeafCursor`] plus the pending
 /// rise entering its current leaf.
@@ -52,11 +40,25 @@ pub(crate) struct VersionWalk<'a> {
 }
 
 impl<'a> VersionWalk<'a> {
+    /// Convert one decoded delta to the public rise vocabulary.
+    fn rise(delta: BigInt) -> Option<Rise> {
+        let (sign, magnitude) = delta.into_parts();
+        if sign == Sign::NoSign {
+            return None;
+        }
+        let ticks = Ticks(magnitude);
+        Some(match sign {
+            Sign::Plus => Rise::Up(ticks),
+            Sign::Minus => Rise::Down(ticks),
+            Sign::NoSign => unreachable!("zero returned above"),
+        })
+    }
+
     /// Open a canonical skyline stream at its first plateau.
     pub(crate) fn open(bits: BitsView<'a>) -> Self {
         let (cursor, first) = LeafCursor::open(bits);
         VersionWalk {
-            pending: rise(Sign::Positive, first),
+            pending: Self::rise(BigInt::from(first)),
             cursor,
         }
     }
@@ -126,7 +128,7 @@ impl Refine for VersionWalk<'_> {
 
     fn advance(&mut self) -> u64 {
         let (flip, step) = self.cursor.step();
-        self.pending = rise(step.sign, step.magnitude);
+        self.pending = Self::rise(step);
         flip
     }
 }

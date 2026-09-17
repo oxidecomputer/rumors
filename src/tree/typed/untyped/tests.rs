@@ -774,29 +774,21 @@ mod memo_fold_cost {
         (node, children)
     }
 
-    /// `body`'s result with its `(limb ops, scanned bits, digit
-    /// touches)` reading.
-    fn metered<R>(body: impl FnOnce() -> R) -> (R, u64, u64, u64) {
-        meter::reset_limb_ops();
+    /// `body`'s result with its scanned bits and digit touches.
+    fn metered<R>(body: impl FnOnce() -> R) -> (R, u64, u64) {
         meter::reset_scan_bits();
         meter::reset_touch_ops();
         let out = body();
-        (
-            out,
-            meter::limb_ops(),
-            meter::scan_bits(),
-            meter::touch_ops(),
-        )
+        (out, meter::scan_bits(), meter::touch_ops())
     }
 
     /// The sequential by-reference two-fold reference over one child map.
     ///
     /// The running join of the ceilings and the running meet of the
     /// floors (seeded from the first child, the meet's own seed rule),
-    /// with the composed `(limb ops, scan bits, digit touches)`
-    /// reading.
-    fn sequential_bounds(children: &Fan) -> (Version, Version, u64, u64, u64) {
-        let ((join, meet), limb, scan, touch) = metered(|| {
+    /// with the composed scan and digit-touch readings.
+    fn sequential_bounds(children: &Fan) -> (Version, Version, u64, u64) {
+        let ((join, meet), scan, touch) = metered(|| {
             let mut join = Version::new();
             for child in children.values() {
                 join |= child.ceiling();
@@ -812,7 +804,7 @@ mod memo_fold_cost {
             }
             (join, meet)
         });
-        (join, meet, limb, scan, touch)
+        (join, meet, scan, touch)
     }
 
     /// Assert one currency's memo reading sits under the sequential
@@ -847,19 +839,17 @@ mod memo_fold_cost {
         let versions: Vec<Version> = encoded.iter().map(meter::Encoding::version).collect();
         let (node, children) = wide_branch(versions);
 
-        let (join, meet, _, seq_scan, seq_touch) = sequential_bounds(&children);
+        let (join, meet, seq_scan, seq_touch) = sequential_bounds(&children);
         // Forcing either bound computes the whole span; the reading
         // covers both.
-        let (ceiling, _, memo_scan, memo_touch) = metered(|| node.ceiling().clone());
+        let (ceiling, memo_scan, memo_touch) = metered(|| node.ceiling().clone());
         assert_eq!(&ceiling, &join, "the memo ceiling is the sequential join");
         assert_eq!(node.floor(), &meet, "the memo floor is the sequential meet");
         eprintln!(
             "MEASURED memo_bounds_fold_stagger: sequential touch={seq_touch} scan={seq_scan} \
              span-memo touch={memo_touch} scan={memo_scan}",
         );
-        // Fold work rides digit touches: the population's word-scale
-        // values fold through the accumulator's quick register, which
-        // the limb counter never sees.
+        // Fold work rides digit touches; scan bits cover the encoded walks.
         assert_undercuts(
             "stagger_bounds_memo",
             "digit touches",
@@ -885,11 +875,8 @@ mod memo_fold_cost {
         let versions = Shape::MeetShade.versions(512, FANOUT);
         let (node, children) = wide_branch(versions);
 
-        let (join, meet, _, seq_scan, seq_touch) = sequential_bounds(&children);
-        let (floor, memo_scan, memo_touch) = {
-            let (floor, _, scan, touch) = metered(|| node.floor().clone());
-            (floor, scan, touch)
-        };
+        let (join, meet, seq_scan, seq_touch) = sequential_bounds(&children);
+        let (floor, memo_scan, memo_touch) = metered(|| node.floor().clone());
         assert_eq!(&floor, &meet, "the memo floor is the sequential meet");
         assert_eq!(
             node.ceiling(),
@@ -900,10 +887,7 @@ mod memo_fold_cost {
             "MEASURED memo_bounds_fold_meet_shade: sequential touch={seq_touch} scan={seq_scan} \
              span-memo touch={memo_touch} scan={memo_scan}",
         );
-        // The fold-work leg rides digit touches, not limb operations:
-        // this population's values stay word-scale, so both folds read
-        // zero limbs (the accumulator's quick register carries them)
-        // and the touch counter is the live per-fold signal.
+        // The touch counter is the live fold-work signal.
         assert_undercuts(
             "meet_shade_bounds_memo",
             "digit touches",
@@ -959,8 +943,8 @@ mod memo_fold_cost {
             .collect();
         let node = Node::branch(children.clone()).expect("128 children make a branch");
 
-        let (join, meet, _, seq_scan, seq_touch) = sequential_bounds(&children);
-        let (ceiling, _, memo_scan, memo_touch) = metered(|| node.ceiling().clone());
+        let (join, meet, seq_scan, seq_touch) = sequential_bounds(&children);
+        let (ceiling, memo_scan, memo_touch) = metered(|| node.ceiling().clone());
         assert_eq!(&ceiling, &join, "the memo ceiling is the sequential join");
         assert_eq!(node.floor(), &meet, "the memo floor is the sequential meet");
         eprintln!(

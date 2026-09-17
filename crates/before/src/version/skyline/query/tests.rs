@@ -10,10 +10,11 @@
 //! canonical streams — so a fold that drifts by any amount anywhere has no
 //! rounding to hide behind.
 
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
+use crate::codec::accumulator;
 use crate::meter::registry::Shape;
 use crate::meter::Encoding;
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
@@ -35,69 +36,11 @@ trait AccumulatorOracleExt {
 
 impl AccumulatorOracleExt for Accumulator {
     fn add_big(&mut self, value: &BigUint) {
-        crate::codec::Base(value.clone()).fold_into(self, 0, false);
+        accumulator::fold(self, value, 0, false);
     }
 
     fn sub_big(&mut self, value: &BigUint) {
-        crate::codec::Base(value.clone()).fold_into(self, 0, true);
-    }
-}
-
-/// Accumulator adapters used only by the metered reference implementations.
-#[cfg(feature = "limb-meter")]
-trait MeteredAccumulatorOracleExt {
-    /// Add an oracle magnitude times `2^shift`.
-    fn add_big_shl(&mut self, value: &BigUint, shift: u64);
-    /// Read the normalized magnitude into the oracle's representation.
-    fn sign_big(&self) -> (core::cmp::Ordering, BigUint);
-    /// Read the magnitude and its retained power-of-two scale.
-    fn sign_big_shl(&self) -> (core::cmp::Ordering, BigUint, u64);
-    /// Add an unshifted Before magnitude.
-    fn add_base(&mut self, value: &crate::codec::Base);
-    /// Subtract an unshifted Before magnitude.
-    fn sub_base(&mut self, value: &crate::codec::Base);
-    /// Add a Before magnitude times `2^shift`.
-    fn add_base_shl(&mut self, value: &crate::codec::Base, shift: u64);
-    /// Subtract a Before magnitude times `2^shift`.
-    fn sub_base_shl(&mut self, value: &crate::codec::Base, shift: u64);
-    /// Read a Before magnitude and its retained power-of-two scale.
-    fn sign_base_shl(&self) -> (core::cmp::Ordering, crate::codec::Base, u64);
-}
-
-#[cfg(feature = "limb-meter")]
-impl MeteredAccumulatorOracleExt for Accumulator {
-    fn add_big_shl(&mut self, value: &BigUint, shift: u64) {
-        crate::codec::Base(value.clone()).fold_into(self, shift, false);
-    }
-
-    fn sign_big(&self) -> (core::cmp::Ordering, BigUint) {
-        let (sign, magnitude) = crate::codec::Base::from_accumulator(self);
-        (sign, magnitude.0)
-    }
-
-    fn sign_big_shl(&self) -> (core::cmp::Ordering, BigUint, u64) {
-        let (sign, magnitude, shift) = crate::codec::Base::from_accumulator_shl(self);
-        (sign, magnitude.0, shift)
-    }
-
-    fn add_base(&mut self, value: &crate::codec::Base) {
-        value.fold_into(self, 0, false);
-    }
-
-    fn sub_base(&mut self, value: &crate::codec::Base) {
-        value.fold_into(self, 0, true);
-    }
-
-    fn add_base_shl(&mut self, value: &crate::codec::Base, shift: u64) {
-        value.fold_into(self, shift, false);
-    }
-
-    fn sub_base_shl(&mut self, value: &crate::codec::Base, shift: u64) {
-        value.fold_into(self, shift, true);
-    }
-
-    fn sign_base_shl(&self) -> (core::cmp::Ordering, crate::codec::Base, u64) {
-        crate::codec::Base::from_accumulator_shl(self)
+        accumulator::fold(self, value, 0, true);
     }
 }
 
@@ -305,10 +248,11 @@ fn families_agree_with_the_encodings() {
 ///
 /// The other pools stay under the freeze allowance almost everywhere: a
 /// unit-funded fold freezes only past 9 digits (288 bits) of live drift, and
-/// `arb_base` tops out near 2^128, under half of that — so the promotion ledger
-/// and its product-tree settle would run differentially unwitnessed without
-/// this pool: these shapes are the only ones that arm it, and the arming trains
-/// are the only ones that arm it more than once per sweep or with mixed signs.
+/// `arb_magnitude` tops out near 2^128, under half of that — so the promotion
+/// ledger and its product-tree settle would run differentially unwitnessed
+/// without this pool: these shapes are the only ones that arm it, and the
+/// arming trains are the only ones that arm it more than once per sweep or with
+/// mixed signs.
 fn promoting_pool() -> Vec<Version> {
     vec![
         version_of(&Shape::PromotionRearm.build1(1)),
@@ -369,7 +313,7 @@ fn promoting_families_agree_with_the_oracle() {
 ///
 /// The freeze-schedule vocabulary: each adjacent difference is one folded
 /// delta, so a height list is a delta script for the sweep's live component.
-fn spine_of(heights: &[crate::codec::Base]) -> Version {
+fn spine_of(heights: &[BigUint]) -> Version {
     use crate::oracle::Version as V;
     let mut tree = V::leaf(heights[heights.len() - 1].clone());
     for h in heights[..heights.len() - 1].iter().rev() {
@@ -381,46 +325,43 @@ fn spine_of(heights: &[crate::codec::Base]) -> Version {
 /// The exact-cancellation freeze schedule.
 ///
 /// Heights whose freezes park `+2^(32p)`, `−(2^32 − 1)·2^(32(p−1))`, and
-/// `−2^(32(p−1))` — a parked component valued zero but spelled `+1` at digit
-/// `p` over `−2^32` at digit `p − 1` — then trip a fourth freeze on a
-/// wide-spelled narrow drift (`2^(32q)` climbed and returned to a small
-/// `s`), which settles a segment against the zero-valued parked component
-/// and promotes it into the skip-arming reset.
-fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<crate::codec::Base> {
-    use crate::codec::Base;
-    let x = Base::from(1u8) << (32 * p);
-    let t = Base::from(1u8) << (32 * (p - 1));
-    let z = Base::from(1u8) << (32 * q);
+/// `−2^(32(p−1))`. Those terms cancel although the accumulator retains high
+/// positive and negative digits. A fourth freeze follows a climb to `2^(32q)`
+/// and return to the small drift `s`; it settles a segment against the
+/// zero-valued parked component and promotes it into the skip-arming reset.
+fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
+    let x = BigUint::from(1u8) << (32 * p);
+    let t = BigUint::from(1u8) << (32 * (p - 1));
+    let z = BigUint::from(1u8) << (32 * q);
     vec![
-        Base::ZERO,
-        x.clone() - &Base::from(1u8),
+        BigUint::ZERO,
+        x.clone() - &BigUint::from(1u8),
         x,
-        t.clone() + &Base::from(1u8),
+        t.clone() + &BigUint::from(1u8),
         t,
-        Base::from(1u8),
-        Base::ZERO,
+        BigUint::from(1u8),
+        BigUint::ZERO,
         z,
-        Base::from(s),
-        Base::from(s + 1),
+        BigUint::from(s),
+        BigUint::from(s + 1),
     ]
 }
 
-/// The redundantly-spelled zero-drift freeze schedule.
+/// A freeze schedule whose buffered drift cancels to zero.
 ///
 /// Deltas `+（2^(32p) + d)`, `−(2^32 − 1)·2^(32(p−1))`, `−2^(32(p−1))`, then
 /// `−d`: the last, narrow delta trips the width trigger with the live
-/// component's *value* exactly zero while its spelling still tops at digit
-/// `p`, so the freeze finds no drift to park and must keep the epoch.
-fn zero_drift_heights(p: u32, d: u64) -> Vec<crate::codec::Base> {
-    use crate::codec::Base;
-    let x = Base::from(1u8) << (32 * p);
-    let t = Base::from(1u8) << (32 * (p - 1));
+/// component's value exactly zero while its buffers still reach digit `p`.
+/// The freeze therefore has no drift to park and must keep the epoch.
+fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
+    let x = BigUint::from(1u8) << (32 * p);
+    let t = BigUint::from(1u8) << (32 * (p - 1));
     vec![
-        Base::ZERO,
-        x + &Base::from(d),
-        t.clone() + &Base::from(d),
-        Base::from(d),
-        Base::ZERO,
+        BigUint::ZERO,
+        x + &BigUint::from(d),
+        t.clone() + &BigUint::from(d),
+        BigUint::from(d),
+        BigUint::ZERO,
     ]
 }
 
@@ -428,9 +369,9 @@ fn zero_drift_heights(p: u32, d: u64) -> Vec<crate::codec::Base> {
 /// the schedule really parks.
 ///
 /// Four freezes fire, the fourth settling and promoting against a parked
-/// component that is valued zero but spelled redundantly — the arms
-/// `is_literally_zero` cannot answer — and every fold stays exact against
-/// the tree oracle.
+/// component whose buffered positive and negative terms cancel. The cheap
+/// `is_literally_zero` check cannot detect that cancellation, and every fold
+/// stays exact against the tree oracle.
 #[test]
 fn parked_cancellation_settles_and_promotes_exactly() {
     let v = spine_of(&parked_cancellation_heights(11, 9, 5));
@@ -448,10 +389,10 @@ proptest! {
     /// the cancellation scale, the trailing climb's scale, and the final
     /// narrow drift.
     ///
-    /// A parked component that cancels to a redundantly spelled zero must
-    /// charge nothing at later settles, and a promotion armed by a
-    /// wide-spelled narrow drift must skip its arming and still reset — any
-    /// misaccounting in either zero arm lands in the exact totals.
+    /// A parked component whose terms cancel must charge nothing at later
+    /// settles. A promotion triggered after a large climb returns to a narrow
+    /// drift, skips arming on that zero component, and still resets. Any
+    /// misaccounting in either zero case changes the exact totals.
     #[test]
     fn parked_cancellation_family_agrees(p in 11u32..=14, q in 9u32..=12, s in 1u64..=6) {
         let v = spine_of(&parked_cancellation_heights(p, q, s));
@@ -463,8 +404,8 @@ proptest! {
         );
     }
 
-    /// The zero-drift family: a width trigger tripped by a live component
-    /// whose value is exactly zero (spelled wide) freezes nothing.
+    /// The zero-drift family: a width trigger tripped by buffered terms that
+    /// cancel exactly freezes nothing.
     ///
     /// The rank integral parks no drift and min_ticks keeps its epoch, and
     /// both folds stay exact against the tree oracle through the empty
@@ -484,8 +425,8 @@ proptest! {
 /// oracle's rank order in both operand orders where the sweeps park, promote,
 /// and settle wide drift, and the mirrored pair — one promoting shape hung on
 /// each side of a fresh root fork, two distinct streams of exactly equal
-/// rank — pins the `Equal` answer, which demands the signed settle cancel to
-/// a spelled zero through the whole parked/promoted/settled pipeline. The
+/// rank — pins the `Equal` answer, which demands that the signed settle cancel
+/// to zero through the whole parked/promoted/settled pipeline. The
 /// [`FREEZE_HITS`](super::integral::FREEZE_HITS) floors make the regime claim
 /// non-vacuous: a pool or pair that never froze would pass any value pin
 /// while exercising none of the ledger.
@@ -711,7 +652,7 @@ proptest! {
     ///
     /// The dimensions cover arming counts across several product-tree shapes (a
     /// lone entry, a full level, an odd drain), both sign schedules, and window
-    /// densities from trivial to multi-digit, beyond `arb_base`'s
+    /// densities from trivial to multi-digit, beyond `arb_magnitude`'s
     /// 128-bit ceiling keeps the arbitrary-tree sweep from ever arming. The
     /// pair leg crosses the train against its opposite-schedule twin, so the
     /// co-sweep promotes on both operands with the difference's orientation
@@ -735,7 +676,7 @@ proptest! {
     ///
     /// The `Equal` generator arm of the signed co-sweep's freeze-regime
     /// coverage: over the train dimensions, the signed settle must cancel to
-    /// a spelled zero through the parked/promoted/settled pipeline — the one
+    /// zero through the parked/promoted/settled pipeline — the one
     /// answer the nonnegative pair measures can never exercise (their totals
     /// are monotone differences), and one no organically drawn pair reaches
     /// at freezing scale. Every train in the sampled box parks drift under the
@@ -839,7 +780,7 @@ proptest! {
         prop_assert_eq!(
             v.rank(),
             Rank::from_raw(
-                crate::codec::Base::from(numerator),
+                numerator,
                 y.bits() + 1,
             ),
             "the exact rank must embed the arbitrary product"
@@ -871,7 +812,7 @@ fn clusters_split_exactly_at_the_gap_limit() {
     let digits: &[(u64, i64)] = &[(0, 1), (3, -2), (4, 5), (8, 1), (20, -7)];
     // gap(0→3) = 2, gap(4→8) = 3, gap(8→20) = 11.
     let split = |limit: u64| -> Vec<Vec<u64>> {
-        super::integral::clusters(digits, limit)
+        super::integral::WindowMass::clusters(digits, limit)
             .map(|c| c.iter().map(|&(i, _)| i).collect())
             .collect()
     };
@@ -909,10 +850,6 @@ proptest! {
         ),
         neg in any::<bool>(),
     ) {
-    use suanpan::Accumulator;
-
-        use crate::codec::Base;
-
         // Ascending balanced digits from the gap schedule.
         let mut digits: Vec<(u64, i64)> = Vec::with_capacity(entries.len());
         let mut index = 0u64;
@@ -921,10 +858,9 @@ proptest! {
             digits.push((index, digit));
             index += 1;
         }
-        let factor = Base::from(BigUint::from_bytes_le(&factor_bytes));
+        let factor = BigUint::from_bytes_le(&factor_bytes);
         let mut clustered = Accumulator::new();
-        let sign = crate::version::skyline::signed::Sign::from_is_negative(neg);
-        super::integral::charge_digits(&mut clustered, sign, &factor, &digits);
+        let sign = if neg { Sign::Minus } else { Sign::Plus };
         // The oracle: one whole-span product per sign side, no
         // clustering anywhere on the path.
         let mut positive = BigUint::ZERO;
@@ -937,14 +873,16 @@ proptest! {
                 positive += term;
             }
         }
+        let signed_factor = BigInt::from_biguint(sign, factor.clone());
+        super::integral::WindowMass { digits }.charge(&mut clustered, &signed_factor);
         let mut expected = Accumulator::new();
-        let (add_side, sub_side) = if sign.is_negative() {
+        let (add_side, sub_side) = if sign == Sign::Minus {
             (&negative, &positive)
         } else {
             (&positive, &negative)
         };
-        expected.add_big(&(add_side * &factor.0));
-        expected.sub_big(&(sub_side * &factor.0));
+        expected.add_big(&(add_side * &factor));
+        expected.sub_big(&(sub_side * &factor));
         expected.sub_accum(&clustered);
         prop_assert_eq!(
             expected.sign(),
@@ -955,7 +893,7 @@ proptest! {
 }
 
 /// Prefix sums of a mass vector, each leaf's mass floored at one — the measure
-/// [`integral::mass_split`](super::integral::mass_split) consumes,
+/// [`Integrator::mass_split`](super::integral::Integrator::mass_split) consumes,
 /// built exactly as the shipped settle builds it.
 fn mass_prefix(masses: &[u64]) -> Vec<u64> {
     let mut prefix: Vec<u64> = Vec::with_capacity(masses.len() + 1);
@@ -967,7 +905,7 @@ fn mass_prefix(masses: &[u64]) -> Vec<u64> {
 }
 
 /// Depth of the deepest leaf under the shipped split rule
-/// ([`integral::mass_split`](super::integral::mass_split)), by the same
+/// ([`Integrator::mass_split`](super::integral::Integrator::mass_split)), by the same
 /// explicit-stack expansion the settle runs.
 fn split_depth(masses: &[u64]) -> usize {
     let prefix = mass_prefix(masses);
@@ -978,7 +916,7 @@ fn split_depth(masses: &[u64]) -> usize {
             deepest = deepest.max(depth);
             continue;
         }
-        let mid = super::integral::mass_split(&prefix, lo, hi);
+        let mid = super::integral::Integrator::mass_split(&prefix, lo, hi);
         stack.push((mid, hi, depth + 1));
         stack.push((lo, mid, depth + 1));
     }
@@ -1040,14 +978,14 @@ proptest! {
     /// arbitrary mass vectors.
     ///
     /// The size-generic contract of
-    /// [`integral::mass_split`](super::integral::mass_split), checked by a
-    /// naive recursive reference expanding the same rule: the right half
-    /// never exceeds half the node's mass, and the left half exceeds it only
-    /// by its straddling last leaf — which the next split isolates — so mass
-    /// at least halves every second level along any root-to-leaf path. The
-    /// masses are drawn log-uniformly across 48 bits of magnitude at
-    /// arbitrary lengths, so both regimes (balanced splits and straddling
-    /// chains) fall in-support.
+    /// [`Integrator::mass_split`](super::integral::Integrator::mass_split),
+    /// checked by a naive recursive reference expanding the same rule: the
+    /// right half never exceeds half the node's mass, and the left half exceeds
+    /// it only by its straddling last leaf — which the next split isolates — so
+    /// mass at least halves every second level along any root-to-leaf path. The
+    /// masses are drawn log-uniformly across 48 bits of magnitude at arbitrary
+    /// lengths, so both regimes (balanced splits and straddling chains) fall
+    /// in-support.
     #[test]
     fn arbitrary_mass_vectors_split_nonempty_and_entropy_bounded(
         masses in proptest::collection::vec(
@@ -1062,7 +1000,7 @@ proptest! {
             if hi - lo == 1 {
                 return 0;
             }
-            let mid = super::integral::mass_split(prefix, lo, hi);
+            let mid = super::integral::Integrator::mass_split(prefix, lo, hi);
             assert!(
                 lo < mid && mid < hi,
                 "both halves must be nonempty: lo {lo:?}, mid {mid:?}, hi {hi:?}"
@@ -1086,1328 +1024,5 @@ proptest! {
             depth,
             total
         );
-    }
-}
-
-/// The committed known-bad freeze accounting: the freeze-position family's
-/// adequacy tripwire.
-///
-/// The anchored-segment integral exists because a freeze must not settle
-/// evicted drift against its absolute position (the `integral` module doc's
-/// discipline).
-/// This module keeps the refuted accounting — the frozen/live split whose every
-/// freeze correction multiplies the drift by the whole position accumulator,
-/// read across its full written span — committed and *failing*: the tripwire
-/// proves `FP(k)` still catches the mechanism red, so the family's green
-/// flatness band (`skyline_rank_freeze_position_is_flat_per_unit`,
-/// `tests/meter.rs`) is never decoration. The kernel is value-exact against the
-/// shipped rank, so the demonstrator is a real implementation, not a strawman.
-#[cfg(feature = "limb-meter")]
-mod adequacy {
-    use num_bigint::BigUint;
-
-    use core::cmp::Ordering;
-
-    use suanpan::{touch_meter, Accumulator};
-
-    use crate::codec::{Base, BitsView, Int};
-    use crate::meter::registry::Shape;
-    use crate::version::skyline::encode;
-    use crate::version::skyline::overlay::{fold, LeafCursor, PlateauCursor, Side};
-    use crate::Rank;
-
-    use crate::version::skyline::signed::{fold_signed, fold_signed_int, Sign};
-
-    use super::MeteredAccumulatorOracleExt as _;
-
-    use super::super::integral::{int_digits, FREEZE_ALLOWANCE_DIGITS};
-    use super::super::max_depth;
-    use super::super::web::mul_into;
-
-    /// The absolute-position rank fold: heights on a frozen/live split whose
-    /// freeze correction is `drift × position` with the position accumulator
-    /// read whole per freeze.
-    ///
-    /// Value-exact — the summation-by-parts identity `Σᵢ F(i)·massᵢ =
-    /// F_final·2^S − Σ_freezes drift·position` is sound — and superlinear
-    /// exactly where the tripwire asserts it: freeze `i`'s position read walks
-    /// the accumulator's whole written span, which `FP(k)`'s descending spine
-    /// grows with every block.
-    fn absolute_position_rank(bits: BitsView<'_>) -> Rank {
-        let max_depth = max_depth(bits);
-        let scale = max_depth;
-        let (mut cursor, first) = LeafCursor::open(bits);
-        let mut total = Accumulator::new();
-        let mut live_height = Accumulator::new();
-        let mut frozen = Accumulator::new();
-        fold_signed_int(&mut frozen, Sign::Positive, &first);
-        let mut position = Accumulator::new();
-        let one = Base::from(1u8);
-        loop {
-            let weight_shift = max_depth - cursor.depth();
-            if !live_height.is_literally_zero() {
-                total.add_accum_shl(&live_height, weight_shift);
-            }
-            position.add_base_shl(&one, weight_shift);
-            if cursor.done() {
-                break;
-            }
-            let (_, step) = cursor.step();
-            fold(&mut live_height, Side::A, step.sign, &step.magnitude);
-            if live_height.digit_count() > int_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
-                let (drift_sign, drift) = live_height.sign_big();
-                let (_, position_mag) = position.sign_big();
-                let drift = Base::from(drift);
-                mul_into(
-                    &mut total,
-                    &drift,
-                    &Base::from(position_mag),
-                    0,
-                    drift_sign == Ordering::Greater,
-                );
-                match drift_sign {
-                    Ordering::Less => frozen.sub_base(&drift),
-                    _ => frozen.add_base(&drift),
-                }
-                live_height = Accumulator::new();
-            }
-        }
-        total.add_accum_shl(&frozen, max_depth);
-        let (sign, num) = total.sign_big();
-        debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-        Rank::from_raw(Base::from(num), scale)
-    }
-
-    /// One tripwire run: encoded bytes and the touch count over the known-bad
-    /// fold, value-pinned against the shipped kernel.
-    fn run(k: usize) -> (u64, u64) {
-        let v = Shape::FreezePosition.build1(k).version();
-        let enc = encode(&v);
-        let expected = v.rank();
-        touch_meter::reset();
-        let r = absolute_position_rank(crate::codec::built_view(&enc));
-        let touches = touch_meter::touches();
-        assert_eq!(
-            r, expected,
-            "the known-bad fold must stay value-exact: a wrong demonstrator \
-             proves nothing about the family's coverage"
-        );
-        (enc.len().div_ceil(8), touches)
-    }
-
-    /// `FP(k)` catches the absolute-position accounting red: its per-byte touch
-    /// cost grows across the doubling.
-    ///
-    /// A linear fold reads ~x1.00 here; the floor 1.25 sits midway between
-    /// linear and the measured x1.50, while the shipped kernel's flatness band
-    /// holds the same family at x1.25.
-    ///
-    /// [measured in the dev profile, exact counters: touches 124,368 -> 372,859
-    /// across FP(1,000) -> FP(2,000), encoded 73,328B -> 146,579B: per-byte
-    /// growth x1.50.]
-    #[test]
-    fn absolute_position_accounting_reads_superlinear_on_freeze_position() {
-        let (small_bytes, small_touches) = run(1_000);
-        let (large_bytes, large_touches) = run(2_000);
-        eprintln!(
-            "MEASURED adequacy_absolute_position: small={small_touches}/{small_bytes}B \
-             large={large_touches}/{large_bytes}B"
-        );
-        assert!(
-            u128::from(large_touches) * u128::from(small_bytes) * 100
-                >= u128::from(small_touches) * u128::from(large_bytes) * 125,
-            "the absolute-position accounting reads flat on the freeze-position \
-             family ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
-             the family no longer catches the mechanism it was built for, so the \
-             flatness band it backs is decoration until a new witness lands"
-        );
-    }
-
-    // ── the span-reading promotion accounting ──────────────────────────
-    //
-    // The promotion ledger exists because a promotion must not re-read
-    // whole-history position state (the `integral` module doc's
-    // promotion-ledger section).
-    // This kernel keeps the refuted accounting — the full anchored-segment
-    // integrator whose promotion debits `P × position` by reading an absolute
-    // position accumulator across its written span, re-anchoring the parked
-    // component into the base — committed and failing on the promotion re-arm
-    // family, through both the single-stream and the pair integrals, so the
-    // green re-arm flatness bands (`skyline_flatness`, `tests/meter.rs`) are
-    // never decoration. Value-exact against the shipped folds: the identity `P
-    // · (2^S − position) = P · 2^S − P · position` is sound; only its cost
-    // class is not.
-
-    use crate::version::skyline::overlay::advance_diff;
-
-    /// The anchored-segment integral with the span-reading promotion.
-    ///
-    /// Segments settle at the write watermark (linear on the freeze-position
-    /// family), but a promotion multiplies the parked component by the absolute
-    /// position accumulator, read across its full written span, and re-anchors
-    /// it into the base.
-    struct SpanIntegrator {
-        total: Accumulator,
-        live: Accumulator,
-        parked: Accumulator,
-        segment_mass: Accumulator,
-        base: Accumulator,
-        /// The absolute interval mass consumed through the last settled
-        /// segment: the whole-history state the promotion re-reads.
-        position: Accumulator,
-        one: Base,
-    }
-
-    impl SpanIntegrator {
-        fn new() -> SpanIntegrator {
-            SpanIntegrator {
-                total: Accumulator::new(),
-                live: Accumulator::new(),
-                parked: Accumulator::new(),
-                segment_mass: Accumulator::new(),
-                base: Accumulator::new(),
-                position: Accumulator::new(),
-                one: Base::from(1u8),
-            }
-        }
-
-        fn open(&mut self, opening: &Int) {
-            fold_signed_int(&mut self.base, Sign::Positive, opening);
-        }
-
-        fn interval(&mut self, weight_shift: u64) {
-            if !self.live.is_literally_zero() {
-                self.total.add_accum_shl(&self.live, weight_shift);
-            }
-            self.segment_mass.add_base_shl(&self.one, weight_shift);
-        }
-
-        fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-            let (sign, magnitude) = diff.sign_big();
-            if magnitude == BigUint::ZERO {
-                return;
-            }
-            let magnitude = Base::from(magnitude);
-            let negative = (coefficient < 0) != (sign == Ordering::Less);
-            let shift = if coefficient.abs() == 2 { 1 } else { 0 };
-            if negative {
-                self.live.sub_base_shl(&magnitude, shift);
-            } else {
-                self.live.add_base_shl(&magnitude, shift);
-            }
-        }
-
-        fn boundary(&mut self, funded_digits: usize) {
-            if self.live.digit_count() > funded_digits + FREEZE_ALLOWANCE_DIGITS {
-                self.freeze();
-            }
-        }
-
-        fn freeze(&mut self) {
-            let (drift_sign, drift) = self.live.sign_big();
-            if drift == BigUint::ZERO {
-                self.live.reset();
-                return;
-            }
-            let drift = Base::from(drift);
-            self.settle_segment();
-            if self.parked.digit_count()
-                > super::super::integral::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
-            {
-                self.promote();
-            }
-            match drift_sign {
-                Ordering::Less => self.parked.sub_base(&drift),
-                _ => self.parked.add_base(&drift),
-            }
-            self.live.reset();
-            self.segment_mass = Accumulator::new();
-        }
-
-        fn settle_segment(&mut self) {
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
-            if segment_magnitude == BigUint::ZERO {
-                return;
-            }
-            let segment = Base::from(segment_magnitude);
-            self.position.add_base_shl(&segment, segment_shift);
-            if self.parked.is_literally_zero() {
-                return;
-            }
-            let (parked_sign, parked_magnitude) = self.parked.sign_big();
-            if parked_magnitude == BigUint::ZERO {
-                return;
-            }
-            mul_into(
-                &mut self.total,
-                &Base::from(parked_magnitude),
-                &segment,
-                segment_shift,
-                parked_sign == Ordering::Less,
-            );
-        }
-
-        fn settle(&mut self) {
-            if self.parked.is_literally_zero() {
-                return;
-            }
-            let (parked_sign, parked_magnitude) = self.parked.sign_big();
-            if parked_magnitude == BigUint::ZERO {
-                return;
-            }
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
-            mul_into(
-                &mut self.total,
-                &Base::from(parked_magnitude),
-                &Base::from(segment_magnitude),
-                segment_shift,
-                parked_sign == Ordering::Less,
-            );
-        }
-
-        /// The refuted move: `P × position` with the position read whole, then
-        /// `P` re-anchored into the base.
-        fn promote(&mut self) {
-            let (parked_sign, parked_magnitude) = self.parked.sign_big();
-            if parked_magnitude != BigUint::ZERO {
-                let (_, pos_mag, pos_shift) = self.position.sign_big_shl();
-                mul_into(
-                    &mut self.total,
-                    &Base::from(parked_magnitude),
-                    &Base::from(pos_mag),
-                    pos_shift,
-                    parked_sign == Ordering::Greater,
-                );
-                self.base.add_accum(&self.parked);
-            }
-            self.parked.reset();
-        }
-
-        fn finish(mut self, closing_shift: u64) -> Rank {
-            self.settle();
-            if !self.base.is_literally_zero() {
-                self.total.add_accum_shl(&self.base, closing_shift);
-            }
-            let (sign, num) = self.total.sign_big();
-            debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
-            let scale = closing_shift;
-            Rank::from_raw(Base::from(num), scale)
-        }
-    }
-
-    /// The rank fold on the span-reading integrator: the shipped
-    /// [`rank`](super::super::rank) loop verbatim, integrator swapped.
-    fn span_promotion_rank(bits: BitsView<'_>) -> Rank {
-        let max_depth = max_depth(bits);
-        let (mut cursor, first) = LeafCursor::open(bits);
-        let mut integral = SpanIntegrator::new();
-        integral.open(&first);
-        loop {
-            let weight_shift = max_depth - cursor.depth();
-            integral.interval(weight_shift);
-            if cursor.done() {
-                break;
-            }
-            let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
-            integral.boundary(super::super::integral::int_digits(&step.magnitude));
-        }
-        integral.finish(max_depth)
-    }
-
-    /// The distance co-sweep on the span-reading integrator: the shipped pair
-    /// loop verbatim (distance orientation), integrator swapped.
-    fn span_promotion_distance(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Rank {
-        let orientation = |sign: Ordering| -> i8 {
-            match sign {
-                Ordering::Greater => 1,
-                Ordering::Less => -1,
-                Ordering::Equal => 0,
-            }
-        };
-        let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
-        let (mut ca, a_first) = LeafCursor::open(a_bits);
-        let (mut cb, b_first) = LeafCursor::open(b_bits);
-        let mut diff = Accumulator::new();
-        fold_signed_int(&mut diff, Sign::Positive, &a_first);
-        fold_signed_int(&mut diff, Sign::Negative, &b_first);
-        let mut orient = orientation(diff.sign());
-        let mut integral = SpanIntegrator::new();
-        if orient != 0 {
-            let (_, opening) = diff.sign_big();
-            integral.open(&Int::from_base(Base::from(opening)));
-        }
-        loop {
-            let weight_shift = overlay_depth - ca.depth().max(cb.depth());
-            integral.interval(weight_shift);
-            if ca.done() && cb.done() {
-                break;
-            }
-            let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
-            let new_orient = orientation(diff.sign());
-            if orient != 0 {
-                for (side, step) in [(Side::A, &da), (Side::B, &db)] {
-                    if let Some(step) = step {
-                        let toward = if orient > 0 { side } else { side.other() };
-                        fold(&mut integral.live, toward, step.sign, &step.magnitude);
-                    }
-                }
-            }
-            if new_orient != orient {
-                integral.jump(new_orient - orient, &diff);
-                orient = new_orient;
-            }
-            let funded = da
-                .iter()
-                .chain(db.iter())
-                .map(|step| super::super::integral::int_digits(&step.magnitude))
-                .max()
-                .unwrap_or(1);
-            integral.boundary(funded);
-        }
-        integral.finish(overlay_depth)
-    }
-
-    /// One rank tripwire run over `PR(p)`: encoded bytes and the touch count
-    /// over the known-bad fold, value-pinned against the shipped kernel.
-    fn span_rank_run(p: usize) -> (u64, u64) {
-        let v = Shape::PromotionRearm.build1(p).version();
-        let enc = encode(&v);
-        let expected = v.rank();
-        touch_meter::reset();
-        let r = span_promotion_rank(crate::codec::built_view(&enc));
-        let touches = touch_meter::touches();
-        assert_eq!(
-            r, expected,
-            "the known-bad fold must stay value-exact: a wrong demonstrator \
-             proves nothing about the family's coverage"
-        );
-        (enc.len().div_ceil(8), touches)
-    }
-
-    /// One pair tripwire run over `(PR(p), PRM(p))`: the pair's encoded bytes
-    /// and the touch count over the known-bad co-sweep, value-pinned against
-    /// the shipped kernel.
-    fn span_pair_run(p: usize) -> (u64, u64) {
-        let a = Shape::PromotionRearm.build1(p).version();
-        let b = Shape::PromotionRearmMate.build1(p).version();
-        let ea = encode(&a);
-        let eb = encode(&b);
-        let expected = a.distance(&b);
-        touch_meter::reset();
-        let d =
-            span_promotion_distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb));
-        let touches = touch_meter::touches();
-        assert_eq!(
-            d, expected,
-            "the known-bad co-sweep must stay value-exact: a wrong \
-             demonstrator proves nothing about the family's coverage"
-        );
-        ((ea.len() + eb.len()).div_ceil(8), touches)
-    }
-
-    /// `PR(p)` catches the span-reading promotion red on the single-stream
-    /// integral: its per-byte touch cost grows across the doubling.
-    ///
-    /// A linear fold reads ~x1.00 here; the floor 1.36 sits midway between
-    /// linear and the measured x1.74, while the shipped kernel's re-arm
-    /// flatness band holds the same family at x1.25.
-    ///
-    /// [measured in the dev profile, exact counters: touches 1,440,756 ->
-    /// 5,006,506 across PR(1,000) -> PR(2,000), encoded 246,501B -> 493,001B:
-    /// per-byte growth x1.74.]
-    #[test]
-    fn span_promotion_accounting_reads_superlinear_on_rearm_spine() {
-        let (small_bytes, small_touches) = span_rank_run(1_000);
-        let (large_bytes, large_touches) = span_rank_run(2_000);
-        eprintln!(
-            "MEASURED adequacy_span_promotion_rank: small={small_touches}/{small_bytes}B \
-             large={large_touches}/{large_bytes}B"
-        );
-        assert!(
-            u128::from(large_touches) * u128::from(small_bytes) * 100
-                >= u128::from(small_touches) * u128::from(large_bytes) * 136,
-            "the span-reading promotion reads flat on the re-arm spine \
-             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
-             the family no longer catches the mechanism it was built for, so the \
-             flatness band it backs is decoration until a new witness lands"
-        );
-    }
-
-    /// `(PR(p), PRM(p))` catches the span-reading promotion red on the pair
-    /// integral: its per-byte touch cost grows across the doubling.
-    ///
-    /// The committed proof that the pair family drives promotions through the
-    /// co-sweep, not just freezes.
-    ///
-    /// [measured in the dev profile, exact counters: touches 1,504,885 ->
-    /// 5,134,635 across p = 1,000 -> 2,000, encoded pair 269,001B -> 538,001B:
-    /// per-byte growth x1.71; the floor 1.36 sits midway between linear and the
-    /// measured growth, as the rank tripwire's.]
-    #[test]
-    fn span_promotion_accounting_reads_superlinear_on_rearm_pair() {
-        let (small_bytes, small_touches) = span_pair_run(1_000);
-        let (large_bytes, large_touches) = span_pair_run(2_000);
-        eprintln!(
-            "MEASURED adequacy_span_promotion_pair: small={small_touches}/{small_bytes}B \
-             large={large_touches}/{large_bytes}B"
-        );
-        assert!(
-            u128::from(large_touches) * u128::from(small_bytes) * 100
-                >= u128::from(small_touches) * u128::from(large_bytes) * 136,
-            "the span-reading promotion reads flat on the re-arm pair \
-             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
-             the pair family no longer drives promotions through the co-sweep, \
-             so the pair flatness band it backs is decoration until a new \
-             witness lands"
-        );
-    }
-    // ── the per-arming suffix-walk settle ──────────────────────────────
-    //
-    // The mass-balanced product-tree settle exists because the ledger's debt
-    // must not be charged by walking a shared suffix once per arming (the
-    // `integral` module doc's settle bound). This kernel keeps the refuted
-    // accounting —
-    // the ledger assembled newest-first into one running suffix mass, each
-    // arming's charge re-reading that suffix's whole density — committed and
-    // failing on the dense-suffix family, through both the single-stream and
-    // the pair integrals, so the green dense-suffix flatness bands
-    // (`skyline_flatness`, `tests/meter.rs`) are never decoration. Value-exact
-    // against the shipped folds: the suffix walk computes the same cross-term
-    // sum, term by term; only its cost class is not the tree's.
-
-    use crate::version::skyline::query::integral::{Arming, WindowMass};
-
-    /// The anchored-segment integral with the per-arming suffix-walk settle.
-    ///
-    /// Promotions record funded-width ledger entries exactly as the shipped
-    /// integrator does; the close then walks one running suffix mass per arming
-    /// instead of reducing the entries through the balanced product tree.
-    struct SuffixWalkIntegrator {
-        total: Accumulator,
-        live: Accumulator,
-        parked: Accumulator,
-        segment_mass: Accumulator,
-        base: Accumulator,
-        banked_window: Accumulator,
-        promotions: Vec<Arming>,
-        one: Base,
-    }
-
-    impl SuffixWalkIntegrator {
-        fn new() -> SuffixWalkIntegrator {
-            SuffixWalkIntegrator {
-                total: Accumulator::new(),
-                live: Accumulator::new(),
-                parked: Accumulator::new(),
-                segment_mass: Accumulator::new(),
-                base: Accumulator::new(),
-                banked_window: Accumulator::new(),
-                promotions: Vec::new(),
-                one: Base::from(1u8),
-            }
-        }
-
-        fn open(&mut self, opening: &Int) {
-            fold_signed_int(&mut self.base, Sign::Positive, opening);
-        }
-
-        fn interval(&mut self, weight_shift: u64) {
-            if !self.live.is_literally_zero() {
-                self.total.add_accum_shl(&self.live, weight_shift);
-            }
-            self.segment_mass.add_base_shl(&self.one, weight_shift);
-        }
-
-        fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-            let (sign, magnitude) = diff.sign_big();
-            if magnitude == BigUint::ZERO {
-                return;
-            }
-            let magnitude = Base::from(magnitude);
-            let negative = (coefficient < 0) != (sign == Ordering::Less);
-            let shift = if coefficient.abs() == 2 { 1 } else { 0 };
-            if negative {
-                self.live.sub_base_shl(&magnitude, shift);
-            } else {
-                self.live.add_base_shl(&magnitude, shift);
-            }
-        }
-
-        fn boundary(&mut self, funded_digits: usize) {
-            if self.live.digit_count() > funded_digits + FREEZE_ALLOWANCE_DIGITS {
-                self.freeze();
-            }
-        }
-
-        fn freeze(&mut self) {
-            let (drift_sign, drift) = self.live.sign_big();
-            if drift == BigUint::ZERO {
-                self.live.reset();
-                return;
-            }
-            let drift = Base::from(drift);
-            self.settle_segment();
-            if self.parked.digit_count()
-                > super::super::integral::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
-            {
-                self.promote();
-            }
-            match drift_sign {
-                Ordering::Less => self.parked.sub_base(&drift),
-                _ => self.parked.add_base(&drift),
-            }
-            self.live.reset();
-            self.segment_mass = Accumulator::new();
-        }
-
-        fn settle_segment(&mut self) {
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
-            if segment_magnitude == BigUint::ZERO {
-                return;
-            }
-            let segment = Base::from(segment_magnitude);
-            self.banked_window.add_base_shl(&segment, segment_shift);
-            if self.parked.is_literally_zero() {
-                return;
-            }
-            let (parked_sign, parked_magnitude) = self.parked.sign_big();
-            if parked_magnitude == BigUint::ZERO {
-                return;
-            }
-            mul_into(
-                &mut self.total,
-                &Base::from(parked_magnitude),
-                &segment,
-                segment_shift,
-                parked_sign == Ordering::Less,
-            );
-        }
-
-        fn settle(&mut self) {
-            if self.parked.is_literally_zero() {
-                return;
-            }
-            let (parked_sign, parked_magnitude) = self.parked.sign_big();
-            if parked_magnitude == BigUint::ZERO {
-                return;
-            }
-            let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
-            mul_into(
-                &mut self.total,
-                &Base::from(parked_magnitude),
-                &Base::from(segment_magnitude),
-                segment_shift,
-                parked_sign == Ordering::Less,
-            );
-        }
-
-        fn promote(&mut self) {
-            let (parked_sign, parked_magnitude) = self.parked.sign_big();
-            if parked_magnitude != BigUint::ZERO {
-                let (_, window_magnitude, window_shift) = self.banked_window.sign_base_shl();
-                self.promotions.push(Arming {
-                    sign: Sign::from_is_negative(parked_sign == Ordering::Less),
-                    parked: Base::from(parked_magnitude),
-                    window: window_magnitude,
-                    shift: window_shift,
-                });
-                self.banked_window = Accumulator::new();
-            }
-            self.parked.reset();
-        }
-
-        /// The refuted settle: one running suffix mass, assembled newest-first,
-        /// each arming's charge re-reading the suffix's whole balanced density.
-        fn settle_armings(&mut self) {
-            if self.promotions.is_empty() {
-                return;
-            }
-            let (_, final_window_magnitude, final_window_shift) =
-                self.banked_window.sign_base_shl();
-            let mut suffix = WindowMass::new();
-            if !final_window_magnitude.is_zero() {
-                suffix.merge(&final_window_magnitude, final_window_shift);
-            }
-            let armings = core::mem::take(&mut self.promotions);
-            for (i, arming) in armings.iter().enumerate().rev() {
-                suffix.charge(&mut self.total, arming.sign, &arming.parked);
-                if i > 0 {
-                    suffix.merge(&arming.window, arming.shift);
-                }
-            }
-        }
-
-        fn finish(mut self, closing_shift: u64) -> Rank {
-            self.settle();
-            if !self.promotions.is_empty() {
-                let (_, segment_magnitude, segment_shift) = self.segment_mass.sign_big_shl();
-                if segment_magnitude != BigUint::ZERO {
-                    self.banked_window
-                        .add_big_shl(&segment_magnitude, segment_shift);
-                }
-                self.settle_armings();
-            }
-            if !self.base.is_literally_zero() {
-                self.total.add_accum_shl(&self.base, closing_shift);
-            }
-            let (sign, num) = self.total.sign_big();
-            debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
-            let scale = closing_shift;
-            Rank::from_raw(Base::from(num), scale)
-        }
-    }
-
-    /// The rank fold on the suffix-walk integrator: the shipped
-    /// [`rank`](super::super::rank) loop verbatim, integrator swapped.
-    fn suffix_walk_rank(bits: BitsView<'_>) -> Rank {
-        let max_depth = max_depth(bits);
-        let (mut cursor, first) = LeafCursor::open(bits);
-        let mut integral = SuffixWalkIntegrator::new();
-        integral.open(&first);
-        loop {
-            let weight_shift = max_depth - cursor.depth();
-            integral.interval(weight_shift);
-            if cursor.done() {
-                break;
-            }
-            let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
-            integral.boundary(super::super::integral::int_digits(&step.magnitude));
-        }
-        integral.finish(max_depth)
-    }
-
-    /// The distance co-sweep on the suffix-walk integrator: the shipped pair
-    /// loop verbatim (distance orientation), integrator swapped.
-    fn suffix_walk_distance(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Rank {
-        let orientation = |sign: Ordering| -> i8 {
-            match sign {
-                Ordering::Greater => 1,
-                Ordering::Less => -1,
-                Ordering::Equal => 0,
-            }
-        };
-        let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
-        let (mut ca, a_first) = LeafCursor::open(a_bits);
-        let (mut cb, b_first) = LeafCursor::open(b_bits);
-        let mut diff = Accumulator::new();
-        fold_signed_int(&mut diff, Sign::Positive, &a_first);
-        fold_signed_int(&mut diff, Sign::Negative, &b_first);
-        let mut orient = orientation(diff.sign());
-        let mut integral = SuffixWalkIntegrator::new();
-        if orient != 0 {
-            let (_, opening) = diff.sign_big();
-            integral.open(&Int::from_base(Base::from(opening)));
-        }
-        loop {
-            let weight_shift = overlay_depth - ca.depth().max(cb.depth());
-            integral.interval(weight_shift);
-            if ca.done() && cb.done() {
-                break;
-            }
-            let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
-            let new_orient = orientation(diff.sign());
-            if orient != 0 {
-                for (side, step) in [(Side::A, &da), (Side::B, &db)] {
-                    if let Some(step) = step {
-                        let toward = if orient > 0 { side } else { side.other() };
-                        fold(&mut integral.live, toward, step.sign, &step.magnitude);
-                    }
-                }
-            }
-            if new_orient != orient {
-                integral.jump(new_orient - orient, &diff);
-                orient = new_orient;
-            }
-            let funded = da
-                .iter()
-                .chain(db.iter())
-                .map(|step| super::super::integral::int_digits(&step.magnitude))
-                .max()
-                .unwrap_or(1);
-            integral.boundary(funded);
-        }
-        integral.finish(overlay_depth)
-    }
-
-    /// One rank tripwire run over `DS(p, p)`: encoded bytes and the touch count
-    /// over the known-bad fold, value-pinned against the shipped kernel.
-    fn suffix_walk_rank_run(p: usize) -> (u64, u64) {
-        let v = Shape::DenseSuffix.build2(p, p).version();
-        let enc = encode(&v);
-        let expected = v.rank();
-        touch_meter::reset();
-        let r = suffix_walk_rank(crate::codec::built_view(&enc));
-        let touches = touch_meter::touches();
-        assert_eq!(
-            r, expected,
-            "the known-bad fold must stay value-exact: a wrong demonstrator \
-             proves nothing about the family's coverage"
-        );
-        (enc.len().div_ceil(8), touches)
-    }
-
-    /// One pair tripwire run over `(DS(p, p), DSM(p, p))`: the pair's encoded
-    /// bytes and the touch count over the known-bad co-sweep, value-pinned
-    /// against the shipped kernel.
-    fn suffix_walk_pair_run(p: usize) -> (u64, u64) {
-        let a = Shape::DenseSuffix.build2(p, p).version();
-        let b = Shape::DenseSuffixMate.build2(p, p).version();
-        let ea = encode(&a);
-        let eb = encode(&b);
-        let expected = a.distance(&b);
-        touch_meter::reset();
-        let d = suffix_walk_distance(crate::codec::built_view(&ea), crate::codec::built_view(&eb));
-        let touches = touch_meter::touches();
-        assert_eq!(
-            d, expected,
-            "the known-bad co-sweep must stay value-exact: a wrong \
-             demonstrator proves nothing about the family's coverage"
-        );
-        ((ea.len() + eb.len()).div_ceil(8), touches)
-    }
-
-    /// `DS(p, p)` catches the per-arming suffix walk red on the single-stream
-    /// integral: its per-byte touch cost grows across the doubling.
-    ///
-    /// A linear fold reads ~x1.00 here; the floor 1.48 sits between linear and
-    /// the measured x1.75, while the shipped kernel's dense-suffix flatness
-    /// band holds the same family at x1.25.
-    ///
-    /// [measured in the dev profile, exact counters: touches 698,584 ->
-    /// 2,449,356 across DS(500, 500) -> DS(1,000, 1,000), encoded 119,593B ->
-    /// 239,030B: per-byte growth x1.75.]
-    #[test]
-    fn suffix_walk_settle_reads_superlinear_on_dense_suffix() {
-        let (small_bytes, small_touches) = suffix_walk_rank_run(500);
-        let (large_bytes, large_touches) = suffix_walk_rank_run(1_000);
-        eprintln!(
-            "MEASURED adequacy_suffix_walk_rank: small={small_touches}/{small_bytes}B \
-             large={large_touches}/{large_bytes}B"
-        );
-        assert!(
-            u128::from(large_touches) * u128::from(small_bytes) * 100
-                >= u128::from(small_touches) * u128::from(large_bytes) * 148,
-            "the per-arming suffix walk reads flat on the dense-suffix family \
-             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
-             the family no longer catches the mechanism it was built for, so the \
-             flatness band it backs is decoration until a new witness lands"
-        );
-    }
-
-    /// `(DS(p, p), DSM(p, p))` catches the per-arming suffix walk red on the
-    /// pair integral: its per-byte touch cost grows across the doubling.
-    ///
-    /// The committed proof that the pair family drives the ledger settle
-    /// through the co-sweep, not just freezes.
-    ///
-    /// [measured in the dev profile, exact counters: touches 810,227 ->
-    /// 2,749,954 across p = 500 -> 1,000, encoded pair 127,033B -> 253,909B:
-    /// per-byte growth x1.70; the floor 1.48 sits between linear and the
-    /// measured growth, as the rank tripwire's.]
-    #[test]
-    fn suffix_walk_settle_reads_superlinear_on_dense_suffix_pair() {
-        let (small_bytes, small_touches) = suffix_walk_pair_run(500);
-        let (large_bytes, large_touches) = suffix_walk_pair_run(1_000);
-        eprintln!(
-            "MEASURED adequacy_suffix_walk_pair: small={small_touches}/{small_bytes}B \
-             large={large_touches}/{large_bytes}B"
-        );
-        assert!(
-            u128::from(large_touches) * u128::from(small_bytes) * 100
-                >= u128::from(small_touches) * u128::from(large_bytes) * 148,
-            "the per-arming suffix walk reads flat on the dense-suffix pair \
-             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
-             the pair family no longer drives the ledger settle through the \
-             co-sweep, so the pair flatness band it backs is decoration until \
-             a new witness lands"
-        );
-    }
-
-    // ── the per-digit window absorb ─────────────────────────────────────
-    //
-    // The settle's window masses move digits as plain `i64` vector traffic,
-    // invisible to the touch meter and to every `Base` shim; the per-digit tap
-    // in `WindowMass::combine` is their only meter. This kernel keeps the
-    // refuted merge — a product-tree absorb that folds the right half's window
-    // digits into the left one digit at a time, each single-digit combine
-    // re-walking the whole live vector, `O(density²)` per merge where the
-    // shipped absorb is one pass over both operands — committed and failing on
-    // the dense-suffix family in limb operations: the committed-and-failing
-    // form is available here exactly because the tap exists (without it this
-    // kernel reads byte-identical to the shipped settle on every committed
-    // counter — the hole the tap closes), so this tripwire is simultaneously
-    // the tap's liveness proof and the dense-suffix flatness bands' adequacy
-    // witness for this digit traffic. Value-exact: the balanced
-    // recentering is canonical per position, so digit-at-a-time recombination
-    // converges to the same digit stream and every charge and the final rank
-    // agree with the shipped fold exactly.
-
-    use crate::meter::{limb_ops, reset_limb_ops};
-    use crate::version::skyline::query::integral::{mass_split, Aggregate, Integrator};
-
-    /// Fold `other` into `dst` one digit at a time: each single-digit
-    /// combine re-walks `dst`'s whole live vector — the `O(density²)`
-    /// absorb.
-    fn per_digit_absorb(dst: &mut WindowMass, other: WindowMass) {
-        for entry in other.digits {
-            dst.combine(core::iter::once(entry));
-        }
-    }
-
-    /// One product-tree node under the per-digit absorb: charge and
-    /// parked sum exactly as [`Aggregate::merge`], the window merge
-    /// swapped for [`per_digit_absorb`].
-    fn merge_per_digit(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (parked_sign, parked_magnitude) = left.parked.sign_big();
-        if parked_magnitude != BigUint::ZERO {
-            right.windows.charge(
-                total,
-                Sign::from_is_negative(parked_sign == Ordering::Less),
-                &Base::from(parked_magnitude),
-            );
-        }
-        left.parked.add_accum(&right.parked);
-        per_digit_absorb(&mut left.windows, right.windows);
-    }
-
-    /// The shipped ledger settle with the per-digit absorb: the
-    /// mass-balanced product-tree reduction verbatim, every window
-    /// merge routed through [`merge_per_digit`].
-    fn per_digit_settle_armings(integ: &mut Integrator) {
-        if integ.promotions.is_empty() {
-            return;
-        }
-        let armings = core::mem::take(&mut integ.promotions);
-        let (_, final_window_magnitude, final_window_shift) = integ.banked_window.sign_base_shl();
-        let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
-        for arming in armings {
-            let mut parked = Accumulator::new();
-            fold_signed(&mut parked, arming.sign, &arming.parked);
-            let mut windows = WindowMass::new();
-            windows.merge(&arming.window, arming.shift);
-            leaves.push(Aggregate { parked, windows });
-        }
-        let mut windows = WindowMass::new();
-        if !final_window_magnitude.is_zero() {
-            windows.merge(&final_window_magnitude, final_window_shift);
-        }
-        leaves.push(Aggregate {
-            parked: Accumulator::new(),
-            windows,
-        });
-        let mut prefix: Vec<u64> = Vec::with_capacity(leaves.len() + 1);
-        let mut running = 0u64;
-        prefix.push(0);
-        for leaf in &leaves {
-            running += (leaf.parked.digit_count() + leaf.windows.digits.len()).max(1) as u64;
-            prefix.push(running);
-        }
-        enum Step {
-            Open(usize, usize),
-            Merge,
-        }
-        let leaf_count = leaves.len();
-        let mut leaves = leaves.into_iter();
-        let mut next_leaf = 0;
-        let mut control = vec![Step::Open(0, leaf_count)];
-        let mut reduced: Vec<Aggregate> = Vec::new();
-        while let Some(step) = control.pop() {
-            match step {
-                Step::Open(lo, hi) => {
-                    if hi - lo == 1 {
-                        debug_assert_eq!(
-                            next_leaf, lo,
-                            "the left-first reduction reaches unit ranges in ascending order"
-                        );
-                        next_leaf += 1;
-                        reduced.push(leaves.next().expect("one aggregate per unit range"));
-                    } else {
-                        let mid = mass_split(&prefix, lo, hi);
-                        control.push(Step::Merge);
-                        control.push(Step::Open(mid, hi));
-                        control.push(Step::Open(lo, mid));
-                    }
-                }
-                Step::Merge => {
-                    let right = reduced.pop().expect("the right half reduced");
-                    let mut left = reduced.pop().expect("the left half reduced");
-                    merge_per_digit(&mut left, right, &mut integ.total);
-                    reduced.push(left);
-                }
-            }
-        }
-    }
-
-    /// The rank fold's close under the per-digit settle: the shipped
-    /// `Integrator::finish` verbatim, the settle swapped.
-    fn per_digit_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
-        integ.settle();
-        if !integ.promotions.is_empty() {
-            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_big_shl();
-            if segment_magnitude != BigUint::ZERO {
-                integ
-                    .banked_window
-                    .add_big_shl(&segment_magnitude, segment_shift);
-            }
-            per_digit_settle_armings(&mut integ);
-        }
-        if !integ.base.is_literally_zero() {
-            integ.total.add_accum_shl(&integ.base, closing_shift);
-        }
-        let (sign, num) = integ.total.sign_big();
-        debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-        let scale = closing_shift;
-        Rank::from_raw(Base::from(num), scale)
-    }
-
-    /// The rank fold on the shipped integrator with the per-digit
-    /// close: the shipped [`rank`](super::super::rank) loop verbatim,
-    /// only the close swapped.
-    fn per_digit_rank(bits: BitsView<'_>) -> Rank {
-        let max_depth = max_depth(bits);
-        let (mut cursor, first) = LeafCursor::open(bits);
-        let mut integral = Integrator::new();
-        integral.open(Sign::Positive, &first);
-        loop {
-            let weight_shift = max_depth - cursor.depth();
-            integral.interval(weight_shift);
-            if cursor.done() {
-                break;
-            }
-            let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
-            integral.boundary(super::super::integral::int_digits(&step.magnitude));
-        }
-        per_digit_finish(integral, max_depth)
-    }
-
-    /// Run the deliberately inefficient fold over `DS(p, p)`, returning its
-    /// encoded size and limb count after checking its value.
-    ///
-    /// Limb operations are the relevant measure because the excess work is
-    /// entirely in window-digit combination.
-    fn per_digit_run(p: usize) -> (u64, u64) {
-        let v = Shape::DenseSuffix.build2(p, p).version();
-        let enc = encode(&v);
-        let expected = v.rank();
-        reset_limb_ops();
-        let r = per_digit_rank(crate::codec::built_view(&enc));
-        let limbs = limb_ops();
-        assert_eq!(
-            r, expected,
-            "the known-bad fold must stay value-exact: a wrong demonstrator \
-             proves nothing about the family's coverage"
-        );
-        (enc.len().div_ceil(8), limbs)
-    }
-
-    /// The inefficient per-digit combination grows superlinearly per encoded
-    /// byte when `DS(p, p)` doubles.
-    ///
-    /// A linear settle reads ~x1.00 here; the floor 1.42 sits midway between
-    /// linear (x1.00) and the measured growth, while the shipped kernel's
-    /// dense-suffix flatness band holds the same family at x1.25 in limb
-    /// operations per byte.
-    ///
-    /// [measured in the dev profile, exact counters: limb ops 725,957 ->
-    /// 2,702,714 across DS(500, 500) -> DS(1,000, 1,000), encoded 119,593B ->
-    /// 239,030B: per-byte growth x1.86 — against the shipped settle's 97,381 ->
-    /// 195,491 (x1.00/byte) on the same operands.]
-    #[test]
-    fn per_digit_window_absorb_reads_superlinear_on_dense_suffix() {
-        let (small_bytes, small_limbs) = per_digit_run(500);
-        let (large_bytes, large_limbs) = per_digit_run(1_000);
-        eprintln!(
-            "MEASURED adequacy_per_digit_absorb: small={small_limbs}/{small_bytes}B \
-             large={large_limbs}/{large_bytes}B"
-        );
-        assert!(
-            u128::from(large_limbs) * u128::from(small_bytes) * 100
-                >= u128::from(small_limbs) * u128::from(large_bytes) * 142,
-            "the per-digit window absorb reads flat on the dense-suffix family \
-             ({small_limbs}/{small_bytes}B -> {large_limbs}/{large_bytes}B limb \
-             ops): either window-digit traffic is no longer metered or the \
-             family no longer drives dense windows \
-             through the settle — in both cases the dense-suffix flatness \
-             bands no longer validate this failure mode until a new witness lands"
-        );
-    }
-
-    // ── the schoolbook settle products ──────────────────────────────────
-    //
-    // The settle's products are delegated cluster-wise to the backend's
-    // sub-quadratic multiplication because a per-digit charge pays the factor's
-    // width once per multiplicand digit — the schoolbook product (the
-    // `integral` module doc's settle bound). This kernel keeps the retired
-    // charge — every settle
-    // product formed one factor-wide product per balanced digit — committed and
-    // failing on both wide × dense families: the wide-arming family (the
-    // ledger's one aggregate product) and the plateau-puncture family (the
-    // arming-free close-time settle), so the `ledger_wide_arming` and
-    // `answer_embedded_product` flatness bands (`tests/meter.rs`) are never
-    // decoration. Value-exact against the shipped folds: the per-digit charge
-    // computes the same products digit by digit; only its cost class is not the
-    // backend's. Mid-sweep segment settles ride the shipped path — both
-    // families' wide × dense work sits entirely at the close, which is what
-    // this kernel swaps.
-
-    /// The retired per-digit charge: one `parked`-wide product per
-    /// balanced digit of the mass.
-    fn schoolbook_charge(
-        total: &mut Accumulator,
-        sign: Sign,
-        parked: &Base,
-        digits: &[(u64, i64)],
-    ) {
-        for &(index, digit) in digits {
-            let mut product = parked.clone();
-            product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
-            if sign.is_negative() == (digit < 0) {
-                total.add_base_shl(&product, 32 * index);
-            } else {
-                total.sub_base_shl(&product, 32 * index);
-            }
-        }
-    }
-
-    /// One product-tree node under the schoolbook charge: parked sum and window
-    /// absorb exactly as [`Aggregate::merge`], the product routed through
-    /// [`schoolbook_charge`].
-    fn merge_schoolbook(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
-        let (parked_sign, parked_magnitude) = left.parked.sign_big();
-        if parked_magnitude != BigUint::ZERO {
-            schoolbook_charge(
-                total,
-                Sign::from_is_negative(parked_sign == Ordering::Less),
-                &Base::from(parked_magnitude),
-                &right.windows.digits,
-            );
-        }
-        left.parked.add_accum(&right.parked);
-        left.windows.absorb(right.windows);
-    }
-
-    /// The shipped ledger settle with the schoolbook charge: the mass-balanced
-    /// product-tree reduction verbatim, every aggregate product routed through
-    /// [`merge_schoolbook`].
-    fn schoolbook_settle_armings(integ: &mut Integrator) {
-        if integ.promotions.is_empty() {
-            return;
-        }
-        let armings = core::mem::take(&mut integ.promotions);
-        let (_, final_window_magnitude, final_window_shift) = integ.banked_window.sign_base_shl();
-        let mut leaves: Vec<Aggregate> = Vec::with_capacity(armings.len() + 1);
-        for arming in armings {
-            let mut parked = Accumulator::new();
-            fold_signed(&mut parked, arming.sign, &arming.parked);
-            let mut windows = WindowMass::new();
-            windows.merge(&arming.window, arming.shift);
-            leaves.push(Aggregate { parked, windows });
-        }
-        let mut windows = WindowMass::new();
-        if !final_window_magnitude.is_zero() {
-            windows.merge(&final_window_magnitude, final_window_shift);
-        }
-        leaves.push(Aggregate {
-            parked: Accumulator::new(),
-            windows,
-        });
-        let mut prefix: Vec<u64> = Vec::with_capacity(leaves.len() + 1);
-        let mut running = 0u64;
-        prefix.push(0);
-        for leaf in &leaves {
-            running += (leaf.parked.digit_count() + leaf.windows.digits.len()).max(1) as u64;
-            prefix.push(running);
-        }
-        enum Step {
-            Open(usize, usize),
-            Merge,
-        }
-        let leaf_count = leaves.len();
-        let mut leaves = leaves.into_iter();
-        let mut next_leaf = 0;
-        let mut control = vec![Step::Open(0, leaf_count)];
-        let mut reduced: Vec<Aggregate> = Vec::new();
-        while let Some(step) = control.pop() {
-            match step {
-                Step::Open(lo, hi) => {
-                    if hi - lo == 1 {
-                        debug_assert_eq!(
-                            next_leaf, lo,
-                            "the left-first reduction reaches unit ranges in ascending order"
-                        );
-                        next_leaf += 1;
-                        reduced.push(leaves.next().expect("one aggregate per unit range"));
-                    } else {
-                        let mid = mass_split(&prefix, lo, hi);
-                        control.push(Step::Merge);
-                        control.push(Step::Open(mid, hi));
-                        control.push(Step::Open(lo, mid));
-                    }
-                }
-                Step::Merge => {
-                    let right = reduced.pop().expect("the right half reduced");
-                    let mut left = reduced.pop().expect("the left half reduced");
-                    merge_schoolbook(&mut left, right, &mut integ.total);
-                    reduced.push(left);
-                }
-            }
-        }
-    }
-
-    /// The rank fold's close under the schoolbook settle: the shipped
-    /// `Integrator::finish` verbatim, the close-time `P · segment` settle
-    /// routed through [`mul_into`] and the ledger settle through
-    /// [`schoolbook_settle_armings`].
-    fn schoolbook_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
-        if !integ.parked.is_literally_zero() {
-            let (parked_sign, parked_magnitude) = integ.parked.sign_big();
-            if parked_magnitude != BigUint::ZERO {
-                let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_big_shl();
-                mul_into(
-                    &mut integ.total,
-                    &Base::from(parked_magnitude),
-                    &Base::from(segment_magnitude),
-                    segment_shift,
-                    parked_sign == Ordering::Less,
-                );
-            }
-        }
-        if !integ.promotions.is_empty() {
-            let (_, segment_magnitude, segment_shift) = integ.segment_mass.sign_big_shl();
-            if segment_magnitude != BigUint::ZERO {
-                integ
-                    .banked_window
-                    .add_big_shl(&segment_magnitude, segment_shift);
-            }
-            schoolbook_settle_armings(&mut integ);
-        }
-        if !integ.base.is_literally_zero() {
-            integ.total.add_accum_shl(&integ.base, closing_shift);
-        }
-        let (sign, num) = integ.total.sign_big();
-        debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
-        let scale = closing_shift;
-        Rank::from_raw(Base::from(num), scale)
-    }
-
-    /// The rank fold on the shipped integrator with the schoolbook close: the
-    /// shipped [`rank`](super::super::rank) loop verbatim, only the close
-    /// swapped.
-    fn schoolbook_rank(bits: BitsView<'_>) -> Rank {
-        let max_depth = max_depth(bits);
-        let (mut cursor, first) = LeafCursor::open(bits);
-        let mut integral = Integrator::new();
-        integral.open(Sign::Positive, &first);
-        loop {
-            let weight_shift = max_depth - cursor.depth();
-            integral.interval(weight_shift);
-            if cursor.done() {
-                break;
-            }
-            let (_, step) = cursor.step();
-            fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
-            integral.boundary(super::super::integral::int_digits(&step.magnitude));
-        }
-        schoolbook_finish(integral, max_depth)
-    }
-
-    /// One schoolbook tripwire run: encoded bytes and both counters over
-    /// the known-bad fold, value-pinned against the shipped kernel.
-    fn schoolbook_run(encoded: crate::meter::Encoding) -> (u64, u64, u64) {
-        let v = encoded.version();
-        let enc = encode(&v);
-        let expected = v.rank();
-        touch_meter::reset();
-        reset_limb_ops();
-        let r = schoolbook_rank(crate::codec::built_view(&enc));
-        let touches = touch_meter::touches();
-        let limbs = limb_ops();
-        assert_eq!(
-            r, expected,
-            "the known-bad fold must stay value-exact: a wrong demonstrator \
-             proves nothing about the family's coverage"
-        );
-        (enc.len().div_ceil(8), touches, limbs)
-    }
-
-    /// `WA(w, w)` catches the schoolbook charge red in both width currencies:
-    /// its per-byte cost grows across the doubling.
-    ///
-    /// The ledger's one aggregate product pays the parked width once per window
-    /// digit under this kernel; a linear fold reads ~x1.00 here, and the floor
-    /// 1.44 sits midway between linear and the measured growth, while the
-    /// shipped kernel's `ledger_wide_arming` band holds the same family at
-    /// x1.25.
-    ///
-    /// [measured in the dev profile, exact counters: touches 285,747 ->
-    /// 1,079,383 and limb ops 293,119 -> 1,094,191 across WA(500, 500) ->
-    /// WA(1,000, 1,000), encoded 14,263B -> 28,451B: per-byte growth x1.89 touch
-    /// and x1.87 limb.]
-    #[test]
-    fn schoolbook_settle_reads_superlinear_on_wide_arming() {
-        let (small_bytes, small_touches, small_limbs) =
-            schoolbook_run(Shape::WideArming.build2(500, 500));
-        let (large_bytes, large_touches, large_limbs) =
-            schoolbook_run(Shape::WideArming.build2(1_000, 1_000));
-        eprintln!(
-            "MEASURED adequacy_schoolbook_wide_arming: small={small_touches}/{small_bytes}B \
-             (limb {small_limbs}) large={large_touches}/{large_bytes}B (limb {large_limbs})"
-        );
-        for (name, small, large) in [
-            ("touches", small_touches, large_touches),
-            ("limb ops", small_limbs, large_limbs),
-        ] {
-            assert!(
-                u128::from(large) * u128::from(small_bytes) * 100
-                    >= u128::from(small) * u128::from(large_bytes) * 144,
-                "the schoolbook charge reads flat ({name}) on the wide-arming \
-                 family ({small}/{small_bytes}B -> {large}/{large_bytes}B): \
-                 the family no longer catches the mechanism it was built for, \
-                 so the wide-arming flatness band is decoration until a new \
-                 witness lands"
-            );
-        }
-    }
-
-    /// `PP(s, s)` catches the schoolbook close-time settle red in both width
-    /// currencies: its per-byte cost grows across the doubling.
-    ///
-    /// The arming-free site: no promotion ever fires, so the whole excess is
-    /// the close-time `P · segment` product paid one digit at a time. The floor
-    /// 1.32 sits midway between linear and the lower measured rate, while
-    /// the shipped kernel's `answer_embedded_product` band holds the same
-    /// family at x1.25.
-    ///
-    /// [measured in the dev profile, exact counters: touches 482,968 ->
-    /// 1,843,181 and limb ops 198,320 -> 653,131 across PP(500, 500) ->
-    /// PP(1,000, 1,000), encoded 20,376B -> 40,751B: per-byte growth x1.91 touch
-    /// and x1.65 limb.]
-    #[test]
-    fn schoolbook_settle_reads_superlinear_on_plateau_puncture() {
-        let (small_bytes, small_touches, small_limbs) =
-            schoolbook_run(Shape::PlateauPuncture.build2(500, 500));
-        let (large_bytes, large_touches, large_limbs) =
-            schoolbook_run(Shape::PlateauPuncture.build2(1_000, 1_000));
-        eprintln!(
-            "MEASURED adequacy_schoolbook_plateau_puncture: small={small_touches}/{small_bytes}B \
-             (limb {small_limbs}) large={large_touches}/{large_bytes}B (limb {large_limbs})"
-        );
-        for (name, small, large) in [
-            ("touches", small_touches, large_touches),
-            ("limb ops", small_limbs, large_limbs),
-        ] {
-            assert!(
-                u128::from(large) * u128::from(small_bytes) * 100
-                    >= u128::from(small) * u128::from(large_bytes) * 132,
-                "the schoolbook close-time settle reads flat ({name}) on the \
-                 plateau-puncture family ({small}/{small_bytes}B -> \
-                 {large}/{large_bytes}B): the family no longer catches the \
-                 mechanism it was built for, so the answer-embedded-product \
-                 flatness band is decoration until a new witness lands"
-            );
-        }
     }
 }

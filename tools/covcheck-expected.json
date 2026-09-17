@@ -192,36 +192,12 @@
     "why": "the untaken directions are the assertion's failure arms"
    }
   ],
-  "crates/before/src/version/skyline/text.rs": [
-   {
-    "anchor": "open.is_empty() && lefts.is_empty(),",
-    "disposition": "panic-arm",
-    "why": "the untaken directions are the assertion's failure arms"
-   }
-  ],
   "crates/before/src/version/skyline/place/filter.rs": [],
   "crates/before/src/version/skyline/query/integral.rs": [
    {
     "anchor": "digit != 0 && digit.unsigned_abs() <= 1 << 31,",
     "disposition": "panic-arm",
     "why": "the untaken directions are the assertion's failure arms"
-   }
-  ],
-  "crates/before/src/version/skyline/signed.rs": [
-   {
-    "anchor": "!sign.is_negative() || magnitude != Base::ZERO,",
-    "disposition": "panic-arm",
-    "why": "the untaken direction is the assertion's failure arm"
-   },
-   {
-    "anchor": "!sign.is_negative() || *magnitude != Base::ZERO,",
-    "disposition": "panic-arm",
-    "why": "the untaken direction is the assertion's failure arm"
-   },
-   {
-    "anchor": "!sign.is_negative() || *mag != 0,",
-    "disposition": "panic-arm",
-    "why": "the untaken direction is the assertion's failure arm"
    }
   ]
  }

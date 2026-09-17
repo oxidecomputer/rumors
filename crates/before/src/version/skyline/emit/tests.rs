@@ -19,17 +19,16 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 use suanpan::Accumulator;
 
-use crate::codec::Base;
-use crate::codec::{BitsBuf, BitsView};
+use crate::codec::{accumulator, BitsBuf, BitsView};
 use crate::meter::registry::Shape;
 use crate::meter::Encoding;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
 use crate::version::skyline::overlay::{LeafCursor, PlateauCursor, Step};
-use crate::version::skyline::signed::Sign;
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Version};
+use num_bigint::BigUint;
 
 use super::{hull, join, meet};
 
@@ -105,14 +104,14 @@ fn assert_pointwise(a: BitsView<'_>, b: BitsView<'_>, out: BitsView<'_>, meet: b
     let (mut ca, ha) = LeafCursor::open(a);
     let (mut cb, hb) = LeafCursor::open(b);
     let (mut co, ho) = LeafCursor::open(out);
-    // Signed differences out − a and out − b: the pointwise claim reads off
+    // BigInt differences out − a and out − b: the pointwise claim reads off
     // their signs without materializing any height.
     let mut oa = Accumulator::new();
-    crate::version::skyline::signed::fold_signed_int(&mut oa, Sign::Positive, &ho);
-    crate::version::skyline::signed::fold_signed_int(&mut oa, Sign::Negative, &ha);
+    accumulator::fold(&mut oa, &ho, 0, false);
+    accumulator::fold(&mut oa, &ha, 0, true);
     let mut ob = Accumulator::new();
-    crate::version::skyline::signed::fold_signed_int(&mut ob, Sign::Positive, &ho);
-    crate::version::skyline::signed::fold_signed_int(&mut ob, Sign::Negative, &hb);
+    accumulator::fold(&mut ob, &ho, 0, false);
+    accumulator::fold(&mut ob, &hb, 0, true);
     let mut intervals = 0u64;
     loop {
         intervals += 1;
@@ -174,27 +173,26 @@ fn assert_pointwise(a: BitsView<'_>, b: BitsView<'_>, out: BitsView<'_>, meet: b
         // Fold the boundary's deltas: the output's raises both differences, an
         // input's lowers its own.
         if let Some(step) = &so {
-            fold_signed(&mut oa, false, step);
-            fold_signed(&mut ob, false, step);
+            fold_step(&mut oa, false, step);
+            fold_step(&mut ob, false, step);
         }
         if let Some(step) = &sa {
-            fold_signed(&mut oa, true, step);
+            fold_step(&mut oa, true, step);
         }
         if let Some(step) = &sb {
-            fold_signed(&mut ob, true, step);
+            fold_step(&mut ob, true, step);
         }
     }
 }
 
 /// Fold one raw step delta into a signed difference, subtracting when the
 /// stream sits on the difference's negative side.
-fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
-    let sign = if subtract {
-        step.sign.negate()
+fn fold_step(diff: &mut Accumulator, subtract: bool, step: &Step) {
+    if subtract {
+        accumulator::subtract_signed(diff, step);
     } else {
-        step.sign
-    };
-    crate::version::skyline::signed::fold_signed_int(diff, sign, &step.magnitude);
+        accumulator::fold_signed(diff, step);
+    }
 }
 
 /// The registered input families used by deterministic grids.
@@ -241,9 +239,6 @@ fn family_pairs_emit_identically() {
 
 /// A flat operand above a deep one collapses the whole output to one leaf
 /// through the absorb cascade, byte-identically to the recursive oracle.
-///
-/// The shape where a builder that re-copied the held code per level would go
-/// quadratic.
 #[test]
 fn flat_over_deep_collapses_totally() {
     let deep = version_of(&Shape::Dense.build1(512));
@@ -257,6 +252,57 @@ fn flat_over_deep_collapses_totally() {
         joined,
         encode(&flat),
         "a dominating flat operand is the join"
+    );
+}
+
+/// A left spine whose right child at every level is the leaf pair `(0, 1)`.
+///
+/// Joining a sufficiently high flat version with this shape emits one leaf,
+/// recovering the same wide left payload once at every level.
+#[cfg(feature = "scan-meter")]
+fn reanchor_spine(depth: usize) -> Version {
+    let pair = crate::oracle::Version::node(
+        BigUint::ZERO,
+        crate::oracle::Version::leaf(BigUint::ZERO),
+        crate::oracle::Version::leaf(BigUint::from(1u8)),
+    );
+    let mut tree = crate::oracle::Version::leaf(BigUint::ZERO);
+    for _ in 0..depth {
+        tree = crate::oracle::Version::node(BigUint::ZERO, tree, pair.clone());
+    }
+    from_oracle_version(&tree)
+}
+
+/// Measure the more expensive operand order for a wide-leaf/spine join.
+#[cfg(feature = "scan-meter")]
+fn reanchor_join_scan(depth: usize) -> (u64, u64) {
+    let flat = version_of(&Shape::Hugeleaf.build1(10 * depth));
+    let spine = reanchor_spine(depth);
+    let input_bits = flat.encoded_bits() + spine.encoded_bits();
+    crate::meter::reset_scan_bits();
+    let joined = std::hint::black_box(&flat | &spine);
+    let forward = crate::meter::scan_bits();
+    assert_eq!(joined, flat, "the dominating flat version is the join");
+    crate::meter::reset_scan_bits();
+    let joined = std::hint::black_box(&spine | &flat);
+    let reverse = crate::meter::scan_bits();
+    assert_eq!(joined, flat, "the dominating flat version is the join");
+    let scanned = forward.max(reverse);
+    (scanned, input_bits)
+}
+
+/// Join work remains linear when one wide payload survives a collapse at every
+/// level. When width and depth double together, scanned bits per input bit stay
+/// within a factor of 1.25.
+#[cfg(feature = "scan-meter")]
+#[test]
+fn reanchor_join_scan_is_linear_per_input_bit() {
+    let (small_scan, small_bits) = reanchor_join_scan(32);
+    let (large_scan, large_bits) = reanchor_join_scan(64);
+    assert!(
+        4 * large_scan * small_bits <= 5 * small_scan * large_bits,
+        "scan work per input bit grew too quickly: {small_scan}/{small_bits} -> \
+         {large_scan}/{large_bits}"
     );
 }
 
@@ -479,11 +525,9 @@ proptest! {
     /// switch-delta arithmetic is exercised at spilled widths in both
     /// directions.
     ///
-    /// The 29..=34 band puts deterministic mass on output deltas around the
-    /// fused signed-gamma coder's fast-path magnitude bound at `2^31` (the
-    /// guard in `skyline::signed`), so a guard or mantissa error at that boundary
-    /// reads red under this family's oracle rather than only under random
-    /// exploration.
+    /// The width bands cover values within one word, across a word boundary,
+    /// and well beyond it, so coder and arithmetic errors surface through the
+    /// pointwise oracle.
     #[test]
     fn wide_grid_pairs_emit_identically(
         ma in prop_oneof![1usize..=8, 29usize..=34, 60usize..=68, 190usize..=200],
@@ -493,13 +537,13 @@ proptest! {
         phase in 0usize..=3,
     ) {
         const CELLS: usize = 16;
-        let high = |bits: usize| (Base::from(1u8) << u32::try_from(bits).expect("width fits")) - &Base::from(1u8);
+        let high = |bits: usize| (BigUint::from(1u8) << u32::try_from(bits).expect("width fits")) - &BigUint::from(1u8);
         let (high_a, high_b) = (high(ma), high(mb));
-        let a: Vec<Base> = (0..CELLS)
-            .map(|i| if (i / pa) % 2 == 0 { high_a.clone() } else { Base::ZERO })
+        let a: Vec<BigUint> = (0..CELLS)
+            .map(|i| if (i / pa) % 2 == 0 { high_a.clone() } else { BigUint::ZERO })
             .collect();
-        let b: Vec<Base> = (0..CELLS)
-            .map(|i| if ((i + phase) / pb) % 2 == 0 { Base::ZERO } else { high_b.clone() })
+        let b: Vec<BigUint> = (0..CELLS)
+            .map(|i| if ((i + phase) / pb) % 2 == 0 { BigUint::ZERO } else { high_b.clone() })
             .collect();
         assert_emits(&grid_version(&a), &grid_version(&b));
     }
@@ -507,8 +551,8 @@ proptest! {
 
 /// Build the version whose skyline takes `values[i]` on the `i`th cell of a
 /// uniform dyadic grid (test-only; recursive over the grid's `O(log)` depth).
-fn grid_version(values: &[Base]) -> Version {
-    fn build(values: &[Base]) -> crate::oracle::Version {
+fn grid_version(values: &[BigUint]) -> Version {
+    fn build(values: &[BigUint]) -> crate::oracle::Version {
         match values {
             [v] => crate::oracle::Version::leaf(v.clone()),
             _ => {

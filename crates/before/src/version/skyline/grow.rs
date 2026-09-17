@@ -88,12 +88,14 @@
 //! silently rather than panic. Deep spines swap the native-frame oracle for
 //! closed-form expected values.
 
+use core::cmp::Ordering;
 use core::ops::Range;
 
-use crate::codec::{self, Base, BitCursor, BitsBuf, BitsView, Code};
+use num_bigint::{BigInt, BigUint, Sign};
 
-use super::build::SkylineBuilder;
-use super::signed::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed, Sign};
+use crate::codec::{self, gamma, BitCursor, BitsBuf, BitsView};
+
+use super::build::{PayloadBuilder, SkylineBuilder};
 use super::walk::LeafWalk;
 
 /// Lexicographic inflation cost: prefer fewer leaf-to-node expansions, then a
@@ -287,22 +289,40 @@ impl<'a> EvScan<'a> {
     }
 }
 
-/// Decode the 2-bit id tag at `pos`: `(left_present, right_present)`.
-///
-/// Neither present is the full `1` terminal; a canonical id has no `(0, 0)`
-/// node. `O(1)` random access into the party.
-fn id_tag(bits: BitsView<'_>, pos: u64) -> (bool, bool) {
-    codec::scan::record_bits(2);
-    (bits.bit(pos), bits.bit(pos + 1))
+/// A forward cursor over party-tree tags.
+struct IdScan<'a> {
+    bits: BitsView<'a>,
+    pos: u64,
 }
 
-/// Position just past the id subtree whose tag sits at `pos`.
-fn id_skip(bits: BitsView<'_>, pos: u64) -> u64 {
-    crate::idbits::skip_subtree(pos, |at| {
+impl<'a> IdScan<'a> {
+    /// Start at the root tag.
+    fn new(bits: BitsView<'a>) -> IdScan<'a> {
+        IdScan { bits, pos: 0 }
+    }
+
+    /// Read the next tag as `(position, left present, right present)`.
+    fn read(&mut self) -> (u64, bool, bool) {
+        let key = self.pos;
+        let (left, right) = Self::tag_at(self.bits, key);
+        self.pos += 2;
+        (key, left, right)
+    }
+
+    /// Read the tag at `pos` without moving a cursor.
+    fn tag_at(bits: BitsView<'_>, pos: u64) -> (bool, bool) {
         codec::scan::record_bits(2);
-        let children = u64::from(bits.bit(at)) + u64::from(bits.bit(at + 1));
-        (children, at + 2)
-    })
+        (bits.bit(pos), bits.bit(pos + 1))
+    }
+
+    /// Skip the subtree at the current position.
+    fn skip_subtree(&mut self) {
+        self.pos = crate::idbits::skip_subtree(self.pos, |at| {
+            codec::scan::record_bits(2);
+            let children = u64::from(self.bits.bit(at)) + u64::from(self.bits.bit(at + 1));
+            (children, at + 2)
+        });
+    }
 }
 
 /// The boundary repair a spliced subtree's first payload code needs.
@@ -312,7 +332,7 @@ enum Repair<'a> {
     None,
     /// The predecessor is the grown leaf, raised by the event count: the delta
     /// drops by the same amount.
-    Minus(&'a Base),
+    Minus(&'a BigUint),
 }
 
 /// One complete off-path subtree, located by a forward topology scan.
@@ -330,79 +350,61 @@ struct Subtree {
     last_rel_depth: u64,
 }
 
-/// Locate the subtree at `start`: its end, and the first/last leaf coordinates
-/// the verbatim splice re-anchors the builder around.
-///
-/// One forward pass over the subtree's bits with a relative-path bit stack —
-/// the same walk the leaf cursors do, restricted to one subtree.
-///
-/// # Panics
-///
-/// Panics if the stream is not a canonical skyline encoding.
-fn scan_subtree(bits: BitsView<'_>, start: u64) -> Subtree {
-    let mut cursor = codec::DsiCursor::new_at(bits, start);
-    // The first leaf's coordinates, recorded once; the last leaf's are whatever
-    // the loop recorded most recently when the walk ends.
-    let mut first: Option<(Range<u64>, u64)> = None;
-    let mut last_code = 0..0;
-    let mut last_rel_depth = 0;
-    let mut walk = LeafWalk::new();
-    while let Some(depth) = walk.descend(&mut cursor) {
-        let code_start = cursor.position();
-        cursor.skip_int().expect("canonical skyline bits");
-        last_code = code_start..cursor.position();
-        last_rel_depth = depth;
-        if first.is_none() {
-            first = Some((last_code.clone(), last_rel_depth));
+impl Subtree {
+    /// Locate one subtree and the leaf coordinates needed to splice it.
+    fn scan(bits: BitsView<'_>, start: u64) -> Subtree {
+        let mut cursor = codec::DsiCursor::new_at(bits, start);
+        let mut first: Option<(Range<u64>, u64)> = None;
+        let mut last_code = 0..0;
+        let mut last_rel_depth = 0;
+        let mut walk = LeafWalk::new();
+        while let Some(depth) = walk.descend(&mut cursor) {
+            let code_start = cursor.position();
+            cursor.skip_int().expect("canonical skyline bits");
+            last_code = code_start..cursor.position();
+            last_rel_depth = depth;
+            if first.is_none() {
+                first = Some((last_code.clone(), last_rel_depth));
+            }
         }
-    }
-    let (first_code, first_rel_depth) = first.expect("a subtree has at least one leaf");
-    Subtree {
-        end: cursor.position(),
-        first_code,
-        first_rel_depth,
-        last_code,
-        last_rel_depth,
+        let (first_code, first_rel_depth) = first.expect("a subtree has at least one leaf");
+        Subtree {
+            end: cursor.position(),
+            first_code,
+            first_rel_depth,
+            last_code,
+            last_rel_depth,
+        }
     }
 }
 
-/// Feed one whole off-path subtree from the cursor into the builder, rooted at
-/// `depth`.
-///
-/// The first leaf goes through the builder's collapse checks (with the
-/// successor repair when the grown leaf precedes it); the remainder is one
-/// verbatim splice.
-fn feed_subtree(out: &mut SkylineBuilder, event: &mut EvScan<'_>, depth: u64, repair: Repair<'_>) {
-    let subtree = scan_subtree(event.bits, event.pos());
-    let first_code = match repair {
-        Repair::None => {
-            Code::from_range(event.bits, subtree.first_code.start, subtree.first_code.end)
+impl EvScan<'_> {
+    /// Feed the subtree at the cursor into the builder, repairing its first
+    /// payload when the grown leaf immediately precedes it.
+    fn feed_subtree(&mut self, out: &mut SkylineBuilder, depth: u64, repair: Repair<'_>) {
+        let subtree = Subtree::scan(self.bits, self.pos());
+        out.leaf(depth + subtree.first_rel_depth, |out| match repair {
+            Repair::None => out.splice(self.bits, subtree.first_code.start, subtree.first_code.end),
+            Repair::Minus(events) => {
+                Step::DownDelta.write(out, self.bits, subtree.first_code.clone(), events)
+            }
+        });
+        if subtree.first_rel_depth > 0 {
+            out.continue_verbatim(
+                self.bits,
+                subtree.first_code.end,
+                subtree.end,
+                depth,
+                subtree.first_rel_depth,
+                subtree.last_rel_depth,
+                subtree.last_code.end - subtree.last_code.start,
+            );
         }
-        // The successor is never the stream's first leaf (the grown leaf
-        // precedes it), so its code is always a zigzag delta.
-        Repair::Minus(events) => recode(
-            event.bits,
-            subtree.first_code.clone(),
-            Step::DownDelta,
-            events,
-        ),
-    };
-    out.leaf(depth + subtree.first_rel_depth, first_code);
-    if subtree.first_rel_depth > 0 {
-        out.continue_verbatim(
-            event.bits,
-            subtree.first_code.end,
-            subtree.end,
-            depth,
-            subtree.first_rel_depth,
-            subtree.last_rel_depth,
-            subtree.last_code.end - subtree.last_code.start,
-        );
+        self.seek(subtree.end);
     }
-    event.seek(subtree.end);
 }
 
-/// The three height steppings [`recode`] performs.
+/// The three height adjustments [`Step::write`] applies.
 ///
 /// A stream's first leaf carries an absolute height and every later leaf a
 /// zigzag delta; only the grown leaf itself ever steps *up*. A down-stepped
@@ -421,60 +423,49 @@ enum Step {
     DownDelta,
 }
 
-/// Re-code one leaf payload with its height stepped by `events`, per [`Step`].
-///
-/// One decode, one signed step, one re-encode — `O(the code's own width + the
-/// width of events)`, the only payload arithmetic in the whole emit.
-fn recode(bits: BitsView<'_>, code: Range<u64>, step: Step, events: &Base) -> Code {
-    let (value, end) = codec::decode_int(bits, code.start).expect("canonical skyline bits");
-    debug_assert_eq!(end, code.end, "a payload range is exactly one code");
-    let increment = match step {
-        Step::UpAbsolute => return gamma_code(&(value + events)),
-        Step::UpDelta => true,
-        Step::DownDelta => false,
-    };
-    let (sign, magnitude) = unzigzag_base(value);
-    let stepped = match (increment, sign) {
-        // Stepping a nonnegative delta up, or a negative one further down,
-        // grows the magnitude.
-        (true, Sign::Positive) | (false, Sign::Negative) => zigzag_signed(sign, magnitude + events),
-        // Stepping a nonnegative delta down past zero: the sign flips and the
-        // magnitude is the overshoot — `events` itself from a zero magnitude,
-        // read off the unmetered width so the zero case costs exactly its
-        // comparison.
-        (false, Sign::Positive) if magnitude < *events => {
-            let overshoot = if magnitude.bits() == 0 {
-                events.clone()
-            } else {
-                events.clone() - &magnitude
-            };
-            zigzag_signed(Sign::Negative, overshoot)
+impl Step {
+    /// Apply this delta adjustment without copying a borrowed wide event count.
+    fn adjust_delta(self, delta: BigInt, events: &BigUint) -> BigInt {
+        let direction = match self {
+            Step::UpDelta => Sign::Plus,
+            Step::DownDelta => Sign::Minus,
+            Step::UpAbsolute => unreachable!("an absolute payload is not a delta"),
+        };
+        let (sign, mut magnitude) = delta.into_parts();
+        if sign == Sign::NoSign {
+            return BigInt::from_biguint(direction, events.clone());
         }
-        // Otherwise the magnitude shrinks by `events`; a shrink to exactly
-        // zero lands on the positive zero. The increment-on-negative arm can
-        // cross zero only at `events > magnitude >= 1`, which the width tests
-        // decide for free at a one-event step (one bit wide) and route through
-        // one comparison only when the widths tie.
-        (true, Sign::Negative) | (false, Sign::Positive) => {
-            let crosses = sign.is_negative()
-                && (magnitude.bits() < events.bits()
-                    || (magnitude.bits() == events.bits()
-                        && events.bits() > 1
-                        && magnitude < *events));
-            if crosses {
-                zigzag_signed(Sign::Positive, events.clone() - &magnitude)
-            } else {
-                let shrunk = magnitude - events;
-                let sign = if shrunk == Base::ZERO {
-                    Sign::Positive
-                } else {
-                    sign
-                };
-                zigzag_signed(sign, shrunk)
+        if sign == direction {
+            magnitude += events;
+            return BigInt::from_biguint(sign, magnitude);
+        }
+        match magnitude.cmp(events) {
+            Ordering::Greater => BigInt::from_biguint(sign, magnitude - events),
+            Ordering::Less => BigInt::from_biguint(direction, events - magnitude),
+            Ordering::Equal => BigInt::from(0u8),
+        }
+    }
+
+    /// Re-code one payload after applying this height adjustment.
+    fn write(
+        self,
+        out: &mut PayloadBuilder<'_>,
+        bits: BitsView<'_>,
+        code: Range<u64>,
+        events: &BigUint,
+    ) {
+        let (value, end) = codec::gamma::decode(bits, code.start).expect("canonical skyline bits");
+        debug_assert_eq!(end, code.end, "a payload range is exactly one code");
+        match self {
+            Step::UpAbsolute => {
+                gamma::encode(&(value + events), out);
+                return;
             }
+            Step::UpDelta | Step::DownDelta => {}
         }
-    };
-    gamma_code(&stepped)
+        let delta = self.adjust_delta(gamma::decode_signed(value), events);
+        gamma::encode_signed(&delta, out);
+    }
 }
 
 /// Emit the grown stream: replay `route` along the chosen path and register
@@ -494,20 +485,19 @@ pub(super) fn emit(
     event_bits: BitsView<'_>,
     id_bits: BitsView<'_>,
     route: &Route,
-    events: &Base,
+    events: &BigUint,
 ) -> BitsBuf {
     debug_assert!(
         !id_bits.is_empty(),
         "grow requires an id owning at least one region"
     );
-    // The width test keeps the guard off the limb meter: a dev-profile meter
-    // reading must match the release reading on this path.
+    // Width distinguishes zero without inspecting the value's digits.
     debug_assert!(
         events.bits() != 0,
         "the splice registers at least one event"
     );
     let mut event = EvScan::new(event_bits);
-    let mut id_pos = 0u64;
+    let mut id = IdScan::new(id_bits);
     // Subadditivity of the coding bounds the output by the input plus the
     // expansion chain's fresh codes, each a few bits per id level.
     let mut out = SkylineBuilder::with_capacity(event_bits.len() + id_bits.len() + 64);
@@ -519,7 +509,8 @@ pub(super) fn emit(
     let mut depth = 0u64;
     // Whether any leaf has entered the output ahead of the grown leaf. The
     // grown leaf's own code is absolute exactly when none has (Phase 2's
-    // UpAbsolute/UpDelta selection): the decision is the walk's, not recode's,
+    // UpAbsolute/UpDelta selection): the decision is the walk's, not the
+    // payload writer's,
     // because only the walk knows what it fed.
     let mut fed_any = false;
 
@@ -533,10 +524,8 @@ pub(super) fn emit(
     // every one of them.
     let (original_range, chain_dirs) = loop {
         // The branch's route key ([`Route`]'s convention: the bit position of
-        // the branch's 2-bit id tag) — here the tag `id_tag` reads below.
-        let key = id_pos;
-        let (left_present, right_present) = id_tag(id_bits, id_pos);
-        id_pos += 2;
+        // the branch's 2-bit id tag).
+        let (key, left_present, right_present) = id.read();
         if !left_present && !right_present {
             // A fully-owned terminal: on the unchanged branch it covers a
             // single leaf (over an event node, `fill(1, e) = max(e)` would have
@@ -561,9 +550,9 @@ pub(super) fn emit(
                         right_present,
                         "the chosen path never enters an absent id child"
                     );
-                    feed_subtree(&mut out, &mut event, depth + 1, Repair::None);
+                    event.feed_subtree(&mut out, depth + 1, Repair::None);
                     if left_present {
-                        id_pos = id_skip(id_bits, id_pos);
+                        id.skip_subtree();
                     }
                     fed_any = true;
                     pending.push(false);
@@ -589,13 +578,11 @@ pub(super) fn emit(
                             "the chosen path never enters an absent id child"
                         );
                         if left_present {
-                            id_pos = id_skip(id_bits, id_pos);
+                            id.skip_subtree();
                         }
                     }
                     directions.push(left);
-                    let next_key = id_pos;
-                    let (next_left, next_right) = id_tag(id_bits, id_pos);
-                    id_pos += 2;
+                    let (next_key, next_left, next_right) = id.read();
                     if !next_left && !next_right {
                         break;
                     }
@@ -628,21 +615,26 @@ pub(super) fn emit(
     // branch descended right (the sibling is the left child).
     for level in 0..chain {
         if !chain_dirs.get(level) {
-            let code = if emitted_in_chain {
-                gamma_code(&Base::ZERO)
+            if emitted_in_chain {
+                out.leaf(path_depth + level + 1, |out| {
+                    gamma::encode(&BigUint::ZERO, out)
+                });
             } else {
                 // The chain's first fresh leaf keeps the original code: same
                 // height, same predecessor — or the same absolute, when the
                 // chain opens the stream (nothing fed before it means the
                 // original code was the absolute first, and so is this one).
-                Code::from_range(event_bits, original.start, original.end)
-            };
-            out.leaf(path_depth + level + 1, code);
+                out.leaf(path_depth + level + 1, |out| {
+                    out.splice(event_bits, original.start, original.end)
+                });
+            }
             emitted_in_chain = true;
         }
     }
-    let grown_code = if emitted_in_chain {
-        gamma_code_signed(Sign::Positive, events)
+    if emitted_in_chain {
+        out.leaf(path_depth + chain, |out| {
+            gamma::encode_positive(events, out)
+        });
     } else {
         // With nothing fed before it, the grown leaf is the output's first: its
         // code is the absolute height, not a delta.
@@ -651,19 +643,23 @@ pub(super) fn emit(
         } else {
             Step::UpAbsolute
         };
-        recode(event_bits, original.clone(), step, events)
-    };
-    out.leaf(path_depth + chain, grown_code);
+        out.leaf(path_depth + chain, |out| {
+            step.write(out, event_bits, original.clone(), events)
+        });
+    }
     // Fresh sibling leaves that follow the grown leaf, deepest first.
     let mut first_after_grown = true;
     for level in (0..chain).rev() {
         if chain_dirs.get(level) {
-            let code = if first_after_grown {
-                gamma_code_signed(Sign::Negative, events)
+            if first_after_grown {
+                out.leaf(path_depth + level + 1, |out| {
+                    gamma::encode_negative(events, out)
+                });
             } else {
-                gamma_code(&Base::ZERO)
-            };
-            out.leaf(path_depth + level + 1, code);
+                out.leaf(path_depth + level + 1, |out| {
+                    gamma::encode(&BigUint::ZERO, out)
+                });
+            }
             first_after_grown = false;
         }
     }
@@ -680,7 +676,7 @@ pub(super) fn emit(
     for level in (0..path_depth).rev() {
         let went_left = pending.pop().expect("one pending record per path level");
         if went_left {
-            feed_subtree(&mut out, &mut event, level + 1, repair);
+            event.feed_subtree(&mut out, level + 1, repair);
             repair = Repair::None;
         }
     }

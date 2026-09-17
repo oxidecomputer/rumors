@@ -1,18 +1,6 @@
 # `before` review checklist
 
-**Active:** restore the linear bounds for projection and masked comparison by
-avoiding repeated scans of a stationary cursor. Next, re-rank the remaining
-time and auxiliary-space findings around inputs that induce disproportionate
-work or temporary storage.
-
-**Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
-One implementation batch is active at a time. Nothing merges until the entire
-effort receives final approval and the owner says the parallel Rumors work has
-concluded. Each increment remains uncommitted for Zed review; “lgtm” authorizes
-committing that increment, not merging it.
-
-Check an outcome only after verification and a reviewed commit, or an explicit
-owner disposition. Source IDs refer to the
+Source IDs refer to the
 [2026-09-01 review](../2026-09-01-holistic-review-before/README.md). The old
 triage's dispositions and branches are leads only.
 
@@ -22,24 +10,17 @@ triage's dispositions and branches are leads only.
       baseline failures without normalizing pins or changing code.
       Sources: `gate-legs-*`, `deps-*`, `suite-economics-*`; later fuzz-fit
       failures indexed in the old triage's `new-findings.md`.
-      Committed as `a2e44f6b`. On `437604d1`, every gate stream passed except the wasm
-      stream, where `ff_party_decode` at 136 bits reproducibly consumed 13,612
-      fuel above its pinned band. The stream's skipped remainder passed when
-      run directly: 48 wasm32 boundary tests and 42 fuelscape tests.
 
 - [ ] Audit the meter-harness and proptest changes already landed from the
       aborted triage; retain, simplify, consolidate, or revert each coherent
       mechanism by current evidence.
       Sources: `envelopes-a-*`, `envelopes-b-*`, `meter-adequacy-*`,
-      `tests-other-*`; current commits `5a6be5c0` through `4604ad1c` and
-      `7892c60c` through `f60734bb`.
+      `tests-other-*`; aborted-triage changes.
 
 - [ ] Correct crate guideposts that already point to missing modules or stale
       verification architecture.
       Sources: `crate-root-*`, `module-graph-*`, `prose-hygiene-*`;
       `crates/before/AGENTS.md` and the current crate docs.
-      Ready for review: the guidepost now states the traversal rule without a
-      stale module inventory.
 
 ## 02. Width and platform correctness
 
@@ -47,48 +28,28 @@ triage's dispositions and branches are leads only.
       and test the shared landing boundary through native witnesses and the
       existing shifted-operation properties, plus direct wasm32 execution.
       Sources: `suanpan-24`, related accumulator and wasm witness evidence.
-      Ready for review: full positions are computed in `u128` and converted at
-      one checked boundary. The wasm suite now uses ordinary release overflow
-      semantics and covers the limb-offset, accumulator-offset, and final-index
-      cases; all 49 pins pass. The full gate passed every other stream and
-      reproduced only the recorded `ff_party_decode` fuel-band failure. The
-      owner deferred that failure to the transient-allocation work it belongs
-      with.
 
 - [x] Make the fork iterator contract correct on 32-bit targets and at the
       maximum public count. Any public signature change requires prior approval
       and a matching Rumors update.
       Sources: `clock-3`, `clock-17`, `party-13`, `party-14`,
       `api-audit-6`, `api-audit-10`, `tests-other-17`.
-      Implemented: both `forks` methods accept `impl Into<Ticks>` and keep
-      their counts arbitrary-precision internally, so `k + 1` cannot saturate.
-      The public and private fork iterators no longer claim
-      `ExactSizeIterator`; `size_hint` is exact through `usize::MAX` and uses
-      `(usize::MAX, None)` above it. A proptest checks ordinary counts, direct
-      tests cross `u128`, and the wasm32 suite pins the `2^32` transition and
-      its adjacency. Rumors has no `forks` caller to update; the all-feature
-      workspace suite and clippy pass with the new surface.
 
 - [x] Remove fixed `u32` caps from fill, query, and fold bookkeeping where the
       public contract is bounded only by memory.
       Sources: `inventory-1`, `skyline-fill-grow-23`, `recursion-5`,
       `skyline-query-24`, `party-23`.
-      Complete in `f61f3fed`.
 
 - [x] Remove the backend-capacity boundary from wide gamma values and keep the
       wasm guest's own arithmetic from becoming the tested failure.
       Sources: `codec-bits-23`, `fuzz-guests-pins-26`,
       `fuzz-guests-pins-27`.
-      Complete in `f75e86ee`: gamma positions remain `u64` through decoding,
-      and `BigUint` accepts them without an intermediate machine-word cap. The
-      retained wasm pin crosses the 32-bit exponent boundary directly.
 
 ## 03. Canonical encoding and serialization
 
 - [x] Make serde deserialize the same data model it serializes and preserve
       strict canonical decoding across supported formats.
       Sources: `crate-root-34`, `crate-root-35`, `fresh-eyes-2`.
-      Complete in `07c18ca65`.
 
 - [ ] Cover every canonicality condition through the public decoders,
       including the span admission walk's collapsible-pair boundary.
@@ -120,15 +81,12 @@ triage's dispositions and branches are leads only.
 
 ## 05. Time and auxiliary-space contracts
 
-- [ ] Restore `Version::join`'s bound on wide-leaf/deep-spine combinations.
+- [x] Restore `Version::join`'s bound on wide-leaf/deep-spine combinations.
       Sources: `skyline-coding-9`; Rumors dependence ledger.
 
-- [ ] Stop projected and masked comparisons from repeatedly scanning a parked
+- [x] Stop projected and masked comparisons from repeatedly scanning a parked
       cursor's trailing run.
       Sources: `skyline-sweep-place-masked-5`, `codec-bits-29`.
-      Ready for review: `LeafCursor` derives the next boundary once upon
-      reaching a leaf and retains it in one `u64`; every later peek is a field
-      read, and each step checks the cached boundary against the path.
 
 - [ ] Give `Ranked::cmp`, rank folds, and `sum_ranks` contracts their actual
       worst-case implementations and useful properties.
@@ -148,7 +106,6 @@ triage's dispositions and branches are leads only.
       maintaining their parsers, renderers, and complexity instruments.
       Sources: `party-11`, `clock-14`, `version-core-16`,
       `codec-base-text-tree-13`, `skyline-coding-20`, `skyline-coding-29`.
-      Complete in `c72c0e77b`.
 
 - [ ] Bound tick's memo and suspended-level storage by a small constant multiple
       of input size without introducing a second representation solely for a
@@ -181,17 +138,12 @@ triage's dispositions and branches are leads only.
       operations `before` actually needs, preserving generality only where it
       carries a clear contract.
       Sources: `suanpan-*`, `suanpan-tests-*`.
-      Complete in `e71caf8cc`: suanpan streams normalized `u64` limbs and no
-      longer owns a big-integer backend or its adapter layer.
 
 - [x] Eliminate `dashu` if the remaining rank and accumulator arithmetic can
       be expressed more simply without it. The intended outcome is one
       arbitrary-width representation, with no backend-capacity boundary or
       small/wide `Num` split, while retaining input-proportionate memory use.
       Sources: `rank-*`, `suanpan-*`, `deps-*`; owner handoff, 2026-09-16.
-      Complete in `f75e86ee`: `Base` and `Rank` use one `BigUint`
-      representation; backend tiers and their private tests and pins are gone,
-      while general arithmetic properties and resource instruments remain.
 
 ## 07. Semantic instruments and generators
 
@@ -235,7 +187,6 @@ into otherwise small feature increments.
       asymptotic liveness pins, and superlinear tripwires separately.
       Sources: `benches-examples-*`, `tests-other-*`, `suite-economics-*`,
       `tools-*`.
-      Complete in `c72c0e77b`.
 
 - [ ] Reassess fuzz-fit and fuelscape separately. Retain fuelscape's rustdoc
       panels as explanatory views of cost distributions and edge families;
@@ -256,18 +207,11 @@ into otherwise small feature increments.
       tests cannot; simplify its guest, harness, terminal vocabulary, and
       dependency footprint.
       Sources: `fuzz-guests-pins-*`, `deps-*`, width findings in section 02.
-      Progress: the suanpan landing pin proves a small, unique role for this
-      suite. Running the guest with compiler overflow checks disabled also
-      removes a source of false confidence about release behavior.
 
 - [ ] Make gate and CI recipes derive their inputs, run at their documented
       cadence, and stay green on an unchanged tree. Retire mutation, coverage,
       and citation machinery that only checks rosters rather than behavior.
       Sources: `gate-legs-*`, `deps-*`, `tools-*`, `surface-roster-*`.
-      Progress: the mutation roster is retired completely. It listed syntax and
-      pinned exclusion counts but ran no campaign, while exact source-line
-      coupling made ordinary prose edits require maintenance. Coverage and
-      citation mechanisms remain to assess on their own merits.
 
 - [ ] Prune unused dependencies and generated assets after instrument
       consolidation; verify each supported feature combination.
@@ -282,7 +226,6 @@ into otherwise small feature increments.
       scaling without pinning integer-backend implementation details.
       Sources: prior rulings 85--86, critically reviewed against the current
       code; owner handoff, 2026-09-16.
-      Complete in `07c18ca65`.
 
 - [ ] Review `#[must_use]`, fork iterator naming and count type, error source
       chains, error extensibility, missing trait symmetry, and human-readable

@@ -11,22 +11,17 @@
 //! leg on the one population shape the committed fold families leave
 //! out.
 
-#![cfg(all(feature = "meter", feature = "scan-meter", feature = "limb-meter"))]
+#![cfg(all(feature = "meter", feature = "scan-meter", feature = "touch-meter"))]
 
 use before::meter::registry::Shape;
 use before::{meter, Party, Version};
 
 /// One counter snapshot of a closure run.
-fn counters(f: impl FnOnce()) -> (u64, u64, u64) {
+fn counters(f: impl FnOnce()) -> (u64, u64) {
     meter::reset_scan_bits();
-    meter::reset_limb_ops();
     suanpan::touch_meter::reset();
     f();
-    (
-        meter::scan_bits(),
-        meter::limb_ops(),
-        suanpan::touch_meter::touches(),
-    )
+    (meter::scan_bits(), suanpan::touch_meter::touches())
 }
 
 /// Growth of a per-byte reading across the level doubling.
@@ -76,17 +71,16 @@ fn span_all_flat_on_shared_deep_skeleton() {
             let _ = first.span_all(rest);
         });
         eprintln!(
-            "MEASURED span_all_skeleton lvl{lvl}: bytes {bytes} scan {} limb {} touch {}",
-            c.0, c.1, c.2
+            "MEASURED span_all_skeleton lvl{lvl}: bytes {bytes} scan {} touch {}",
+            c.0, c.1
         );
         readings.push((c, bytes));
     }
     let ((c0, b0), (c1, b1)) = (readings[0], readings[1]);
-    for (label, g) in ["scan", "limb", "touch"].iter().zip([
-        growth(c0.0, b0, c1.0, b1),
-        growth(c0.1, b0, c1.1, b1),
-        growth(c0.2, b0, c1.2, b1),
-    ]) {
+    for (label, g) in ["scan", "touch"]
+        .iter()
+        .zip([growth(c0.0, b0, c1.0, b1), growth(c0.1, b0, c1.1, b1)])
+    {
         eprintln!("MEASURED span_all_skeleton growth {label}: {g:.3}");
         assert!(
             g <= GROWTH_BOUND,

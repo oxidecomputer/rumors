@@ -1,5 +1,6 @@
 //! Properties of [`Ticks`] construction, ordering, limbs, and addition.
 
+use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use super::Ticks;
@@ -60,7 +61,7 @@ proptest! {
     /// yields no limbs, and the exact-size length stays truthful at
     /// every step of the drain.
     #[test]
-    fn limbs_respell_the_count(base in crate::testing::generators::arb_base()) {
+    fn limbs_respell_the_count(base in crate::testing::generators::arb_magnitude()) {
         let count = Ticks(base);
         let limbs: Vec<u64> = count.limbs().collect();
         if let Some(last) = limbs.last() {
@@ -68,9 +69,9 @@ proptest! {
         } else {
             prop_assert_eq!(&count, &Ticks::ZERO);
         }
-        let mut rebuilt = crate::codec::Base::ZERO;
+        let mut rebuilt = BigUint::ZERO;
         for (index, limb) in limbs.iter().enumerate() {
-            rebuilt += &(crate::codec::Base::from(*limb) << (64 * index as u32));
+            rebuilt += &(BigUint::from(*limb) << (64 * index as u32));
         }
         prop_assert_eq!(&Ticks(rebuilt), &count);
         let mut iter = count.limbs();
@@ -88,7 +89,7 @@ proptest! {
     /// and every wider count with `TooWide`, in agreement with the limb
     /// spelling's length.
     #[test]
-    fn u64_conversion_matches_the_range(base in crate::testing::generators::arb_base()) {
+    fn u64_conversion_matches_the_range(base in crate::testing::generators::arb_magnitude()) {
         let count = Ticks(base);
         match u64::try_from(&count) {
             Ok(word) => prop_assert_eq!(&Ticks::from(word), &count),

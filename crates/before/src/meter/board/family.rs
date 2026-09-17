@@ -179,11 +179,8 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// Freeze-position blocks at scale 1.0 (encoded version ~74 KiB, the per-block
 /// wide drop codes dominating).
 ///
-/// The scale of the `skyline_flatness` freeze-position band's small run: the
-/// committed known-bad accounting reads superlinear per-byte growth across
-/// this regime's doubling (the committed adequacy tripwire keeps it failing
-/// there), so the
-/// board's default pair straddles exactly what the family exists to catch. The
+/// The scale of the freeze-position band's small run, so the board's default
+/// pair spans the regime the family is designed to test. The
 /// base is a multiple of 16 deliberately: the family's rank exponent is `2s −
 /// 1` (one trailing zero strips — exactly one leaf term, the odd `2^L + 1` at
 /// weight `2^1`, has 2-adic valuation one), and `rank_sum` lands each small
@@ -198,11 +195,8 @@ const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 /// Promotion re-arm blocks at scale 1.0 (encoded version ~128 KiB, the per-block
 /// wide arming codes dominating).
 ///
-/// Half the `skyline_flatness` promotion re-arm band's small run: the committed
-/// span-reading promotion reads superlinear per-byte growth across that
-/// regime's doubling (the committed span-promotion tripwire keeps it failing
-/// there), so the
-/// board's default pair straddles what the family exists to catch. The base is
+/// Half the promotion re-arm band's small run, so the board's default pair
+/// spans the regime the family is designed to test. The base is
 /// a multiple of 8 deliberately: the family's rank exponent is `36s`, and
 /// `rank_sum` lands its small summands at bit remainder `exp mod 32` (an honest
 /// amortized-O(1) constant that flips with the remainder — the freeze-position
@@ -229,12 +223,10 @@ const WEIGHT_COMB_BASE_BLOCKS: usize = 512;
 /// drop codes dominating), rounded up to a power of two at every scale (the
 /// parade block is one complete subtree).
 ///
-/// The scale of the `skyline_flatness` freeze-parade band's small run: with the
-/// write watermark disabled, rank reads ×1.91 per-byte growth in the touch and
-/// limb currencies together across this regime's doubling (the band ceiling
-/// doc's probe-build measurement of record). Power-of-two `k` keeps the spine
-/// depth `64k ≡ 0 (mod 32)`, the same `rank_sum` remainder alignment as the
-/// weight comb's.
+/// This is the small size used by the `skyline_flatness` freeze-parade band,
+/// which exercises the write watermark across a doubling. Power-of-two `k`
+/// keeps the spine depth `64k ≡ 0 (mod 32)`, the same `rank_sum` remainder
+/// alignment as the weight comb's.
 const FREEZE_PARADE_BASE_BLOCKS: usize = 512;
 
 /// Concurrent-pair forked-party count at scale 1.0, rounded up to a power of
@@ -251,11 +243,8 @@ const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 /// diagonal) at scale 1.0 (encoded version ~122 KiB, the blocks' wide climb
 /// codes dominating).
 ///
-/// The scale of the `skyline_flatness` dense-suffix bands' small run: the
-/// committed per-arming suffix walk reads ×1.96 per-byte growth across that
-/// regime's doubling (the query fold's committed tripwire), so the board's
-/// default pair straddles what the family exists to catch. The base is a
-/// multiple of 32 deliberately: the family's rank exponent is linear in the
+/// This is the small size used by the `skyline_flatness` dense-suffix bands.
+/// The base is a multiple of 32 deliberately: the family's rank exponent is linear in the
 /// knob, and `rank_sum` lands its small summands at bit remainder `exp mod 32`
 /// (an honest amortized-O(1) constant that flips with the remainder — the
 /// freeze-position base's derivation carries the mechanism); `32 | s` keeps any
@@ -274,20 +263,10 @@ const WIDE_ARMING_BASE_DIGITS: usize = 512;
 /// Plateau-puncture digits (plateau digits and turn count together: the `PP(w,
 /// d)` diagonal at `w = d`) at scale 1.0 (encoded version ~15 KiB).
 ///
-/// The smallest knob at which the board's default pair still separates the
-/// family's genre from a conforming fold, at the board's own cost: the family's
-/// encoded construction spells the plateau once per turn, so every bundle build
-/// pays `Θ(s²)` encoded bits, and this knob owns the board's dominant build
-/// cost. Calibration (dev profile, exact counters, the query fold's committed
-/// schoolbook kernel): across the level doubling PP(384, 384) → PP(768, 768)
-/// the known-bad settle reads ×1.879 touch and ×1.579 limb per byte — above the
-/// shipped kernels' ×1.25 flatness ceiling by more than the board's ×1.25
-/// one-reading band ([`NEAR_TIE_RATIO`](super::worst::NEAR_TIE_RATIO)) in both
-/// width currencies (≥ ×1.5625), the margin policy; the next smaller multiple
-/// of 32 fails it (×1.555 limb at 352), and the margin only grows toward the
-/// acceptance scale (the growth is monotone in the knob — ×1.91 touch and ×1.65
-/// limb at 512, the committed tripwire's own regime). A multiple of 32 for the
-/// same `rank_sum` remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the
+/// The family's encoded construction spells the plateau once per turn, so
+/// every bundle build pays `Θ(s²)` encoded bits and this knob owns the board's
+/// dominant build cost. It is a multiple of 32 for the same `rank_sum`
+/// remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the
 /// build arm floors the knob at the generator's minimum width (the plunge must
 /// trip the freeze allowance past a unit code), which binds only under extreme
 /// scale-down.

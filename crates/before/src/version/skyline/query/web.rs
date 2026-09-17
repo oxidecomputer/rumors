@@ -81,26 +81,13 @@
 //! per-operand split (the funding section of [`integral`](super::integral)) is
 //! not needed here.
 
-use core::cmp::Ordering;
-
 use suanpan::Accumulator;
 
-use crate::codec::{Base, Int};
+use num_bigint::{BigInt, BigUint, Sign};
 
-use super::super::signed::Sign;
+use crate::codec::accumulator;
+
 use super::super::watermark::{Close, MinWeb};
-
-/// A magnitude's little-endian base-2^32 digits: [`mul_into`]'s read of its
-/// `digits` operand.
-///
-/// The top digit of the top limb may be zero (the compaction loop skips
-/// zero digits, so the padding is free).
-fn u32_digits(value: &Base) -> Vec<u32> {
-    value
-        .iter_limbs()
-        .flat_map(|limb| [(limb & 0xFFFF_FFFF) as u32, (limb >> 32) as u32])
-        .collect()
-}
 
 /// Add (or, with `subtract`, remove) `factor · digits · 2^shift` in the total:
 /// one `factor`-wide product per nonzero signed digit of the compacted `digits`
@@ -117,12 +104,12 @@ fn u32_digits(value: &Base) -> Vec<u32> {
 /// this is the settle move for products whose `digits` side stays word-scale —
 /// this module's ledgers' reference counts, where the density is O(1) by
 /// construction. A product whose both sides the input can widen goes through
-/// [`charge_digits`](super::integral::charge_digits) instead, which delegates
-/// each dense cluster to the backend's sub-quadratic multiplication.
+/// [`WindowMass::charge`](super::integral::WindowMass::charge) instead, which
+/// delegates each dense cluster to the backend's sub-quadratic multiplication.
 pub(super) fn mul_into(
     total: &mut Accumulator,
-    factor: &Base,
-    digits: &Base,
+    factor: &BigUint,
+    digits: &BigUint,
     shift: u64,
     subtract: bool,
 ) {
@@ -131,7 +118,7 @@ pub(super) fn mul_into(
     // `digits` operand would fall through the empty digit walk below as a
     // no-op anyway; a zero factor is the one identity worth skipping — a
     // reign offset sitting exactly at its epoch's frozen component.
-    if *factor == Base::ZERO {
+    if *factor == BigUint::ZERO {
         return;
     }
     // The shifts routed below are digit positions of walked-value widths
@@ -147,24 +134,27 @@ pub(super) fn mul_into(
         }
         let mut product = factor.clone();
         product *= u32::try_from(digit).expect("a compacted signed digit fits 32 bits");
-        product.fold_into(total, shift, sign.is_negative() != subtract);
+        accumulator::fold(total, &product, shift, (sign == Sign::Minus) != subtract);
     };
     let mut shift = shift;
-    for digit in u32_digits(digits) {
+    for digit in digits
+        .iter_u64_digits()
+        .flat_map(|limb| [(limb & 0xFFFF_FFFF) as u32, (limb >> 32) as u32])
+    {
         let digit_sum = u64::from(digit) + carry;
         if digit_sum > 1 << 31 {
             // Balanced arm: `digit_sum − 2^32` with a carry, so ones-runs
             // cancel.
-            add_term((1u64 << 32) - digit_sum, Sign::Negative, shift);
+            add_term((1u64 << 32) - digit_sum, Sign::Minus, shift);
             carry = 1;
         } else {
-            add_term(digit_sum, Sign::Positive, shift);
+            add_term(digit_sum, Sign::Plus, shift);
             carry = 0;
         }
         shift += 32;
     }
     if carry == 1 {
-        add_term(1, Sign::Positive, shift);
+        add_term(1, Sign::Plus, shift);
     }
 }
 
@@ -172,10 +162,8 @@ pub(super) fn mul_into(
 /// frozen-relative offset, its epoch, and the closes counted at it since the
 /// record was created (module doc: the minima side).
 struct Reign {
-    /// The offset's sign.
-    sign: Sign,
-    /// The offset's magnitude, relative to its epoch's frozen component.
-    offset: Base,
+    /// The signed offset relative to its epoch's frozen component.
+    offset: BigInt,
     /// The epoch whose frozen component anchors `offset`.
     epoch: usize,
     /// Closes folded at this record's value, unsettled.
@@ -184,31 +172,29 @@ struct Reign {
 
 impl Reign {
     /// A fresh record at a leaf's value, no closes counted yet.
-    fn new(sign: Sign, offset: &Base, epoch: usize) -> Reign {
+    fn new(offset: &BigInt, epoch: usize) -> Reign {
         Reign {
-            sign,
             offset: offset.clone(),
             epoch,
             count: 0,
         }
     }
-}
 
-/// Settle a dying record: one compacted `offset × count` product into the
-/// narrow total, and the count against the record's epoch.
-fn settle(reign: Reign, total: &mut Accumulator, ledger: &mut EpochLedger) {
-    if reign.count == 0 {
-        return;
+    /// Settle this dying record into the total and its epoch.
+    fn settle(self, total: &mut Accumulator, ledger: &mut EpochLedger) {
+        if self.count == 0 {
+            return;
+        }
+        ledger.minimum_refs(self.epoch, self.count);
+        // Each counted close subtracted the value once: −(±offset) · count.
+        mul_into(
+            total,
+            self.offset.magnitude(),
+            &BigUint::from(self.count),
+            0,
+            self.offset.sign() != Sign::Minus,
+        );
     }
-    ledger.minimum_refs(reign.epoch, reign.count);
-    // Each counted close subtracted the value once: −(±offset) · count.
-    mul_into(
-        total,
-        &reign.offset,
-        &Base::from(reign.count),
-        0,
-        !reign.sign.is_negative(),
-    );
 }
 
 /// The min-ticks fold's view of the anchored-minimum web: the shared core at
@@ -236,8 +222,8 @@ impl ReignWeb {
     }
 
     /// Fold one consumed delta into the height side of the web's `gap`.
-    pub(super) fn fold_height(&mut self, sign: Sign, magnitude: &Int) {
-        self.web.fold_height(sign, magnitude);
+    pub(super) fn fold_height(&mut self, delta: &BigInt) {
+        self.web.fold_height(delta);
     }
 
     /// Close the innermost range: fold its minimum into the total (one count on
@@ -263,7 +249,7 @@ impl ReignWeb {
             Close::Retired => {
                 let mut reign = self.winner.take().expect("the reigning record was live");
                 reign.count += 1;
-                settle(reign, total, ledger);
+                reign.settle(total, ledger);
             }
             Close::Parked(interrupted) => {
                 let mut dead = self
@@ -271,13 +257,13 @@ impl ReignWeb {
                     .replace(interrupted)
                     .expect("the reigning record was live");
                 dead.count += 1;
-                settle(dead, total, ledger);
+                dead.settle(total, ledger);
             }
         }
     }
 
     /// Record one leaf at the running height, with its narrow frozen-relative
-    /// offset (`sign`, `offset`) and epoch.
+    /// offset and epoch.
     ///
     /// Arms any pending ranges at the leaf; otherwise an amortized sign read
     /// decides whether the leaf undercuts the innermost minimum, and only a
@@ -285,8 +271,7 @@ impl ReignWeb {
     /// consumes, each dying record settling as its difference dies.
     pub(super) fn leaf(
         &mut self,
-        sign: Sign,
-        offset: &Base,
+        offset: &BigInt,
         epoch: usize,
         total: &mut Accumulator,
         ledger: &mut EpochLedger,
@@ -294,7 +279,7 @@ impl ReignWeb {
         if self.web.has_pending() {
             if !self.web.armed() {
                 // The first arming: the web seats its anchor at the leaf.
-                self.winner = Some(Reign::new(sign, offset, epoch));
+                self.winner = Some(Reign::new(offset, epoch));
             }
             // The trichotomy through the hooks: an arming above the old
             // minimum stacks the interrupted record as the boundary's
@@ -305,10 +290,10 @@ impl ReignWeb {
             self.web.arm_at_height(
                 || {
                     winner
-                        .replace(Reign::new(sign, offset, epoch))
+                        .replace(Reign::new(offset, epoch))
                         .expect("an armed web has a reigning record")
                 },
-                |reign| settle(reign, total, ledger),
+                |reign| reign.settle(total, ledger),
             );
             return;
         }
@@ -324,10 +309,10 @@ impl ReignWeb {
         // whose difference it consumes.
         let dead = self
             .winner
-            .replace(Reign::new(sign, offset, epoch))
+            .replace(Reign::new(offset, epoch))
             .expect("an armed web has a reigning record");
-        settle(dead, total, ledger);
-        self.web.undercut(|reign| settle(reign, total, ledger));
+        dead.settle(total, ledger);
+        self.web.undercut(|reign| reign.settle(total, ledger));
     }
 
     /// Close every remaining range at the stream's end.
@@ -347,7 +332,7 @@ impl ReignWeb {
 pub(super) struct EpochLedger {
     /// One signed drift per epoch: entry 0 is the first leaf's absolute height,
     /// every later entry one freeze's evicted live drift.
-    drifts: Vec<(Sign, Base)>,
+    drifts: Vec<BigInt>,
     /// Per epoch, the signed count of events denominated in that epoch's frozen
     /// component: `+1` per leaf, `−count` per settled reign.
     refs: Vec<i128>,
@@ -356,9 +341,9 @@ pub(super) struct EpochLedger {
 impl EpochLedger {
     /// Open the ledger at epoch 0: the first leaf's absolute height is the
     /// opening frozen component.
-    pub(super) fn new(first: Base) -> EpochLedger {
+    pub(super) fn new(first: BigUint) -> EpochLedger {
         EpochLedger {
-            drifts: vec![(Sign::Positive, first)],
+            drifts: vec![BigInt::from(first)],
             refs: vec![0],
         }
     }
@@ -378,13 +363,12 @@ impl EpochLedger {
         self.refs[epoch] -= i128::from(count);
     }
 
-    /// Evict the live drift into a new epoch (or discard a redundantly spelled
-    /// zero, keeping the epoch), resetting the live component.
+    /// Evict the live drift into a new epoch, or keep the epoch when its terms
+    /// cancel to zero, then reset the live component.
     pub(super) fn freeze(&mut self, live: &mut Accumulator) {
-        let (sign, drift) = Base::from_accumulator(live);
-        if !drift.is_zero() {
-            self.drifts
-                .push((Sign::from_is_negative(sign == Ordering::Less), drift));
+        let drift = accumulator::signed_value(live);
+        if drift.sign() != Sign::NoSign {
+            self.drifts.push(drift);
             self.refs.push(0);
         }
         live.reset();
@@ -395,18 +379,18 @@ impl EpochLedger {
     /// own width.
     pub(super) fn settle(self, total: &mut Accumulator) {
         let mut suffix: i128 = 0;
-        for ((drift_sign, drift), refs) in self.drifts.iter().zip(&self.refs).rev() {
+        for (drift, refs) in self.drifts.iter().zip(&self.refs).rev() {
             suffix += refs;
             if suffix == 0 {
                 continue;
             }
-            let count = Base::from(suffix.unsigned_abs());
+            let count = BigUint::from(suffix.unsigned_abs());
             mul_into(
                 total,
-                drift,
+                drift.magnitude(),
                 &count,
                 0,
-                drift_sign.is_negative() != (suffix < 0),
+                (drift.sign() == Sign::Minus) != (suffix < 0),
             );
         }
         debug_assert_eq!(

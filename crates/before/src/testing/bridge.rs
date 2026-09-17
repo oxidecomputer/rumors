@@ -12,7 +12,9 @@
 
 use std::sync::Arc;
 
-use crate::codec::{self, BitsBuf};
+use num_bigint::BigUint;
+
+use crate::codec::{self, gamma, BitsBuf};
 use crate::oracle;
 use crate::recurse::descend;
 use crate::{Clock, Party, Version};
@@ -47,11 +49,11 @@ fn emit_ev(out: &mut BitsBuf, t: &oracle::Version) {
     match t {
         oracle::Version::Leaf(n) => {
             out.push(false);
-            codec::encode_int(out, n);
+            gamma::encode(n, out);
         }
         oracle::Version::Node(n, l, r) => {
             out.push(true);
-            codec::encode_int(out, n);
+            gamma::encode(n, out);
             descend!(0, emit_ev(out, l));
             descend!(0, emit_ev(out, r));
         }
@@ -136,12 +138,12 @@ fn read_id(bits: codec::BitsView<'_>, pos: u64) -> (oracle::Party, u64) {
 /// heights, internal nodes a zero base. The caller normalizes once at the
 /// root.
 ///
-/// The oracle base is the arbitrary-precision `Base` (matching the impl),
+/// The oracle base is the arbitrary-precision `BigUint` (matching the impl),
 /// so lowering is lossless for any magnitude: no `u64` truncation point.
 fn read_ev(
     bits: codec::BitsView<'_>,
     pos: u64,
-    prev: &mut Option<codec::Base>,
+    prev: &mut Option<BigUint>,
 ) -> (oracle::Version, u64) {
     // Skyline topology flag: `0` internal, `1` leaf.
     let internal = !bits.bit(pos);
@@ -149,11 +151,11 @@ fn read_ev(
         let (l, after_l) = descend!(0, read_ev(bits, pos + 1, prev));
         let (r, after_r) = descend!(0, read_ev(bits, after_l, prev));
         return (
-            oracle::Version::Node(codec::Base::ZERO, Arc::new(l), Arc::new(r)),
+            oracle::Version::Node(BigUint::ZERO, Arc::new(l), Arc::new(r)),
             after_r,
         );
     }
-    let (code, after_n) = codec::decode_int(bits, pos + 1).expect("canonical impl bits decode");
+    let (code, after_n) = codec::gamma::decode(bits, pos + 1).expect("canonical impl bits decode");
     // First leaf: the absolute height. Later leaves: zigzag deltas
     // (`even -> +m/2`, `odd -> -(m + 1)/2`) off the previous leaf.
     let value = match prev.take() {

@@ -166,7 +166,7 @@ fn shard_protocol_round_trips() {
 
 /// The worst-case map folds totally over the board's sweep at any scale:
 /// every operation row renders exactly one line per mapped currency
-/// (heap, limb, scan, touch), so a row can neither drop out of the map
+/// (heap, scan, touch), so a row can neither drop out of the map
 /// nor render twice.
 ///
 /// Rankings are deliberately not asserted: they are scale- and
@@ -188,7 +188,7 @@ fn worst_map_covers_every_operation_row() {
         else {
             continue;
         };
-        if marker != "worst" || !matches!(currency, "heap" | "limb" | "scan" | "touch") {
+        if marker != "worst" || !matches!(currency, "heap" | "scan" | "touch") {
             continue;
         }
         *per_op.entry(op).or_default() += 1;
@@ -205,7 +205,7 @@ fn worst_map_covers_every_operation_row() {
         "the map must carry every operation row exactly once"
     );
     assert!(
-        per_op.values().all(|&rows| rows == 4),
+        per_op.values().all(|&rows| rows == 3),
         "every operation renders one row per mapped currency: {per_op:?}"
     );
 }

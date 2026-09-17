@@ -21,7 +21,9 @@
 
 use proptest::prelude::*;
 
-use crate::codec::{self, Base, BitsBuf};
+use num_bigint::BigUint;
+
+use crate::codec::{gamma, BitsBuf};
 use crate::meter::tier2::{tier2_size, Tier2Size};
 use crate::Version;
 
@@ -133,7 +135,7 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     assert!(m_bits >= 1, "comb needs a nonzero tooth magnitude");
     assert!(pairs >= 1, "comb needs at least one tooth");
     let m_bits_u32 = u32::try_from(m_bits).expect("tooth magnitude bit count fits u32");
-    let m = (Base::from(1u8) << m_bits_u32) - &Base::from(1u8);
+    let m = (BigUint::from(1u8) << m_bits_u32) - &BigUint::from(1u8);
 
     let pair_bits = 2 * m_bits + 8;
     let mut bits = BitsBuf::with_capacity((pairs * pair_bits - 2) as u64);
@@ -141,17 +143,17 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     // node (the innermost left child is the first pair subtree).
     for _ in 0..pairs - 1 {
         bits.push(true);
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
     }
     // The pair subtrees, innermost first: `(0, 0, M)` is
     // `1 . gamma(0) . 0 . gamma(0) . 0 . gamma(M)`.
     for _ in 0..pairs {
         bits.push(true);
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(false);
-        codec::encode_int(&mut bits, &Base::ZERO);
+        gamma::encode(&BigUint::ZERO, &mut bits);
         bits.push(false);
-        codec::encode_int(&mut bits, &m);
+        gamma::encode(&m, &mut bits);
     }
     // The comb is hand-built in the min-lifted encoded construction
     // language; the transcoding bridge lifts it into the stored coding.

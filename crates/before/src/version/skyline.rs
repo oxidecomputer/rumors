@@ -18,10 +18,9 @@
 //!   natural, zero included), every later leaf as
 //!   `zigzag-gamma(vi − vi−1)` over consecutive leaves in preorder. The
 //!   zigzag map is `d >= 0 -> 2d`, `d < 0 -> 2|d| − 1`; the mapped value is
-//!   then gamma-coded by the same machinery as every stored integer
-//!   (`codec::encode_int`), so the code shape (`2k + 1` bits for a
-//!   `k`-bit-position mantissa) and the decoder's window fast path carry
-//!   over unchanged.
+//!   then gamma-coded like every stored integer, so the code shape (`2k + 1`
+//!   bits for a `k`-bit-position mantissa) and the decoder's window fast path
+//!   carry over unchanged.
 //!
 //! This is both the stored form and the wire form of a [`Version`]. Operations
 //! read it directly and emit another canonical stream; they do not first build
@@ -67,13 +66,13 @@
 //! the running leaf height for the nonnegativity check. The bit stack costs ~2
 //! bits per level where machine-word parse frames would cost tens of bytes; the
 //! resource-envelope suite (`tests/meter.rs`) pins both that transient and the
-//! validator's limb behavior.
+//! validator's arithmetic cost.
 //!
 //! The accumulator choice is load-bearing, not an optimization: on the boundary
 //! comb (`meter::cliff_comb`) the payload stream is 3-bit `±1` codes sitting
 //! exactly on a `2^k` carry boundary, so a plain big-integer running height
-//! pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` limb work in skyline
-//! wire bits `W` (`meter::tier2`'s plain-sweep pin measures it). The balanced
+//! pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` arithmetic in skyline
+//! wire bits `W`. The balanced
 //! signed-digit [`Accumulator`](suanpan::Accumulator) applies a small delta and
 //! answers the sign check in amortized O(1) digit touches on every input
 //! sequence, so validation stays linear per wire bit; the envelope suite pins
@@ -111,7 +110,7 @@
 //!   either rejects or round-trips to a *different* version whose canonical
 //!   encoding is the mutated stream itself.
 //! - **Resource envelopes**: `tests/meter.rs` pins validate/decode heap,
-//!   segment, limb, and accumulator-touch envelopes on the adversarial
+//!   segment, scan, and accumulator-touch envelopes on the adversarial
 //!   families.
 
 #[cfg(any(test, feature = "meter"))]
@@ -154,7 +153,6 @@ pub mod query;
 // The shape transliteration walks: the crate-private engines under the
 // public step-function iterators (`crate::shape`).
 pub(crate) mod shape;
-mod signed;
 pub mod sweep;
 mod validate;
 // The leaf-walk driver: the descend/backtrack skeleton and shared leaf

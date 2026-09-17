@@ -399,7 +399,7 @@
 //!   encoding is a prefix of another's — and values therefore compose
 //!   inside larger borsh messages without a length prefix.
 //! - **`oracle`**, **`meter`** (plus the meter's counter switches
-//!   `limb-meter` and `scan-meter`), and **`laws`:** expose the crate's own
+//!   `touch-meter` and `scan-meter`), and **`laws`:** expose the crate's own
 //!   verification instruments (the reference implementation,
 //!   the input generators and resource meters behind the performance tests,
 //!   and the named algebraic-law predicates) to its bench, metering,
@@ -419,6 +419,7 @@
 // exactly that placement.
 #![cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 #![forbid(unsafe_code)]
+#![deny(clippy::debug_assert_with_mut_call)]
 #![warn(missing_docs)]
 // Every `thread_local!` initializer in this crate is a `const` block. On
 // targets without native thread-local storage, `thread_local!` expands

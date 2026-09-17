@@ -16,6 +16,7 @@
 //! value-dependent work in rank, distance, lag, and ranked keys.
 
 use crate::meter::registry::Shape;
+use num_bigint::BigUint;
 
 // ─── the fold entry points' log-factor liveness ───────────────────────────────
 //
@@ -336,15 +337,11 @@ fn clock_join_all_log_factor_is_alive() {
 /// `Θ(w)` terms under that same compaction, and the mass's `d` digits
 /// must stay isolated by more than a full digit (incompressible)
 /// at non-uniform jitter. A representation or content change that
-/// weakens the embedding reads red here, and the rustdoc and this pin
-/// move in one change; the cost legs (flat traffic, schoolbook red)
-/// live in the flatness bands (`tests/meter.rs`) and the committed
-/// schoolbook kernels beside the query fold's tests.
+/// weakens the embedding reads red here. The flatness bands in
+/// `tests/meter.rs` check the implementation's measured cost separately.
 #[cfg(feature = "meter")]
 #[test]
 fn mul_bound_embedding_is_alive() {
-    use num_bigint::BigUint;
-
     /// The count of nonzero balanced signed digits the settle's own
     /// compaction (`mul_into`'s recentering, replicated) spells a
     /// magnitude into.
@@ -414,10 +411,7 @@ fn mul_bound_embedding_is_alive() {
          shifts and one short division, and the instance stops witnessing \
          the floor"
     );
-    let expected = crate::Rank::from_raw(
-        crate::codec::Base::from(((&x * &y) << 1usize) + 1u8),
-        (66 * d) as u64,
-    );
+    let expected = crate::Rank::from_raw(((&x * &y) << 1usize) + 1u8, (66 * d) as u64);
     assert_eq!(
         v.rank(),
         expected,
@@ -430,10 +424,9 @@ fn mul_bound_embedding_is_alive() {
 /// The pair entry point's answer-embedded-product liveness.
 ///
 /// The multiplication-bound pair claims (distance, lag) enter the settle
-/// through the pair co-sweep — a distinct entry point from rank's single-stream
-/// fold, which the single-stream embedding and schoolbook witnesses exercise —
-/// so the `Ω(M(a + b))` floor needs its embedding family constructed through
-/// the pair operations' own entry points, not inferred from rank alone.
+/// through the pair co-sweep, a distinct entry point from rank's single-stream
+/// fold. The `Ω(M(a + b))` floor therefore needs an embedding family built
+/// through the pair operations themselves rather than inferred from rank.
 ///
 /// Against the empty version, the valuation identities collapse to `distance(v,
 /// ∅) = lag(∅, v) = rank(v)` and `lag(v, ∅) = 0`, so the plateau-puncture
@@ -457,10 +450,7 @@ fn mul_bound_pair_embedding_is_alive() {
          the canonical-equality rung without running the pair co-sweep"
     );
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
-    let expected = crate::Rank::from_raw(
-        crate::codec::Base::from(((&x * &y) << 1usize) + 1u8),
-        (66 * d) as u64,
-    );
+    let expected = crate::Rank::from_raw(((&x * &y) << 1usize) + 1u8, (66 * d) as u64);
     assert_eq!(
         v.distance(&empty),
         expected,
@@ -505,10 +495,7 @@ fn mul_bound_key_embedding_is_alive() {
     let (w, d) = (64usize, 48usize);
     let v = Shape::PlateauPuncture.build2(w, d).version();
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
-    let expected = crate::Rank::from_raw(
-        crate::codec::Base::from(((&x * &y) << 1usize) + 1u8),
-        (66 * d) as u64,
-    );
+    let expected = crate::Rank::from_raw(((&x * &y) << 1usize) + 1u8, (66 * d) as u64);
     let rank_key = crate::Ranked::from(&v).encode_rank();
     assert_eq!(
         crate::Rank::decode(&rank_key[..]).expect("the fused rank key is canonical"),

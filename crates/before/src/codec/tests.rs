@@ -5,14 +5,12 @@
 
 use std::sync::Arc;
 
+use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use proptest::test_runner::TestCaseError;
 
-use super::{
-    bits_buf, decode_int, decode_int_from, encode_int, Base, BitCursor, BitsBuf, BitsView,
-    DsiCursor, SliceCursor,
-};
+use super::{bits_buf, gamma, BitCursor, BitsBuf, BitsView, DsiCursor, SliceCursor};
 use crate::oracle;
 use crate::span::Span;
 use crate::testing::bridge::{
@@ -26,14 +24,14 @@ use crate::{error::Decode, Clock, Party, Rank, Ranked, Version};
 // ───────────────────────────── integer code ─────────────────────────────
 
 proptest! {
-    /// `decode_int ∘ encode_int == id`, and the code is self-delimiting
+    /// Gamma decoding inverts encoding, and the code is self-delimiting
     /// (consumes exactly the bits it wrote).
     #[test]
     fn gamma_roundtrip(n in 0u64..1_000_000) {
-        let n = Base::from(n);
+        let n = BigUint::from(n);
         let mut bits = BitsBuf::new();
-        encode_int(&mut bits, &n);
-        let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
+        gamma::encode(&n, &mut bits);
+        let (decoded, pos) = gamma::decode(crate::codec::built_view(&bits), 0).expect("well-formed");
         prop_assert_eq!(decoded, n);
         prop_assert_eq!(pos, bits.len());
     }
@@ -42,16 +40,16 @@ proptest! {
 proptest! {
     /// The integer code round-trips arbitrary-width magnitudes with no cap: a
     /// value built from many random `u64` limbs (well past `u64::MAX`) survives
-    /// `decode_int ∘ encode_int` exactly and remains self-delimiting.
+    /// gamma decoding exactly and remains self-delimiting.
     #[test]
     fn gamma_roundtrip_wide(limbs in proptest::collection::vec(any::<u64>(), 1..40)) {
-        let mut n = Base::ZERO;
+        let mut n = BigUint::ZERO;
         for limb in limbs {
-            n = (n << 64) | Base::from(limb);
+            n = (n << 64) | BigUint::from(limb);
         }
         let mut bits = BitsBuf::new();
-        encode_int(&mut bits, &n);
-        let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
+        gamma::encode(&n, &mut bits);
+        let (decoded, pos) = gamma::decode(crate::codec::built_view(&bits), 0).expect("well-formed");
         prop_assert_eq!(decoded, n);
         prop_assert_eq!(pos, bits.len());
     }
@@ -68,7 +66,7 @@ proptest! {
 fn gamma_costs() {
     let cost = |n: u64| {
         let mut bits = BitsBuf::new();
-        encode_int(&mut bits, &Base::from(n));
+        gamma::encode(&BigUint::from(n), &mut bits);
         bits.len()
     };
     assert_eq!(cost(0), 1);
@@ -78,31 +76,30 @@ fn gamma_costs() {
     assert_eq!(cost(7), 7);
 }
 
-/// The small inline `Base` representation must spill exactly at the `u64`
-/// boundary without changing the arbitrary-width integer codec.
+/// The integer codec remains exact immediately beyond the machine-word range.
 #[test]
 fn gamma_roundtrip_just_above_u64_max() {
-    let n = Base::from(u64::MAX) + Base::from(1u8);
+    let n = BigUint::from(u64::MAX) + BigUint::from(1u8);
     let mut bits = BitsBuf::new();
-    encode_int(&mut bits, &n);
-    let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
+    gamma::encode(&n, &mut bits);
+    let (decoded, pos) = gamma::decode(crate::codec::built_view(&bits), 0).expect("well-formed");
     assert_eq!(decoded, n);
     assert_eq!(decoded.to_string(), "18446744073709551616");
     assert_eq!(pos, bits.len());
 }
 
-/// `decode_int` never panics and reports `Truncated` when the code runs off the
+/// Gamma decoding never panics and reports `Truncated` when the code runs off the
 /// end (empty input, or all-zeros with no terminating `1`).
 #[test]
 fn gamma_truncated() {
     let empty = BitsBuf::new();
     assert!(matches!(
-        decode_int(crate::codec::built_view(&empty), 0),
+        gamma::decode(crate::codec::built_view(&empty), 0),
         Err(Decode::Truncated)
     ));
     let zeros: BitsBuf = bits_buf![0, 0, 0, 0, 0];
     assert!(matches!(
-        decode_int(crate::codec::built_view(&zeros), 0),
+        gamma::decode(crate::codec::built_view(&zeros), 0),
         Err(Decode::Truncated)
     ));
 }
@@ -353,7 +350,7 @@ proptest! {
 // decoding, and skipping. Generated streams emphasize word and window bounds.
 
 /// Encode one integer bit by bit: unary prefix, then an MSB-first mantissa.
-fn encode_int_bitwise(out: &mut BitsBuf, n: &Base) {
+fn encode_int_bitwise(out: &mut BitsBuf, n: &BigUint) {
     let m = n + 1u32;
     let k = m.bits() - 1;
     for _ in 0..k {
@@ -385,12 +382,12 @@ fn skip_int_bitwise(bits: BitsView<'_>, pos: u64) -> Result<u64, Decode> {
     }
 }
 
-/// Assert `decode_int` (windowed) agrees with the pure bit loop at `pos`: same
+/// Assert the windowed decoder agrees with the pure bit loop at `pos`: same
 /// accept/reject, same error variant, same value, same end position.
 fn assert_decode_matches_bit_loop(bits: BitsView<'_>, pos: u64) -> Result<(), TestCaseError> {
-    let subject = decode_int(bits, pos);
+    let subject = gamma::decode(bits, pos);
     let mut cursor = SliceCursor::new(bits, pos);
-    let oracle = decode_int_from(&mut cursor);
+    let oracle = gamma::decode_from(&mut cursor);
     match (subject, oracle) {
         (Ok((value, end)), Ok(oracle_value)) => {
             prop_assert_eq!(value, oracle_value);
@@ -468,7 +465,7 @@ fn arb_gamma_stream() -> impl Strategy<Value = (BitsBuf, usize)> {
 }
 
 proptest! {
-    /// The word-wise `encode_int` is byte-identical to the per-bit emitter.
+    /// The word-wise encoder is byte-identical to the per-bit emitter.
     ///
     /// Holds for every value — `u64`-range codes (the `store_be` path) and
     /// spilled wide values alike — even appending at an unaligned mid-stream
@@ -479,9 +476,9 @@ proptest! {
         n in arb_boundary_u64(),
         limbs in proptest::collection::vec(any::<u64>(), 0..3),
     ) {
-        let mut value = Base::from(n);
+        let mut value = BigUint::from(n);
         for limb in limbs {
-            value = (value << 64) | Base::from(limb);
+            value = (value << 64) | BigUint::from(limb);
         }
         let pos = prefix.len();
         let mut word = BitsBuf::new();
@@ -490,20 +487,20 @@ proptest! {
             word.push(b);
             bit.push(b);
         }
-        encode_int(&mut word, &value);
+        gamma::encode(&value, &mut word);
         encode_int_bitwise(&mut bit, &value);
         prop_assert_eq!(&word, &bit);
 
         // Word-decode of the word-encode round-trips value and position.
         let (decoded, end) =
-            decode_int(crate::codec::built_view(&word), pos as u64).expect("well-formed");
+            gamma::decode(crate::codec::built_view(&word), pos as u64).expect("well-formed");
         prop_assert_eq!(decoded, value);
         prop_assert_eq!(end, word.len());
     }
 }
 
 proptest! {
-    /// On window-boundary streams, the windowed `decode_int` and the
+    /// On window-boundary streams, the windowed decoder and the
     /// word-parallel cursor's `skip_int` behave exactly like the per-bit
     /// loops.
     ///
@@ -522,7 +519,7 @@ proptest! {
         assert_skip_matches_bit_loop(view, pos)?;
 
         // The end of the stream, just before it, and past it (the skip cursor's
-        // domain ends at the live length; `decode_int` alone covers the
+        // domain ends at the live length; the gamma decoder alone covers the
         // past-the-end positions).
         assert_decode_matches_bit_loop(view, view.len().saturating_sub(extra))?;
         assert_skip_matches_bit_loop(view, view.len().saturating_sub(extra))?;
@@ -532,7 +529,7 @@ proptest! {
 
 proptest! {
     /// On arbitrary raw byte streams — mostly invalid input — the windowed
-    /// `decode_int` and the word-parallel cursor's `skip_int` agree with the
+    /// Gamma decoding and the word-parallel cursor's `skip_int` agree with the
     /// per-bit loops.
     ///
     /// Agreement covers accept/reject, error variant, value, and consumed bits
@@ -559,21 +556,19 @@ proptest! {
 /// short of complete.
 #[test]
 fn gamma_window_edge() {
-    use super::gamma::decode_int_window;
-
     // k = 31: the widest code a 64-bit window proves.
     let n = (1u64 << 31) - 1;
     let mut bits = BitsBuf::new();
-    encode_int(&mut bits, &Base::from(n));
+    gamma::encode(&BigUint::from(n), &mut bits);
     assert_eq!(bits.len(), 63);
     assert_eq!(
-        decode_int_window(crate::codec::built_view(&bits), 0),
+        gamma::decode_window(crate::codec::built_view(&bits), 0),
         Some((n, 63))
     );
 
     // The same code cut one bit short: nothing provable, decline.
     assert_eq!(
-        decode_int_window(crate::codec::BitsView::new(bits.as_raw_slice(), 62), 0),
+        gamma::decode_window(crate::codec::BitsView::new(bits.as_raw_slice(), 62), 0),
         None
     );
 
@@ -581,22 +576,25 @@ fn gamma_window_edge() {
     // decoder still reads it through the loop.
     let n = (1u64 << 32) - 1;
     let mut bits = BitsBuf::new();
-    encode_int(&mut bits, &Base::from(n));
+    gamma::encode(&BigUint::from(n), &mut bits);
     assert_eq!(bits.len(), 65);
-    assert_eq!(decode_int_window(crate::codec::built_view(&bits), 0), None);
-    let (decoded, end) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
-    assert_eq!(decoded, Base::from(n));
+    assert_eq!(
+        gamma::decode_window(crate::codec::built_view(&bits), 0),
+        None
+    );
+    let (decoded, end) = gamma::decode(crate::codec::built_view(&bits), 0).expect("well-formed");
+    assert_eq!(decoded, BigUint::from(n));
     assert_eq!(end, 65u64);
 
     // Junk after a short code must not leak into its mantissa.
     let mut bits = BitsBuf::new();
-    encode_int(&mut bits, &Base::from(5u64));
+    gamma::encode(&BigUint::from(5u64), &mut bits);
     let code_len = bits.len();
     for _ in 0..64 {
         bits.push(true);
     }
     assert_eq!(
-        decode_int_window(crate::codec::built_view(&bits), 0),
+        gamma::decode_window(crate::codec::built_view(&bits), 0),
         Some((5, code_len))
     );
 }
@@ -606,8 +604,6 @@ fn gamma_window_edge() {
 /// the bit loop.
 #[test]
 fn gamma_window_declines_conservatively() {
-    use super::gamma::decode_int_window;
-
     let mut bits = BitsBuf::new();
     bits.push(false);
     bits.push(true);
@@ -615,17 +611,26 @@ fn gamma_window_declines_conservatively() {
     // A mid-stream position addressed as (whole view, pos) proves its code
     // and the fast path fires.
     assert_eq!(
-        decode_int_window(crate::codec::built_view(&bits), 1),
+        gamma::decode_window(crate::codec::built_view(&bits), 1),
         Some((0, 2))
     );
 
     // At and past the end of the stream.
-    assert_eq!(decode_int_window(crate::codec::built_view(&bits), 2), None);
-    assert_eq!(decode_int_window(crate::codec::built_view(&bits), 7), None);
+    assert_eq!(
+        gamma::decode_window(crate::codec::built_view(&bits), 2),
+        None
+    );
+    assert_eq!(
+        gamma::decode_window(crate::codec::built_view(&bits), 7),
+        None
+    );
 
     // All zeros: no terminating 1 in the stream (bit loop: `Truncated`).
     let zeros = BitsBuf::repeat(false, 70);
-    assert_eq!(decode_int_window(crate::codec::built_view(&zeros), 0), None);
+    assert_eq!(
+        gamma::decode_window(crate::codec::built_view(&zeros), 0),
+        None
+    );
 }
 
 /// A gamma code wide enough to spill machine-word decoding round-trips exactly
@@ -634,10 +639,10 @@ fn gamma_window_declines_conservatively() {
 #[test]
 fn gamma_roundtrip_wide_value() {
     // 2^1000 + 12345: a 1001-bit mantissa with live bits at both ends.
-    let n = (Base::from(1u8) << 1000u32) + 12345u64;
+    let n = (BigUint::from(1u8) << 1000u32) + 12345u64;
     let mut bits = BitsBuf::new();
-    encode_int(&mut bits, &n);
-    let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
+    gamma::encode(&n, &mut bits);
+    let (decoded, pos) = gamma::decode(crate::codec::built_view(&bits), 0).expect("well-formed");
     assert_eq!(decoded, n);
     assert_eq!(pos, bits.len());
 }
@@ -647,91 +652,22 @@ fn gamma_roundtrip_wide_value() {
 /// wherever the cut falls relative to byte alignment.
 #[test]
 fn gamma_truncated_inside_wide_mantissa() {
-    let n = (Base::from(1u8) << 1000u32) + 12345u64;
+    let n = (BigUint::from(1u8) << 1000u32) + 12345u64;
     let mut bits = BitsBuf::new();
-    encode_int(&mut bits, &n);
+    gamma::encode(&n, &mut bits);
     // Cuts inside the unary prefix, at the leading mantissa 1, just after it,
     // at byte-scale offsets into the mantissa, and one bit short.
     for cut in [1, 500, 1001, 1002, 1009, 1500, bits.len() - 1] {
         let truncated = crate::codec::BitsView::new(bits.as_raw_slice(), cut);
         assert!(
-            matches!(decode_int(truncated, 0), Err(Decode::Truncated)),
+            matches!(gamma::decode(truncated, 0), Err(Decode::Truncated)),
             "cut at bit {cut} must report Truncated",
         );
     }
     // The full code still decodes: the cuts, not the value, are the failure.
-    let (decoded, pos) = decode_int(crate::codec::built_view(&bits), 0).expect("well-formed");
+    let (decoded, pos) = gamma::decode(crate::codec::built_view(&bits), 0).expect("well-formed");
     assert_eq!(decoded, n);
     assert_eq!(pos, bits.len());
-}
-
-// ──────────────────── metered Base equality and hashing ────────────────────
-
-/// A mirror of `Base` carrying the compiler-derived `PartialEq`/`Hash`: the
-/// semantics of record that `Base`'s manual limb-metered impls must reproduce
-/// exactly.
-#[derive(PartialEq, Hash)]
-struct DerivedBase(num_bigint::BigUint);
-
-impl DerivedBase {
-    /// The same value as `b`, carried by the derived-impl mirror.
-    fn of(b: &Base) -> DerivedBase {
-        DerivedBase(b.0.clone())
-    }
-}
-
-/// One value's `DefaultHasher` output, so hash streams can be compared across
-/// `Base` and its derived-impl mirror.
-fn default_hash<T: std::hash::Hash>(v: &T) -> u64 {
-    use std::hash::Hasher;
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    v.hash(&mut h);
-    h.finish()
-}
-
-/// The manual (limb-metered) `PartialEq` and `Hash` on `Base` agree with the
-/// compiler-derived semantics over a value grid spanning the `u64::MAX`
-/// boundary.
-///
-/// Every pairwise equality answer matches the derived impl's, every hash stream
-/// matches the derived impl's, and equal values hash equally: metering must
-/// never change an answer.
-#[test]
-fn base_eq_hash_agree_with_derived_semantics() {
-    let grid: Vec<Base> = vec![
-        Base::ZERO,
-        Base::from(1u8),
-        Base::from(2u8),
-        Base::from(u64::MAX - 1),
-        Base::from(u64::MAX),
-        // The first value past `u64::MAX`, spelled two ways: an equal pair.
-        Base::from(u64::MAX) + 1u64,
-        Base::from(1u128 << 64),
-        Base::from(u128::MAX),
-        (Base::from(1u8) << 200u32) - &Base::from(1u8),
-        Base::from(1u8) << 200u32,
-    ];
-    for a in &grid {
-        assert_eq!(
-            default_hash(a),
-            default_hash(&DerivedBase::of(a)),
-            "hash stream must match the derived impl for {a}"
-        );
-        for b in &grid {
-            assert_eq!(
-                a == b,
-                DerivedBase::of(a) == DerivedBase::of(b),
-                "equality answer must match the derived impl for ({a}, {b})"
-            );
-            if a == b {
-                assert_eq!(
-                    default_hash(a),
-                    default_hash(b),
-                    "equal values must hash equally: ({a}, {b})"
-                );
-            }
-        }
-    }
 }
 
 // ───────────────────────── decode∘encode round-trip ─────────────────────────

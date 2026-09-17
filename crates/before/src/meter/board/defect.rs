@@ -5,7 +5,9 @@
 //! against input bytes because they produce no encoded output. The coverage
 //! table records which public operations use these measurements.
 
-use crate::codec::{self, Base};
+use num_bigint::BigUint;
+
+use crate::codec::{self, gamma};
 use crate::{Party, Version};
 
 /// `bytes` cut short through its live bits.
@@ -59,7 +61,7 @@ fn last_leaf_flag_pos(v: &Version) -> u64 {
             pending += 2;
             continue;
         }
-        let (_, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        let (_, next) = codec::gamma::decode(bits, pos).expect("a stored stream is canonical");
         pos = next;
         last = flag;
     }
@@ -80,7 +82,7 @@ pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
     out.push(false); // the old leaf's position becomes an internal node
     codec::extend_from_view(&mut out, bits, leaf, bits.len()); // left child: the old leaf verbatim
     out.push(true); // right child: a leaf equal to its sibling
-    codec::encode_int(&mut out, &Base::from(0u32)); // zero delta
+    gamma::encode(&BigUint::ZERO, &mut out); // zero delta
     codec::seal_padding(&mut out);
     out.into_bytes()
 }

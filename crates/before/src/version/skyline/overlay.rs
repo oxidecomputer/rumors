@@ -1,109 +1,36 @@
-//! The overlay cursors and the advance law: the walk machinery every merge
-//! over aligned dyadic streams is built on.
+//! Forward cursors over dyadic interval partitions.
 //!
-//! A skyline stream lists its version's plateaus left to right — a leaf at
-//! depth `d` is a constant run of width `2^-d` — and a party stream lists
-//! its constant-ownership regions the same way: each stream is a dyadic tiling
-//! of the unit id interval, read in preorder. Every multi-stream walk in this
-//! crate overlays such tilings, consuming their boundaries in position order.
+//! A skyline partitions the unit interval into constant-height plateaus; a
+//! party partitions it into constant-ownership regions. A leaf at depth `d`
+//! spans `2^-d`. Overlay operations walk these partitions together without
+//! materializing interval endpoints.
 //!
-//! The machinery is crate-private, in three layers. [`PlateauCursor`] is the
-//! cursor vocabulary: one dyadic tiling, yielded plateau by plateau, each
-//! boundary carrying the cursor's own crossing payload. The overlay-advance law
-//! is stated (and debug-asserted) in exactly two generic faces — the binary
-//! [`advance`], which hands each crossing to the caller's fold, and the N-ary
-//! [`advance_set`] over a walk's whole [`CursorSet`], which folds crossings
-//! inside each slot's step; the boundary bookkeeping below is their shared
-//! correctness argument. Above them sit the two cursor instances.
-//! [`LeafCursor`] walks a skyline stream, its crossings the signed height
-//! deltas ([`Step`]). [`IdLeafCursor`] walks a party stream, whose ownership is
-//! per-region state read between boundaries. Beside them sits the
-//! pair-difference algebra every two-skyline walk shares: [`OpenedPair`] seeds
-//! `D = height_a − height_b` from the two absolute opening heights, and
-//! [`Side`], [`fold`], and [`advance_diff`] orient every later crossing into
-//! it. The traversal folds nothing itself; each client module names what it
-//! consumes and the algebra it folds.
+//! At every step, all current leaves contain the current position. Overlapping
+//! dyadic intervals nest, so the deepest leaf ends first. If advancing it flips
+//! an ancestor at or above another leaf's depth, that leaf ends at the same
+//! boundary and advances too. Equal-depth leaves coincide and always advance
+//! together. A final leaf extends to the end of the unit interval, so it is
+//! never advanced alone.
 //!
-//! # The boundary bookkeeping: which cursor advances
-//!
-//! The two cursors are asymmetric — their current leaves generally sit at
-//! different depths, with different interval ends — and the walk never
-//! materializes an interval end as a number: an end is `depth` path bits wide,
-//! so comparing two of them arithmetically at every boundary would be quadratic
-//! on deep streams. Three facts about dyadic intervals replace the arithmetic:
-//!
-//! - **Overlapping dyadic intervals nest.** The walk's invariant is that
-//!   both current leaves contain the *sweep point*, the walk's position
-//!   (the latest boundary crossed; the unit interval's left edge before
-//!   any), so the two leaf intervals overlap — hence the deeper is
-//!   contained in the shallower, and the deeper one's end comes first or
-//!   ties. The deeper cursor advances. At equal depths the two intervals
-//!   coincide outright (equal-width dyadic intervals sharing a point are
-//!   identical), so their ends tie and both cursors advance in the same
-//!   step.
-//! - **A tie at unequal depths is visible on the deeper cursor's path.**
-//!   Advancing pops the path's trailing *right*-branch levels (each is an
-//!   ancestor whose subtree the consumed leaf just completed), then steps
-//!   the deepest *left*-branch level — the *flip level* — to its right
-//!   child. Nesting makes the deeper path extend the shallower one, so
-//!   the deeper leaf's end telescopes up to the shallower leaf's end
-//!   exactly when its path is all right-branches strictly below the
-//!   shallower leaf's depth — that is, when its flip level rises to or
-//!   above that depth (numerically: `flip <= depth`, above = shallower =
-//!   smaller). So the whole rule is: advance the deeper cursor,
-//!   and when its flip level is at or above the other side's depth,
-//!   advance the other side in the same step. The two sides then close to
-//!   the *same* flip level (their paths agree there), which [`advance`]
-//!   debug-asserts at every tie.
-//! - **The all-right path is the exhausted stream.** A leaf whose path is
-//!   all right-branches is the last leaf in preorder — its plateau ends
-//!   at the unit interval's right edge — and it is the current leaf
-//!   exactly when the cursor has consumed its whole stream. Canonical
-//!   streams therefore exhaust *together*, and a walk stops when both
-//!   cursors are done. An advanced cursor always finds a left-branch
-//!   level to flip: only a final leaf has none, a cursor at its final
-//!   leaf is never the deeper side (the other side's end would have to
-//!   reach the right edge too), and a tie against a final leaf means both
-//!   are final — the case that already stopped the walk.
-//!
-//! # Cost
-//!
-//! Derived: a cursor only moves forward, so every topology bit of a stream is
-//! read at most once, every path bit is pushed and popped at most once, and
-//! every leaf payload is decoded exactly once — scan, decode, and stack work
-//! are linear in the streams' bits. Transient state is one path bit per open
-//! ancestor per cursor plus the client's accumulators: a deep operand costs its
-//! *bits*, never stack frames. The pair algebra's arithmetic rides the
-//! cliff-free [`Accumulator`]: a machine-word delta costs amortized O(1)
-//! digit touches, a wide delta O(its own limbs) — *priced by* the code the
-//! input spent to express it. That phrase is the cost convention every skyline
-//! walk's claims are stated in: work is *priced by* (paid by) a quantity when
-//! it is charged against bits already read or written at that width, so a wide
-//! fold always has a wide spelling funding it and linearity in wire bits is
-//! preserved ([`suanpan`]'s crate docs carry the accumulator's half of the
-//! argument). The comparison sweeps pin these constants for the pair walk (the
-//! Cost section of [`sweep`](super::sweep)); each other client's meter rows pin
-//! its own.
+//! Each cursor moves only forward. Every topology bit is read once, every path
+//! bit is pushed and popped once, and every skyline payload is decoded once.
+//! State is proportional to the open paths plus the operation's accumulators;
+//! traversal uses no recursion or endpoint-sized integers.
 
 use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitStack, BitsView, DsiCursor, Int, SliceCursor};
+use num_bigint::{BigInt, BigUint};
 
-use super::signed::Sign;
+use crate::codec::{accumulator, gamma, BitCursor, BitStack, BitsView, DsiCursor, SliceCursor};
 
-/// A cursor over one dyadic tiling of the unit interval, yielding its plateaus
-/// in preorder.
+/// A forward cursor over one dyadic partition, yielding its plateaus in
+/// preorder.
 ///
-/// What every overlay walk rests on: a *plateau* is one maximal constant run of
-/// the cursor's stream — an interval of width `2^-depth` — and stepping past it
-/// crosses a boundary that carries the cursor's own payload. The
-/// overlay-advance law is stated once over this trait ([`advance`]); what a
-/// crossing means — a skyline's signed height delta ([`Step`]), or nothing at
-/// all for a cursor whose payload is per-region state read between boundaries
-/// (the id cursors) — stays with the cursor, and the traversal folds nothing
-/// itself: the crossing is yielded for the caller's algebra.
+/// Stepping crosses the current leaf's right boundary and returns whatever
+/// payload that boundary carries. The overlay decides only which cursors step;
+/// callers decide how to combine their payloads.
 pub(crate) trait PlateauCursor {
     /// What crossing a boundary carries, for the caller's algebra to
     /// fold.
@@ -140,26 +67,12 @@ pub(crate) enum Crossed<A, B> {
     B(B),
 }
 
-/// Advance the overlay walk one boundary — the law, stated once: the deeper
-/// cursor steps, and the other steps in the same round exactly when the flip
-/// level rises to or above its depth.
+/// Advance to the next shared boundary.
 ///
-/// The module doc's boundary bookkeeping is the correctness argument. Tied
-/// sides close to one shared flip level, which is debug-asserted at every tie.
-/// Call only while at least one cursor is unexhausted: a cursor at its final
-/// leaf is never the deeper side, so an advanced cursor always finds a flip
-/// level (the module doc's third fact).
-///
-/// Traversal and algebra are separate: the cursors yield their crossings, and
-/// `fold` — the caller's algebra — receives each one *as it is consumed*, in
-/// step order (the deeper side's first, `a`'s at equal depths). The order is
-/// contract, not convenience: an algebra folding both sides into one shared
-/// accumulator commits digit writes whose amortized carry work — and with it
-/// the committed touch-meter readings — depends on the write order. The same
-/// crossings come back positionally (`None` for a side that did not step) for
-/// clients that re-code or re-fold them after the boundary. Both channels exist
-/// because the positional return cannot encode step order: the callback
-/// delivers the order, the returned pair delivers the crossings for re-use.
+/// The deeper cursor steps first. The other also steps when the first cursor's
+/// flip reaches its depth. `fold` receives crossings in that order; the return
+/// value also identifies them by side for later use. Call only while at least
+/// one cursor is not at its final leaf.
 pub(crate) fn advance<A: PlateauCursor, B: PlateauCursor>(
     a: &mut A,
     b: &mut B,
@@ -208,8 +121,7 @@ pub(crate) fn advance<A: PlateauCursor, B: PlateauCursor>(
     }
 }
 
-/// A fixed roster of cursors advancing under one overlay — the state a walk at
-/// arity N hands to [`advance_set`].
+/// A fixed set of cursors advanced by one overlay.
 ///
 /// Each cursor occupies a numbered *slot*; the set names its slots and answers
 /// for them. Where [`PlateauCursor`] carries one cursor and yields its
@@ -285,19 +197,8 @@ pub(crate) fn advance_set(set: &mut impl CursorSet) {
     }
 }
 
-/// One boundary crossing on a skyline stream: the leaf-to-leaf delta the step
-/// consumed ([`LeafCursor`]'s [`Crossing`](PlateauCursor::Crossing)).
-///
-/// The same sign-magnitude shape as [`signed::Signed`](super::signed::Signed),
-/// kept distinct: a `Step` is a crossing *event* a cursor yields, a `Signed` is
-/// the walks' exchange *quantity* — the clients' algebras convert at their
-/// folds.
-pub(super) struct Step {
-    /// The delta's sign: `Negative` lowers this stream's height.
-    pub(super) sign: Sign,
-    /// The delta's absolute value.
-    pub(super) magnitude: Int,
-}
+/// A leaf-to-leaf delta consumed at one skyline boundary.
+pub(super) type Step = BigInt;
 
 /// A cursor at the current leaf of one skyline stream.
 ///
@@ -328,7 +229,7 @@ impl<'a> LeafCursor<'a> {
     /// notices — truncation, malformation — panic; the rest walk silently with
     /// an unspecified result (the contract of
     /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-    pub(super) fn open(bits: BitsView<'a>) -> (Self, Int) {
+    pub(super) fn open(bits: BitsView<'a>) -> (Self, BigUint) {
         let mut this = LeafCursor {
             cursor: DsiCursor::new(bits),
             path: BitStack::new(),
@@ -366,7 +267,7 @@ impl<'a> LeafCursor<'a> {
     pub(super) fn skip_deeper(&mut self, bound: u64, net: &mut Accumulator) {
         while self.peek_flip() > bound {
             let (_, step) = self.step();
-            super::signed::fold_signed_int(net, step.sign, &step.magnitude);
+            accumulator::fold_signed(net, &step);
         }
     }
 
@@ -382,7 +283,7 @@ impl<'a> LeafCursor<'a> {
     /// notices — truncation, malformation — panic; the rest walk silently
     /// with an unspecified result (the contract of
     /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-    fn descend(&mut self) -> Int {
+    fn descend(&mut self) -> BigUint {
         // One word-parallel unary read takes the whole descent: the run of
         // internal flags ends at the leaf's `1`. The scan meter records the
         // same run width the per-flag reads would.
@@ -444,8 +345,7 @@ impl PlateauCursor for LeafCursor<'_> {
         self.path.push(true);
         debug_assert_eq!(self.path.len(), flip, "the cached flip matches the path");
         let code = self.descend();
-        let (sign, magnitude) = super::signed::unzigzag(code);
-        (flip, Step { sign, magnitude })
+        (flip, gamma::decode_signed(code))
     }
 }
 
@@ -625,16 +525,14 @@ impl Side {
             Side::B => Side::A,
         }
     }
-}
 
-/// Fold one decoded leaf delta into the running difference, oriented by the
-/// side its stream feeds: `a`'s height rising raises `D`, `b`'s lowers it.
-pub(super) fn fold(diff: &mut Accumulator, side: Side, sign: Sign, magnitude: &Int) {
-    let toward_diff = match side {
-        Side::A => sign,
-        Side::B => sign.negate(),
-    };
-    super::signed::fold_signed_int(diff, toward_diff, magnitude);
+    /// Fold one delta into `D = height_a - height_b` from this side.
+    pub(super) fn fold(self, diff: &mut Accumulator, delta: &BigInt) {
+        match self {
+            Side::A => accumulator::fold_signed(diff, delta),
+            Side::B => accumulator::subtract_signed(diff, delta),
+        }
+    }
 }
 
 /// Advance the skyline pair overlay one boundary, folding each consumed delta
@@ -655,7 +553,7 @@ pub(super) fn advance_diff(
             Crossed::A(step) => (Side::A, step),
             Crossed::B(step) => (Side::B, step),
         };
-        fold(diff, side, step.sign, &step.magnitude);
+        side.fold(diff, step);
     })
 }
 
@@ -664,7 +562,7 @@ pub(super) fn advance_diff(
 /// opening heights.
 ///
 /// The shared opening move of every two-skyline walk, stated once so the
-/// seeding's orientation — `a` positive, `b` negative, the orientation [`fold`]
+/// seeding's orientation — `a` positive, `b` negative, the orientation [`Side::fold`]
 /// applies to every later crossing — has one home. The opening heights ride
 /// along for the clients that consume an absolute opening (the emission sweep's
 /// first output leaf, the masked walk's height integrators); the seeded
@@ -678,9 +576,9 @@ pub(super) struct OpenedPair<'a> {
     /// The running difference, seeded `a_first − b_first`.
     pub(super) diff: Accumulator,
     /// The left operand's absolute first height.
-    pub(super) a_first: Int,
+    pub(super) a_first: BigUint,
     /// The right operand's absolute first height.
-    pub(super) b_first: Int,
+    pub(super) b_first: BigUint,
 }
 
 impl<'a> OpenedPair<'a> {
@@ -693,8 +591,8 @@ impl<'a> OpenedPair<'a> {
         let (a, a_first) = LeafCursor::open(a_bits);
         let (b, b_first) = LeafCursor::open(b_bits);
         let mut diff = Accumulator::new();
-        super::signed::fold_signed_int(&mut diff, Sign::Positive, &a_first);
-        super::signed::fold_signed_int(&mut diff, Sign::Negative, &b_first);
+        accumulator::fold(&mut diff, &a_first, 0, false);
+        accumulator::fold(&mut diff, &b_first, 0, true);
         OpenedPair {
             a,
             b,

@@ -93,15 +93,15 @@ check:
     cargo check --workspace --all-targets
 
 # Run the test suites; pass a filter to narrow (`just test mirror`). The
-# envelope suite (crates/before/tests/meter.rs) builds only with its limb
+# envelope suite (crates/before/tests/meter.rs) builds only with its touch
 # and scan meters (`required-features` on its test target), so the inner
 # loop lights them for that package. One `--workspace` build unifies
 # features, so this compiles the before lib with both meters for every
 # dependent and runs every before suite gated on them (the envelope
-# suite, the fold and coincident-span suites, the limb-meter unit tests);
+# suite, the fold and coincident-span suites, the touch-meter unit tests);
 # the other packages' own features stay default.
 test *args:
-    cargo nextest run --workspace --features before/limb-meter,before/scan-meter {{ args }}
+    cargo nextest run --workspace --features before/touch-meter,before/scan-meter {{ args }}
 
 # Every feature is lit here and nowhere else in the gate: the meter suites
 # and the conformance module build only under `--all-features`.
@@ -515,7 +515,7 @@ features:
     cargo check -p before --no-default-features --features oracle
     cargo check -p before --no-default-features --features meter
     cargo check -p before --no-default-features --features laws
-    cargo check -p before --no-default-features --features limb-meter
+    cargo check -p before --no-default-features --features touch-meter
     cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
@@ -782,17 +782,16 @@ bench-alloc-ab target arm="shipped" *filter:
     @case "{{ arm }}" in (shipped|projection_growth|projection_shrink) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
     RUSTFLAGS='{{ if arm == "shipped" { "" } else { '--cfg before_alloc_ab="' + arm + '"' } }}' cargo bench -p before --bench {{ target }} -- --save-baseline {{ target }}-{{ arm }} {{ filter }}
 
-# Each board cell judges deterministic work counters (limbs, scans,
+# Each board cell judges deterministic work counters (touches, scans,
 # segments, heap) against a pinned proportionality envelope: green means
 # work scaled with the input, red is an amplification finding. The board
 # reads no clock, so its output is byte-identical under any machine load.
 # Optional scale multiplies the input sizes, e.g. `just amp-board 4`.
 #
 # The board runs at the release profile, the profile of record: debug
-# assertions perform metered work (Base comparisons through the limb shim,
-# metered probe cursors), so a dev board measures algorithm plus
-# verification scaffolding while release measures the production work
-# alone. A dev run (`cargo run -p before --example amp_board ...`) remains
+# assertions perform metered work through probe cursors, so a dev board
+# measures algorithm plus verification scaffolding while release measures the
+# production work alone. A dev run (`cargo run -p before --example amp_board ...`) remains
 # a legitimate debugging view; its numbers must never be pinned anywhere.
 #
 # Every mode parallelizes by process sharding: the peak-heap column reads
@@ -811,7 +810,7 @@ bench-alloc-ab target arm="shipped" *filter:
 
 # Render the amplification board at one scale: a debugging view of the red-green matrix.
 amp-board *args:
-    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
+    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- {{ args }}
 
 # The board's one verdict of record: one invocation measures each cell's
 # whole ladder — two sizes at each of the two sampling scales
@@ -826,7 +825,7 @@ amp-board *args:
 
 # Run the board's acceptance judgment: the whole measurement ladder, one verdict.
 amp-board-acceptance:
-    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- acceptance
+    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- acceptance
 
 # The surface-totality leg: the operation roster in
 # crates/before/src/surface.rs (METHOD_SURFACE, the machine-readable
@@ -881,7 +880,7 @@ surface-totality: surface-json
 
 # Render the worst-case map: the argmax family per operation x currency, one table per sampling scale.
 worst-cases:
-    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- worst-cases
+    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- worst-cases
 
 # The map's rankings are pinned: a committed expectation table (the
 # WORST_RANKINGS const beside the fold) is entry-compared against the live
@@ -895,7 +894,7 @@ worst-cases:
 
 # Entry-compare the live worst-case fold against the committed ranking pin.
 worst-cases-pin:
-    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- worst-cases-check
+    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- worst-cases-check
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
 # `ci` is the build-everything tier: formatting and lints, the feature matrix,

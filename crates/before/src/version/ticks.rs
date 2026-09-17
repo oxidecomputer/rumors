@@ -6,8 +6,8 @@ use core::fmt;
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
 
-use crate::codec::base::Limbs as BaseLimbs;
-use crate::codec::Base;
+use num_bigint::{BigUint, U64Digits};
+
 use crate::error::TooWide;
 
 /// An unbounded natural-number count.
@@ -41,7 +41,7 @@ use crate::error::TooWide;
 /// assert_eq!(clock.version().min_ticks(), Ticks::from(3u64));
 /// ```
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Ticks(pub(crate) Base);
+pub struct Ticks(pub(crate) BigUint);
 
 /// The zero count (same as [`Ticks::ZERO`]).
 ///
@@ -68,7 +68,7 @@ impl Ticks {
     /// assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
     /// assert_eq!(Ticks::from(7u64) + Ticks::ZERO, Ticks::from(7u64));
     /// ```
-    pub const ZERO: Ticks = Ticks(Base::ZERO);
+    pub const ZERO: Ticks = Ticks(BigUint::ZERO);
 
     /// The count's base-2^64 "digits", i.e. its *limbs*, least significant
     /// first, then ascending.
@@ -91,7 +91,7 @@ impl Ticks {
     /// ```
     pub fn limbs(&self) -> Limbs<'_> {
         Limbs {
-            limbs: self.0.iter_limbs(),
+            limbs: self.0.iter_u64_digits(),
         }
     }
 }
@@ -101,7 +101,7 @@ impl Ticks {
 ///
 /// Exact-size and [fused](core::iter::FusedIterator).
 pub struct Limbs<'a> {
-    limbs: BaseLimbs<'a>,
+    limbs: U64Digits<'a>,
 }
 
 impl Iterator for Limbs<'_> {
@@ -126,7 +126,7 @@ macro_rules! ticks_from_unsigned {
         $(
             impl From<$t> for Ticks {
                 fn from(n: $t) -> Ticks {
-                    Ticks(Base::from(u128::from(n)))
+                    Ticks(BigUint::from(u128::from(n)))
                 }
             }
         )*
@@ -157,14 +157,14 @@ ticks_from_unsigned!(u8, u16, u32, u64, u128);
 impl TryFrom<&Ticks> for u64 {
     type Error = TooWide;
     fn try_from(count: &Ticks) -> Result<u64, TooWide> {
-        count.0.to_u64().ok_or(TooWide)
+        u64::try_from(&count.0).map_err(|_| TooWide)
     }
 }
 
 /// A count from a machine size: total, `O(1)`.
 impl From<usize> for Ticks {
     fn from(n: usize) -> Ticks {
-        Ticks(Base::from(n as u128))
+        Ticks(BigUint::from(n as u128))
     }
 }
 
