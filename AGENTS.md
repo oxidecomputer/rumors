@@ -76,6 +76,11 @@ additionally wants `wasm-pack` and node/npm.
 - Give every test a doc comment stating, in English, the behavior and
   invariant it protects. The gate's `testdoc` checks that the comment
   exists; review holds it to the standard.
+- Improve the legibility of every test, helper, fixture, and strategy you touch.
+  Understand how its setup and assertions establish the stated invariant, then
+  simplify its names, structure, and prose accordingly. Preserve its coverage
+  and semantics unless it is wrong, vacuous, or weaker than its claim; in that
+  case, fix the test and call out the behavioral correction for review.
 - When the claim is a family (a boundary, an ordering, a schedule), state
   it as a proptest invariant; the shrunk counterexample then rides along
   as a committed seed. A point regression may stay a unit test.

@@ -80,6 +80,10 @@ surrounding prose whose lines the fix itself would leave unchanged:
   Explain mechanism only when it helps someone use the API. Private docs
   and internal comments explain the why, how, and where for maintainers.
   Test comments state the behavior and invariant being protected.
+- **Make touched tests legible.** Understand how their setup and assertions
+  establish the claimed invariant, then simplify their structure, naming, and
+  prose. Preserve coverage and semantics unless the test is wrong or weaker
+  than its claim; make any such correction explicit in review.
 - **Respect the abstraction.** Modules explain purpose and boundaries;
   types explain meaning and invariants; local comments explain particular
   implementation choices. Put an explanation where the responsibility
