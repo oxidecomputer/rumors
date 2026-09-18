@@ -420,7 +420,6 @@ pub(crate) const TRAIT_IMPLS: &[&str] = &[
     "error::TooWide: impl core::marker::StructuralPartialEq for TooWide",
     "iter::Clock: impl core::iter::traits::iterator::Iterator for Forks",
     "iter::Party: impl core::iter::traits::iterator::Iterator for Forks",
-    "iter::Party: impl core::ops::drop::Drop for Forks",
     "shape::Cell: impl core::clone::Clone for Cell<N>",
     "shape::Cell: impl core::cmp::Eq for Cell<N>",
     "shape::Cell: impl core::cmp::PartialEq for Cell<N>",

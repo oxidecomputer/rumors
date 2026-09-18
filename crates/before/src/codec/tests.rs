@@ -177,7 +177,7 @@ fn from_canonical_matches_freeze() {
     assert!(super::canonical_eq(&frozen, &adopted));
     assert!(!frozen.ptr_eq(&adopted)); // distinct buffers, equal content
 
-    let empty = super::Bits::empty();
+    let empty = super::Bits::from_canonical(bytes::Bytes::new());
     assert!(empty.is_empty());
     assert_eq!(empty.len(), 0);
     assert!(super::canonical_eq(

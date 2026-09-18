@@ -8,8 +8,10 @@ use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use num_bigint::BigUint;
+
 use crate::error::Decode;
-use crate::{causally, Clock, Party, Rank, Ranked, Span, Version};
+use crate::{causally, Clock, Party, Rank, Ranked, Span, Ticks, Version};
 
 use super::ceilings::{COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, TICKS_BOARD_COUNT};
 use super::cell::Cell;
@@ -31,6 +33,24 @@ use super::floors::{
 };
 use super::operand::{stored_nonzero_deltas, version_output_bytes};
 use crate::meter::registry::FamilyId;
+
+/// Arity used to judge the consuming array conversions directly.
+const SPLIT_ARRAY_ARITY: usize = 16;
+
+/// A fork count whose stored width matches `input_bytes`.
+///
+/// The iterator need not drain this count. Constructing it exposes whether a
+/// compact count can multiply the resident party bytes by its bit width.
+fn wide_fork_count(input_bytes: usize) -> (Ticks, usize) {
+    let shift = u64::try_from(input_bytes)
+        .expect("a resident input byte length fits u64")
+        .checked_mul(8)
+        .expect("a resident byte buffer cannot exceed one eighth of u64::MAX");
+    let count = Ticks(BigUint::from(1u8) << shift);
+    let count_bytes = usize::try_from(count.0.bits().div_ceil(8))
+        .expect("the constructed count width came from a usize byte length");
+    (count, count_bytes)
+}
 
 /// One board row: a public operation and how to instantiate it per family.
 pub(super) struct Op {
@@ -1007,6 +1027,74 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "party_forks",
+            prepare: |f| {
+                let (mut party, _, _) = f.party_pair()?;
+                let party_bytes = f.parties.as_ref().map(|(party, _)| party.len())?;
+                let (count, count_bytes) = wide_fork_count(party_bytes);
+                let child_bytes = {
+                    let mut probe = party.dangerously_alias();
+                    probe
+                        .forks(count.clone())
+                        .next()
+                        .expect("the board requests a nonzero child count")
+                        .as_bytes()
+                        .len()
+                };
+                let floors = Floors {
+                    heap: heap_materializes(child_bytes),
+                    segments: seg_ceiling_only(),
+                    scan: if party.is_seed() {
+                        na(NA_SCAN_SEED_PARTY)
+                    } else {
+                        scan_touch()
+                    },
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                Some(Cell::new(party_bytes + count_bytes, floors, move || {
+                    let first = {
+                        let mut forks = party.forks(count);
+                        forks.next()
+                    };
+                    (party, first)
+                }))
+            },
+        },
+        Op {
+            name: "party_split_array",
+            prepare: |f| {
+                let (party, _, _) = f.party_pair()?;
+                let n = f.parties.as_ref().map(|(party, _)| party.len())?;
+                let output_bytes = {
+                    let shares: [Party; SPLIT_ARRAY_ARITY] = party.dangerously_alias().into();
+                    shares.iter().map(|share| share.as_bytes().len()).sum()
+                };
+                let floors = Floors {
+                    heap: heap_materializes(output_bytes),
+                    segments: seg_ceiling_only(),
+                    scan: if party.is_seed() {
+                        na(NA_SCAN_SEED_PARTY)
+                    } else {
+                        scan_touch()
+                    },
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                Some(Cell::io(
+                    n,
+                    floors,
+                    |result| {
+                        result
+                            .downcast_ref::<[Party; SPLIT_ARRAY_ARITY]>()
+                            .expect("the party split cell yields its share array")
+                            .iter()
+                            .map(|share| share.as_bytes().len())
+                            .sum()
+                    },
+                    move || <[Party; SPLIT_ARRAY_ARITY]>::from(party),
+                ))
+            },
+        },
+        Op {
             name: "party_join",
             prepare: |f| {
                 let (mut a, b, n) = f.party_pair()?;
@@ -1184,6 +1272,77 @@ pub(super) fn ops() -> Vec<Op> {
                     let child = clock.fork();
                     (clock, child)
                 }))
+            },
+        },
+        Op {
+            name: "clock_forks",
+            prepare: |f| {
+                let (mut clock, n) = f.clock()?;
+                let (count, count_bytes) = wide_fork_count(n);
+                let child_bytes = {
+                    let mut probe = clock.dangerously_alias();
+                    probe
+                        .forks(count.clone())
+                        .next()
+                        .expect("the board requests a nonzero child count")
+                        .party()
+                        .as_bytes()
+                        .len()
+                };
+                let floors = Floors {
+                    heap: heap_materializes(child_bytes),
+                    segments: seg_ceiling_only(),
+                    scan: if clock.party().is_seed() {
+                        na(NA_SCAN_SEED_PARTY)
+                    } else {
+                        scan_touch()
+                    },
+                    touch: na(NA_TOUCH_NOT_FORCED),
+                };
+                Some(Cell::new(n + count_bytes, floors, move || {
+                    let first = {
+                        let mut forks = clock.forks(count);
+                        forks.next()
+                    };
+                    (clock, first)
+                }))
+            },
+        },
+        Op {
+            name: "clock_split_array",
+            prepare: |f| {
+                let (clock, _) = f.clock()?;
+                let party_bytes = clock.party().as_bytes().len();
+                let output_party_bytes = {
+                    let clocks: [Clock; SPLIT_ARRAY_ARITY] = clock.dangerously_alias().into();
+                    clocks
+                        .iter()
+                        .map(|clock| clock.party().as_bytes().len())
+                        .sum()
+                };
+                let floors = Floors {
+                    heap: heap_materializes(output_party_bytes),
+                    segments: seg_ceiling_only(),
+                    scan: if clock.party().is_seed() {
+                        na(NA_SCAN_SEED_PARTY)
+                    } else {
+                        scan_touch()
+                    },
+                    touch: na(NA_TOUCH_NOT_FORCED),
+                };
+                Some(Cell::io(
+                    party_bytes,
+                    floors,
+                    |result| {
+                        result
+                            .downcast_ref::<[Clock; SPLIT_ARRAY_ARITY]>()
+                            .expect("the clock split cell yields its clock array")
+                            .iter()
+                            .map(|clock| clock.party().as_bytes().len())
+                            .sum()
+                    },
+                    move || <[Clock; SPLIT_ARRAY_ARITY]>::from(clock),
+                ))
             },
         },
         Op {

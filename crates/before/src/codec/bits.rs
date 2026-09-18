@@ -40,13 +40,6 @@ impl fmt::Binary for Bits {
 }
 
 impl Bits {
-    /// The frozen empty stream: no bits, no bytes, no allocation.
-    pub(crate) fn empty() -> Self {
-        Bits {
-            bytes: Bytes::new(),
-        }
-    }
-
     /// Add canonical padding and adopt a mutable buffer without copying.
     pub(crate) fn freeze(mut buf: BitsBuf) -> Self {
         seal_padding(&mut buf);

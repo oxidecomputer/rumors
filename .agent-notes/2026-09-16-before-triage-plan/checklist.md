@@ -116,7 +116,7 @@ triage's dispositions and branches are leads only.
       open boundaries and reign records compactly, with exact fallbacks.
       Sources: `skyline-watermark` open question 4; owner review, 2026-09-17.
 
-- [ ] Make arbitrary-count Party and Clock splitting linear in the stored
+- [x] Make arbitrary-count Party and Clock splitting linear in the stored
       values and count representation, and bring iterator construction,
       iteration, partial drop, and consuming array splits under direct heap
       judgment.

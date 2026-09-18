@@ -288,7 +288,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::NAryNotInReferences {
             pins: &[
-                "forks_partial_drop_folds_back",
+                "forks_partial_drop_conserves_party",
                 "party_join_all_reunites_forks_at_any_width",
             ],
         }),
@@ -1086,8 +1086,8 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded(Exclusion::NAryNotInReferences { pins: &[] }),
     },
     SurfaceRow {
-        op: "iter::Party / iter::Clock (Forks iterators, drop folds back)",
-        prod_tree: Leg::Law("forks_partial_drop_folds_back"),
+        op: "iter::Party / iter::Clock (fork iterators and partial-drop conservation)",
+        prod_tree: Leg::Law("forks_partial_drop_conserves_party"),
         prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::LinearityMechanics { pins: &[] }),
     },

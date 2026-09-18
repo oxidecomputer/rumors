@@ -20,6 +20,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::tick", &["version_tick", "version_tick_adv_party"]),
     ("Party::ticks", &["version_ticks"]),
     ("Party::fork", &["party_fork"]),
+    ("Party::forks", &["party_forks"]),
     ("Party::join", &["party_join", "party_join_overlap"]),
     ("Party::join_all", &["party_join_all"]),
     ("Party::is_disjoint", &["party_disjoint"]),
@@ -65,6 +66,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Clock::tick", &["clock_tick"]),
     ("Clock::ticks", &["version_ticks"]),
     ("Clock::fork", &["clock_fork"]),
+    ("Clock::forks", &["clock_forks"]),
     ("Clock::join", &["clock_join", "clock_join_overlap"]),
     ("Clock::join_all", &["version_join_all", "party_join_all"]),
     ("Clock::sync", &["clock_sync", "clock_sync_overlap"]),
@@ -205,6 +207,18 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "Ranked comparisons and the Ranked / Rank From conversions (the total order)",
         &["ranked_cmp"],
     ),
+    (
+        "From<Party> for [Party; N] (consuming balanced split)",
+        &["party_split_array"],
+    ),
+    (
+        "From<Clock> for [Clock; N] (consuming balanced split)",
+        &["clock_split_array"],
+    ),
+    (
+        "iter::Party / iter::Clock (fork iterators and partial-drop conservation)",
+        &["party_forks", "clock_forks"],
+    ),
 ];
 
 /// The board's not-applicable table: every `before::surface` row with no board
@@ -222,11 +236,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     (
         "Party::is_seed",
         "word-scale predicate: one comparison against the two-bit seed form",
-    ),
-    (
-        "Party::forks",
-        "iterates the measured fork (the party_fork row) on shrinking operands; a \
-         mid-run drop rejoins in O(log n) measured joins",
     ),
     (
         "Party::dangerously_alias",
@@ -256,11 +265,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     (
         "Clock::seed",
         "word-scale constructor: the seed party over the empty version",
-    ),
-    (
-        "Clock::forks",
-        "iterates the measured fork on shrinking operands plus one version clone \
-         (a refcount bump on the shared stored buffer) per child",
     ),
     (
         "Clock::from_parts",
@@ -519,21 +523,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "the named spelling of the projection (`/`): O(1) view construction \
          (two borrows); the materialization and fused comparison costs are \
          celled at the OwnVersion rows",
-    ),
-    (
-        "From<Party> for [Party; N] (consuming balanced split)",
-        "the forks machinery consuming its operand: the measured fork on \
-         shrinking operands plus N moves",
-    ),
-    (
-        "From<Clock> for [Clock; N] (consuming balanced split)",
-        "the clock forks machinery consuming its operand: the measured fork on \
-         shrinking operands plus one version refcount-bump clone per child",
-    ),
-    (
-        "iter::Party / iter::Clock (Forks iterators, drop folds back)",
-        "iterate the measured fork on shrinking operands (one version clone per \
-         clock child); a mid-run drop rejoins in O(log n) measured joins",
     ),
     (
         "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",

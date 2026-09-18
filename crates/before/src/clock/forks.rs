@@ -1,6 +1,8 @@
-//! Balanced k-way fork for [`Clock`]: [`Clock::forks`] and its [`Forks`]
-//! iterator, plus the consuming [`From<Clock>`](From) for `[Clock; N]` static
-//! split.
+//! Lazy balanced child clocks.
+//!
+//! The party iterator performs the balanced partition. This layer pairs each
+//! returned share with a clone of the parent's version; the consuming array
+//! conversion applies the same pairing to a fixed-size party split.
 
 use crate::{party, Clock, Party, Ticks, Version};
 
@@ -8,8 +10,7 @@ use crate::{party, Clock, Party, Ticks, Version};
 ///
 /// Yields exactly `k` disjoint clocks, each pairing one structurally balanced
 /// [`Party`] with a clone of the parent's [`Version`]. The clock it borrows
-/// keeps the residual share of all unconsumed parties, and is never left empty;
-/// party shares not taken before the iterator drops are rejoined into it.
+/// keeps the residual and every party share not yet returned.
 ///
 /// [`Iterator::size_hint`] is exact while the remaining count fits `usize`;
 /// beyond `usize::MAX`, it returns `(usize::MAX, None)`.
@@ -22,13 +23,12 @@ use crate::{party, Clock, Party, Ticks, Version};
     doc = "`O(n)` in total input bytes; a full drain costs at most `O(|self| + k (|self| + log k))`"
 )]
 ///
-/// Each `next` costs its own share's portion of the drain; an early drop
-/// rejoins in `O(|c| log(k + 1))`, with `|c|` the borrowed clock's size in
-/// bytes.
+/// Construction costs `O(log k)` for the count representation. Each `next`
+/// costs `O(|party| + log k)`; the child's version shares the parent's stored
+/// bytes through an `O(1)` clone.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Forks<'a> {
-    /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
-    /// back into the borrowed clock's party.
+    /// The lazy partition of party shares.
     parties: party::Forks<'a>,
     /// The parent version, cloned into every child clock.
     version: &'a Version,

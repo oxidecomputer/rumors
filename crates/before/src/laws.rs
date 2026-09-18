@@ -2049,10 +2049,10 @@ laws! {
         array.iter().eq(reconstructed.iter())
     }
 
-    /// Dropping `forks` early folds the untaken shares back: after pulling 2 of
-    /// 5, rejoining the 2 taken shares recovers the original region — the
-    /// drop-time reabsorption the iterator promises.
-    fn forks_partial_drop_folds_back {
+    /// After taking 2 of 5 forks and dropping the iterator, the borrower still
+    /// owns the other shares: rejoining the returned pair recovers the original
+    /// region.
+    fn forks_partial_drop_conserves_party {
         let mut keeper = p.dangerously_alias();
         let taken: Vec<Party> = keeper.forks(5u64).take(2).collect(); // iterator dropped after 2
         keeper.join_all(taken).is_ok() && keeper == *p

@@ -38,6 +38,13 @@
 //!   unchanged ceilings, with the projection sweep measured
 //!   O(`n_io`)-tight on every one (exponents ≈ 1.0 against `n_io`, scan
 //!   at the walk's usual 8 bits per `n_io` byte).
+//! - **Consuming array splits** (`From<Party> for [Party; N]` and its Clock
+//!   counterpart): `n_io` is encoded input plus the Party bytes actually
+//!   materialized across the result. Splitting must write those disjoint
+//!   encodings, which can repeat a unary input prefix once per share. The Clock
+//!   row uses its Party bytes on both sides: cloning the Version is a word-scale
+//!   refcount bump over one shared byte buffer, independent of its encoded
+//!   length.
 //!
 //! **Do not re-denominate** (these stay input-denominated): both binary codec
 //! directions (the coding is canonical 1:1, so input bytes are the honest

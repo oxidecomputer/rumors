@@ -3,11 +3,10 @@
 //!
 //! They hand out `n` shallow shares of a [`Party`](crate::Party) (or
 //! [`Clock`](crate::Clock)) in one balanced split, generating each share on
-//! demand and folding any unconsumed shares back into `self` when dropped
-//! before full consumption.
+//! demand.
 //!
 //! See [`Party::forks`](crate::Party::forks) and
-//! [`Clock::forks](crate::Clock::forks).
+//! [`Clock::forks`](crate::Clock::forks).
 //!
 //! ```
 //! use before::{iter, Party};

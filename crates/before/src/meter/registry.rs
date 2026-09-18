@@ -989,16 +989,16 @@ pub enum Bands {
 }
 
 /// Board rows reached by a family with version operands.
-const VERSION_BUNDLE_CELLS: usize = 54;
+const VERSION_BUNDLE_CELLS: usize = 56;
 
 /// Board rows reached by a family with party operands.
-const PARTY_BUNDLE_CELLS: usize = 30;
+const PARTY_BUNDLE_CELLS: usize = 34;
 
 /// Board rows reached by a family with version, party, and clock operands.
-const CROSS_BUNDLE_CELLS: usize = 70;
+const CROSS_BUNDLE_CELLS: usize = 74;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 74;
+const FULL_BUNDLE_CELLS: usize = 78;
 
 /// Board rows reached by a fold-only family.
 const FOLD_BUNDLE_CELLS: usize = 4;

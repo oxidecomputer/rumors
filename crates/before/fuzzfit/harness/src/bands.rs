@@ -428,13 +428,13 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_party_forks",
         rejected: false,
-        slope: 0.892139,
-        intercept: 2.232931,
-        width_above: 0.098463,
-        width_below: 0.286358,
+        slope: 0.569827,
+        intercept: 3.791371,
+        width_above: 0.237963,
+        width_below: 0.284917,
         min_denom: 128,
         max_denom: 4760,
-        samples: 1396,
+        samples: 2501,
         constant: false,
     },
     Band {

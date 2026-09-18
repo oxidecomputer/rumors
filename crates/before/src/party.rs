@@ -251,9 +251,8 @@ impl Party {
     /// resultant [`Party`] produced here increases in size by only a
     /// logarithmic factor.
     ///
-    /// A [`Party`] is never empty, so `self` retains its residual share even
-    /// once the iterator is fully drained; shares not taken before the iterator
-    /// drops are [`join`](Party::join)ed back into `self`.
+    /// A [`Party`] is never empty, so `self` retains one residual share. It also
+    /// retains every share the iterator has not returned.
     ///
     /// `k` may be a [`Ticks`] count or any standard unsigned integer type.
     /// Suffix integer literals to select an unsigned type, as in `3u64`. The
@@ -652,19 +651,6 @@ impl Party {
             codec::require_marker_padding(&buf, end)?;
         }
         Ok(Party(codec::Bits::from_canonical(buf)))
-    }
-
-    /// The anonymous (zero) id: the empty bit stream, since a `0` is structural
-    /// absence in the pruned encoding.
-    ///
-    /// Internal and transient only (i.e. for use in `mem::swap`) and *never* a
-    /// publicly constructible value (a `Party` is a nonzero share).
-    ///
-    /// Used as a placeholder when moving a party out of a `&mut` (the splitting
-    /// iterator in [`forks`](Party::forks)), immediately overwritten by a real
-    /// share.
-    pub(crate) fn anonymous() -> Party {
-        Party(codec::Bits::empty())
     }
 
     /// A read-only [`IdReader`] cursor at the root of this party's party bits.

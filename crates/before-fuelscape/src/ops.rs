@@ -2203,9 +2203,8 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "consuming form of the balanced drain the clock_forks panel prices",
     ),
     (
-        "iter::Party / iter::Clock (Forks iterators, drop folds back)",
-        "hand-out mechanics over the balanced splits the party_forks and \
-         clock_forks panels price",
+        "iter::Party / iter::Clock (fork iterators and partial-drop conservation)",
+        "the party_forks and clock_forks panels measure construction and iteration directly",
     ),
     (
         "Clock Eq / Hash (canonical byte compare)",

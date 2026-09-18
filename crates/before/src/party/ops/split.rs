@@ -1,4 +1,4 @@
-use crate::codec::{extend_from_view, BitsBuf, BitsView};
+use crate::codec::{extend_from_view, BitBuilder, BitsBuf, BitsView};
 use crate::idbits::{IdNode, IdReader};
 
 impl IdReader<'_> {
@@ -24,6 +24,19 @@ impl IdReader<'_> {
         }
         let start = self.pos();
         build_split(self.bits(), start)
+    }
+
+    /// Select one descendant by a sequence of binary splits.
+    ///
+    /// Each `false` keeps the left half of the current region and each `true`
+    /// keeps the right. This produces the same bits as repeatedly calling
+    /// [`split`](Self::split) and retaining the selected half, but descends
+    /// through the source only once and builds only the final descendant.
+    pub(crate) fn split_path(self, path: impl IntoIterator<Item = bool>) -> BitsBuf {
+        let IdReader::At { bits, pos } = self else {
+            return BitsBuf::new();
+        };
+        build_split_path(bits, pos, path)
     }
 }
 
@@ -108,6 +121,97 @@ fn build_split(bits: BitsView<'_>, start: u64) -> (BitsBuf, BitsBuf) {
             (a, b)
         }
     }
+}
+
+/// Apply a sequence of binary splits while building only the selected result.
+///
+/// One ordinary [`split`](IdReader::split) first follows the region's unary
+/// prefix: both halves inherit that prefix, so it cannot separate them. At the
+/// first branch it keeps one child and changes the branch to the corresponding
+/// unary tag. At a terminal it creates that unary node and puts a terminal in
+/// the selected child. Repeating `split` would copy the prefix accumulated so
+/// far on every step.
+///
+/// This builder composes those steps in one forward descent. Its loop
+/// maintains:
+///
+/// - `out` is exactly the final encoding before the current selected region;
+/// - `pos` is the root of that region in the original `bits`.
+///
+/// For each direction in `path`, it walks to the next place that can split:
+///
+/// 1. A unary source node belongs to both possible halves. Copy its tag and
+///    advance to its only child, which immediately follows the tag.
+/// 2. At a branch, append the unary tag for the chosen half and move `pos` to
+///    that child. The left child begins after the branch tag; choosing right
+///    scans past the discarded left subtree once.
+/// 3. At a terminal, the source has no deeper structure. Every remaining
+///    choice therefore becomes a new unary node, followed by one terminal, and
+///    the result is complete.
+///
+/// If the path ends inside the source, the whole selected subtree is unchanged
+/// and is appended verbatim. Discarded sibling subtrees are disjoint, so their
+/// skip scans do not overlap; selected source structure is never revisited from
+/// the root. Once the path is exhausted, one final scan locates the end of the
+/// selected subtree and that range is copied into `out`. The work is
+/// `O(|bits| + |path| + |output|)` and the only allocated tree is the output.
+fn build_split_path(
+    bits: BitsView<'_>,
+    start: u64,
+    path: impl IntoIterator<Item = bool>,
+) -> BitsBuf {
+    let mut out = BitBuilder::with_capacity(0);
+    let mut pos = start;
+    let mut path = path.into_iter();
+
+    while let Some(right) = path.next() {
+        loop {
+            // This walk reads tags directly rather than through `IdReader`.
+            crate::codec::scan::record_bits(2);
+            match (bits.bit(pos), bits.bit(pos + 1)) {
+                (false, false) => {
+                    push_unary(&mut out, right);
+                    for right in path {
+                        push_unary(&mut out, right);
+                    }
+                    out.push_bit(false);
+                    out.push_bit(false);
+                    return out.finish();
+                }
+                (true, true) => {
+                    let left = pos + 2;
+                    push_unary(&mut out, right);
+                    pos = if right {
+                        // Preorder stores the complete left subtree before the
+                        // right subtree. Its end is therefore the right root.
+                        subtree_end(bits, left)
+                    } else {
+                        left
+                    };
+                    break;
+                }
+                (left_present, right_present) => {
+                    // A unary node's only child starts immediately after its
+                    // tag; both split halves inherit this path unchanged.
+                    out.push_bit(left_present);
+                    out.push_bit(right_present);
+                    pos += 2;
+                }
+            }
+        }
+    }
+
+    // No requested split reaches inside this region, so it survives exactly as
+    // encoded in the source.
+    let end = subtree_end(bits, pos);
+    out.splice(bits, pos, end);
+    out.finish()
+}
+
+/// Append a unary node retaining the selected child.
+fn push_unary(out: &mut BitBuilder, right: bool) {
+    out.push_bit(!right);
+    out.push_bit(right);
 }
 
 /// The bit position just past the subtree at `pos` (the shared
