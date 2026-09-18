@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Current:** constrained property-case generation landed at `107da6ac`.
+**Current:** deterministic per-thread allocation metering landed at `d0c220eb`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** remove allocation-count nondeterminism. High-count property settings
+**Next:** remove load-sensitive session deadlines. High-count property settings
 wait for `before`'s generator sweep.
 
 **Execution topology:** finish the public API lane serially: observers →
@@ -473,7 +473,7 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
 - [ ] Use one set of session drivers, observer readouts, fingerprints, and fault wrappers.
       Sources: `session-bookmark-8`, `testing-infra-8`, `testing-infra-9`, `testing-infra-11`, `testing-infra-13`, `testing-infra-17–20`, `testing-infra-23`, `tests-common-3`, `tests-common-4`, `tests-common-12`, `tests-common-14–16`, `tests-common-18–20`, `tests-common-22`, `tests-common-25`, `tests-common-29`, `tests-common-30`, T76, T129, T130, T132, T144, T150.
 
-- [ ] Remove allocation-count nondeterminism and load-sensitive session deadlines.
+- [ ] Remove load-sensitive session deadlines; allocation metering landed at `d0c220eb`.
       Sources: `tests-resource-link-window-5`, T132, N11, N39, N50.
 
 - [ ] Simplify fault wrappers and clarify testing support behavior.
