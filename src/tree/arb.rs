@@ -1,3 +1,5 @@
+//! Generators and deterministic fixtures for tree tests.
+
 use std::collections::BTreeMap;
 use std::ops::Range;
 
@@ -245,38 +247,20 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tre
 /// reply stream.
 ///
 /// The search varies each side's starting version until the hashed paths have
-/// this geometry. It is deterministic and checks its prediction against the
-/// constructed trees.
+/// this geometry. A checked hint avoids repeating the search while a full scan
+/// preserves the fixture if path hashing changes. The selected geometry is
+/// checked against the constructed trees.
 pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root) {
     use crate::tree::{Action, Tree};
 
-    /// Left-side leaves: enough for wide roots with shared hash prefixes.
-    const LEFT_LEAVES: usize = 32;
-    /// Right-side leaves: few enough that most left children are supplies.
-    const RIGHT_LEAVES: usize = 8;
+    let path_of = |version: &Version| <[u8; 32]>::from(Path::for_leaf(version));
+    let attempt = early_dispute_attempt(&path_of, EARLY_DISPUTE_HINT)
+        .expect("the deterministic geometry search exhausted its candidate budget");
+    let at = attempt * EARLY_DISPUTE_STRIDE;
+    let [left_firsts, right_firsts] = early_dispute_radices(attempt, &path_of);
 
-    /// Window stride between attempts: larger than either window, so
-    /// successive attempts draw fully disjoint leaf populations.
-    const STRIDE: usize = 64;
-
-    /// Maximum candidate windows to search; exhaustion panics.
-    /// Precomputation cost is proportional to this bound.
-    const ATTEMPTS: usize = 2048;
-
-    // Paths depend only on versions. Starting from a later ceiling shifts all
-    // the leaf addresses, as if earlier content had been redacted. Precompute
-    // each party's first radix bytes and inspect windows of that sequence;
-    // build trees only for the first window satisfying the geometry.
-    let firsts = |party: &Party, ticks: usize| -> Vec<u8> {
-        let mut version = Version::new();
-        (0..ticks)
-            .map(|_| {
-                version.tick(party);
-                let path: [u8; 32] = Path::for_leaf(&version).into();
-                path[0]
-            })
-            .collect()
-    };
+    // Starting from a later ceiling shifts every leaf address as if earlier
+    // content had been redacted. Build only the selected candidate.
     let burnt = |party: &Party, ticks: usize| {
         let mut version = Version::new();
         version.ticks(party, ticks);
@@ -285,64 +269,106 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root
 
     let p_a = nth_party(1);
     let p_b = nth_party(2);
-    let f_a = firsts(&p_a, ATTEMPTS * STRIDE + LEFT_LEAVES);
-    let f_b = firsts(&p_b, ATTEMPTS * STRIDE + RIGHT_LEAVES);
+    let build = |party: &Party, base: Version, live: usize| {
+        let mut tree = Tree::<()>::new();
+        tree.root.ceiling = base;
+        tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))));
+        tree
+    };
+    let left = build(&p_a, burnt(&p_a, at), EARLY_DISPUTE_LEFT_LEAVES);
+    let right = build(&p_b, burnt(&p_b, at), EARLY_DISPUTE_RIGHT_LEAVES);
 
-    for attempt in 0..ATTEMPTS {
-        let at = attempt * STRIDE;
-        let left_firsts = &f_a[at..at + LEFT_LEAVES];
-        let right_firsts = &f_b[at..at + RIGHT_LEAVES];
-        let Some(&first) = left_firsts.iter().chain(right_firsts.iter()).min() else {
-            continue;
-        };
-
-        // The radix-first root child must be present on both sides (a
-        // dispute) with branching content on at least one (two or more
-        // leaves, so the dispute descends instead of resolving by an inline
-        // supply), and at least six higher-radix children must exist on one
-        // side only — whole-subtree provisions queued behind the dispute.
-        let left_under = left_firsts.iter().filter(|&&b| b == first).count();
-        let right_under = right_firsts.iter().filter(|&&b| b == first).count();
-        let provisions = {
-            let mut one_sided: Vec<u8> = left_firsts
-                .iter()
-                .filter(|b| !right_firsts.contains(b))
-                .chain(right_firsts.iter().filter(|b| !left_firsts.contains(b)))
-                .copied()
-                .filter(|b| *b > first)
-                .collect();
-            one_sided.sort_unstable();
-            one_sided.dedup();
-            one_sided.len()
-        };
-        if left_under.min(right_under) >= 1 && left_under.max(right_under) >= 2 && provisions >= 6 {
-            let build = |party: &Party, base: Version, live: usize| {
-                let mut tree = Tree::<()>::new();
-                tree.root.ceiling = base;
-                tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))));
-                tree
-            };
-            let left = build(&p_a, burnt(&p_a, at), LEFT_LEAVES);
-            let right = build(&p_b, burnt(&p_b, at), RIGHT_LEAVES);
-            // Both sides' geometry was judged from the simulation, so both
-            // sides must agree with the honestly built trees.
-            for (tree, firsts) in [(&left, left_firsts), (&right, right_firsts)] {
-                let mut built: Vec<u8> = tree
-                    .iter()
-                    .map(|(v, _)| <[u8; 32]>::from(Path::for_leaf(v))[0])
-                    .collect();
-                let mut simulated = firsts.to_vec();
-                built.sort_unstable();
-                simulated.sort_unstable();
-                assert_eq!(
-                    built, simulated,
-                    "the path simulation must agree with the tree builder",
-                );
-            }
-            return (left.root, right.root);
-        }
+    // The simulation selected the candidate, so verify both built trees
+    // reproduce it exactly.
+    for (tree, mut simulated) in [(&left, left_firsts), (&right, right_firsts)] {
+        let mut built: Vec<u8> = tree
+            .iter()
+            .map(|(version, _)| path_of(version)[0])
+            .collect();
+        built.sort_unstable();
+        simulated.sort_unstable();
+        assert_eq!(
+            built, simulated,
+            "the path simulation must agree with the tree builder",
+        );
     }
-    unreachable!("the deterministic geometry search must terminate");
+    (left.root, right.root)
+}
+
+/// Leaves in the fixture's wider tree.
+const EARLY_DISPUTE_LEFT_LEAVES: usize = 32;
+
+/// Leaves in the fixture's narrower tree.
+const EARLY_DISPUTE_RIGHT_LEAVES: usize = 8;
+
+/// Tick distance between candidate windows, larger than either window.
+const EARLY_DISPUTE_STRIDE: usize = 64;
+
+/// Maximum number of candidates in the fallback search.
+const EARLY_DISPUTE_ATTEMPTS: usize = 2048;
+
+/// Candidate found by the full search under the current leaf-path derivation.
+const EARLY_DISPUTE_HINT: usize = 285;
+
+/// Derive the first radix of `leaves` successive paths after `skip` ticks.
+fn first_radices(
+    party: &Party,
+    skip: usize,
+    leaves: usize,
+    path_of: &impl Fn(&Version) -> [u8; 32],
+) -> Vec<u8> {
+    let mut version = Version::new();
+    version.ticks(party, skip);
+    (0..leaves)
+        .map(|_| {
+            version.tick(party);
+            path_of(&version)[0]
+        })
+        .collect()
+}
+
+/// Simulate the root radices for one candidate window.
+fn early_dispute_radices(attempt: usize, path_of: &impl Fn(&Version) -> [u8; 32]) -> [Vec<u8>; 2] {
+    let skip = attempt * EARLY_DISPUTE_STRIDE;
+    [
+        first_radices(&nth_party(1), skip, EARLY_DISPUTE_LEFT_LEAVES, path_of),
+        first_radices(&nth_party(2), skip, EARLY_DISPUTE_RIGHT_LEAVES, path_of),
+    ]
+}
+
+/// Whether two root-radix populations have the fixture's required geometry.
+fn is_early_dispute([left, right]: [&[u8]; 2]) -> bool {
+    let Some(&first) = left.iter().chain(right).min() else {
+        return false;
+    };
+    let left_under = left.iter().filter(|&&radix| radix == first).count();
+    let right_under = right.iter().filter(|&&radix| radix == first).count();
+    let mut provisions: Vec<u8> = left
+        .iter()
+        .filter(|radix| !right.contains(radix))
+        .chain(right.iter().filter(|radix| !left.contains(radix)))
+        .copied()
+        .filter(|&radix| radix > first)
+        .collect();
+    provisions.sort_unstable();
+    provisions.dedup();
+
+    // The first child is disputed and branches on at least one side. Six
+    // later one-sided children keep whole-subtree supplies queued behind it.
+    left_under.min(right_under) >= 1 && left_under.max(right_under) >= 2 && provisions.len() >= 6
+}
+
+/// Try `hint` first, then search every candidate if it no longer qualifies.
+fn early_dispute_attempt(path_of: &impl Fn(&Version) -> [u8; 32], hint: usize) -> Option<usize> {
+    let matches = |attempt| {
+        let [left, right] = early_dispute_radices(attempt, path_of);
+        is_early_dispute([&left, &right])
+    };
+    if hint < EARLY_DISPUTE_ATTEMPTS && matches(hint) {
+        Some(hint)
+    } else {
+        (0..EARLY_DISPUTE_ATTEMPTS).find(|&attempt| matches(attempt))
+    }
 }
 
 /// Extra ticks in malformed fixtures, exceeding their tests' later honest ticks.
@@ -682,28 +708,4 @@ pub fn arb_forgotten_siblings() -> BoxedStrategy<(crate::tree::Root, crate::tree
 }
 
 #[cfg(test)]
-mod test {
-    use super::nth_party;
-
-    /// Distinct indices yield mutually *disjoint* parties.
-    ///
-    /// This is the invariant every strategy here relies on: trees built on
-    /// different indices must have causally-concurrent (joinable) histories,
-    /// never one containing the other. `nth_party` walks a left-leaning fork
-    /// chain whose results own disjoint dyadic intervals.
-    #[test]
-    fn distinct_indices_are_pairwise_disjoint() {
-        const N: usize = 16;
-        for i in 0..N {
-            for j in 0..N {
-                if i != j {
-                    let (a, b) = (nth_party(i), nth_party(j));
-                    assert!(
-                        a.is_disjoint(&b),
-                        "nth_party({i}) = {a:?} and nth_party({j}) = {b:?} are not disjoint",
-                    );
-                }
-            }
-        }
-    }
-}
+mod tests;

@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Current:** make lifecycle properties check content, versions, and party ownership directly.
+**Current:** prune unused dependencies and confirm feature combinations still build.
 
 **Parallel:** consolidate proxy test setup and remove redundant assertions.
 
-**Next:** exercise driver termination, cancellation, redaction, and handshake ordering without vacuous checks.
+**Next:** make lifecycle properties check content, versions, and party ownership directly.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -274,7 +274,7 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Check join survivors and redaction associativity with shared generators; remove ineffective input-preservation assertions — `c75a57b8`.
       Sources: `streaming-tests-18`, `tree-core-22`, `tree-core-33`, `tree-core-34`, T124, T128, T132.
 
-- [ ] Start the geometry search from a verified hint, falling back to the full search when needed.
+- [x] Start the geometry search from a verified hint, falling back to the full search when needed.
       Sources: `tree-core-24`, T112; coupled with 23's fixture costs.
 
 - [ ] Clarify tree invariants and simplify names and helpers.
