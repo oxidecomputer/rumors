@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Current:** prune unused dependencies and confirm feature combinations still build.
+**Current:** make lifecycle properties check content, versions, and party ownership directly.
 
-**Parallel:** consolidate proxy test setup and remove redundant assertions.
+**Parallel:** proxy test cleanup is ready for owner review at `ffef4706`.
 
-**Next:** make lifecycle properties check content, versions, and party ownership directly.
+**Next:** simplify scheduling helpers and separate backend and window explanations.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -618,7 +618,7 @@ Dependencies: API lints only after their affected public surfaces are clean; bro
 - [ ] Enable the approved compiler lints when their real code fixes are complete.
       Sources: `clippy-pedantic-1–15`, T46, T47, T52, T54, T57, T132, T158.
 
-- [ ] Prune unused dependencies and confirm feature combinations still build.
+- [x] Prune unused dependencies and confirm feature combinations still build — `21e97e49`.
       Sources: `deps-1–5`, `deps-7–11`, `inventory-2`, T20, T26, T28, T64, T90, T128, T132, T135, T147, T159.
 
 - [ ] Remove stale verification configuration and tool references.
