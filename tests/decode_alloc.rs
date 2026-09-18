@@ -7,21 +7,15 @@
 //! declared-length payload read — the policy beneath every variable body
 //! a peer-declared length stands ahead of, the party hand-off's byte
 //! string included — and the streaming codec's supply read, which layers
-//! its run grammar over the same policy. The counters are process-global,
-//! so a mutex serializes every metered region; the suite is correct under
-//! any test runner's threading.
+//! its run grammar over the same policy. The meter counts only the thread
+//! driving the decode, so test-harness work on other threads cannot perturb
+//! its bounds.
 
-use std::alloc::System;
-use std::sync::{Mutex, MutexGuard};
+#[path = "support/allocation.rs"]
+mod allocation;
 
+use allocation::measure as metered;
 use rumors::testing::{CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
-use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
-
-#[global_allocator]
-static ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
-
-/// Serializes whole tests because setup outside a metered region also allocates.
-static METER_LOCK: Mutex<()> = Mutex::new(());
 
 /// The payload length a corrupt stream or conformance-buggy peer declares
 /// while delivering no or few payload bytes behind it.
@@ -42,8 +36,7 @@ const HONEST_ODD_LEN: usize = 8 * 1024 * 1024 + 37;
 /// Allocator-noise allowance for a metered decode beyond its derived
 /// bound.
 ///
-/// Covers waker, test-harness scheduling, and error-construction incidentals,
-/// within two KiB:
+/// Covers waker and error-construction incidentals within two KiB:
 /// orders of magnitude below every bound it pads, so it cannot mask a
 /// declared-length prepay or a capacity overshoot.
 const METER_SLACK: usize = 2 * 1024;
@@ -56,25 +49,6 @@ const EVENT_SLACK: usize = 16;
 /// Allocations needed to materialize one decoded record: the version's
 /// mutable and frozen byte stores, the payload bytes, and its typed `Arc`.
 const RECORD_ALLOCATIONS: usize = 4;
-
-/// Hold exclusive access to the process-global allocation counters.
-fn meter_lock() -> MutexGuard<'static, ()> {
-    METER_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Allocator counter movement while `f` runs.
-///
-/// `bytes_allocated` counts fresh allocation sizes plus reallocation
-/// growth deltas, so an up-front `with_capacity` of a declared length and
-/// incremental growth to the same capacity read identically.
-/// The caller holds [`meter_lock`] across its fixture setup and this call.
-fn metered<T>(f: impl FnOnce() -> T) -> (Stats, T) {
-    let region = Region::new(ALLOCATOR);
-    let value = f();
-    (region.change(), value)
-}
 
 /// Reservation events of the doubling-clamped growth schedule for a fully
 /// delivered `len`-byte payload: one initial granule, then one doubling
@@ -105,7 +79,6 @@ fn run_body(len: usize) -> Vec<u8> {
 /// version atom.
 #[test]
 fn record_decode_avoids_an_intermediate_version_allocation() {
-    let _guard = meter_lock();
     let few_records = 1;
     let many_records = 65;
 
@@ -132,7 +105,6 @@ fn record_decode_avoids_an_intermediate_version_allocation() {
 /// length: with nothing delivered, at most one granule is reserved.
 #[test]
 fn framing_zero_delivered_costs_at_most_one_chunk() {
-    let _guard = meter_lock();
     let (change, result) = metered(|| {
         pollster::block_on(rumors::testing::read_declared_payload(
             &[][..],
@@ -159,7 +131,6 @@ fn framing_zero_delivered_costs_at_most_one_chunk() {
 /// exercise the allocation path this test prices.
 #[test]
 fn supply_zero_delivered_costs_at_most_one_chunk() {
-    let _guard = meter_lock();
     let bytes = supply_frame(DECLARED_LEN, &[]);
     let (change, result) =
         metered(|| pollster::block_on(rumors::testing::decode_supply_frame(&bytes[..])));
@@ -191,7 +162,6 @@ fn supply_zero_delivered_costs_at_most_one_chunk() {
 /// passes the zero-delivered ceiling and the floors, and reds here.
 #[test]
 fn framing_partial_delivery_costs_receipt_proportional() {
-    let _guard = meter_lock();
     let chunk = rumors::testing::frame_payload_chunk_len();
     let delivered_len = 2 * chunk + 37;
     let delivered: Vec<u8> = (0..delivered_len).map(|i| i as u8).collect();
@@ -217,7 +187,6 @@ fn framing_partial_delivery_costs_receipt_proportional() {
 /// meter provably counts the framing payload path it prices.
 #[test]
 fn framing_full_delivery_meters_at_least_payload() {
-    let _guard = meter_lock();
     let payload: Vec<u8> = (0..HONEST_LEN).map(|i| i as u8).collect();
     let (change, result) = metered(|| {
         pollster::block_on(rumors::testing::read_declared_payload(
@@ -243,7 +212,6 @@ fn framing_full_delivery_meters_at_least_payload() {
 /// codec's supply body path it prices.
 #[test]
 fn supply_full_delivery_meters_at_least_payload() {
-    let _guard = meter_lock();
     let body = run_body(HONEST_LEN);
     let bytes = supply_frame(HONEST_LEN, &body);
     let (change, result) =
@@ -268,7 +236,6 @@ fn supply_full_delivery_meters_at_least_payload() {
 /// stays N.
 #[test]
 fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
-    let _guard = meter_lock();
     let payload: Vec<u8> = (0..HONEST_ODD_LEN).map(|i| i as u8).collect();
     let (change, result) = metered(|| {
         pollster::block_on(rumors::testing::read_declared_payload(
@@ -309,7 +276,6 @@ fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
 /// overhang still reaches the body read.
 #[test]
 fn overbatched_supply_rejects_without_buffering_its_body() {
-    let _guard = meter_lock();
     let mut body = Vec::new();
     for _ in 0..2 {
         body.extend_from_slice(&rumors::testing::lone_record_run(HONEST_LEN / 2));
@@ -339,7 +305,6 @@ fn overbatched_supply_rejects_without_buffering_its_body() {
 /// run buffer also reaches the adapter without capacity overshoot.
 #[test]
 fn supply_full_delivery_costs_at_most_payload_plus_chunk() {
-    let _guard = meter_lock();
     let body = run_body(HONEST_ODD_LEN);
     let bytes = supply_frame(HONEST_ODD_LEN, &body);
     let (change, result) =
@@ -360,7 +325,6 @@ fn supply_full_delivery_costs_at_most_payload_plus_chunk() {
 /// head classifies as.
 #[test]
 fn leaf_run_head_defect_is_publicly_matchable() {
-    let _guard = meter_lock();
     let error = LeafRunError::Head {
         remaining: 1,
         source: HeadError::NotShortest,

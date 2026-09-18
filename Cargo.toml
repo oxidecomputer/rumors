@@ -72,7 +72,6 @@ serde_test = "1"
 smallvec = { version = "1.15", features = ["union"] }
 stacker = "0.1"
 static_assertions = "1.1"
-stats_alloc = "0.1"
 suanpan = { path = "crates/suanpan" }
 surface-scan = { path = "crates/surface-scan" }
 tempfile = "=3.23.0"
@@ -177,8 +176,6 @@ rand = { workspace = true }
 # platforms and Rand versions, so a committed seed continues to name one corpus.
 rand_chacha = { workspace = true }
 pollster = { workspace = true }
-# Count allocation traffic in focused resource tests.
-stats_alloc = { workspace = true }
 
 [profile.dev]
 debug = "line-tables-only"

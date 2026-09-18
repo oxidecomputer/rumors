@@ -6,21 +6,20 @@
 //! writing them must not cost a heap allocation per frame, and a supply
 //! run is borrowed, not copied. A query's listing is the one variable body
 //! the writer renders, and it is priced as exactly one buffer. The
-//! counters are process-global, so a mutex serializes every metered
-//! region; the suite is correct under any test runner's threading.
+//! meter counts only the thread driving the write, so test-harness work on
+//! other threads cannot perturb an exact result.
 
-use std::alloc::System;
-use std::sync::Mutex;
+#[path = "support/allocation.rs"]
+mod allocation;
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
+use std::thread;
+
+use allocation::{Stats, measure};
 use rumors::testing::{FrameShape, PreparedFrame, prepare_frame, write_prepared_frame};
-use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
-
-#[global_allocator]
-static ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
-
-/// Serializes metered regions: the allocator counters are process-global,
-/// so concurrent tests would attribute each other's traffic.
-static METER_LOCK: Mutex<()> = Mutex::new(());
 
 /// Capacity reserved for the written frame ahead of the meter: above any
 /// frame these shapes produce, so the output vector never grows inside
@@ -53,22 +52,11 @@ const QUERY_REALLOCATIONS: usize = 0;
 /// byte-string head takes its widest form below the u32 range.
 const SUPPLY_RUN_LEN: usize = 70_000;
 
-/// Allocator counter movement while `f` runs, serialized by the meter
-/// lock.
-fn metered<T>(f: impl FnOnce() -> T) -> (Stats, T) {
-    let _guard = METER_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let region = Region::new(ALLOCATOR);
-    let value = f();
-    (region.change(), value)
-}
-
 /// Write `frame` into a pre-reserved vector under the meter, returning the
 /// counter movement and the bytes written.
 fn metered_write(frame: &PreparedFrame) -> (Stats, usize) {
     let mut out = Vec::with_capacity(OUT_CAPACITY);
-    let (change, ()) = metered(|| pollster::block_on(write_prepared_frame(frame, &mut out)));
+    let (change, ()) = measure(|| pollster::block_on(write_prepared_frame(frame, &mut out)));
     assert!(
         out.len() <= OUT_CAPACITY,
         "the metered frame outgrew its reserved output"
@@ -81,9 +69,52 @@ fn metered_write(frame: &PreparedFrame) -> (Stats, usize) {
 /// subtracts a calibrated constant rather than a guess.
 #[test]
 fn harness_allocations() {
-    let (change, ()) = metered(|| pollster::block_on(async {}));
+    let (change, ()) = measure(|| pollster::block_on(async {}));
     assert_eq!(change.allocations, HARNESS_ALLOCATIONS);
     assert_eq!(change.reallocations, 0);
+}
+
+/// Allocations on another thread do not enter the current thread's count.
+///
+/// This recreates the test-harness interference that made the old process-wide
+/// meter vary with scheduling, while one local allocation gives the assertion
+/// a nonzero control.
+#[test]
+fn concurrent_allocations_are_excluded() {
+    let start = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(AtomicBool::new(false));
+    let remote_allocations = Arc::new(AtomicUsize::new(0));
+    let worker = {
+        let start = Arc::clone(&start);
+        let stop = Arc::clone(&stop);
+        let remote_allocations = Arc::clone(&remote_allocations);
+        thread::spawn(move || {
+            while !start.load(Ordering::Acquire) {
+                std::hint::spin_loop();
+            }
+            while !stop.load(Ordering::Acquire) {
+                let allocation = Vec::<u8>::with_capacity(64);
+                std::hint::black_box(allocation);
+                remote_allocations.fetch_add(1, Ordering::Release);
+            }
+        })
+    };
+
+    let (change, local_allocation) = measure(|| {
+        start.store(true, Ordering::Release);
+        while remote_allocations.load(Ordering::Acquire) < 128 {
+            std::hint::spin_loop();
+        }
+        let allocation = Vec::<u8>::with_capacity(64);
+        stop.store(true, Ordering::Release);
+        allocation
+    });
+    worker.join().expect("allocation worker completes");
+    std::hint::black_box(local_allocation);
+
+    assert_eq!(change.allocations, 1);
+    assert_eq!(change.reallocations, 0);
+    assert_eq!(change.bytes_allocated, 64);
 }
 
 /// A body-free frame's write performs exactly `BODY_FREE_ALLOCATIONS`

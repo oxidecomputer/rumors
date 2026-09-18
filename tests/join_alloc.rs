@@ -1,16 +1,13 @@
 //! Allocation traffic for a divergent local join, including metadata preparation.
 
+#[path = "support/allocation.rs"]
+mod allocation;
 mod common;
 
-use std::alloc::System;
 use std::collections::BTreeSet;
 
+use allocation::measure;
 use rumors::Peer;
-use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
-
-/// Count allocations in this test binary; it runs one synchronous measurement.
-#[global_allocator]
-static ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// A broad root fan, with enough leaves for internal branches below it.
 const SHARED: usize = 4096;
@@ -45,9 +42,7 @@ fn wide_join_allocation_is_bounded() {
     }
     let ours = ours.snapshot();
     let theirs = theirs.snapshot();
-    let region = Region::new(ALLOCATOR);
-    let joined = rumors::testing::join_snapshots(&ours, &theirs);
-    let stats = region.change();
+    let (stats, joined) = measure(|| rumors::testing::join_snapshots(&ours, &theirs));
     assert!(
         stats.bytes_allocated <= JOIN_ALLOCATION_BUDGET,
         "join allocated {} bytes, exceeding its {}-byte budget",
