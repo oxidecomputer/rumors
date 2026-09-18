@@ -41,17 +41,16 @@ const CELLS: &[(&str, usize, usize)] = &[
     ("16MiB-10k", 16 << 20, 10_000),
 ];
 
+/// Compare selected window configurations against real timer scheduling.
 fn window_wallclock(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("window_wallclock");
     group.sample_size(10);
     for &(name, budget, divergence) in CELLS {
+        let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, DELAY);
         group.bench_function(name, |bencher| {
             bencher.iter_batched(
                 || diverged(budget, divergence),
-                |(left, right)| {
-                    let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, DELAY);
-                    wire.round_trip(left, right)
-                },
+                |(left, right)| wire.round_trip(left, right),
                 criterion::BatchSize::PerIteration,
             );
         });
@@ -61,8 +60,10 @@ fn window_wallclock(criterion: &mut Criterion) {
 
 /// Two peers with a shared prefix, diverged by `divergent` messages each.
 fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
-    let left = Peer::seed().sync_memory_budget(budget).into_rumors();
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_0d0c_0002);
+    let left = Peer::seed_rng(&mut rng)
+        .sync_memory_budget(budget)
+        .into_rumors();
     send_random(&left, COMMON, &mut rng);
 
     let right = pollster::block_on(async {

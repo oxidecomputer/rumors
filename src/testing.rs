@@ -28,6 +28,7 @@ use crate::{
             },
         },
         typed::{
+            hash::{Hash, MERKLE_HASH_LEN as TREE_HASH_LEN},
             height::{Height, Root},
             untyped::census,
         },
@@ -50,6 +51,26 @@ pub use transport::{
 pub use crate::tree::mirror::streaming::remote::{
     FrameShape, HookCapture, HookStream, LinkCapture, PreparedFrame,
 };
+
+/// Width of the subtree digests consumed by [`branch_hash`].
+pub const MERKLE_HASH_LEN: usize = TREE_HASH_LEN;
+
+/// Hash a branch through the production preimage builder.
+///
+/// The branch-hashing benchmark uses this test-only entry so it cannot drift
+/// from the implementation whose feeding strategy it measures.
+pub fn branch_hash(
+    prefix: &[u8],
+    children: impl IntoIterator<Item = (u8, [u8; MERKLE_HASH_LEN])>,
+) -> [u8; MERKLE_HASH_LEN] {
+    Hash::branch(
+        prefix,
+        children
+            .into_iter()
+            .map(|(radix, hash)| (radix, Hash::from(hash))),
+    )
+    .into()
+}
 
 /// Join snapshots from one network in memory, preparing the result for readers.
 ///

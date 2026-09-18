@@ -9,8 +9,8 @@
 //! drives [`Rumors::gossip`] over one persistent in-memory link, so the timed
 //! body pays for the gossip session rather than transport allocation.
 //!
-//! The four Criterion groups measure the wire protocol on the same
-//! fixtures (each series is labeled `V2`, the dialect it measures):
+//! The fixed-size groups measure the wire protocol on the same fixtures. Their
+//! series retain the `V2` label used by existing Criterion baselines:
 //!
 //! - `gossip_fixed_bidir_insertions`: total post-fork insertions `I`.
 //! - `gossip_fixed_bidir_redactions`: total post-fork redactions `R`.
@@ -29,8 +29,8 @@
 //!
 //! Sessions run over the test kit's delayed-pipe link, which
 //! charges wire delay to a paused runtime clock, so the sweep costs
-//! wall-clock compute only and the reported duration is wall compute plus
-//! virtual wire stall. Read each line's intercept as the protocol's
+//! wall-clock compute only and the reported duration is elapsed compute time
+//! plus virtual wire stall. Read each line's intercept as the protocol's
 //! computational cost and its slope as latency sensitivity: the slope at
 //! one-way delay `d`, divided by `d`, is the session's serialized one-way
 //! hop count. `I = 0` is the identical corner — the steady-state "nothing
@@ -51,8 +51,11 @@ use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
 use rumors_testkit::bench::{grid, latency};
 
+/// Total actions represented by every fixed-size fixture.
 const N: usize = 10_000;
+/// Distance between insertion-divergence samples.
 const INSERT_STEP: usize = 500;
+/// Distance between redaction-divergence samples.
 const REDACT_STEP: usize = 250;
 
 /// One-way link delays for the latency sweep, in whole milliseconds:
@@ -81,15 +84,22 @@ const LATENCY_REDACTIONS: &[usize] = &[2_500];
 /// `capacity / delay`).
 const LATENCY_CAPACITY: usize = 8 * 1024 * 1024;
 
+/// How the two peers diverge after their shared history.
 #[derive(Clone, Copy)]
 enum Scenario {
+    /// Both peers add messages.
     BidirInsertions,
+    /// Both peers redact distinct messages.
     BidirRedactions,
+    /// One peer adds messages.
     UnilateralInsertions,
+    /// One peer redacts messages.
     UnilateralRedactions,
 }
 
+/// Describe and build one divergence family.
 impl Scenario {
+    /// Criterion group for the fixed-size sweep.
     fn group_name(self) -> &'static str {
         match self {
             Scenario::BidirInsertions => "gossip_fixed_bidir_insertions",
@@ -99,15 +109,7 @@ impl Scenario {
         }
     }
 
-    fn latency_group_name(self) -> &'static str {
-        match self {
-            Scenario::BidirInsertions => "gossip_latency_bidir_insertions",
-            Scenario::BidirRedactions => "gossip_latency_bidir_redactions",
-            Scenario::UnilateralInsertions => "gossip_latency_unilateral_insertions",
-            Scenario::UnilateralRedactions => "gossip_latency_unilateral_redactions",
-        }
-    }
-
+    /// Largest divergence represented by this family.
     fn max_param(self) -> usize {
         match self {
             Scenario::BidirInsertions | Scenario::UnilateralInsertions => N,
@@ -115,6 +117,7 @@ impl Scenario {
         }
     }
 
+    /// Distance between samples in this family.
     fn step(self) -> usize {
         match self {
             Scenario::BidirInsertions | Scenario::UnilateralInsertions => INSERT_STEP,
@@ -122,6 +125,7 @@ impl Scenario {
         }
     }
 
+    /// Build peers with `param` total divergent actions.
     fn build(self, param: usize) -> (Rumors<u8>, Rumors<u8>) {
         match self {
             Scenario::BidirInsertions => build_bidir_insertions(param),
@@ -132,6 +136,7 @@ impl Scenario {
     }
 }
 
+/// Measure gossip as divergence grows within a fixed total population.
 fn bench_gossip_fixed(c: &mut Criterion) {
     let mut wire = grid::wire::Wire::new();
 
@@ -145,7 +150,9 @@ fn bench_gossip_fixed(c: &mut Criterion) {
         group.sample_size(grid::sample_size_for(N));
 
         for param in (0..=scenario.max_param()).step_by(scenario.step()) {
-            group.throughput(Throughput::Elements(param as u64));
+            if param > 0 {
+                group.throughput(Throughput::Elements(param as u64));
+            }
             group.bench_function(BenchmarkId::new("V2", param), |b| {
                 b.iter_batched(
                     || scenario.build(param),
@@ -159,14 +166,23 @@ fn bench_gossip_fixed(c: &mut Criterion) {
     }
 }
 
+/// Measure how serialized wire dependencies amplify one-way latency.
 fn bench_gossip_latency(c: &mut Criterion) {
-    let sweeps: [(Scenario, &[usize]); 2] = [
-        (Scenario::BidirInsertions, LATENCY_INSERTIONS),
-        (Scenario::BidirRedactions, LATENCY_REDACTIONS),
+    let sweeps: [(&str, Scenario, &[usize]); 2] = [
+        (
+            "gossip_latency_bidir_insertions",
+            Scenario::BidirInsertions,
+            LATENCY_INSERTIONS,
+        ),
+        (
+            "gossip_latency_bidir_redactions",
+            Scenario::BidirRedactions,
+            LATENCY_REDACTIONS,
+        ),
     ];
 
-    for (scenario, params) in sweeps {
-        let mut group = c.benchmark_group(scenario.latency_group_name());
+    for (name, scenario, params) in sweeps {
+        let mut group = c.benchmark_group(name);
         // The virtual component is deterministic and the wall component is
         // the same magnitude the fixed groups already sample heavily, so a
         // small sample count and short windows suffice. The windows bound
@@ -203,6 +219,7 @@ fn bench_gossip_latency(c: &mut Criterion) {
     }
 }
 
+/// Build peers that independently add half of `total_insertions` each.
 fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
     assert_eq!(total_insertions % 2, 0);
@@ -226,6 +243,7 @@ fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     (left, right)
 }
 
+/// Build peers where only the left adds `total_insertions` messages.
 fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
 
@@ -241,6 +259,7 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u
     (left, right)
 }
 
+/// Build peers that redact disjoint halves of `total_redactions`.
 fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
     assert_eq!(total_redactions % 2, 0);
@@ -256,6 +275,7 @@ fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     (left, right)
 }
 
+/// Build peers where only the left redacts `total_redactions` messages.
 fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
 
@@ -271,9 +291,11 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u
 /// A seed peer measuring shipped behavior: the default pipeline window is
 /// the production budget in every build shape (see `support/wire.rs`).
 fn production_seed() -> Rumors<u8> {
-    Peer::seed().into_rumors()
+    let mut rng = ChaChaRng::seed_from_u64(0xe9f4_fc18_d119_7299);
+    Peer::seed_rng(&mut rng).into_rumors()
 }
 
+/// Create a production-configured set containing `n` deterministic bytes.
 fn seeded_with_messages(n: usize, seed: u64) -> Rumors<u8> {
     let rumors = production_seed();
     rumors
@@ -282,6 +304,7 @@ fn seeded_with_messages(n: usize, seed: u64) -> Rumors<u8> {
     rumors
 }
 
+/// Create a deterministic set and copy its live versions for redaction.
 fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
     let rumors = production_seed();
     rumors
@@ -291,12 +314,14 @@ fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
     (rumors, versions)
 }
 
+/// Generate `n` reproducible payload bytes.
 fn random_bytes(n: usize, seed: u64) -> Vec<u8> {
     let mut bytes = vec![0; n];
     ChaChaRng::seed_from_u64(seed).fill_bytes(&mut bytes);
     bytes
 }
 
+/// Reorder versions reproducibly so redactions do not follow tree order.
 fn shuffled_versions(mut versions: Vec<Version>, seed: u64) -> Vec<Version> {
     versions.shuffle(&mut ChaChaRng::seed_from_u64(seed));
     versions

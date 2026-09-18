@@ -10,18 +10,8 @@
 //! measurement reflects the tree / clock / hashing work rather than the cost
 //! of serializing a payload.
 //!
-//! The handles here are the asynchronous [`rumors::Rumors`] and its message
-//! observers: every operation measured is synchronous on that surface
-//! (batches commit on drop), so no runtime is involved.
-//!
-//! # Fixture discipline
-//!
-//! Inserting a message ticks an Interval Tree Clock party, and `before`
-//! documents that repeatedly [`fork`](before::Party::fork)ing *the same*
-//! party deepens its id tree linearly (worse memory and per-op cost). To
-//! keep that out of the measurements, every fixture is rebuilt from a fresh
-//! [`Peer::seed`](rumors::Peer::seed) in untimed setup: no party
-//! accumulates depth across Criterion iterations.
+//! Although [`rumors::Rumors`] also drives asynchronous synchronization, every
+//! operation measured here completes synchronously and needs no runtime.
 //!
 //! # What's measured
 //!
@@ -42,37 +32,40 @@
 //! - `get`: a point lookup by [`Version`] in a size-N set.
 
 use std::hint::black_box;
-use std::iter;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use futures::{FutureExt, StreamExt};
-use rumors::{CausalMessages, Peer, Rumors, UnorderedMessages, Version, causally};
+use futures::{FutureExt, Stream, StreamExt};
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
+use rumors::{Peer, Rumors, Version, causally};
 use rumors_testkit::bench::grid;
 
-use grid::{SIZES, sample_size_for};
+use grid::{SIZES, sample_size_for, send_units};
 
 /// Causal-delta sizes for the `range_delta` / `observer_delta` sweeps.
 const DELTAS: &[usize] = &[1, 100, 10_000];
 
-/// Commit `n` unit payloads to `rumors` as one batch.
-fn send_units(rumors: &Rumors<()>, n: usize) {
-    rumors
-        .send_all(iter::repeat_n((), n))
-        .expect("flat test payloads are within any depth limit");
+/// Create an empty set with a stable network identifier.
+fn empty_set() -> Rumors<()> {
+    let mut rng = ChaChaRng::seed_from_u64(0x8c6c_c850_62c7_c5b6);
+    Peer::seed_rng(&mut rng).into_rumors()
 }
 
-/// A freshly seeded rumor set holding `n` messages, paired with its live
-/// versions.
-fn build(n: usize) -> (Rumors<()>, Vec<Version>) {
-    let rumors: Rumors<()> = Peer::seed().into_rumors();
+/// Build a deterministic rumor set holding `n` messages.
+fn build(n: usize) -> Rumors<()> {
+    let rumors = empty_set();
     send_units(&rumors, n);
-    let versions = rumors.snapshot().versions().cloned().collect();
-    (rumors, versions)
+    rumors
+}
+
+/// Copy the live versions from `rumors` for a consuming benchmark.
+fn versions_of(rumors: &Rumors<()>) -> Vec<Version> {
+    rumors.snapshot().versions().cloned().collect()
 }
 
 /// Drain everything `observer` has pending, without blocking, returning how
 /// many messages were yielded.
-fn drain(observer: &mut UnorderedMessages<()>) -> usize {
+fn drain<S: Stream + Unpin>(observer: &mut S) -> usize {
     let mut count = 0usize;
     while let Some(Some(item)) = observer.next().now_or_never() {
         black_box(item);
@@ -83,20 +76,22 @@ fn drain(observer: &mut UnorderedMessages<()>) -> usize {
 
 /// `batch_insert`: insert N messages into an empty set in one batch commit.
 ///
-/// `b.iter` builds and drops one set per iteration, so peak memory stays at a
-/// single tree even at N = 1M. The trivial `seed().into_rumors()` is inside
-/// the timed body, but its cost is negligible against N inserts.
+/// Set construction and destruction are untimed. The measured body contains
+/// one `send_all` call that inserts all N messages into an empty set.
 fn bench_batch_insert(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_insert");
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
-            b.iter(|| {
-                let rumors: Rumors<()> = Peer::seed().into_rumors();
-                send_units(&rumors, black_box(n));
-                rumors
-            })
+            b.iter_batched(
+                empty_set,
+                |rumors| {
+                    send_units(&rumors, black_box(n));
+                    rumors
+                },
+                BatchSize::PerIteration,
+            )
         });
     }
     group.finish();
@@ -112,7 +107,7 @@ fn bench_iter(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (rumors, _versions) = build(n);
+        let rumors = build(n);
         let snapshot = rumors.snapshot();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
@@ -139,7 +134,11 @@ fn bench_redact(c: &mut Criterion) {
         group.throughput(Throughput::Elements(n as u64));
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter_batched(
-                || build(n),
+                || {
+                    let rumors = build(n);
+                    let versions = versions_of(&rumors);
+                    (rumors, versions)
+                },
                 |(rumors, versions)| {
                     rumors.redact_all(versions.iter().map(black_box));
                     rumors
@@ -152,8 +151,8 @@ fn bench_redact(c: &mut Criterion) {
 }
 
 /// A size-`n` set whose last `delta` messages sit above the returned checkpoint.
-fn build_with_checkpoint(n: usize, delta: usize) -> (Rumors<()>, rumors::Version) {
-    let rumors: Rumors<()> = Peer::seed().into_rumors();
+fn build_with_checkpoint(n: usize, delta: usize) -> (Rumors<()>, Version) {
+    let rumors = empty_set();
     send_units(&rumors, n - delta);
     let checkpoint = rumors.snapshot().latest().clone();
     send_units(&rumors, delta);
@@ -205,7 +204,7 @@ fn bench_observer_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (rumors, _versions) = build(n);
+        let rumors = build(n);
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut observer = rumors.unordered_messages();
@@ -245,17 +244,6 @@ fn bench_observer_delta(c: &mut Criterion) {
     group.finish();
 }
 
-/// Drain everything `observer` has staged, without blocking, returning how
-/// many messages were yielded: [`drain`]'s twin for the causal face.
-fn drain_causal(observer: &mut CausalMessages<()>) -> usize {
-    let mut count = 0usize;
-    while let Some(Some(item)) = observer.next().now_or_never() {
-        black_box(item);
-        count += 1;
-    }
-    count
-}
-
 /// `causal_replay`: a fresh causal observer's genesis pass over a size-N
 /// set: the price of causal delivery on top of [`bench_observer_replay`]'s
 /// plain pass.
@@ -268,11 +256,11 @@ fn bench_causal_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (rumors, _versions) = build(n);
+        let rumors = build(n);
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut observer = rumors.causal_messages();
-                black_box(drain_causal(&mut observer))
+                black_box(drain(&mut observer))
             })
         });
     }
@@ -297,7 +285,7 @@ fn bench_causal_delta(c: &mut Criterion) {
                 |b| {
                     b.iter(|| {
                         let mut observer = rumors.causal_messages_since(checkpoint.clone());
-                        black_box(drain_causal(&mut observer))
+                        black_box(drain(&mut observer))
                     })
                 },
             );
@@ -315,7 +303,8 @@ fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
-        let (rumors, versions) = build(n);
+        let rumors = build(n);
+        let versions = versions_of(&rumors);
         // A fixed version from the middle of the stable iteration order;
         // any live version costs the same depth-bounded descent.
         let version = versions[versions.len() / 2].clone();

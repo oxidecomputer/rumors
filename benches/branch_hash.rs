@@ -14,15 +14,14 @@
 //! `just bench branch_hash` and compare the `contiguous` and `streamed`
 //! curves.
 //!
-//! The layout is restated locally because the tree's hashing internals are
-//! not public API; it mirrors the preimage documented at `Hash::branch`,
-//! which the hash tests pin byte-for-byte. `contiguous` reproduces the
-//! shipped form including its per-call buffer allocation, so the measured
-//! difference is the end-to-end cost a caller sees, not the hash core alone.
+//! The contiguous series calls the production implementation through its
+//! test-only entry point. The streamed alternative spells out the same input,
+//! and an untimed assertion keeps the two forms equivalent.
 
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use rumors::testing::MERKLE_HASH_LEN;
 use sha3::{Digest, Sha3_256};
 
 /// Kind byte leading a branch preimage, mirrored from the documented layout.
@@ -39,50 +38,25 @@ const FANOUTS: &[usize] = &[2, 4, 16, 64, 256];
 /// A deterministic set of `k` (radix, hash) children in strictly ascending
 /// radix order, as the convention requires. Only the byte content matters to
 /// a hashing microbench, and only that it is fixed across runs.
-fn children(k: usize, hash_len: usize) -> Vec<(u8, Vec<u8>)> {
+fn children(k: usize) -> Vec<(u8, [u8; MERKLE_HASH_LEN])> {
     assert!(k <= 256, "branch fan-out is bounded by the 256-way radix");
     (0..k)
         .map(|i| {
             let radix = u8::try_from(i * 256 / k.max(1)).expect("index scaled into radix range");
-            let hash = (0..hash_len)
-                .map(|j| (i as u8) ^ (j as u8).wrapping_mul(31))
-                .collect();
+            let hash = std::array::from_fn(|j| (i as u8) ^ (j as u8).wrapping_mul(31));
             (radix, hash)
         })
         .collect()
 }
 
-/// Reads the shipped digest width from the test-only snapshot accessor.
-fn hash_len() -> usize {
-    rumors::Peer::<()>::seed()
-        .into_rumors()
-        .snapshot()
-        .hash()
-        .len()
-}
-
-/// The shipped form: assemble the whole preimage contiguously (fresh buffer,
-/// count backfilled after the records), then hash it in one shot.
-fn contiguous(prefix: &[u8], children: &[(u8, Vec<u8>)]) -> [u8; 32] {
-    let record_len = children.first().map_or(1, |(_, hash)| 1 + hash.len());
-    let mut buf = Vec::with_capacity(4 + prefix.len() + record_len * children.len());
-    buf.push(BRANCH_TAG);
-    buf.push(u8::try_from(prefix.len()).expect("a compressed span fits in one length byte"));
-    buf.extend_from_slice(prefix);
-    let count_at = buf.len();
-    buf.extend_from_slice(&[0, 0]);
-    for (radix, hash) in children {
-        buf.push(*radix);
-        buf.extend_from_slice(hash);
-    }
-    let count = u16::try_from(children.len()).expect("fan-out fits u16");
-    buf[count_at..count_at + 2].copy_from_slice(&count.to_be_bytes());
-    Sha3_256::digest(&buf).into()
+/// Hash a branch with the production contiguous preimage builder.
+fn contiguous(prefix: &[u8], children: &[(u8, [u8; MERKLE_HASH_LEN])]) -> [u8; MERKLE_HASH_LEN] {
+    rumors::testing::branch_hash(prefix, children.iter().copied())
 }
 
 /// The streamed form: one `update` call per field, so the sponge sees the
 /// preimage in radix-byte and hash-width fragments.
-fn streamed(prefix: &[u8], children: &[(u8, Vec<u8>)]) -> [u8; 32] {
+fn streamed(prefix: &[u8], children: &[(u8, [u8; MERKLE_HASH_LEN])]) -> [u8; MERKLE_HASH_LEN] {
     let mut hasher = Sha3_256::new();
     hasher.update([BRANCH_TAG]);
     hasher.update([u8::try_from(prefix.len()).expect("a compressed span fits in one length byte")]);
@@ -93,14 +67,21 @@ fn streamed(prefix: &[u8], children: &[(u8, Vec<u8>)]) -> [u8; 32] {
         hasher.update([*radix]);
         hasher.update(hash);
     }
-    hasher.finalize().into()
+    hasher.finalize()[..MERKLE_HASH_LEN]
+        .try_into()
+        .expect("digest prefix has the comparison width")
 }
 
+/// Compare the production contiguous hash with incremental sponge updates.
 fn branch_hash(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("branch_hash");
-    let hash_len = hash_len();
     for &fanout in FANOUTS {
-        let kids = children(fanout, hash_len);
+        let kids = children(fanout);
+        assert_eq!(
+            contiguous(PREFIX, &kids),
+            streamed(PREFIX, &kids),
+            "feeding strategies must hash the same branch input",
+        );
         group.bench_with_input(BenchmarkId::new("contiguous", fanout), &kids, |b, kids| {
             b.iter(|| contiguous(black_box(PREFIX), black_box(kids)));
         });

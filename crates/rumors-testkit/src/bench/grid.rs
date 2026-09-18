@@ -28,6 +28,8 @@
 
 use std::iter;
 
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
 
 #[path = "grid/wire.rs"]
@@ -153,17 +155,23 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         redacted,
     } = cell;
 
-    let left: Rumors<()> = Peer::seed().into_rumors();
+    let mut rng = ChaChaRng::seed_from_u64(0x36f7_bde7_e10e_5c65);
+    let left: Rumors<()> = Peer::seed_rng(&mut rng).into_rumors();
     send_units(&left, common);
-    // The shared prefix's versions, for carving two disjoint redaction blocks.
-    // Their order is immaterial.
-    let shared: Vec<Version> = left.snapshot().versions().cloned().collect();
+    let shared = (redacted > 0).then(|| {
+        // Capture the shared prefix before either peer adds its own messages.
+        // The order is immaterial; the two slices need only be disjoint.
+        left.snapshot()
+            .versions()
+            .cloned()
+            .collect::<Vec<Version>>()
+    });
 
     let right = wire::bootstrap_fork(&left);
     send_units(&left, differing);
     send_units(&right, differing);
 
-    if redacted > 0 {
+    if let Some(shared) = shared {
         // Disjoint blocks: each side forgets a distinct slice of the shared
         // prefix, so the other must honor `redacted` deletions it never made.
         // `cells` guarantees `common >= 2 * redacted`, so the slices don't
