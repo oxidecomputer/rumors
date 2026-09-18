@@ -1,4 +1,4 @@
-//! Wire helpers for the *asynchronous* gossip path.
+//! Wire helpers for gossip sessions.
 //!
 //! These drive `rumors::Rumors::gossip_once` over an in-memory [`rumors::link`]
 //! pair with both peers polled concurrently via `tokio::join!`. The two

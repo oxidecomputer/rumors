@@ -1,8 +1,7 @@
 //! Redaction-specific corners.
 //!
-//! Most of redaction is exercised generically by the multi-peer suite
-//! (`readout_matches_oracle_after_quiesce` in particular: the oracle
-//! bakes in `redact` events, and every peer's readout must match).
+//! Most redaction behavior is exercised by the multi-peer properties, whose
+//! oracle includes redactions and whose exact readout must match every peer.
 //! These tests target the redaction-specific corners with smaller,
 //! more legible schedules.
 
@@ -12,6 +11,7 @@ use std::collections::BTreeMap;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
+use rumors::{Peer as RumorsPeer, TryTick};
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
@@ -23,14 +23,14 @@ proptest! {
     /// message and no peer re-introduces it.
     ///
     /// Peer 0 inserts a message and quiesce propagates it everywhere;
-    /// then a peer chosen by `redactor_idx` (not necessarily peer 0)
+    /// then a generated peer (not necessarily peer 0)
     /// issues the redaction; after a final quiesce, every peer's
     /// live multiset is empty.
     #[test]
     fn redaction_propagates_from_any_peer(
-        n_peers in 2usize..=6,
+        (n_peers, redactor) in (2usize..=6)
+            .prop_flat_map(|n_peers| (Just(n_peers), 0..n_peers)),
         value in any::<u64>(),
-        redactor_idx in any::<usize>(),
     ) {
         let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
@@ -45,15 +45,14 @@ proptest! {
             prop_assert_eq!(live.get(&value).copied(), Some(1));
         }
 
-        let r = redactor_idx % n_peers;
-        peers[r].redact_one(&version);
+        peers[redactor].redact_one(&version);
         quiesce(&mut peers);
 
         for (i, peer) in peers.iter().enumerate() {
             prop_assert!(
                 readout_multiset(&peer.local.snapshot()).is_empty(),
                 "peer {} still has live messages after redaction by peer {}",
-                i, r,
+                i, redactor,
             );
         }
     }
@@ -91,44 +90,39 @@ proptest! {
         prop_assert_eq!(run(true), run(false));
     }
 
-    /// Redacting the same message a second time is idempotent: the live
-    /// readout is unchanged and nothing new is observed. (The second
-    /// redact is a nil action — the leaf is already gone.)
-    #[test]
-    fn redact_twice_is_idempotent(value in any::<u64>()) {
-        let mut peer = Peer::<u64>::new(rumors::Peer::seed().sync_window_floor().into_rumors());
-        let version = peer.insert_one(value);
-        peer.redact_one(&version);
-
-        let readout_before = readout_multiset(&peer.local.snapshot());
-        let obs_before = peer.observations.len();
-
-        peer.redact_one(&version);
-
-        prop_assert_eq!(readout_multiset(&peer.local.snapshot()), readout_before);
-        prop_assert_eq!(peer.observations.len(), obs_before);
-    }
-
-    /// Redacting a message created on a different peer that this peer
-    /// has never observed has no effect on live content and is not
-    /// observed.
+    /// Redacting an absent version is a complete no-op, whether the replica
+    /// never held it or already redacted it: live content, causal frontier,
+    /// and change notifications all remain unchanged.
     ///
-    /// Pins down the currently implemented behavior so
-    /// future regressions surface; the public docs are silent on
-    /// this corner.
+    /// Each generated payload exhausts both absent-version states. Empty roots
+    /// and roots retaining unrelated content must both remain unchanged.
     #[test]
-    fn redact_unknown_version_is_noop(value in any::<u64>()) {
-        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
-        let mut bob = Peer::new(bootstrap_fork(&seed));
-        let foreign_version = bob.insert_one(value);
+    fn absent_redactions_are_noops(value in any::<u64>()) {
+        for already_redacted in [false, true] {
+            for retain_unrelated in [false, true] {
+                let seed = RumorsPeer::<u64>::seed().sync_window_floor().into_rumors();
+                let subject = bootstrap_fork(&seed);
+                let absent = if already_redacted {
+                    let version = subject.send(value).unwrap();
+                    subject.redact(&version);
+                    version
+                } else {
+                    seed.send(value).unwrap()
+                };
+                if retain_unrelated {
+                    subject.send(u64::MAX).unwrap();
+                }
 
-        let mut alice = Peer::new(bootstrap_fork(&seed));
-        let readout_before = readout_multiset(&alice.local.snapshot());
-        let obs_before = alice.observations.len();
+                let before = subject.snapshot();
+                let mut changes = subject.changes();
+                prop_assert_eq!(changes.try_next(), TryTick::Tick);
+                prop_assert_eq!(changes.try_next(), TryTick::Quiet);
 
-        alice.redact_one(&foreign_version);
+                subject.redact(&absent);
 
-        prop_assert_eq!(readout_multiset(&alice.local.snapshot()), readout_before);
-        prop_assert_eq!(alice.observations.len(), obs_before);
+                prop_assert_eq!(subject.snapshot(), before);
+                prop_assert_eq!(changes.try_next(), TryTick::Quiet);
+            }
+        }
     }
 }

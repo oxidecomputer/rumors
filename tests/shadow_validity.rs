@@ -33,6 +33,7 @@ use proptest::prelude::*;
 
 use crate::common::oracle::{readout, version_key};
 use crate::common::overlap::{arb_overlap_schedule_with_shadow, execute_overlap};
+use crate::common::peer::{Peer, quiesce};
 use crate::common::schedule::{
     EventIdx, arb_membership_schedule_with_shadow, arb_schedule_with_shadow, execute_membership,
     execute_with,
@@ -46,6 +47,25 @@ const MAX_EVENTS: usize = 50;
 /// so the meta-test samples the population the properties run on.
 const OVERLAP_N_PEERS: std::ops::RangeInclusive<usize> = 2..=4;
 const OVERLAP_MAX_EVENTS: usize = 24;
+
+/// A full-mesh quiesce is inert for fleets with fewer than two peers.
+#[test]
+fn quiesce_handles_degenerate_fleets() {
+    let mut empty: Vec<Peer<u64>> = Vec::new();
+    quiesce(&mut empty);
+    assert!(empty.is_empty());
+
+    let mut peer = Peer::new(rumors::Peer::seed().sync_window_floor().into_rumors());
+    peer.insert_one(42);
+    let snapshot = peer.local.snapshot();
+    let observations = peer.observations();
+    let mut singleton = [peer];
+
+    quiesce(&mut singleton);
+
+    assert_eq!(singleton[0].local.snapshot(), snapshot);
+    assert_eq!(singleton[0].observations(), observations);
+}
 
 proptest! {
     /// For every peer, the shadow simulator's `observed_log` and

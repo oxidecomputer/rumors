@@ -39,11 +39,11 @@ const ROUNDS: u64 = 3;
 /// With the [`WRAP_ROUNDS`] divergent rounds after them, the
 /// link's u8 session counter crosses 255 and wraps to 0 mid-way through
 /// the divergent rounds.
-const PRE_WRAP_SESSIONS: usize = 253;
+const PRE_WRAP_SESSIONS: usize = u8::MAX as usize - 2;
 
 /// Divergent sessions bracketing the epoch wrap: with
-/// [`PRE_WRAP_SESSIONS`] before them they run at epochs 253, 254, 255,
-/// and the wrapped 0, 1, 2.
+/// [`PRE_WRAP_SESSIONS`] before them they begin two epochs below `u8::MAX`,
+/// cross the maximum, and continue after wrapping to zero.
 const WRAP_ROUNDS: u64 = 6;
 
 /// Create a connected, party-disjoint pair: a freshly seeded peer and a
@@ -186,14 +186,19 @@ async fn empty_sessions_advance_epochs_in_lockstep() {
 /// sessions spanning the wrap still label their streams consistently and
 /// converge.
 ///
-/// Strategy: converged no-op sessions burn epochs cheaply (they
-/// open no data streams but still count — the lockstep the test above
-/// pins), then divergent rounds bracket the wrap itself, running at
-/// epochs 253 through 255 and the wrapped 0 through 2.
+/// Strategy: converged no-op sessions advance to two epochs below `u8::MAX`,
+/// then divergent rounds cross the maximum and continue after wrapping to
+/// zero.
 #[tokio::test(flavor = "current_thread")]
 async fn epoch_wrap_keeps_the_pair_in_lockstep() {
     let (a, b) = pair().await;
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let pre_wrap_epoch = PRE_WRAP_SESSIONS as u8;
+    let final_epoch = pre_wrap_epoch.wrapping_add(WRAP_ROUNDS as u8);
+    assert!(
+        final_epoch < pre_wrap_epoch,
+        "the fixture must cross the epoch boundary"
+    );
 
     for session in 0..PRE_WRAP_SESSIONS {
         let (a_out, b_out) = timeout(DEADLINE, async {
@@ -204,6 +209,8 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
         a_out.expect("A's no-op session");
         b_out.expect("B's no-op session");
     }
+    assert_eq!(a_link.session_state().epoch(), pre_wrap_epoch);
+    assert_eq!(b_link.session_state().epoch(), pre_wrap_epoch);
 
     for round in 0..WRAP_ROUNDS {
         a.send(round).unwrap();
@@ -220,6 +227,9 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
             b.snapshot().hash(),
             "wrap round {round} did not converge the pair"
         );
+        let expected_epoch = pre_wrap_epoch.wrapping_add(round as u8 + 1);
+        assert_eq!(a_link.session_state().epoch(), expected_epoch);
+        assert_eq!(b_link.session_state().epoch(), expected_epoch);
     }
     assert_eq!(a.snapshot().len(), 2 * WRAP_ROUNDS as usize);
     assert_control_drained(a_link, b_link);

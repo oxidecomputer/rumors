@@ -157,31 +157,16 @@ proptest! {
         }
     }
 
-    /// Final state after a batch commit does not depend on the input
-    /// order. Inserting `values` and a Fisher-Yates shuffle of `values`
-    /// into two fresh peers yields equal live value multisets.
+    /// A batch's live-value multiset does not depend on input order. Inserting
+    /// a generated sequence and a generated permutation into two fresh peers
+    /// yields equal multisets, although their assigned versions may differ.
     #[test]
-    fn batch_state_is_input_order_independent(
-        values in vec(any::<u64>(), 0..=16),
-        seed in any::<u64>(),
+    fn batch_live_values_are_input_order_independent(
+        (values, shuffled) in vec(any::<u64>(), 0..=16).prop_flat_map(|values| {
+            let shuffled = Just(values.clone()).prop_shuffle();
+            (Just(values), shuffled)
+        }),
     ) {
-        let shuffled = {
-            let mut v = values.clone();
-            // Fisher-Yates over an inline 64-bit LCG: deterministic
-            // from `seed`, no extra dependency; any step function whose
-            // high bits reduce to a uniform-enough draw over `0..=i`
-            // would do.
-            let mut state = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            for i in (1..v.len()).rev() {
-                state = state
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                let j = ((state >> 33) as usize) % (i + 1);
-                v.swap(i, j);
-            }
-            v
-        };
-
         // Each peer is its own fresh seed (the two never gossip, so they
         // need not share a universe). Read the live multiset directly off
         // the snapshot.

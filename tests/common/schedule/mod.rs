@@ -11,6 +11,11 @@
 //!   gossip-filterable `execute_with` primitive used by the
 //!   partition tests, and the membership entry points over a slotted
 //!   fleet.
+//!
+//! When a strategy chooses an index into a fixed fleet, derive its range with
+//! `prop_flat_map` so shrinking preserves the index's meaning. Executors may
+//! resolve an arbitrary seed modulo the current fleet only when membership
+//! changes while the schedule runs.
 
 pub mod arb;
 pub mod events;
