@@ -107,7 +107,7 @@ triage's dispositions and branches are leads only.
       across the public fold paths.
       Source: `skyline-query-9`.
 
-- [ ] Decode `Rank` directly from `Read` without retaining a redundant copy of
+- [x] Decode `Rank` directly from `Read` without retaining a redundant copy of
       the complete input. Preserve truncation, padding, trailing-input, and I/O
       errors, then reassess the fraction and numeric-assembly temporaries.
       Source: owner review, 2026-09-17.

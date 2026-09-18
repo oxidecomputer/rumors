@@ -869,8 +869,7 @@ fn rank_parts(r: &super::Rank) -> (BigUint, u64) {
     (BigUint::from_bytes_le(&num.to_bytes_le()), exp)
 }
 
-/// Build one worst-case `Rank` from a deterministic
-/// deterministic word stream.
+/// Build one worst-case `Rank` from a deterministic word stream.
 ///
 /// Odd numerators from one to a few hundred limbs wide (with all-ones
 /// runs so shared prefixes go deep), exponents from zero to well past
@@ -1227,6 +1226,72 @@ fn rank_decoding_rejects_each_malformed_input_class() {
         let err = super::Rank::decode(bytes).expect_err(description);
         assert!(matches_error(&err), "{description}: wrong error: {err}");
     }
+}
+
+/// A reader that exposes at most one byte per call.
+struct OneByteReader<'a>(&'a [u8]);
+
+/// Advances through the slice one byte at a time.
+impl std::io::Read for OneByteReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let Some((byte, rest)) = self.0.split_first() else {
+            return Ok(0);
+        };
+        let Some(dst) = buf.first_mut() else {
+            return Ok(0);
+        };
+        *dst = *byte;
+        self.0 = rest;
+        Ok(1)
+    }
+}
+
+proptest! {
+    /// Reader chunk boundaries do not affect rank decoding.
+    ///
+    /// Arbitrary byte strings decode identically when presented as one slice or
+    /// through one-byte reads. This exercises both the fixed-prefix path and the
+    /// incremental path, including acceptance and every structural rejection.
+    #[test]
+    fn rank_decode_is_independent_of_reader_chunks(
+        bytes in prop_oneof![
+            3 => proptest::collection::vec(any::<u8>(), 0..256),
+            1 => any::<u64>().prop_map(|seed| seeded_rank(seed).encode()),
+        ],
+    ) {
+        let whole = super::Rank::decode(bytes.as_slice());
+        let fragmented = super::Rank::decode(OneByteReader(&bytes));
+        match (whole, fragmented) {
+            (Ok(a), Ok(b)) => prop_assert_eq!(a, b),
+            (Err(crate::error::Decode::Truncated), Err(crate::error::Decode::Truncated))
+            | (Err(crate::error::Decode::TrailingBits), Err(crate::error::Decode::TrailingBits))
+            | (Err(crate::error::Decode::NotCanonical), Err(crate::error::Decode::NotCanonical)) => {}
+            (expected, actual) => prop_assert!(false, "chunking changed {expected:?} to {actual:?}"),
+        }
+    }
+}
+
+/// A reader failure after a complete rank remains an I/O error rather than
+/// being mistaken for clean EOF or trailing input.
+#[test]
+fn rank_decode_preserves_late_reader_errors() {
+    use std::io::{self, Cursor, Read};
+
+    /// A reader that fails whenever decoding reaches it.
+    struct FailedTail;
+
+    impl Read for FailedTail {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("tail failed"))
+        }
+    }
+
+    let bytes = uniform(1u8).rank().encode();
+    let reader = Cursor::new(bytes).chain(FailedTail);
+    assert!(matches!(
+        super::Rank::decode(reader),
+        Err(crate::error::Decode::Io(error)) if error.kind() == io::ErrorKind::Other
+    ));
 }
 
 /// Every version-derived rank encoding is no larger than its source version.

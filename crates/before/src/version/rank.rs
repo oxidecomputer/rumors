@@ -58,7 +58,7 @@
 //!    (malformed streams may panic) where this decoder must strictly
 //!    and totally reject — so the writer is in-house like every
 //!    writer in this crate (the byte-backed stores again), and the
-//!    reader is a few dozen lines over a plain byte slice. No
+//!    reader consumes bytes incrementally without retaining the input. No
 //!    maintained order-preserving varint reaches arbitrary precision
 //!    either: `ordered-varint` caps at 16-byte primitives, and the
 //!    FoundationDB tuple encoding's arbitrary-precision integers cap
@@ -135,7 +135,7 @@ use core::fmt::{self, Debug, Display};
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
 use core::str::FromStr;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 
 use num_bigint::BigUint;
 use suanpan::Accumulator;
@@ -430,12 +430,12 @@ impl Rank {
     /// Decodes a rank from a reader of canonical [`encode`](Rank::encode)
     /// bytes, strictly rejecting everything else.
     ///
-    /// # Decoded size
+    /// # Encoded size
     ///
     /// The serialized representation of a [`Rank`] is at most `9⁄8 · ‖r‖ +
     /// O(log ‖r‖)` bits: one bit per integral bit, nine bits per eight
-    /// fractional bits (this is required to keep distinct ranks' encodings
-    /// prefix-free, providing the above generalized suffix-safety).
+    /// fractional bits. The fractional framing keeps distinct encodings from
+    /// being prefixes of one another.
     ///
     /// # Errors
     ///
@@ -444,9 +444,8 @@ impl Rank {
     /// - [`Decode::TrailingBits`] when the byte string is not the minimal packing
     ///   of its content (bytes past the stream's own, a set bit in the padding,
     ///   or an all-zero final fraction group);
-    /// - [`Decode::NotCanonical`] when otherwise valid content exceeds the type's
-    ///   representation bound (an integral mantissa of `2⁶⁴` or more bits, effectively
-    ///   unreachable, since it can only be hit by reading inputs of 2 EiB or more);
+    /// - [`Decode::NotCanonical`] when the integral header declares a mantissa
+    ///   width of `2⁶⁴` or more bits;
     /// - [`Decode::Io`] when the reader itself fails.
     ///
     /// # Complexity
@@ -456,6 +455,9 @@ impl Rank {
         not(doc),
         doc = "`O(n)` in total input bytes; `O(n)`, `n` the bytes read, accepted or rejected"
     )]
+    ///
+    /// The decoder reads incrementally and does not retain a copy of the encoded
+    /// input.
     ///
     /// # Example
     ///
@@ -469,10 +471,70 @@ impl Rank {
     /// let padded = [key.clone(), vec![0]].concat();
     /// assert!(matches!(Rank::decode(&padded[..]), Err(Decode::TrailingBits)));
     /// ```
-    pub fn decode<R: io::Read>(mut reader: R) -> Result<Rank, Decode> {
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        Self::decode_bytes(&buf)
+    pub fn decode<R: Read>(mut reader: R) -> Result<Rank, Decode> {
+        let mut buf = [0; DECODE_CHUNK_BYTES];
+        let mut end = 0;
+        let at_eof = loop {
+            match reader.read(&mut buf[end..]) {
+                Ok(0) => break true,
+                Ok(read) => {
+                    end += read;
+                    if end == buf.len() {
+                        break false;
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(Decode::Io(error)),
+            }
+        };
+
+        // Most inputs end within the fixed prefix. Decode those through the
+        // simpler slice path; only an incomplete full prefix needs incremental
+        // reading. Retrying a bounded prefix keeps that slow path linear.
+        match Self::decode_bytes(&buf[..end]) {
+            Ok(rank) if at_eof => return Ok(rank),
+            Ok(rank) => loop {
+                match reader.read(&mut buf[..1]) {
+                    Ok(0) => return Ok(rank),
+                    Ok(_) => return Err(Decode::TrailingBits),
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(error) => return Err(Decode::Io(error)),
+                }
+            },
+            Err(Decode::Truncated) if at_eof => return Err(Decode::Truncated),
+            Err(Decode::Truncated) => {}
+            Err(error) => return Err(error),
+        }
+
+        let mut next = 0;
+        let rank = Self::decode_stream(|| loop {
+            if next < end {
+                let byte = buf[next];
+                next += 1;
+                return Ok(byte);
+            }
+            match reader.read(&mut buf) {
+                Ok(0) => return Err(Decode::Truncated),
+                Ok(read) => {
+                    next = 0;
+                    end = read;
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(Decode::Io(error)),
+            }
+        })?;
+
+        if next < end {
+            return Err(Decode::TrailingBits);
+        }
+        loop {
+            match reader.read(&mut buf[..1]) {
+                Ok(0) => return Ok(rank),
+                Ok(_) => return Err(Decode::TrailingBits),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(Decode::Io(error)),
+            }
+        }
     }
 
     /// Decodes canonical bytes already held in memory.
@@ -628,6 +690,11 @@ impl Rank {
 /// expansion bits plus the one closing bit.
 const FRACTION_GROUP_BITS: u64 = 8;
 
+/// Bytes examined directly before decoding falls back to incremental reads.
+///
+/// Retrying this fixed prefix bounds the extra work independently of input size.
+const DECODE_CHUNK_BYTES: usize = 64;
+
 /// A byte-at-a-time source dressed as an MSB-first bit reader: one byte
 /// buffered, refilled strictly on demand.
 struct BitSource<F> {
@@ -670,9 +737,8 @@ impl Rank {
             rho += 1;
         }
         if rho >= 64 {
-            // The format bound: an integral width of 2⁶⁴ or more bits exceeds
-            // both the numerator this crate can hold and any input under 2 EiB
-            // (the mantissa alone would need 2⁶⁴ − 1 bits).
+            // The format stores the integral width in `u64`; a longer header
+            // cannot name a representable width.
             return Err(Decode::NotCanonical);
         }
         // w's bits below its (implied) leading bit: ρ of them, so w < 2⁶⁴.
