@@ -25,6 +25,12 @@
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 3 }
 
+# Four thousand property cases make the slowest Rumors tests take several
+# minutes in release. Ten minutes still turns a lost wakeup into a failure
+# while leaving headroom over the measured five-to-six-minute maximum.
+[profile.high-count]
+slow-timeout = { period = "60s", terminate-after = 10 }
+
 # The window measurement suites (window_knee, window_operator,
 # window_corners, gossip_pipelining) need no scheduling isolation: their
 # pins assert on exact virtual wire time (`benches/support/latency.rs`),

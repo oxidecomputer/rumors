@@ -42,6 +42,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 nightly_toolchain := "nightly-2026-06-30"
 
+# Default cases per property in CI's release-profile Rumors run. Four thousand
+# takes the slowest current property about five to six minutes on Helios, within
+# the ten-minute limit in .config/nextest.toml. Re-measure before raising it.
+proptest_ci_cases := "4000"
+
 # The triple the fuzz recipes build for. cargo-fuzz defaults `--target` to the
 # triple it was itself built for, not the host's, so a statically linked
 # prebuilt (what the CI installer ships) aims the sanitizer build at
@@ -108,7 +113,14 @@ test *args:
 
 # Run the test suites under every feature (the gate's test run).
 test-all *args:
-    cargo nextest run --workspace --all-features {{ args }}
+    cargo nextest run --workspace --all-features --no-fail-fast {{ args }}
+
+# Run Rumors at a larger property-test count under the faster release profile.
+# This stays package-scoped: before's operation meters intentionally pin the
+# dev profile and have their own exhaustive verification. A few unusually
+# expensive stress properties retain their explicit, smaller case budgets.
+test-release *args:
+    PROPTEST_CASES={{ proptest_ci_cases }} cargo nextest run -p rumors --all-features --locked --cargo-profile release --profile high-count --no-fail-fast {{ args }}
 
 # Stable rustdoc compiles one executable per example; `before` has nearly 100,
 # and their macOS link work dominates the gate. Nightly's merged mode compiles
@@ -912,14 +924,14 @@ worst-cases-pin:
 # coverage section below): too slow for the gate, judged against the
 # curated kernel pin.
 #
-# `all` is `ci` plus the coverage legs and work CI cannot run: a short
-# libFuzzer smoke and the formal and model-based gates.
+# `all` is `ci` plus the high-count property run, coverage legs, and work CI
+# cannot run: a short libFuzzer smoke and the formal and model-based gates.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all future-size citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, coverage, fuzz smoke, and formal/model gates.
-all: ci coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe
+all: ci test-release coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe
 
 # ── the coverage legs (`all` and CI cadence; the gate never runs them) ───────
 # GOAL: no skyline-kernel arm goes silently unexercised — every uncovered

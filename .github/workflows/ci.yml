@@ -10,6 +10,8 @@
 # supply-chain leg; its job comment says which instrument legs stay local and
 # why. The `coverage` job runs the two instrumented-coverage legs against the
 # curated kernel pin (the justfile's coverage section carries the design).
+# The `properties` job runs Rumors in release at the larger case count pinned
+# by `test-release` in the justfile.
 # The `gate` recipe line in the justfile remains the roster of record.
 # CI invokes recipes rather than re-listing their steps, so every check has
 # exactly one definition (the justfile) and the two can't drift.
@@ -262,3 +264,33 @@ jobs:
 
       - name: just coverage-kernel-branch (branch, pinned nightly)
         run: just coverage-kernel-branch
+
+  # More randomized Rumors coverage than the commit gate can afford. Release
+  # keeps each case cheap; the justfile owns the count and timeout profile.
+  properties:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install just and cargo-nextest
+        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        with:
+          tool: just,cargo-nextest
+
+      - name: Read the stable pin
+        id: stable
+        run: |
+          channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          if [ -z "$channel" ]; then echo "stable pin not found in rust-toolchain.toml" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Install the pinned stable toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: ${{ steps.stable.outputs.channel }}
+
+      - name: Cache Cargo build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Run high-count Rumors properties
+        run: just test-release
