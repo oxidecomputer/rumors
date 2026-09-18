@@ -55,16 +55,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Clone for Rumors<T, B> {
     /// Create another handle to the same peer.
     fn clone(&self) -> Self {
         Self {
-            peer: Peer {
-                network: self.peer.network,
-                window: self.peer.window,
-                run_budget: self.peer.run_budget,
-                gossip_policy: self.peer.gossip_policy.clone(),
-                inner: self.peer.inner.clone(),
-                bookmark: Arc::clone(&self.peer.bookmark),
-                codec: self.peer.codec,
-                observe: self.peer.observe.clone(),
-            },
+            peer: self.peer.share(),
             reunion: self.reunion.clone(),
         }
     }
@@ -80,9 +71,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
 
 /// Manage the shared replica and its handle lifetime.
 impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
-    /// Assemble the first handle of a fresh broadcast generation around `peer`,
-    /// the only constructor: every other handle is a [`Clone`] of this one, so
-    /// the token count faithfully counts handles.
+    /// Assemble the first handle of a fresh [`Rumors`] generation around
+    /// `peer`. Every other handle is a [`Clone`] of this one, so the channel's
+    /// sender count faithfully counts handles.
     pub(crate) fn new(peer: Peer<T, B>) -> Self {
         Self {
             peer,
@@ -309,8 +300,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.batch(f)
     }
 
-    /// The identifier shared by every peer that descends from the same
-    /// [`seed`](Peer::seed).
+    /// Return the gossip network this replica belongs to.
     pub fn network(&self) -> Network {
         self.peer.network()
     }
@@ -322,30 +312,30 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.snapshot()
     }
 
-    /// Monitor every message sent to this [`Rumors`], in arbitrary
-    /// (*non-causal*) order.
+    /// Observe every message in this [`Rumors`], however it arrived, in
+    /// arbitrary (*non-causal*) order.
     ///
     /// See [`UnorderedMessages`] for details.
     pub fn unordered_messages(&self) -> UnorderedMessages<T> {
         self.peer.unordered_messages()
     }
 
-    /// Monitor every message sent to this [`Rumors`] which is not already
-    /// causally contained in `since`, then everything learned afterwards, in
-    /// arbitrary (*non-causal*) order.
+    /// Observe every message not causally contained in `since`, then everything
+    /// learned afterwards, in arbitrary (*non-causal*) order.
     pub fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T> {
-        self.peer.messages_since(since)
+        self.peer.unordered_messages_since(since)
     }
 
-    /// Monitor every message sent to this [`Rumors`], in *causal order*.
+    /// Observe every message in this [`Rumors`], however it arrived, in
+    /// *causal order*.
     ///
     /// See [`CausalMessages`] for details.
     pub fn causal_messages(&self) -> CausalMessages<T> {
         self.peer.causal_messages()
     }
 
-    /// Monitor every message sent to this [`Rumors`] which is not already
-    /// causally contained in `since`, in *causal order*.
+    /// Observe every message not causally contained in `since`, then everything
+    /// learned afterwards, in *causal order*.
     ///
     /// See [`CausalMessages`] for details.
     pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T> {
@@ -359,7 +349,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// See [`Changes`] for details.
     pub fn changes(&self) -> Changes<T> {
-        Changes::subscribe(&self.peer.inner)
+        self.peer.changes()
     }
 
     /// Alias this set's live party for invariant assertions in tests; see

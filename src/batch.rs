@@ -36,6 +36,7 @@ impl<T: Send + Sync + 'static> std::fmt::Debug for Batch<'_, T> {
 }
 
 impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
+    /// Start an empty batch for `inner`, using its payload codec.
     pub(crate) fn new(inner: &'a watch::Sender<Inner<T>>, codec: PayloadCodec) -> Self {
         Self {
             inner,

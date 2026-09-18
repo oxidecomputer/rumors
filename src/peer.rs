@@ -25,7 +25,7 @@ pub use crate::tree::mirror::streaming::remote::{
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{
-    Batch, Bookmark, CausalMessages, Network, Rumors, Snapshot, UnorderedMessages, Version,
+    Batch, Bookmark, CausalMessages, Changes, Network, Rumors, Snapshot, UnorderedMessages, Version,
 };
 
 use serde::{Serialize, de::DeserializeOwned};
@@ -467,6 +467,26 @@ impl<T: Send + Sync + 'static> Peer<T> {
     }
 }
 
+/// Share peer internals when cloning a [`Rumors`] handle.
+impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
+    /// Share this peer's replica, configuration, and bookmark with a new handle.
+    ///
+    /// Only [`Rumors::clone`] uses this internal operation; the public [`Peer`]
+    /// remains uniquely owned.
+    pub(crate) fn share(&self) -> Self {
+        Self {
+            network: self.network,
+            window: self.window,
+            run_budget: self.run_budget,
+            gossip_policy: self.gossip_policy.clone(),
+            inner: self.inner.clone(),
+            bookmark: Arc::clone(&self.bookmark),
+            codec: self.codec,
+            observe: self.observe.clone(),
+        }
+    }
+}
+
 /// Retire an exclusively held replica.
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Leave the gossip network after synchronizing with a remote member.
@@ -492,7 +512,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
 /// Inspect the network and configure replication behavior.
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// The globally unique identifier for this network of gossiping [`Peer`]s.
+    /// Return the gossip network this replica belongs to.
     pub fn network(&self) -> Network {
         self.network
     }
@@ -529,7 +549,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Select how each connection initiates gossip. By default it follows changes.
     ///
-    /// The factory receives a fresh [`Changes`](crate::Changes) subscription for
+    /// The factory receives a fresh [`Changes`] subscription for
     /// each [`Rumors::gossip`](crate::Rumors::gossip) driver. It can adapt that
     /// stream, combine it with periodic heartbeat requests, or ignore it and
     /// provide its own policy. An always-pending stream only serves remote
@@ -840,67 +860,86 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         Rumors::new(self)
     }
 
+    /// Create an empty batch against this replica.
+    fn new_batch(&self) -> Batch<'_, T> {
+        Batch::new(&self.inner, self.codec)
+    }
+
     /// Commit one message and return its stamped version.
     pub(crate) fn send(&self, message: T) -> Result<Version, EncodeError> {
-        let mut batch = Batch::new(&self.inner, self.codec);
+        let mut batch = self.new_batch();
         batch.send(message)?;
         Ok(batch.commit())
     }
 
+    /// Commit one redaction.
     pub(crate) fn redact(&self, version: &Version) {
-        let mut batch = Batch::new(&self.inner, self.codec);
+        let mut batch = self.new_batch();
         batch.redact(version);
         batch.commit();
     }
 
+    /// Commit the changes queued by a successful batch closure.
     pub(crate) fn batch<R, E, F>(&self, f: F) -> Result<R, E>
     where
         F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {
-        let mut batch = Batch::new(&self.inner, self.codec);
+        let mut batch = self.new_batch();
         let result = f(&mut batch)?;
         batch.commit();
         Ok(result)
     }
 
+    /// Commit every message from an iterator as one batch.
     pub(crate) fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
     where
         I: IntoIterator<Item = T>,
     {
-        let mut batch = Batch::new(&self.inner, self.codec);
+        let mut batch = self.new_batch();
         batch.send_all(messages)?;
         batch.commit();
         Ok(())
     }
 
+    /// Commit every redaction from an iterator as one batch.
     pub(crate) fn redact_all<I>(&self, versions: I)
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        let mut batch = Batch::new(&self.inner, self.codec);
+        let mut batch = self.new_batch();
         batch.redact_all(versions);
         batch.commit();
     }
 
+    /// Capture the replica's current immutable state.
     pub(crate) fn snapshot(&self) -> Snapshot<T> {
         Snapshot::new(self.network, self.inner.borrow().tree.clone())
     }
 
+    /// Subscribe to every current and future live message in arbitrary order.
     pub(crate) fn unordered_messages(&self) -> UnorderedMessages<T> {
-        self.messages_since(Version::new())
+        self.unordered_messages_since(Version::new())
     }
 
-    pub(crate) fn messages_since(&self, since: Version) -> UnorderedMessages<T> {
+    /// Subscribe in arbitrary order beyond a causal checkpoint.
+    pub(crate) fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T> {
         UnorderedMessages::subscribe(&self.inner, since)
     }
 
+    /// Subscribe to every current and future live message in causal order.
     pub(crate) fn causal_messages(&self) -> CausalMessages<T> {
         self.causal_messages_since(Version::new())
     }
 
+    /// Subscribe in causal order beyond a causal checkpoint.
     pub(crate) fn causal_messages_since(&self, since: Version) -> CausalMessages<T> {
         CausalMessages::subscribe(&self.inner, since)
+    }
+
+    /// Subscribe to coalesced changes in the replica's causal frontier.
+    pub(crate) fn changes(&self) -> Changes<T> {
+        Changes::subscribe(&self.inner)
     }
 
     /// Alias the live identity for invariant assertions in tests.

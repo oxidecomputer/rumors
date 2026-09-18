@@ -1,5 +1,8 @@
-use crate::{Network, Version, causally, tree::Tree};
 use std::{fmt, sync::Arc};
+
+#[cfg(any(test, feature = "test-internals"))]
+use crate::tree::MERKLE_HASH_LEN;
+use crate::{Network, Version, causally, tree::Tree};
 
 /// An iterator over the live messages in a [`Snapshot`].
 ///
@@ -33,8 +36,7 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
         &self.tree
     }
 
-    /// The identifier shared by every peer that descends from the same
-    /// [`seed`](crate::Peer::seed) as the snapshotted set.
+    /// Return the gossip network this snapshot belongs to.
     pub fn network(&self) -> Network {
         self.network
     }
@@ -73,7 +75,7 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// Test support for checking the tree's internal comparison signal. Use
     /// snapshot equality or the read methods in application code.
     #[cfg(any(test, feature = "test-internals"))]
-    pub fn hash(&self) -> [u8; crate::tree::MERKLE_HASH_LEN] {
+    pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         self.tree.hash()
     }
 

@@ -1,5 +1,5 @@
 use crate::tree::RangeOwned;
-use crate::{Version, causally};
+use crate::{Inner, Version, causally};
 use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -8,8 +8,8 @@ use tokio::sync::watch;
 
 use super::channel::Channel;
 
-/// An observer of messages sent to a [`Rumors`](crate::Rumors), in completely
-/// arbitrary (*non-causal*) order.
+/// Observe messages in a [`Rumors`](crate::Rumors), in completely arbitrary
+/// (*non-causal*) order.
 ///
 /// This enumerates every message not causally contained in the starting
 /// checkpoint, then every message learned afterwards: by local
@@ -80,7 +80,7 @@ struct Pass {
 /// Creates passes and exposes their completed frontier.
 impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// Observes messages beyond `since`, starting from the current snapshot.
-    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
+    pub(crate) fn subscribe(inner: &watch::Sender<Inner<T>>, since: Version) -> Self {
         Self {
             channel: Channel::subscribe(inner),
             checkpoint: since,
@@ -93,7 +93,7 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// handle clone) and capture the ceiling.
     fn open_pass(
         pass: &mut Option<Pass>,
-        rx: &mut watch::Receiver<crate::Inner<T>>,
+        rx: &mut watch::Receiver<Inner<T>>,
         checkpoint: &Version,
     ) {
         if pass.is_none() {
@@ -133,7 +133,7 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// #     .unwrap()
     /// #     .block_on(async {
     /// let rumors = Peer::<String>::seed().into_rumors();
-    /// rumors.send("one".to_string());
+    /// rumors.send("one".to_string()).unwrap();
     ///
     /// let mut observer = rumors.unordered_messages();
     /// let (_version, m) = observer.next().await.expect("one message");
@@ -150,7 +150,7 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     ///
     /// // A resume from it re-observes nothing from the completed pass and
     /// // everything not yet delivered.
-    /// rumors.send("two".to_string());
+    /// rumors.send("two".to_string()).unwrap();
     /// let mut resumed = rumors.unordered_messages_since(checkpoint);
     /// let (_version, m) = resumed.next().await.expect("only the new message");
     /// assert_eq!(m.as_str(), "two");

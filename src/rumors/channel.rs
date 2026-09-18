@@ -11,14 +11,15 @@ use std::task::{Context, Poll};
 
 use tokio::sync::watch;
 
+use crate::Inner;
+
 /// An owned wait for a replica change, returning its receiver when ready.
-type WaitForChange<T> =
-    Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T>>)> + Send>>;
+type WaitForChange<T> = Pin<Box<dyn Future<Output = (bool, watch::Receiver<Inner<T>>)> + Send>>;
 
 /// Holds an observer's receiver while it is ready, waiting, or closed.
 pub(super) enum Channel<T: Send + Sync + 'static> {
     /// The observer may inspect the replica's latest state.
-    Ready(watch::Receiver<crate::Inner<T>>),
+    Ready(watch::Receiver<Inner<T>>),
     /// The observer has registered its waker and awaits a change.
     Waiting(WaitForChange<T>),
     /// Every sender has dropped, so no later state can arrive.
@@ -28,7 +29,7 @@ pub(super) enum Channel<T: Send + Sync + 'static> {
 /// Creates the receiver shared by each content-observer implementation.
 impl<T: Send + Sync + 'static> Channel<T> {
     /// Subscribes to `inner`, initially ready to inspect its current state.
-    pub(super) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
+    pub(super) fn subscribe(inner: &watch::Sender<Inner<T>>) -> Self {
         Self::Ready(inner.subscribe())
     }
 }
@@ -39,7 +40,7 @@ impl<T: Send + Sync + 'static> Channel<T> {
     pub(super) fn poll_receiver(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<&mut watch::Receiver<crate::Inner<T>>>> {
+    ) -> Poll<Option<&mut watch::Receiver<Inner<T>>>> {
         loop {
             match self {
                 Self::Ready(receiver) => return Poll::Ready(Some(receiver)),

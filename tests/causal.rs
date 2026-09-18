@@ -11,6 +11,9 @@
 //! *item*, a *quiet* observer (no change to report, actors live), or an
 //! *ended* one (final state fully delivered).
 
+#[path = "support/allocation.rs"]
+mod allocation;
+
 use rumors_testkit::common;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,6 +27,30 @@ use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
 };
 use crate::common::wire::{bootstrap_fork, wire_gossip};
+
+/// Number of messages staged by the allocation probe.
+const ALLOCATION_BACKLOG: u64 = 256;
+
+/// Staging a backlog does not allocate a copied key for every version.
+///
+/// Tree traversal and the staging map retain structural allocations, but fewer
+/// than one per staged message. This catches a copied key, or any equivalent
+/// per-version allocation, without pinning the map's internal node size.
+#[test]
+fn causal_staging_has_no_per_version_allocation() {
+    let rumors = Peer::<u64>::seed().into_rumors();
+    rumors.send_all(0..ALLOCATION_BACKLOG).unwrap();
+    let mut messages = rumors.causal_messages();
+
+    let (stats, first) = allocation::measure(|| messages.try_next());
+
+    assert!(matches!(first, rumors::TryNext::Message(_)));
+    assert!(
+        stats.allocations < ALLOCATION_BACKLOG as usize,
+        "staging {ALLOCATION_BACKLOG} messages performed {} allocations",
+        stats.allocations,
+    );
+}
 
 /// Assert the causal-delivery contract on a delivered sequence: no message
 /// precedes a delivered message it causally dominates — for every pair, the

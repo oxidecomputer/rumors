@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use tokio::sync::watch;
 
-use crate::Version;
+use crate::{Inner, Version};
 
 use super::channel::Channel;
 
@@ -63,7 +63,7 @@ pub enum TryTick {
 /// Creates change subscriptions and exposes non-blocking polling.
 impl<T: Send + Sync + 'static> Changes<T> {
     /// Subscribe to the replica, reporting its current state on the first poll.
-    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
+    pub(crate) fn subscribe(inner: &watch::Sender<Inner<T>>) -> Self {
         Self {
             channel: Channel::subscribe(inner),
             seen: None,

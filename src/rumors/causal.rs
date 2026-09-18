@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -8,13 +9,41 @@ use futures::Stream;
 use tokio::sync::watch;
 
 use crate::tree::Leaf;
-use crate::{Version, causally};
+use crate::{Inner, Version, causally};
 
 use super::channel::Channel;
 use super::unordered::TryNext;
 
-/// An observer of messages sent to a [`Rumors`](crate::Rumors), in some
-/// arbitrary yet causal order.
+/// The total order used to drain one staged snapshot.
+///
+/// Materializing the rank avoids recomputing it during tree comparisons. The
+/// owned version is a reference bump into the leaf and supplies canonical bytes
+/// to break ties without copying them into another allocation.
+#[derive(PartialEq, Eq)]
+struct StageKey {
+    /// The version's causal rank.
+    rank: Rank,
+    /// The staged leaf's version, retained for its canonical bytes.
+    version: Version,
+}
+
+/// Compare staged versions by rank, then by canonical bytes.
+impl Ord for StageKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.rank
+            .cmp(&other.rank)
+            .then_with(|| self.version.as_bytes().cmp(other.version.as_bytes()))
+    }
+}
+
+/// Delegate partial comparison to the key's total order.
+impl PartialOrd for StageKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Observe messages in a [`Rumors`](crate::Rumors) in causal order.
 ///
 /// For any two yielded messages with versions `v` and `w`, if `v < w` then the
 /// `v` message is yielded first. Concurrent messages are delivered in arbitrary
@@ -59,7 +88,7 @@ pub struct CausalMessages<T: Send + Sync + 'static> {
     /// later pass may introduce lower-ranked concurrent messages. A new pass
     /// opens only once this empties. Its range starts at `checkpoint` and ends
     /// at `ingested`.
-    staged: BTreeMap<(Rank, Vec<u8>), Leaf>,
+    staged: BTreeMap<StageKey, Leaf>,
 }
 
 /// Summarize an observer without requiring its payloads to be debuggable.
@@ -77,7 +106,7 @@ impl<T: Send + Sync + 'static> std::fmt::Debug for CausalMessages<T> {
 /// Subscribe, stage unseen messages, and expose a safe resume point.
 impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// Observe messages beyond `since`, starting from the current snapshot.
-    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
+    pub(crate) fn subscribe(inner: &watch::Sender<Inner<T>>, since: Version) -> Self {
         Self {
             channel: Channel::subscribe(inner),
             ingested: since.clone(),
@@ -94,9 +123,9 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// Capture the owned walk and ceiling under the watch read guard, then
     /// release it before traversing the snapshot.
     fn ingest(
-        staged: &mut BTreeMap<(Rank, Vec<u8>), Leaf>,
+        staged: &mut BTreeMap<StageKey, Leaf>,
         ingested: &mut Version,
-        rx: &mut watch::Receiver<crate::Inner<T>>,
+        rx: &mut watch::Receiver<Inner<T>>,
     ) {
         let (walk, ceiling) = {
             let inner = rx.borrow_and_update();
@@ -107,7 +136,13 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
         };
         for (_, leaf) in walk {
             let version = leaf.version();
-            staged.insert((version.rank(), version.as_bytes().to_vec()), leaf);
+            staged.insert(
+                StageKey {
+                    rank: version.rank(),
+                    version: version.clone(),
+                },
+                leaf,
+            );
         }
         *ingested |= &ceiling;
     }
