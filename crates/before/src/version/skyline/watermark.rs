@@ -175,7 +175,7 @@ use suanpan::Accumulator;
 
 use num_bigint::{BigInt, Sign};
 
-use crate::codec::accumulator;
+use crate::codec::{accumulator, BitStack, PopStack};
 
 use super::web_traffic;
 
@@ -246,67 +246,74 @@ enum Entry<P> {
     Diff { boundary: Boundary, payload: P },
 }
 
-/// Storage class of one logical [`DifferenceStack`] record.
-#[repr(u8)]
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum EntryKind {
-    /// A run of equal minima.
-    ZeroRun,
-    /// A difference held in one machine word.
-    Word,
-    /// A difference held in the wide-value stack.
-    Wide,
-}
-
 /// Compact LIFO storage for the boundaries between armed ranges.
 ///
-/// A direct `Vec<Entry<P>>` would give every zero run enough space and alignment
-/// for a payload and a wide accumulator. Instead, `kinds` and `words` describe
-/// every logical record, while `payloads` contains only positive boundaries and
-/// `wide` contains only arbitrary-precision boundaries. Because every column is
-/// popped in LIFO order, sparse columns need no per-record indices.
+/// A direct `Vec<Entry<P>>` would give a one-bit boundary enough space and
+/// alignment for a machine word, a payload, and a wide accumulator. Instead,
+/// bit stacks identify positive and wide boundaries. [`PopStack`] stores zero
+/// counts and word-sized boundaries in space proportional to their bit width,
+/// while sparse vectors contain only payloads and arbitrary-precision values.
+/// Every column is LIFO, so no per-record indices are needed.
 struct DifferenceStack<P> {
-    /// The representation of each logical record.
-    kinds: Vec<EntryKind>,
-    /// A zero-run count or word-sized difference for each logical record.
-    words: Vec<u64>,
+    /// Whether each flushed record is a positive difference rather than a zero
+    /// run.
+    positive: BitStack,
+    /// Whether each positive difference is arbitrary precision.
+    wide: BitStack,
+    /// Zero-run counts and word-sized positive differences.
+    compact: PopStack,
+    /// A zero run at the top, retained separately so extending it is O(1).
+    pending_zeros: u64,
     /// Payloads for nonzero differences.
     payloads: Vec<P>,
-    /// Differences too wide for `words`.
-    wide: Vec<Accumulator>,
+    /// Arbitrary-precision differences.
+    wide_values: Vec<Accumulator>,
 }
 
 impl<P> DifferenceStack<P> {
     /// Construct an empty set of synchronized storage columns.
     fn new() -> Self {
         Self {
-            kinds: Vec::new(),
-            words: Vec::new(),
+            positive: BitStack::new(),
+            wide: BitStack::new(),
+            compact: PopStack::new(),
+            pending_zeros: 0,
             payloads: Vec::new(),
-            wide: Vec::new(),
+            wide_values: Vec::new(),
         }
     }
 
     /// Whether there are no logical boundary records.
     fn is_empty(&self) -> bool {
-        debug_assert_eq!(self.kinds.len(), self.words.len());
-        self.kinds.is_empty()
+        self.pending_zeros == 0 && self.positive.len() == 0
+    }
+
+    /// Move the top zero run into the packed columns before another record is
+    /// pushed above it.
+    fn flush_zeros(&mut self) {
+        if self.pending_zeros == 0 {
+            return;
+        }
+        self.positive.push(false);
+        self.compact.push(self.pending_zeros);
+        self.pending_zeros = 0;
     }
 
     /// Push one positive boundary.
     ///
-    /// The kind selects either the inline word or the next entry on `wide`.
-    /// Every positive boundary also appends exactly one payload.
+    /// A width bit selects either the packed word or the next arbitrary-
+    /// precision value. Every positive boundary also appends one payload.
     fn push_diff(&mut self, boundary: Boundary, payload: P) {
+        self.flush_zeros();
+        self.positive.push(true);
         match boundary {
             Boundary::Word(word) => {
-                self.kinds.push(EntryKind::Word);
-                self.words.push(word);
+                self.wide.push(false);
+                self.compact.push(word);
             }
             Boundary::Wide(wide) => {
-                self.kinds.push(EntryKind::Wide);
-                self.words.push(0);
-                self.wide.push(wide);
+                self.wide.push(true);
+                self.wide_values.push(wide);
             }
         }
         self.payloads.push(payload);
@@ -317,15 +324,7 @@ impl<P> DifferenceStack<P> {
     /// Adjacent runs are merged, so any number of nested ranges sharing one
     /// minimum needs a single logical record.
     fn push_zeros(&mut self, count: u64) {
-        if count == 0 {
-            return;
-        }
-        if self.kinds.last() == Some(&EntryKind::ZeroRun) {
-            *self.words.last_mut().expect("each kind has a value") += count;
-        } else {
-            self.kinds.push(EntryKind::ZeroRun);
-            self.words.push(count);
-        }
+        self.pending_zeros += count;
     }
 
     /// Pop the boundary nearest the innermost armed range.
@@ -334,18 +333,29 @@ impl<P> DifferenceStack<P> {
     /// all columns in lockstep here preserves the one-payload-per-boundary
     /// invariant.
     fn pop(&mut self) -> Option<Entry<P>> {
-        let kind = self.kinds.pop()?;
-        let word = self.words.pop().expect("each kind has a value");
-        Some(match kind {
-            EntryKind::ZeroRun => Entry::ZeroRun(word),
-            EntryKind::Word => Entry::Diff {
-                boundary: Boundary::Word(word),
-                payload: self.payloads.pop().expect("each difference has a payload"),
-            },
-            EntryKind::Wide => Entry::Diff {
-                boundary: Boundary::Wide(self.wide.pop().expect("each wide kind has a value")),
-                payload: self.payloads.pop().expect("each difference has a payload"),
-            },
+        if self.pending_zeros != 0 {
+            return Some(Entry::ZeroRun(core::mem::take(&mut self.pending_zeros)));
+        }
+        let positive = self.positive.pop()?;
+        if !positive {
+            return Some(Entry::ZeroRun(self.compact.pop()));
+        }
+        let boundary = if self
+            .wide
+            .pop()
+            .expect("each positive boundary carries a width tag")
+        {
+            Boundary::Wide(
+                self.wide_values
+                    .pop()
+                    .expect("each wide tag has a wide value"),
+            )
+        } else {
+            Boundary::Word(self.compact.pop())
+        };
+        Some(Entry::Diff {
+            boundary,
+            payload: self.payloads.pop().expect("each difference has a payload"),
         })
     }
 }
