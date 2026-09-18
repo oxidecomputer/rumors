@@ -1,14 +1,13 @@
 //! End-to-end sessions between materialized peers and protocol-start proxies.
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use std::convert::Infallible;
+
+use serde::{Serialize, de::DeserializeOwned};
 
 use futures::join;
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use crate::link::memory_with_capacity;
 use crate::observe::SessionHandle;
 use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_link};
 use crate::tree::mirror::preamble::{self, Intent};
@@ -30,12 +29,13 @@ use crate::tree::{
     },
 };
 use crate::{
-    DEFAULT_TARGET_MESSAGE_SIZE, Version,
+    DEFAULT_TARGET_MESSAGE_SIZE, Network, Version,
+    link::memory_with_capacity,
     message::{Message, PayloadCodec, PayloadDepthLimit},
     tree::mirror::Error as MirrorError,
 };
 
-use harness::{Backends, EndpointError, Topology, codec, drive};
+use harness::{Backends, EndpointError, TRANSPORT_CAPACITY, Topology, codec, disjoint_pair, drive};
 
 /// An injected failure over the otherwise infallible local backend.
 type BackendFailure = Failure<Infallible>;
@@ -59,8 +59,9 @@ mod harness;
 mod malformed;
 mod transport;
 
-/// Bytes buffered by each per-stream pipe before backpressure applies.
-const TRANSPORT_CAPACITY: usize = 37;
+/// Capacity large enough to isolate preamble/session byte ownership from
+/// transport backpressure.
+const PREAMBLE_CAPACITY: usize = 64 * 1024;
 
 /// Drive the production topology: each materialized local is the client of
 /// its own proxy, so both physical endpoints execute `Accept` concurrently.
@@ -93,8 +94,8 @@ async fn reconcile_after_preamble<T>(a: TreeRoot, b: TreeRoot) -> (TreeRoot, Tre
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    let (mut a_link, mut b_link) = memory_with_capacity(64 * 1024);
-    let network = crate::Network::from_bytes([1; 16]);
+    let (mut a_link, mut b_link) = memory_with_capacity(PREAMBLE_CAPACITY);
+    let network = Network::from_bytes([1; 16]);
     let mut a_staged = preamble::Staged::new();
     let mut b_staged = preamble::Staged::new();
     let observe = SessionHandle::default();
@@ -152,7 +153,7 @@ async fn reconcile_locally(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
     .window(WindowConfig::FLOOR);
     let (a, b) = Box::pin(mirror(a, b))
         .await
-        .expect("two honest local participants should reconcile");
+        .expect("two conforming local participants should reconcile");
     (a.into(), b.into())
 }
 
@@ -310,7 +311,7 @@ fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
     }
 }
 
-/// Equal versions close every unused logical stream without opening descent.
+/// Equal versions return both roots without opening a data stream.
 #[test]
 fn equal_versions_return_both_roots() {
     let root = TreeRoot {
@@ -330,33 +331,22 @@ fn equal_versions_return_both_roots() {
 /// Concurrent version-addressed leaves cross every proxy layer and converge.
 #[test]
 fn divergent_leaves_converge() {
-    let mut a = Tree::<()>::new();
-    a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
-    let mut b = Tree::new();
-    b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    let mut expected = a.clone();
-    expected.join(b.clone());
+    let (a, b) = disjoint_pair(1, 1);
+    let expected = harness::join_oracle(&a, &b);
 
-    let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(
-        a.root,
-        b.root,
-        TRANSPORT_CAPACITY,
-    ))
-    .expect("divergent leaves must not leave the session quiescent");
-    assert_eq!(a, expected.root);
-    assert_eq!(b, expected.root);
+    let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(a, b, TRANSPORT_CAPACITY))
+        .expect("divergent leaves must not leave the session quiescent");
+    assert_eq!(a, expected);
+    assert_eq!(b, expected);
 }
 
-/// The same client/proxy pairing used by both public API endpoints remains
-/// live under deterministic closed-world polling.
+/// The client/proxy pairing used by the session drivers remains live under
+/// deterministic closed-world polling.
 #[test]
 fn symmetric_accept_handshakes_are_live() {
-    let mut a = Tree::<()>::new();
-    a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
-    let mut b = Tree::<()>::new();
-    b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
+    let (a, b) = disjoint_pair(1, 1);
 
-    let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(a.root, b.root, 1))
+    let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(a, b, 1))
         .expect("the production proxy topology became quiescent");
     assert_eq!(a, b);
 }
@@ -392,8 +382,9 @@ proptest! {
         prop_assert_eq!(actual, expected);
     }
 
-    /// For arbitrary valid divergence, crossing the codec and per-stream
-    /// transport is observationally identical to the in-process protocol.
+    /// For arbitrary valid divergence and scheduling, wire reconciliation
+    /// matches the in-process result, preserves question/reply causality, and
+    /// keeps every proxy queue within its bound.
     #[test]
     fn wire_reconciliation_matches_local(
         (a, b) in arb_divergent_pair(),
@@ -458,23 +449,19 @@ proptest! {
         let history = failing.history();
 
         if let Some(expected_operation) = history.get(operations).copied() {
-            let (side, faulted) = if fail_left {
-                ("left", &result.0)
+            let side = if fail_left {
+                IoSide::Left
             } else {
-                ("right", &result.1)
+                IoSide::Right
             };
-            let actual = match faulted {
-                Err(EndpointError::Proxy(error)) => injected_operation(error),
-                other => return Err(TestCaseError::fail(format!(
-                    "{side} proxy failure was masked: {other:?}",
-                ))),
-            };
-            let observed = format!("{faulted:?}");
+            let error = harness::proxy_error(side, &result.0, &result.1)
+                .map_err(TestCaseError::fail)?;
+            let actual = injected_operation(error);
             prop_assert_eq!(
                 actual,
                 Some(expected_operation),
-                "proxy failure was masked by {}",
-                observed,
+                "proxy failure was masked by {:?}",
+                error,
             );
             // The other endpoint may already have completed before the cut.
             // If so, it must hold the exact oracle result.
@@ -599,11 +586,8 @@ fn early_first_child_dispute_is_live() {
 /// Every proxy queue kind is exercised and remains within its one-slot bound.
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
-    let mut a = Tree::<()>::new();
-    a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
-    let mut b = Tree::<()>::new();
-    b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    let (result, report, trace) = instrumented_reconcile(a.root, b.root, Vec::new());
+    let (a, b) = disjoint_pair(1, 1);
+    let (result, report, trace) = instrumented_reconcile(a, b, Vec::new());
     result.expect("the instrumented wire session should remain live");
     trace.assert_valid();
     trace.assert_covers_divergent_session();

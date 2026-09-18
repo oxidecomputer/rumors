@@ -10,7 +10,7 @@
 use crate::message::Message;
 use crate::testing::{IoPlan, run_to_quiescence};
 use crate::tree::{
-    Action, Tree,
+    Action, Root as TreeRoot, Tree,
     arb::{early_first_child_dispute_pair, nth_party},
 };
 
@@ -18,10 +18,7 @@ use super::harness;
 
 /// Reconcile through the two-proxy wire harness, requiring both sides to
 /// succeed, and return `(left, right)` reconciled roots.
-fn wire_reconcile(
-    left: crate::tree::Root,
-    right: crate::tree::Root,
-) -> (crate::tree::Root, crate::tree::Root) {
+fn wire_reconcile(left: TreeRoot, right: TreeRoot) -> (TreeRoot, TreeRoot) {
     let outcome = run_to_quiescence(harness::reconcile(
         left,
         right,
@@ -43,7 +40,7 @@ fn wire_reconcile(
 fn carried_listing_converges_with_left_initiator() {
     let (a, b) = early_first_child_dispute_pair();
     let expected = harness::join_oracle(&a, &b);
-    let (initiator, responder) = order_by_election(a, b);
+    let (initiator, responder) = harness::order_by_election(a, b);
 
     let (left, right) = wire_reconcile(initiator, responder);
     assert_eq!(left, expected);
@@ -57,30 +54,11 @@ fn carried_listing_converges_with_left_initiator() {
 fn carried_listing_converges_with_right_initiator() {
     let (a, b) = early_first_child_dispute_pair();
     let expected = harness::join_oracle(&a, &b);
-    let (initiator, responder) = order_by_election(a, b);
+    let (initiator, responder) = harness::order_by_election(a, b);
 
     let (left, right) = wire_reconcile(responder, initiator);
     assert_eq!(left, expected);
     assert_eq!(right, expected);
-}
-
-/// Order a divergent pair so the first returned root is the one the session
-/// will elect initiator (the smaller live set; ties fall back to the greater
-/// causal version in canonical bytes).
-fn order_by_election(
-    a: crate::tree::Root,
-    b: crate::tree::Root,
-) -> (crate::tree::Root, crate::tree::Root) {
-    assert_ne!(
-        a.ceiling.as_bytes(),
-        b.ceiling.as_bytes(),
-        "a divergent fixture must elect deterministically"
-    );
-    if harness::left_initiates(&a, &b) {
-        (a, b)
-    } else {
-        (b, a)
-    }
 }
 
 /// An empty-tree initiator's carried listing is empty and asks for everything.
@@ -157,7 +135,7 @@ fn converged_session_carries_listings_unused() {
     }
 }
 
-/// A genuinely pristine peer (empty tree, identity version) converges
+/// A pristine peer (empty tree, identity version) converges
 /// against a populated one.
 ///
 /// The pristine side wins the election (the smaller set initiates), its
@@ -165,20 +143,9 @@ fn converged_session_carries_listings_unused() {
 /// the populated content shipped whole by the responder.
 #[test]
 fn mixed_empty_and_populated_converges() {
-    let empty = Tree::<()>::new();
-    let mut populated = Tree::<()>::new();
-    populated.act(
-        &nth_party(0),
-        (0..4).map(|_| Action::Insert(Message::new(()))),
-    );
-    assert_ne!(
-        populated.latest().as_bytes(),
-        empty.latest().as_bytes(),
-        "the fixture must diverge so an election happens at all"
-    );
-
-    let expected = harness::join_oracle(&empty.root, &populated.root);
-    let (left, right) = wire_reconcile(empty.root, populated.root);
+    let (empty, populated) = harness::disjoint_pair(0, 4);
+    let expected = harness::join_oracle(&empty, &populated);
+    let (left, right) = wire_reconcile(empty, populated);
     assert_eq!(left, expected);
     assert_eq!(right, expected);
 }

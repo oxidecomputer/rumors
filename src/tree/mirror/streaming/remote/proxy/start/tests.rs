@@ -9,11 +9,11 @@
 //! The scripted-fault harness wraps only data streams, so this ingress is
 //! exercised here directly: crafted control-stream bytes must surface the
 //! typed greeting errors ([`Error::GreetingRead`] for truncation and
-//! length lies, [`Error::GreetingListing`] for canonical-order violations,
+//! declared-length mismatches, [`Error::GreetingListing`] for canonical-order violations,
 //! [`Error::GreetingDecode`] for malformed items), never a panic, and a
 //! canonical greeting must decode intact.
 
-use std::convert::Infallible;
+use std::{convert::Infallible, io::ErrorKind};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -73,11 +73,11 @@ fn content_of(item: &[u8]) -> Vec<u8> {
 /// [`Error::GreetingRead`] with `UnexpectedEof` — never a hang waiting on
 /// bytes that cannot arrive.
 #[pollster::test]
-async fn truncated_version_header_is_a_typed_read_error() {
+async fn truncated_item_head_is_a_typed_read_error() {
     let result = receive_greeting(&[0xd8]).await.map(|_| ());
     match result {
         Err(Error::GreetingRead(error)) => {
-            assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
+            assert_eq!(error.kind(), ErrorKind::UnexpectedEof)
         }
         other => panic!("expected the truncated head's typed rejection, got {other:?}"),
     }
@@ -87,11 +87,11 @@ async fn truncated_version_header_is_a_typed_read_error() {
 /// typed read error.
 ///
 /// An over-declared byte-string head makes the item's exact read run off
-/// the end of the peer's bytes; the lie must surface
+/// the end of the peer's bytes; the mismatch must surface
 /// [`Error::GreetingRead`] with `UnexpectedEof`, never a partially filled
 /// item handed to the decoder.
 #[pollster::test]
-async fn over_declared_version_frame_is_a_typed_read_error() {
+async fn over_declared_item_length_is_a_typed_read_error() {
     let mut bytes = Vec::new();
     cbor::write_tag(&mut bytes, TAG_EMBEDDED_ITEM);
     cbor::write_head(&mut bytes, MAJOR_BSTR, 8);
@@ -100,7 +100,7 @@ async fn over_declared_version_frame_is_a_typed_read_error() {
     let result = receive_greeting(&bytes).await.map(|_| ());
     match result {
         Err(Error::GreetingRead(error)) => {
-            assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
+            assert_eq!(error.kind(), ErrorKind::UnexpectedEof)
         }
         other => panic!("expected the over-declared item's typed rejection, got {other:?}"),
     }
@@ -113,7 +113,7 @@ async fn over_declared_version_frame_is_a_typed_read_error() {
 /// content ends before its opening head) — the under-declared degenerate
 /// case, distinct from the transport-level truncations above.
 #[pollster::test]
-async fn empty_version_frame_is_a_typed_decode_error() {
+async fn empty_item_is_a_typed_decode_error() {
     let result = receive_greeting(&raw_item(&[])).await.map(|_| ());
     assert!(
         matches!(
@@ -155,7 +155,7 @@ async fn untagged_greeting_is_a_typed_decode_error() {
 /// being silently dropped (which would let two encodings name one
 /// greeting).
 #[pollster::test]
-async fn trailing_version_bytes_are_rejected() {
+async fn trailing_item_bytes_are_rejected() {
     let item = greeting(Vec::new());
     let mut content = content_of(&item);
     content.push(0xFF);
@@ -178,14 +178,14 @@ async fn trailing_version_bytes_are_rejected() {
 /// The byte-string head promised more content than arrived: the exact
 /// read runs off the stream's end, a transport-level truncation.
 #[pollster::test]
-async fn missing_listing_frame_is_a_typed_read_error() {
+async fn cut_item_content_is_a_typed_read_error() {
     let item = greeting(Vec::new());
     let bytes = &item[..item.len() - 1];
 
     let result = receive_greeting(bytes).await.map(|_| ());
     match result {
         Err(Error::GreetingRead(error)) => {
-            assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
+            assert_eq!(error.kind(), ErrorKind::UnexpectedEof)
         }
         other => panic!("expected the cut content's typed rejection, got {other:?}"),
     }
@@ -194,7 +194,7 @@ async fn missing_listing_frame_is_a_typed_read_error() {
 proptest! {
     /// Arbitrary greeting item contents cannot make the map opener panic.
     ///
-    /// The item is honestly sized around arbitrary content. Random bytes
+    /// The item declares its actual content length. Random bytes
     /// primarily exercise the map head and first-key checks; structured
     /// tests below drive the deeper version and listing boundaries.
     #[test]
@@ -332,6 +332,7 @@ async fn empty_listing_greeting_decodes() {
     assert_eq!(greeting.version, version);
     assert_eq!(greeting.set_len, 7);
     assert_eq!(greeting.max_version_bytes, 512);
+    assert_eq!(greeting.payload_depth_limit, 256);
     assert_eq!(greeting.target_message_size, 1 << 16);
     assert!(greeting.listing.is_empty());
 }

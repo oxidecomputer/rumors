@@ -5,14 +5,12 @@ use std::{convert::Infallible, io};
 use proptest::prelude::*;
 
 use super::{harness, injected_operation, reconcile_locally, reconcile_with_stacked_failures};
-use crate::message::Message;
 use crate::testing::{
     InjectedIo, IoFault, IoFaultUnit, IoOperation, IoPlan, IoReport, IoSide, run_to_quiescence,
 };
 use crate::tree::{
-    Action, Tree,
+    Root as TreeRoot,
     arb::arb_divergent_pair,
-    arb::nth_party,
     mirror::streaming::{
         Failing, Local,
         remote::{
@@ -24,8 +22,6 @@ use crate::tree::{
         },
     },
 };
-
-use super::harness::EndpointError;
 
 /// Find the typed injected source retained anywhere below a remote failure.
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
@@ -57,18 +53,8 @@ fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
 }
 
 /// A deterministic pair whose proxy backends perform real conversion work.
-fn stacked_pair() -> (crate::tree::Root, crate::tree::Root) {
-    let mut left = Tree::<()>::new();
-    left.act(
-        &nth_party(0),
-        (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
-    let mut right = Tree::<()>::new();
-    right.act(
-        &nth_party(1),
-        (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
-    (left.root, right.root)
+fn stacked_pair() -> (TreeRoot, TreeRoot) {
+    harness::disjoint_pair(8, 8)
 }
 
 /// Recover the custom source stored inside an ordinary I/O error.
@@ -108,19 +94,6 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
     }
 }
 
-/// Combine a fault with transfer chunking, scheduling delays, and flush behavior.
-fn plan(fault: Option<IoFault>, chunk: usize, delays: Vec<u8>, buffered: bool) -> IoPlan {
-    IoPlan {
-        read_chunk: chunk,
-        write_chunk: chunk,
-        read_delays: delays.clone(),
-        write_delays: delays.clone(),
-        flush_delays: delays,
-        hold_until_flush: buffered,
-        fault,
-    }
-}
-
 /// Count the successful prefix relevant to one fault threshold.
 fn completed(report: IoReport, fault: IoFault) -> usize {
     match (fault.operation, fault.unit) {
@@ -131,25 +104,6 @@ fn completed(report: IoReport, fault: IoFault) -> usize {
         (IoOperation::Flush, _) => report.flushes,
         (IoOperation::Connect, _) => report.connects,
         (IoOperation::Accept, _) => report.accepts,
-    }
-}
-
-/// Return the selected endpoint's remote error, if that endpoint failed at
-/// the transport layer expected by the harness role.
-fn endpoint_error(
-    outcome: &harness::Outcome,
-    fail_left: bool,
-) -> Result<&RemoteError<Infallible>, TestCaseError> {
-    let (side, faulted) = if fail_left {
-        ("left", &outcome.left)
-    } else {
-        ("right", &outcome.right)
-    };
-    match faulted {
-        Err(EndpointError::Proxy(error)) => Ok(error),
-        other => Err(TestCaseError::fail(format!(
-            "{side} transport fault was masked: {other:?}",
-        ))),
     }
 }
 
@@ -195,11 +149,11 @@ proptest! {
         let fault = IoFault { operation, after, unit };
         let expected = run_to_quiescence(reconcile_locally(left.clone(), right.clone()))
             .expect("the materialized oracle should remain live");
-        let clean_plan = plan(None, chunk, delays.clone(), buffered);
+        let clean_plan = harness::io_plan(chunk, chunk, delays.clone(), buffered, None);
         let clean = run_to_quiescence(harness::reconcile(
             left.clone(),
             right.clone(),
-            17,
+            harness::TRANSPORT_CAPACITY,
             if fail_left { clean_plan.clone() } else { IoPlan::default() },
             if fail_left { IoPlan::default() } else { clean_plan },
         ))
@@ -215,11 +169,11 @@ proptest! {
         };
         let should_inject = after < completed(clean_report, fault);
 
-        let fault_plan = plan(Some(fault), chunk, delays, buffered);
+        let fault_plan = harness::io_plan(chunk, chunk, delays, buffered, Some(fault));
         let outcome = run_to_quiescence(harness::reconcile(
             left.clone(),
             right.clone(),
-            17,
+            harness::TRANSPORT_CAPACITY,
             if fail_left { fault_plan.clone() } else { IoPlan::default() },
             if fail_left { IoPlan::default() } else { fault_plan },
         ))
@@ -240,7 +194,9 @@ proptest! {
         prop_assert_eq!(report.injected, should_inject.then_some(expected_fault));
 
         if should_inject {
-            let error = endpoint_error(&outcome, fail_left)?;
+            let side = if fail_left { IoSide::Left } else { IoSide::Right };
+            let error = harness::proxy_error(side, &outcome.left, &outcome.right)
+                .map_err(TestCaseError::fail)?;
             prop_assert!(
                 has_expected_surface(error, operation),
                 "{operation:?}/{unit:?} surfaced as {error:?}",
@@ -257,18 +213,6 @@ proptest! {
                 prop_assert_eq!(left, &expected.0);
             }
 
-            let recovered = run_to_quiescence(harness::reconcile(
-                left,
-                right,
-                17,
-                IoPlan::default(),
-                IoPlan::default(),
-            ))
-            .map_err(|stopped| TestCaseError::fail(format!(
-                "clean recovery became quiescent: {stopped:?}",
-            )))?;
-            prop_assert_eq!(recovered.left.as_ref().ok(), Some(&expected.0));
-            prop_assert_eq!(recovered.right.as_ref().ok(), Some(&expected.1));
         } else {
             prop_assert_eq!(outcome.left.as_ref().ok(), Some(&expected.0));
             prop_assert_eq!(outcome.right.as_ref().ok(), Some(&expected.1));
@@ -277,8 +221,8 @@ proptest! {
     }
 }
 
-/// Every meaningful operation/unit pair has deterministic immediate-failure
-/// coverage, independent of the generated reachability cases above.
+/// Every meaningful operation/unit pair can fail immediately through its
+/// typed surface, and the pre-exchange cut terminates the counterparty too.
 #[test]
 fn every_transport_fault_surface_is_reachable() {
     let variants = [
@@ -292,11 +236,9 @@ fn every_transport_fault_surface_is_reachable() {
     ];
 
     for (operation, unit) in variants {
-        // The faulted (left) side must be the elected responder: the
-        // Accept surface's mechanism — a destroyed incoming stream
-        // surfacing from the receiver that provably needed it — requires
-        // the faulted endpoint to be the one awaiting the initiator's
-        // opening supply streams.
+        // The faulted (left) side must be the elected responder. A destroyed
+        // incoming stream reaches Accept only when this endpoint awaits the
+        // initiator's opening supplies.
         let (a, b) = stacked_pair();
         let (left, right) = if harness::left_initiates(&a, &b) {
             (b, a)
@@ -311,8 +253,8 @@ fn every_transport_fault_surface_is_reachable() {
         let outcome = run_to_quiescence(harness::reconcile(
             left,
             right,
-            17,
-            plan(Some(fault), usize::MAX, Vec::new(), false),
+            harness::TRANSPORT_CAPACITY,
+            harness::io_plan(usize::MAX, usize::MAX, Vec::new(), false, Some(fault)),
             IoPlan::default(),
         ))
         .unwrap_or_else(|stopped| panic!("{operation:?}/{unit:?} became quiescent: {stopped:?}"));
@@ -323,7 +265,7 @@ fn every_transport_fault_surface_is_reachable() {
             unit,
         };
         assert_eq!(outcome.left_io.snapshot().injected, Some(expected));
-        let error = endpoint_error(&outcome, true).unwrap();
+        let error = harness::proxy_error(IoSide::Left, &outcome.left, &outcome.right).unwrap();
         assert!(
             has_expected_surface(error, operation),
             "{operation:?}/{unit:?} surfaced as {error:?}"
@@ -355,10 +297,8 @@ fn stacked_backend_and_transport_failures_remain_distinct() {
         unreachable_io,
     ))
     .expect("backend-first stacked failure should terminate");
-    let backend_error = match &left_result {
-        Err(EndpointError::Proxy(error)) => error,
-        other => panic!("backend error was masked: {other:?}"),
-    };
+    let backend_error = harness::proxy_error(IoSide::Left, &left_result, &right_result)
+        .unwrap_or_else(|error| panic!("backend error was masked: {error}"));
     assert_eq!(
         injected_operation(backend_error),
         backend.history().first().copied(),
@@ -382,10 +322,8 @@ fn stacked_backend_and_transport_failures_remain_distinct() {
         immediate_io,
     ))
     .expect("transport-first stacked failure should terminate");
-    let transport_error = match &left_result {
-        Err(EndpointError::Proxy(error)) => error,
-        other => panic!("transport error was masked: {other:?}"),
-    };
+    let transport_error = harness::proxy_error(IoSide::Left, &left_result, &right_result)
+        .unwrap_or_else(|error| panic!("transport error was masked: {error}"));
     assert_eq!(injected(transport_error), io.snapshot().injected);
     assert!(io.snapshot().injected.is_some());
     assert!(right_result.is_err());

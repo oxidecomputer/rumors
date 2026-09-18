@@ -1,4 +1,6 @@
-use std::{future, pin::pin};
+//! Error selection and shutdown behavior for the proxy work executor.
+
+use std::{future, io::ErrorKind, pin::pin};
 
 use futures::StreamExt;
 use proptest::prelude::*;
@@ -26,6 +28,9 @@ use crate::tree::mirror::streaming::{
     stats::Recorder,
 };
 use crate::tree::typed::height::Z;
+
+/// Pending tasks placed before the injected failure to exercise aggregation.
+const PARKED_PUMPS: usize = 3;
 
 /// A memory-link executor with its claims, error route, and peer held alive.
 struct ParkedSession {
@@ -78,6 +83,21 @@ fn parked_session() -> ParkedSession {
     }
 }
 
+/// Build a receiver whose missing claim reports a closed supply, then parks.
+fn failed_claim(route: ErrorRoute, stream: Stream) -> StreamReceiver {
+    let (claim_send, claim_receive) = oneshot::channel::<(DuplexStream, Done<DuplexStream>)>();
+    drop(claim_send);
+    StreamReceiver::new(
+        claim_receive,
+        Speaker::Initiator,
+        stream,
+        RunBudget::default(),
+        route,
+        Recorder::default(),
+        SessionHandle::default(),
+    )
+}
+
 /// A pump failure cancels parked work and retains its backend error.
 #[test]
 fn pump_failure_preempts_parked_pumps() {
@@ -90,7 +110,7 @@ fn pump_failure_preempts_parked_pumps() {
 
     // Poll the parked task first so this specifically exercises fail-fast
     // aggregation rather than relying on the error being the first item.
-    for _ in 0..31 {
+    for _ in 0..PARKED_PUMPS {
         work.spawn(future::pending());
     }
     work.spawn(async {
@@ -129,7 +149,7 @@ fn deposited_supply_failure_outranks_a_racing_consequence() {
     work.spawn(async {
         Err(Error::Send(SendError::Connect {
             origin: Origin::stream(Speaker::Responder, Stream::new(0).expect("stream 0 exists")),
-            source: std::io::ErrorKind::BrokenPipe.into(),
+            source: ErrorKind::BrokenPipe.into(),
         }))
     });
 
@@ -146,7 +166,7 @@ fn deposited_supply_failure_outranks_a_racing_consequence() {
             // alive), so the cause is attributed at direction granularity.
             assert_eq!(origin, Origin::direction(Speaker::Responder));
             // The deposited cause is the acceptor's own transport error.
-            assert_eq!(cause.kind(), std::io::ErrorKind::UnexpectedEof);
+            assert_eq!(cause.kind(), ErrorKind::UnexpectedEof);
         }
         other => panic!("the consequence outranked the deposited cause: {other:?}"),
     }
@@ -200,18 +220,7 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
 
     // Poll this receiver before the failing send so its report is queued
     // when the protocol arm resolves.
-    let (claim_send, claim_receive) =
-        oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
-    drop(claim_send);
-    let mut receiver = StreamReceiver::new(
-        claim_receive,
-        Speaker::Initiator,
-        Stream::new(3).expect("stream index 3 exists"),
-        RunBudget::default(),
-        route,
-        Recorder::default(),
-        SessionHandle::default(),
-    );
+    let mut receiver = failed_claim(route, Stream::new(3).expect("stream index 3 exists"));
     work.spawn(async move {
         receiver.next().await;
         unreachable!("a reporter parks forever after publishing");
@@ -221,7 +230,7 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
     work.spawn(async {
         Err(Error::Send(SendError::Connect {
             origin: Origin::stream(Speaker::Responder, Stream::new(0).expect("stream 0 exists")),
-            source: std::io::ErrorKind::BrokenPipe.into(),
+            source: ErrorKind::BrokenPipe.into(),
         }))
     });
 
@@ -241,7 +250,7 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
                 Origin::stream(Speaker::Initiator, Stream::new(3).expect("stream 3 exists")),
                 "the queued report's stream-granularity origin must win",
             );
-            assert_eq!(cause.kind(), std::io::ErrorKind::UnexpectedEof);
+            assert_eq!(cause.kind(), ErrorKind::UnexpectedEof);
         }
         other => panic!("the queued SupplyClosed was not recovered: {other:?}"),
     }
@@ -258,18 +267,7 @@ fn published_stream_error_preempts_a_parked_protocol() {
     } = parked_session();
 
     // The failed claim reports to the route, then parks its receiver.
-    let (claim_send, claim_receive) =
-        oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
-    drop(claim_send);
-    let mut receiver = StreamReceiver::new(
-        claim_receive,
-        Speaker::Initiator,
-        Stream::new(0).expect("stream index 0 exists"),
-        RunBudget::default(),
-        route,
-        Recorder::default(),
-        SessionHandle::default(),
-    );
+    let mut receiver = failed_claim(route, Stream::new(0).expect("stream index 0 exists"));
     work.spawn(async move {
         receiver.next().await;
         unreachable!("a reporter parks forever after publishing");
@@ -289,7 +287,7 @@ fn published_stream_error_preempts_a_parked_protocol() {
 fn failed_send<E>() -> Error<E> {
     Error::Send(SendError::Connect {
         origin: Origin::direction(Speaker::Responder),
-        source: std::io::ErrorKind::BrokenPipe.into(),
+        source: ErrorKind::BrokenPipe.into(),
     })
 }
 
@@ -468,7 +466,7 @@ proptest! {
         prop_assert!(matches!(error, Error::Stream(StreamError::SupplyClosed {
             origin, source: Some(ref source),
         }) if origin == Origin::direction(Speaker::Responder)
-            && source.kind() == std::io::ErrorKind::UnexpectedEof), "{error:?}");
+            && source.kind() == ErrorKind::UnexpectedEof), "{error:?}");
     }
 
     /// Invalid stream labels surface through both normal acceptance and the
@@ -581,7 +579,7 @@ proptest! {
             execute.await.unwrap_err()
         }).expect("control EOF must interrupt a partial label");
         prop_assert!(matches!(error, Error::PeerDeparted(ref source)
-            if source.kind() == std::io::ErrorKind::UnexpectedEof), "{error:?}");
+            if source.kind() == ErrorKind::UnexpectedEof), "{error:?}");
     }
 
     /// After the watch stops, saved bytes precede later transport input,
@@ -677,7 +675,7 @@ proptest! {
         }).expect("control EOF must release a missing stream");
         let error = result.unwrap_err();
         prop_assert!(matches!(error, Error::PeerDeparted(ref source)
-            if source.kind() == std::io::ErrorKind::UnexpectedEof), "{error:?}");
+            if source.kind() == ErrorKind::UnexpectedEof), "{error:?}");
     }
 
     /// A locally complete protocol succeeds after departure and replays every

@@ -1,20 +1,15 @@
-//! Full-stack sessions whose greeting declarations disagree with the
-//! traffic behind them.
+//! Full-stack checks for the greeting's session-size declarations.
 //!
-//! The greeting's size words — `set_len`, `max_version_bytes` — are
-//! peer-declared inputs to the window solve and the role election. These
-//! sessions rewrite one word of the greeting a side *receives*
-//! ([`harness::GreetingRewrite`]), so that side negotiates against a
-//! declaration the peer's actual traffic does not honor: the buggy-peer
-//! regime, exercised as a conformance tripwire (an authorized peer already
-//! holds write authority, so none of this is a security boundary). Each
-//! test pins what a lied declaration costs the receiving side.
+//! `set_len`, `max_version_bytes`, and `target_message_size` determine role
+//! election or window sizing. These tests rewrite one received declaration
+//! and check how the production session responds when the traffic disagrees.
 
-use crate::message::Message;
-use crate::testing::run_to_quiescence;
+use std::convert::Infallible;
+
+use crate::testing::{IoSide, run_to_quiescence};
 use crate::tree::{
-    Action, Tree,
-    arb::{early_first_child_dispute_pair, nth_party},
+    Root as TreeRoot,
+    arb::early_first_child_dispute_pair,
     mirror::streaming::{
         remote::{
             Error as RemoteError,
@@ -26,40 +21,26 @@ use crate::tree::{
     },
 };
 
-use super::harness::{self, EndpointError, EndpointFailure, GreetingRewrite};
+use super::harness::{self, GreetingRewrite};
 
-/// Borrow the proxy error the receiving side reported.
+/// Borrow the proxy error reported by the endpoint that heard a rewrite.
 fn receiver_error<'a>(
-    receiver_left: bool,
-    left: &'a Result<crate::tree::Root, EndpointFailure>,
-    right: &'a Result<crate::tree::Root, EndpointFailure>,
-    lie: &str,
-) -> &'a RemoteError<std::convert::Infallible> {
-    let (side, receiving) = if receiver_left {
-        ("left", left)
-    } else {
-        ("right", right)
-    };
-    match receiving {
-        Err(EndpointError::Proxy(error)) => error,
-        other => {
-            panic!("undetected {lie} lie: the {side} proxy did not report the violation: {other:?}")
-        }
-    }
+    receiver: IoSide,
+    left: &'a Result<TreeRoot, harness::EndpointFailure>,
+    right: &'a Result<TreeRoot, harness::EndpointFailure>,
+    declaration: &str,
+) -> &'a RemoteError<Infallible> {
+    harness::proxy_error(receiver, left, right).unwrap_or_else(|error| {
+        panic!("{declaration} mismatch was not reported by the receiver: {error}")
+    })
 }
 
 /// A divergent pair whose live set sizes differ strictly: one message
 /// against four, on distinct parties, so the smaller side wins the
-/// initiator election under honest declarations.
-fn uneven_pair() -> (crate::tree::Root, crate::tree::Root) {
-    let mut small = Tree::<()>::new();
-    small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    let mut large = Tree::<()>::new();
-    large.act(
-        &nth_party(0),
-        (0..4).map(|_| Action::Insert(Message::new(()))),
-    );
-    (small.root, large.root)
+/// initiator election under their actual declarations.
+fn uneven_pair() -> (TreeRoot, TreeRoot) {
+    let (large, small) = harness::disjoint_pair(4, 1);
+    (small, large)
 }
 
 /// Messages the bulk side of [`batched_uneven_pair`] originates: one more
@@ -73,24 +54,18 @@ const BULK_MESSAGES: usize = FAN + 1;
 /// The small side wins the initiator election, and the bulk side's
 /// exclusive root children — at least one of which spans multiple leaves
 /// — reach it as whole supplied subtrees, so the traffic toward the small
-/// side includes a genuinely batched multi-record run.
-fn batched_uneven_pair() -> (crate::tree::Root, crate::tree::Root) {
-    let mut small = Tree::<()>::new();
-    small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    let mut large = Tree::<()>::new();
-    large.act(
-        &nth_party(0),
-        (0..BULK_MESSAGES).map(|_| Action::Insert(Message::new(()))),
-    );
-    (small.root, large.root)
+/// side includes a batched multi-record run.
+fn batched_uneven_pair() -> (TreeRoot, TreeRoot) {
+    let (large, small) = harness::disjoint_pair(BULK_MESSAGES, 1);
+    (small, large)
 }
 
 /// A peer batching supply runs past the session minimum fails the session.
 ///
-/// The deceived side hears the bulk peer's `target_message_size` as zero,
+/// The receiver hears the bulk peer's `target_message_size` as zero,
 /// so it negotiates a zero session run budget while the peer keeps
 /// batching at the true exchanged minimum: the first multi-record run to
-/// arrive is a frame no encoder honoring the deceived side's minimum can
+/// arrive is a frame no encoder honoring the receiver's minimum can
 /// produce, and ingress rejects it as `OverbatchedRun` before buffering
 /// its body — the greeting-declared budget premise enforced on the remote
 /// decode path, completing the declaration matrix beside `set_len` and
@@ -98,22 +73,20 @@ fn batched_uneven_pair() -> (crate::tree::Root, crate::tree::Root) {
 /// any session error).
 #[test]
 fn understated_target_message_size_fails_the_session() {
-    for receiver_left in [false, true] {
+    for receiver in [IoSide::Left, IoSide::Right] {
         let (small, large) = batched_uneven_pair();
-        // The deceived side holds the small tree and hears the bulk
-        // (supplying) side's target as zero.
+        // The receiver holds the small tree and hears the bulk side's target
+        // as zero.
         let rewrite = GreetingRewrite::target_message_size(0);
-        let ((left, right), hears) = if receiver_left {
-            ((small, large), (Some(rewrite.clone()), None))
-        } else {
-            ((large, small), (None, Some(rewrite.clone())))
-        };
-        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
-            left, right, hears.0, hears.1,
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            small,
+            large,
+            rewrite.clone(),
         ))
         .expect("an overbatched supply run must terminate both sessions, not stall them");
         assert!(rewrite.fired(), "the target size was not rewritten");
-        let receiver_error = receiver_error(receiver_left, &left, &right, "target_message_size");
+        let receiver_error = receiver_error(receiver, &left, &right, "target_message_size");
         assert!(
             matches!(
                 receiver_error,
@@ -129,25 +102,21 @@ fn understated_target_message_size_fails_the_session() {
     }
 }
 
-/// An absurdly inflated `target_message_size` reading costs nothing.
+/// An overstated `target_message_size` still converges.
 ///
-/// The session budget is the minimum of the two targets, so the deceived
-/// side's own target still governs both encoders exactly as an honest run
-/// does, and the session converges on the union — the no-false-positive
-/// dual of the understated lie.
+/// The session uses the smaller target, so the receiver's own value still
+/// governs both encoders.
 #[test]
 fn overstated_target_message_size_still_converges() {
-    for receiver_left in [false, true] {
+    for receiver in [IoSide::Left, IoSide::Right] {
         let (small, large) = batched_uneven_pair();
         let expected = harness::join_oracle(&small, &large);
         let rewrite = GreetingRewrite::target_message_size(u64::MAX);
-        let ((left, right), hears) = if receiver_left {
-            ((small, large), (Some(rewrite.clone()), None))
-        } else {
-            ((large, small), (None, Some(rewrite.clone())))
-        };
-        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
-            left, right, hears.0, hears.1,
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            small,
+            large,
+            rewrite.clone(),
         ))
         .expect("the session must terminate");
         assert!(rewrite.fired(), "the target size was not rewritten");
@@ -167,18 +136,18 @@ fn overstated_target_message_size_still_converges() {
 /// (link poisoning rides any session error).
 #[test]
 fn understated_version_bytes_fail_the_session() {
-    for receiver_left in [false, true] {
+    for receiver in [IoSide::Left, IoSide::Right] {
         let (left, right) = early_first_child_dispute_pair();
         let rewrite = GreetingRewrite::max_version_bytes(0);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left,
             right,
-            receiver_left.then(|| rewrite.clone()),
-            (!receiver_left).then(|| rewrite.clone()),
+            matches!(receiver, IoSide::Left).then(|| rewrite.clone()),
+            matches!(receiver, IoSide::Right).then(|| rewrite.clone()),
         ))
         .expect("an oversized supplied version must terminate both sessions");
         assert!(rewrite.fired(), "the version size was not rewritten");
-        let receiver_error = receiver_error(receiver_left, &left, &right, "max_version_bytes");
+        let receiver_error = receiver_error(receiver, &left, &right, "max_version_bytes");
         assert!(matches!(
             receiver_error,
             RemoteError::Decode(ReplyDecodeError::OversizedVersion { declared: 0, .. })
@@ -190,43 +159,29 @@ fn understated_version_bytes_fail_the_session() {
 
 /// A supply stream past the declared `set_len` fails the session.
 ///
-/// The dual of the oversized-version guard, completing the declaration
-/// matrix: the declared set length is a premise of the window solve's
-/// occupancy envelopes and per-slot pricing, so honest supplies overrunning
-/// it void what the window priced. The receiving side's wire decoder
-/// reports `OverdrawnSupply` at the first record past the declaration,
-/// before the payload takes backend custody — the walk's own ledger still
-/// stands behind it for the in-process stack, but on the wire the ingress
-/// charge fires first. The peer's endpoint is left to whatever its
-/// schedule surfaces — here it may even complete, having already
-/// reconciled before the deceived side's late ingestion tripped — which
-/// is not this tripwire's concern (the containment wire test draws the
-/// same line).
+/// The declared set length bounds the occupancy priced by the window. The
+/// wire decoder therefore reports `OverdrawnSupply` at the first excess
+/// record, before the payload reaches the backend. The sender may already
+/// have completed; this test constrains only the receiver's diagnosis.
 ///
-/// The rewrite shrinks the heard length of the honestly-smaller side, so
-/// the role election stays complementary — a real under-declaring peer
-/// elects from its own declared value, so only election-preserving
-/// rewrites model one. The smaller side therefore still initiates; its
-/// early supplies ride the opening stream and trip the deceived side's
-/// ingress charge at their first record.
+/// Reducing the smaller side's declaration preserves its initiator role, so
+/// its early supplies reach this check on the opening stream.
 #[test]
 fn understated_set_len_fails_the_session() {
-    for receiver_left in [false, true] {
+    for receiver in [IoSide::Left, IoSide::Right] {
         let (small, large) = uneven_pair();
         // The receiver holds the large tree and hears the small
         // (initiating) side's declared length as zero.
         let rewrite = GreetingRewrite::set_len(0);
-        let ((left, right), hears) = if receiver_left {
-            ((large, small), (Some(rewrite.clone()), None))
-        } else {
-            ((small, large), (None, Some(rewrite.clone())))
-        };
-        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
-            left, right, hears.0, hears.1,
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            large,
+            small,
+            rewrite.clone(),
         ))
         .expect("an overdrawn supply stream must terminate both sessions");
         assert!(rewrite.fired(), "the set length was not rewritten");
-        let receiver_error = receiver_error(receiver_left, &left, &right, "set_len");
+        let receiver_error = receiver_error(receiver, &left, &right, "set_len");
         assert!(
             matches!(
                 receiver_error,
@@ -240,51 +195,36 @@ fn understated_set_len_fails_the_session() {
 /// A divergent pair of four messages against eight, on distinct parties:
 /// the four-message side wins the initiator election, and its whole
 /// exclusive content rides the opening-supply stream as one reply.
-fn opening_bulk_pair() -> (crate::tree::Root, crate::tree::Root) {
-    let mut small = Tree::<()>::new();
-    small.act(
-        &nth_party(1),
-        (0..4).map(|_| Action::Insert(Message::new(()))),
-    );
-    let mut large = Tree::<()>::new();
-    large.act(
-        &nth_party(0),
-        (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
-    (small.root, large.root)
+fn opening_bulk_pair() -> (TreeRoot, TreeRoot) {
+    let (large, small) = harness::disjoint_pair(8, 4);
+    (small, large)
 }
 
-/// A `set_len` lie surfacing *within* one still-open reply fails at the
+/// A `set_len` mismatch surfacing *within* one still-open reply fails at the
 /// offending record, at ingress.
 ///
 /// The zero-declaration case above trips at a reply's first record; here
 /// the heard declaration admits one leaf while the initiator's
 /// opening-supply reply carries four, so the overrun surfaces
-/// mid-reply. Only the wire decoder can detect it there — the walk's
-/// ledger charges at absorption, after a decoded subtree materializes —
-/// so the receiving side must report the ingress rejection carrying the
-/// declaration it enforced, never absorb the reply whole first. The
-/// rewrite shrinks the heard length of the honestly-smaller side to a
-/// nonzero value below its traffic, preserving the role election.
+/// mid-reply. The wire decoder must reject that record before the decoded
+/// subtree reaches the backend. Reducing the smaller side's declaration to a
+/// nonzero value preserves its initiator role.
 #[test]
 fn set_len_overrun_within_one_reply_fails_at_ingress() {
-    for receiver_left in [false, true] {
+    for receiver in [IoSide::Left, IoSide::Right] {
         let (small, large) = opening_bulk_pair();
         // The receiver holds the large tree and hears the small
         // (initiating) side's declared length as one.
         let rewrite = GreetingRewrite::set_len(1);
-        let ((left, right), hears) = if receiver_left {
-            ((large, small), (Some(rewrite.clone()), None))
-        } else {
-            ((small, large), (None, Some(rewrite.clone())))
-        };
-        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
-            left, right, hears.0, hears.1,
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            large,
+            small,
+            rewrite.clone(),
         ))
         .expect("a mid-reply overdrawn supply must terminate both sessions, not stall them");
         assert!(rewrite.fired(), "the set length was not rewritten");
-        let receiver_error =
-            receiver_error(receiver_left, &left, &right, "within-one-reply set_len");
+        let receiver_error = receiver_error(receiver, &left, &right, "within-one-reply set_len");
         assert!(
             matches!(
                 receiver_error,
@@ -295,23 +235,22 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
     }
 }
 
-/// An absurdly overstated `max_version_bytes` costs window width, never the session.
+/// An overstated `max_version_bytes` costs window width, not convergence.
 ///
 /// The budget solve saturates toward its floor on huge inputs
-/// (`pathological_pricing_saturates_to_the_floor` pins the solve
-/// itself), roles are unaffected, and the session converges on the
-/// union.
+/// (`pathological_pricing_saturates_to_the_floor` pins the solve itself), roles
+/// are unaffected, and the session converges on the union.
 #[test]
 fn overstated_version_bytes_still_converge() {
-    for receiver_left in [false, true] {
+    for receiver in [IoSide::Left, IoSide::Right] {
         let (left, right) = early_first_child_dispute_pair();
         let expected = harness::join_oracle(&left, &right);
         let rewrite = GreetingRewrite::max_version_bytes(u64::MAX);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left,
             right,
-            receiver_left.then(|| rewrite.clone()),
-            (!receiver_left).then(|| rewrite.clone()),
+            matches!(receiver, IoSide::Left).then(|| rewrite.clone()),
+            matches!(receiver, IoSide::Right).then(|| rewrite.clone()),
         ))
         .expect("the session must terminate");
         assert!(rewrite.fired(), "the version size was not rewritten");
@@ -322,25 +261,22 @@ fn overstated_version_bytes_still_converge() {
     }
 }
 
-/// An absurdly overstated `set_len` heard from the larger side still converges.
+/// An overstated `set_len` heard from the larger side still converges.
 ///
-/// The roles stay complementary — the smaller side initiates against
-/// the honest pair and against the lie alike — so the lie distorts only
+/// The roles stay complementary, so the changed declaration affects only
 /// the receiving side's derived capacities.
 #[test]
 fn overstated_set_len_from_the_bulk_side_still_converges() {
-    for small_left in [false, true] {
+    for receiver in [IoSide::Left, IoSide::Right] {
         let (small, large) = uneven_pair();
         let expected = harness::join_oracle(&small, &large);
         // The smaller side hears the larger side's set size as u64::MAX.
         let rewrite = GreetingRewrite::set_len(u64::MAX);
-        let ((left, right), hears) = if small_left {
-            ((small, large), (Some(rewrite.clone()), None))
-        } else {
-            ((large, small), (None, Some(rewrite.clone())))
-        };
-        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
-            left, right, hears.0, hears.1,
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            small,
+            large,
+            rewrite.clone(),
         ))
         .expect("the session must terminate");
         assert!(rewrite.fired(), "the set length was not rewritten");

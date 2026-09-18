@@ -3,42 +3,20 @@
 use proptest::prelude::*;
 
 use super::{harness, reconcile_locally};
-use crate::message::Message;
-use crate::testing::{IoPlan, run_to_quiescence};
-use crate::tree::{Action, Tree, arb::arb_divergent_pair, arb::nth_party};
-
-fn plan(read_chunk: usize, write_chunk: usize, delays: Vec<u8>, hold_until_flush: bool) -> IoPlan {
-    IoPlan {
-        read_chunk,
-        write_chunk,
-        read_delays: delays.clone(),
-        write_delays: delays.clone(),
-        flush_delays: delays,
-        hold_until_flush,
-        fault: None,
-    }
-}
+use crate::testing::run_to_quiescence;
+use crate::tree::arb::arb_divergent_pair;
 
 /// A one-byte pipe whose writers publish only on flush still completes a
 /// full divergent session, not merely the preamble.
 #[test]
 fn flush_only_one_byte_transport_reconciles() {
-    let mut left = Tree::<()>::new();
-    left.act(
-        &nth_party(0),
-        (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
-    let mut right = Tree::<()>::new();
-    right.act(
-        &nth_party(1),
-        (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
-    let expected = run_to_quiescence(reconcile_locally(left.root.clone(), right.root.clone()))
+    let (left, right) = harness::disjoint_pair(8, 8);
+    let expected = run_to_quiescence(reconcile_locally(left.clone(), right.clone()))
         .expect("materialized oracle should remain live");
-    let flush_only = plan(1, 1, vec![1; 512], true);
+    let flush_only = harness::io_plan(1, 1, vec![1; 512], true, None);
     let outcome = run_to_quiescence(harness::reconcile(
-        left.root,
-        right.root,
+        left,
+        right,
         1,
         flush_only.clone(),
         flush_only,
@@ -76,8 +54,20 @@ proptest! {
             left,
             right,
             capacity,
-            plan(left_read_chunk, left_write_chunk, left_delays, left_buffered),
-            plan(right_read_chunk, right_write_chunk, right_delays, right_buffered),
+            harness::io_plan(
+                left_read_chunk,
+                left_write_chunk,
+                left_delays,
+                left_buffered,
+                None,
+            ),
+            harness::io_plan(
+                right_read_chunk,
+                right_write_chunk,
+                right_delays,
+                right_buffered,
+                None,
+            ),
         ))
         .map_err(|stopped| TestCaseError::fail(format!(
             "successful transport became quiescent: {stopped:?}",

@@ -9,8 +9,9 @@ use crate::tree::{
     mirror::streaming::materialized::{Error as MaterializedError, Violation},
 };
 
-use super::TRANSPORT_CAPACITY;
-use super::harness::{Backends, EndpointError, EndpointFailure, Topology, codec, drive};
+use super::harness::{
+    Backends, EndpointError, EndpointFailure, TRANSPORT_CAPACITY, Topology, codec, drive,
+};
 
 /// Drive the two-proxy topology in which the right endpoint's materialized
 /// participant is the protocol server, returning each endpoint's result

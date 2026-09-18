@@ -1,9 +1,15 @@
-//! Full-stack rejection of peer-controlled malformed frames.
+//! Full-stack rejection of malformed frames from a non-conforming peer.
 
-use super::harness::{self, EndpointError, EndpointFailure, FrameMutation, FrameSelector, Script};
+use std::{
+    convert::Infallible,
+    sync::{Arc, Mutex},
+};
+
+use super::harness::{self, EndpointFailure, FrameMutation, FrameSelector, Script};
 use crate::link::{Acceptor, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink};
-use crate::testing::run_to_quiescence;
+use crate::testing::{IoSide, run_to_quiescence};
 use crate::tree::{
+    Root as TreeRoot, Tree,
     arb::early_first_child_dispute_pair,
     mirror::streaming::remote::{
         Error as RemoteError,
@@ -14,26 +20,24 @@ use crate::tree::{
         streams::StreamError,
     },
 };
-use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, DuplexStream};
 
-/// An honestly built, wire-valid pair whose first root child is deeply
-/// disputed on both sides.
+/// A wire-valid pair whose first root child is deeply disputed on both sides.
 ///
 /// Depth matters here: the corruptions below hit an *early* frame of the
-/// corrupt side, and with exchanges still owed at lower levels, the
-/// corruptor provably cannot complete once its receiver aborts — so both
-/// sessions must fail, not just the receiving one. (The opening question's
-/// listing rides the greeting, never a data frame, so a corrupt side's
-/// first data frame is its first *reply*.) The divergent
-/// branching dispute also guarantees nonempty queries in both directions,
-/// which the unordered-query mutation needs to find.
-fn deep_pair() -> (crate::tree::Root, crate::tree::Root) {
+/// corrupt side, and with exchanges still owed at lower levels, the corruptor
+/// provably cannot complete once its receiver aborts — so both sessions must
+/// fail, not just the receiving one. (The opening question's listing rides the
+/// greeting, never a data frame, so a corrupt side's first data frame is its
+/// first *reply*.) The divergent branching dispute also guarantees nonempty
+/// queries in both directions, which the unordered-query mutation needs to
+/// find.
+fn deep_pair() -> (TreeRoot, TreeRoot) {
     early_first_child_dispute_pair()
 }
 
 /// Extract the reserved state code from a full incoming error chain.
-fn reserved_state(error: &RemoteError<std::convert::Infallible>) -> Option<u64> {
+fn reserved_state(error: &RemoteError<Infallible>) -> Option<u64> {
     let RemoteError::Stream(StreamError::Decode(error)) = error else {
         return None;
     };
@@ -46,19 +50,16 @@ fn reserved_state(error: &RemoteError<std::convert::Infallible>) -> Option<u64> 
 
 /// Borrow the remote error detected opposite the corrupt writer.
 fn receiving_error<'a>(
-    corrupt_left: bool,
-    left: &'a Result<crate::tree::Root, EndpointFailure>,
-    right: &'a Result<crate::tree::Root, EndpointFailure>,
-) -> &'a RemoteError<std::convert::Infallible> {
-    let (side, receiving) = if corrupt_left {
-        ("right", right)
-    } else {
-        ("left", left)
+    writer: IoSide,
+    left: &'a Result<TreeRoot, EndpointFailure>,
+    right: &'a Result<TreeRoot, EndpointFailure>,
+) -> &'a RemoteError<Infallible> {
+    let receiver = match writer {
+        IoSide::Left => IoSide::Right,
+        IoSide::Right => IoSide::Left,
     };
-    match receiving {
-        Err(EndpointError::Proxy(error)) => error,
-        other => panic!("receiving {side} proxy did not report the fault: {other:?}"),
-    }
+    harness::proxy_error(receiver, left, right)
+        .unwrap_or_else(|error| panic!("receiver did not report the malformed frame: {error}"))
 }
 
 /// A reserved state code injected in either physical direction is
@@ -66,19 +67,19 @@ fn receiving_error<'a>(
 /// terminates.
 #[test]
 fn reserved_signals_propagate_through_the_full_proxy() {
-    for corrupt_left in [false, true] {
+    for writer in [IoSide::Left, IoSide::Right] {
         let (left, right) = deep_pair();
         let script = Script::new(FrameSelector::First, FrameMutation::State(u8::MAX));
         let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
             left,
             right,
-            corrupt_left.then(|| script.clone()),
-            (!corrupt_left).then(|| script.clone()),
+            matches!(writer, IoSide::Left).then(|| script.clone()),
+            matches!(writer, IoSide::Right).then(|| script.clone()),
         ))
         .expect("a malformed signal must terminate both sessions");
         assert!(script.fired(), "the malformed signal was never injected");
 
-        let actual = reserved_state(receiving_error(corrupt_left, &left_result, &right_result));
+        let actual = reserved_state(receiving_error(writer, &left_result, &right_result));
         assert_eq!(actual, Some(u64::from(u8::MAX)));
         assert!(left_result.is_err());
         assert!(right_result.is_err());
@@ -96,7 +97,11 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
     let (left, right) = deep_pair();
-    let corrupt_left = harness::left_initiates(&left, &right);
+    let writer = if harness::left_initiates(&left, &right) {
+        IoSide::Left
+    } else {
+        IoSide::Right
+    };
     let script = Script::new(
         FrameSelector::First,
         FrameMutation::State(Signal::Match(Flow::Continue).state()),
@@ -104,12 +109,12 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,
         right,
-        corrupt_left.then(|| script.clone()),
-        (!corrupt_left).then(|| script.clone()),
+        matches!(writer, IoSide::Left).then(|| script.clone()),
+        matches!(writer, IoSide::Right).then(|| script.clone()),
     ))
     .expect("phase-invalid signal must terminate both sessions");
     assert!(script.fired());
-    let error = receiving_error(corrupt_left, &left_result, &right_result);
+    let error = receiving_error(writer, &left_result, &right_result);
     assert!(matches!(
         error,
         RemoteError::Stream(StreamError::Decode(error))
@@ -123,7 +128,7 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
 }
 
 /// Canonical query ordering is enforced when corruption occurs inside an
-/// otherwise honest, live proxy session.
+/// otherwise conforming, live proxy session.
 ///
 /// The corrupt physical side is arranged to be the elected *responder*:
 /// with the opening question riding the greeting rather than a wire
@@ -131,29 +136,24 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
 /// every divergent session still carries.
 #[test]
 fn unordered_query_propagates_through_the_full_proxy() {
-    for corrupt_left in [false, true] {
+    for writer in [IoSide::Left, IoSide::Right] {
         let (a, b) = deep_pair();
-        let (initiator, responder) = if harness::left_initiates(&a, &b) {
-            (a, b)
-        } else {
-            (b, a)
-        };
-        let (left, right) = if corrupt_left {
-            (responder, initiator)
-        } else {
-            (initiator, responder)
+        let (initiator, responder) = harness::order_by_election(a, b);
+        let (left, right) = match writer {
+            IoSide::Left => (responder, initiator),
+            IoSide::Right => (initiator, responder),
         };
         let script = Script::new(FrameSelector::Query, FrameMutation::UnorderQuery);
         let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
             left,
             right,
-            corrupt_left.then(|| script.clone()),
-            (!corrupt_left).then(|| script.clone()),
+            matches!(writer, IoSide::Left).then(|| script.clone()),
+            matches!(writer, IoSide::Right).then(|| script.clone()),
         ))
         .expect("unordered query must terminate both sessions");
         assert!(script.fired(), "no nonempty query reached the mutator");
         assert!(matches!(
-            receiving_error(corrupt_left, &left_result, &right_result),
+            receiving_error(writer, &left_result, &right_result),
             RemoteError::Stream(StreamError::Decode(error))
                 if matches!(
                     error.kind,
@@ -165,7 +165,7 @@ fn unordered_query_propagates_through_the_full_proxy() {
     }
 }
 
-/// A second reply manufactured after an honest reply has consumed the final
+/// A second reply manufactured after a valid reply has consumed the final
 /// scope reaches the proxy's reply-accounting check.
 #[test]
 fn duplicated_reply_is_rejected_as_unasked() {
@@ -180,7 +180,7 @@ fn duplicated_reply_is_rejected_as_unasked() {
     .expect("duplicated final reply must terminate both sessions");
     assert!(script.fired(), "no ending reaction reached the mutator");
     assert!(matches!(
-        receiving_error(true, &left_result, &right_result),
+        receiving_error(IoSide::Left, &left_result, &right_result),
         RemoteError::UnaskedReply
     ));
     assert!(left_result.is_err());
@@ -236,8 +236,8 @@ fn bytes_past_the_stream_end_are_never_read() {
     use proptest::prelude::*;
 
     let (left, right) = deep_pair();
-    let mut expected = crate::tree::Tree::<()>::from_root(left.clone());
-    expected.join(crate::tree::Tree::from_root(right.clone()));
+    let mut expected = Tree::<()>::from_root(left.clone());
+    expected.join(Tree::from_root(right.clone()));
     // Finding this deep hash geometry is expensive; vary delivery over
     // clones of one fixture, without repeating that search for each case.
     proptest!(|(
@@ -257,7 +257,7 @@ fn bytes_past_the_stream_end_are_never_read() {
             write_delays: delays,
             ..IoPlan::default()
         };
-        let (left_link, right_link) = memory_with_capacity(37);
+        let (left_link, right_link) = memory_with_capacity(harness::TRANSPORT_CAPACITY);
         let completed = CompletedReads::default();
         let left_link = retain_reads(left_link, completed.clone());
         let right_link = retain_reads(right_link, completed.clone());

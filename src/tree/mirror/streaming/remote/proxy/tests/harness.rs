@@ -1,9 +1,9 @@
-//! Reusable two-proxy session harness for transport-adversity properties.
+//! Shared two-proxy test support: session drivers, link decorators, greeting
+//! rewrites, frame scripts, fixtures, and role-sensitive result inspection.
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::{
     convert::Infallible,
-    io,
+    fmt, io,
     pin::Pin,
     sync::{
         Arc, Mutex,
@@ -17,17 +17,17 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::link::{
     Acceptor, Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink,
     memory_with_capacity,
 };
-use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
+use crate::testing::{IoFault, IoPlan, IoReportHandle, IoSide, wrap_link};
 use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::typed::height::Z;
 use crate::tree::{
-    Root as TreeRoot, Tree,
+    Action, Root as TreeRoot, Tree,
+    arb::nth_party,
     mirror::{
         Error as MirrorError,
         streaming::{
@@ -42,9 +42,13 @@ use crate::tree::{
         },
     },
 };
+use crate::{
+    DEFAULT_TARGET_MESSAGE_SIZE,
+    message::{Message, PayloadCodec, PayloadDepthLimit},
+};
 
 /// Bytes buffered by each per-stream pipe before backpressure applies.
-const TRANSPORT_CAPACITY: usize = 37;
+pub const TRANSPORT_CAPACITY: usize = 37;
 
 /// One endpoint's session failure, named by the participant that raised
 /// it.
@@ -158,6 +162,64 @@ pub fn join_oracle(left: &TreeRoot, right: &TreeRoot) -> TreeRoot {
     let mut joined = Tree::<()>::from_root(left.clone());
     joined.join(Tree::from_root(right.clone()));
     joined.root
+}
+
+/// Build two trees from disjoint parties, each containing the requested
+/// number of unit messages.
+pub fn disjoint_pair(left_messages: usize, right_messages: usize) -> (TreeRoot, TreeRoot) {
+    let build = |party, messages| {
+        let mut tree = Tree::<()>::new();
+        tree.act(
+            &nth_party(party),
+            (0..messages).map(|_| Action::Insert(Message::new(()))),
+        );
+        tree.root
+    };
+    (build(0, left_messages), build(1, right_messages))
+}
+
+/// Build an I/O plan shared by successful and fault-injection properties.
+pub fn io_plan(
+    read_chunk: usize,
+    write_chunk: usize,
+    delays: Vec<u8>,
+    hold_until_flush: bool,
+    fault: Option<IoFault>,
+) -> IoPlan {
+    IoPlan {
+        read_chunk,
+        write_chunk,
+        read_delays: delays.clone(),
+        write_delays: delays.clone(),
+        flush_delays: delays,
+        hold_until_flush,
+        fault,
+    }
+}
+
+/// Order a pair so the elected initiator comes first.
+pub fn order_by_election(left: TreeRoot, right: TreeRoot) -> (TreeRoot, TreeRoot) {
+    if left_initiates(&left, &right) {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
+/// Return the proxy error reported by one physical endpoint.
+pub fn proxy_error<'a, E: fmt::Debug>(
+    side: IoSide,
+    left: &'a Result<TreeRoot, EndpointError<E>>,
+    right: &'a Result<TreeRoot, EndpointError<E>>,
+) -> Result<&'a RemoteError<E>, String> {
+    let result = match side {
+        IoSide::Left => left,
+        IoSide::Right => right,
+    };
+    match result {
+        Err(EndpointError::Proxy(error)) => Ok(error),
+        other => Err(format!("{side:?} proxy did not report an error: {other:?}")),
+    }
 }
 
 /// Both endpoint results and their physical-I/O observations.
@@ -423,18 +485,19 @@ impl<C: Connector> Connector for ScriptedConnector<C> {
 
 /// One greeting size declaration replaced in the traffic a side receives.
 ///
-/// Rewriting the *received* greeting simulates a buggy counterparty whose
+/// Rewriting the *received* greeting simulates a non-conforming peer whose
 /// declaration disagrees with the traffic it then sends: the receiving side
 /// negotiates against the rewritten value while the sender behaves per its
-/// honest tree. The greeting is the first control traffic at this layer,
-/// so the rewriter buffers the one item, re-spells it with the field
+/// unchanged tree. The greeting is the first control traffic at this layer,
+/// so the rewriter buffers the one item, encodes it again with the field
 /// replaced, and passes everything after it through untouched.
 #[derive(Clone)]
 pub struct GreetingRewrite {
     /// Whether this rewrite reached a complete greeting.
     fired: Arc<AtomicBool>,
+    /// Which declaration to replace.
     field: GreetingField,
-    /// The declaration the receiving side decodes instead of the honest one.
+    /// The declaration the receiving side decodes instead of the encoded one.
     value: u64,
 }
 
@@ -479,7 +542,7 @@ impl GreetingRewrite {
         self.fired.load(Ordering::Relaxed)
     }
 
-    /// Re-spell one buffered greeting item with this rewrite applied.
+    /// Encode one buffered greeting item again with this rewrite applied.
     fn apply(&self, item: &[u8]) -> Vec<u8> {
         use crate::tree::mirror::streaming::remote::codec::greeting::{
             encode_greeting, parse_greeting,
@@ -487,7 +550,7 @@ impl GreetingRewrite {
         let mut input = item;
         cbor::read_head(&mut input).expect("a complete greeting item has its tag head");
         cbor::read_head(&mut input).expect("a complete greeting item has its string head");
-        let mut greeting = parse_greeting(input).expect("the harness rewrites an honest greeting");
+        let mut greeting = parse_greeting(input).expect("the harness rewrites a valid greeting");
         match self.field {
             GreetingField::SetLen => greeting.set_len = self.value,
             GreetingField::MaxVersionBytes => greeting.max_version_bytes = self.value,
@@ -500,7 +563,7 @@ impl GreetingRewrite {
 
 /// A control-stream reader replacing one greeting declaration, robust to
 /// arbitrary read chunking: it buffers the greeting item, serves the
-/// re-spelled bytes, and passes the rest of the stream through.
+/// rewritten bytes, and passes the rest of the stream through.
 pub struct RewriteRead<R> {
     /// The control stream being read.
     inner: R,
@@ -667,6 +730,26 @@ pub async fn reconcile_rewritten_greetings(
         WindowConfig::default(),
     )
     .await
+}
+
+/// Reconcile after changing the greeting one selected endpoint receives.
+pub async fn reconcile_rewritten_for(
+    receiver: IoSide,
+    receiver_root: TreeRoot,
+    sender_root: TreeRoot,
+    rewrite: GreetingRewrite,
+) -> (
+    Result<TreeRoot, EndpointFailure>,
+    Result<TreeRoot, EndpointFailure>,
+) {
+    match receiver {
+        IoSide::Left => {
+            reconcile_rewritten_greetings(receiver_root, sender_root, Some(rewrite), None).await
+        }
+        IoSide::Right => {
+            reconcile_rewritten_greetings(sender_root, receiver_root, None, Some(rewrite)).await
+        }
+    }
 }
 
 /// Wrap one link's control-read half in a greeting-word rewriter.
