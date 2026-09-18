@@ -1,13 +1,13 @@
 # Rumors review checklist
 
-**Current:** handshake rejection and quiet-driver verdicts corrected at `2964c47a`.
+**Current:** continuous-gossip schedules cover redaction and non-floor windows at `9da24a62`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** exercise driver cancellation across drop points and one-byte links
-under non-floor windows, then strengthen resource and transport convergence checks.
-High-count property settings wait for `before`'s generator sweep; remaining
-shared-helper cleanup follows the correctness-shaped properties it supports.
+**Next:** finish the bounded network-RNG correction, then audit and simplify
+the remaining core and test-only API plumbing. High-count property settings
+wait for `before`'s generator sweep; remaining verification and shared-helper
+cleanup follow the production-facing work.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -542,8 +542,20 @@ Dependencies: 04–05 and 16.
 - [x] Make quiet-driver verdicts deterministic and check handshake rejection against the outbound wire and unchanged state — `2964c47a`.
       Sources: `tests-disruption-handshake-14`, `tests-disruption-handshake-20–23`, T130, T132.
 
-- [ ] Exercise remaining driver termination, cancellation, redaction, and window schedules without vacuous checks.
-      Sources: `session-bookmark-18`, `session-bookmark-42`, `testing-infra-4`, `testing-infra-21`, `testing-infra-22`, `tests-disruption-handshake-15–18`, `tests-disruption-handshake-25`, `tests-disruption-handshake-26`, T19, T28, T129, T130, T132.
+- [x] Exercise redactions and non-floor windows across generated continuous-gossip schedules — `9da24a62`.
+      Sources: `tests-disruption-handshake-18`, `tests-disruption-handshake-25`, `tests-disruption-handshake-26`, T132.
+
+- [x] Disposition: a partially staged preamble can no longer remain idle; its first byte starts a session in the same poll, and active-session state already poisons the link until completion.
+      Source: `tests-disruption-handshake-15`.
+
+- [x] Disposition: do not parameterize cancellation by executor poll count. Idle and active cancellation are the implementation states, and both are covered without pinning incidental poll schedules.
+      Source: `tests-disruption-handshake-16`.
+
+- [x] Meter severed-connection cuts, include read cuts, and exercise asymmetric completion — `480fda21`.
+      Source: `tests-disruption-handshake-17`, T28.
+
+- [ ] Exercise remaining driver termination and handoff boundaries without vacuous checks.
+      Sources: `session-bookmark-18`, `session-bookmark-42`, `testing-infra-4`, `testing-infra-21`, `testing-infra-22`, T19, T28, T129, T130, T132.
 
 - [ ] Consolidate disruption/handshake fixtures and clarify tested schedules.
       Sources: `tests-disruption-handshake-1`, `tests-disruption-handshake-5`, `tests-disruption-handshake-6`, `tests-disruption-handshake-9`, `tests-disruption-handshake-11–13`, `tests-disruption-handshake-19`, `tests-disruption-handshake-24`, `tests-disruption-handshake-27`, `tests-disruption-handshake-29–32`, T48, T50, T52, T130–132.
