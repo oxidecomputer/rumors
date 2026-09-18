@@ -797,7 +797,7 @@ laws! {
     /// and borrowing spellings agreeing) and a [`Version`] to the singleton
     /// query admitting exactly itself. Behavioral equations only: a query's
     /// observation surface is membership, deliberately not identity
-    /// (`causally`'s module docs carry the no-`Eq` decision).
+    /// ([`Query`] explains why structural equality is absent).
     fn query_shorthands_are_their_expressions {
         let span = a.span(b);
         for p in [a, b] {

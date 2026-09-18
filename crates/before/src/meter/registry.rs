@@ -985,10 +985,10 @@ const PARTY_BUNDLE_CELLS: usize = 34;
 const CROSS_BUNDLE_CELLS: usize = 74;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 83;
+const FULL_BUNDLE_CELLS: usize = 85;
 
 /// Board rows reached by a population family.
-const POPULATION_BUNDLE_CELLS: usize = 9;
+const POPULATION_BUNDLE_CELLS: usize = 11;
 
 /// The default denominator: encoded input bytes.
 const ENCODED: &str = "encoded input bytes";

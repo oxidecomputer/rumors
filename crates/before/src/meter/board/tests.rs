@@ -105,6 +105,51 @@ fn many_hole_query_operands_exercise_both_fused_walks() {
     }
 }
 
+/// The conjunction fixture presents two independently growing antichains, and
+/// their intersection preserves every hole.
+///
+/// Pairwise concurrency makes every cross-operand comparison reach the
+/// non-absorption result. Each source hole is then a membership witness: if it
+/// were lost from the merged query, that version would become admitted.
+#[test]
+fn many_hole_conjunction_preserves_both_antichains() {
+    use crate::causally::{Down, Query};
+    use crate::meter::registry::FamilyId;
+
+    use super::family::FamilyData;
+    use super::ops::QueryOperands;
+
+    for family in [
+        FamilyId::Scatter,
+        FamilyId::Weave,
+        FamilyId::Stagger,
+        FamilyId::Benign,
+    ] {
+        let data = FamilyData::build(family, 0.01, 0);
+        let operands = QueryOperands::build(&data).expect("the family supplies a population");
+        for (i, hole) in operands.down_holes.iter().enumerate() {
+            assert!(
+                operands.down_holes[i + 1..]
+                    .iter()
+                    .all(|other| hole.concurrent(other)),
+                "{family:?} must make every source hole pair concurrent"
+            );
+        }
+
+        let source_holes = operands.down_holes.clone();
+        let mut left_holes = operands.down_holes;
+        let right_holes = left_holes.split_off(left_holes.len() / 2);
+        let query = Query::<Down>::from_inclusive_holes(left_holes)
+            & Query::<Down>::from_inclusive_holes(right_holes);
+
+        assert!(
+            source_holes.iter().all(|hole| !query.contains(hole)),
+            "{family:?} conjunction must preserve every source hole"
+        );
+        assert!(query.contains(&operands.down_hi), "{family:?}");
+    }
+}
+
 #[cfg(feature = "touch-meter")]
 use super::judge::trend;
 #[cfg(feature = "touch-meter")]

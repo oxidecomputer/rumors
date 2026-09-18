@@ -29,11 +29,11 @@ use super::floors::{
     masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines, scan_touch,
     seg_ceiling_only, sync_floors, tick_walk_floors, touch_delta_fold, touch_fold_first_merges,
     touch_pair_fold, touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE,
-    NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY,
-    NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED,
-    NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION, NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE,
-    WHY_HEAP_FORK_HALF, WHY_SCAN_EXAMINES, WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED,
-    WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
+    NA_HEAP_QUERY_CLONE, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM,
+    NA_SCAN_QUERY_CLONE, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION,
+    NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
+    NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_SCAN_EXAMINES,
+    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
 };
 use super::operand::{stored_nonzero_deltas, version_output_bytes};
 use crate::meter::registry::FamilyId;
@@ -1114,6 +1114,70 @@ pub(super) fn ops() -> Vec<Op> {
                     })
                     .with_model(Currency::Touch, ModelSpec::work(work)),
                 )
+            },
+        },
+        Op {
+            name: "query_conjoin_many",
+            prepare: |f| {
+                let operands = QueryOperands::build(f)?;
+                let mut left_holes = operands.down_holes;
+                let right_holes = left_holes.split_off(left_holes.len() / 2);
+                if left_holes.is_empty() || right_holes.is_empty() {
+                    return None;
+                }
+                let left_bytes = left_holes
+                    .iter()
+                    .map(|hole| hole.as_bytes().len())
+                    .sum::<usize>();
+                let right_bytes = right_holes
+                    .iter()
+                    .map(|hole| hole.as_bytes().len())
+                    .sum::<usize>();
+                let n = left_bytes
+                    .checked_add(right_bytes)
+                    .expect("allocated query operands have a representable size");
+                // Every cross-side pair is concurrent. Comparing them reads
+                // each left hole once per right hole and vice versa.
+                let work = left_bytes
+                    .checked_mul(right_holes.len())
+                    .and_then(|left| {
+                        right_bytes
+                            .checked_mul(left_holes.len())
+                            .and_then(|right| left.checked_add(right))
+                    })
+                    .expect("allocated query operands have a representable work bound");
+                let left = Query::<Down>::from_inclusive_holes(left_holes);
+                let right = Query::<Down>::from_inclusive_holes(right_holes);
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    segments: seg_ceiling_only(),
+                    scan: scan_touch(),
+                    touch: na(NA_TOUCH_PLACEMENT),
+                };
+                Some(
+                    Cell::new(n, floors, move || left & right)
+                        .with_model(Currency::Scan, ModelSpec::work(work))
+                        .with_model(Currency::Touch, ModelSpec::work(work)),
+                )
+            },
+        },
+        Op {
+            name: "query_clone_many",
+            prepare: |f| {
+                let operands = QueryOperands::build(f)?;
+                let holes = operands.down_holes;
+                let n = holes
+                    .iter()
+                    .map(|hole| hole.as_bytes().len())
+                    .sum::<usize>();
+                let query = Query::<Down>::from_inclusive_holes(holes);
+                let floors = Floors {
+                    heap: na(NA_HEAP_QUERY_CLONE),
+                    segments: seg_ceiling_only(),
+                    scan: na(NA_SCAN_QUERY_CLONE),
+                    touch: na(NA_TOUCH_NOT_FORCED),
+                };
+                Some(Cell::new(n, floors, move || (query.clone(), query)))
             },
         },
         // ── Party ──────────────────────────────────────────────────────

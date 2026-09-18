@@ -1994,11 +1994,10 @@ pub const ROSTER: &[OpSpec] = &[
             g.call("ff_query_coverage", &[4, 5])
         },
     },
-    // The conjunction panels: one per costly merge path — the floor
-    // join, the ceiling meet, and the hole re-admission's
-    // comparison-driven pruning against the merged bounds and the
-    // cross-side holes. The operands are built in unmeasured
-    // preparation; the measured call is the `&` merge itself.
+    // The conjunction panels isolate the floor join, ceiling meet, and
+    // one-hole pruning paths. The board separately varies both operands' hole
+    // counts. Operands are built before measurement; each panel measures only
+    // the `&` merge.
     OpSpec {
         name: "query_conjoin_floors",
         inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
@@ -2052,8 +2051,8 @@ pub const ROSTER: &[OpSpec] = &[
              joins the floors, meets the ceilings, and re-admits both holes \
              against the merged bounds and the cross-side pruning probes)",
         variant: "",
-        contract: "linear, plus one comparison per opposite-side hole pair: `O(|self| · |rhs|)` at worst",
-        claim: "n^2",
+        contract: "`O(n)` for this fixed one-hole shape",
+        claim: "n",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);

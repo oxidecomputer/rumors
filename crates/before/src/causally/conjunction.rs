@@ -1,12 +1,12 @@
-//! The `&` algebra and the normal form it maintains.
+//! Intersection of causal queries.
 //!
-//! `&` is predicate intersection, total on every pairing the polarity algebra
-//! admits: atoms are neutral, neutral conjoins into anything, and each polarity
-//! conjoins with itself. The one absent pairing is `Down` with `Up`, because
-//! this can create computationally intractible queries. Every impl delegates to
-//! the same-polarity merge ([`Query::and`]), which maintains the normal form,
-//! so construction order cannot change what a query admits (pinned behaviorally
-//! by the conjunction laws in `crate::laws`).
+//! Neutral bounds can intersect either polarity, and queries of the same
+//! polarity can intersect each other. Intersecting [`Down`] with [`Up`] is not
+//! supported because exact coverage could then require searching combinations
+//! of opposing holes.
+//!
+//! Every supported pairing reduces to [`Query::and`], which merges interval
+//! bounds and restores the hole antichain.
 
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -17,24 +17,19 @@ use super::polarity::{Down, Hole, Neutral, Polarity, Up};
 use super::{Query, Version};
 
 impl<'a, P: Polarity> Query<'a, P> {
-    /// Conjunction with a query of the same polarity.
+    /// Intersect with a query of the same polarity and restore normal form.
     ///
-    /// Floors join, ceilings meet, and every hole from either side is
-    /// re-admitted against the merged bounds, so absorption and pruning cannot
-    /// be evaded by construction order: a hole is dropped when the bound on
-    /// its own side already avoids everything it subtracts or a kept hole from
-    /// the other side subtracts a superset, and it evicts the other side's
-    /// kept holes it covers.
+    /// The merged floor is the join and the merged ceiling is the meet. A hole
+    /// is discarded when the merged interval cannot reach it or a hole from
+    /// the other operand subtracts a superset.
     ///
-    /// Each operand's holes are already a pairwise-unabsorbed antichain
-    /// (constructors mint at most one hole; every multi-hole query came
-    /// through this merge), so same-side pairs are never compared — only the
-    /// cross pairs are probed for absorption, in both directions.
+    /// Each input already holds an antichain, so only holes from opposite
+    /// operands need comparison. A hole outside every realizable version is
+    /// inert but remains in the representation; this merge compares bounds and
+    /// does not solve query emptiness.
     ///
-    /// Pruning is *comparative* — against the interval bound and the other
-    /// side's holes — never a semantic emptiness judgment: a hole nothing can
-    /// fall into rides through inert, subtracting nothing on every path,
-    /// rather than minting a corner case here.
+    /// With `k` left holes, `m` right holes, and `n` total encoded bytes, the
+    /// worst-case time is `O(n(k + m + 1))`; output space is `O(n)`.
     fn and(self, other: Query<'a, P>) -> Query<'a, P> {
         let floor = match (self.floor, other.floor) {
             (None, floor) | (floor, None) => floor,
@@ -46,18 +41,19 @@ impl<'a, P: Polarity> Query<'a, P> {
         };
         let survives =
             |hole: &Hole<'a>| P::hole_survives(hole, floor.as_deref(), ceiling.as_deref());
-        let mut kept: Vec<Hole<'a>> = self.holes.into_iter().filter(survives).collect();
-        let mut added: Vec<Hole<'a>> = Vec::new();
-        for hole in other.holes {
-            if !survives(&hole) {
-                continue;
+        let mut kept = self.holes;
+        kept.retain(survives);
+        let mut added = other.holes;
+        added.retain(|hole| {
+            if !survives(hole) {
+                return false;
             }
-            if kept.iter().any(|held| P::absorbs(held, &hole)) {
-                continue;
+            if kept.iter().any(|held| P::absorbs(held, hole)) {
+                return false;
             }
-            kept.retain(|held| !P::absorbs(&hole, held));
-            added.push(hole);
-        }
+            kept.retain(|held| !P::absorbs(hole, held));
+            true
+        });
         kept.append(&mut added);
         Query {
             floor,
@@ -155,12 +151,14 @@ impl<'a> Conjoin<'a, Up> for Query<'a, Neutral> {
 
 macro_rules! conjoin {
     ($($lhs:ty, $rhs:ty => $out:ty;)*) => {$(
-        #[doc = "Conjunction of [`Query`]s."]
+        #[doc = "Intersection of two causal filters."]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
+        #[doc = "With `k` left holes, `m` right holes, and `n` total encoded bytes, worst-case time is `O(n(k + m + 1))`."]
+        #[doc = "Output space is `O(n)`. Fixed hole counts are linear in `n`."]
         #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_bounded_holes.html")))]
-        #[cfg_attr(not(doc), doc = "`O(n^2)` in total input bytes; linear, plus one comparison per opposite-side hole pair: `O(|self| · |rhs|)` at worst")]
+        #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` for this fixed one-hole shape")]
         impl<'a> BitAnd<$rhs> for $lhs {
             type Output = $out;
 

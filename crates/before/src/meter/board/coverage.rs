@@ -122,6 +122,12 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "causally::Query::coverage",
         &["query_coverage", "query_coverage_many"],
     ),
+    ("causally::Query::into_owned", &["query_clone_many"]),
+    (
+        "causally & conjunction (atoms and queries, every admitted pairing)",
+        &["version_join", "version_meet", "query_conjoin_many"],
+    ),
+    ("From into Query (atoms, spans, versions, borrowed queries)", &["query_clone_many"]),
     ("Span::place", &["span_place"]),
     ("Span::dominance", &["span_dominance"]),
     ("Span::precedence", &["span_precedence"]),
@@ -382,24 +388,8 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          membership and coverage rows price the sweeps",
     ),
     (
-        "causally::Query::into_owned",
-        "one refcount bump per borrowed bound: no walk, no byte copy",
-    ),
-    (
-        "causally & conjunction (atoms and queries, every admitted pairing)",
-        "the celled version join/meet on same-side bounds, plus the hole \
-         re-admission: one masked comparison (the version_cmp row's walk) \
-         against the merged bound per hole and one per cross-side hole pair \
-         — bilinear in the operands' hole counts, never in the bound sizes",
-    ),
-    (
         "causally ! complement (atom negation into the polar hole)",
         "O(1) hole mint over the atom's bound: no comparison, no walk",
-    ),
-    (
-        "From into Query (atoms, spans, versions, borrowed queries)",
-        "O(1) constructions through the cross-side merge, which performs no \
-         comparison; the membership rows price the walks the queries feed",
     ),
     (
         "Span::new",

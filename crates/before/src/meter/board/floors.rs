@@ -146,6 +146,13 @@ pub(super) const WHY_HEAP_FORK_HALF: &str =
 pub(super) const NA_HEAP_IN_PLACE: &str =
     "may compute in place or return word-scale results: allocation \
      is not semantically forced (the process allocator itself cannot be re-routed around)";
+/// Heap NA: a cloned query may share both its bound list and version buffers.
+pub(super) const NA_HEAP_QUERY_CLONE: &str =
+    "the representation may share the bound list and every version buffer: \
+     no allocation is semantically forced";
+/// Scan NA: cloning a query does not inspect its encoded versions.
+pub(super) const NA_SCAN_QUERY_CLONE: &str =
+    "clones bound handles without reading their encoded version streams";
 /// Scan floor: the tick walk examines its whole input.
 const WHY_SCAN_TICK_WALK: &str = "the paired fill walk examines every topology bit and payload \
      code of both operands at least once: 8 bits per input byte, the walk's irreducible single \

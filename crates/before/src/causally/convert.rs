@@ -33,9 +33,9 @@ impl<'a> From<Ceiling<'a>> for Query<'a, Neutral> {
     }
 }
 
-/// A borrowed query converts by cloning (`O(1)` per stored bound:
-/// buffer-sharing clones), so APIs taking `impl Into<Query>` accept a held
-/// query without consuming it.
+/// A borrowed query converts in `O(k)` time and space for `k` stored bounds.
+/// Each bound shares its version buffer, so APIs taking `impl Into<Query>` can
+/// accept a held query without copying its encoded versions.
 impl<'a, P: Polarity> From<&Query<'a, P>> for Query<'a, P> {
     fn from(query: &Query<'a, P>) -> Query<'a, P> {
         query.clone()

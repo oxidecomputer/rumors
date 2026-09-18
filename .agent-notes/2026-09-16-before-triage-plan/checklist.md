@@ -116,7 +116,7 @@ triage's dispositions and branches are leads only.
       behind a one-child iterator probe.
       Source: independent resource-surface audit, 2026-09-17.
 
-- [ ] Price Query conjunction over independently growing hole sets, and make
+- [x] Price Query conjunction over independently growing hole sets, and make
       clone and ownership-conversion claims account for unbounded hole count.
       Reuse concurrent singleton bounds so retained holes, rather than early
       elimination, drive the measurement.

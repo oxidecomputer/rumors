@@ -26,6 +26,11 @@ use crate::version::skyline::place::filter::{self, Demand};
 /// satisfiability when deciding exact [`Span`] overlap. The [`Polarity`]
 /// restriction enforced by the types of [`Query`] avoids that combinatorial
 /// search.
+///
+/// Queries intentionally have no structural equality. Construction order and
+/// inert holes can produce different stored forms for the same predicate; use
+/// [`contains`](Self::contains) or [`coverage`](Self::coverage) to compare
+/// behavior.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Query<'a, P: Polarity = Neutral> {
     pub(super) floor: Option<Cow<'a, Version>>,
@@ -34,7 +39,8 @@ pub struct Query<'a, P: Polarity = Neutral> {
     pub(super) polarity: PhantomData<P>,
 }
 
-/// Clones by sharing every stored version's buffer, `O(1)` per bound.
+/// Clones in `O(k)` time and space for `k` stored bounds. Each cloned bound
+/// shares its version buffer.
 impl<'a, P: Polarity> Clone for Query<'a, P> {
     fn clone(&self) -> Self {
         Query {
@@ -307,13 +313,12 @@ impl<'a, P: Polarity> Query<'a, P> {
         Coverage::Partial
     }
 
-    /// Converts a borrowed [`Query`] into a `'static` one by cheap internal
-    /// clone.
+    /// Converts every borrowed bound into a buffer-sharing owned version.
     ///
     /// # Complexity
     ///
-    /// `O(1)`: owned versions move, borrowed ones clone by sharing their stored
-    /// buffers.
+    /// `O(k)` time and space for `k` stored bounds. Owned versions move;
+    /// borrowed versions share their stored buffers.
     pub fn into_owned(self) -> Query<'static, P> {
         Query {
             floor: self.floor.map(|p| Cow::Owned(p.into_owned())),
@@ -345,11 +350,10 @@ impl<'a> Query<'a, Neutral> {
     }
 }
 
-// Debug renders the module's own expression vocabulary, the only structural
-// window into a query (there is deliberately no `Eq`; see the module docs), so
-// failures and logs read as an expression denoting the same predicate. (Strict
-// holes render as the negated strict atoms they equal, `!strictly_before(v)` —
-// spellings reached through `or_concurrent` in the operator language.)
+/// Renders the query as the causal expression it denotes.
+///
+/// Strict holes use their equivalent negated strict atoms, such as
+/// `!strictly_before(v)`.
 impl<P: Polarity> fmt::Debug for Query<'_, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut first = true;
