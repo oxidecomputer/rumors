@@ -1,13 +1,14 @@
 # Rumors review checklist
 
-**Current:** continuous-gossip schedules cover redaction and non-floor windows at `9da24a62`.
+**Current:** core API forwarding and causal staging are simplified at
+`bd8b61e5`; causal observers no longer allocate a copied key per version.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** finish the bounded network-RNG correction, then audit and simplify
-the remaining core and test-only API plumbing. High-count property settings
-wait for `before`'s generator sweep; remaining verification and shared-helper
-cleanup follow the production-facing work.
+**Next:** review the bounded network-RNG correction, then finish the remaining
+test-only API surface. High-count property settings wait for `before`'s
+generator sweep; remaining verification and shared-helper cleanup follow the
+production-facing work.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -195,7 +196,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Remove `Protocol`'s vestigial representation and default, and describe build compatibility rather than protocol selection — `aebaea15`.
       Sources: `api-audit-5`, `api-core-4`, `api-core-21`, `fresh-eyes-2`, `mirror-common-12`, `module-graph-4`, `prose-hygiene-2`, T82.
 
-- [ ] Simplify core API plumbing and correct its comments.
+- [x] Simplify core API plumbing and correct its comments — `bd8b61e5`.
       Sources: `api-core-3`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–14`, `api-core-16`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T132.
 
 ## 08. Bookmark contracts and file implementation
