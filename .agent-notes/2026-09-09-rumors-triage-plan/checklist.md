@@ -1,13 +1,15 @@
 # Rumors review checklist
 
-**Current:** degenerate deterministic randomness now fails promptly instead of
-hanging peer construction — `b99dd7b8`.
+**Current:** tree and typed-tree representations and contracts are simplified —
+`df4817e6`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** simplify the remaining tree and typed-tree invariants and helpers.
-High-count property settings wait for `before`'s generator sweep; test-only API
-exports and remaining verification cleanup follow production-facing work.
+**Next:** remove confirmed allocation and copying costs from synchronization,
+starting with the local/materialized backend. Then address the public Bookmark
+inspection gap and measured routed-link overhead. Verification infrastructure,
+test consolidation, broad prose work, and local module hygiene follow these
+production-facing outcomes.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -140,7 +142,7 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
       affordable overhead grid — `1a83b5f8`.
       Sources: `verification-infra-6`, T17, T168, N35, N51.
 
-- [ ] Keep only useful budget and residency measurements, with precise claims.
+- [ ] Remove confirmed allocation and copying costs from local/materialized synchronization; keep only measurements that test a stated budget or residency claim.
       Sources: `materialized-30`, `streaming-backend-window-9`, `streaming-backend-window-11`, `streaming-backend-window-37`, `streaming-tests-16`, `tests-resource-link-window-7`, `tests-resource-link-window-8`, `tests-resource-link-window-16`, `tests-resource-link-window-18`, `tests-resource-link-window-28`, `verification-infra-14`, T16, T28, T110, T113, T128, T130, T132.
 
 ## 07. Peer lifecycle, observers, and snapshots
@@ -282,8 +284,11 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Start the geometry search from a verified hint, falling back to the full search when needed.
       Sources: `tree-core-24`, T112; coupled with 23's fixture costs.
 
-- [ ] Clarify tree invariants and simplify names and helpers.
-      Sources: `tree-core-1`, `tree-core-3`, `tree-core-4`, `tree-core-9`, `tree-core-10`, `tree-core-12`, `tree-core-15`, `tree-core-17–21`, `tree-core-23`, `tree-core-25`, `tree-core-26`, `tree-core-28`, `tree-core-32`, `tree-core-35`, T48, T49, T52, T53, T124, T132.
+- [x] Simplify tree representation, redundant helpers, and core invariant explanations — `df4817e6`.
+      Sources: `tree-core-1`, `tree-core-3`, `tree-core-4`, `tree-core-9`, `tree-core-10`, `tree-core-17`, `tree-core-18`, `tree-core-20`, `tree-core-21`, `tree-core-23`, `tree-core-25`, `tree-core-26`, `tree-core-28`, `tree-core-32`, `tree-core-35`, T48, T49, T52, T53, T124, T132.
+
+- [ ] Finish remaining tree-local prose and test-helper cleanup after substantive work.
+      Sources: `tree-core-12`, `tree-core-15`, `tree-core-19`.
 
 ## 11. Typed-tree representation and measured changes
 
@@ -322,8 +327,11 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Check typed-tree preconditions where a real failure construction is possible — `1bc7e85d`.
       Sources: `tree-typed-7`, `tree-typed-9`, T132.
 
-- [ ] Simplify typed-tree helpers and clarify their contracts.
-      Sources: `tree-typed-1–5`, `tree-typed-8`, `tree-typed-13–14`, `tree-typed-18`, `tree-typed-19`, `tree-typed-25–29`, `tree-typed-32`, `tree-typed-33`, T46, T49, T52, T95, T97, T125, T132.
+- [x] Simplify typed-tree helpers, representation, and contracts — `df4817e6`.
+      Sources: `tree-typed-2–5`, `tree-typed-8`, `tree-typed-13–14`, `tree-typed-18`, `tree-typed-19`, `tree-typed-25–29`, `tree-typed-32`, `tree-typed-33`, T46, T49, T52, T95, T97, T125, T132.
+
+- [ ] Normalize typed-tree visibility with the final module-layout cleanup.
+      Source: `tree-typed-1`.
 
 ## 12. Wire codec, greeting, and stream adapters
 
