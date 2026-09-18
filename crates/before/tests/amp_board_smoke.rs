@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard};
 
-use before::meter::board::{self, HeapMeter};
+use before::meter::board::{self, HeapMeter, BOARD_PRICED};
 use before::meter::registry::{Bands, Coverage, FamilyId, AXIS_BANDS};
 use peak_alloc::PeakAlloc;
 
@@ -219,15 +219,14 @@ fn worst_map_covers_every_operation_row() {
         }
         *per_op.entry(op).or_default() += 1;
     }
-    // The benign control supplies every operation row (the registry's
-    // declared reach), so its count is the operation axis's length.
-    let expected = expected_cells_per_family();
-    let ops_total = expected
-        .get("benign")
-        .expect("the benign control is on the board roster");
+    let ops_total = BOARD_PRICED
+        .iter()
+        .flat_map(|(_, rows)| *rows)
+        .collect::<BTreeSet<_>>()
+        .len();
     assert_eq!(
         per_op.len(),
-        *ops_total,
+        ops_total,
         "the map must carry every operation row exactly once"
     );
     assert!(

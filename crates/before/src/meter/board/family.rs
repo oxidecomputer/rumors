@@ -9,7 +9,9 @@
 
 use crate::codec;
 use crate::meter::registry::{FamilyId, Shape};
-use crate::{Clock, Party, Rank, Version};
+use num_bigint::BigUint;
+
+use crate::{Clock, Party, Rank, Ticks, Version};
 
 use super::operand::value_content_bytes;
 
@@ -365,6 +367,62 @@ pub(super) const MIN_SIZE_PARAM: usize = 4;
 /// row must be deterministic run to run.
 const BENIGN_RNG_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
+/// A query fixture that varies numeric width independently of bound count.
+pub(super) struct QueryProbe {
+    /// Pairwise-concurrent bounds on a shared three-interval grid.
+    pub(super) holes: Vec<Vec<u8>>,
+    /// A membership probe with wide first and last heights.
+    pub(super) membership: Vec<u8>,
+    /// A coverage span whose lower endpoint becomes wide only at the end.
+    pub(super) coverage: (Vec<u8>, Vec<u8>),
+}
+
+/// Build the query filter's width-by-arity witness.
+///
+/// For `k` holes, the first two leaf heights move in opposite directions, so
+/// no hole absorbs another. The probe is `k² / 4` bits wide on its first and
+/// last leaves, with a narrow middle leaf. The first interval catches eager
+/// copies; the middle materializes exact differences; the last catches code
+/// that copies a later wide crossing into those differences. Total input is
+/// `O(k²)`, while either mistake allocates `O(k³)` bits. The divisor keeps a
+/// regressed acceptance run practical.
+fn wide_query_probe(population: usize) -> QueryProbe {
+    let count = (population / 8).max(2);
+    let width = count
+        .checked_mul(count)
+        .map(|bits| bits.div_ceil(4))
+        .expect("an allocated population has a representable squared prefix")
+        .max(count.ilog2() as usize + 2);
+
+    let mut first = Party::seed();
+    let mut second = first.fork();
+    let third = second.fork();
+    let on = |party: &Party, count: Ticks| {
+        let mut version = Version::new();
+        version.ticks(party, count);
+        version
+    };
+    let holes = (0..count)
+        .map(|i| {
+            let rising = u64::try_from(i + 1).expect("an allocated population count fits u64");
+            let falling = u64::try_from(count - i).expect("an allocated population count fits u64");
+            (on(&first, rising.into()) | on(&second, falling.into()) | on(&third, 1u8.into()))
+                .encode()
+        })
+        .collect();
+    let wide = Ticks((BigUint::from(1u8) << width) - 1u8);
+    let middle = u64::try_from(count + 1).expect("an allocated population count fits u64");
+    let membership =
+        on(&first, wide.clone()) | on(&second, middle.into()) | on(&third, wide.clone());
+    let coverage_lo = on(&third, wide.clone());
+    let coverage_hi = on(&Party::seed(), wide);
+    QueryProbe {
+        holes,
+        membership: membership.encode(),
+        coverage: (coverage_lo.encode(), coverage_hi.encode()),
+    }
+}
+
 /// One shape instantiated at one scale: the operand bundle every row's
 /// `prepare` decodes fresh (outside measurement).
 ///
@@ -413,6 +471,8 @@ pub(super) struct FamilyData {
     /// kept in the family's significant order.
     #[allow(clippy::type_complexity)]
     pub(super) population: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+    /// Correlated query operands whose numeric width and bound count both grow.
+    pub(super) query_probe: Option<QueryProbe>,
     /// An overlapping encoded party pair within one universe: the rejection
     /// rows' operands.
     ///
@@ -442,6 +502,7 @@ impl FamilyData {
             output_dominated: false,
             content_bytes: None,
             population: None,
+            query_probe: None,
             overlap: None,
             rank_pair: None,
         }
@@ -889,6 +950,7 @@ impl FamilyData {
         let parties = scatter_order(parties.iter().map(Party::encode).collect());
         let mut data = Self::bare(FamilyId::Scatter);
         data.population = Some((versions, parties));
+        data.query_probe = Some(wide_query_probe(n));
         data
     }
 

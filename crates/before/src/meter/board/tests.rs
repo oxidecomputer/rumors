@@ -105,6 +105,57 @@ fn many_hole_query_operands_exercise_both_fused_walks() {
     }
 }
 
+/// The correlated query fixture isolates bound count from numeric width.
+///
+/// Every narrow bound follows the same three-interval grid and is concurrent
+/// with every other bound. Membership begins wide, becomes narrow enough to
+/// need exact differences, then becomes wide again. Coverage begins narrow and
+/// crosses to a wide lower endpoint only after those differences exist.
+#[test]
+fn wide_query_probe_exercises_shared_numeric_state() {
+    use crate::causally::{Coverage, Down, Query, Up};
+    use crate::meter::registry::FamilyId;
+    use crate::Version;
+
+    use super::family::{decode_version, FamilyData};
+
+    let family = FamilyData::build(FamilyId::Scatter, 0.125, 0);
+    let fixture = family
+        .query_probe
+        .as_ref()
+        .expect("scatter supplies the correlated query fixture");
+    let holes: Vec<_> = fixture
+        .holes
+        .iter()
+        .map(|bytes| decode_version(bytes))
+        .collect();
+    let probe = decode_version(&fixture.membership);
+    let coverage_lo = decode_version(&fixture.coverage.0);
+    let coverage_hi = decode_version(&fixture.coverage.1);
+
+    assert!(holes.len() >= 2, "the fixture must vary both leaf heights");
+    for (i, hole) in holes.iter().enumerate() {
+        for (j, other) in holes[i + 1..].iter().enumerate() {
+            assert!(
+                hole.concurrent(other),
+                "bounds {i} and {} must be concurrent: {hole:?} / {other:?}",
+                i + j + 1,
+            );
+        }
+        assert!(hole < probe, "the wide probe must dominate every bound");
+    }
+
+    let up = Query::<Up>::from_inclusive_holes(holes.clone());
+    assert!(!up.contains(&probe));
+    assert_eq!(up.coverage(Version::new().span(&probe)), Coverage::Partial);
+    let down = Query::<Down>::from_inclusive_holes(holes);
+    assert!(down.contains(&coverage_lo));
+    assert_eq!(
+        down.coverage(coverage_lo.span(&coverage_hi)),
+        Coverage::Full
+    );
+}
+
 /// The conjunction fixture presents two independently growing antichains, and
 /// their intersection preserves every hole.
 ///

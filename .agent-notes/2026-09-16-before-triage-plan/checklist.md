@@ -69,6 +69,10 @@ triage's dispositions and branches are leads only.
 
 ## 04. Core semantic verification
 
+- [x] Verify public causal-query construction, conjunction, membership, and
+      coverage against relation-level oracles over a complete finite interval
+      and arbitrary wide normal-form versions.
+
 - [ ] Consolidate the Party and Clock properties around disjointness,
       linearity, fork/join conservation, and stale-state hazards.
       Sources: `party-*`, `clock-*`, `oracle-laws-*`, `testing-diff-gen-*`.
@@ -112,10 +116,12 @@ triage's dispositions and branches are leads only.
       errors, then reassess the fraction and numeric-assembly temporaries.
       Source: owner review, 2026-09-17.
 
-- [x] Make multi-hole query refinement scale with the declared inputs. Cover
-      concurrent `since` holes against one wide probe for transient space, and
-      many surviving `until` holes against a dense probe for total work, while
-      varying both tree size and hole count.
+- [x] Keep multi-hole query auxiliary space linear when numeric width and bound
+      count vary independently. Share absolute probe heights, retain bound
+      heights, and discard private differences before wide crossings can
+      multiply them. State the payload-sensitive time bound, and cover both
+      query polarities and operations with concurrent narrow bounds against
+      wide initial heights and later crossings.
       Sources: `span-causally-24`, `span-causally-36`,
       `skyline-sweep-place-masked-21`.
 

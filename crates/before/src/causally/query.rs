@@ -130,10 +130,11 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// With `k` stored bounds and `i` intervals in their common tree overlay,
-    /// evaluation takes `O(n + k·i)` time for `n` total encoded operand bytes.
-    /// Batch capacity is proportional to `n`, keeping auxiliary space `O(n)`
-    /// as well as `O(k)`. The charts below show the fixed-bound shapes, where
+    /// With `k` stored bounds, evaluation takes `O(k·n)` time and `O(n)`
+    /// auxiliary space for `n` total encoded operand bytes. More precisely, if
+    /// `i` is the number of intervals in the streams' common tree overlay and
+    /// `p` is the encoded size of `version`'s payloads, time is
+    /// `O(n + k·(i + p))`. The charts below show fixed-bound shapes, where
     /// this reduces to `O(n)`:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor.html")))]
@@ -191,10 +192,11 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// With `k` stored bounds and `i` intervals in their common tree overlay,
-    /// evaluation takes `O(n + k·i)` time for `n` total encoded operand bytes.
-    /// Batch capacity is proportional to `n`, keeping auxiliary space `O(n)`
-    /// as well as `O(k)`. The charts below show the fixed-bound shapes, where
+    /// With `k` stored bounds, evaluation takes `O(k·n)` time and `O(n)`
+    /// auxiliary space for `n` total encoded operand bytes. More precisely, if
+    /// `i` is the number of intervals in the streams' common tree overlay and
+    /// `p` is the encoded size of the span endpoints' payloads, time is
+    /// `O(n + k·(i + p))`. The charts below show fixed-bound shapes, where
     /// this reduces to `O(n)`:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor.html")))]

@@ -379,6 +379,97 @@ fn filter_coverage_organic_witnesses() {
 }
 
 proptest! {
+    /// Shared comparisons match their pairwise oracles across wide → narrow →
+    /// wide transitions.
+    ///
+    /// Membership varies the shared probe; coverage varies its lower endpoint
+    /// beneath an independently wide upper endpoint. Numeric width, the narrow
+    /// heights, bound count, and every demand kind vary, exercising both
+    /// shared-to-private transitions and mixed endpoint state beyond the
+    /// accumulator's inline range.
+    #[test]
+    fn filters_materialize_a_difference_only_when_needed(
+        width in 128usize..=2_048,
+        power_of_two in any::<bool>(),
+        probe_middle in 0u64..=128,
+        lower_first in 0u64..=128,
+        lower_middle in 0u64..=128,
+        cases in prop::collection::vec(
+            (0u64..=128, 1u64..=64, 0u64..=128, 0usize..6),
+            1..=8,
+        ),
+    ) {
+        use num_bigint::BigUint;
+
+        use crate::{Party, Ticks};
+
+        const DEMANDS: [Demand; 6] = [
+            Demand::After,
+            Demand::Before,
+            Demand::NotBefore,
+            Demand::NotStrictlyBefore,
+            Demand::NotAfter,
+            Demand::NotStrictlyAfter,
+        ];
+
+        let mut first = Party::seed();
+        let mut second = first.fork();
+        let third = second.fork();
+        let mut wide = BigUint::from(1u8) << width;
+        if !power_of_two {
+            wide -= 1u8;
+        }
+        let on = |party: &Party, count: Ticks| {
+            let mut version = Version::new();
+            version.ticks(party, count);
+            version
+        };
+        let version = |first_height: Ticks, second_height: u64, third_height: Ticks| {
+            on(&first, first_height)
+                | on(&second, second_height.into())
+                | on(&third, third_height)
+        };
+
+        let probe = version(
+            Ticks(wide.clone()),
+            probe_middle,
+            Ticks(wide.clone()),
+        );
+        let lo = version(lower_first.into(), lower_middle, Ticks(wide.clone()));
+        let mut hi = Version::new();
+        hi.ticks(&Party::seed(), Ticks(wide));
+        let bounds: Vec<_> = cases
+            .into_iter()
+            .map(|(first, rise, third, demand)| {
+                (
+                    version(first.into(), first + rise, third.into()),
+                    DEMANDS[demand],
+                )
+            })
+            .collect();
+        let borrowed: Vec<_> = bounds
+            .iter()
+            .map(|(bound, demand)| (bound, *demand))
+            .collect();
+
+        prop_assert_eq!(
+            filter::admits((probe.view()).live(), streams(&borrowed)),
+            borrowed
+                .iter()
+                .all(|&(bound, demand)| demand_admits(&probe, bound, demand)),
+            "membership across shared numeric transitions",
+        );
+        prop_assert_eq!(
+            filter::coverage(
+                (lo.view()).live(),
+                (hi.view()).live(),
+                streams(&borrowed),
+            ),
+            composed_coverage(&lo, &hi, &borrowed),
+            "coverage across shared numeric transitions",
+        );
+    }
+
     /// The fused span, dominance, precedence, and membership walks equal their
     /// composed two-sweep spellings.
     ///

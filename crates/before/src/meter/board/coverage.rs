@@ -127,11 +127,18 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "causally_contains",
             "query_contains",
             "query_contains_many",
+            "query_contains_wide_up",
+            "query_contains_wide_down",
         ],
     ),
     (
         "causally::Query::coverage",
-        &["query_coverage", "query_coverage_many"],
+        &[
+            "query_coverage",
+            "query_coverage_many",
+            "query_coverage_wide_up",
+            "query_coverage_wide_down",
+        ],
     ),
     ("causally::Query::into_owned", &["query_clone_many"]),
     (

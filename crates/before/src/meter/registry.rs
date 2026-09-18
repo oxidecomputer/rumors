@@ -990,6 +990,9 @@ const FULL_BUNDLE_CELLS: usize = 112;
 /// Board rows reached by a population family.
 const POPULATION_BUNDLE_CELLS: usize = 24;
 
+/// Board rows reached by scatter, including correlated query witnesses.
+const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
+
 /// The default denominator: encoded input bytes.
 const ENCODED: &str = "encoded input bytes";
 
@@ -1245,7 +1248,7 @@ impl FamilyId {
                 name: "scatter",
                 shapes: &[],
                 coverage: Coverage::Board {
-                    cells: POPULATION_BUNDLE_CELLS,
+                    cells: SCATTER_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
                     reason: "the board prices the population's folds and derived multi-hole \

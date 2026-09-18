@@ -100,10 +100,11 @@
 //!
 //! Atoms and named constructors are `O(1)`.
 //!
-//! With `k` bounds and `i` intervals in their common tree overlay, evaluation
-//! takes `O(n + k·i)` time for `n` encoded input bytes. Input-funded batching
-//! also keeps auxiliary space `O(n)` as well as `O(k)`. Since `i <= O(n)`, the
-//! coarser byte-only time bound is `O(k·n)`. A verdict may stop earlier.
+//! With `k` bounds, evaluation takes `O(k·n)` time and `O(n)` auxiliary space
+//! for `n` encoded input bytes. More precisely, if `i` is the number of
+//! intervals in the streams' common tree overlay and `p` is the encoded size
+//! of the probe payloads, time is `O(n + k·(i + p))`. A verdict may stop
+//! earlier.
 //!
 //! # Examples
 //!

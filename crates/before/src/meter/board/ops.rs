@@ -324,6 +324,83 @@ impl QueryOperands {
     }
 }
 
+/// A prepared many-hole operation and the work its common-overlay walk permits.
+struct MeasuredQuery {
+    holes: Vec<Version>,
+    lower: Option<Version>,
+    endpoint: Version,
+    input_bytes: usize,
+    touch_work: usize,
+}
+
+impl MeasuredQuery {
+    /// Package a query fixture and calculate its topology-touch allowance.
+    ///
+    /// `overlay_intervals` is exact for a purpose-built fixture. The organic
+    /// populations use their coarser, always-valid `i = O(n)` bound.
+    fn new(
+        holes: Vec<Version>,
+        lower: Option<Version>,
+        endpoint: Version,
+        overlay_intervals: Option<usize>,
+    ) -> MeasuredQuery {
+        let input_bytes = holes
+            .iter()
+            .map(|hole| hole.as_bytes().len())
+            .sum::<usize>()
+            .checked_add(endpoint.as_bytes().len())
+            .and_then(|bytes| bytes.checked_add(lower.as_ref().map_or(0, |lo| lo.as_bytes().len())))
+            .expect("allocated query operands have a representable size");
+        let intervals = overlay_intervals.unwrap_or(input_bytes);
+        let touch_work = holes
+            .len()
+            .checked_mul(intervals)
+            .and_then(|updates| input_bytes.checked_add(updates))
+            .expect("allocated query operands have a representable work bound");
+        MeasuredQuery {
+            holes,
+            lower,
+            endpoint,
+            input_bytes,
+            touch_work,
+        }
+    }
+}
+
+/// Prepare the organic population's membership witness.
+fn query_membership_operands(f: &FamilyData) -> Option<MeasuredQuery> {
+    let operands = QueryOperands::build(f)?;
+    Some(MeasuredQuery::new(
+        operands.up_holes,
+        None,
+        operands.up_probe,
+        None,
+    ))
+}
+
+/// Prepare the organic population's coverage witness.
+fn query_coverage_operands(f: &FamilyData) -> Option<MeasuredQuery> {
+    let operands = QueryOperands::build(f)?;
+    Some(MeasuredQuery::new(
+        operands.down_holes,
+        Some(Version::new()),
+        operands.down_hi,
+        None,
+    ))
+}
+
+/// Decode the correlated fixture's holes for one independently measured row.
+fn wide_query_holes(f: &FamilyData) -> Option<Vec<Version>> {
+    Some(
+        f.query_probe
+            .as_ref()?
+            .holes
+            .iter()
+            .map(|bytes| decode_version(bytes))
+            .collect(),
+    )
+}
+
 /// One board row: a public operation and how to instantiate it per family.
 pub(super) struct Op {
     /// The row label, `type_operation`.
@@ -1452,18 +1529,11 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "query_contains_many",
             prepare: |f| {
-                let operands = QueryOperands::build(f)?;
-                let n = operands
-                    .up_holes
-                    .iter()
-                    .map(|hole| hole.encode().len())
-                    .sum::<usize>()
-                    + operands.up_probe.encode().len();
-                let work = n
-                    .checked_mul(operands.up_holes.len())
-                    .expect("allocated query operands have a representable work bound");
-                let query = Query::<Up>::from_inclusive_holes(operands.up_holes);
-                let probe = operands.up_probe;
+                let operands = query_membership_operands(f)?;
+                let n = operands.input_bytes;
+                let work = operands.touch_work;
+                let query = Query::<Up>::from_inclusive_holes(operands.holes);
+                let probe = operands.endpoint;
                 Some(
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.contains(&probe), query, probe)
@@ -1475,20 +1545,108 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "query_coverage_many",
             prepare: |f| {
-                let operands = QueryOperands::build(f)?;
-                let lo = Version::new();
-                let n = operands
-                    .down_holes
-                    .iter()
-                    .map(|hole| hole.encode().len())
-                    .sum::<usize>()
-                    + lo.encode().len()
-                    + operands.down_hi.encode().len();
-                let work = n
-                    .checked_mul(operands.down_holes.len())
-                    .expect("allocated query operands have a representable work bound");
-                let query = Query::<Down>::from_inclusive_holes(operands.down_holes);
-                let span = lo.span(&operands.down_hi);
+                let operands = query_coverage_operands(f)?;
+                let lo = operands
+                    .lower
+                    .expect("coverage operands include a lower endpoint");
+                let n = operands.input_bytes;
+                let work = operands.touch_work;
+                let query = Query::<Down>::from_inclusive_holes(operands.holes);
+                let span = lo.span(&operands.endpoint);
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                        (query.coverage(span.reborrow()), query, span)
+                    })
+                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                )
+            },
+        },
+        Op {
+            name: "query_contains_wide_up",
+            prepare: |f| {
+                let fixture = f.query_probe.as_ref()?;
+                let operands = MeasuredQuery::new(
+                    wide_query_holes(f)?,
+                    None,
+                    decode_version(&fixture.membership),
+                    Some(3),
+                );
+                let n = operands.input_bytes;
+                let work = operands.touch_work;
+                let query = Query::<Up>::from_inclusive_holes(operands.holes);
+                let probe = operands.endpoint;
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                        (query.contains(&probe), query, probe)
+                    })
+                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                )
+            },
+        },
+        Op {
+            name: "query_contains_wide_down",
+            prepare: |f| {
+                let fixture = f.query_probe.as_ref()?;
+                let operands = MeasuredQuery::new(
+                    wide_query_holes(f)?,
+                    None,
+                    decode_version(&fixture.coverage.0),
+                    Some(3),
+                );
+                let n = operands.input_bytes;
+                let work = operands.touch_work;
+                let query = Query::<Down>::from_inclusive_holes(operands.holes);
+                let probe = operands.endpoint;
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                        (query.contains(&probe), query, probe)
+                    })
+                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                )
+            },
+        },
+        Op {
+            name: "query_coverage_wide_down",
+            prepare: |f| {
+                let fixture = f.query_probe.as_ref()?;
+                let operands = MeasuredQuery::new(
+                    wide_query_holes(f)?,
+                    Some(decode_version(&fixture.coverage.0)),
+                    decode_version(&fixture.coverage.1),
+                    Some(3),
+                );
+                let lo = operands
+                    .lower
+                    .expect("coverage operands include a lower endpoint");
+                let n = operands.input_bytes;
+                let work = operands.touch_work;
+                let query = Query::<Down>::from_inclusive_holes(operands.holes);
+                let span = lo.span(&operands.endpoint);
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                        (query.coverage(span.reborrow()), query, span)
+                    })
+                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                )
+            },
+        },
+        Op {
+            name: "query_coverage_wide_up",
+            prepare: |f| {
+                let fixture = f.query_probe.as_ref()?;
+                let operands = MeasuredQuery::new(
+                    wide_query_holes(f)?,
+                    Some(Version::new()),
+                    decode_version(&fixture.membership),
+                    Some(3),
+                );
+                let lo = operands
+                    .lower
+                    .expect("coverage operands include a lower endpoint");
+                let n = operands.input_bytes;
+                let work = operands.touch_work;
+                let query = Query::<Up>::from_inclusive_holes(operands.holes);
+                let span = lo.span(&operands.endpoint);
                 Some(
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.coverage(span.reborrow()), query, span)
