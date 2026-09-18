@@ -45,7 +45,7 @@ jobs:
       # The same SHA-pinned install path ci.yml uses, so both workflows
       # share one provenance story for wasm-pack.
       - name: Install wasm-pack
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: wasm-pack
 

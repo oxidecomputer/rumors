@@ -58,7 +58,7 @@ jobs:
       # other tools report findings rather than generate committed bytes, so
       # they ride the pinned action's tool manifest.
       - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-docs-rs, and wasm-pack
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-docs-rs,wasm-pack
 
@@ -146,7 +146,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: just,cargo-nextest,cargo-audit,cargo-deny
 
@@ -222,7 +222,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install just, cargo-nextest, and cargo-llvm-cov
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
@@ -273,7 +273,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install just and cargo-nextest
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: just,cargo-nextest
 
