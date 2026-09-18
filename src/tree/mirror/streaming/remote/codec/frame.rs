@@ -582,7 +582,7 @@ impl ListingBuilder {
     /// Record one entry whose key and value heads were accepted; later
     /// keys must ascend past its radix.
     pub(super) fn entry(&mut self, radix: u8, hash: [u8; MERKLE_HASH_LEN]) {
-        self.children.push((radix, Hash(hash)));
+        self.children.push((radix, Hash::from(hash)));
         self.previous = Some(radix);
     }
 

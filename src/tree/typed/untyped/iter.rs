@@ -4,7 +4,7 @@
 //! [`RangeOwned`] holds node handles and reconstructs each leaf's full path.
 //! All three visit leaves in path order; the range walks also filter by a
 //! causal query. As a child of [`untyped`](super), this module can inspect
-//! compressed paths and [`Children`] directly.
+//! compressed paths and [`Body`] directly.
 
 use std::collections::VecDeque;
 
@@ -14,7 +14,7 @@ use crate::causally::{Coverage, Polarity, Query};
 
 use crate::{Version, causally, message::Message};
 
-use super::{Children, Node};
+use super::{Body, Node};
 use crate::tree::typed::hash::PATH_LEN;
 
 /// One pending subtree in a walk's frontier.
@@ -105,15 +105,15 @@ impl<'a, P: Polarity> Walk<'a, P> {
                     Coverage::Full => true,
                     Coverage::Partial => false,
                 };
-            match &node.inner.children {
-                Children::Leaf { message, .. } => {
+            match &node.inner.body {
+                Body::Leaf { message, .. } => {
                     // A leaf's span is coincident, so its coverage verdict is
                     // never Partial: reaching here means it passes.
                     debug_assert!(passes, "an unpruned leaf passes its query");
                     self.remaining -= 1;
                     return Some((node.ceiling(), message));
                 }
-                Children::Branch { children, .. } => {
+                Body::Branch { children, .. } => {
                     // Re-push the children onto the end we just popped,
                     // ordered so the frontier stays ascending front-to-back:
                     // pushing to the front goes largest-radix-first so the
@@ -320,9 +320,9 @@ impl Leaf {
         if self.0.inner.prefix.is_empty() {
             return self.0;
         }
-        match &self.0.inner.children {
-            Children::Leaf { version, message } => Node::leaf(version.clone(), message.clone()),
-            Children::Branch { .. } => {
+        match &self.0.inner.body {
+            Body::Leaf { version, message } => Node::leaf(version.clone(), message.clone()),
+            Body::Branch { .. } => {
                 unreachable!("a Leaf wraps a leaf node, by construction")
             }
         }
@@ -373,14 +373,14 @@ impl<P: Polarity> Iterator for RangeOwned<P> {
                 Some(root) => (root, false, self.path.len()),
                 None => loop {
                     let level = self.spine.last_mut()?;
-                    let next_child = match &level.node.inner.children {
+                    let next_child = match &level.node.inner.body {
                         // Find the next radix by binary search and clone
                         // only that child. Pending siblings stay in the branch.
-                        Children::Branch { children, .. } => level
+                        Body::Branch { children, .. } => level
                             .next
                             .and_then(|at| children.successor(at))
                             .map(|(radix, child)| (radix, child.clone())),
-                        Children::Leaf { .. } => {
+                        Body::Leaf { .. } => {
                             unreachable!("spine levels are branches, by construction")
                         }
                     };
@@ -420,7 +420,7 @@ impl<P: Polarity> Iterator for RangeOwned<P> {
                 self.path.push(byte);
             }
 
-            if matches!(&node.inner.children, Children::Branch { .. }) {
+            if matches!(&node.inner.body, Body::Branch { .. }) {
                 // Descend: this node becomes the new deepest level.
                 self.spine.push(Level {
                     node,

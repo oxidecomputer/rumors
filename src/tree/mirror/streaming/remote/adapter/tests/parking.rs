@@ -73,7 +73,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     tree.act(&party, (0..LEAVES).map(|v| Action::Insert(Message::new(v))));
     let root = tree
         .root
-        .root
+        .node
         .clone()
         .expect("a populated tree has a root node");
 

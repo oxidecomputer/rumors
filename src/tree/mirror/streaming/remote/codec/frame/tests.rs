@@ -129,7 +129,7 @@ fn listings_round_trip_and_hold_canonical_order() {
     proptest!(|(radixes in proptest::collection::btree_set(any::<u8>(), 0..=64))| {
         let children: Vec<(u8, Hash)> = radixes
             .iter()
-            .map(|&radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
+            .map(|&radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
             .collect();
         let mut bytes = Vec::new();
         write_listing(&mut bytes, &children);
@@ -148,8 +148,8 @@ fn listings_round_trip_and_hold_canonical_order() {
 fn unordered_listings_are_rejected() {
     for (previous, radix) in [(3u8, 3u8), (5, 2)] {
         let children = [
-            (previous, Hash([0; MERKLE_HASH_LEN])),
-            (radix, Hash([1; MERKLE_HASH_LEN])),
+            (previous, Hash::from([0; MERKLE_HASH_LEN])),
+            (radix, Hash::from([1; MERKLE_HASH_LEN])),
         ];
         let mut bytes = Vec::new();
         write_listing(&mut bytes, &children);

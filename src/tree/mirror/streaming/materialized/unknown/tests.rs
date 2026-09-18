@@ -102,8 +102,8 @@ proptest! {
         let streamed = stream_prune(root, &known);
 
         prop_assert_eq!(
-            typed::Node::root_hash(&oracle),
-            typed::Node::root_hash(&streamed),
+            typed::Node::root_hash(oracle.as_ref()),
+            typed::Node::root_hash(streamed.as_ref()),
         );
     }
 
@@ -120,8 +120,8 @@ proptest! {
         let streamed = stream_prune(root, &known);
 
         prop_assert_eq!(
-            typed::Node::root_hash(&oracle),
-            typed::Node::root_hash(&streamed),
+            typed::Node::root_hash(oracle.as_ref()),
+            typed::Node::root_hash(streamed.as_ref()),
         );
     }
 }

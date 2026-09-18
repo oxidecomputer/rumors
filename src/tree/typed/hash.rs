@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 use std::sync::LazyLock;
 
 use sha3::{Digest, Sha3_256};
@@ -30,12 +30,12 @@ pub const PATH_LEN: usize = 32;
 /// quadratically.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
-pub struct Hash(pub [u8; MERKLE_HASH_LEN]);
+pub struct Hash([u8; MERKLE_HASH_LEN]);
 
 /// Format a comparison digest as hexadecimal.
 impl Debug for Hash {
     /// Display the raw digest bytes.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         hex::encode(self.0).fmt(f)
     }
 }
@@ -187,7 +187,7 @@ pub struct PathHash([u8; PATH_LEN]);
 /// Format a leaf address digest as hexadecimal.
 impl Debug for PathHash {
     /// Display the raw digest bytes.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         hex::encode(self.0).fmt(f)
     }
 }

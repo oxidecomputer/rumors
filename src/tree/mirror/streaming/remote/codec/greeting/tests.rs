@@ -60,7 +60,7 @@ proptest::proptest! {
     ) {
         let greeting = Greeting {
             version,
-            listing: listing.into_iter().map(|(radix, hash)| (radix, Hash(hash))).collect(),
+            listing: listing.into_iter().map(|(radix, hash)| (radix, Hash::from(hash))).collect(),
             set_len,
             max_version_bytes,
             payload_depth_limit,
@@ -188,7 +188,7 @@ proptest::proptest! {
 /// panic and never a partial listing.
 #[test]
 fn truncated_listing_hash_is_a_typed_listing_issue() {
-    let greeting = sample(vec![(4, Hash([7; MERKLE_HASH_LEN]))]);
+    let greeting = sample(vec![(4, Hash::from([7; MERKLE_HASH_LEN]))]);
     let item = encode_greeting(&greeting);
     let mut input = item.as_slice();
     cbor::read_head(&mut input).expect("tag head");
@@ -276,8 +276,8 @@ fn greeting_listing_order_is_enforced() {
     // The encoder trusts its caller, so an unsorted listing synthesizes
     // the wire violation directly.
     let greeting = sample(vec![
-        (9, Hash([1; MERKLE_HASH_LEN])),
-        (5, Hash([2; MERKLE_HASH_LEN])),
+        (9, Hash::from([1; MERKLE_HASH_LEN])),
+        (5, Hash::from([2; MERKLE_HASH_LEN])),
     ]);
     let item = encode_greeting(&greeting);
     let mut input = item.as_slice();

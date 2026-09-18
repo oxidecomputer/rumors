@@ -23,7 +23,7 @@ fn full_fan_frame_len_matches_an_actual_encode() {
     use super::super::{Frame, Reaction, WireFrame, encode};
 
     let children: Vec<(u8, Hash)> = (0..=u8::MAX)
-        .map(|radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
+        .map(|radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
         .collect();
     let frame: WireFrame = (
         Stream::new(8).expect("an interior stream exists"),

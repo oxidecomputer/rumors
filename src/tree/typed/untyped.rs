@@ -1,9 +1,9 @@
-use std::mem;
 use std::sync::{Arc, OnceLock};
+use std::{fmt, mem};
 
 use tinyvec::ArrayVec;
 
-use before::{Dominance, Span};
+use before::Span;
 
 use super::hash::PATH_LEN;
 use crate::{Version, message::Message, tree::typed::Hash};
@@ -91,20 +91,20 @@ struct NodeInner {
     prefix: ArrayVec<[u8; PATH_LEN]>,
     /// Subtree hash as seen from the top of `prefix`, computed on first use.
     /// Both leaves and branches cache it. Cloning preserves the cached value;
-    /// changing either `prefix` or `children` must clear it.
+    /// changing either `prefix` or `body` must clear it.
     hash: OnceLock<Hash>,
-    /// The children of this node: either a leaf, or a branch point.
-    children: Children,
+    /// The leaf or branch stored beneath the prefix.
+    body: Body,
 }
 
 /// Display node content without evaluating its cached summaries.
-impl std::fmt::Debug for Node {
+impl fmt::Debug for Node {
     /// Format the prefix in path order, followed by leaf or branch content.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let prefix: ArrayVec<[u8; PATH_LEN]> = self.inner.prefix.iter().rev().copied().collect();
         f.debug_struct("Node")
             .field("prefix", &hex::encode(prefix))
-            .field("children", &self.inner.children)
+            .field("body", &self.inner.body)
             .finish()
     }
 }
@@ -115,7 +115,7 @@ impl std::fmt::Debug for Node {
 /// Those summaries depend only on the subtree, so changing children must
 /// clear them; changing the prefix leaves them valid.
 #[derive(Debug, Clone)]
-enum Children {
+enum Body {
     /// A leaf's version and payload.
     Leaf {
         /// The version of this leaf.
@@ -170,7 +170,7 @@ impl Node {
             _ => Some(Node::from_inner(Arc::new(NodeInner {
                 prefix: ArrayVec::new(),
                 hash: OnceLock::new(),
-                children: Children::Branch {
+                body: Body::Branch {
                     bounds: OnceLock::new(),
                     leaves: children.values().map(Node::len).sum(),
                     version_bytes: OnceLock::new(),
@@ -196,16 +196,16 @@ impl Node {
             inner.hash = OnceLock::new();
             Ok(Fan::unit(index, self))
         } else {
-            match &self.inner.children {
-                Children::Leaf { .. } => Err(self),
-                Children::Branch { .. } => {
+            match &self.inner.body {
+                Body::Leaf { .. } => Err(self),
+                Body::Branch { .. } => {
                     // Extract the children fan; self is dropped, so leaving
                     // its precomputed metadata referencing the now-vacated
                     // branch is harmless.
                     let inner = Arc::make_mut(&mut self.inner);
-                    let Children::Branch {
+                    let Body::Branch {
                         children: branch, ..
-                    } = &mut inner.children
+                    } = &mut inner.body
                     else {
                         unreachable!("just matched Branch")
                     };
@@ -231,6 +231,12 @@ impl Node {
     /// comparison) and lays down every compressed span in one step, so
     /// the work is proportional to the *materialized* structure: one node
     /// per real branch point plus one per leaf spine.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the run is empty, contains duplicate paths or a consumed
+    /// slot, or supplies a node that is not a bare leaf. The streaming decoder
+    /// rejects unordered or out-of-scope leaves before constructing a run.
     pub(crate) fn from_sorted_leaves(
         depth: usize,
         leaves: &mut [([u8; PATH_LEN], Option<Self>)],
@@ -288,7 +294,7 @@ impl Node {
         Node::from_inner(Arc::new(NodeInner {
             prefix: first[depth..branch_at].iter().rev().copied().collect(),
             hash: OnceLock::new(),
-            children: Children::Branch {
+            body: Body::Branch {
                 bounds: OnceLock::new(),
                 leaves: count,
                 version_bytes: OnceLock::new(),
@@ -302,7 +308,7 @@ impl Node {
         Node::from_inner(Arc::new(NodeInner {
             prefix: ArrayVec::new(),
             hash: OnceLock::new(),
-            children: Children::Leaf {
+            body: Body::Leaf {
                 message: value,
                 version,
             },
@@ -311,8 +317,8 @@ impl Node {
 
     /// Get a reference to the leaf at this node, if it is a leaf.
     pub fn as_leaf(&self) -> Option<&Message> {
-        match &self.inner.children {
-            Children::Leaf { message, .. } => Some(message),
+        match &self.inner.body {
+            Body::Leaf { message, .. } => Some(message),
             _ => None,
         }
     }
@@ -332,12 +338,12 @@ impl Node {
                     _ => return None,
                 }
             }
-            match &node.inner.children {
+            match &node.inner.body {
                 // The supplied suffix must end exactly at the leaf.
-                Children::Leaf { version, message } => {
+                Body::Leaf { version, message } => {
                     return path.is_empty().then_some((version, message));
                 }
-                Children::Branch { children, .. } => {
+                Body::Branch { children, .. } => {
                     let (radix, rest) = path.split_first()?;
                     node = children.get(*radix)?;
                     path = rest;
@@ -348,9 +354,9 @@ impl Node {
 
     /// Get the number of leaves under a node.
     pub fn len(&self) -> usize {
-        match self.inner.children {
-            Children::Leaf { .. } => 1,
-            Children::Branch { leaves, .. } => leaves,
+        match self.inner.body {
+            Body::Leaf { .. } => 1,
+            Body::Branch { leaves, .. } => leaves,
         }
     }
 
@@ -377,9 +383,9 @@ impl Node {
     /// copy-on-write clones, so subsequent reads cost the freshly
     /// rebuilt spine only.
     pub fn version_bytes(&self) -> usize {
-        match &self.inner.children {
-            Children::Leaf { version, .. } => version.as_bytes().len(),
-            Children::Branch {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version.as_bytes().len(),
+            Body::Branch {
                 version_bytes,
                 children,
                 ..
@@ -426,9 +432,9 @@ impl Node {
             // path).
             let prefix: ArrayVec<[u8; PATH_LEN]> =
                 self.inner.prefix.iter().rev().copied().collect();
-            match &self.inner.children {
-                Children::Leaf { .. } => Hash::leaf(&prefix),
-                Children::Branch { children, .. } => Hash::branch(
+            match &self.inner.body {
+                Body::Leaf { .. } => Hash::leaf(&prefix),
+                Body::Branch { children, .. } => Hash::branch(
                     &prefix,
                     children.iter().map(|(radix, child)| (radix, child.hash())),
                 ),
@@ -446,9 +452,9 @@ impl Node {
     /// subtree, so it is safe to share across the structurally-shared
     /// clones a forked tree produces.
     pub fn ceiling(&self) -> &Version {
-        match &self.inner.children {
-            Children::Leaf { version, .. } => version,
-            Children::Branch {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version,
+            Body::Branch {
                 bounds, children, ..
             } => Self::bounds(bounds, children).hi(),
         }
@@ -464,9 +470,9 @@ impl Node {
     /// subtree, so it is safe to share across the structurally-shared
     /// clones a forked tree produces.
     pub fn floor(&self) -> &Version {
-        match &self.inner.children {
-            Children::Leaf { version, .. } => version,
-            Children::Branch {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version,
+            Body::Branch {
                 bounds, children, ..
             } => Self::bounds(bounds, children).lo(),
         }
@@ -475,78 +481,31 @@ impl Node {
     /// This subtree's version bounds as one causal span: the memoized
     /// `[floor, ceiling]` pair, borrowed.
     ///
-    /// A branch answers by reborrowing its stored bounds span —
-    /// ordered by construction, so handing it out revalidates nothing —
-    /// and a leaf's bounds coincide at its version, the coincident span
-    /// through the trusted door (`version <= version` holds
-    /// reflexively). Reading either forces the same memo
-    /// [`ceiling`](Self::ceiling) and [`floor`](Self::floor) share.
+    /// A branch reborrows its stored span. A leaf uses [`Span::at`] because
+    /// both bounds equal its version. Reading a branch span fills the same
+    /// memo shared by [`ceiling`](Self::ceiling) and [`floor`](Self::floor).
     pub fn span(&self) -> Span<'_> {
-        match &self.inner.children {
-            Children::Leaf { version, .. } => Span::at(version),
-            Children::Branch {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => Span::at(version),
+            Body::Branch {
                 bounds, children, ..
             } => Self::bounds(bounds, children).reborrow(),
         }
     }
 
-    /// How much of this subtree's version bounds `probe` dominates: the
-    /// deletion-honoring classifiers' verdict, answered from the memos
-    /// without descending.
+    /// Compute the tightest span containing every leaf version below a branch.
     ///
-    /// [`After`](Dominance::After) means the whole subtree is
-    /// within `probe`'s causal past; [`Before`](Dominance::Before)
-    /// means `probe` dominates not even the floor;
-    /// [`Between`](Dominance::Between) means mixed. A branch
-    /// answers through its stored bounds span — ordered by construction,
-    /// so no validating comparison is paid at any classification — in one
-    /// fused walk that decodes `probe` once and keeps the dominance
-    /// face's early exit at the first interval refuting `floor <= probe`.
-    ///
-    /// A leaf's bounds coincide at its version, where the span door
-    /// itself collapses the dominance question to one containment
-    /// check ([`Span::dominance`]'s coincident rung — a
-    /// leaf's span stores its one version twice, and clone identity
-    /// certifies the coincidence in `O(1)`), so routing wholly through
-    /// [`span`](Self::span) pays a leaf one decode of each stream,
-    /// never two.
-    pub fn dominance(&self, probe: &Version) -> Dominance {
-        self.span().dominance(probe)
-    }
-
-    /// Force one branch's bounds memo: the tightest span containing every
-    /// leaf version beneath it, stored as a single [`Span`] so
-    /// the interval ordering `floor <= ceiling` rides the stored type.
-    ///
-    /// Two fold regimes, split by what the children hand up:
-    ///
-    /// - **Fringe** (every child a leaf): one fused balanced hull
-    ///   ([`Version::span_all`]) over the leaf versions. Each leaf
-    ///   combine derives its pair hull in one fused walk, the meet and
-    ///   join legs sharing every operand decode — where the split folds
-    ///   this replaces decoded each version once per lattice direction.
-    /// - **Interior** (any child a branch): the children's spans fold
-    ///   through one balanced containment join
-    ///   ([`Span::union_all`]) — a branch child hands up its
-    ///   memoized span, a leaf child its coincident one — with the meet
-    ///   and join legs folded per endpoint, because different children's
-    ///   floors and ceilings share no decode to fuse. The union is
-    ///   total by construction, so the owned memo assembles with no
-    ///   separate hull walk and no validating comparison.
-    ///
-    /// Either fold makes every child pass through `O(log k)` combines of
-    /// similarly sized operands instead of one combine against the whole
-    /// running result, with the children borrowed in, so no child's
-    /// version is cloned. Path compression doesn't change which leaves
-    /// the subtree contains, so the prefix plays no part; and neither
-    /// fold is ever empty, because a branch always has >= 2 children by
-    /// the path-compression invariant.
+    /// A fringe branch uses [`Version::span_all`] to derive both bounds in one
+    /// pass over its leaf versions. An interior branch uses [`Span::union_all`]
+    /// over child spans, reusing their cached bounds. Both balanced folds avoid
+    /// repeatedly combining one growing accumulator with the next child.
+    /// The fold cannot be empty: canonical branches have at least two children.
     fn bounds<'a>(bounds: &'a OnceLock<Span<'static>>, children: &Fan) -> &'a Span<'static> {
         bounds.get_or_init(|| {
             if children.values().all(Node::is_leaf) {
-                let mut versions = children.values().map(|child| match &child.inner.children {
-                    Children::Leaf { version, .. } => version,
-                    Children::Branch { .. } => {
+                let mut versions = children.values().map(|child| match &child.inner.body {
+                    Body::Leaf { version, .. } => version,
+                    Body::Branch { .. } => {
                         unreachable!("every child of a fringe branch is a leaf")
                     }
                 });
@@ -572,9 +531,9 @@ impl Node {
     /// the recursion is stack-safe.
     #[cfg(any(test, feature = "test-internals"))]
     pub fn max_bound_bytes(&self) -> usize {
-        match &self.inner.children {
-            Children::Leaf { version, .. } => version.as_bytes().len(),
-            Children::Branch { children, .. } => self
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version.as_bytes().len(),
+            Body::Branch { children, .. } => self
                 .ceiling()
                 .as_bytes()
                 .len()
@@ -593,9 +552,9 @@ impl Node {
     #[cfg(test)]
     pub(crate) fn memos_are_warm(&self) -> bool {
         self.inner.hash.get().is_some()
-            && match &self.inner.children {
-                Children::Leaf { .. } => true,
-                Children::Branch {
+            && match &self.inner.body {
+                Body::Leaf { .. } => true,
+                Body::Branch {
                     bounds,
                     version_bytes,
                     children,
@@ -616,7 +575,7 @@ impl Node {
     /// or drop this whole subtree" from the version check alone, without
     /// exploding the compressed prefix.
     pub fn is_leaf(&self) -> bool {
-        matches!(self.inner.children, Children::Leaf { .. })
+        matches!(self.inner.body, Body::Leaf { .. })
     }
 
     /// Number of levels compressed above this leaf or branch.
@@ -645,9 +604,9 @@ impl Node {
     /// one-child branches are never valid anywhere in the tree.
     #[cfg(test)]
     fn is_max_compressed(&self) -> bool {
-        match &self.inner.children {
-            Children::Leaf { .. } => true,
-            Children::Branch { children, .. } => {
+        match &self.inner.body {
+            Body::Leaf { .. } => true,
+            Body::Branch { children, .. } => {
                 children.len() >= 2 && children.values().all(Self::is_max_compressed)
             }
         }

@@ -13,7 +13,7 @@ use crate::{
         arb::nth_party,
         traverse::{Action, act},
         typed::{
-            self, Children, Node, Path,
+            self, Node, Path,
             height::{Height, S, Z},
         },
     },
@@ -52,15 +52,14 @@ where
         if causally::before(known).contains(node.ceiling()) {
             return None;
         }
-        Node::branch({
-            let mut children = Children::default();
-            for (radix, child) in node.into_children() {
-                if let Some(child) = TwoPass::unknown(Some(child), known) {
-                    children.insert(radix, child);
-                }
-            }
-            children
-        })
+        Node::branch(
+            node.into_children()
+                .into_iter()
+                .filter_map(|(radix, child)| {
+                    TwoPass::unknown(Some(child), known).map(|child| (radix, child))
+                })
+                .collect(),
+        )
     }
 }
 
@@ -139,8 +138,8 @@ fn fused_classifier_undercuts_the_two_pass_shape() {
     let (fused, fused_scan) = scanned(|| Unknown::unknown(root.clone(), &known));
 
     assert_eq!(
-        typed::Node::root_hash(&fused),
-        typed::Node::root_hash(&two_pass),
+        typed::Node::root_hash(fused.as_ref()),
+        typed::Node::root_hash(two_pass.as_ref()),
         "the fused classifier and the two-pass shape must prune identically"
     );
     eprintln!("MEASURED classifier_scan: fused={fused_scan} two_pass={two_pass_scan}");

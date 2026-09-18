@@ -216,7 +216,7 @@ pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
             let children = (0..children)
                 .map(|radix| {
                     let radix = u8::try_from(radix).expect("a listing fits the radix space");
-                    (radix, Hash([radix; MERKLE_HASH_LEN]))
+                    (radix, Hash::from([radix; MERKLE_HASH_LEN]))
                 })
                 .collect();
             Frame::Reaction(Reaction::Query(children), Flow::End)

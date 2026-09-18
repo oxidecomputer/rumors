@@ -9,7 +9,7 @@
 //! Cloning copies the entries and shares their child nodes; copy-on-write
 //! belongs to the enclosing node, not this container.
 
-use std::mem;
+use std::fmt;
 
 use smallvec::SmallVec;
 
@@ -36,9 +36,9 @@ pub struct Fan {
 }
 
 /// Display the fan as an ordered radix-to-node map.
-impl std::fmt::Debug for Fan {
+impl fmt::Debug for Fan {
     /// Format entries in ascending radix order.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }
 }
@@ -85,17 +85,6 @@ impl Fan {
         self.search(radix).ok().map(|at| &self.entries[at].1)
     }
 
-    /// Insert `child` at `radix`, returning any child it displaced.
-    pub fn insert(&mut self, radix: u8, child: Node) -> Option<Node> {
-        match self.search(radix) {
-            Ok(at) => Some(mem::replace(&mut self.entries[at].1, child)),
-            Err(at) => {
-                self.entries.insert(at, (radix, child));
-                None
-            }
-        }
-    }
-
     /// Remove and return the child at `radix`, if any.
     pub fn remove(&mut self, radix: u8) -> Option<Node> {
         self.search(radix).ok().map(|at| self.entries.remove(at).1)
@@ -138,8 +127,8 @@ impl Fan {
 
 /// Collect entries, keeping the last child supplied for each radix.
 ///
-/// Strictly ascending input needs no sort. Otherwise a stable sort keeps
-/// duplicate entries in input order, matching repeated [`insert`](Fan::insert).
+/// Strictly ascending input needs no sort. Otherwise a stable sort keeps the
+/// last child supplied at each duplicate radix.
 impl FromIterator<(u8, Node)> for Fan {
     /// Sort and deduplicate only when input is not already strictly ascending.
     fn from_iter<I: IntoIterator<Item = (u8, Node)>>(iter: I) -> Self {

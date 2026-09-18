@@ -952,7 +952,7 @@ mod memo_fold_cost {
 }
 
 /// Keep node layout growth explicit: every leaf pays for the largest
-/// `Children` variant as well as the inline prefix and cached hash.
+/// `Body` variant as well as the inline prefix and cached hash.
 ///
 /// The inline prefix enlarges the node body but avoids a separate allocation
 /// for compressed paths.
@@ -960,6 +960,6 @@ mod memo_fold_cost {
 #[cfg(target_pointer_width = "64")]
 fn node_inner_stays_within_budget() {
     assert!(std::mem::size_of::<Fan>() <= 40);
-    assert!(std::mem::size_of::<super::Children>() <= 160);
+    assert!(std::mem::size_of::<super::Body>() <= 160);
     assert!(std::mem::size_of::<super::NodeInner>() <= 224);
 }

@@ -18,24 +18,6 @@ fn child() -> Node {
     Node::leaf(Version::new(), Message::new(()))
 }
 
-/// One step of the differential op sequence.
-#[derive(Debug, Clone)]
-enum Op {
-    Insert(u8),
-    Remove(u8),
-}
-
-/// A short sequence of inserts and removals over arbitrary radixes.
-fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
-    vec(
-        prop_oneof![
-            any::<u8>().prop_map(Op::Insert),
-            any::<u8>().prop_map(Op::Remove),
-        ],
-        1..64,
-    )
-}
-
 /// Check every observation of `fan` against the `oracle` holding clones of
 /// the same handles.
 ///
@@ -111,65 +93,6 @@ proptest! {
         }
     }
 
-    /// After every step of any insert/remove sequence, a fan observes
-    /// identically to a `BTreeMap` fed the same operations.
-    ///
-    /// Same length, same ascending and descending iteration (radixes and
-    /// handle identities), same point lookups, same successor answers, and
-    /// the same displaced/removed handles returned from the mutations.
-    #[test]
-    fn fan_matches_btreemap_oracle(ops in arb_ops()) {
-        let mut fan = Fan::new();
-        let mut oracle = BTreeMap::new();
-        for op in ops {
-            match op {
-                Op::Insert(radix) => {
-                    let node = child();
-                    let displaced = fan.insert(radix, node.clone());
-                    let expected = oracle.insert(radix, node);
-                    prop_assert_eq!(displaced.is_some(), expected.is_some());
-                    if let (Some(displaced), Some(expected)) = (displaced, expected) {
-                        prop_assert!(displaced.ptr_eq(&expected));
-                    }
-                }
-                Op::Remove(radix) => {
-                    let removed = fan.remove(radix);
-                    let expected = oracle.remove(&radix);
-                    prop_assert_eq!(removed.is_some(), expected.is_some());
-                    if let (Some(removed), Some(expected)) = (removed, expected) {
-                        prop_assert!(removed.ptr_eq(&expected));
-                    }
-                }
-            }
-            equivalent(&fan, &oracle)?;
-        }
-    }
-
-    /// Any insert/remove sequence leaves the fan strictly ascending by
-    /// radix with no duplicates: the structural invariant the hash
-    /// preimage, the wire encoding, and the merge walks read without
-    /// re-sorting.
-    #[test]
-    fn ops_preserve_strict_ascent(ops in arb_ops()) {
-        let mut fan = Fan::new();
-        for op in ops {
-            match op {
-                Op::Insert(radix) => {
-                    fan.insert(radix, child());
-                }
-                Op::Remove(radix) => {
-                    fan.remove(radix);
-                }
-            }
-        }
-        let radixes: Vec<u8> = fan.iter().map(|(radix, _)| radix).collect();
-        prop_assert!(
-            radixes.windows(2).all(|pair| pair[0] < pair[1]),
-            "fan radixes not strictly ascending: {:?}",
-            radixes,
-        );
-    }
-
     /// `size_hint` stays exact under partial consumption from both ends,
     /// for the borrowing and the consuming walks alike.
     ///
@@ -207,27 +130,19 @@ proptest! {
         prop_assert_eq!(into_iter.len(), n - j - k);
     }
 
-    /// Collecting an arbitrary pair list — duplicates included, any order —
-    /// builds the same fan as inserting the pairs one by one into an empty
-    /// fan: later pairs displace earlier ones at the same radix.
+    /// Collecting arbitrary pairs produces the same ordered map as a
+    /// `BTreeMap`: later children displace earlier ones at duplicate radixes.
     #[test]
-    fn collect_agrees_with_sequential_insert(radixes in vec(any::<u8>(), 0..32)) {
+    fn collect_matches_btreemap(radixes in vec(any::<u8>(), 0..32)) {
         let pairs: Vec<(u8, Node)> =
             radixes.into_iter().map(|radix| (radix, child())).collect();
 
         let collected: Fan = pairs.iter().map(|(radix, node)| (*radix, node.clone())).collect();
-        let mut sequential = Fan::new();
+        let mut expected = BTreeMap::new();
         for (radix, node) in pairs {
-            sequential.insert(radix, node);
+            expected.insert(radix, node);
         }
-
-        prop_assert_eq!(collected.len(), sequential.len());
-        for ((radix, child), (expected_radix, expected)) in
-            collected.iter().zip(sequential.iter())
-        {
-            prop_assert_eq!(radix, expected_radix);
-            prop_assert!(child.ptr_eq(expected));
-        }
+        equivalent(&collected, &expected)?;
     }
 
     /// Consuming a fan and collecting it back reproduces the fan exactly,

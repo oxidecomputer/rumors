@@ -4,8 +4,11 @@
 //! implemented only through [`Root`], so typed traversals cannot step past
 //! either end. Numbered aliases let runtime dispatch select the same types.
 
-use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug},
+};
 
 /// One level above `H`.
 ///
@@ -42,7 +45,7 @@ impl<T> Default for S<T> {
 /// Identify the marker without formatting its predecessor type.
 impl<T> Debug for S<T> {
     /// Render the successor marker as `S`.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("S").finish()
     }
 }
@@ -67,7 +70,7 @@ impl<T> Eq for S<T> {}
 /// Order successor markers by their sole value.
 impl<T> PartialOrd for S<T> {
     /// Delegate to the total ordering.
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -75,8 +78,8 @@ impl<T> PartialOrd for S<T> {
 /// Every pair of values of this marker type compares equal.
 impl<T> Ord for S<T> {
     /// Return equality without comparing predecessor types.
-    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
-        std::cmp::Ordering::Equal
+    fn cmp(&self, _other: &Self) -> Ordering {
+        Ordering::Equal
     }
 }
 

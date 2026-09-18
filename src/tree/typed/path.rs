@@ -1,4 +1,8 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug},
+    marker::PhantomData,
+};
 
 use super::hash::{PATH_LEN, PathHash};
 use super::height::{Height, Root, S};
@@ -87,7 +91,7 @@ impl<H: Height> PartialEq for Path<H> {
 /// Use the remaining suffix's total ordering.
 impl<H: Height> PartialOrd for Path<H> {
     /// Order the unconsumed suffixes lexicographically.
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -95,7 +99,7 @@ impl<H: Height> PartialOrd for Path<H> {
 /// Sort paths by their remaining bytes.
 impl<H: Height> Ord for Path<H> {
     /// Order the unconsumed suffixes lexicographically.
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.as_bytes().cmp(other.as_bytes())
     }
 }
@@ -106,7 +110,7 @@ impl<H: Height> Eq for Path<H> {}
 /// Display the same suffix that equality and ordering compare.
 impl<H: Height> Debug for Path<H> {
     /// Show only the unconsumed bytes.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_bytes().fmt(f)
     }
 }

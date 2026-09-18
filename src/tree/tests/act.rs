@@ -51,7 +51,7 @@ proptest! {
             tree.act(&party_of("P"), (0..width + 2).map(|_| insert_action(Bytes::new())));
             tree.warm_memos();
             let before = tree.clone();
-            let sibling = before.root.root.as_ref().unwrap().clone().into_children().remove(0).unwrap();
+            let sibling = before.root.node.as_ref().unwrap().clone().into_children().remove(0).unwrap();
             let mut missing = [0; 32];
             missing[depth] = 255;
             assert!(tree.act(&party_of("P"), [
@@ -59,7 +59,7 @@ proptest! {
                 Action::Forget(target),
                 Action::Forget(Path::from(missing)),
             ]));
-            let after = tree.root.root.as_ref().unwrap().clone().into_children().remove(0).unwrap();
+            let after = tree.root.node.as_ref().unwrap().clone().into_children().remove(0).unwrap();
             assert!(after.ptr_eq(&sibling));
             assert_eq!(tree.len(), width + 1);
             assert_eq!(before.len(), width + 2);

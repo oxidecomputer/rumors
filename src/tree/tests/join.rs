@@ -99,11 +99,11 @@ proptest! {
             let mut ours = Tree::<Bytes>::new();
             ours.act(&party, (0..width + 1).map(|_| insert_action(Bytes::new())));
             ours.warm_memos();
-            let sibling = ours.root.root.as_ref().unwrap().clone().into_children().remove(0).unwrap();
+            let sibling = ours.root.node.as_ref().unwrap().clone().into_children().remove(0).unwrap();
             let mut theirs = ours.clone();
             theirs.act(&party, [insert_action(Bytes::new())]);
             assert!(ours.join(theirs));
-            let kept = ours.root.root.unwrap().into_children().remove(0).unwrap();
+            let kept = ours.root.node.unwrap().into_children().remove(0).unwrap();
             assert!(kept.ptr_eq(&sibling));
         });
     }

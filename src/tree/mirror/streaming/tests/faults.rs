@@ -31,7 +31,7 @@ use crate::tree::{
 fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
     let root = StreamingRoot {
         ceiling: root.ceiling,
-        root: root.root.map(FailingNode::new),
+        root: root.node.map(FailingNode::new),
     };
     Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64)
         .window(WindowConfig::FLOOR)
@@ -204,8 +204,8 @@ fn greeting_lies_are_classified_exhaustively() {
                     let (ours, theirs): (Root, Root) = (ours.into(), theirs.into());
                     let (base_client, base_server) =
                         streaming_mirror_sides(client_root, server_root);
-                    assert_eq!(&ours.root, &base_client.root);
-                    assert_eq!(&theirs.root, &base_server.root);
+                    assert_eq!(&ours.node, &base_client.node);
+                    assert_eq!(&theirs.node, &base_server.node);
                     if lie == GreetingLie::InflatedSetLen {
                         assert_eq!(&ours.ceiling, &base_client.ceiling);
                         assert_eq!(&theirs.ceiling, &base_server.ceiling);

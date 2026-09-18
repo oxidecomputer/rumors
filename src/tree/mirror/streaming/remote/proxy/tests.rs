@@ -230,7 +230,7 @@ async fn reconcile_with_stacked_failures(
 fn failing_root(root: TreeRoot) -> Root<Failing<Local>> {
     Root {
         ceiling: root.ceiling,
-        root: root.root.map(FailingNode::new),
+        root: root.node.map(FailingNode::new),
     }
 }
 
@@ -316,7 +316,7 @@ fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
 fn equal_versions_return_both_roots() {
     let root = TreeRoot {
         ceiling: Version::new(),
-        root: None,
+        node: None,
     };
     let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(
         root.clone(),

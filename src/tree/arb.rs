@@ -14,16 +14,10 @@ use crate::tree::typed::height::Root;
 use crate::tree::typed::{Node, Path};
 use crate::{Version, message::Message};
 
-/// The `index`-th party in a canonical left-leaning fork chain descending from
-/// a single [`Party::seed`].
+/// The `index`-th party in a deterministic fork chain from one seed.
 ///
-/// Distinct indices yield mutually *disjoint* parties, so versions ticked on
-/// different indices are causally concurrent — the test analogue of "different
-/// peers with independent histories". Because the chain is fully determined by
-/// the index, independent proptest strategies can each derive the same disjoint
-/// parties without sharing any state, which is what lets two separately
-/// generated trees (e.g. `arb_tree_root(0, …)` and `arb_tree_root(1, …)`) end
-/// up with incomparable root versions.
+/// Distinct indices yield disjoint parties. Deterministic derivation lets
+/// independent strategies reproduce the same parties without shared state.
 pub fn nth_party(index: usize) -> Party {
     let mut keep = Party::seed();
     let mut child = keep.fork();
@@ -141,7 +135,7 @@ pub fn arb_tree_root(
             extra.ticks(&p, extra_ticks);
             crate::tree::Root {
                 ceiling: extra | inner,
-                root: node,
+                node,
             }
         })
         .boxed()
@@ -395,14 +389,14 @@ fn early_dispute_attempt(path_of: &impl Fn(&Version) -> [u8; 32], hint: usize) -
     }
 }
 
-/// Extra ticks in malformed fixtures, exceeding their tests' later honest ticks.
+/// Extra ticks that keep malformed fixture versions beyond later test traffic.
 const ESCAPE_MARGIN: usize = 64;
 
 /// A `(receiver, poisoned)` pair for version-containment tripwires: the
 /// poisoned tree holds one leaf whose version escapes its declared ceiling.
 ///
-/// An honest tree cannot take this shape — its ceiling joins every version
-/// it applies — so transmitting it marks a nonconforming implementation.
+/// A conforming tree cannot take this shape because its ceiling joins every
+/// version it applies.
 /// The escaped version is built to dominate the join of both declared
 /// ceilings by a 64-tick margin on *both* parties, so nothing derived from
 /// the declared versions within a test's horizon — the session ceiling the
@@ -438,7 +432,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
         })
         .expect("some ordered pair of single-tick versions must order by canonical bytes");
 
-    // The receiving side's honest content: one leaf on its own party,
+    // The receiver's valid content: one leaf on its own party,
     // ceiling covering it, exactly as `Tree::act` would leave it.
     let receiver_message = Message::new(());
     let receiver_path = Path::for_leaf(&receiver_version);
@@ -456,7 +450,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
     );
 
     // The escaped version: strictly above everything either side declared,
-    // by a margin the test's own honest ticks never close.
+    // by a margin the test's later ticks never close.
     let mut escaped = receiver_version | &declared;
     for _ in 0..ESCAPE_MARGIN {
         escaped.tick(&receiver_party);
@@ -495,20 +489,17 @@ pub fn leaf_sibling_path(last: u8) -> Path {
 /// Wrap an optional root node in a [`tree::Root`](crate::tree::Root) with the
 /// given ceiling.
 fn root_with_ceiling(node: Option<Node<Root>>, ceiling: Version) -> crate::tree::Root {
-    crate::tree::Root {
-        ceiling,
-        root: node,
-    }
+    crate::tree::Root { ceiling, node }
 }
 
-/// A poisoned root for the local join seam: one leaf whose version escapes
+/// A poisoned root for the local join boundary: one leaf whose version escapes
 /// `base` by a 64-tick margin on `party`, declared at the empty ceiling.
 ///
 /// Joining it into a store whose ceiling is at or above `base` plants the
 /// leaf (the escaped version defeats the join's deletion filter) while
 /// leaving the store's own declared ceiling untouched — the shape only a
 /// nonconforming implementation can then transmit. The margin bounds the
-/// honest ticks a test may perform afterward without containing the
+/// ticks a test may perform afterward without containing the
 /// escape. Returns the root plus the escaped leaf's version-derived path
 /// and its version.
 pub fn poisoned_root(

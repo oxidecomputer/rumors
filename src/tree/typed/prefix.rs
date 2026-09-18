@@ -1,4 +1,8 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug},
+    marker::PhantomData,
+};
 
 use tinyvec::ArrayVec;
 
@@ -95,7 +99,7 @@ impl ErasedPrefix {
 /// Display accumulated bytes in path order.
 impl Debug for ErasedPrefix {
     /// Format the accumulated address bytes.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.hash.fmt(f)
     }
 }
@@ -228,7 +232,7 @@ impl<H: Height> Eq for Prefix<H> {}
 /// Use the accumulated bytes' total ordering.
 impl<H: Height> PartialOrd for Prefix<H> {
     /// Delegate to the lexicographic ordering.
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -236,7 +240,7 @@ impl<H: Height> PartialOrd for Prefix<H> {
 /// Sort prefixes lexicographically by their accumulated bytes.
 impl<H: Height> Ord for Prefix<H> {
     /// Compare only bytes within each prefix's length.
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.hash.cmp(&other.hash)
     }
 }
@@ -244,7 +248,7 @@ impl<H: Height> Ord for Prefix<H> {
 /// Display accumulated bytes in path order.
 impl<H: Height> Debug for Prefix<H> {
     /// Format the prefix's occupied bytes.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.hash.fmt(f)
     }
 }

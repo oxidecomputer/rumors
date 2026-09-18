@@ -611,7 +611,7 @@ proptest! {
         let stream = stream(index);
         let children: Vec<(u8, Hash)> = radixes
             .iter()
-            .map(|&radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
+            .map(|&radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
             .collect();
         let encoded = query(stream, flow, &children);
         let expected = (stream, Frame::Reaction(Reaction::Query(children), flow));

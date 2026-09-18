@@ -55,7 +55,7 @@ fn query_count_covers_every_fan_and_flow() {
         let children = (0..count)
             .map(|radix| {
                 let radix = radix as u8;
-                (radix, Hash([radix; MERKLE_HASH_LEN]))
+                (radix, Hash::from([radix; MERKLE_HASH_LEN]))
             })
             .collect::<Vec<_>>();
         for flow in FLOWS {

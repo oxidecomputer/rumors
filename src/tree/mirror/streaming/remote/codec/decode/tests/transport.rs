@@ -78,7 +78,12 @@ fn arb_frame_case() -> impl Strategy<Value = FrameCase> {
     let reaction = prop_oneof![
         Just(Reaction::Match),
         prop::collection::btree_map(any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>(), 0..=256).prop_map(
-            |children| Reaction::Query(children.into_iter().map(|(r, h)| (r, Hash(h))).collect())
+            |children| Reaction::Query(
+                children
+                    .into_iter()
+                    .map(|(r, h)| (r, Hash::from(h)))
+                    .collect()
+            )
         ),
         prop::collection::vec(contents, 1..=3).prop_map(|records| {
             let bytes = records.iter().flat_map(|r| raw_record(r)).collect();

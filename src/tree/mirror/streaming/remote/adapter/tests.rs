@@ -45,7 +45,7 @@ mod runs;
 
 /// Build a visibly synthetic Merkle hash for scope fixtures.
 fn hash(byte: u8) -> Hash {
-    Hash([byte; MERKLE_HASH_LEN])
+    Hash::from([byte; MERKLE_HASH_LEN])
 }
 
 /// A set-length allowance no fixture here can exhaust, for tests whose

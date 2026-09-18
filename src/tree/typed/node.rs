@@ -1,6 +1,10 @@
-use std::{fmt::Debug, iter::Map, marker::PhantomData};
+use std::{
+    fmt::{self, Debug},
+    iter::Map,
+    marker::PhantomData,
+};
 
-use before::{Dominance, Span};
+use before::Span;
 
 use crate::{Version, causally, message::Message};
 
@@ -62,13 +66,6 @@ impl<H: Height> Children<H> {
     /// The number of children present (0..=256).
     pub fn len(&self) -> usize {
         self.inner.len()
-    }
-
-    /// Insert `child` at `radix`, returning any child it displaced.
-    pub fn insert(&mut self, radix: u8, child: Node<H>) -> Option<Node<H>> {
-        self.inner
-            .insert(radix, child.into_untyped())
-            .map(Node::from_untyped)
     }
 
     /// Remove and return the child at `radix`, if any.
@@ -138,7 +135,7 @@ where
     H: Height,
 {
     /// Delegate to the storage node's debug view.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
@@ -169,12 +166,12 @@ impl<H: Height> Node<H> {
         self.inner
     }
 
-    /// Get the ceiling version of this node (the greatest version contained within).
+    /// The join of every leaf version in this subtree.
     pub fn ceiling(&self) -> &Version {
         self.inner.ceiling()
     }
 
-    /// Get the floor version of this node (the least version contained within).
+    /// The meet of every leaf version in this subtree.
     pub fn floor(&self) -> &Version {
         self.inner.floor()
     }
@@ -185,32 +182,12 @@ impl<H: Height> Node<H> {
         self.inner.span()
     }
 
-    /// How much of this subtree's memoized `[floor, ceiling]` bounds
-    /// `probe` dominates: the deletion-honoring classifiers' verdict,
-    /// answered from the memos without descending.
-    ///
-    /// A branch answers through its stored bounds span — ordered by
-    /// construction, so no validating comparison is paid at any
-    /// classification — and a leaf's coincident bounds collapse the
-    /// question to one containment check (see
-    /// [`untyped::Node::dominance`]).
-    pub fn dominance(&self, probe: &Version) -> Dominance {
-        self.inner.dominance(probe)
-    }
-
-    /// Get the number of leaves under this node.
+    /// The number of leaves in this subtree.
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
-    /// The largest canonical [`Version`] encoding among every bound this
-    /// subtree holds — leaf versions and every branch's ceiling and
-    /// floor — in bytes.
-    ///
-    /// Exact under deletion, like [`len`](Self::len): every mutation
-    /// rebuilds its copy-on-write spine through the branch constructors
-    /// with fresh memos, so the max is recomputed lazily from what
-    /// remains.
+    /// The largest encoded version bound stored anywhere in this subtree.
     pub fn version_bytes(&self) -> usize {
         self.inner.version_bytes()
     }
@@ -226,18 +203,7 @@ impl<H: Height> Node<H> {
         self.inner.max_bound_bytes()
     }
 
-    /// Hash the subtree rooted at this node.
-    ///
-    /// Hashes are computed lazily on first read and memoized, so the first read
-    /// of a freshly-built subtree costs `O(nodes)` and every read thereafter is
-    /// an `O(1)` field load.
-    ///
-    /// The hashing convention (see [`Hash::leaf`] and [`Hash::branch`]): one
-    /// preimage per node, committing its kind, its compressed prefix in path
-    /// order, and, for a branch, its children as ascending `radix ‖ hash`
-    /// records. Equal content yields equal hashes because equal content
-    /// yields equal canonical shape; see [`Hash::branch`]'s canonicity
-    /// section.
+    /// The memoized Merkle hash of this subtree; see [`untyped::Node::hash`].
     pub fn hash(&self) -> Hash {
         self.inner.hash()
     }
@@ -261,6 +227,11 @@ impl<H: Height> Node<H> {
     /// The run must be nonempty, with distinct paths in ascending order,
     /// all extending `prefix`. This is the inverse of [`leaves`](Self::leaves);
     /// [`untyped::Node::from_sorted_leaves`] builds the compressed subtree.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the run violates those preconditions. Session decoding
+    /// validates order and scope before assembly reaches this boundary.
     pub(crate) fn from_sorted_leaves(prefix: &Prefix<H>, run: Vec<(Prefix<Z>, Node<Z>)>) -> Self {
         let depth = prefix.as_bytes().len();
         debug_assert!(
@@ -281,8 +252,10 @@ impl<H: Height> Node<S<H>>
 where
     S<H>: Height,
 {
-    /// Construct a new branch node from a map of children (inverse to
-    /// [`Node::into_children`]).
+    /// Assemble a subtree from its children.
+    ///
+    /// Empty input returns `None`. A single child is folded into its compressed
+    /// prefix; only two or more children produce a materialized branch.
     pub fn branch(children: Children<H>) -> Option<Self> {
         Some(Node {
             height: PhantomData,
@@ -369,13 +342,11 @@ impl Node<height::Root> {
 
     /// The observable hash of a possibly-absent root.
     #[cfg(any(test, feature = "test-internals"))]
-    pub fn root_hash(node: &Option<Root>) -> Hash {
+    pub fn root_hash(node: Option<&Root>) -> Hash {
         // An absent root is the empty tree, which hashes as a prefixless
         // branch with no children (`sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`), not as
         // the all-zero default.
-        node.as_ref()
-            .map(|n| n.hash())
-            .unwrap_or_else(Hash::empty_root)
+        node.map(Node::hash).unwrap_or_else(Hash::empty_root)
     }
 }
 

@@ -1,8 +1,8 @@
 //! Mirror-sync between two replicas of the typed tree.
 //!
 //! [`streaming`] is the wire protocol; its behavioral oracle in this
-//! crate's tests is the in-memory merge (`Tree::join`), which routes
-//! deletion honoring through the same filter the mirror does.
+//! crate's tests is the in-memory merge (`Tree::join`). The two walks have
+//! separate deletion filters whose agreement is checked differentially.
 //!
 //! # Malformed input
 //!

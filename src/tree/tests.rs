@@ -18,7 +18,7 @@ impl<T> Tree<T> {
     pub(crate) fn assert_memos_warm(&self) {
         assert!(
             self.root
-                .root
+                .node
                 .as_ref()
                 .is_none_or(|root| root.clone().into_untyped().memos_are_warm())
         );
@@ -30,24 +30,17 @@ fn arb_path() -> impl Strategy<Value = Path> {
     any::<[u8; 32]>().prop_map(Path::from)
 }
 
-/// Wrap a `Bytes` value as a `Message` with its cached serialization.
-/// Tests speak in terms of raw `Bytes`, but the tree's API takes
-/// `Message`, so every insert goes through this one-liner.
+/// Wrap test bytes as the tree's erased message type.
 fn msg(b: Bytes) -> Message {
     Message::new(b)
 }
 
-/// Wrap a value as the insert action the tree accepts, with its cached
-/// serialization.
+/// Construct an insertion from test bytes.
 fn insert_action(b: Bytes) -> Action {
     Action::Insert(msg(b))
 }
 
-/// Generate a vector of distinct `Bytes`, deduplicated so every element maps
-/// to a unique leaf path when inserted under the same party and version.
-///
-/// Many of the hash-invariance properties below are only meaningful when no two
-/// inserts collide by path; collision semantics are exercised separately.
+/// Generate distinct payloads so tests can compare live values unambiguously.
 fn distinct_bytes(max: usize) -> impl Strategy<Value = Vec<Bytes>> {
     proptest::collection::hash_set(any::<Vec<u8>>(), 0..=max)
         .prop_map(|s| s.into_iter().map(Bytes::from).collect())
@@ -72,9 +65,8 @@ fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Byte
 
 /// Map a human-readable party label to a small disjoint-party index.
 ///
-/// The distinct labels the tests use ("A"/"B"/"C"/"P", or proptest-generated
-/// strings) map to distinct indices, so [`party_of`] yields mutually
-/// disjoint parties.
+/// The first byte selects one of 16 parties. Tests that require disjointness
+/// use distinct one-letter ASCII labels.
 fn idx(label: impl AsRef<[u8]>) -> usize {
     label.as_ref().first().map_or(0, |b| {
         (b.to_ascii_lowercase().wrapping_sub(b'a') as usize) % 16
@@ -444,8 +436,8 @@ proptest! {
     /// tree.
     ///
     /// Inserting `n` distinct values must make `len` report `n`, `iter`
-    /// yield `n` leaves, and `is_empty` track `n == 0`. `iter` is moreover an
-    /// honest `ExactSizeIterator`: its reported length starts at `n` and falls
+    /// yield `n` leaves, and `is_empty` track `n == 0`. `iter` also upholds
+    /// `ExactSizeIterator`: its reported length starts at `n` and falls
     /// by exactly one per yielded leaf, hitting zero precisely at the end.
     /// Finally `earliest`/`latest` bracket every live leaf version (`<=` in the
     /// causal order), and `earliest` is absent exactly when the tree is empty.
@@ -1035,7 +1027,7 @@ proptest! {
     /// message that carries the maximum must therefore resize the
     /// aggregate *down* — the behavior a monotone high-water scalar would
     /// get wrong. Rotating parties makes sibling versions concurrent, so
-    /// branch ceilings genuinely join and can outgrow every leaf below
+    /// branch ceilings can join beyond every leaf below
     /// them — the interior contribution the aggregate must cover.
     #[test]
     fn version_size_aggregate_is_exact(
@@ -1047,7 +1039,7 @@ proptest! {
 
         for (i, value) in values.iter().enumerate() {
             // Rotating parties makes sibling versions concurrent, not just
-            // points on one chain, so branch maxima genuinely compare.
+            // points on one chain, so branch bounds are not merely leaf bounds.
             tree.act(&party_of([b'a' + (i % 5) as u8]), [insert_action(value.clone())]);
             prop_assert_eq!(tree.max_version_bytes(), naive_max_version_bytes(&tree));
         }
@@ -1135,7 +1127,7 @@ proptest! {
 
 proptest! {
     /// The changed flag [`Tree::act`] returns tracks the root hash exactly
-    /// on honestly built trees: `false` iff the root hash is byte-identical
+    /// on conforming trees: `false` iff the root hash is byte-identical
     /// across the call.
     ///
     /// The batches mix inserts, forgets of live keys, and forgets of keys
@@ -1144,7 +1136,7 @@ proptest! {
     ///
     /// The `false ⇒ hash-equal` direction is the flag's contract — a
     /// watcher skipped on `false` must miss nothing. The converse direction
-    /// pins that honest commits never pay a spurious wakeup: every action
+    /// pins that conforming commits never pay a spurious wakeup: every action
     /// ticks strictly above the tree's ceiling, which bounds every leaf, so
     /// the causally-prior skip (the flag's one conservative case, see
     /// `act_changed_flag_is_conservative_only_in_a_poisoned_store`) is
@@ -1397,21 +1389,21 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     );
 }
 
-/// The pair-hull traffic mix at the tree's bounds-memo door, in
+/// The pair-hull traffic mix at the tree's bounds memo, in
 /// `before`'s span-ladder rung counters.
 ///
 /// Which span-ladder rung a memo's pair hull takes decides which kernel
 /// regime the tree pays — a comparable pair is handed back at one
 /// comparison sweep, only a concurrent pair reaches the emitting walk —
 /// and the mix is a property of the workload's versions, not of the
-/// kernel. The door's traffic is the fringe regime's: a fringe memo's
+/// kernel. The measured traffic is the fringe regime's: a fringe memo's
 /// `span_all` leaf combines read sibling leaf versions, whose relation
 /// tracks the writers'. (An interior memo folds its children's spans
 /// through the union's per-endpoint legs, which construct totally and
 /// never enter the pair-hull ladder.) The counters are process-global
 /// and meaningful one scenario per process (nextest's model).
 #[cfg(feature = "meter")]
-mod span_door_traffic {
+mod span_traffic {
     use before::meter;
     use bytes::Bytes;
 
@@ -1433,10 +1425,10 @@ mod span_door_traffic {
     }
 
     /// A single-writer tree never presents a concurrent pair at the
-    /// bounds-memo door.
+    /// bounds memo.
     ///
     /// One party's versions form a chain, every bound folded from a
-    /// chain stays on it, and the door's traffic is entirely
+    /// chain stays on it, and the memo's traffic is entirely
     /// fast-path (comparable or coincident), zero emissions.
     #[test]
     fn single_writer_bounds_never_emit() {
@@ -1461,7 +1453,7 @@ mod span_door_traffic {
         );
     }
 
-    /// Divergent writers split the door's traffic between the fast
+    /// Divergent writers split the memo's traffic between the fast
     /// paths and the emitting walk.
     ///
     /// Fringe combines of concurrent leaf versions reach the
@@ -1558,7 +1550,7 @@ fn act_unwind_leaves_tree_byte_identical() {
 /// The unwind is injected via `panic_injection`, with the fuse armed past
 /// the walk's entry and the root-level step: by the time it burns down,
 /// the root frame has cloned its fan and merged earlier divergent radixes
-/// into it, so the unwind abandons genuinely in-progress merge work (the
+/// into it, so the unwind abandons in-progress merge work (the
 /// unwind occurring at all proves the walk reached that depth: the fuse is
 /// the test's only panic source). Root hash and causal ceiling must both
 /// come through unchanged. The hazard the invariant rules out is an
@@ -1653,9 +1645,9 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
 /// the first action's leaf has been applied and reassembly work is in
 /// flight (the unwind occurring at all proves the walk reached that
 /// depth: the fuse is the test's only panic source). Root hash and causal
-/// ceiling must both come through unchanged. Together with the
-/// destructor-source pin beside it, this proves the defense total: a
-/// panic of any origin inside the walk publishes nothing.
+/// ceiling must both come through unchanged. A companion test supplies the
+/// caller-reachable panic source: a payload destructor that unwinds during
+/// the walk. Both paths must publish nothing.
 #[test]
 fn act_mid_walk_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<Bytes> = Tree::new();
@@ -1803,9 +1795,9 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
 ///
 /// The pair is planted directly through `react` at a synthetic shared
 /// path, which no public insert can produce: this pins the digest's
-/// suffix-only preimage behaviorally (the merge walk trusts path
-/// derivation; collision detection is ingestion's job, where both leaves
-/// are in hand).
+/// suffix-only preimage behaviorally. The merge walk trusts path derivation;
+/// the apply walk's live-leaf assertion detects version reuse while both
+/// leaves are in hand.
 #[test]
 fn join_prunes_same_position_leaves_whatever_their_contents() {
     let shared = Path::from([0x42; 32]);
@@ -1839,9 +1831,8 @@ fn join_prunes_same_position_leaves_whatever_their_contents() {
 /// Two leaves carrying the *same version* with different payloads compare
 /// digest-equal, so `Tree::join` keeps one side and reports no change.
 ///
-/// Digests are content-blind by design: this is the modeled trade, pinned
-/// so its boundary with ingestion's detected case (`react` asserting on a
-/// disagreeing occupied-path insert) stays explicit.
+/// Digests are content-blind by design. The apply walk separately rejects a
+/// disagreeing insert at an occupied path, where both leaves are available.
 #[test]
 fn join_prunes_same_version_payload_divergence_as_equal() {
     let version = version_for("A", 1);

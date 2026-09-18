@@ -150,8 +150,9 @@ impl Join for Z {
                 *changed |= gained.is_some();
                 gained
             }
-            // Same-path leaves hash equally and prune above. Ingestion checks
-            // version reuse; join trusts that distinct versions have distinct paths.
+            // Same-path leaves hash equally and prune above. The apply walk's
+            // live-leaf assertion detects version reuse; join trusts that
+            // distinct versions have distinct paths.
             (Some(_), Some(_)) => {
                 unreachable!("same-position leaves hash equally and prune above")
             }

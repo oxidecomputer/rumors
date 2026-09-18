@@ -232,8 +232,11 @@ impl Backend for Local {
 impl From<tree::Root> for Root<Local> {
     /// Move the ceiling and optional root node without changing them.
     fn from(root: tree::Root) -> Self {
-        let tree::Root { ceiling, root } = root;
-        Root { ceiling, root }
+        let tree::Root { ceiling, node } = root;
+        Root {
+            ceiling,
+            root: node,
+        }
     }
 }
 
@@ -242,6 +245,9 @@ impl From<Root<Local>> for tree::Root {
     /// Move the ceiling and optional root node without changing them.
     fn from(root: Root<Local>) -> Self {
         let Root { ceiling, root } = root;
-        tree::Root { ceiling, root }
+        tree::Root {
+            ceiling,
+            node: root,
+        }
     }
 }

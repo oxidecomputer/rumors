@@ -33,7 +33,7 @@
 //! (see [`Hash::branch`](typed::Hash::branch)). Hash agreement across
 //! peers therefore rests on the tree's *canonical shape*: equal content
 //! yields equal compression, by the same ≥ 2-children maximal-compression
-//! invariant the node serializer relies on.
+//! invariant enforced by the node constructors.
 //!
 //! # Memos and sharing
 //!
@@ -101,12 +101,12 @@ pub struct Tree<T> {
 ///
 /// The ceiling survives redactions, even when no nodes remain. Joins use it
 /// to distinguish messages not yet seen from messages already redacted.
-#[derive(Clone, Debug, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Root {
     /// Causal history, including redactions; excluded from the node hash.
     ceiling: Version,
     /// Live messages, absent when the tree is empty.
-    root: Option<typed::node::Root>,
+    node: Option<typed::node::Root>,
 }
 
 /// The empty root: the empty [`Version`] over no nodes. The state a mirror
@@ -116,7 +116,7 @@ impl Default for Root {
     fn default() -> Self {
         Root {
             ceiling: Version::new(),
-            root: None,
+            node: None,
         }
     }
 }
@@ -124,13 +124,7 @@ impl Default for Root {
 impl Root {
     /// Return the number of live messages represented by this root.
     pub(crate) fn len(&self) -> usize {
-        self.root.as_ref().map(typed::Node::len).unwrap_or_default()
-    }
-}
-
-impl PartialEq for Root {
-    fn eq(&self, other: &Self) -> bool {
-        self.ceiling == other.ceiling && self.root == other.root
+        self.node.as_ref().map(typed::Node::len).unwrap_or_default()
     }
 }
 
@@ -152,7 +146,7 @@ impl<T> Tree<T> {
     /// replica lock. Equal trees with distinct allocations may fail this check
     /// and require a retry; full content-and-ceiling equality would also be safe.
     pub(crate) fn root_is(&self, snapshot: &Self) -> bool {
-        let same_node = match (&self.root.root, &snapshot.root.root) {
+        let same_node = match (&self.root.node, &snapshot.root.node) {
             (None, None) => true,
             (Some(ours), Some(theirs)) => ours.ptr_eq(theirs),
             _ => false,
@@ -266,19 +260,19 @@ impl<T> Tree<T> {
         }
     }
 
-    /// Returns the latest version for the tree.
+    /// Returns the tree's causal history, including redacted messages.
     pub fn latest(&self) -> &Version {
         &self.root.ceiling
     }
 
-    /// Returns the earliest version present in the tree.
+    /// Returns the meet of the live message versions, or `None` when empty.
     pub fn earliest(&self) -> Option<&Version> {
-        self.root.root.as_ref().map(Node::floor)
+        self.root.node.as_ref().map(Node::floor)
     }
 
     /// Returns `true` if the tree holds no messages.
     pub fn is_empty(&self) -> bool {
-        self.root.root.is_none()
+        self.root.node.is_none()
     }
 
     /// Returns the number of messages in the tree.
@@ -296,7 +290,7 @@ impl<T> Tree<T> {
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn max_version_bytes(&self) -> usize {
         self.root
-            .root
+            .node
             .as_ref()
             .map(Node::version_bytes)
             .unwrap_or_default()
@@ -314,7 +308,7 @@ impl<T> Tree<T> {
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn max_bound_bytes(&self) -> usize {
         self.root
-            .root
+            .node
             .as_ref()
             .map(|node| node.max_bound_bytes())
             .unwrap_or_default()
@@ -327,13 +321,13 @@ impl<T> Tree<T> {
     pub(crate) fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         #[cfg(test)]
         meter::record_root_hash_read();
-        Node::root_hash(&self.root.root).into()
+        Node::root_hash(self.root.node.as_ref()).into()
     }
 
     /// Finds the live message whose path and stored version match `version`.
     fn message(&self, version: &Version) -> Option<&Message> {
         let path = <[u8; 32]>::from(typed::Path::for_leaf(version));
-        let (stored, message) = self.root.root.as_ref()?.get(&path)?;
+        let (stored, message) = self.root.node.as_ref()?.get(&path)?;
         (stored == version).then_some(message)
     }
 
@@ -365,7 +359,7 @@ impl<T> Tree<T> {
     /// Builds the untyped leaf walk shared by the public read methods.
     fn untyped_iter(&self) -> typed::Iter<'_> {
         self.root
-            .root
+            .node
             .as_ref()
             .map(typed::node::Root::iter)
             .unwrap_or_else(typed::Iter::empty)
@@ -377,7 +371,7 @@ impl<T> Tree<T> {
     /// their memos, so an incremental commit pays for its new spine. Warming
     /// version sizes also computes the bounds they depend on.
     pub(crate) fn warm_memos(&self) {
-        if let Some(root) = &self.root.root {
+        if let Some(root) = &self.root.node {
             root.hash();
             root.version_bytes();
         }
@@ -392,8 +386,8 @@ impl<T> Tree<T> {
         Iter(self.untyped_iter(), PhantomData)
     }
 
-    /// Freezes a fully-owned walk over the live leaves whose versions the
-    /// causal `query` admits.
+    /// Creates an owned walk over the live leaves whose versions the causal
+    /// `query` admits.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
     /// across awaits and in long-lived state, pinning only its unvisited
@@ -404,7 +398,7 @@ impl<T> Tree<T> {
         &self,
         query: impl Into<causally::Query<'q, P>>,
     ) -> RangeOwned<P> {
-        typed::node::Root::range_owned(self.root.root.as_ref(), query.into().into_owned())
+        typed::node::Root::range_owned(self.root.node.as_ref(), query.into().into_owned())
     }
 
     /// Lazily iterates the live leaves whose versions the causal `query`
@@ -424,7 +418,7 @@ impl<T> Tree<T> {
     where
         T: Send + Sync + 'static,
     {
-        typed::node::Root::range(self.root.root.as_ref(), query.into())
+        typed::node::Root::range(self.root.node.as_ref(), query.into())
             // The shared walk yields the full `&Message`; the public
             // contract hands out the owned payload handle, one reference
             // bump on the shared allocation.
@@ -451,7 +445,6 @@ impl<T> Tree<T> {
     /// encounter this case when the tree's ceiling bounds all its leaves.
     pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
     where
-        T: Send + Sync,
         I: IntoIterator<Item = Action>,
     {
         // Tick in specification order, before sorting by path. This gives
@@ -483,7 +476,6 @@ impl<T> Tree<T> {
     /// discarded action payloads leave the tree untouched.
     fn react<I>(&mut self, reactions: I) -> bool
     where
-        T: Send + Sync,
         I: IntoIterator<Item = (typed::Path, Version, traverse::Action)>,
     {
         // Finish the caller's iterator before starting the traversal. The owned
@@ -495,14 +487,14 @@ impl<T> Tree<T> {
         // forgetting a missing key must not advance the ceiling.
         let mut changed = false;
         let mut new_ceiling = self.root.ceiling.clone();
-        let new_root = traverse::act(self.root.root.clone(), actions, &mut |v: &Version| {
+        let new_root = traverse::act(self.root.node.clone(), actions, &mut |v: &Version| {
             new_ceiling |= v;
             changed = true;
         });
 
         // Publish both fields before releasing displaced payloads. Their
         // destructors may panic, so they must find a consistent tree.
-        let pre_image = std::mem::replace(&mut self.root.root, new_root);
+        let pre_image = std::mem::replace(&mut self.root.node, new_root);
         self.root.ceiling = new_ceiling;
         drop(pre_image);
         changed
@@ -516,19 +508,16 @@ impl<T> Tree<T> {
     /// Returns whether the live set changed, as detected by the traversal.
     /// The causal ceiling can advance even when the result is `false`.
     /// Panics during the walk or ceiling merge leave this tree untouched.
-    pub fn join(&mut self, other: Tree<T>) -> bool
-    where
-        T: Send + Sync,
-    {
+    pub fn join(&mut self, other: Tree<T>) -> bool {
         let Root {
             ceiling: their_version,
-            root: their_root,
+            node: their_root,
         } = other.root;
 
         // Retain our root while building the candidate: filtering their tree
         // can run payload destructors, and a panic must leave us unchanged.
         // Compute the new ceiling separately for the same reason.
-        let our_root = self.root.root.clone();
+        let our_root = self.root.node.clone();
         let mut changed = false;
         let merged = traverse::join(
             our_root,
@@ -542,7 +531,7 @@ impl<T> Tree<T> {
         // Publish both fields before releasing our old root. Payloads removed
         // by this join may become uniquely owned here; if their destructors
         // panic, they must find the new tree and ceiling consistent.
-        let pre_image = std::mem::replace(&mut self.root.root, merged);
+        let pre_image = std::mem::replace(&mut self.root.node, merged);
         self.root.ceiling = new_ceiling;
         drop(pre_image);
         changed
@@ -579,6 +568,7 @@ pub(crate) mod meter {
         ROOT_HASH_READS.with(Cell::get)
     }
 
+    /// Record one root-hash read on this thread.
     pub(super) fn record_root_hash_read() {
         ROOT_HASH_READS.with(|c| c.set(c.get() + 1));
     }
@@ -592,10 +582,8 @@ pub(crate) mod meter {
 /// [`traverse::act`] each burn one fuse step at the walk's entry and one
 /// per branch-level step, so a fuse armed at `n` unwinds only after `n`
 /// earlier fire points ran: deep enough to land after copy-on-write work
-/// has begun. The fuse stands in for an arbitrary internal bug and proves
-/// the defense total; the destructor-source pins beside the fuse pins
-/// prove the one *caller*-reachable unwind source (a panicking `T`
-/// destructor on a mid-walk last-handle drop) is real.
+/// has begun. The fuse models an internal panic; separate tests use a
+/// panicking payload destructor to exercise the caller-reachable unwind path.
 ///
 /// Thread-local for the same reason as [`meter`]: every commit critical
 /// section runs synchronously on its caller's thread, so a test arms and

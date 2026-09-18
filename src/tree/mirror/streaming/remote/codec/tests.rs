@@ -87,7 +87,7 @@ fn arb_speaker() -> impl Strategy<Value = Speaker> {
 
 /// Generate an arbitrary Merkle digest.
 fn arb_hash() -> impl Strategy<Value = Hash> {
-    any::<[u8; MERKLE_HASH_LEN]>().prop_map(Hash)
+    any::<[u8; MERKLE_HASH_LEN]>().prop_map(Hash::from)
 }
 
 /// Generate an ascending query listing at every supported fan width.
@@ -232,8 +232,8 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
             stream,
             Frame::Reaction(
                 Reaction::Query(vec![
-                    (1, Hash([1; MERKLE_HASH_LEN])),
-                    (2, Hash([2; MERKLE_HASH_LEN])),
+                    (1, Hash::from([1; MERKLE_HASH_LEN])),
+                    (2, Hash::from([2; MERKLE_HASH_LEN])),
                 ]),
                 Flow::Continue,
             ),
@@ -726,7 +726,7 @@ fn read_plan_at_reference_shapes() {
                 Frame::Reaction(
                     Reaction::Query(
                         (0..=u8::MAX)
-                            .map(|radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
+                            .map(|radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
                             .collect(),
                     ),
                     Flow::Continue,

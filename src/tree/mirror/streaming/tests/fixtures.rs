@@ -77,7 +77,7 @@ where
 pub(super) fn rooted(node: Option<TreeNode<height::Root>>) -> Root {
     Root {
         ceiling: ceiling_of(&node),
-        root: node,
+        node,
     }
 }
 
@@ -91,10 +91,7 @@ pub(super) fn rooted(node: Option<TreeNode<height::Root>>) -> Root {
 /// deletion pruning compares leaf versions with the counterparty's ceiling,
 /// and each fixture keeps supplied leaves on chains that ceiling never covers.
 pub(super) fn rooted_at(node: Option<TreeNode<height::Root>>, ceiling: Version) -> Root {
-    Root {
-        ceiling,
-        root: node,
-    }
+    Root { ceiling, node }
 }
 
 /// The ceiling a node would advertise on its own.
