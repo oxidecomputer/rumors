@@ -141,17 +141,20 @@ proptest! {
     /// zero new observations and changes no peer's state (live
     /// content and causal version alike).
     ///
-    /// Picks two distinct peer indices via `prop_flat_map` on the
-    /// schedule so the shrinker sees them as first-class inputs
-    /// rather than modulo'd seeds.
+    /// A coincident pair advances the second peer by one. Distinct draws stay
+    /// unchanged, preserving saved cases while making every result distinct.
     #[test]
     fn quiesced_state_is_gossip_fixed_point(
         (schedule, a, b) in schedule_u64().prop_flat_map(|s| {
             let n = s.n_peers;
             (Just(s), 0..n, 0..n)
-        }).prop_filter("distinct peers", |(_, a, b)| a != b),
+        }).prop_map(|(s, a, b)| {
+            let b = if a == b { (b + 1) % s.n_peers } else { b };
+            (s, a, b)
+        }),
         windows in arb_window_assignment(),
     ) {
+        prop_assert_ne!(a, b);
         let mut result = execute_and_quiesce(&schedule, &windows);
         let fingerprint = |peer: &crate::common::peer::Peer<u64>| {
             let snapshot = peer.local.snapshot();

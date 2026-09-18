@@ -14,7 +14,7 @@ use crate::{
     Version,
     message::Message,
     tree::{
-        arb::nth_party,
+        arb::{arb_leaf_paths, nth_party},
         mirror::streaming::{Backend, backend::BoxNodeStream, convert::Convert},
         typed::{
             self, Path, Prefix,
@@ -87,16 +87,6 @@ fn content(run: &LeafRun) -> Vec<(Prefix<Z>, Version)> {
         .collect()
 }
 
-/// Paths over a tiny alphabet share long prefixes, forcing deep compressed
-/// spines and branch points at many depths; paths over the full alphabet
-/// mostly diverge at the top, forcing wide fans. Both shapes matter.
-fn paths() -> impl Strategy<Value = std::collections::BTreeSet<[u8; 32]>> {
-    prop_oneof![
-        proptest::collection::btree_set(proptest::array::uniform32(0u8..3), 1..=24),
-        proptest::collection::btree_set(proptest::array::uniform32(any::<u8>()), 1..=24),
-    ]
-}
-
 proptest! {
     /// Bulk assembly of one full-height run matches the default fold.
     ///
@@ -106,7 +96,7 @@ proptest! {
     /// and the default explosion) return exactly the input leaves, in
     /// order.
     #[test]
-    fn full_height_roundtrip_matches_default(paths in paths()) {
+    fn full_height_roundtrip_matches_default(paths in arb_leaf_paths(24)) {
         let run = leaves_at(paths);
         let expected = content(&run);
         let root = Prefix::<height::Root>::new();

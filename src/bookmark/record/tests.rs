@@ -67,7 +67,10 @@ proptest! {
         network.identities.pop_front();
         network.compact();
         let expected = format::encode(&expected);
-        prop_assume!(expected.len() < before.len());
+        prop_assert!(
+            expected.len() < before.len(),
+            "removing one retained identity must reduce the encoded record"
+        );
         let actual = record.bounded_bytes(expected.len());
         prop_assert_eq!(actual, expected);
     }

@@ -1,11 +1,13 @@
 //! Generators and deterministic fixtures for tree tests.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use before::Party;
-use proptest::collection::vec;
+use proptest::array::uniform32;
+use proptest::collection::{SizeRange, vec};
 use proptest::prelude::*;
+use proptest::sample::subsequence;
 
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::height::Root;
@@ -54,6 +56,28 @@ pub fn arb_version() -> BoxedStrategy<Version> {
             v
         })
         .boxed()
+}
+
+/// Generate an ordered set of distinct child radixes with a size in `count`.
+///
+/// Choosing a subsequence of the complete radix space makes every requested
+/// size, including a full 256-child fan, reachable without rejecting draws.
+pub fn arb_radixes(count: impl Into<SizeRange>) -> impl Strategy<Value = BTreeSet<u8>> {
+    subsequence((0..=u8::MAX).collect::<Vec<_>>(), count)
+        .prop_map(|radixes| radixes.into_iter().collect())
+}
+
+/// Generate a nonempty set of full-width leaf paths with at most `max` members.
+///
+/// The small alphabet produces long shared prefixes; the full byte alphabet
+/// usually produces broad, shallow branches. Folding a nonempty vector keeps
+/// the result nonempty even when duplicate paths coincide.
+pub fn arb_leaf_paths(max: usize) -> impl Strategy<Value = BTreeSet<[u8; 32]>> {
+    prop_oneof![
+        vec(uniform32(0u8..3), 1..=max),
+        vec(uniform32(any::<u8>()), 1..=max),
+    ]
+    .prop_map(|paths| paths.into_iter().collect())
 }
 
 /// Build a typed root tree by inserting random leaves via `act`.

@@ -1,14 +1,10 @@
 use super::signal::{InvalidSignalPlacement, StreamClass};
-use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io::Cursor;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use proptest::{
-    collection::{btree_map, vec},
-    prelude::*,
-};
+use proptest::{collection::vec, prelude::*};
 use sha3::Digest;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -19,7 +15,7 @@ use crate::{
     Version,
     message::Message,
     tree::{
-        arb::arb_version,
+        arb::{arb_radixes, arb_version},
         mirror::{cbor, framing::PAYLOAD_CHUNK_LEN},
         typed::{Hash, hash::MERKLE_HASH_LEN},
     },
@@ -79,23 +75,37 @@ fn leaf_run<T: Serialize + Clone + Send + Sync + 'static>(records: &[(Version, T
     run
 }
 
+/// Generate any logical protocol stream.
 fn arb_stream() -> impl Strategy<Value = Stream> {
     (0_u8..Stream::COUNT).prop_map(|index| Stream::new(index).unwrap())
 }
 
+/// Generate either elected speaker direction.
+fn arb_speaker() -> impl Strategy<Value = Speaker> {
+    prop_oneof![Just(Speaker::Initiator), Just(Speaker::Responder)]
+}
+
+/// Generate an arbitrary Merkle digest.
 fn arb_hash() -> impl Strategy<Value = Hash> {
     any::<[u8; MERKLE_HASH_LEN]>().prop_map(Hash)
 }
 
+/// Generate an ascending query listing at every supported fan width.
 fn arb_query() -> impl Strategy<Value = Vec<(u8, Hash)>> {
-    btree_map(any::<u8>(), arb_hash(), 0..=MAX_QUERY_CHILDREN)
-        .prop_map(|children: BTreeMap<_, _>| children.into_iter().collect())
+    arb_radixes(0..=MAX_QUERY_CHILDREN)
+        .prop_flat_map(|radixes| {
+            let count = radixes.len();
+            (Just(radixes), vec(arb_hash(), count))
+        })
+        .prop_map(|(radixes, hashes)| radixes.into_iter().zip(hashes).collect())
 }
 
+/// Generate either continuation state for a reaction.
 fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
+/// Generate a frame on an arbitrary stream before speaker validation.
 fn arb_frame() -> impl Strategy<Value = WireFrame> {
     prop_oneof![
         (arb_stream(), arb_flow())
@@ -118,20 +128,34 @@ fn arb_frame() -> impl Strategy<Value = WireFrame> {
     ]
 }
 
+/// Place `frame` on a stream from which `speaker` may send its signal.
+///
+/// Already-valid placements stay unchanged. An invalid placement moves to the
+/// first stream that admits the signal, so every draw reaches the codec without
+/// rejection while the frame body remains arbitrary.
+fn place(speaker: Speaker, frame: WireFrame) -> (Speaker, WireFrame) {
+    let (stream, frame) = frame;
+    let signal = frame_signal(&frame);
+    let stream = if WireSignal::new(speaker, stream, signal).is_ok() {
+        stream
+    } else {
+        (0..Stream::COUNT)
+            .map(|index| Stream::new(index).unwrap())
+            .find(|&candidate| WireSignal::new(speaker, candidate, signal).is_ok())
+            .expect("each signal is valid on at least one stream")
+    };
+    (speaker, (stream, frame))
+}
+
 proptest! {
     /// Every valid frame is self-delimiting and round-trips canonically.
     #[test]
     fn frame_round_trips(
         frame in arb_frame(),
         suffix in vec(any::<u8>(), 0..MAX_ARBITRARY_SUFFIX_LEN),
-        initiator in any::<bool>(),
+        speaker in arb_speaker(),
     ) {
-        let speaker = if initiator {
-            Speaker::Initiator
-        } else {
-            Speaker::Responder
-        };
-        prop_assume!(WireSignal::new(speaker, frame.0, frame_signal(&frame.1)).is_ok());
+        let (speaker, frame) = place(speaker, frame);
         let mut encoded = Vec::new();
         encode(speaker, &frame, &mut encoded).unwrap();
         let frame_len = encoded.len();
@@ -152,14 +176,9 @@ proptest! {
     #[test]
     fn async_frame_round_trips_canonically(
         frame in arb_frame(),
-        initiator in any::<bool>(),
+        speaker in arb_speaker(),
     ) {
-        let speaker = if initiator {
-            Speaker::Initiator
-        } else {
-            Speaker::Responder
-        };
-        prop_assume!(WireSignal::new(speaker, frame.0, frame_signal(&frame.1)).is_ok());
+        let (speaker, frame) = place(speaker, frame);
         let mut canonical = Vec::new();
         encode(speaker, &frame, &mut canonical).unwrap();
         let mut writer = FrameWrite::new(speaker, RecordingWrite::default());
@@ -666,16 +685,14 @@ proptest! {
     #[test]
     fn async_decode_spends_its_read_plan(
         frame in arb_frame(),
-        initiator in any::<bool>(),
+        speaker in arb_speaker(),
     ) {
-        let speaker = if initiator {
-            Speaker::Initiator
-        } else {
-            Speaker::Responder
-        };
-        prop_assume!(WireSignal::new(speaker, frame.0, frame_signal(&frame.1)).is_ok());
+        let (speaker, frame) = place(speaker, frame);
         if let Frame::Reaction(Reaction::Supply(run), _) = &frame.1 {
-            prop_assume!(run.encoded_len() <= PAYLOAD_CHUNK_LEN);
+            // `read_plan` prices one body read because these small generated
+            // runs fit in one chunk. Keep that premise visible if the generator
+            // grows.
+            prop_assert!(run.encoded_len() <= PAYLOAD_CHUNK_LEN);
         }
         let mut encoded = Vec::new();
         encode(speaker, &frame, &mut encoded).unwrap();

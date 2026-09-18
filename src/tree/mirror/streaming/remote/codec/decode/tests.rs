@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, ReadBuf};
 use super::*;
 use crate::Version;
 use crate::message::Message;
-use crate::tree::arb::arb_version;
+use crate::tree::arb::{arb_radixes, arb_version};
 use crate::tree::mirror::cbor::{HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, TAG_CBOR_SEQUENCE};
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
@@ -557,10 +557,9 @@ proptest! {
     fn unordered_query_is_rejected(
         index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
-        previous in any::<u8>(),
-        radix in any::<u8>(),
+        (previous, radix) in (any::<u8>(), any::<u8>())
+            .prop_map(|(a, b)| (a.max(b), a.min(b))),
     ) {
-        prop_assume!(previous >= radix);
         let stream = stream(index);
         let children = vec![(previous, Hash::default()), (radix, Hash::default())];
         let encoded = query(stream, Flow::Continue, &children);
@@ -607,7 +606,7 @@ proptest! {
         index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         flow in arb_flow(),
-        radixes in proptest::collection::btree_set(any::<u8>(), 1..=32),
+        radixes in arb_radixes(1..=32),
     ) {
         let stream = stream(index);
         let children: Vec<(u8, Hash)> = radixes

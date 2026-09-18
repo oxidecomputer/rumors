@@ -580,7 +580,14 @@ proptest! {
         let present: BTreeSet<Path> = (1..=bytes.len() as u64)
             .map(|scalar| leaf_path(&party, scalar))
             .collect();
-        prop_assume!(!present.contains(&nuke));
+        let nuke = if present.contains(&nuke) {
+            // Move the vanishingly rare collision to the next version-derived
+            // path, which is absent because the fixture inserted only
+            // `bytes.len()` messages.
+            leaf_path(&party, bytes.len() as u64 + 1)
+        } else {
+            nuke
+        };
 
         let mut t_before = Tree::<Bytes>::new();
         t_before.act(&party_of("P"), bytes.into_iter().map(insert_action));

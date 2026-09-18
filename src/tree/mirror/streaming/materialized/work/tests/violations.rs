@@ -10,22 +10,25 @@ use futures::stream::{self, StreamExt};
 use proptest::prelude::*;
 
 use super::leaf;
-use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
-    tree::mirror::streaming::{
-        Backend, Local,
-        channel::{Receiver, with_schedule},
-        materialized::{
-            Error, Query, SupplyLedger, Violation, Work, work::queues::internal_child_queries,
+    tree::{
+        arb::arb_radixes,
+        mirror::streaming::{
+            Backend, Local,
+            channel::{Receiver, with_schedule},
+            materialized::{
+                Error, Query, SupplyLedger, Violation, Work, work::queues::internal_child_queries,
+            },
+            message::{Reaction, Reply},
+            protocol::BoxResponses,
+            stats::Recorder,
+            window::Window,
         },
-        message::{Reaction, Reply},
-        protocol::BoxResponses,
-        window::Window,
-    },
-    tree::typed::{
-        self, Hash, Path, Prefix,
-        height::{Height, Root, S, UnderRoot, Z},
+        typed::{
+            self, Hash, Path, Prefix,
+            height::{Height, Root, S, UnderRoot, Z},
+        },
     },
 };
 
@@ -373,7 +376,7 @@ proptest! {
     fn injected_fault_reports_exact_violation(
         injection in arb_scripted_violation(),
         parent in any::<u8>(),
-        radixes in proptest::collection::btree_set(any::<u8>(), 1..=8),
+        radixes in arb_radixes(1..=8),
         schedule in proptest::collection::vec(0u8..=2, 0..=64),
     ) {
         let expected = injection.into();
@@ -396,7 +399,7 @@ proptest! {
     #[test]
     fn opening_fault_reports_exact_violation(
         injection in arb_opening_injection(),
-        radixes in proptest::collection::btree_set(any::<u8>(), 1..=8),
+        radixes in arb_radixes(1..=8),
         schedule in proptest::collection::vec(0u8..=2, 0..=64),
     ) {
         let expected = injection.expected();

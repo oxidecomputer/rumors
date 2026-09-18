@@ -64,12 +64,11 @@ proptest! {
     /// honors the "only redact a message you've observed" invariant,
     /// so redacts whose targets never crossed the partition are
     /// silently skipped — matching what real application code could
-    /// have issued.
+    /// have issued. An empty schedule is valid and converges immediately.
     #[test]
     fn partition_then_heal_is_self_consistent(
         (schedule, split_at, partition_event_count) in
             arb_schedule(any::<u64>(), N_PEERS, MAX_EVENTS)
-                .prop_filter("non-empty", |schedule| !schedule.events.is_empty())
                 .prop_flat_map(|schedule| {
                     let peers = schedule.n_peers;
                     let events = schedule.events.len();

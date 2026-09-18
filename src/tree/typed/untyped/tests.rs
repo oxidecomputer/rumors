@@ -4,7 +4,7 @@ use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
-use crate::tree::arb::arb_version;
+use crate::tree::arb::{arb_leaf_paths, arb_radixes, arb_version};
 use crate::{Version, message::Message};
 
 use super::{Node, PATH_LEN, fan::Fan};
@@ -56,7 +56,7 @@ fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
         // children at distinct byte indices. Capping the count at `budget`
         // leaves at least one unit of budget for every child.
         let max_n = MAX_BRANCHING.min(budget);
-        btree_set(any::<u8>(), 1..=max_n)
+        arb_radixes(1..=max_n)
             .prop_flat_map(move |indices| {
                 let n = indices.len();
                 // Give every child a baseline of 1, then scatter the
@@ -384,7 +384,7 @@ proptest! {
     /// from-scratch reference; a missing memo reset would surface here.
     #[test]
     fn pop_top_byte_matches_freshly_built_shorter_prefix(
-        indices in btree_set(any::<u8>(), 2..=8),
+        indices in arb_radixes(2..=8),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let indices: Vec<u8> = indices.into_iter().collect();
@@ -517,7 +517,7 @@ proptest! {
     /// single-preimage rule it rests on canonical shape, not on the hash
     /// construction itself, so it is pinned here rather than left untested.
     #[test]
-    fn every_virtual_level_hashes_canonically(paths in full_depth_paths()) {
+    fn every_virtual_level_hashes_canonically(paths in arb_leaf_paths(16)) {
         let paths: Vec<[u8; 32]> = paths.into_iter().collect();
         let tree = canonical_at(0, &paths);
         check_virtual_levels(tree, 0, &paths)?;
@@ -635,18 +635,6 @@ fn reference_hash(mut node: Node) -> super::Hash {
             }
         };
     }
-}
-
-/// Full 32-byte leaf-path sets for the virtual-level walk.
-///
-/// Paths over a tiny alphabet share long prefixes, forcing deep compressed
-/// spines and branch points at many depths; paths over the full alphabet
-/// mostly diverge at the top, forcing wide fans. Both shapes matter.
-fn full_depth_paths() -> impl Strategy<Value = BTreeSet<[u8; 32]>> {
-    prop_oneof![
-        btree_set(proptest::array::uniform32(0u8..3), 1..=16),
-        btree_set(proptest::array::uniform32(any::<u8>()), 1..=16),
-    ]
 }
 
 /// The canonical tree over `paths` observed from `depth`, built from

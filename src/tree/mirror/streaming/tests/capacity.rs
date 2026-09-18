@@ -355,12 +355,26 @@ fn parent_delay_no_cross_parent_backlog() {
     }
 }
 
+/// Maximum deepest-cell count for a generated compact pyramid.
+const COMPACT_PYRAMID_CELLS: usize = 128;
+
 /// Generate shrinkable structured fan-out without exponential test cases.
+///
+/// Each compact width is limited by the remaining cell budget. Inputs already
+/// within the budget stay unchanged; larger products shrink into a valid shape
+/// instead of being discarded.
 fn arb_stress_widths() -> impl Strategy<Value = Vec<usize>> {
-    let compact = proptest::collection::vec(1usize..=4, 1..=6).prop_filter(
-        "the cartesian pyramid must stay within 128 deepest cells",
-        |widths| widths.iter().product::<usize>() <= 128,
-    );
+    let compact = proptest::collection::vec(1usize..=4, 1..=6).prop_map(|widths| {
+        let mut cells = 1;
+        widths
+            .into_iter()
+            .map(|width| {
+                let width = width.min(COMPACT_PYRAMID_CELLS / cells);
+                cells *= width;
+                width
+            })
+            .collect()
+    });
     let boundary =
         (0usize..=30, prop_oneof![Just(255usize), Just(256usize)]).prop_map(|(depth, width)| {
             let mut widths = vec![1; depth + 1];
