@@ -1,15 +1,13 @@
 # Rumors review checklist
 
-**Current:** local synchronization no longer copies a shared branch and child
-table to enumerate it or allocates two full buffers to assemble one leaf run —
-`57a8937b`.
+**Current:** CI now runs Rumors properties in release with one 4,000-case
+setting and a measured timeout profile — `0c929897`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** address the public Bookmark inspection gap, then measured routed-link
-overhead and substantive router simplification. Remaining allocation
-measurement, verification infrastructure, test consolidation, broad prose
-work, and local module hygiene follow these production-facing outcomes.
+**Next:** make benchmark timings isolate the operations they claim to measure,
+then finish gate and CI reproducibility. Remaining measured performance work,
+test consolidation, broad prose work, and module hygiene follow.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -264,7 +262,8 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 - [x] Return link information to routed dialers and count router evictions and overflows — `a9a3aac4`.
       Sources: `link-16`, `link-21`, T68.
 
-- [ ] Provide read-only inspection of stored bookmark records.
+- [x] Disposition: defer read-only bookmark inspection until an operator tool
+      needs it; there is no current consumer for this new public API.
       Sources: `session-bookmark-20`, T132.
 
 - [ ] Gate test-only controls and provide small testing exports where they remove copied derivations.
@@ -400,8 +399,12 @@ Dependencies: 02, then relevant API/error changes in 09.
 - [x] Demonstrate accept reordering and use one shared adversity fixture — `c734e79f`.
       Sources: `conformance-18`, `testing-infra-12`, T21, T101.
 
-- [ ] Remove measured or obvious per-connection overhead without changing the transport contract (table lifetime: 02).
-      Sources: `link-1`, `link-27`, T132.
+- [x] Remove the routed-link per-connection work made obsolete by the bounded
+      pooling redesign — `45aaec54`.
+      Sources: `link-27`, T132.
+
+- [ ] Correct the remaining link-contract documentation nits.
+      Sources: `link-1`, T132.
 
 - [ ] Simplify conformance fixtures and clarify what each probe establishes.
       Sources: `conformance-2–5`, `conformance-10`, `conformance-12`, `conformance-14`, `conformance-15`, `conformance-17`, `conformance-19`, `conformance-21–23`, `conformance-26`, `conformance-32–34`, `conformance-36`, `link-11`, `link-12`, T48–50, T132.
@@ -482,7 +485,8 @@ Dependencies: Scoped generator repairs can start independently; workspace settin
 - [x] Generate constrained cases directly while preserving the regressions they must cover. Landed at `107da6ac`.
       Sources: `remote-capture-atlas-24`, T132, T157, T161, N13, N17, N20, N36, N45, N46.
 
-- [ ] Run meaningful high-count release properties with one case-count setting.
+- [x] Run meaningful high-count release properties with one case-count setting
+      — `0c929897`.
       Sources: `suite-economics-4`, T116, T129, T148, T151, T164, N14, N37, N38.
 
 ## 16. Shared test and benchmark support
