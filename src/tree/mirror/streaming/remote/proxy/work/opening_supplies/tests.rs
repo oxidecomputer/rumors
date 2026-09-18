@@ -5,6 +5,7 @@ use std::{collections::BTreeSet, convert::Infallible};
 use futures::stream;
 use proptest::prelude::*;
 
+use super::super::Ingress;
 use super::{OpeningSupplies, State};
 use crate::{
     Version,
@@ -13,7 +14,6 @@ use crate::{
         arb::nth_party,
         mirror::streaming::{
             Backend, Local,
-            materialized::SupplyLedger,
             remote::{adapter::DecodeError, proxy::Error},
         },
         typed::{self, Path, Prefix, height::Root as RootHeight},
@@ -38,13 +38,16 @@ fn cursor(supplied: &BTreeSet<u8>) -> OpeningSupplies<Local> {
         .map(|radix| Ok((*radix, node.clone())))
         .collect();
     OpeningSupplies {
-        version_bytes: 0,
-        ledger: SupplyLedger::new(u64::MAX),
+        ingress: Ingress::new(
+            Local,
+            0,
+            u64::MAX,
+            PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+        ),
         state: State::Streaming {
             supplies: Box::pin(stream::iter(groups)),
             lookahead: None,
         },
-        codec: PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     }
 }
 
@@ -82,7 +85,7 @@ proptest! {
         let (answers, result) = pollster::block_on(async {
             let mut answers = Vec::new();
             for radix in &requested {
-                match cursor.advance_to(&Local, root(), *radix).await {
+                match cursor.advance_to(root(), *radix).await {
                     Ok(node) => answers.push((*radix, node.is_some())),
                     Err(error) => return (answers, Err(error)),
                 }

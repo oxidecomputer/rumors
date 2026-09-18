@@ -14,7 +14,10 @@ use crate::{
             protocol::{self, Accept, CompleteConnect, Connect},
             remote::{
                 codec::{RunBudget, greeting as greeting_codec},
-                proxy::{Connected, Error, work::ControlRead},
+                proxy::{
+                    Connected, Error,
+                    work::{ControlRead, Ingress},
+                },
             },
             stats::Recorder,
             window::{ReplicaSize, WindowConfig},
@@ -154,15 +157,17 @@ where
             ..
         } = remote;
         Ok(Connected {
-            backend: self.backend,
+            ingress: Ingress::new(
+                self.backend,
+                remote_version_bytes,
+                remote_set_len,
+                self.codec,
+            ),
             link: self.link,
-            remote_version_bytes,
-            remote_set_len,
             remote_listing,
             window,
             budget,
             stats: self.stats,
-            codec: self.codec,
             observe: self.observe,
         })
     }

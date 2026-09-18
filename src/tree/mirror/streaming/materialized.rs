@@ -340,6 +340,16 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     fan: Vec<(u8, B::Erased)>,
 }
 
+/// Opening-only state handed to the first internal descent stage.
+pub(crate) enum OpeningHandoff<E> {
+    /// A stage with no opening state to consume.
+    None,
+    /// Root children the initiator supplied before the responder asked.
+    Supplies(oneshot::Receiver<Vec<(u8, Vec<(u8, E)>)>>),
+    /// Initiator-owned root children already pruned against the peer's version.
+    Survivors(oneshot::Receiver<Vec<(u8, Option<E>)>>),
+}
+
 /// The remote tree properties retained from its greeting.
 struct PeerSummary {
     /// The peer's causal version, used to bound supplies and join ceilings.
@@ -397,18 +407,8 @@ where
     queries: Receiver<Query<B::Erased>>,
     /// One resolved scope per query, in query order, to the stage above.
     returns: Sender<Option<B::Erased>>,
-    /// An elected initiator's opening hand-off: the early-supplied root
-    /// radices' survivors, consumed by the first descending stage to answer
-    /// the responder's empty queries about them (`None` below it).
-    early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
-    /// An elected responder's opening hand-off (`None` below the first
-    /// descending stage).
-    ///
-    /// The root children the initiator supplied early, pre-exploded into
-    /// their own children, consumed by the first descending stage to
-    /// resolve its own root-level requests.
-    #[allow(clippy::type_complexity)]
-    early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
+    /// Opening-only state for the first descent stage; absent below it.
+    opening: OpeningHandoff<B::Erased>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
     work: Work<B>,
@@ -626,8 +626,7 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Initiator<B> for Handshaking<B,
                 ledger,
                 queries,
                 returns,
-                early_survivors: Some(early),
-                early_supplies: None,
+                opening: OpeningHandoff::Survivors(early),
                 work,
                 finish,
                 height: std::marker::PhantomData,
@@ -661,8 +660,7 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Responder<B> for Handshaking<B,
                 ledger,
                 queries,
                 returns,
-                early_survivors: None,
-                early_supplies: Some(early),
+                opening: OpeningHandoff::Supplies(early),
                 work,
                 finish,
                 height: std::marker::PhantomData,
@@ -698,8 +696,7 @@ where
         let (responses, queries, upper, lower) = self.work.internal_level::<H>(
             self.their_version.clone(),
             self.ledger.clone(),
-            self.early_survivors.take(),
-            self.early_supplies.take(),
+            std::mem::replace(&mut self.opening, OpeningHandoff::None),
             requests,
             self.queries,
         );
@@ -713,8 +710,7 @@ where
                 ledger: self.ledger,
                 queries,
                 returns,
-                early_survivors: None,
-                early_supplies: None,
+                opening: OpeningHandoff::None,
                 work: self.work,
                 finish: self.finish,
                 height: std::marker::PhantomData,
@@ -733,10 +729,6 @@ where
         mut self,
         requests: impl Requests<B, S<Z>>,
     ) -> (BoxResponses<B, Z, Self::Error>, Self::Next) {
-        debug_assert!(
-            self.early_survivors.is_none() && self.early_supplies.is_none(),
-            "the opening hand-off is consumed by the first descending stage"
-        );
         let (responses, queries, upper, lower) = self.work.leaf_parent_level(
             self.their_version.clone(),
             self.ledger.clone(),

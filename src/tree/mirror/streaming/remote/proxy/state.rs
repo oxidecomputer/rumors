@@ -23,7 +23,7 @@ use crate::tree::{
             codec::{RunBudget, Speaker, Stream},
             proxy::{
                 Error,
-                work::{ControlRead, Physical, Work},
+                work::{ControlRead, Ingress, Physical, Work},
             },
             streams::{
                 AcceptDriver, Claims, ErrorRoute, StreamReceiver, StreamSender, claims, error_route,
@@ -112,14 +112,10 @@ pub struct Connected<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// The backend which materializes received nodes.
-    pub(super) backend: B,
+    /// Backend and validation state for incoming replies.
+    pub(super) ingress: Ingress<B>,
     /// The transport carrier retained until data-stream role dispatch.
     pub(super) link: Link<R, W, C, A>,
-    /// Maximum encoded version size declared by the remote endpoint.
-    pub(super) remote_version_bytes: u64,
-    /// Message count declared by the remote endpoint.
-    pub(super) remote_set_len: u64,
     /// Root-fan listing sent by the remote endpoint.
     pub(super) remote_listing: Vec<(u8, Hash)>,
     /// Queue capacities resolved from both greetings.
@@ -128,8 +124,6 @@ where
     pub(super) budget: RunBudget,
     /// Counts bytes crossing the codec boundary.
     pub(super) stats: Recorder,
-    /// Decodes payloads supplied by the remote endpoint.
-    pub(super) codec: crate::message::PayloadCodec,
     /// Observes the elected role and wire traffic.
     pub(super) observe: SessionHandle,
 }
@@ -143,15 +137,12 @@ where
     /// Open the per-stream session after the driver assigns the remote role.
     fn open(self, remote: Speaker) -> Session<B, R, W, C, A> {
         let Connected {
-            backend,
+            ingress,
             link,
-            remote_version_bytes,
-            remote_set_len,
             remote_listing,
             window,
             budget,
             stats,
-            codec,
             observe,
         } = self;
         observe.elected(match remote.other() {
@@ -170,11 +161,9 @@ where
         let (route, errors) = error_route();
         let accept = AcceptDriver::new(acceptor, epoch, remote, slots, route.clone());
         let work = Work::new(
-            backend,
+            ingress,
             window,
             budget,
-            remote_version_bytes,
-            remote_set_len,
             remote_listing,
             Physical {
                 control_read,
@@ -183,7 +172,6 @@ where
                 accept,
                 errors,
             },
-            codec,
         );
         Session {
             remote,

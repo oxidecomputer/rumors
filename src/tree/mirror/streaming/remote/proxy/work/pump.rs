@@ -28,7 +28,7 @@ use async_stream::try_stream;
 use futures::Stream;
 use tokio::io::AsyncRead;
 
-use super::{ControlRead, Work, encode, opening_supplies::OpeningSupplies, queues};
+use super::{ControlRead, Ingress, Work, encode, opening_supplies::OpeningSupplies, queues};
 use crate::{
     link::{Acceptor, Connector},
     tree::{
@@ -48,6 +48,46 @@ use crate::{
         typed::height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
+
+/// Decode operations over one session's shared ingress state.
+impl<B> Ingress<B>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    /// Decode one branch reply and its lower questions.
+    async fn decode(
+        &self,
+        scope: Scope,
+        incoming: &mut StreamReceiver,
+    ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>> {
+        decode_reply(
+            self.backend.clone(),
+            self.version_bytes,
+            self.ledger.clone(),
+            scope,
+            incoming,
+            self.codec,
+        )
+        .await
+    }
+
+    /// Decode one leaf reply and its terminal questions.
+    async fn decode_leaf(
+        &self,
+        scope: Scope,
+        incoming: &mut StreamReceiver,
+    ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>> {
+        decode_leaf_reply(
+            self.backend.clone(),
+            self.version_bytes,
+            self.ledger.clone(),
+            scope,
+            incoming,
+            self.codec,
+        )
+        .await
+    }
+}
 
 /// Connect each protocol stage's encoder, decoder, and dependent scope queues.
 impl<B, R, W, A> Work<B, R, W, A>
@@ -178,14 +218,10 @@ where
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
         let progress = self.progress;
-        let backend = self.backend();
-        let version_bytes = self.peer_version_bytes;
-        let ledger = self.peer_supplies.clone();
-        let codec = self.codec;
+        let ingress = self.ingress();
         try_stream! {
-            let mut opening = opening_supplies.map(|receiver| {
-                OpeningSupplies::<B>::new(version_bytes, ledger.clone(), receiver, codec)
-            });
+            let mut opening = opening_supplies
+                .map(|receiver| OpeningSupplies::new(ingress.clone(), receiver));
             while let Some(scope) = questions.recv().await {
                 // A root-level request's content crossed at the opening. Its
                 // ordinary pairing reply arrives empty; after decoding that
@@ -199,24 +235,16 @@ where
                 let Decoded {
                     mut reply,
                     questions,
-                } = decode_reply::<B, _>(
-                    backend.clone(),
-                    version_bytes,
-                    ledger.clone(),
-                    scope,
-                    &mut incoming,
-                    codec,
-                )
-                .await?;
+                } = ingress.decode(scope, &mut incoming).await?;
                 let opening_node = match (opening.as_mut(), opening_supply) {
                     (Some(opening), Some((parent, root, radix))) => opening
-                        .advance_to(&backend, root, radix)
+                        .advance_to(root, radix)
                         .await?
                         .map(|node| (parent, node)),
                     _ => None,
                 };
                 if let Some((parent, node)) = opening_node {
-                    let children = ops::children_of(&backend, parent, node)
+                    let children = ops::children_of(&ingress.backend, parent, node)
                         .await
                         .map_err(|error| Error::Decode(DecodeError::Backend(error)))?;
                     reply.reactions.extend(
@@ -276,21 +304,10 @@ where
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
         let progress = self.progress;
-        let backend = self.backend();
-        let version_bytes = self.peer_version_bytes;
-        let ledger = self.peer_supplies.clone();
-        let codec = self.codec;
+        let ingress = self.ingress();
         try_stream! {
             while let Some(scope) = questions.recv().await {
-                let Decoded { reply, questions } = decode_leaf_reply(
-                    backend.clone(),
-                    version_bytes,
-                    ledger.clone(),
-                    scope,
-                    &mut incoming,
-                    codec,
-                )
-                .await?;
+                let Decoded { reply, questions } = ingress.decode_leaf(scope, &mut incoming).await?;
                 if let Some(next_scopes) = &next_scopes {
                     yield_reply_scopes!(
                         progress, Z::HEIGHT, questions.len();

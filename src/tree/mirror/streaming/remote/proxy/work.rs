@@ -52,6 +52,37 @@ mod queues;
 /// retirement or bootstrap can also append its encoded party.
 pub type ControlRead<R> = Chain<Cursor<Vec<u8>>, R>;
 
+/// Backend and validation state shared by every incoming reply decoder.
+#[derive(Clone)]
+pub(super) struct Ingress<B>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    /// The store used to reconstruct supplied nodes.
+    backend: B,
+    /// The peer's declared maximum encoded version size.
+    version_bytes: u64,
+    /// The peer's remaining declared supply allowance.
+    ledger: SupplyLedger,
+    /// The codec used to decode supplied messages.
+    codec: PayloadCodec,
+}
+
+impl<B> Ingress<B>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    /// Combine the backend with the peer's greeting-derived decode limits.
+    pub(super) fn new(backend: B, version_bytes: u64, set_len: u64, codec: PayloadCodec) -> Self {
+        Self {
+            backend,
+            version_bytes,
+            ledger: SupplyLedger::new(set_len),
+            codec,
+        }
+    }
+}
+
 /// Watch for control EOF while preserving later session items for their
 /// readers.
 ///
@@ -81,24 +112,12 @@ where
     B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
-    /// The store used to enumerate and reconstruct nodes.
-    backend: B,
+    /// Backend and validation state for incoming replies.
+    ingress: Ingress<B>,
     /// Per-edge capacity for the proxy's question and scope queues.
     window: Window,
     /// Byte budget for each outgoing supply run.
     budget: RunBudget,
-    /// The remote greeting's `max_version_bytes` declaration, enforced
-    /// against every supplied version this session decodes.
-    peer_version_bytes: u64,
-    /// The remote greeting's `set_len` declaration as a session-total
-    /// supply allowance: every leaf record this session decodes charges
-    /// it before the payload takes backend custody.
-    peer_supplies: SupplyLedger,
-    /// The peer's payload codec: the typed ingress every supplied
-    /// leaf record decodes through (see [`PayloadCodec`]).
-    ///
-    /// [`PayloadCodec`]: crate::message::PayloadCodec
-    codec: PayloadCodec,
     /// The remote greeting's root-fan listing, consumed by whichever role
     /// the election assigns.
     ///
@@ -140,35 +159,32 @@ where
     A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
-    #[allow(clippy::too_many_arguments)] // The argument list is the session's
-    // greeting-derived configuration, one premise per argument.
     pub fn new(
-        backend: B,
+        ingress: Ingress<B>,
         window: Window,
         budget: RunBudget,
-        peer_version_bytes: u64,
-        peer_set_len: u64,
         peer_listing: Vec<(u8, Hash)>,
         physical: Physical<R, W, A>,
-        codec: PayloadCodec,
     ) -> Self {
         Self {
-            backend,
+            ingress,
             window,
             budget,
-            peer_version_bytes,
-            peer_supplies: SupplyLedger::new(peer_set_len),
             peer_listing,
             physical,
             tasks: Vec::new(),
             progress: Progress::new(),
-            codec,
         }
     }
 
     /// Clone the backend for one independently-driven task.
     fn backend(&self) -> B {
-        self.backend.clone()
+        self.ingress.backend.clone()
+    }
+
+    /// Clone the state shared by incoming reply decoders.
+    fn ingress(&self) -> Ingress<B> {
+        self.ingress.clone()
     }
 
     /// Add one independently runnable protocol task.

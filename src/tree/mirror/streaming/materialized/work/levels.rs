@@ -29,7 +29,8 @@ use crate::tree::{
         Backend, ErasedNode, Leaf, Root,
         erased::{self, Reaction, Reply},
         materialized::{
-            Error, OkReceiverStream, Query, Resolution, Resolve, SupplyLedger, Violation,
+            Error, OkReceiverStream, OpeningHandoff, Query, Resolution, Resolve, SupplyLedger,
+            Violation,
             channel::{Receiver, Sender},
             fan_listing,
             unknown::{unknown, unknown_providing},
@@ -308,15 +309,15 @@ where
     /// [`Reply`](crate::tree::mirror::streaming::protocol::Reply)
     /// transition demands.
     ///
-    /// The two `early_*` channels are the opening exchange's hand-off into
-    /// the one instance that resolves root scopes; every deeper instance
-    /// receives `None`:
+    /// `opening` carries the opening exchange's hand-off into the one instance
+    /// that resolves root scopes; every deeper instance receives
+    /// [`OpeningHandoff::None`]:
     ///
-    /// - an initiator's `early_survivors` answers the responder's
+    /// - [`OpeningHandoff::Survivors`] answers the responder's
     ///   root-level empty queries with empty replies (their content shipped
     ///   at the opening) while resolving the radices from the retained
     ///   survivors;
-    /// - a responder's `early_supplies` resolves its own root-level
+    /// - [`OpeningHandoff::Supplies`] resolves the responder's root-level
     ///   requests from the pre-exploded children the opening carried when
     ///   the initiator's matching replies arrive empty.
     ///
@@ -327,8 +328,7 @@ where
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
-        early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
+        opening: OpeningHandoff<B::Erased>,
         requests: impl Requests<B, S<S<H>>>,
         queries: Receiver<Query<B::Erased>>,
     ) -> (
@@ -344,15 +344,8 @@ where
         S<S<H>>: Height,
     {
         let requests = requests.erase();
-        let (responses, asked_rx, upper_rx, lower_rx) = self.internal_walk(
-            their_version,
-            ledger,
-            early_survivors,
-            early_supplies,
-            requests,
-            queries,
-            H::HEIGHT,
-        );
+        let (responses, asked_rx, upper_rx, lower_rx) =
+            self.internal_walk(their_version, ledger, opening, requests, queries, H::HEIGHT);
         (
             self.respond::<S<H>>(responses),
             asked_rx,
@@ -371,8 +364,7 @@ where
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
-        early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
+        opening: OpeningHandoff<B::Erased>,
         requests: BoxRequests<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
         asked_height: usize,
@@ -404,10 +396,23 @@ where
 
         let responses = try_stream! {
             let mut requests = requests;
-            let mut early_survivors = early_survivors;
-            let mut survivors: Option<BTreeMap<u8, Option<B::Erased>>> = None;
-            let mut early_supplies = early_supplies;
-            let mut supplied: Option<BTreeMap<u8, Vec<(u8, B::Erased)>>> = None;
+            // The opening producer fills this hand-off before yielding the
+            // reply on which this stage's first query depends. Awaiting it now
+            // therefore adds no wait edge: either the value is ready, or the
+            // opening failed before sending and its task error ends the
+            // session. Treating a closed sender as empty only keeps this walk
+            // runnable until that error cancels it.
+            let (mut survivors, mut supplied) = match opening {
+                OpeningHandoff::None => (BTreeMap::new(), BTreeMap::new()),
+                OpeningHandoff::Survivors(receive) => (
+                    receive.await.unwrap_or_default().into_iter().collect(),
+                    BTreeMap::new(),
+                ),
+                OpeningHandoff::Supplies(receive) => (
+                    BTreeMap::new(),
+                    receive.await.unwrap_or_default().into_iter().collect(),
+                ),
+            };
             while let Some(query) = queries.recv().await {
                 let Some(Reply { reactions }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
@@ -420,40 +425,31 @@ where
                 // early supply means the whole subtree pruned away.
                 if reactions.is_empty()
                     && query.ours.is_empty()
-                    && (early_supplies.is_some() || supplied.is_some())
                     && let Some(&radix) = query.prefix.as_bytes().last()
+                    && let Some(children) = supplied.remove(&radix)
                 {
-                    if supplied.is_none()
-                        && let Some(early) = early_supplies.take()
-                    {
-                        supplied = Some(early.await.unwrap_or_default().into_iter().collect());
+                    // An early supply claimed here is content this replica
+                    // just learned, exactly like a solicited supply absorbed
+                    // by the resolver: credit its exact live-leaf count.
+                    stats.gained(
+                        children
+                            .iter()
+                            .map(|(_, child)| child.len() as u64)
+                            .sum(),
+                    );
+                    let resolution = Resolution {
+                        prefix: query.prefix,
+                        resolved: children
+                            .into_iter()
+                            .map(|(radix, child)| (radix, Resolve::Ready(Some(child))))
+                            .collect(),
+                    };
+                    #[cfg(test)]
+                    progress::parent_resolution(trace_id, &resolution);
+                    if upper.send(resolution).await.is_err() {
+                        return;
                     }
-                    if let Some(children) = supplied.as_mut().and_then(|nodes| nodes.remove(&radix))
-                    {
-                        // An early supply claimed here is content this
-                        // replica just learned, exactly like a solicited
-                        // supply absorbed by the resolver: credit its
-                        // exact live-leaf count.
-                        stats.gained(
-                            children
-                                .iter()
-                                .map(|(_, child)| child.len() as u64)
-                                .sum(),
-                        );
-                        let resolution = Resolution {
-                            prefix: query.prefix,
-                            resolved: children
-                                .into_iter()
-                                .map(|(radix, child)| (radix, Resolve::Ready(Some(child))))
-                                .collect(),
-                        };
-                        #[cfg(test)]
-                        progress::parent_resolution(trace_id, &resolution);
-                        if upper.send(resolution).await.is_err() {
-                            return;
-                        }
-                        continue;
-                    }
+                    continue;
                 }
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
@@ -474,23 +470,13 @@ where
                         // pairing intact, content relocated. The retained
                         // survivor resolves the radix locally, pruned by
                         // the same filter the opening supply used.
-                        if early_survivors.is_some() || survivors.is_some() {
-                            if survivors.is_none()
-                                && let Some(early) = early_survivors.take()
-                            {
-                                survivors =
-                                    Some(early.await.unwrap_or_default().into_iter().collect());
-                            }
-                            if let Some(survivor) =
-                                survivors.as_mut().and_then(|nodes| nodes.remove(&radix))
-                            {
-                                yield_resolve_query!(
-                                    trace_id, child_prefix;
-                                    yield Reply { reactions: Vec::new() };
-                                    resolver.ready(radix, survivor);
-                                );
-                                continue;
-                            }
+                        if let Some(survivor) = survivors.remove(&radix) {
+                            yield_resolve_query!(
+                                trace_id, child_prefix;
+                                yield Reply { reactions: Vec::new() };
+                                resolver.ready(radix, survivor);
+                            );
+                            continue;
                         }
                         let (node, children) =
                             unknown_providing(&backend, &their_version, child_prefix, node, &stats)

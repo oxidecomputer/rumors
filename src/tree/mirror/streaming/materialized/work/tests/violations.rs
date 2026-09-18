@@ -12,7 +12,7 @@ use crate::{
     tree::mirror::streaming::{
         Backend, Local,
         materialized::{
-            Error, Query, SupplyLedger, Violation, Work,
+            Error, OpeningHandoff, Query, SupplyLedger, Violation, Work,
             channel::{Receiver, with_schedule},
             work::queues::internal_child_queries,
         },
@@ -307,8 +307,7 @@ where
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,
             SupplyLedger::new(u64::MAX),
-            None,
-            None,
+            OpeningHandoff::None,
             stream::iter(requests),
             queries,
         );

@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::oneshot;
 
-use super::{Physical, Work};
+use super::{Ingress, Physical, Work};
 use crate::link::{Connector, Done, MemoryAcceptor, MemoryLink, memory};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::observe::SessionHandle;
@@ -53,11 +53,14 @@ fn parked_session() -> ParkedSession {
         route.clone(),
     );
     let work = Work::new(
-        Failing::after(Local, usize::MAX),
+        Ingress::new(
+            Failing::after(Local, usize::MAX),
+            u64::MAX,
+            u64::MAX,
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+        ),
         Window::FLOOR,
         RunBudget::default(),
-        u64::MAX,
-        u64::MAX,
         Vec::new(),
         Physical {
             control_read: link.control_read,
@@ -66,7 +69,6 @@ fn parked_session() -> ParkedSession {
             accept,
             errors,
         },
-        PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
     );
     ParkedSession {
         work,

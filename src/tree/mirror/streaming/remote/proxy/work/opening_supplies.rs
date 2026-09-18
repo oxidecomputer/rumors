@@ -10,21 +10,19 @@ use std::{cmp::Ordering, pin::Pin};
 
 use futures::{Stream, StreamExt};
 
-use crate::{
-    message::PayloadCodec,
-    tree::{
-        mirror::streaming::{
-            Backend, Leaf,
-            materialized::SupplyLedger,
-            remote::{
-                adapter::{DecodeError, early_supplies},
-                proxy::Error,
-                streams::StreamReceiver,
-            },
+use crate::tree::{
+    mirror::streaming::{
+        Backend, Leaf,
+        remote::{
+            adapter::{DecodeError, early_supplies},
+            proxy::Error,
+            streams::StreamReceiver,
         },
-        typed::{ErasedPrefix, height::Z},
     },
+    typed::{ErasedPrefix, height::Z},
 };
+
+use super::Ingress;
 
 #[cfg(test)]
 mod tests;
@@ -65,14 +63,10 @@ pub(super) struct OpeningSupplies<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// The peer's declared maximum encoded version size.
-    version_bytes: u64,
-    /// The peer's remaining declared supply allowance.
-    ledger: SupplyLedger,
+    /// Backend and validation state shared by every incoming decoder.
+    ingress: Ingress<B>,
     /// The cursor's current transport and pairing state.
     state: State<B>,
-    /// The codec used to decode supplied messages.
-    codec: PayloadCodec,
 }
 
 impl<B> OpeningSupplies<B>
@@ -80,31 +74,23 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     /// Create a cursor around an unclaimed opening-supply stream.
-    pub(super) fn new(
-        version_bytes: u64,
-        ledger: SupplyLedger,
-        receiver: StreamReceiver,
-        codec: PayloadCodec,
-    ) -> Self {
+    pub(super) fn new(ingress: Ingress<B>, receiver: StreamReceiver) -> Self {
         Self {
-            version_bytes,
-            ledger,
+            ingress,
             state: State::Armed(receiver),
-            codec,
         }
     }
 
     /// Resolve `radix` to its supplied node, if pruning retained one.
     pub(super) async fn advance_to(
         &mut self,
-        backend: &B,
         root: ErasedPrefix,
         radix: u8,
     ) -> Result<Option<B::Erased>, Error<B::Error>> {
         loop {
             match &mut self.state {
                 State::Exhausted => return Ok(None),
-                State::Armed(_) => self.begin(backend, root),
+                State::Armed(_) => self.begin(root),
                 State::Streaming {
                     supplies,
                     lookahead,
@@ -147,17 +133,17 @@ where
     }
 
     /// Claim and decode the opening-supply stream on its first request.
-    fn begin(&mut self, backend: &B, root: ErasedPrefix) {
+    fn begin(&mut self, root: ErasedPrefix) {
         let state = std::mem::replace(&mut self.state, State::Exhausted);
         self.state = match state {
             State::Armed(receiver) => State::Streaming {
                 supplies: Box::pin(early_supplies::<B, _>(
-                    backend.clone(),
-                    self.version_bytes,
-                    self.ledger.clone(),
+                    self.ingress.backend.clone(),
+                    self.ingress.version_bytes,
+                    self.ingress.ledger.clone(),
                     root,
                     receiver,
-                    self.codec,
+                    self.ingress.codec,
                 )),
                 lookahead: None,
             },
