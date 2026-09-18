@@ -6,27 +6,20 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
     link::{Acceptor, Connector, Link},
-    observe::{CaptureRead, Role, SessionHandle},
+    observe::{CaptureRead, SessionHandle},
     tree::{
         mirror::streaming::{
             Backend, Leaf,
-            message::{Greeting, initiates},
+            message::Greeting,
             protocol::{self, Accept, CompleteConnect, Connect},
             remote::{
-                codec::{RunBudget, Speaker, greeting as greeting_codec},
-                proxy::{
-                    Connected, Error,
-                    work::{ControlRead, Physical, Work},
-                },
-                streams::{AcceptDriver, claims, error_route},
+                codec::{RunBudget, greeting as greeting_codec},
+                proxy::{Connected, Error, work::ControlRead},
             },
             stats::Recorder,
-            window::{ReplicaSize, Window, WindowConfig},
+            window::{ReplicaSize, WindowConfig},
         },
-        typed::{
-            Hash,
-            height::{Root, Z},
-        },
+        typed::height::{Root, Z},
     },
 };
 
@@ -131,6 +124,50 @@ where
     type Output = (ControlRead<R>, W);
 }
 
+impl<B, R, W, C, A, V> Handshaking<B, R, W, C, A, V>
+where
+    B: Backend<Node<Z>: Leaf>,
+    C: Connector,
+    A: Acceptor,
+{
+    /// Validate the exchanged premises and retain them for driver dispatch.
+    fn connected(
+        self,
+        local: Greeting,
+        remote: Greeting,
+    ) -> Result<Connected<B, R, W, C, A>, Error<B::Error>> {
+        // Check configuration before the driver can take the equal-version
+        // shortcut, so agreement on content cannot hide incompatible peers.
+        payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
+        let window = self.window.resolve(
+            [
+                ReplicaSize::new(local.set_len, local.max_version_bytes),
+                ReplicaSize::new(remote.set_len, remote.max_version_bytes),
+            ],
+            B::node_bytes,
+        );
+        let budget = run_budget(&local, &remote);
+        let Greeting {
+            max_version_bytes: remote_version_bytes,
+            set_len: remote_set_len,
+            listing: remote_listing,
+            ..
+        } = remote;
+        Ok(Connected {
+            backend: self.backend,
+            link: self.link,
+            remote_version_bytes,
+            remote_set_len,
+            remote_listing,
+            window,
+            budget,
+            stats: self.stats,
+            codec: self.codec,
+            observe: self.observe,
+        })
+    }
+}
+
 /// The wire participant in the protocol's client position: this impl and
 /// its [`CompleteConnect`] continuation exist for the test harness's
 /// wire-path arrangement and have no production caller.
@@ -179,32 +216,8 @@ where
         // configuration every parse of this session already runs under.
         theirs.payload_depth_limit = self.codec.limit().get();
         send::<B::Error, _>(&theirs, &mut self.link.control_write, &self.observe).await?;
-        // Payload depth limits must be equal — checked after both
-        // greetings are in hand and before the equal-versions resolution,
-        // so a mixed configuration is caught even on a converged session.
-        payload_depth_limits_match::<B::Error>(&self.codec, &self.versions.remote)?;
-        let window = self.window.resolve(
-            [
-                ReplicaSize::new(theirs.set_len, theirs.max_version_bytes),
-                ReplicaSize::new(
-                    self.versions.remote.set_len,
-                    self.versions.remote.max_version_bytes,
-                ),
-            ],
-            B::node_bytes,
-        );
-        let budget = run_budget(&theirs, &self.versions.remote);
-        Ok(connected(
-            self.backend,
-            window,
-            budget,
-            theirs,
-            self.versions.remote,
-            self.link,
-            self.stats,
-            self.codec,
-            self.observe,
-        ))
+        let remote = self.versions.remote.clone();
+        self.connected(theirs, remote)
     }
 }
 
@@ -229,30 +242,8 @@ where
         let send = send::<B::Error, _>(&request, &mut self.link.control_write, &self.observe);
         let receive = receive::<B::Error, _>(&mut self.link.control_read, &self.observe);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
-        // Payload depth limits must be equal — checked after both
-        // greetings are in hand and before the equal-versions resolution,
-        // so a mixed configuration is caught even on a converged session.
-        payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
         let greeting = remote.clone();
-        let window = self.window.resolve(
-            [
-                ReplicaSize::new(request.set_len, request.max_version_bytes),
-                ReplicaSize::new(remote.set_len, remote.max_version_bytes),
-            ],
-            B::node_bytes,
-        );
-        let budget = run_budget(&request, &remote);
-        let next = connected(
-            self.backend,
-            window,
-            budget,
-            request,
-            remote,
-            self.link,
-            self.stats,
-            self.codec,
-            self.observe,
-        );
+        let next = self.connected(request, remote)?;
         Ok((greeting, next))
     }
 }
@@ -347,125 +338,6 @@ where
     } else {
         greeting_codec::read_greeting(read).await.map_err(route)
     }
-}
-
-/// Return untouched control halves on equality, otherwise open the session.
-///
-/// On equality both carried listings are dropped unused — the documented
-/// price of carrying them unconditionally.
-#[allow(clippy::too_many_arguments)] // The argument list carries the greeting
-// dataflow into the elected session, one premise per argument.
-fn connected<B, R, W, C, A>(
-    backend: B,
-    window: Window,
-    budget: RunBudget,
-    local: Greeting,
-    remote: Greeting,
-    link: Link<R, W, C, A>,
-    stats: Recorder,
-    codec: PayloadCodec,
-    observe: SessionHandle,
-) -> Connected<B, R, W, C, A>
-where
-    B: Backend<Node<Z>: Leaf>,
-    C: Connector,
-    A: Acceptor,
-{
-    if local.version == remote.version {
-        return Connected::equal(link.control_read, link.control_write);
-    }
-    // The role election of record: the smaller exchanged set initiates,
-    // canonical version bytes break ties (`message::initiates`).
-    let local = if initiates(
-        local.set_len,
-        &local.version,
-        remote.set_len,
-        &remote.version,
-    ) {
-        Speaker::Initiator
-    } else {
-        Speaker::Responder
-    };
-    // The election is decided exactly here; observers learn it before
-    // any data stream can open.
-    observe.elected(match local {
-        Speaker::Initiator => Role::Initiator,
-        Speaker::Responder => Role::Responder,
-    });
-    open(
-        backend,
-        window,
-        budget,
-        local,
-        remote.max_version_bytes,
-        remote.set_len,
-        remote.listing,
-        link,
-        stats,
-        codec,
-        observe,
-    )
-}
-
-/// Allocate one session's claim table, error route, and accept driver.
-///
-/// `peer_listing` is the remote greeting's root-fan listing: replayed as
-/// the remote's opening question when the remote wins the initiator
-/// election, and merged against the local opening's listing to gate the
-/// early-supply stream when it loses. `peer_version_bytes` is the remote
-/// greeting's `max_version_bytes`, which the session enforces on every
-/// version the remote supplies; `peer_set_len` is its declared set
-/// length, which the session charges per supplied record at ingress.
-#[allow(clippy::too_many_arguments)]
-fn open<B, R, W, C, A>(
-    backend: B,
-    window: Window,
-    budget: RunBudget,
-    local: Speaker,
-    peer_version_bytes: u64,
-    peer_set_len: u64,
-    peer_listing: Vec<(u8, Hash)>,
-    link: Link<R, W, C, A>,
-    stats: Recorder,
-    codec: PayloadCodec,
-    observe: SessionHandle,
-) -> Connected<B, R, W, C, A>
-where
-    B: Backend<Node<Z>: Leaf>,
-    C: Connector,
-    A: Acceptor,
-{
-    let Link {
-        control_read,
-        control_write,
-        connector,
-        acceptor,
-        session,
-    } = link;
-    let epoch = session.epoch();
-    let remote = local.other();
-    let (slots, claims) = claims();
-    let (route, errors) = error_route();
-    let accept = AcceptDriver::new(acceptor, epoch, remote, slots, route.clone());
-    let work = Work::new(
-        backend,
-        window,
-        budget,
-        peer_version_bytes,
-        peer_set_len,
-        peer_listing,
-        Physical {
-            control_read,
-            control_write,
-            remote,
-            accept,
-            errors,
-        },
-        codec,
-    );
-    Connected::new(
-        remote, epoch, connector, claims, route, budget, stats, observe, work,
-    )
 }
 
 #[cfg(test)]

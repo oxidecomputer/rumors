@@ -1,10 +1,11 @@
 //! Type-level protocol proxy over a link's per-stream transport session.
 //!
 //! [`Handshaking`] hides transport startup behind the same protocol boundary
-//! used by an in-process participant. Once the handshake elects wire roles,
-//! each typed state owns the one scope queue needed to interpret replies at its
-//! height. The reply pumps encode local responses and decode remote responses
-//! concurrently so transport backpressure never serializes the two directions.
+//! used by an in-process participant. Once the shared driver dispatches the
+//! elected roles, each typed state owns the one scope queue needed to interpret
+//! replies at its height. The reply pumps encode local responses and decode
+//! remote responses concurrently so transport backpressure never serializes the
+//! two directions.
 
 use crate::tree::mirror::streaming::{channel::Sender, tasks::cancelled};
 
