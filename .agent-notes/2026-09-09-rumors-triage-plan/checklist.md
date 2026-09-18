@@ -1,15 +1,15 @@
 # Rumors review checklist
 
-**Current:** tree and typed-tree representations and contracts are simplified —
-`df4817e6`.
+**Current:** local synchronization no longer copies a shared branch and child
+table to enumerate it or allocates two full buffers to assemble one leaf run —
+`57a8937b`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** remove confirmed allocation and copying costs from synchronization,
-starting with the local/materialized backend. Then address the public Bookmark
-inspection gap and measured routed-link overhead. Verification infrastructure,
-test consolidation, broad prose work, and local module hygiene follow these
-production-facing outcomes.
+**Next:** address the public Bookmark inspection gap, then measured routed-link
+overhead and substantive router simplification. Remaining allocation
+measurement, verification infrastructure, test consolidation, broad prose
+work, and local module hygiene follow these production-facing outcomes.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -142,8 +142,18 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
       affordable overhead grid — `1a83b5f8`.
       Sources: `verification-infra-6`, T17, T168, N35, N51.
 
-- [ ] Remove confirmed allocation and copying costs from local/materialized synchronization; keep only measurements that test a stated budget or residency claim.
-      Sources: `materialized-30`, `streaming-backend-window-9`, `streaming-backend-window-11`, `streaming-backend-window-37`, `streaming-tests-16`, `tests-resource-link-window-7`, `tests-resource-link-window-8`, `tests-resource-link-window-16`, `tests-resource-link-window-18`, `tests-resource-link-window-28`, `verification-infra-14`, T16, T28, T110, T113, T128, T130, T132.
+- [x] Enumerate shared branches without copying their node and fan, and build
+      each supplied leaf run without a second run-sized buffer — `57a8937b`.
+      Sources: `streaming-backend-window-9`, `streaming-backend-window-11`.
+
+- [ ] Keep only synchronization measurements that test a stated budget or
+      residency claim; remove further allocation costs only when the result is
+      substantive and demonstrated.
+      Sources: `materialized-30`, `streaming-backend-window-37`,
+      `streaming-tests-16`, `tests-resource-link-window-7`,
+      `tests-resource-link-window-8`, `tests-resource-link-window-16`,
+      `tests-resource-link-window-18`, `tests-resource-link-window-28`,
+      `verification-infra-14`, T16, T28, T110, T113, T128, T130, T132.
 
 ## 07. Peer lifecycle, observers, and snapshots
 
