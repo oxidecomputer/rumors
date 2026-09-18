@@ -180,30 +180,18 @@ tree and verify that no unfinished clause was hidden by regrouping. The final
 reconciliation reads every original finding once more against the integrated
 result.
 
-## 6. Branch and review
+## 6. Integration and review
 
-All work stays on the long-lived `codex/before-triage` branch until the whole
-effort is approved. Keep commits small and coherent, and keep only one code
-batch active. Rebase onto current `main` at outcome boundaries and whenever a
-Rumors change affects the batch. After a rebase, rerun verification appropriate
-to everything that moved; an old green run is not evidence for a changed tree.
+The parallel Rumors triage has concluded, and the reviewed Before history is
+integrated. Continue directly on `main`. Keep commits small and coherent, and
+keep only one code batch active.
 
 Before each commit, present the purpose, actual diff, verification, and any
 remaining decision. Stop editing that batch while it is under review so the
 working tree remains the exact Zed diff the owner is reading. The owner's
-“lgtm” means: commit that reviewed increment, rebase when this is an outcome
-boundary, re-evaluate priorities as section 1 requires, and begin the selected
-next increment. It does not authorize a merge.
-
-Do not merge the branch into `main` until the owner says the parallel Rumors
-work has concluded and explicitly authorizes the merge. Until then, keep this
-branch current by rebasing only at outcome boundaries, with the working tree
-clean and no increment under review.
-
-The parallel Rumors triage owns Rumors implementation and shared root files.
-This branch owns `before` and its supporting crates. Coordinate before editing
-the justfile, root manifests and lockfile, CI workflows, root policy files, or
-shared tools.
+“lgtm” means: commit and push that reviewed increment, re-read the current
+evidence, re-evaluate priorities as section 1 requires, and begin the selected
+next increment.
 
 Prepared branches from the aborted triage are never merge inputs. Inspect a
 specific diff only when it answers a current question, and rewrite any useful

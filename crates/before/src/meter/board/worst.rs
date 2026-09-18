@@ -428,9 +428,13 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "party_without_none", ["id-pair", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("default", "party_serde_deserialize", ["id-pair", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("default", "version_serde_deserialize", ["hugeleaf", "freeze-pos", "staircase"]),
+    #[cfg(feature = "borsh")]
     ("default", "party_borsh_deserialize", ["id-pair", PARTY_STREAM_FAMILIES, "-"]),
+    #[cfg(feature = "borsh")]
     ("default", "version_borsh_deserialize", ["jump-pair", VERSION_STREAM_FAMILIES, "staircase"]),
     ("acceptance", "version_decode", ["hugeleaf", "memo-oscillating", "staircase"]),
     ("acceptance", "version_encode", ["memo-oscillating", "-", "-"]),
@@ -560,9 +564,13 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "party_without_none", ["id-pair", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "party_serde_deserialize", ["id-pair", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "version_serde_deserialize", ["hugeleaf", "memo-oscillating", "staircase"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "party_borsh_deserialize", ["id-pair", PARTY_STREAM_FAMILIES, "-"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "version_borsh_deserialize", ["jump-pair", VERSION_STREAM_FAMILIES, "staircase"]),
 ];
 
