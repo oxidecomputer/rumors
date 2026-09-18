@@ -748,8 +748,10 @@ Dependencies: API lints only after their affected public surfaces are clean; bro
 Dependencies: accepted contracts and implementation are stable. Work in small,
 independently reviewable batches.
 
-- [ ] Revise the production files untouched since this triage began:
-      `src/link/erased.rs`, `src/tree/mirror/streaming/driver.rs`, and
+- [x] Clarify link type erasure and completion — `895a23ba`.
+
+- [ ] Revise the remaining production files untouched since this triage began:
+      `src/tree/mirror/streaming/driver.rs` and
       `src/tree/mirror/streaming/remote/codec/encode/async_io.rs`. Check every
       claim against callers and implementation; simplify code where that makes
       the explanation clearer.
