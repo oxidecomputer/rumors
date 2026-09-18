@@ -86,6 +86,27 @@ const MIRROR_WIDE_BASE: usize = 500;
 /// walk.
 const MIRROR_NARROW_BASE_DEPTH: usize = 1_500;
 
+/// Distinct-minimum memo sites at scale 1.0.
+///
+/// The acceptance ladder's larger sample reaches 2,000 sites.
+const MEMO_CHAIN_BASE_SITES: usize = 250;
+
+/// Nested memo levels at scale 1.0.
+///
+/// The acceptance ladder's larger sample reaches 1,000 levels.
+const MEMO_COMB_BASE_DEPTH: usize = 125;
+
+/// Memo churn and descending-raise sites at scale 1.0.
+///
+/// The acceptance ladder's larger sample reaches 1,600 sites.
+const MEMO_CHURN_BASE_SITES: usize = 200;
+
+/// Magnitude width of the memo fan-out witness at scale 1.0.
+const MEMO_FANOUT_BASE_WIDTH: usize = 2_048;
+
+/// Magnitude width of each oscillating memo difference at scale 1.0.
+const MEMO_OSCILLATING_BASE_WIDTH: usize = 512;
+
 /// Staircase depth at scale 1.0 (encoded pair ~2 KiB): deep enough that
 /// per-level minimum bookkeeping would read its exponent across the doubling,
 /// all values word-scale.
@@ -542,6 +563,67 @@ impl FamilyData {
                     Shape::NestedLeftFullId.build1(d).bytes,
                 )
             }
+            FamilyId::MemoChain => {
+                let sites = size(MEMO_CHAIN_BASE_SITES);
+                Self::cross_family(
+                    kind,
+                    Shape::MemoChain
+                        .build_flagged(sites, true)
+                        .version()
+                        .encode(),
+                    Shape::MemoChainId.build1(sites).bytes,
+                )
+            }
+            FamilyId::MemoComb => {
+                let depth = size(MEMO_COMB_BASE_DEPTH);
+                Self::cross_family(
+                    kind,
+                    Shape::MemoComb.build1(depth).version().encode(),
+                    Shape::MemoCombId.build1(depth).bytes,
+                )
+            }
+            FamilyId::MemoFanout => {
+                let sites = size(MEMO_CHAIN_BASE_SITES);
+                let width = size(MEMO_FANOUT_BASE_WIDTH);
+                let mut data = Self::cross_family(
+                    kind,
+                    Shape::MemoFanout.build2(sites, width).version().encode(),
+                    Shape::MemoChainId.build1(sites).bytes,
+                );
+                // Projection repeats the shared wide minimum at each owned
+                // site: Θ(sites × width) output from Θ(sites + width)
+                // encoded operands.
+                data.output_dominated = true;
+                data
+            }
+            FamilyId::MemoOscillating => {
+                let sites = size(MEMO_CHAIN_BASE_SITES);
+                let width = size(MEMO_OSCILLATING_BASE_WIDTH);
+                Self::cross_family(
+                    kind,
+                    Shape::MemoOscillating
+                        .build2(sites, width)
+                        .version()
+                        .encode(),
+                    Shape::MemoChainId.build1(sites).bytes,
+                )
+            }
+            FamilyId::MemoChurn => {
+                let sites = size(MEMO_CHURN_BASE_SITES);
+                Self::cross_family(
+                    kind,
+                    Shape::MemoChurn.build1(sites).version().encode(),
+                    Shape::MemoChurnId.build1(sites).bytes,
+                )
+            }
+            FamilyId::DescendingRaises => {
+                let sites = size(MEMO_CHURN_BASE_SITES);
+                Self::cross_family(
+                    kind,
+                    Shape::DescendingRaises.build1(sites).version().encode(),
+                    Shape::DescendingRaisesId.build1(sites).bytes,
+                )
+            }
             FamilyId::Staircase => {
                 let d = size(STAIRCASE_BASE_DEPTH);
                 Self::cross_family(
@@ -713,12 +795,6 @@ impl FamilyData {
             | FamilyId::CliffFan
             | FamilyId::CancellingChain
             | FamilyId::AltSpine
-            | FamilyId::MemoChain
-            | FamilyId::MemoComb
-            | FamilyId::MemoFanout
-            | FamilyId::MemoOscillating
-            | FamilyId::MemoChurn
-            | FamilyId::DescendingRaises
             | FamilyId::MaskDrift
             | FamilyId::MeetShade
             | FamilyId::ArmingTrain

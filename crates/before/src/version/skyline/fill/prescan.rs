@@ -1,41 +1,31 @@
-//! The memoized pre-scan: one non-consuming pass over a left-full site's right
-//! sibling, ahead of the walk.
+//! Computes sibling minima needed later by the fill walk.
 //!
-//! [`PreScan`] computes every interior left-full site's `min(fill(ir, er))` on
-//! its own range-minimum stack and records each as a frame-ledger link (the `memo`
-//! module carries the ledger's discipline), so the walk arrives with every
-//! raise argument resolved and no position is pre-scanned twice.
+//! When a party's left branch covers a whole range, filling may collapse that
+//! range to a leaf. Its new height depends on the filled minimum of the right
+//! sibling, which appears later in the event stream. [`PreScan`] reads that
+//! sibling without advancing the fill walk's cursor and records the answer in
+//! [`Memo`]. It also records answers for nested sites encountered during the
+//! same pass, so no range needs a separate scan.
 //!
-//! The scan is the image of the fill equations restricted to the minimum,
-//! each arm derived from the oracle's:
+//! The scan evaluates only the minimum-producing part of `fill`:
 //!
-//! - `min(fill(0, e)) = min(e)` — nothing is raised.
-//! - `min(fill(1, e)) = max(e)` — the region is one max leaf.
-//! - `min(fill(i, Leaf n)) = n` — a leaf is untouched.
-//! - `min(fill((1, ir), (n, el, er))) = min(fill(ir, er))` — the raised left
-//!   leaf's value `max(max(el), min(fill(ir, er)))` never falls below the
-//!   right's minimum.
-//! - `min(fill((il, 1), (n, el, er))) = min(fill(il, el))` — mirror.
-//! - otherwise the minimum of the two children's.
+//! - an empty party leaves an event range unchanged;
+//! - a full party turns the range into its maximum;
+//! - an event leaf keeps its value;
+//! - a partially owned branch takes the minimum of the children that remain;
+//! - when one party child is full, only the other event child can determine the
+//!   filled range's minimum.
 //!
-//! The leaf and copy equations are realized as *virtual emissions* into the
-//! web — the same open/arm/propagate/close discipline as the walk's — so
-//! per-site minima and per-range net movements are never materialized: heights
-//! stay relative here exactly as they do in the walk (the `fill` module doc),
-//! and each recorded minimum leaves as one ledger link. A left-full site's
-//! own raise emits nothing: the raised value never falls below the sibling
-//! minimum the site is here to record (its equation above), so mirroring it
-//! could not move any tracked minimum — that raise decision belongs to the
-//! walk, which derives it from its own consuming scan and the minimum
-//! recorded here.
+//! Heights remain relative while the scan runs. [`RangeMinima`] tracks the
+//! effect of virtual output without building that output or storing an
+//! absolute wide value for every site. Each completed answer is stored as a
+//! difference from a minimum the fill walk already knows. Nested answers can
+//! finish out of consumption order, so the scan parks the outer recording
+//! state on [`SuspendedLevels`] until the inner range closes.
 //!
-//! # Counter widths
-//!
-//! Site-nesting counters are `u64`; reaching their limit would require 2^64
-//! sequential increments. Queue and link indices are `usize`, so the ledger
-//! is bounded by its vector allocations rather than a smaller integer type.
-//! The fill walk's separate `depth` counter is also `usize` because it tracks
-//! allocated frames.
+//! Site nesting uses `u64`, whose limit would require 2^64 successive nesting
+//! steps. Memo slots and fill frames use `usize`, matching the allocations
+//! they index.
 
 use core::cmp::Ordering;
 
@@ -64,7 +54,7 @@ pub(super) struct PreScan<'a, 'm> {
     entry_net: Option<Accumulator>,
     /// The seeded head awaiting the arming that installs it.
     pending_relation: Option<Accumulator>,
-    /// The ledger under construction.
+    /// The completed minima being recorded for the fill walk.
     memo: &'m mut Memo,
     /// The sibling-chain keeper for the level the head serves.
     ///
@@ -72,7 +62,7 @@ pub(super) struct PreScan<'a, 'm> {
     /// link width per sibling record. It dies into the level's deferred
     /// first-child link at the forest parent's close.
     keeper: Accumulator,
-    /// The queue slot of the head's level's first site, `None` at the
+    /// The memo slot of the head's level's first site, `None` at the
     /// outermost level (which never defers).
     ///
     /// Its link (`m_first − m_parent`) is deferred to the parent's own record —
@@ -80,11 +70,12 @@ pub(super) struct PreScan<'a, 'm> {
     first_slot: Option<usize>,
     /// The site-nesting level served by the current recording head.
     head_level: u64,
-    /// Suspended outer levels, innermost last, LIFO by the site forest's
-    /// nesting.
+    /// Outer recording levels parked while an inner level is active.
     ///
-    /// Empty exactly when the current head serves the outermost level.
-    pub(super) suspend: Vec<SuspendedLevel>,
+    /// The stack separates tags from values and bit-packs its integer fields,
+    /// so narrow values do not pay for two enum tags and two machine-word
+    /// positions at every nesting level.
+    pub(super) suspend: SuspendedLevels,
 }
 
 /// One suspended outer recording level, parked while a deeper level's sites
@@ -95,10 +86,140 @@ pub(super) struct SuspendedLevel {
     head: StoredAccumulator,
     /// The outer level's sibling-chain keeper.
     keeper: StoredAccumulator,
-    /// The outer level's deferred first-site queue slot.
+    /// The outer level's deferred first-site memo slot.
     first_slot: Option<usize>,
     /// The site-nesting level served by the suspended head.
     level: u64,
+}
+
+/// A LIFO column of retained accumulator values.
+///
+/// Small and wide values have separate stacks. The tag identifies which one
+/// to pop, and LIFO order guarantees that its newest value is the matching
+/// value.
+struct AccumulatorStack {
+    /// Whether each retained value is wide.
+    wide: BitStack,
+    /// Machine-sized values in insertion order.
+    small: Vec<i64>,
+    /// Wide values in insertion order. Keeping their existing boxes lets a
+    /// suspend and restore transfer ownership without another allocation.
+    #[allow(clippy::vec_box)]
+    large: Vec<Box<Accumulator>>,
+}
+
+impl AccumulatorStack {
+    /// Construct an empty value stack.
+    fn new() -> Self {
+        AccumulatorStack {
+            wide: BitStack::new(),
+            small: Vec::new(),
+            large: Vec::new(),
+        }
+    }
+
+    /// Push one retained value.
+    fn push(&mut self, value: StoredAccumulator) {
+        match value {
+            StoredAccumulator::Small(value) => {
+                self.wide.push(false);
+                self.small.push(value);
+            }
+            StoredAccumulator::Wide(value) => {
+                self.wide.push(true);
+                self.large.push(value);
+            }
+        }
+    }
+
+    /// Pop the newest retained value, or `None` if the stack is empty.
+    fn pop(&mut self) -> Option<StoredAccumulator> {
+        let wide = self.wide.pop()?;
+        Some(if wide {
+            StoredAccumulator::Wide(self.large.pop().expect("a wide tag has a wide value"))
+        } else {
+            StoredAccumulator::Small(self.small.pop().expect("a small tag has a small value"))
+        })
+    }
+}
+
+/// Compact LIFO storage for suspended recording levels.
+pub(super) struct SuspendedLevels {
+    /// Parked recording heads.
+    heads: AccumulatorStack,
+    /// Parked sibling-chain keepers.
+    keepers: AccumulatorStack,
+    /// Whether each parked level has a deferred first-site slot.
+    has_first_slot: BitStack,
+    /// Differences between deferred first-site slots.
+    first_slot_deltas: PopStack,
+    /// Most recently parked first-site slot.
+    first_slots: DeltaReg,
+    /// Differences between parked site-nesting levels.
+    level_deltas: PopStack,
+    /// Most recently parked site-nesting level.
+    levels: DeltaReg,
+}
+
+impl SuspendedLevels {
+    /// Construct an empty stack.
+    fn new() -> Self {
+        SuspendedLevels {
+            heads: AccumulatorStack::new(),
+            keepers: AccumulatorStack::new(),
+            has_first_slot: BitStack::new(),
+            first_slot_deltas: PopStack::new(),
+            first_slots: DeltaReg::new(),
+            level_deltas: PopStack::new(),
+            levels: DeltaReg::new(),
+        }
+    }
+
+    /// Whether no outer recording level is parked.
+    pub(super) fn is_empty(&self) -> bool {
+        self.heads.wide.len() == 0
+    }
+
+    /// Park one outer recording level.
+    fn push(&mut self, level: SuspendedLevel) {
+        self.heads.push(level.head);
+        self.keepers.push(level.keeper);
+        self.has_first_slot.push(level.first_slot.is_some());
+        if let Some(slot) = level.first_slot {
+            self.first_slots.push(
+                &mut self.first_slot_deltas,
+                u64::try_from(slot).expect("memo slots fit u64"),
+            );
+        }
+        self.levels.push(&mut self.level_deltas, level.level);
+    }
+
+    /// Restore the innermost parked recording level.
+    fn pop(&mut self) -> Option<SuspendedLevel> {
+        let head = self.heads.pop()?;
+        let keeper = self
+            .keepers
+            .pop()
+            .expect("a suspended level carries a head and keeper");
+        let first_slot = if self
+            .has_first_slot
+            .pop()
+            .expect("a suspended level carries a slot tag")
+        {
+            Some(
+                usize::try_from(self.first_slots.pop(&mut self.first_slot_deltas))
+                    .expect("a stored memo slot came from usize"),
+            )
+        } else {
+            None
+        };
+        Some(SuspendedLevel {
+            head,
+            keeper,
+            first_slot,
+            level: self.levels.pop(&mut self.level_deltas),
+        })
+    }
 }
 
 impl<'a, 'm> PreScan<'a, 'm> {
@@ -114,7 +235,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             keeper: Accumulator::new(),
             first_slot: None,
             head_level: 0,
-            suspend: Vec::new(),
+            suspend: SuspendedLevels::new(),
         }
     }
 
@@ -216,7 +337,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 };
                 self.minima.close();
                 match top {
-                    // A site's sibling range finished: record its ledger link.
+                    // A site's sibling range finished: record its minimum.
                     // The site's own raise leaves no mark in the minima: the
                     // raised value is `max(max(el), m_s)` where `m_s` is
                     // exactly the sibling minimum this range just tracked, so
@@ -224,7 +345,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     // mirrored emission could not move any web state. The
                     // raise decision itself is the walk's alone — made at the
                     // site's own vantage from its consuming scan and the
-                    // ledger link recorded here, the only height where
+                    // relative minimum recorded here, the only height where
                     // comparing the collapse maximum against `m_s` is
                     // denominated correctly (the sibling range has moved `h`
                     // by its net between the site and this close).
@@ -269,11 +390,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
         }
     }
 
-    /// Reserve the next consumption-order queue slot for the site whose range
+    /// Reserve the next consumption-order memo slot for the site whose range
     /// starts at `pos`.
     pub(super) fn reserve(&mut self, pos: u64) -> usize {
-        let slot = self.memo.queue.len();
-        self.memo.queue.push(None);
+        let slot = self.memo.reserve();
         #[cfg(debug_assertions)]
         {
             self.memo.recorded_check = super::memo::position_check(self.memo.recorded_check, pos);
@@ -283,25 +403,24 @@ impl<'a, 'm> PreScan<'a, 'm> {
         slot
     }
 
-    /// Record the just-closed site's ledger link and re-anchor the head to this
-    /// site's minimum.
+    /// Record the just-closed site's relative minimum and make that minimum the
+    /// reference for its next sibling.
     ///
     /// Runs at the moment the site's range has closed: the innermost armed
     /// minimum is exactly this site's `m_s` (its node frame holds only the
     /// range's own emissions — a left-full site's raise is not mirrored at
     /// all, and a raise emission never falls below its own site's minimum),
-    /// so the head reads `m_s − m_ref` verbatim. A sibling record
-    /// moves the head into the queue as its link; a level's first record
-    /// defers its link to the forest parent's own record — the parent's
-    /// minimum is not final yet — and suspends the outer head, whose value is
-    /// immutable from here on (both its endpoints are final minima).
+    /// so the head reads `m_s − m_ref` verbatim. A sibling stores that
+    /// difference immediately. The first site at a nested level cannot do so
+    /// until its parent's minimum is final; it therefore parks the outer
+    /// recording state and defers the difference to the parent's record.
     pub(super) fn record(&mut self, slot: usize, level: u64) {
-        // Ledger links store differences between true minima. Resolve the
-        // anchor before copying any follower into the ledger.
+        // Memo entries store differences between true minima. Resolve the
+        // temporary reference before retaining such a difference.
         self.minima.resolve_deferred();
         debug_assert!(
             !self.minima.deferred_live(),
-            "ledger links and suspends never snapshot an anchor-relative quantity"
+            "memo entries and suspended levels retain only differences between final minima"
         );
         // A deeper level is complete iff the head still serves it: its forest
         // parent is THIS site, whose minimum is final now.
@@ -567,11 +686,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
     }
 }
 
-/// What the pre-scan still owes a suspended node (the fill walk's frame kinds,
-/// minus costs — the pre-scan folds no route).
+/// Work to resume after the current child or sibling range closes.
 enum PreFrame {
-    /// A left-full site: its sibling walk is in flight; the ledger
-    /// record runs at its close.
+    /// A left-full site whose sibling minimum is being computed.
     Site,
     /// An ordinary node whose left child's range is in flight.
     AwaitLeft,
@@ -579,9 +696,11 @@ enum PreFrame {
     AwaitRight,
 }
 
-/// The pre-scan's suspended ancestors, held as bits: the fill walk's stack
-/// shape with the site payload (its ledger slot) as a pop-able word delta in
-/// place of route keys and costs.
+/// Suspended ancestors of the range currently being scanned.
+///
+/// Three bit stacks hold the frame kind, phase, and right-child presence. Site
+/// frames also carry a memo slot. Those slots increase in stream order, so
+/// [`DeltaReg`] stores their differences compactly.
 struct PreFrames {
     /// Per frame: a left-full site (true) or an ordinary node (false).
     site: BitStack,
@@ -591,10 +710,10 @@ struct PreFrames {
     /// Ordinary frames: whether the right child is present. Site frames: false,
     /// unread.
     aux: BitStack,
-    /// Per site frame: the ledger slot delta against a monotone register,
+    /// Per site frame: the memo-slot delta against a monotone register,
     /// LIFO with the frames it serves.
     values: PopStack,
-    /// The top site frame's ledger slot (reserves run in stream order, so the
+    /// The top site frame's memo slot (reservations run in stream order, so the
     /// register only advances).
     slots: DeltaReg,
 }
@@ -663,12 +782,12 @@ impl PreFrames {
         self.aux.pop();
     }
 
-    /// Close a site frame: its ledger slot.
+    /// Close a site frame and return its memo slot.
     fn pop_site(&mut self) -> usize {
         self.site.pop();
         self.phase.pop();
         self.aux.pop();
-        // The value came from a queue index and therefore fits `usize`.
+        // The value came from a memo index and therefore fits `usize`.
         self.slots.pop(&mut self.values) as usize
     }
 }

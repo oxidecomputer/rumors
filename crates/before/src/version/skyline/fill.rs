@@ -326,7 +326,7 @@ pub(super) fn fused_fill(event_bits: BitsView<'_>, id: &crate::Party) -> FillOut
         "fill consumes its whole input"
     );
     debug_assert!(
-        walk.memo.cursor == walk.memo.queue.len(),
+        walk.memo.cursor == walk.memo.len(),
         "the walk consumes every memoized minimum"
     );
     #[cfg(debug_assertions)]
@@ -683,7 +683,7 @@ impl FillWalk<'_> {
     /// of its ledger link into the live relation, decide the raise, and emit.
     fn consume_site(&mut self, above: &BigInt, depth: u64) {
         debug_assert!(
-            self.memo.cursor < self.memo.queue.len(),
+            self.memo.cursor < self.memo.len(),
             "a covered site has a recorded entry"
         );
         #[cfg(debug_assertions)]

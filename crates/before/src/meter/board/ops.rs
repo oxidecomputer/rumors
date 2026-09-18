@@ -662,7 +662,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // The explicit materialization `(&v / &p).to_version()`:
                 // the one projection spelling that pays the product-growth
                 // output. Adversarial × adversarial with mandatory
-                // dominating output: the declared output-domination cross,
+                // dominating output: a declared output-domination cross,
                 // I/O-denominated.
                 if f.output_dominated {
                     let (v_bytes, p_bytes) = f.cross.as_ref()?;

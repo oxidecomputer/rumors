@@ -27,12 +27,12 @@
 //!   on measured flat per-tooth work, and a genuinely quadratic-in-teeth
 //!   probe still reads red against the content denominator.
 //! - **Output-dominated projection** (`own_version_to_version` and
-//!   `clock_own_version_to_version` on the comb × scattered-party cross and the
-//!   plateau-comb crosses — reveal-comb, reveal-hifloor, pure-comb):
+//!   `clock_own_version_to_version` on comb-scatter, memo-fanout, reveal-comb,
+//!   reveal-hifloor, and pure-comb):
 //!   `n_io` is encoded input + encoded output. These crosses exist because
-//!   the id keeps a wide magnitude per owned site — the scattered party a
+//!   the party keeps a wide magnitude per owned site — the scattered party a
 //!   wide magnitude per kept tooth (`Θ(e·k)` mandatory output bits), the
-//!   plateau ids a re-materialized `2^b`-scale code per kept site
+//!   remaining parties a re-materialized `2^b`-scale code per kept site
 //!   (`Θ(k·b)` output on a `Θ(k + b)` input) — and the output cannot
 //!   be padded, so `n_io` is the honest denominator on all columns at the
 //!   unchanged ceilings, with the projection sweep measured

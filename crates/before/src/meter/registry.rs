@@ -504,8 +504,9 @@ impl Shape {
 /// One adversarial input family: the roster every instrument's family
 /// axis derives from.
 ///
-/// Whole-surface adversaries form board columns. Narrower kernel probes belong
-/// only to the envelope suite, as recorded by [`Coverage::EnvelopeOnly`].
+/// A family forms a board column whenever its operands can exercise public
+/// operations. A narrower internal probe remains envelope-only when it cannot
+/// supply such operands, as recorded by [`Coverage::EnvelopeOnly`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FamilyId {
     /// The dense event spine `S(d)`: node count and depth maximizer.
@@ -797,25 +798,23 @@ pub enum FamilyId {
     /// The alternating-binary spine `A(d)`: the frame-count adversary for
     /// iterative walks that keep per-level records.
     AltSpine,
-    /// The memo-chain pair `Q(k, distinct)` × its id: `k` consumption-sibling
-    /// memo records in one fresh scan, with the shared twin (all differences
-    /// zero) as the unstored control.
+    /// The memo-chain pair `Q(k, distinct)` × its party: `k` sibling sites
+    /// whose precomputed minima are either distinct or all equal.
     MemoChain,
-    /// The memo-comb pair `B(d)` × its id: consecutively consumed sites Θ(d)
-    /// apart in recording order, the resolution-order adversary.
+    /// The memo-comb pair `B(d)` × its party: nested sites that finish their
+    /// minima in a different order from the fill walk's consumption order.
     MemoComb,
-    /// The memo fan-out `F(k, b)`: one wide minimum shared by `k` sites, paid
-    /// by the input exactly once — the funding argument's red side.
+    /// The memo fan-out `F(k, b)`: `k` sites share one `b`-bit minimum that the
+    /// input stores once, exposing any implementation that copies it per site.
     MemoFanout,
-    /// The oscillating siblings `O(k, b)`: every ledger link wide but funded
-    /// one-for-one by the input — the funding argument's control.
+    /// The oscillating siblings `O(k, b)`: every precomputed difference is
+    /// `b` bits wide and each one is represented in the input.
     MemoOscillating,
-    /// The memo-churn pair `U(d)` × its id: a descending run undercutting `d`
-    /// live records, the live-anchored followers' tombstone.
+    /// The memo-churn pair `U(d)` × its party: a descending run repeatedly
+    /// lowers the minimum while `d` outer sites await their results.
     MemoChurn,
-    /// The descending raises `W(d)` × its id: a floor realized high with every
-    /// site's raise landing below it — the decide-then-emit ordering's one
-    /// exerciser.
+    /// The descending raises `W(d)` × its party: each site's requested raise
+    /// falls below the minimum established by its sibling range.
     DescendingRaises,
     /// The masked-comparison correlated tuples `MT(k, n)` / `MQ(k, n)`: operand
     /// pairings built for the fused three- and four-stream comparison walks
@@ -1012,8 +1011,9 @@ const REGISTRY_RATIFIED: &str = "2026-07-29";
 /// The fold populations' shared denominator note.
 const FOLD_DENOM: &str = "encoded operand bytes, judged under the declared O(D log k) fold model";
 
-/// The tick crosses' shared no-band reason.
-const TICK_CROSS_UNBANDED: &str = "tick cross: the tick gate pins in tests/meter.rs price its walk";
+/// The adversarial crosses' shared no-band reason.
+const CROSS_UNBANDED: &str =
+    "the board applies this adversarial cross to every compatible public operation";
 
 impl FamilyId {
     /// Every registered family, in the roster order of record: the
@@ -1307,7 +1307,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: TICK_CROSS_UNBANDED,
+                    reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: ENCODED,
@@ -1320,7 +1320,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: TICK_CROSS_UNBANDED,
+                    reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: ENCODED,
@@ -1333,7 +1333,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: TICK_CROSS_UNBANDED,
+                    reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: ENCODED,
@@ -1346,7 +1346,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: TICK_CROSS_UNBANDED,
+                    reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: ENCODED,
@@ -1359,7 +1359,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: TICK_CROSS_UNBANDED,
+                    reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: ENCODED,
@@ -1672,95 +1672,79 @@ impl FamilyId {
             FamilyId::MemoChain => FamilySpec {
                 name: "memo-chain",
                 shapes: &[Shape::MemoChain, Shape::MemoChainId],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "the memo_* shapes are kernel-seam probes by the board-roster \
-                             criterion",
-                    decided: REGISTRY_RATIFIED,
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
                 },
-                bands: Bands::Priced(&["memo_chain_shared_control_is_flat_per_unit"]),
-                denominator: "encoded cross bytes (the touch currency)",
+                bands: Bands::Unbanded {
+                    reason: CROSS_UNBANDED,
+                    decided: "2026-09-17",
+                },
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MemoComb => FamilySpec {
                 name: "memo-comb",
                 shapes: &[Shape::MemoComb, Shape::MemoCombId],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "the memo_* shapes are kernel-seam probes by the board-roster \
-                             criterion",
-                    decided: REGISTRY_RATIFIED,
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: "priced by the memo-resolution gate pins in tests/meter.rs, \
-                             absolute pins outside the band convention",
-                    decided: REGISTRY_RATIFIED,
+                    reason: CROSS_UNBANDED,
+                    decided: "2026-09-17",
                 },
-                denominator: "encoded cross bytes (the touch currency)",
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MemoFanout => FamilySpec {
                 name: "memo-fanout",
                 shapes: &[Shape::MemoFanout],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "the memo_* shapes are kernel-seam probes by the board-roster \
-                             criterion",
-                    decided: REGISTRY_RATIFIED,
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: "priced by the memo-resolution gate pins in tests/meter.rs \
-                             (the absolute touch ceiling is what an unfunded fan-out \
-                             blows), outside the band convention",
-                    decided: REGISTRY_RATIFIED,
+                    reason: CROSS_UNBANDED,
+                    decided: "2026-09-17",
                 },
-                denominator: "encoded cross bytes (the touch currency)",
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MemoOscillating => FamilySpec {
                 name: "memo-oscillating",
                 shapes: &[Shape::MemoOscillating],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "the memo_* shapes are kernel-seam probes by the board-roster \
-                             criterion",
-                    decided: REGISTRY_RATIFIED,
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: "the funding argument's control, priced beside the fan-out by \
-                             the memo-resolution gate pins in tests/meter.rs",
-                    decided: REGISTRY_RATIFIED,
+                    reason: CROSS_UNBANDED,
+                    decided: "2026-09-17",
                 },
-                denominator: "encoded cross bytes (the touch currency)",
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MemoChurn => FamilySpec {
                 name: "memo-churn",
                 shapes: &[Shape::MemoChurn, Shape::MemoChurnId],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "the memo_* shapes are kernel-seam probes by the board-roster \
-                             criterion",
-                    decided: REGISTRY_RATIFIED,
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: "priced by the memo-resolution gate pins in tests/meter.rs, \
-                             absolute pins outside the band convention",
-                    decided: REGISTRY_RATIFIED,
+                    reason: CROSS_UNBANDED,
+                    decided: "2026-09-17",
                 },
-                denominator: "encoded cross bytes (the touch currency)",
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::DescendingRaises => FamilySpec {
                 name: "descending-raises",
                 shapes: &[Shape::DescendingRaises, Shape::DescendingRaisesId],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe: the decide-then-emit ordering's one \
-                             exerciser, priced by the memo-resolution gate pins and the \
-                             oracle differential",
-                    decided: REGISTRY_RATIFIED,
+                coverage: Coverage::Board {
+                    cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: "priced by the memo-resolution gate pins in tests/meter.rs, \
-                             absolute pins outside the band convention",
-                    decided: REGISTRY_RATIFIED,
+                    reason: CROSS_UNBANDED,
+                    decided: "2026-09-17",
                 },
-                denominator: "encoded cross bytes (the touch currency)",
+                denominator: ENCODED,
                 closed_form: None,
             },
             FamilyId::MaskDrift => FamilySpec {

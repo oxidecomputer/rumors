@@ -190,10 +190,12 @@ into otherwise small feature increments.
       stack-segment findings across `board-*`, `recursion-1`, and
       `envelopes-a-2`.
 
-- [ ] Decide whether the resource envelopes and amplification board should be
-      one instrument, complementary smaller instruments, or retired in part.
-      Keep only families, floors, ceilings, and fits that establish stated
-      contracts.
+- [ ] Consolidate resource amplification into the board. Model each family as
+      valid operands, derive every bundle those operands support, and apply it
+      to every compatible public operation rather than only the operation that
+      motivated the family. Retain a separate instrument only for a distinct
+      claim the board cannot express, and remove the duplicated harness, pins,
+      and prose otherwise.
       Sources: `envelopes-a-*`, `envelopes-b-*`, `board-frame-*`,
       `board-families-floors-judge-*`, `board-ops-render-*`,
       `meter-adequacy-*`.
