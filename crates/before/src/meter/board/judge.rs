@@ -3,9 +3,9 @@
 //! floors, per currency.
 
 use super::ceilings::{
-    fold_exponent_ceiling, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES,
-    MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
-    MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
+    HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,
+    MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE,
+    MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::currency::{ByCurrency, Currency, Liveness};
 use super::measure::Sample;
@@ -100,7 +100,15 @@ struct Fit {
 fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
     let points: Option<Vec<(usize, u64)>> = samples
         .iter()
-        .map(|s| s.readings.get(c).map(|m| (s.exp_denom_bytes, m)))
+        .map(|s| {
+            s.readings.get(c).map(|m| {
+                let units = s
+                    .models
+                    .get(c)
+                    .map_or(s.exp_denom_bytes, |model| model.trend_units);
+                (units, m)
+            })
+        })
         .collect();
     let Some(points) = points else {
         return Fit {
@@ -137,8 +145,55 @@ fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
     }
 }
 
+/// Verify that one cell uses one coherent model across its measurement ladder.
+///
+/// Units may grow with the operands. Applicability and proportional ceilings
+/// may not: changing either between samples would splice two different claims
+/// into one trend.
+fn validate_models(samples: &[&Sample]) {
+    for (currency, first) in samples[0].models.each() {
+        if let Some(first) = first {
+            assert!(
+                first.trend_units > 0 && first.constant_units > 0,
+                "resource-model units are positive"
+            );
+            assert!(
+                first
+                    .ceiling
+                    .is_none_or(|ceiling| ceiling.is_finite() && ceiling > 0.0),
+                "a resource-model ceiling is positive"
+            );
+        }
+        for sample in &samples[1..] {
+            let next = sample.models.get(currency);
+            assert_eq!(
+                first.is_some(),
+                next.is_some(),
+                "a resource model must apply at every sample size"
+            );
+            if let (Some(first), Some(next)) = (first, next) {
+                assert!(
+                    next.trend_units > 0 && next.constant_units > 0,
+                    "resource-model units are positive"
+                );
+                assert!(
+                    next.ceiling
+                        .is_none_or(|ceiling| ceiling.is_finite() && ceiling > 0.0),
+                    "a resource-model ceiling is positive"
+                );
+                assert_eq!(
+                    first.ceiling.map(f64::to_bits),
+                    next.ceiling.map(f64::to_bits),
+                    "a resource model's ceiling is independent of sample size"
+                );
+            }
+        }
+    }
+}
+
 /// Every currency's fitted trend over a run's measured samples.
 fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
+    validate_models(samples);
     ByCurrency {
         heap: fit_currency(Currency::Heap, samples),
         segments: fit_currency(Currency::Segments, samples),
@@ -147,48 +202,31 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
     }
 }
 
-/// The per-currency exponent ceilings over the fitted span.
-///
-/// Fold rows use their declared marginal-work bound for scan and touch;
-/// every other row and currency uses the global bound.
-fn exp_ceilings(first: &Sample, last: &Sample) -> ByCurrency<f64> {
-    let spans =
-        last.exp_denom_bytes as f64 >= first.exp_denom_bytes as f64 * MIN_EXPONENT_DENOM_GROWTH;
-    let fold = match (first.fold_arity, last.fold_arity) {
-        (Some(k1), Some(k2)) if spans => Some(fold_exponent_ceiling(
-            k1,
-            k2,
-            first.exp_denom_bytes,
-            last.exp_denom_bytes,
-        )),
-        _ => None,
-    };
-    ByCurrency {
-        heap: MAX_SCALING_EXPONENT,
-        segments: MAX_SCALING_EXPONENT,
-        scan: fold.unwrap_or(MAX_SCALING_EXPONENT),
-        touch: fold.unwrap_or(MAX_SCALING_EXPONENT),
-    }
-}
-
 /// One judged column's derived scores: the fitted exponent trend and the
 /// window's larger size's per-unit constant (`None` where the counter is
 /// off).
 #[derive(Clone, Copy)]
 pub(super) struct Score {
+    /// The fitted growth exponent, or `None` when the meter is absent.
     pub(super) exp: Option<f64>,
     /// Whether the exponent leg is judged ([`fit_currency`]'s guards).
     pub(super) exp_judged: bool,
+    /// The larger sample's reading per constant unit.
     pub(super) per_unit: Option<f64>,
 }
 
 /// One evaluated cell: both samples of its window, per-currency scores, and
 /// the verdict.
 pub(super) struct CellResult {
+    /// The operation row.
     pub(super) op: &'static str,
+    /// The input-family column.
     pub(super) family: &'static str,
+    /// The smaller measured sample.
     pub(super) s1: Sample,
+    /// The larger measured sample.
     pub(super) s2: Sample,
+    /// Each meter's derived judgment values.
     pub(super) scores: ByCurrency<Score>,
     /// The meters over their bounds; empty means green.
     pub(super) red: Vec<&'static str>,
@@ -202,19 +240,17 @@ pub(super) struct CellResult {
 /// point the run measured, which for a single-scale run is exactly this
 /// window and for the acceptance judgment spans the whole ladder.
 ///
-/// Every exponent and proportional constant is judged against the denominator
-/// bytes. Segments use an absolute count because the target is walks that never
-/// grow the stack. The
-/// loops run over the currency axis itself ([`ByCurrency::each`]), so a
-/// currency added to the axis is judged on every cell or the destructuring
-/// fails to compile.
+/// By default, exponents and constants use the cell's byte denominators;
+/// segments use an absolute count. A resource model replaces either unit axis
+/// for one currency. The loops run over the currency axis itself
+/// ([`ByCurrency::each`]), so adding a currency fails to compile until every
+/// cell judges it.
 fn judge_window(
     op: &'static str,
     family: &'static str,
     s1: Sample,
     s2: Sample,
     fits: ByCurrency<Fit>,
-    ceilings: ByCurrency<f64>,
 ) -> CellResult {
     let score = |c: Currency| -> Score {
         let fit = *fits.get(c);
@@ -225,13 +261,21 @@ fn judge_window(
                 per_unit: None,
             };
         };
-        let per_unit = match c {
-            Currency::Heap => {
-                m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64
-            }
-            Currency::Segments => m2 as f64,
-            Currency::Scan | Currency::Touch => m2 as f64 / s2.denom_bytes as f64,
+        let ordinary_units = if c == Currency::Segments {
+            1
+        } else {
+            s2.denom_bytes
         };
+        let units = s2
+            .models
+            .get(c)
+            .map_or(ordinary_units, |model| model.constant_units);
+        let numerator = if c == Currency::Heap {
+            m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64)
+        } else {
+            m2
+        };
+        let per_unit = numerator as f64 / units as f64;
         Score {
             exp: fit.exp,
             exp_judged: fit.judged,
@@ -247,7 +291,7 @@ fn judge_window(
 
     let mut red = Vec::new();
     for (c, s) in scores.each() {
-        let (mut ceiling, exp_label, const_label) = match c {
+        let (global_ceiling, exp_label, const_label) = match c {
             Currency::Heap => (
                 MAX_HEAP_BYTES_PER_INPUT_BYTE,
                 "heap exponent",
@@ -269,20 +313,12 @@ fn judge_window(
                 "touch constant",
             ),
         };
-        // A family-stated flat heap ceiling replaces the global heap constant
-        // on the cells that declare one; the exponent leg is untouched.
-        if c == Currency::Heap {
-            if let Some(declared) = s2.declared_heap {
-                ceiling = declared;
-            }
-        }
-        // The fold rows' declared scan-constant model at this window's arity.
-        if c == Currency::Scan {
-            if let Some(k2) = s2.fold_arity {
-                ceiling = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2();
-            }
-        }
-        if s.exp_judged && s.exp.is_some_and(|e| e > *ceilings.get(c)) {
+        let ceiling = s2
+            .models
+            .get(c)
+            .and_then(|model| model.ceiling)
+            .unwrap_or(global_ceiling);
+        if s.exp_judged && s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
             red.push(exp_label);
         }
         if s.per_unit.is_some_and(|v| v > ceiling) {
@@ -328,8 +364,7 @@ pub(super) fn evaluate(
     s2: Sample,
 ) -> CellResult {
     let fits = fit_exponents(&[&s1, &s2]);
-    let ceilings = exp_ceilings(&s1, &s2);
-    judge_window(op, family, s1, s2, fits, ceilings)
+    judge_window(op, family, s1, s2, fits)
 }
 
 /// Score one cell across its whole measurement ladder.
@@ -350,9 +385,8 @@ pub(super) fn evaluate_acceptance(
     let (l1, l2) = lo;
     let (h1, h2) = hi;
     let fits = fit_exponents(&[&l1, &l2, &h1, &h2]);
-    let ceilings = exp_ceilings(&l1, &h2);
     (
-        judge_window(op, family, l1, l2, fits, ceilings),
-        judge_window(op, family, h1, h2, fits, ceilings),
+        judge_window(op, family, l1, l2, fits),
+        judge_window(op, family, h1, h2, fits),
     )
 }

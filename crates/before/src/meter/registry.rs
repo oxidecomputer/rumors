@@ -997,10 +997,10 @@ const PARTY_BUNDLE_CELLS: usize = 34;
 const CROSS_BUNDLE_CELLS: usize = 74;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 78;
+const FULL_BUNDLE_CELLS: usize = 81;
 
 /// Board rows reached by a fold-only family.
-const FOLD_BUNDLE_CELLS: usize = 4;
+const FOLD_BUNDLE_CELLS: usize = 7;
 
 /// The default denominator: encoded input bytes.
 const ENCODED: &str = "encoded input bytes";

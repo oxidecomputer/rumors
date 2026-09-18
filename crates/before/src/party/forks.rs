@@ -282,6 +282,50 @@ impl Split {
     }
 }
 
+/// A consuming balanced partition built from ordinary binary splits.
+///
+/// Each pending entry owns a complete region and the number of final shares it
+/// must produce. Splitting that entry once and assigning `ceil(n/2)` shares to
+/// its left half and `floor(n/2)` to its right is the recursive definition of
+/// the balanced partition. The stack visits left before right, so the result
+/// order matches [`Split`]. Unlike `Split`, it never rescans the original party
+/// from its root for another output: every intermediate party is consumed by
+/// at most one binary split.
+struct Shares {
+    /// Regions still to divide, with the next region last.
+    pending: Vec<(Party, usize)>,
+}
+
+/// Produces all shares of an owned party without maintaining a residual.
+impl Iterator for Shares {
+    type Item = Party;
+
+    fn next(&mut self) -> Option<Party> {
+        while let Some((mut party, count)) = self.pending.pop() {
+            if count == 1 {
+                return Some(party);
+            }
+
+            let right = party.fork();
+            // Push right first so the LIFO walk completes the left partition
+            // before it enters the right partition.
+            self.pending.push((right, count / 2));
+            self.pending.push((party, count.div_ceil(2)));
+        }
+        None
+    }
+}
+
+impl Party {
+    /// Consume this party into `count` balanced shares.
+    pub(crate) fn into_shares(self, count: usize) -> impl Iterator<Item = Party> {
+        assert!(count > 0, "a party yields at least one share");
+        Shares {
+            pending: vec![(self, count)],
+        }
+    }
+}
+
 /// Produces the plan's balanced shares in preorder.
 impl Iterator for Split {
     type Item = Party;
@@ -429,16 +473,16 @@ impl<const N: usize> From<Party> for [Party; N] {
         // doctests above pin it: the `compile_fail` twin must be rejected while
         // its identical-but-for-arity sibling compiles.
         const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
-        let mut split = Split::new(party.0, N.into());
-        // `from_fn` calls indices `0..N` in order, and `Split` yields in
-        // preorder, so share `i` lands at index `i` — the same order `forks`
-        // hands them out.
+        let mut partition = party.into_shares(N);
+        // `from_fn` calls indices `0..N` in order, and the consuming traversal
+        // yields in preorder, so share `i` lands at index `i` — the same order
+        // `forks` hands them out.
         let shares = core::array::from_fn(|_| {
-            split
+            partition
                 .next()
                 .expect("a split into N shares yields exactly N leaves")
         });
-        debug_assert!(split.is_empty(), "the split yielded N shares");
+        assert!(partition.next().is_none(), "the split yielded N shares");
         shares
     }
 }

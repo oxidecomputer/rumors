@@ -3,8 +3,8 @@
 
 use crate::meter;
 
-use super::cell::{Cell, Denom};
-use super::currency::{ByCurrency, Floors};
+use super::cell::{Cell, Denom, ModelSpec, Units};
+use super::currency::{ByCurrency, Currency, Floors};
 
 /// The peak-heap meter the board reads, supplied by the binary that runs it.
 ///
@@ -22,29 +22,36 @@ pub struct HeapMeter {
     pub current: fn() -> usize,
 }
 
+/// A resource model resolved to this sample's concrete units.
+#[derive(Clone, Copy)]
+pub(super) struct Model {
+    /// Units against which the growth trend is fitted.
+    pub(super) trend_units: usize,
+    /// Units against which the proportional constant is checked.
+    pub(super) constant_units: usize,
+    /// Optional replacement for the currency's global proportional ceiling.
+    pub(super) ceiling: Option<f64>,
+}
+
 /// One measured run of a cell body: every meter and its denominators.
 pub(super) struct Sample {
-    /// The denominator of the heap and segment constants (and, on most cells,
-    /// of every exponent): encoded input bytes, or `n_io` for the
-    /// I/O-denominated cells.
+    /// The default proportional units: encoded input bytes, or `n_io` for an
+    /// I/O-denominated cell. Segments use one absolute unit instead.
     pub(super) denom_bytes: usize,
-    /// The exponent legs' denominator.
+    /// The default growth units.
     ///
     /// `denom_bytes` everywhere except the flat-denominator shape's
     /// input-denominated cells, where it is the bundle's value content: the
     /// encoded denominator is intercept-dominated there, and a two-point
     /// power-law fit against an intercept-dominated denominator manufactures
-    /// exponents out of exactly linear marginal work.
+    /// exponents out of exactly linear marginal work. A resource model may
+    /// replace this axis for one currency.
     pub(super) exp_denom_bytes: usize,
     /// The cell's liveness declarations; each sample carries its own since
     /// floors scale with the sample's operands.
     pub(super) floors: Floors,
-    /// The fold rows' operand count at this sample's scale, for the
-    /// declared fold scan model.
-    pub(super) fold_arity: Option<u64>,
-    /// The family-stated flat heap ceiling, on the cells that declare one (the
-    /// `ceilings` module's declared-models section).
-    pub(super) declared_heap: Option<f64>,
+    /// Resource models that differ from the global linear defaults.
+    pub(super) models: ByCurrency<Option<Model>>,
     /// Every currency's counter reading over the body; `None` where the counter
     /// is not compiled in (the feature-gated scan and touch columns
     /// render `off` and are exempt from judgment).
@@ -87,12 +94,47 @@ pub(super) fn measure(
         }
     };
     drop(result);
+    let resolve = |currency: Currency, spec: Option<ModelSpec>| -> Option<Model> {
+        let spec = spec?;
+        let ordinary_constant = if currency == Currency::Segments {
+            1
+        } else {
+            denom_bytes
+        };
+        let units = |units: Units, ordinary: usize| -> usize {
+            let resolved = match units {
+                Units::Default => ordinary,
+                Units::Scale(factor) => ((ordinary as f64) * factor).ceil() as usize,
+                Units::Explicit(units) => units,
+            };
+            assert!(resolved > 0, "resource-model units are positive");
+            resolved
+        };
+        let trend_units = units(spec.trend, exp_denom_bytes);
+        let constant_units = units(spec.constant, ordinary_constant);
+        assert!(
+            trend_units != exp_denom_bytes
+                || constant_units != ordinary_constant
+                || spec.ceiling.is_some(),
+            "a resource-model override must change a unit axis or ceiling"
+        );
+        Some(Model {
+            trend_units,
+            constant_units,
+            ceiling: spec.ceiling,
+        })
+    };
+    let models = ByCurrency {
+        heap: resolve(Currency::Heap, cell.models.heap),
+        segments: resolve(Currency::Segments, cell.models.segments),
+        scan: resolve(Currency::Scan, cell.models.scan),
+        touch: resolve(Currency::Touch, cell.models.touch),
+    };
     Sample {
         denom_bytes,
         exp_denom_bytes,
         floors: cell.floors,
-        fold_arity: cell.fold_arity,
-        declared_heap: cell.declared_heap,
+        models,
         readings: ByCurrency {
             heap: Some(peak_heap as u64),
             segments: Some(segments),

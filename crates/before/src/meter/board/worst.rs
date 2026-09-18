@@ -3,7 +3,7 @@
 //! The map folds the board's normalized heap, scan, and touch readings. It does
 //! not claim that the measured roster contains every possible worst case;
 //! complexity arguments and focused tests establish that. Stack segments are
-//! excluded because they use an absolute ceiling rather than a per-byte cost.
+//! excluded because they use an absolute ceiling rather than a density.
 //!
 //! [`WORST_RANKINGS`] pins the family with the largest reading in each cell.
 //! Exact ties retain every family in name order. The renderer also flags a
@@ -31,7 +31,7 @@ pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance",
 /// A runner-up within this ratio of the worst reading is flagged `~near-tie` in
 /// the rendered table.
 ///
-/// The band is the constant-factor headroom the board's family-stated ceilings
+/// The band is the constant-factor headroom the board's calibrated ceilings
 /// grant a single reading (a ratified ceiling is the worst reading ×1.25): two
 /// families inside it are one reading apart, not two classes, so their rank
 /// order is a fact about the chosen scale's constants, not about the shapes —
@@ -100,17 +100,9 @@ pub(super) fn rank(mut candidates: Vec<Entry>) -> (Vec<Entry>, Option<Entry>) {
     (worst, runner_up)
 }
 
-/// Whether a cell's reading in `currency` is judged under a declared per-cell
-/// model (the `ceilings` module's declared-models section).
-///
-/// The models by currency: family-stated heap ceilings on heap and the fold
-/// rows' `O(D log k)` model on scan and touch.
+/// Whether this cell overrides `currency`'s default model.
 fn modeled(r: &CellResult, currency: Currency) -> bool {
-    match currency {
-        Currency::Heap => r.s2.declared_heap.is_some(),
-        Currency::Scan | Currency::Touch => r.s2.fold_arity.is_some(),
-        Currency::Segments => false,
-    }
+    r.s2.models.get(currency).is_some()
 }
 
 /// Fold one sweep's cell results into the worst-case map, in board row order.
@@ -252,22 +244,22 @@ pub(super) fn render_map(
     )?;
     writeln!(
         out,
-        "  reading: the board's normalized constant of record at the cell's larger sample: heap \
-         bytes net of the {HEAP_FLAT_ALLOWANCE_BYTES} B flat allowance, scan bits, and touches \
-         per denominator byte; the denominator is the cell's own denominator of record (encoded \
-         input, or total I/O where the board re-denominates), so readings rank cost density and \
-         a row may mix denominators exactly where the board does."
+        "  reading: the board's normalized constant at the cell's larger sample: heap bytes net \
+         of the {HEAP_FLAT_ALLOWANCE_BYTES} B flat allowance, scan bits, and touches per constant \
+         unit. A unit is ordinarily one denominator byte (encoded input, or total I/O where \
+         required output can dominate); modeled rows use their stated work units. Readings rank \
+         cost density, so a row may mix units exactly where the board does."
     )?;
     writeln!(
         out,
         "  margin: worst/runner-up, a ratio: unit-free across a row's denominators and legible \
          across the constants' magnitudes. ~near-tie flags margins under x{NEAR_TIE_RATIO}: the \
-         constant-factor band the board's family-stated ceilings treat as one reading, so rank 1 \
+         constant-factor band the board's calibrated ceilings treat as one reading, so rank 1 \
          vs rank 2 inside it is one reading apart, not two classes."
     )?;
     writeln!(
         out,
-        "  *: the reading sits under a declared per-cell model (the board's decl[...] rows): \
+        "  *: the reading sits under a cell-specific resource model (the board's model[...] rows): \
          intended and modeled. segments is absent by policy: an absolute ceiling-only count, \
          not a per-byte density a normalized argmax can rank."
     )?;
@@ -319,9 +311,9 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "ranked_encode_rank", ["wide-arming", "freeze-pos", "harmonic"]),
     ("default", "ranked_decode", ["wide-arming", "memo-oscillating", "staircase"]),
     ("default", "version_min_ticks", ["ascend-cliff", "freeze-pos", "staircase"]),
-    ("default", "version_join_all", ["-", "benign", "stagger"]),
-    ("default", "version_meet_all", ["-", "stagger", "stagger"]),
-    ("default", "version_span_all", ["stagger", "benign", "stagger"]),
+    ("default", "version_join_all", ["-", "stagger", "stagger"]),
+    ("default", "version_meet_all", ["-", "weave", "stagger"]),
+    ("default", "version_span_all", ["stagger", "stagger", "stagger"]),
     ("default", "own_version_to_version", ["hugeleaf", "comb-scatter", "lone-freeze"]),
     ("default", "own_version_cmp", ["hugeleaf", "promo-rearm", "lone-freeze"]),
     ("default", "own_version_pair_cmp", ["hugeleaf", "jump-pair", "dense"]),
@@ -337,7 +329,12 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "party_encode", ["-", "-", "-"]),
     ("default", "party_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
     ("default", "party_forks", ["id-pair", "id-pair", "-"]),
-    ("default", "party_split_array", ["id-pair", "nested-full", "-"]),
+    ("default", "party_forks_full", ["scatter", "weave", "-"]),
+    (
+        "default",
+        "party_split_array",
+        ["id-pair", "mirror-narrow,nested-full", "-"],
+    ),
     ("default", "party_join", ["id-pair", "benign", "-"]),
     ("default", "party_join_all", ["-", "stagger", "-"]),
     ("default", "party_covers", ["-", "id-pair", "-"]),
@@ -353,9 +350,15 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
         "clock_forks",
         ["dominated-undercut", "id-pair", "-"],
     ),
-    ("default", "clock_split_array", ["id-pair", "nested-full", "-"]),
+    ("default", "clock_forks_full", ["scatter", "weave", "-"]),
+    (
+        "default",
+        "clock_split_array",
+        ["id-pair", "mirror-narrow,nested-full", "-"],
+    ),
     ("default", "clock_join", ["plateau-puncture", "bigroot", "lone-freeze"]),
     ("default", "clock_sync", ["plateau-puncture", "bigroot", "lone-freeze"]),
+    ("default", "clock_sync_all", ["stagger", "stagger", "stagger"]),
     ("default", "clock_recv", ["id-pair", "hugeleaf", "lone-freeze"]),
     ("default", "clock_own_version_to_version", ["id-pair", "comb-scatter", "staircase"]),
     ("default", "clock_hash", ["-", "-", "-"]),
@@ -401,9 +404,9 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "ranked_encode_rank", ["wide-arming", "memo-oscillating", "harmonic"]),
     ("acceptance", "ranked_decode", ["wide-arming", "memo-oscillating", "staircase"]),
     ("acceptance", "version_min_ticks", ["ascend-cliff", "memo-oscillating", "staircase"]),
-    ("acceptance", "version_join_all", ["weave", "benign", "stagger"]),
-    ("acceptance", "version_meet_all", ["weave", "stagger", "stagger"]),
-    ("acceptance", "version_span_all", ["weave", "benign", "stagger"]),
+    ("acceptance", "version_join_all", ["weave", "stagger", "stagger"]),
+    ("acceptance", "version_meet_all", ["weave", "weave", "stagger"]),
+    ("acceptance", "version_span_all", ["weave", "stagger", "stagger"]),
     ("acceptance", "own_version_to_version", ["hugeleaf", "comb-scatter", "lone-freeze"]),
     ("acceptance", "own_version_cmp", ["hugeleaf", "memo-oscillating", "lone-freeze"]),
     ("acceptance", "own_version_pair_cmp", ["hugeleaf", "memo-oscillating", "dense"]),
@@ -419,7 +422,12 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "party_encode", ["id-pair", "-", "-"]),
     ("acceptance", "party_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "party_forks", ["id-pair", "id-pair", "-"]),
-    ("acceptance", "party_split_array", ["id-pair", "nested-full", "-"]),
+    ("acceptance", "party_forks_full", ["scatter", "weave", "-"]),
+    (
+        "acceptance",
+        "party_split_array",
+        ["id-pair", "mirror-narrow,nested-full", "-"],
+    ),
     ("acceptance", "party_join", ["id-pair", "benign", "-"]),
     ("acceptance", "party_join_all", ["weave", "stagger", "-"]),
     ("acceptance", "party_covers", ["-", "id-pair", "-"]),
@@ -439,9 +447,15 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
         "clock_forks",
         ["descending-raises", "id-pair", "-"],
     ),
-    ("acceptance", "clock_split_array", ["id-pair", "nested-full", "-"]),
+    ("acceptance", "clock_forks_full", ["scatter", "weave", "-"]),
+    (
+        "acceptance",
+        "clock_split_array",
+        ["id-pair", "mirror-narrow,nested-full", "-"],
+    ),
     ("acceptance", "clock_join", ["bigroot", "bigroot", "lone-freeze"]),
     ("acceptance", "clock_sync", ["bigroot", "bigroot", "lone-freeze"]),
+    ("acceptance", "clock_sync_all", ["benign", "stagger", "stagger"]),
     ("acceptance", "clock_recv", ["id-pair", "hugeleaf", "lone-freeze"]),
     ("acceptance", "clock_own_version_to_version", ["id-pair", "comb-scatter", "staircase"]),
     ("acceptance", "clock_hash", ["-", "-", "-"]),

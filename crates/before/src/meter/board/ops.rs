@@ -13,9 +13,12 @@ use num_bigint::BigUint;
 use crate::error::Decode;
 use crate::{causally, Clock, Party, Rank, Ranked, Span, Ticks, Version};
 
-use super::ceilings::{COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, TICKS_BOARD_COUNT};
-use super::cell::Cell;
-use super::currency::{Floors, Liveness};
+use super::ceilings::{
+    COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
+    TICKS_BOARD_COUNT,
+};
+use super::cell::{Cell, ModelSpec};
+use super::currency::{Currency, Floors, Liveness};
 use super::defect::{
     party_noncanonical_bytes, trailing_bytes, truncated_bytes, version_noncanonical_bytes,
 };
@@ -50,6 +53,45 @@ fn wide_fork_count(input_bytes: usize) -> (Ticks, usize) {
     let count_bytes = usize::try_from(count.0.bits().div_ceil(8))
         .expect("the constructed count width came from a usize byte length");
     (count, count_bytes)
+}
+
+/// Join the first half of a fold population into one party to repartition.
+///
+/// The fold populations preserve one universe and adversarial ordering. In
+/// particular, the scatter population lists even leaves before odd leaves, so
+/// its first half joins to an alternating-leaf region rather than the seed.
+/// The returned arity scales with populations that scale their operand count.
+fn joined_fold_prefix(f: &FamilyData) -> Option<(Party, usize)> {
+    let (_, parties) = f.fold.as_ref()?;
+    let arity = parties.len() / 2;
+    let mut parties = parties.iter().take(arity).map(|bytes| decode_party(bytes));
+    let mut joined = parties
+        .next()
+        .expect("a board fold population has at least two parties");
+    joined
+        .join_all(parties)
+        .expect("one fold population contains disjoint parties");
+    Some((joined, arity))
+}
+
+/// Stored bytes needed for a positive machine-sized fork count.
+fn fork_count_bytes(count: usize) -> usize {
+    usize::try_from((usize::BITS - count.leading_zeros()).div_ceil(8))
+        .expect("a machine-word bit count fits usize")
+}
+
+/// Apply the balanced fold's `D log k` work model.
+///
+/// Scan has a measured constant per reduction level. Touch keeps its ordinary
+/// per-input-byte ceiling, but fits growth against the same logarithmic work
+/// axis so increasing arity is not mistaken for super-linearity.
+fn fold_model(cell: Cell, arity: u64) -> Cell {
+    let levels = (2.0 * arity as f64).log2();
+    cell.with_model(
+        Currency::Scan,
+        ModelSpec::scaled(levels, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL),
+    )
+    .with_model(Currency::Touch, ModelSpec::scaled_trend(levels))
 }
 
 /// One board row: a public operation and how to instantiate it per family.
@@ -604,10 +646,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let touch = touch_fold_first_merges(&versions);
                 let rest = versions.split_off(1);
                 let receiver = versions.pop()?;
-                Some(
-                    Cell::new(n, walk_floors(n, touch), move || receiver.join_all(rest))
-                        .with_fold_arity(arity),
-                )
+                Some(fold_model(
+                    Cell::new(n, walk_floors(n, touch), move || receiver.join_all(rest)),
+                    arity,
+                ))
             },
         },
         Op {
@@ -628,10 +670,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let touch = touch_fold_first_merges(&versions);
                 let rest = versions.split_off(1);
                 let receiver = versions.pop()?;
-                Some(
-                    Cell::new(n, walk_floors(n, touch), move || receiver.meet_all(rest))
-                        .with_fold_arity(arity),
-                )
+                Some(fold_model(
+                    Cell::new(n, walk_floors(n, touch), move || receiver.meet_all(rest)),
+                    arity,
+                ))
             },
         },
         Op {
@@ -647,13 +689,13 @@ pub(super) fn ops() -> Vec<Op> {
                 let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
                 let touch = touch_fold_first_merges(&versions);
-                Some(
+                Some(fold_model(
                     Cell::new(n, walk_floors(n, touch), move || {
                         let hull = versions[0].span_all(&versions[1..]);
                         (hull, versions)
-                    })
-                    .with_fold_arity(arity),
-                )
+                    }),
+                    arity,
+                ))
             },
         },
         Op {
@@ -684,7 +726,10 @@ pub(super) fn ops() -> Vec<Op> {
                     // carries the tighter total-I/O heap ceiling derived for
                     // this materialization.
                     return Some(if matches!(f.kind, FamilyId::CombScatter) {
-                        cell.with_declared_heap(COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE)
+                        cell.with_model(
+                            Currency::Heap,
+                            ModelSpec::ceiling(COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE),
+                        )
                     } else {
                         cell
                     });
@@ -1061,6 +1106,52 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "party_forks_full",
+            prepare: |f| {
+                let (mut party, arity) = joined_fold_prefix(f)?;
+                let child_count = arity - 1;
+                let party_bytes = party.as_bytes().len();
+                let count_bytes = fork_count_bytes(child_count);
+                let input_bytes = party_bytes + count_bytes;
+                // A borrowing drain may scan the stored party once per child;
+                // count bookkeeping is bounded by the count's own width. This
+                // is the public `k (D + log k)` bound expressed in byte units.
+                let scan_work = child_count
+                    .checked_mul(input_bytes)
+                    .expect("the board's fork work model fits usize");
+                let floors = Floors {
+                    // The result retains every share. Even when canonical
+                    // collapses shorten them, at least one encoded byte per
+                    // share must be materialized.
+                    heap: heap_materializes(arity),
+                    segments: seg_ceiling_only(),
+                    scan: scan_touch(),
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                Some(
+                    Cell::io(
+                        input_bytes,
+                        floors,
+                        |result| {
+                            let (residual, children) = result
+                                .downcast_ref::<(Party, Vec<Party>)>()
+                                .expect("the full party-forks cell retains every share");
+                            residual.as_bytes().len()
+                                + children
+                                    .iter()
+                                    .map(|party| party.as_bytes().len())
+                                    .sum::<usize>()
+                        },
+                        move || {
+                            let children: Vec<Party> = party.forks(child_count).collect();
+                            (party, children)
+                        },
+                    )
+                    .with_model(Currency::Scan, ModelSpec::work(scan_work)),
+                )
+            },
+        },
+        Op {
             name: "party_split_array",
             prepare: |f| {
                 let (party, _, _) = f.party_pair()?;
@@ -1125,15 +1216,15 @@ pub(super) fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
-                Some(
+                Some(fold_model(
                     Cell::new(n, floors, move || {
                         let mut acc = acc;
                         acc.join_all(rest)
                             .expect("fold operands are forked parties, pairwise disjoint");
                         acc
-                    })
-                    .with_fold_arity(arity),
-                )
+                    }),
+                    arity,
+                ))
             },
         },
         Op {
@@ -1309,6 +1400,50 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "clock_forks_full",
+            prepare: |f| {
+                let (party, arity) = joined_fold_prefix(f)?;
+                let child_count = arity - 1;
+                let party_bytes = party.as_bytes().len();
+                let count_bytes = fork_count_bytes(child_count);
+                let input_bytes = party_bytes + 1 + count_bytes;
+                // Clock delegates partitioning to Party. Its shared empty
+                // Version is neither scanned nor copied, so the scan model is
+                // the same `k (D + log k)` bound over party and count bytes.
+                let scan_work = child_count
+                    .checked_mul(party_bytes + count_bytes)
+                    .expect("the board's fork work model fits usize");
+                let mut clock = Clock::from_parts(party, Version::new());
+                let floors = Floors {
+                    heap: heap_materializes(arity),
+                    segments: seg_ceiling_only(),
+                    scan: scan_touch(),
+                    touch: na(NA_TOUCH_NOT_FORCED),
+                };
+                Some(
+                    Cell::io(
+                        input_bytes,
+                        floors,
+                        |result| {
+                            let (residual, children) = result
+                                .downcast_ref::<(Clock, Vec<Clock>)>()
+                                .expect("the full clock-forks cell retains every share");
+                            residual.party().as_bytes().len()
+                                + children
+                                    .iter()
+                                    .map(|clock| clock.party().as_bytes().len())
+                                    .sum::<usize>()
+                        },
+                        move || {
+                            let children: Vec<Clock> = clock.forks(child_count).collect();
+                            (clock, children)
+                        },
+                    )
+                    .with_model(Currency::Scan, ModelSpec::work(scan_work)),
+                )
+            },
+        },
+        Op {
             name: "clock_split_array",
             prepare: |f| {
                 let (clock, _) = f.clock()?;
@@ -1372,6 +1507,69 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "clock_sync_all",
+            prepare: |f| {
+                let (versions, parties) = f.fold.as_ref()?;
+                let arity = versions.len() / 2;
+                let versions: Vec<Version> = versions
+                    .iter()
+                    .take(arity)
+                    .map(|bytes| decode_version(bytes))
+                    .collect();
+                let version_bytes: usize = versions
+                    .iter()
+                    .map(|version| version.as_bytes().len())
+                    .sum();
+                let touch = touch_fold_first_merges(&versions);
+                let mut clocks: Vec<Clock> = versions
+                    .into_iter()
+                    .zip(parties.iter().take(arity).map(|bytes| decode_party(bytes)))
+                    .map(|(version, party)| Clock::from_parts(party, version))
+                    .collect();
+                let input_bytes: usize = clocks
+                    .iter()
+                    .map(|clock| clock.party().as_bytes().len() + clock.version().as_bytes().len())
+                    .sum();
+                let mut receiver = clocks.remove(0);
+                let floors = Floors {
+                    // `sync_all` collects one mutable reference per peer before
+                    // reducing them, so the heap meter must observe arity even
+                    // when the canonical result becomes small.
+                    heap: heap_materializes(arity),
+                    segments: seg_ceiling_only(),
+                    // Every input version participates in the version fold;
+                    // party joins may splice exclusive subtrees without
+                    // reading their interiors.
+                    scan: scan_examines(version_bytes),
+                    touch,
+                };
+                Some(fold_model(
+                    Cell::io(
+                        input_bytes,
+                        floors,
+                        |result| {
+                            let (receiver, others) = result
+                                .downcast_ref::<(Clock, Vec<Clock>)>()
+                                .expect("the sync-all cell retains every participant");
+                            receiver.version().as_bytes().len()
+                                + receiver.party().as_bytes().len()
+                                + others
+                                    .iter()
+                                    .map(|clock| clock.party().as_bytes().len())
+                                    .sum::<usize>()
+                        },
+                        move || {
+                            receiver
+                                .sync_all(clocks.iter_mut())
+                                .expect("one fold population contains disjoint parties");
+                            (receiver, clocks)
+                        },
+                    ),
+                    arity as u64,
+                ))
+            },
+        },
+        Op {
             name: "clock_recv",
             prepare: |f| {
                 // Small clock × adversarial received version.
@@ -1423,7 +1621,10 @@ pub(super) fn ops() -> Vec<Op> {
                     );
                     // The same total-I/O heap ceiling as the version spelling.
                     return Some(if matches!(f.kind, FamilyId::CombScatter) {
-                        cell.with_declared_heap(COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE)
+                        cell.with_model(
+                            Currency::Heap,
+                            ModelSpec::ceiling(COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE),
+                        )
                     } else {
                         cell
                     });

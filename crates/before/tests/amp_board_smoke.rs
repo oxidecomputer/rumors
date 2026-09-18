@@ -17,6 +17,7 @@
 //! citations.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Mutex, MutexGuard};
 
 use before::meter::board::{self, HeapMeter};
 use before::meter::registry::{Bands, Coverage, FamilyId, AXIS_BANDS};
@@ -24,6 +25,9 @@ use peak_alloc::PeakAlloc;
 
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
+
+/// Serializes in-process measurements that share [`HEAP`].
+static MEASUREMENT: Mutex<()> = Mutex::new(());
 
 /// A fraction of the board's default sizes, small enough that the smoke run
 /// stays well under a second.
@@ -36,6 +40,13 @@ fn heap_meter() -> HeapMeter {
         peak: || HEAP.peak_usage(),
         current: || HEAP.current_usage(),
     }
+}
+
+/// Hold exclusive access to the process-global meter for one smoke test.
+fn measurement_guard() -> MutexGuard<'static, ()> {
+    MEASUREMENT
+        .lock()
+        .expect("no smoke test panics while holding the measurement lock")
 }
 
 /// A shard spawner that measures every slice in this process instead of
@@ -89,6 +100,7 @@ fn expected_cells_per_family() -> BTreeMap<&'static str, usize> {
 /// a dashboard, not a gate.
 #[test]
 fn board_runs_to_completion() {
+    let _guard = measurement_guard();
     let heap = heap_meter();
     let spawn = in_process_spawn(1, &heap);
     let mut rendered = Vec::new();
@@ -140,6 +152,7 @@ fn board_runs_to_completion() {
 /// reconstruction cannot pass by coincidence of an even split.
 #[test]
 fn shard_protocol_round_trips() {
+    let _guard = measurement_guard();
     let heap = heap_meter();
     let mut whole = Vec::new();
     board::run(SMOKE_SCALE, 1, &in_process_spawn(1, &heap), &mut whole)
@@ -157,11 +170,23 @@ fn shard_protocol_round_trips() {
     )
     .expect("writing to a Vec succeeds");
 
+    let whole = String::from_utf8(whole).expect("the board renders UTF-8");
+    let split = String::from_utf8(split).expect("the board renders UTF-8");
+    let whole_lines = whole.lines().collect::<Vec<_>>();
+    let split_lines = split.lines().collect::<Vec<_>>();
     assert_eq!(
-        String::from_utf8(whole).expect("the board renders UTF-8"),
-        String::from_utf8(split).expect("the board renders UTF-8"),
-        "renders taken at different shard counts must be byte-identical"
+        whole_lines.len(),
+        split_lines.len(),
+        "shard counts must render the same number of lines"
     );
+    for (index, (whole, split)) in whole_lines.iter().zip(&split_lines).enumerate() {
+        assert_eq!(
+            whole,
+            split,
+            "renders taken at different shard counts differ on line {}",
+            index + 1,
+        );
+    }
 }
 
 /// The worst-case map folds totally over the board's sweep at any scale:
@@ -175,6 +200,7 @@ fn shard_protocol_round_trips() {
 /// (`just worst-cases-pin`).
 #[test]
 fn worst_map_covers_every_operation_row() {
+    let _guard = measurement_guard();
     let heap = heap_meter();
     let spawn = in_process_spawn(1, &heap);
     let mut rendered = Vec::new();
@@ -227,6 +253,7 @@ fn worst_map_covers_every_operation_row() {
 /// its own scale.
 #[test]
 fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
+    let _guard = measurement_guard();
     let heap = heap_meter();
     let honest = in_process_spawn(1, &heap)(SMOKE_SCALE).expect("in-process capture succeeds");
     let text = String::from_utf8(honest[0].clone()).expect("shard captures are UTF-8");

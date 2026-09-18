@@ -71,6 +71,16 @@ impl<T> ByCurrency<T> {
             Currency::Touch => &self.touch,
         }
     }
+
+    /// Return the mutable value for `currency`.
+    pub fn get_mut(&mut self, currency: Currency) -> &mut T {
+        match currency {
+            Currency::Heap => &mut self.heap,
+            Currency::Segments => &mut self.segments,
+            Currency::Scan => &mut self.scan,
+            Currency::Touch => &mut self.touch,
+        }
+    }
 }
 
 /// The minimum live reading for one cell, or why no nonzero floor exists.

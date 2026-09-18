@@ -1,26 +1,10 @@
-//! The judgment constants: the pinned global ceilings, the liveness-floor
-//! parameters, and the declared per-cell models that replace a global leg where
-//! a ratified derivation prices work an operation's own contract mandates.
+//! Constants used by the amplification-board judgment.
 //!
-//! The declared models, disclosed on their row faces (`decl[...]`) and judged
-//! in place of the named global legs (the board module doc's declared-models
-//! section carries the criterion and the honesty ratchet):
-//!
-//! - **The fold rows** (`version_join_all`, `version_meet_all`,
-//!   `party_join_all`): the
-//!   balanced reduction's documented `O(D log k)` puts a `log2(2k)`
-//!   factor in the deterministic counters that no flat ceiling admits at
-//!   scale. The scan/touch exponent ceilings become the model's own
-//!   predicted exponent plus the linear cells' slack, and the scan
-//!   constant [`FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL`] per reduction
-//!   level; a quadratic left fold still reads ~2 and stays red, and the
-//!   log factor's own liveness is held per public entry point by the claims
-//!   suite's `*_log_factor_is_alive` pins.
-//! - **Family-stated heap ceilings** (the output-dominated comb-scatter
-//!   projections): a tighter flat heap bound derived for that operation and
-//!   shape. Each constant carries its derivation. The exponent leg stays at
-//!   the global bound, so a constant declaration cannot hide superlinear
-//!   growth.
+//! Global ceilings apply to the default linear cost model. A cell with a more
+//! precise bound supplies its own units through the general model mechanism;
+//! constants here calibrate the proportional checks that differ from the
+//! global defaults. Model selection and units live beside the operation, where
+//! their derivation can be reviewed.
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
 //
@@ -79,7 +63,7 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// sampling scales identifies them, and the fold rows' touch constant is
 /// judged at this same ceiling — only their exponent leg rides the fold
 /// model. The ceiling is the worst honest reading ×1.25, rounded up
-/// (owner-ratified: the family-stated ceilings' margin convention; the
+/// (owner-ratified: the cell-specific ceilings' margin convention; the
 /// reading lives in the pin commit), so a kernel that re-reads digit state
 /// growing with the input — the width-circulation genre — goes red on this
 /// column's constant instead of hiding in headroom, and an honest family
@@ -133,43 +117,12 @@ pub const TICKS_BOARD_COUNT: u64 = 512;
 /// test suite pins both directions\].
 pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 
-// ─── declared per-cell models ────────────────────────────────────────────────
-//
-// Some cells carry a *declared model* in place of one global ceiling: a
-// ratified upper bound derived for work the operation's contract requires,
-// where the global ceiling would otherwise reject the intended algorithm. A
-// declared model is disclosed on the row face (`decl[...]`) and replaces only
-// the legs it names. Liveness floors independently ensure that the relevant
-// counters still observe the work they claim to bound.
-
 /// Maximum scan bits per input byte and balanced-reduction level.
 ///
 /// For `k` operands, the board allows this coefficient times `log2(2k)`.
 /// The coefficient is the largest release-profile measurement across the fold
 /// rows, with 25% headroom and rounding. The board fails if a fold exceeds it.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
-
-/// The fold rows' declared exponent ceiling over scan and touch: the fold scan
-/// model's own predicted exponent plus the global
-/// noise slack.
-///
-/// Work `c·D·log2(2k)` fitted across the cell's two probes (`D₁, k₁) → (D₂,
-/// k₂`) reads exponent `1 + log2(log2(2k₂)/log2(2k₁)) / log2(D₂/D₁)` — the log
-/// factor's marginal, ~1.14–1.17 at the committed populations — so the ceiling
-/// is that prediction plus the same slack [`MAX_SCALING_EXPONENT`] grants
-/// linear cells (0.15). A quadratic fold reads ~2 against any committed arity
-/// pair and stays red; the model's own liveness is held per public entry point
-/// — one `*_log_factor_is_alive` pin in the asymptotics suite for each of
-/// `Version::join_all`, `Version::meet_all`, `Version::span_all`,
-/// `Party::join_all`, and `Clock::join_all`, each with its own measured floor —
-/// so a entry point whose wiring stops paying the reduction's log factor reads
-/// red at that entry point even while the shared core still pays it elsewhere.
-pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f64 {
-    let levels1 = (2.0 * k1 as f64).log2();
-    let levels2 = (2.0 * k2 as f64).log2();
-    let denom_growth = (n2 as f64 / n1 as f64).log2();
-    1.0 + (levels2 / levels1).log2() / denom_growth + (MAX_SCALING_EXPONENT - 1.0)
-}
 
 /// Heap ceiling for materializing the output-dominated comb-scatter
 /// projection, in bytes per total-I/O byte.

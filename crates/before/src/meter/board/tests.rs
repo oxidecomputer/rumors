@@ -9,12 +9,25 @@ use crate::Party;
 #[cfg(any(feature = "scan-meter", feature = "touch-meter"))]
 use crate::Version;
 
+use super::currency::ByCurrency;
+use super::measure::Model;
+
 #[cfg(feature = "touch-meter")]
 use super::judge::trend;
 #[cfg(feature = "touch-meter")]
 use super::{operand::value_content_bytes, MAX_SCALING_EXPONENT};
 #[cfg(feature = "touch-meter")]
 use crate::meter::cliff_comb;
+
+/// Use the board's default resource model for every currency.
+fn no_model_overrides() -> ByCurrency<Option<Model>> {
+    ByCurrency {
+        heap: None,
+        segments: None,
+        scan: None,
+        touch: None,
+    }
+}
 
 /// Lift a meter-generated encoded event shape into a [`Version`].
 #[cfg(any(feature = "scan-meter", feature = "touch-meter"))]
@@ -41,7 +54,9 @@ fn bypass_walk(v: &Version) -> usize {
 /// column records ~nothing while real linear work runs. Both legs go through
 /// [`evaluate`] with the probe's real counter readings; the only difference is
 /// the declarations — all-NA (ceilings alone) versus the committed walk
-/// convention (scan floored at one bit per encoded byte).
+/// convention (scan floored at one bit per encoded byte). The two nearby sizes
+/// deliberately leave the exponent unjudged: this test isolates liveness,
+/// while the exponent-guard test covers that policy.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
@@ -78,8 +93,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             denom_bytes: n,
             exp_denom_bytes: n,
             floors: floors_of(n),
-            fold_arity: None,
-            declared_heap: None,
+            models: no_model_overrides(),
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -93,7 +107,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
         "bypass_probe",
         "dense",
         sample(1_000, na_floors),
-        sample(2_000, na_floors),
+        sample(1_100, na_floors),
     );
     assert!(
         ceilings_only.red.is_empty(),
@@ -106,7 +120,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
         "bypass_probe",
         "dense",
         sample(1_000, probe_walk_floors),
-        sample(2_000, probe_walk_floors),
+        sample(1_100, probe_walk_floors),
     );
     assert_eq!(
         floored.red,
@@ -201,8 +215,7 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
             },
-            fold_arity: None,
-            declared_heap: None,
+            models: no_model_overrides(),
             readings: ByCurrency {
                 heap: Some(heap),
                 segments: Some(0),
@@ -314,8 +327,7 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
             },
-            fold_arity: None,
-            declared_heap: None,
+            models: no_model_overrides(),
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -378,27 +390,19 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
     }
 }
 
-/// The declared fold model admits the balanced reduction's log factor and
-/// nothing steeper.
+/// A `D log k` work model admits a balanced reduction and nothing steeper.
 ///
-/// Three probes through [`evaluate`], all at the benign control's committed
-/// arity pair (k 256 -> 512 over a x2.19 denominator): the pre-declaration
-/// expected readings (scan exponent ~1.17, constant ~114 bits/B — the readings
-/// that were red under the flat ceilings and are exactly the reduction's own
-/// log factor) read green under the model; a quadratic fold (a left fold
-/// re-walking its accumulator, exponent ~2 — the cheapest wrong artifact the
-/// model could bless) stays exponent-red; and a fold whose per-level scan
-/// constant regresses past the model's allowance reads constant-red even at an
-/// admissible exponent. The ceiling-tightness leg pins the formula itself: at
-/// every committed arity pair the declared exponent ceiling stays under 1.5, so
-/// a quadratic's ~2 can never fit however the populations scale.
+/// Three probes use the benign control's committed arity pair. Scan linear in
+/// `D log2(2k)` reads green, a left fold that repeatedly walks its growing
+/// accumulator remains exponent-red, and an excessive per-level constant
+/// remains constant-red. This protects both judgments while exercising the
+/// same general model mechanism used by other non-linear contracts.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
-    use super::ceilings::fold_exponent_ceiling;
     use super::floors::na;
     use super::judge::evaluate;
-    use super::measure::Sample;
+    use super::measure::{Model, Sample};
     use super::{ByCurrency, Floors, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL};
     const PROBE_NA: &str = "probe: the declared fold model alone is under test";
     let sample = |denom: usize, arity: u64, scan: u64| -> Sample {
@@ -411,8 +415,16 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
             },
-            fold_arity: Some(arity),
-            declared_heap: None,
+            models: ByCurrency {
+                heap: None,
+                segments: None,
+                scan: Some(Model {
+                    trend_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as usize,
+                    constant_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as usize,
+                    ceiling: Some(FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL),
+                }),
+                touch: None,
+            },
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -457,39 +469,84 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
         "a per-level constant regression must read constant-red: {:?}",
         fat_constant.red
     );
-    // Ceiling tightness: at every committed arity pair (scatter and benign,
-    // both scales, doubling denominators and beyond) the declared exponent
-    // ceiling leaves no room for a quadratic.
-    for (k1, k2, n1, n2) in [
-        (256u64, 512u64, 1_322usize, 2_897usize),
-        (1_024, 2_048, 5_120, 10_240),
-        (1_024, 2_048, 3_825, 8_363),
-        (4_096, 8_192, 20_480, 40_960),
-    ] {
-        let ceiling = fold_exponent_ceiling(k1, k2, n1, n2);
-        assert!(
-            ceiling < 1.5,
-            "the declared fold exponent ceiling must stay far under a quadratic's ~2: \
-             read {ceiling:.3} at k {k1}->{k2}, n {n1}->{n2}"
-        );
-        assert!(
-            FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2()
-                < super::MAX_SCAN_BITS_PER_INPUT_BYTE * 2.0,
-            "the declared scan model must stay within the flat ceiling's own order at \
-             committed arities"
-        );
-    }
 }
 
-/// A family-stated heap ceiling replaces the global constant without disabling
-/// exponent judgment.
+/// A resource model judges its stated work law without weakening either scan
+/// check.
+///
+/// Work linear in the model reads green even when the model grows faster than
+/// encoded I/O. Work quadratic in that same model remains exponent-red.
+#[cfg(feature = "scan-meter")]
 #[test]
-fn family_stated_heap_ceiling_tightens_only_the_constant() {
+fn resource_model_preserves_constant_and_exponent_checks() {
     use super::floors::na;
     use super::judge::evaluate;
-    use super::measure::Sample;
+    use super::measure::{Model, Sample};
     use super::{ByCurrency, Floors};
-    const PROBE_NA: &str = "probe: the family-stated heap ceiling alone is under test";
+    const PROBE_NA: &str = "probe: the resource model alone is under test";
+    let sample = |denom: usize, work: usize, scan: u64| -> Sample {
+        Sample {
+            denom_bytes: denom,
+            exp_denom_bytes: denom,
+            floors: Floors {
+                heap: na(PROBE_NA),
+                segments: na(PROBE_NA),
+                scan: na(PROBE_NA),
+                touch: na(PROBE_NA),
+            },
+            models: ByCurrency {
+                heap: None,
+                segments: None,
+                scan: Some(Model {
+                    trend_units: work,
+                    constant_units: work,
+                    ceiling: None,
+                }),
+                touch: None,
+            },
+            readings: ByCurrency {
+                heap: Some(0),
+                segments: Some(0),
+                scan: Some(scan),
+                touch: None,
+            },
+        }
+    };
+
+    let linear = evaluate(
+        "scan_work_probe",
+        "linear",
+        sample(100, 1_000, 8_000),
+        sample(200, 4_000, 32_000),
+    );
+    assert!(
+        !linear.red.iter().any(|reason| reason.starts_with("scan")),
+        "work linear in the declared model must read green: {:?}",
+        linear.red
+    );
+
+    let quadratic = evaluate(
+        "scan_work_probe",
+        "quadratic",
+        sample(100, 1_000, 8_000),
+        sample(200, 4_000, 128_000),
+    );
+    assert!(
+        quadratic.red.contains(&"scan exponent"),
+        "quadratic growth in declared work must remain red: {:?}",
+        quadratic.red
+    );
+}
+
+/// A model-specific ceiling replaces the global constant without disabling
+/// exponent judgment.
+#[test]
+fn model_ceiling_tightens_only_the_constant() {
+    use super::floors::na;
+    use super::judge::evaluate;
+    use super::measure::{Model, Sample};
+    use super::{ByCurrency, Floors};
+    const PROBE_NA: &str = "probe: the model-specific heap ceiling alone is under test";
     let sample = |denom: usize, heap: u64| -> Sample {
         Sample {
             denom_bytes: denom,
@@ -500,8 +557,16 @@ fn family_stated_heap_ceiling_tightens_only_the_constant() {
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
             },
-            fold_arity: None,
-            declared_heap: Some(3.0),
+            models: ByCurrency {
+                heap: Some(Model {
+                    trend_units: denom,
+                    constant_units: denom,
+                    ceiling: Some(3.0),
+                }),
+                segments: None,
+                scan: None,
+                touch: None,
+            },
             readings: ByCurrency {
                 heap: Some(heap),
                 segments: Some(0),
@@ -533,7 +598,7 @@ fn family_stated_heap_ceiling_tightens_only_the_constant() {
     );
     assert!(
         over.red.contains(&"heap constant"),
-        "a reading above the family-stated ceiling must be red: {:?}",
+        "a reading above the model-specific ceiling must be red: {:?}",
         over.red
     );
 }

@@ -73,7 +73,7 @@ use std::sync::{Mutex, OnceLock};
 use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE};
 use super::currency::{ByCurrency, Liveness};
 use super::judge::{evaluate, evaluate_acceptance, CellResult};
-use super::measure::{HeapMeter, Sample};
+use super::measure::{HeapMeter, Model, Sample};
 use super::ops::ops;
 use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
 use super::worst::{check_with, render_map};
@@ -82,7 +82,7 @@ use crate::meter::registry::{Coverage, FamilyId};
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
 /// so a stale child binary can never be merged as current.
-const PROTOCOL: &str = "amp-board-shard v3";
+const PROTOCOL: &str = "amp-board-shard v4";
 
 /// Runs every shard child at one scale and returns their raw stdout captures in
 /// shard-index order.
@@ -192,6 +192,22 @@ fn opt<T: ToString>(value: Option<T>) -> String {
     value.map_or_else(|| "-".to_string(), |v| v.to_string())
 }
 
+/// One optional resource model as `trend:constant:ceiling`, with `-` for an
+/// absent model or ceiling.
+fn encode_model(model: Option<Model>) -> String {
+    model.map_or_else(
+        || "-".to_string(),
+        |model| {
+            format!(
+                "{}:{}:{}",
+                model.trend_units,
+                model.constant_units,
+                model.ceiling.map_or_else(|| "-".to_string(), bits),
+            )
+        },
+    )
+}
+
 /// A wire string field must not contain the framing bytes.
 fn assert_unframed(text: &str) {
     assert!(
@@ -209,12 +225,9 @@ fn emit_sample(out: &mut dyn Write, s: &Sample) -> io::Result<()> {
         denom = s.denom_bytes,
         exp_denom = s.exp_denom_bytes,
     )?;
-    write!(
-        out,
-        "\t{arity}\t{declared_heap}",
-        arity = opt(s.fold_arity),
-        declared_heap = opt(s.declared_heap.map(bits)),
-    )?;
+    for (_, model) in s.models.each() {
+        write!(out, "\t{}", encode_model(*model))?;
+    }
     for (_, reading) in s.readings.each() {
         write!(out, "\t{}", opt(*reading))?;
     }
@@ -280,6 +293,40 @@ fn from_bits(text: &str, line: &str) -> f64 {
     }))
 }
 
+/// One wire model back into its resolved units and optional ceiling.
+fn parse_model(text: &str, line: &str) -> Option<Model> {
+    if text == "-" {
+        return None;
+    }
+    let mut parts = text.split(':');
+    let trend_units = number(
+        parts.next().unwrap_or_else(|| {
+            panic!("amp-board shard merge: malformed model {text:?} in {line:?}")
+        }),
+        line,
+    );
+    let constant_units = number(
+        parts.next().unwrap_or_else(|| {
+            panic!("amp-board shard merge: malformed model {text:?} in {line:?}")
+        }),
+        line,
+    );
+    let ceiling = match parts.next() {
+        Some("-") => None,
+        Some(bits) => Some(from_bits(bits, line)),
+        None => panic!("amp-board shard merge: malformed model {text:?} in {line:?}"),
+    };
+    assert!(
+        parts.next().is_none(),
+        "amp-board shard merge: malformed model {text:?} in {line:?}"
+    );
+    Some(Model {
+        trend_units,
+        constant_units,
+        ceiling,
+    })
+}
+
 /// One floor field back into its [`Liveness`] arm.
 fn parse_liveness(text: &str, line: &str) -> Liveness {
     if let Some(rest) = text.strip_prefix("F ") {
@@ -304,10 +351,12 @@ fn parse_liveness(text: &str, line: &str) -> Liveness {
 fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> Sample {
     let denom_bytes = number(field(fields, line), line);
     let exp_denom_bytes = number(field(fields, line), line);
-    let fold_arity = opt_number(field(fields, line), line);
-    let declared_heap = {
-        let text = field(fields, line);
-        (text != "-").then(|| from_bits(text, line))
+    let mut model = || parse_model(field(fields, line), line);
+    let models = ByCurrency {
+        heap: model(),
+        segments: model(),
+        scan: model(),
+        touch: model(),
     };
     let mut reading = || opt_number(field(fields, line), line);
     let readings = ByCurrency {
@@ -327,8 +376,7 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
         denom_bytes,
         exp_denom_bytes,
         floors,
-        fold_arity,
-        declared_heap,
+        models,
         readings,
     }
 }

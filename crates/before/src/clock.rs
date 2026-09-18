@@ -401,12 +401,29 @@ impl Clock {
             }
         }
 
-        // Replace every clock with a balanced share of the result.
-        let shares = others.len() as u64;
-        *self = whole;
-        for (slot, child) in others.into_iter().zip(self.forks(shares)) {
-            *slot = child;
+        // The merged party is owned here, so divide it with the consuming plan
+        // instead of the borrowing iterator. The latter must rebuild a
+        // residual after every yielded child; sync_all needs every share and
+        // has no residual to preserve.
+        let share_count = others.len() + 1;
+        let Clock { party, version } = whole;
+        let mut shares = party.into_shares(share_count);
+        *self = Clock::from_parts(
+            shares
+                .next()
+                .expect("a nonempty participant set receives one share"),
+            version.clone(),
+        );
+        for slot in others {
+            *slot = Clock::from_parts(
+                shares.next().expect("each participant receives one share"),
+                version.clone(),
+            );
         }
+        assert!(
+            shares.next().is_none(),
+            "the plan yields one share per clock"
+        );
         Ok(self.version())
     }
 

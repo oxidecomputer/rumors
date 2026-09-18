@@ -20,7 +20,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::tick", &["version_tick", "version_tick_adv_party"]),
     ("Party::ticks", &["version_ticks"]),
     ("Party::fork", &["party_fork"]),
-    ("Party::forks", &["party_forks"]),
+    ("Party::forks", &["party_forks", "party_forks_full"]),
     ("Party::join", &["party_join", "party_join_overlap"]),
     ("Party::join_all", &["party_join_all"]),
     ("Party::is_disjoint", &["party_disjoint"]),
@@ -66,11 +66,18 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Clock::tick", &["clock_tick"]),
     ("Clock::ticks", &["version_ticks"]),
     ("Clock::fork", &["clock_fork"]),
-    ("Clock::forks", &["clock_forks"]),
+    ("Clock::forks", &["clock_forks", "clock_forks_full"]),
     ("Clock::join", &["clock_join", "clock_join_overlap"]),
     ("Clock::join_all", &["version_join_all", "party_join_all"]),
     ("Clock::sync", &["clock_sync", "clock_sync_overlap"]),
-    ("Clock::sync_all", &["version_join_all", "party_join_all"]),
+    (
+        "Clock::sync_all",
+        &[
+            "clock_sync_all",
+            "version_join_all",
+            "party_join_all",
+        ],
+    ),
     ("Clock::send", &["clock_tick"]),
     ("Clock::recv", &["clock_recv"]),
     ("Clock::recv_all", &["version_join_all"]),
@@ -217,7 +224,12 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
     (
         "iter::Party / iter::Clock (fork iterators and partial-drop conservation)",
-        &["party_forks", "clock_forks"],
+        &[
+            "party_forks",
+            "party_forks_full",
+            "clock_forks",
+            "clock_forks_full",
+        ],
     ),
 ];
 

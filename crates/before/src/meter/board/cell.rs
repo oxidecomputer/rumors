@@ -1,84 +1,111 @@
-//! One prepared cell: the measured body, the operand bytes it charges against,
-//! its denomination rule, and its committed liveness declarations.
+//! One prepared measurement: its body, cost model, and liveness declarations.
 //!
 //! # Denomination
 //!
-//! Most cells charge cost against encoded input bytes alone; the board module
-//! doc's Denomination section states the default and the rule that a
-//! mandatory-output cell is judged against total I/O bytes `n_io`, its output
-//! side read back from the actual result. The re-denominated classes and their
-//! derivations:
+//! Encoded input bytes are the default cost axis. When producing the result is
+//! itself required work and its encoding can dominate the input, the cell uses
+//! actual input-plus-output bytes instead. In-memory numeric operands use their
+//! value width, which their public construction paths bound by encoded input.
 //!
-//! - **Flat-denominator exponents** (the comb-scatter shape): the shape
-//!   deliberately scales tooth *count* at a fixed 1000-bit tooth
-//!   magnitude, so its encoded bytes are intercept-dominated — the one
-//!   wide leading code plus unit delta codes per tooth — and grow only
-//!   ~x1.2 while every slot's value content (and every operation's honest
-//!   per-tooth work) doubles per level. A two-point power-law fit against
-//!   an intercept-dominated denominator manufactures exponents out of
-//!   exactly linear marginal work (log 2 / log 1.2 = 4), so the shape's
-//!   input-denominated cells fit their *exponents* against the bundle's
-//!   value content (the event side's summed leaf-height bits plus the id
-//!   side's encoded bytes — the honest scaling axis),
-//!   disclosed per row as `expd[content ...]`. Constants and floors stay
-//!   per encoded byte, the harder reading; I/O-denominated cells keep
-//!   `n_io`, whose output side already scales. The tripwire pair below
-//!   pins both directions: the encoded fit reads a manufactured exponent
-//!   on measured flat per-tooth work, and a genuinely quadratic-in-teeth
-//!   probe still reads red against the content denominator.
-//! - **Output-dominated projection** (`own_version_to_version` and
-//!   `clock_own_version_to_version` on comb-scatter, memo-fanout, reveal-comb,
-//!   reveal-hifloor, and pure-comb):
-//!   `n_io` is encoded input + encoded output. These crosses exist because
-//!   the party keeps a wide magnitude per owned site — the scattered party a
-//!   wide magnitude per kept tooth (`Θ(e·k)` mandatory output bits), the
-//!   remaining parties a re-materialized `2^b`-scale code per kept site
-//!   (`Θ(k·b)` output on a `Θ(k + b)` input) — and the output cannot
-//!   be padded, so `n_io` is the honest denominator on all columns at the
-//!   unchanged ceilings, with the projection sweep measured
-//!   O(`n_io`)-tight on every one (exponents ≈ 1.0 against `n_io`, scan
-//!   at the walk's usual 8 bits per `n_io` byte).
-//! - **Consuming array splits** (`From<Party> for [Party; N]` and its Clock
-//!   counterpart): `n_io` is encoded input plus the Party bytes actually
-//!   materialized across the result. Splitting must write those disjoint
-//!   encodings, which can repeat a unary input prefix once per share. The Clock
-//!   row uses its Party bytes on both sides: cloning the Version is a word-scale
-//!   refcount bump over one shared byte buffer, independent of its encoded
-//!   length.
+//! A shape whose encoding has a large fixed intercept may provide a separate
+//! content axis for the growth fit. Constants remain charged to encoded bytes,
+//! so this prevents a misleading exponent without relaxing the byte ceiling.
 //!
-//! **Do not re-denominate** (these stay input-denominated): both binary codec
-//! directions (the coding is canonical 1:1, so input bytes are the honest
-//! bound); every scalar, comparison, and query row (word-sized or borrowed
-//! results); and the encoded-output mutator rows (`join`, `meet`, `tick`,
-//! `fork`, `recv`, `sync`, `without`, and every projection cell outside the
-//! output-domination cross) — their input denomination rests on output coding ≤
-//! inputs + O(1) per overlay boundary, which is pinned for join/meet as the
-//! 1-Lipschitz proptest in [`tier2`](crate::meter::tier2)'s test suite rather
-//! than assumed.
+//! # Resource models
 //!
-//! **Rank operands** (`rank_pair_ops`, `rank_sum`, and `rank_encode`'s input
-//! side) are in-memory values with no encoded operand form; their denominator of
-//! record is the operands' **value content** `bits(num) + exp` in bytes. That
-//! content is wire-bounded: every public construction path (the
-//! `rank`/`distance`/`lag` folds) emits a rank whose numerator width and
-//! exponent are each linear in the encoded bits the fold read, so a ceiling per
-//! content byte is a ceiling per wire byte up to the fold's own constant.
-//! `rank_encode` is I/O-denominated (content in plus the actual canonical bytes
-//! out, read back from the result), with the emission's honesty asserted at
-//! prepare — the canonical form is at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits, so a
-//! padded output cannot inflate the denominator; `rank_decode`'s operand *is*
-//! the canonical bytes, input-denominated like every codec row; and the ranked
-//! rows stay input-denominated: `ranked_encode_rank`'s output is
-//! provenance-bounded within the encoded input and `ranked_encode`'s composite
-//! adds exactly the encoded bytes as its version tail (both asserted at
-//! prepare), so input bytes are the honest, harder denominator and the
-//! flat-denominator shape's content exponent governs them exactly as it governs
-//! `version_rank`; `ranked_decode`'s operand *is* the composite key, the codec
-//! rows' rule again.
+//! Every currency has two checks: growth against `trend` units and the largest
+//! reading against `constant` units. The default units implement the board's
+//! linear contract. A cell may instead state the units of a more precise bound,
+//! such as `D log k`, and may replace that currency's proportional ceiling.
+//! The judge treats all such models alike and always retains the global growth
+//! ceiling. The rendered row discloses every override.
 
 use std::any::Any;
 
-use super::currency::Floors;
+use super::currency::{ByCurrency, Currency, Floors};
+
+/// How one side of a resource model derives its units.
+#[derive(Clone, Copy)]
+pub(super) enum Units {
+    /// Use the board's ordinary units for this side of the model.
+    Default,
+    /// Multiply the ordinary units by this factor.
+    Scale(f64),
+    /// Use an operation-derived number of units directly.
+    Explicit(usize),
+}
+
+/// A cell's expected bound for one measured resource.
+///
+/// `trend` is the axis against which growth is fitted. `constant` is the axis
+/// against which the largest reading is normalized. Keeping them separate
+/// expresses, for example, a logarithmic marginal factor without weakening a
+/// tighter proportional constant. An absent `ceiling` retains the currency's
+/// global ceiling.
+#[derive(Clone, Copy)]
+pub(super) struct ModelSpec {
+    /// How this cell derives units for the growth fit.
+    pub(super) trend: Units,
+    /// How this cell derives units for the proportional check.
+    pub(super) constant: Units,
+    /// A cell-specific proportional ceiling, if the global one does not apply.
+    pub(super) ceiling: Option<f64>,
+}
+
+impl ModelSpec {
+    /// Use ordinary units and replace only the proportional ceiling.
+    pub(super) fn ceiling(ceiling: f64) -> Self {
+        assert!(
+            ceiling.is_finite() && ceiling > 0.0,
+            "a model ceiling is positive"
+        );
+        Self {
+            trend: Units::Default,
+            constant: Units::Default,
+            ceiling: Some(ceiling),
+        }
+    }
+
+    /// Judge both growth and proportional cost against `units`.
+    pub(super) fn work(units: usize) -> Self {
+        assert!(units > 0, "resource-model work units are positive");
+        Self {
+            trend: Units::Explicit(units),
+            constant: Units::Explicit(units),
+            ceiling: None,
+        }
+    }
+
+    /// Scale the growth axis while retaining the ordinary constant axis.
+    pub(super) fn scaled_trend(factor: f64) -> Self {
+        assert!(
+            factor.is_finite() && factor > 0.0,
+            "a model scale is positive"
+        );
+        Self {
+            trend: Units::Scale(factor),
+            constant: Units::Default,
+            ceiling: None,
+        }
+    }
+
+    /// Scale both axes and replace the proportional ceiling.
+    pub(super) fn scaled(factor: f64, ceiling: f64) -> Self {
+        assert!(
+            factor.is_finite() && factor > 0.0,
+            "a model scale is positive"
+        );
+        assert!(
+            ceiling.is_finite() && ceiling > 0.0,
+            "a model ceiling is positive"
+        );
+        Self {
+            trend: Units::Scale(factor),
+            constant: Units::Scale(factor),
+            ceiling: Some(ceiling),
+        }
+    }
+}
 
 /// One prepared cell run: the operand bytes it charges against, the
 /// denomination rule, and the body to measure.
@@ -93,18 +120,8 @@ pub(super) struct Cell {
     pub(super) denom: Denom,
     /// The cell's liveness declarations, one per floored column.
     pub(super) floors: Floors,
-    /// The fold rows' operand count at this scale: `Some` on the two n-ary fold
-    /// rows only, where it drives the declared fold scan model (the `ceilings`
-    /// module's declared-models section).
-    pub(super) fold_arity: Option<u64>,
-    /// A family-stated flat heap ceiling in bytes per denominator byte, judged
-    /// in place of
-    /// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::MAX_HEAP_BYTES_PER_INPUT_BYTE)'s.
-    ///
-    /// The declaring constant carries its derivation. The exponent leg remains
-    /// global, so this can tighten or relax a constant without admitting
-    /// faster growth.
-    pub(super) declared_heap: Option<f64>,
+    /// Resource models that differ from the board's global linear defaults.
+    pub(super) models: ByCurrency<Option<ModelSpec>>,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]
     pub(super) body: Box<dyn FnOnce() -> Box<dyn Any>>,
@@ -138,25 +155,19 @@ impl Cell {
             input_bytes,
             denom: Denom::Input,
             floors,
-            fold_arity: None,
-            declared_heap: None,
+            models: ByCurrency {
+                heap: None,
+                segments: None,
+                scan: None,
+                touch: None,
+            },
             body: Box::new(move || Box::new(body())),
         }
     }
 
-    /// Declare this cell's readings judged under the fold rows' fold scan model
-    /// at operand count `arity` (the `ceilings` module's declared-models
-    /// section).
-    pub(super) fn with_fold_arity(mut self, arity: u64) -> Cell {
-        self.fold_arity = Some(arity);
-        self
-    }
-
-    /// Declare this cell's heap constant judged against a family-stated flat
-    /// ceiling (the `ceilings` module's declared-models section); the exponent
-    /// leg stays at the global bound.
-    pub(super) fn with_declared_heap(mut self, bytes_per_denom_byte: f64) -> Cell {
-        self.declared_heap = Some(bytes_per_denom_byte);
+    /// Replace one currency's global linear model for this cell.
+    pub(super) fn with_model(mut self, currency: Currency, model: ModelSpec) -> Cell {
+        *self.models.get_mut(currency) = Some(model);
         self
     }
 
@@ -172,8 +183,12 @@ impl Cell {
             input_bytes,
             denom: Denom::Io(IoSpec { output_bytes }),
             floors,
-            fold_arity: None,
-            declared_heap: None,
+            models: ByCurrency {
+                heap: None,
+                segments: None,
+                scan: None,
+                touch: None,
+            },
             body: Box::new(move || Box::new(body())),
         }
     }

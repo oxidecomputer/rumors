@@ -46,6 +46,20 @@ proptest! {
         prop_assert!(actual == expected);
     }
 
+    /// The consuming traversal yields the recursive balanced partition in the
+    /// same preorder, while permitting each intermediate party to be split
+    /// only once.
+    #[test]
+    fn consuming_traversal_matches_recursive_splitting(
+        party in arb_oracle_party_nonempty(),
+        count in 1usize..65,
+    ) {
+        let party = from_oracle_party(&party);
+        let expected = recursive_split(party.dangerously_alias(), count);
+        let actual: Vec<Party> = party.into_shares(count).collect();
+        prop_assert!(actual == expected);
+    }
+
     /// Dropping after any prefix leaves exactly the untaken region in the
     /// borrower: rejoining the returned prefix reconstructs the input party.
     #[test]

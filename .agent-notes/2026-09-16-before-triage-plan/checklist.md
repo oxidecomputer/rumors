@@ -109,7 +109,7 @@ triage's dispositions and branches are leads only.
       Sources: `span-causally-24`, `span-causally-36`,
       `skyline-sweep-place-masked-21`.
 
-- [ ] Make full drains of `Party::forks`, `Clock::forks`, consuming array
+- [x] Make full drains of `Party::forks`, `Clock::forks`, consuming array
       splits, and `Clock::sync_all` honor their aggregate bounds. Exercise
       arity scaling where scattered input parties join to an alternating-leaf
       union, so producing every child cannot hide repeated scans or copies

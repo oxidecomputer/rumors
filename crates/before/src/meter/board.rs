@@ -35,15 +35,20 @@
 //! exceeding a ceiling. Floors detect a completely bypassed counter; they are
 //! not proofs that every relevant instruction was counted.
 //!
-//! # Denominators and declared models
+//! # Cost models
 //!
 //! Most cells divide cost by encoded input bytes. An operation whose required
 //! output can dominate its input instead uses total encoded input and output;
-//! the measurement reads the actual result size. A few operations have an
-//! unavoidable cost law more precise than the global linear bound, such as the
-//! balanced multi-input folds. Those cells declare and test that law directly.
-//! A red cell is never waived implicitly: it requires an implementation fix or
-//! an explicit model justified at the ceiling's definition.
+//! the measurement reads the actual result size.
+//!
+//! Each measured quantity defaults to a linear model in those bytes. A cell may
+//! state a more precise expected bound by supplying the units used for its
+//! growth trend and proportional constant. For example, a balanced reduction
+//! uses input bytes times its logarithmic depth. The same judge handles every
+//! model: measured work must remain linear in the stated units, within the
+//! currency's ceiling. An optional cell-specific ceiling changes only the
+//! proportional check. Every override is visible in the rendered row and needs
+//! a derivation beside the operation that supplies it.
 //!
 //! Rejection paths are measured too, with malformed data placed as late as the
 //! generator can arrange so an early exit cannot make the result misleading.
