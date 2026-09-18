@@ -278,11 +278,31 @@ pub(super) fn render_map(
     )
 }
 
+/// Every party-bearing family, for exact ties at one scan per input bit.
+const PARTY_STREAM_FAMILIES: &str = concat!(
+    "ascend-cliff,ascend-plateau,benign,comb-scatter,descending-raises,",
+    "dominated-undercut,id-pair,memo-chain,memo-churn,memo-comb,memo-fanout,",
+    "memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,",
+    "pure-comb,reveal-comb,reveal-hifloor,staircase",
+);
+
+/// Every version-bearing family, for exact ties at one scan per input bit.
+const VERSION_STREAM_FAMILIES: &str = concat!(
+    "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,",
+    "concurrent-pair,dense,dense-suffix,descending-raises,dominated-undercut,",
+    "freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,",
+    "memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,",
+    "mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,",
+    "promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,",
+    "weight-comb,wide-arming",
+);
+
 /// Expected winners as `(scale, operation, [heap, scan, touch])`.
 ///
 /// Tied family names are comma-separated in name order; `-` means every family
 /// read zero. [`check_worst_map`](super::shard::check_worst_map) compares this
 /// table with fresh release-profile measurements at [`WORST_MAP_SCALES`].
+#[rustfmt::skip]
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "version_decode", ["hugeleaf", "freeze-pos", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-"]),
@@ -345,7 +365,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "party_disjoint", ["-", "id-pair", "-"]),
     ("default", "party_without", ["id-pair", "id-pair", "-"]),
     ("default", "party_hash", ["-", "-", "-"]),
-    ("default", "clock_decode", ["id-pair", "promo-rearm", "lone-freeze"]),
+    ("default", "clock_decode", ["hugeleaf", "promo-rearm", "lone-freeze"]),
     ("default", "clock_encode", ["id-pair", "-", "-"]),
     ("default", "clock_tick", ["id-pair", "memo-oscillating", "mirror-narrow"]),
     ("default", "clock_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
@@ -366,21 +386,25 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "clock_recv", ["id-pair", "hugeleaf", "lone-freeze"]),
     ("default", "clock_own_version_to_version", ["id-pair", "comb-scatter", "staircase"]),
     ("default", "clock_hash", ["-", "-", "-"]),
-    ("default", "version_decode_truncated", ["wide-arming", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
+    ("default", "version_decode_truncated", ["wide-arming", VERSION_STREAM_FAMILIES, "staircase"]),
     ("default", "version_decode_trailing", ["hugeleaf", "promo-rearm", "staircase"]),
     ("default", "version_decode_noncanon", ["hugeleaf", "promo-rearm", "staircase"]),
     ("default", "span_decode_truncated", ["wide-arming", "jump-pair", "staircase"]),
     ("default", "span_decode_trailing", ["hugeleaf", "weight-comb", "staircase"]),
     ("default", "span_decode_crossed", ["hugeleaf", "hugeleaf", "ascend-plateau"]),
-    ("default", "party_decode_truncated", ["id-pair", "ascend-cliff,ascend-plateau,benign,comb-scatter,descending-raises,dominated-undercut,id-pair,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
+    ("default", "party_decode_truncated", ["id-pair", PARTY_STREAM_FAMILIES, "-"]),
     ("default", "party_decode_trailing", ["id-pair", "id-pair", "-"]),
     ("default", "party_decode_noncanon", ["id-pair", "id-pair", "-"]),
-    ("default", "clock_decode_truncated", ["id-pair", "promo-rearm", "lone-freeze"]),
-    ("default", "clock_decode_trailing", ["id-pair", "promo-rearm", "lone-freeze"]),
+    ("default", "clock_decode_truncated", ["wide-arming", "promo-rearm", "lone-freeze"]),
+    ("default", "clock_decode_trailing", ["hugeleaf", "promo-rearm", "lone-freeze"]),
     ("default", "party_join_overlap", ["id-pair", "mirror-narrow", "-"]),
     ("default", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "party_without_none", ["id-pair", "id-pair", "-"]),
+    ("default", "party_serde_deserialize", ["id-pair", "id-pair", "-"]),
+    ("default", "version_serde_deserialize", ["hugeleaf", "freeze-pos", "staircase"]),
+    ("default", "party_borsh_deserialize", ["id-pair", PARTY_STREAM_FAMILIES, "-"]),
+    ("default", "version_borsh_deserialize", ["jump-pair", VERSION_STREAM_FAMILIES, "staircase"]),
     ("acceptance", "version_decode", ["hugeleaf", "memo-oscillating", "staircase"]),
     ("acceptance", "version_encode", ["memo-oscillating", "-", "-"]),
     ("acceptance", "version_cmp", ["hugeleaf", "memo-oscillating", "staircase"]),
@@ -446,7 +470,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
         ["ascend-cliff,ascend-plateau", "id-pair", "-"],
     ),
     ("acceptance", "party_hash", ["-", "-", "-"]),
-    ("acceptance", "clock_decode", ["id-pair", "memo-oscillating", "lone-freeze"]),
+    ("acceptance", "clock_decode", ["hugeleaf", "memo-oscillating", "lone-freeze"]),
     ("acceptance", "clock_encode", ["id-pair", "-", "-"]),
     ("acceptance", "clock_tick", ["id-pair", "memo-oscillating", "mirror-narrow"]),
     ("acceptance", "clock_fork", ["id-pair", "mirror-narrow,nested-full", "-"]),
@@ -467,21 +491,25 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "clock_recv", ["id-pair", "hugeleaf", "lone-freeze"]),
     ("acceptance", "clock_own_version_to_version", ["id-pair", "comb-scatter", "staircase"]),
     ("acceptance", "clock_hash", ["-", "-", "-"]),
-    ("acceptance", "version_decode_truncated", ["wide-arming", "ascend-cliff,ascend-plateau,benign,bigroot,cliff,comb-scatter,concurrent-pair,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hugeleaf,jump-pair,lone-freeze,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,pure-comb,reveal-comb,reveal-hifloor,staircase,tooth-tail,weight-comb,wide-arming", "staircase"]),
+    ("acceptance", "version_decode_truncated", ["wide-arming", VERSION_STREAM_FAMILIES, "staircase"]),
     ("acceptance", "version_decode_trailing", ["hugeleaf", "memo-oscillating", "staircase"]),
     ("acceptance", "version_decode_noncanon", ["hugeleaf", "promo-rearm", "staircase"]),
     ("acceptance", "span_decode_truncated", ["wide-arming", "jump-pair", "staircase"]),
     ("acceptance", "span_decode_trailing", ["hugeleaf", "weight-comb", "staircase"]),
     ("acceptance", "span_decode_crossed", ["hugeleaf", "hugeleaf", "ascend-plateau"]),
-    ("acceptance", "party_decode_truncated", ["id-pair", "ascend-cliff,ascend-plateau,benign,comb-scatter,descending-raises,dominated-undercut,id-pair,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,pure-comb,reveal-comb,reveal-hifloor,staircase", "-"]),
+    ("acceptance", "party_decode_truncated", ["id-pair", PARTY_STREAM_FAMILIES, "-"]),
     ("acceptance", "party_decode_trailing", ["id-pair", "id-pair", "-"]),
     ("acceptance", "party_decode_noncanon", ["id-pair", "id-pair", "-"]),
     ("acceptance", "clock_decode_truncated", ["id-pair", "memo-oscillating", "lone-freeze"]),
-    ("acceptance", "clock_decode_trailing", ["id-pair", "memo-oscillating", "lone-freeze"]),
+    ("acceptance", "clock_decode_trailing", ["hugeleaf", "memo-oscillating", "lone-freeze"]),
     ("acceptance", "party_join_overlap", ["id-pair", "mirror-narrow", "-"]),
     ("acceptance", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "party_without_none", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "party_serde_deserialize", ["id-pair", "id-pair", "-"]),
+    ("acceptance", "version_serde_deserialize", ["hugeleaf", "memo-oscillating", "staircase"]),
+    ("acceptance", "party_borsh_deserialize", ["id-pair", PARTY_STREAM_FAMILIES, "-"]),
+    ("acceptance", "version_borsh_deserialize", ["jump-pair", VERSION_STREAM_FAMILIES, "staircase"]),
 ];
 
 /// Entry-compare the live worst-case fold against the committed ranking pin

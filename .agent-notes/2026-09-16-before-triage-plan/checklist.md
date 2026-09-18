@@ -62,7 +62,7 @@ triage's dispositions and branches are leads only.
       Sources: `codec-bits-8`, `codec-base-text-tree-*`, `rank-10`,
       `skyline-coding-31`, `fresh-eyes-2`, `api-audit-8`.
 
-- [ ] Exercise serde and borsh through their actual buffering and ownership
+- [x] Exercise serde and borsh through their actual buffering and ownership
       paths on wide-leaf and deep-topology inputs rather than delegating their
       resource claims to slice-backed codecs.
       Source: independent resource-surface audit, 2026-09-17.

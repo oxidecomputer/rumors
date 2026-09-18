@@ -100,6 +100,9 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         }
         // An in-range byte index fits `usize`: it indexes the buffer.
         let bit = self.bytes[(self.position / 8) as usize] & (0x80 >> (self.position % 8)) != 0;
+        // Count the logical bit consumed, matching `SliceCursor`; the meter
+        // observes the decoder's work rather than how reads are batched.
+        codec::scan::record_bits(1);
         self.position += 1;
         Ok(bit)
     }
@@ -120,6 +123,7 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         if let Some((n, next)) =
             codec::gamma::decode_window(codec::BitsView::whole(&self.bytes), self.position)
         {
+            codec::scan::record_bits_u64(next - self.position);
             self.position = next;
             return Ok(BigUint::from(n));
         }

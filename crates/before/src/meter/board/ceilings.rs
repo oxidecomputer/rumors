@@ -133,6 +133,15 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 /// 25% margin and rounds up. Their exponent remains judged independently.
 pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 3.0;
 
+/// Heap ceiling for deserializing an owned serde buffer or a borsh stream, in
+/// bytes per encoded input byte.
+///
+/// Serde transfers its input allocation into the decoded value. Borsh grows
+/// one output buffer while reading. Both validate with compact parser state, so
+/// their remaining heap stays a small multiple of the encoding. The ceiling is
+/// the largest release-profile reading with 25% headroom, rounded up.
+pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 4.0;
+
 /// The base sampling scale of the measurement ladder, and the size
 /// multiplier of a bare single-scale board run.
 ///

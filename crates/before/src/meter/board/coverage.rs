@@ -205,6 +205,14 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     (
         "serde / borsh impls (feature-gated, strict-decode pinned)",
         &[
+            #[cfg(feature = "serde")]
+            "party_serde_deserialize",
+            #[cfg(feature = "serde")]
+            "version_serde_deserialize",
+            #[cfg(feature = "borsh")]
+            "party_borsh_deserialize",
+            #[cfg(feature = "borsh")]
+            "version_borsh_deserialize",
             "version_encode",
             "version_decode",
             "party_encode",

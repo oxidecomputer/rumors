@@ -8,12 +8,20 @@ use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+#[cfg(feature = "borsh")]
+use borsh::BorshDeserialize;
 use num_bigint::BigUint;
+#[cfg(feature = "serde")]
+use serde::de::{DeserializeOwned, Visitor};
+#[cfg(feature = "serde")]
+use serde::Deserializer;
 
 use crate::causally::{self, Down, Query, Up};
 use crate::error::Decode;
 use crate::{Clock, Party, Rank, Ranked, Span, Ticks, Version};
 
+#[cfg(any(feature = "serde", feature = "borsh"))]
+use super::ceilings::DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE;
 use super::ceilings::{
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
     TICKS_BOARD_COUNT,
@@ -172,7 +180,7 @@ pub(super) struct Op {
 /// meaningful encoded operand. The `coverage` module accounts for the rest.
 #[allow(clippy::too_many_lines)]
 pub(super) fn ops() -> Vec<Op> {
-    vec![
+    let operations = vec![
         // ── Version ────────────────────────────────────────────────────
         Op {
             name: "version_decode",
@@ -2121,10 +2129,173 @@ pub(super) fn ops() -> Vec<Op> {
                 }))
             },
         },
-    ]
+    ];
+    #[cfg(any(feature = "serde", feature = "borsh"))]
+    let mut operations = operations;
+    #[cfg(feature = "serde")]
+    operations.extend(serde_decode_ops());
+    #[cfg(feature = "borsh")]
+    operations.extend(borsh_decode_ops());
+    operations
 }
 
 /// The bytes needed to store a rank's numerator, rounded up.
 fn rank_numerator_bytes(rank: &Rank) -> usize {
     rank.raw_parts().0.bits().div_ceil(8).max(1) as usize
+}
+
+/// A binary serde input which gives its byte allocation to the visitor.
+///
+/// This is the ownership case the serde adapters are designed to preserve: a
+/// format has already accumulated one field in a `Vec`, then transfers that
+/// allocation through `visit_byte_buf`. Reporting the format as binary also
+/// keeps [`Rank`]'s text representation out of this byte-oriented path.
+#[cfg(feature = "serde")]
+struct OwnedBytes(Vec<u8>);
+
+#[cfg(feature = "serde")]
+impl<'de> Deserializer<'de> for OwnedBytes {
+    type Error = serde::de::value::Error;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_byte_buf(self.0)
+    }
+
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_byte_buf(self.0)
+    }
+
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_byte_buf(self.0)
+    }
+
+    fn is_human_readable(&self) -> bool {
+        false
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        option unit unit_struct newtype_struct seq tuple tuple_struct map struct enum
+        identifier ignored_any
+    }
+}
+
+/// Deserialize one binary serde byte field while transferring its allocation.
+#[cfg(feature = "serde")]
+fn serde_from_owned_bytes<T: DeserializeOwned>(bytes: Vec<u8>) -> T {
+    T::deserialize(OwnedBytes(bytes))
+        .unwrap_or_else(|error| panic!("board-generated serde bytes must decode: {error}"))
+}
+
+/// Direct serde deserialization rows for the two encoded tree grammars.
+#[cfg(feature = "serde")]
+fn serde_decode_ops() -> [Op; 2] {
+    const OWNED_INPUT: &str = "serde transfers the caller's byte allocation into the decoded \
+        value; only validation state may allocate";
+    [
+        Op {
+            name: "party_serde_deserialize",
+            prepare: |f| {
+                let (bytes, _) = f.parties.clone()?;
+                let n = bytes.len();
+                let floors = Floors {
+                    heap: na(OWNED_INPUT),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                Some(
+                    Cell::new(n, floors, move || serde_from_owned_bytes::<Party>(bytes))
+                        .with_model(
+                            Currency::Heap,
+                            ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                        ),
+                )
+            },
+        },
+        Op {
+            name: "version_serde_deserialize",
+            prepare: |f| {
+                let bytes = f.version.clone()?;
+                let n = bytes.len();
+                let version = decode_version(&bytes);
+                let floors = Floors {
+                    heap: na(OWNED_INPUT),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: touch_wide_stream(&version),
+                };
+                Some(
+                    Cell::new(n, floors, move || serde_from_owned_bytes::<Version>(bytes))
+                        .with_model(
+                            Currency::Heap,
+                            ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                        ),
+                )
+            },
+        },
+    ]
+}
+
+/// Direct borsh deserialization rows for the two encoded tree grammars.
+#[cfg(feature = "borsh")]
+fn borsh_decode_ops() -> [Op; 2] {
+    [
+        Op {
+            name: "party_borsh_deserialize",
+            prepare: |f| {
+                let (bytes, _) = f.parties.clone()?;
+                let n = bytes.len();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                Some(
+                    Cell::new(n, floors, move || {
+                        Party::try_from_slice(&bytes)
+                            .expect("board-generated borsh party bytes are canonical")
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
+            name: "version_borsh_deserialize",
+            prepare: |f| {
+                let bytes = f.version.clone()?;
+                let n = bytes.len();
+                let version = decode_version(&bytes);
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    segments: seg_ceiling_only(),
+                    scan: scan_examines(n),
+                    touch: touch_wide_stream(&version),
+                };
+                Some(
+                    Cell::new(n, floors, move || {
+                        Version::try_from_slice(&bytes)
+                            .expect("board-generated borsh version bytes are canonical")
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+    ]
 }

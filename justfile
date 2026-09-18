@@ -822,7 +822,7 @@ bench-alloc-ab target arm="shipped" *filter:
 
 # One command serves every board recipe, keeping the production profile part
 # of the instrument rather than a convention each entry point must repeat.
-amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter"
+amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter,serde,borsh"
 
 # Render the amplification board at one scale: a debugging view of the red-green matrix.
 amp-board *args:

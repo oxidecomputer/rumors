@@ -104,7 +104,7 @@ unexpected_cfgs = { level = "deny", check-cfg = [
 # error instead of a board that looks judged and isn't.
 [[example]]
 name = "amp_board"
-required-features = ["touch-meter", "scan-meter"]
+required-features = ["touch-meter", "scan-meter", "serde", "borsh"]
 
 # The integer-code corpus study walks the board's shape bundles, which live
 # behind the meter surface. Measure-only: it re-parses stored streams and
