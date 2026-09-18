@@ -1,19 +1,20 @@
-//! Type-erased stream supply, the monomorphization funnel for sessions.
+//! Type-erased stream supply for wire sessions.
 //!
-//! The protocol state machines carry their transport type parameters through
-//! every height of the descent, so each distinct [`Link`](super::Link)
-//! instantiation would re-instantiate both towers in each downstream binary,
-//! at a measured cost of about +0.7 GiB of rustc peak memory per additional
-//! tower instantiation — the reason this funnel is load-bearing. Every
-//! session entry point therefore erases the link's stream supply here
-//! — mirroring the `DynRead`/`DynWrite` erasure of the control halves — and
-//! the towers instantiate once per payload type.
+//! The reconciliation state machine is deeply generic. Carrying a concrete
+//! [`Link`](super::Link) through it would compile another copy for every link
+//! implementation in a downstream binary. Session entry points instead erase
+//! the link's control halves, connector, and acceptor before entering the
+//! protocol, so caller-defined link types no longer multiply copies of that
+//! large body.
 //!
-//! The price is one vtable call per `poll_read`/`poll_write` beneath the
-//! frame codec, and — per stream open/accept — a vtable call plus two
-//! allocations: the fresh `Box::pin` for the [`BoxFuture`] each erased
-//! `connect`/`accept` returns, and the box that erases the stream half it
-//! yields.
+//! A stream half and its [`Done`] callback have the same concrete type
+//! parameter, so they must be erased together. [`HalfWithDone`] stores that
+//! pair behind the read or write trait object. Completing the erased half
+//! recovers the pair and invokes the original callback.
+//!
+//! Erasure adds dynamic dispatch beneath the frame codec. Each stream open or
+//! accept also allocates a [`BoxFuture`] and a box for the returned stream
+//! half.
 
 use std::io;
 use std::pin::Pin;
@@ -25,14 +26,25 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::{Acceptor, Connector, Done};
 
-/// A half boxed together with its [`Done`], so completion has the
-/// concrete types.
-struct Bundle<H> {
+/// A stream half kept with the concrete callback that completes it.
+struct HalfWithDone<H> {
+    /// The stream half exposed through the erased read or write interface.
     half: H,
+    /// The transport's action for a cleanly completed stream.
     done: Done<H>,
 }
 
-impl<H: AsyncWrite + Unpin> AsyncWrite for Bundle<H> {
+/// Recover and complete a stream after its erased user reaches the end.
+impl<H> HalfWithDone<H> {
+    /// Invoke the transport's completion action with the concrete half.
+    fn complete(self) {
+        self.done.complete(self.half);
+    }
+}
+
+/// Forward erased writes to the concrete stream half.
+impl<H: AsyncWrite + Unpin> AsyncWrite for HalfWithDone<H> {
+    /// Write through to the concrete stream half.
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -41,16 +53,20 @@ impl<H: AsyncWrite + Unpin> AsyncWrite for Bundle<H> {
         Pin::new(&mut self.half).poll_write(cx, buf)
     }
 
+    /// Flush the concrete stream half.
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.half).poll_flush(cx)
     }
 
+    /// Shut down the concrete stream half.
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.half).poll_shutdown(cx)
     }
 }
 
-impl<H: AsyncRead + Unpin> AsyncRead for Bundle<H> {
+/// Forward erased reads to the concrete stream half.
+impl<H: AsyncRead + Unpin> AsyncRead for HalfWithDone<H> {
+    /// Read through to the concrete stream half.
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -60,29 +76,31 @@ impl<H: AsyncRead + Unpin> AsyncRead for Bundle<H> {
     }
 }
 
-/// An erased outgoing half, completable through the box.
+/// A boxed outgoing half that can still run its concrete completion action.
 pub(crate) trait TxDyn: AsyncWrite + Unpin + Send {
-    /// Release the bundled half at its stream's clean end.
+    /// Complete the stream and release its concrete half.
     fn complete(self: Box<Self>);
 }
 
-impl<H: AsyncWrite + Unpin + Send> TxDyn for Bundle<H> {
+/// Preserve clean completion while erasing an outgoing half.
+impl<H: AsyncWrite + Unpin + Send> TxDyn for HalfWithDone<H> {
+    /// Recover the concrete half and its completion action.
     fn complete(self: Box<Self>) {
-        let Bundle { half, done } = *self;
-        done.complete(half);
+        HalfWithDone::complete(*self);
     }
 }
 
-/// An erased incoming half, completable through the box.
+/// A boxed incoming half that can still run its concrete completion action.
 pub(crate) trait RxDyn: AsyncRead + Unpin + Send {
-    /// Release the bundled half at its stream's clean end.
+    /// Complete the stream and release its concrete half.
     fn complete(self: Box<Self>);
 }
 
-impl<H: AsyncRead + Unpin + Send> RxDyn for Bundle<H> {
+/// Preserve clean completion while erasing an incoming half.
+impl<H: AsyncRead + Unpin + Send> RxDyn for HalfWithDone<H> {
+    /// Recover the concrete half and its completion action.
     fn complete(self: Box<Self>) {
-        let Bundle { half, done } = *self;
-        done.complete(half);
+        HalfWithDone::complete(*self);
     }
 }
 
@@ -94,14 +112,17 @@ pub(crate) type DynRx = Box<dyn RxDyn>;
 
 /// Object-safe [`Connector`], for erasure behind an [`Arc`].
 trait ConnectDyn: Send + Sync {
+    /// Open and erase one outgoing stream.
     fn connect_dyn(&self) -> BoxFuture<'_, io::Result<(DynTx, Done<DynTx>)>>;
 }
 
+/// Erase streams opened by any concrete connector.
 impl<C: Connector> ConnectDyn for C {
+    /// Keep the concrete completion action beside the half before boxing it.
     fn connect_dyn(&self) -> BoxFuture<'_, io::Result<(DynTx, Done<DynTx>)>> {
         Box::pin(async {
             let (half, done) = self.connect().await?;
-            let erased: DynTx = Box::new(Bundle { half, done });
+            let erased: DynTx = Box::new(HalfWithDone { half, done });
             Ok((erased, Done::new(TxDyn::complete)))
         })
     }
@@ -121,9 +142,12 @@ impl DynConnector {
     }
 }
 
+/// Open outgoing streams through the erased connector.
 impl Connector for DynConnector {
+    /// The erased outgoing stream half.
     type Tx = DynTx;
 
+    /// Dispatch an open through the concrete connector.
     async fn connect(&self) -> io::Result<(DynTx, Done<DynTx>)> {
         self.0.connect_dyn().await
     }
@@ -131,14 +155,17 @@ impl Connector for DynConnector {
 
 /// Object-safe [`Acceptor`], for erasure behind a `&mut` borrow.
 pub(crate) trait AcceptDyn: Send {
+    /// Accept and erase one incoming stream.
     fn accept_dyn(&mut self) -> BoxFuture<'_, io::Result<(DynRx, Done<DynRx>)>>;
 }
 
+/// Erase streams accepted by any concrete acceptor.
 impl<A: Acceptor> AcceptDyn for A {
+    /// Keep the concrete completion action beside the half before boxing it.
     fn accept_dyn(&mut self) -> BoxFuture<'_, io::Result<(DynRx, Done<DynRx>)>> {
         Box::pin(async {
             let (half, done) = self.accept().await?;
-            let erased: DynRx = Box::new(Bundle { half, done });
+            let erased: DynRx = Box::new(HalfWithDone { half, done });
             Ok((erased, Done::new(RxDyn::complete)))
         })
     }
@@ -151,9 +178,12 @@ impl<A: Acceptor> AcceptDyn for A {
 /// returns to the caller's [`Link`](super::Link) between sessions.
 pub(crate) type DynAcceptor<'a> = &'a mut (dyn AcceptDyn + 'a);
 
+/// Accept incoming streams through the erased acceptor.
 impl<'a, 'd> Acceptor for &'a mut (dyn AcceptDyn + 'd) {
+    /// The erased incoming stream half.
     type Rx = DynRx;
 
+    /// Dispatch an accept through the concrete acceptor.
     async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         // Dispatch through the object explicitly: plain method syntax would
         // resolve to the blanket `AcceptDyn` impl for `&mut dyn AcceptDyn`
