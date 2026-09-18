@@ -28,6 +28,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use super::left_initiates;
 use crate::tree::Root as TreeRoot;
 use crate::tree::mirror::streaming::materialized::{
     progress::{Event, Kind as EventKind, Trace},
@@ -146,25 +147,11 @@ pub(super) fn asks(p: Party, height: usize) -> bool {
 /// If the advertised versions are equal: such a session short-circuits
 /// without descending, so it has no skeleton to talk about.
 pub(super) fn client_role(client: &TreeRoot, server: &TreeRoot) -> Party {
-    if crate::tree::mirror::streaming::message::initiates(
-        advertised_len(client),
-        &client.ceiling,
-        advertised_len(server),
-        &server.ceiling,
-    ) {
+    if left_initiates(client, server) {
         Party::I
     } else {
         Party::R
     }
-}
-
-/// The live message count a root advertises in its greeting: the election's
-/// primary key.
-fn advertised_len(root: &TreeRoot) -> u64 {
-    root.root
-        .as_ref()
-        .map(|node| node.len() as u64)
-        .unwrap_or_default()
 }
 
 // ------------------------------------------------------------ the projection

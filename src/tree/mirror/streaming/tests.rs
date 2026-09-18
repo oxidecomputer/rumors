@@ -28,6 +28,7 @@ use crate::tree::mirror::streaming::materialized::channel::{
 use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
 use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
 use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Start};
+use crate::tree::mirror::streaming::message::RoleKey;
 use crate::tree::mirror::streaming::stats::{Recorder, SessionStats};
 use crate::tree::mirror::streaming::window::{
     DEFAULT_SYNC_MEMORY_BUDGET, ReplicaSize, Window, WindowConfig,
@@ -43,6 +44,12 @@ mod local_eq;
 mod skeleton;
 mod stats;
 mod wedge;
+
+/// Whether the left tree wins the session's role election.
+fn left_initiates(left: &Root, right: &Root) -> bool {
+    let key = |root: &Root| RoleKey::new(root.len() as u64, root.ceiling.clone());
+    key(left).initiates(&key(right))
+}
 
 /// Either terminal error preempts a peer which can no longer make progress.
 #[test]

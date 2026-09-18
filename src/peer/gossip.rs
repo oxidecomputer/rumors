@@ -929,7 +929,7 @@ impl<'a> Reconciliation<'a> {
             let handshaken = streaming::handshake(local, proxy)
                 .await
                 .map_err(streaming_remote::streaming_error)?;
-            remote_role.validate(&handshaken.peer().version)?;
+            remote_role.validate(handshaken.remote_version())?;
             let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
             let (root, (read, write)) = descent.await.map_err(streaming_remote::streaming_error)?;
             Ok((root.into(), read, write))

@@ -67,7 +67,8 @@ pub struct Greeting {
     /// Both sides size their session window from the pair: dispute
     /// populations scale with the *product* of the two sizes (joint
     /// occupancy), so the window needs the peer's size, not an estimate.
-    /// The pair is also the role election's primary key ([`initiates`]):
+    /// The pair is also the role election's primary key
+    /// ([`RoleKey::initiates`]):
     /// the smaller set initiates, so the bulk holder lands in the
     /// responder role, whose exclusive content ships as whole-subtree
     /// supplies.
@@ -119,40 +120,61 @@ pub struct Greeting {
     pub listing: Vec<(u8, Hash)>,
 }
 
-/// Elect roles from the exchanged greetings: does the side advertising
-/// `(len, version)` initiate against a peer advertising `(peer_len,
-/// peer_version)`?
-///
-/// The smaller exchanged set initiates. The initiator's opening act is a
-/// pure question (its listing rides the greeting), while the elected
-/// responder answers that question directly with whole-subtree supplies
-/// for every root child the initiator lacks — so routing the bulk holder
-/// into the responder role ships its exclusive content at the coarsest
-/// granularity and on the earliest possible hop. Equal sizes fall back
-/// to the canonical version encodings' lexicographic order (the greater
-/// encoding initiates): causal versions are only partially ordered, and
-/// the byte order is an arbitrary but total, deterministic tiebreak.
-/// Both keys ride every greeting, so the two sides always elect
-/// complementary roles from the same exchanged pair.
-///
-/// # Panics
-///
-/// If the versions are equal: a converged session short-circuits at the
-/// greeting and never elects roles.
-pub(crate) fn initiates(
-    len: u64,
-    version: &Version,
-    peer_len: u64,
-    peer_version: &Version,
-) -> bool {
-    match len.cmp(&peer_len) {
-        Ordering::Less => true,
-        Ordering::Greater => false,
-        Ordering::Equal => match version.as_bytes().cmp(peer_version.as_bytes()) {
-            Ordering::Greater => true,
-            Ordering::Less => false,
-            Ordering::Equal => unreachable!("equal versions do not elect roles"),
-        },
+/// The greeting fields used to elect the session initiator.
+#[derive(Clone)]
+pub(crate) struct RoleKey {
+    /// The sender's live message count, the primary election key.
+    set_len: u64,
+    /// The sender's causal version, the deterministic tiebreaker.
+    version: Version,
+}
+
+impl RoleKey {
+    /// Construct a role key from the values a greeting advertises.
+    pub(crate) fn new(set_len: u64, version: Version) -> Self {
+        Self { set_len, version }
+    }
+
+    /// Return the advertised version.
+    pub(crate) fn version(&self) -> &Version {
+        &self.version
+    }
+
+    /// Decide whether this side initiates against `peer`.
+    ///
+    /// The smaller exchanged set initiates. The initiator's opening act is a
+    /// pure question (its listing rides the greeting), while the elected
+    /// responder answers that question directly with whole-subtree supplies
+    /// for every root child the initiator lacks. This puts the bulk holder in
+    /// the responder role, where its exclusive content can move at the
+    /// coarsest granularity and on the earliest possible hop.
+    ///
+    /// Equal sizes fall back to the canonical version encodings' lexicographic
+    /// order; the greater encoding initiates. Causal versions are only
+    /// partially ordered, so the byte order supplies an arbitrary but total,
+    /// deterministic tiebreaker.
+    ///
+    /// # Panics
+    ///
+    /// If the versions are equal. A converged session ends during the greeting
+    /// exchange and never elects roles.
+    pub(crate) fn initiates(&self, peer: &Self) -> bool {
+        match self.set_len.cmp(&peer.set_len) {
+            Ordering::Less => true,
+            Ordering::Greater => false,
+            Ordering::Equal => match self.version.as_bytes().cmp(peer.version.as_bytes()) {
+                Ordering::Greater => true,
+                Ordering::Less => false,
+                Ordering::Equal => unreachable!("equal versions do not elect roles"),
+            },
+        }
+    }
+}
+
+impl Greeting {
+    /// Copy the two fields used for role election.
+    pub(crate) fn role_key(&self) -> RoleKey {
+        RoleKey::new(self.set_len, self.version.clone())
     }
 }
 

@@ -20,12 +20,11 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 
 use super::fixtures::{LeafOrder, divergent_cells_pair, grown, path_at, rooted};
-use super::{LocalSession, join_oracle};
+use super::{LocalSession, join_oracle, left_initiates};
 use crate::tree::Root;
 use crate::tree::arb::{
     arb_forgotten_siblings, forgotten_sibling_pair, leaf_parent_redaction_pair,
 };
-use crate::tree::mirror::streaming::message::initiates;
 use crate::tree::mirror::streaming::stats::SessionStats;
 use crate::tree::mirror::streaming::{Local, Root as StreamingRoot};
 
@@ -47,14 +46,6 @@ fn mirror_with_stats(a: Root, b: Root) -> (Root, Root, SessionStats, SessionStat
 fn live(root: &Root) -> u64 {
     let root: StreamingRoot<Local> = root.clone().into();
     root.len()
-}
-
-/// Whether `a` wins the initiator election against `b`, mirroring the
-/// session's role election (the smaller exchanged set initiates,
-/// canonical version bytes break ties).
-fn a_initiates(a: &Root, b: &Root) -> bool {
-    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.clone().into(), b.clone().into());
-    initiates(a.len(), &a.ceiling, b.len(), &b.ceiling)
 }
 
 /// The dispute oracle for `divergent_cells_pair` corpora: the number of
@@ -137,7 +128,7 @@ fn pyramid_disputes_match_the_prefix_closure() {
     let (a, b) = divergent_cells_pair(&cells, 1, LeafOrder::Outside);
     let a_before = live(&a);
     let b_before = live(&b);
-    let a_leads = a_initiates(&a, &b);
+    let a_leads = left_initiates(&a, &b);
 
     let (ours, theirs, a_stats, b_stats) = mirror_with_stats(a, b);
     assert_eq!(ours, theirs, "endpoints converge");
@@ -288,7 +279,7 @@ proptest! {
         let a_before = live(&a);
         let b_before = live(&b);
         let equal = a_before == 0 && b_before == 0;
-        let a_leads = !equal && a_initiates(&a, &b);
+        let a_leads = !equal && left_initiates(&a, &b);
 
         let (ours, theirs, a_stats, b_stats) = mirror_with_stats(a, b);
         prop_assert_eq!(&ours, &theirs);

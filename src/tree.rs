@@ -121,6 +121,13 @@ impl Default for Root {
     }
 }
 
+impl Root {
+    /// Return the number of live messages represented by this root.
+    pub(crate) fn len(&self) -> usize {
+        self.root.as_ref().map(typed::Node::len).unwrap_or_default()
+    }
+}
+
 impl PartialEq for Root {
     fn eq(&self, other: &Self) -> bool {
         self.ceiling == other.ceiling && self.root == other.root
@@ -276,7 +283,7 @@ impl<T> Tree<T> {
 
     /// Returns the number of messages in the tree.
     pub fn len(&self) -> usize {
-        self.root.root.as_ref().map(Node::len).unwrap_or_default()
+        self.root.len()
     }
 
     /// The largest canonical version encoding among every bound the

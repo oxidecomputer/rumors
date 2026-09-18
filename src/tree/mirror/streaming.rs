@@ -72,8 +72,9 @@ pub use testing::{
 use futures::future::BoxFuture;
 
 use super::Error;
-use crate::{Version, tree::typed::height::Z};
+use crate::tree::typed::height::Z;
 use driver::{mirror_connected, try_join_mapped};
+use message::RoleKey;
 use protocol::*;
 
 /// A client after both greetings have been exchanged.
@@ -92,13 +93,10 @@ where
     client: ClientConnected<C, B>,
     /// The connected server participant.
     server: ServerConnected<S, B>,
-    /// The local set version advertised in the greeting.
-    our_version: Version,
-    /// Our advertised live message count: our half of the role election's
-    /// primary key ([`message::initiates`]).
-    our_len: u64,
-    /// The peer's validated greeting.
-    peer: message::Greeting,
+    /// The local greeting fields used to elect roles.
+    local_key: RoleKey,
+    /// The peer's greeting fields used to elect roles.
+    remote_key: RoleKey,
 }
 
 /// Operations available after both greetings have been exchanged.
@@ -108,10 +106,9 @@ where
     C: Client<B>,
     S: Server<B>,
 {
-    /// Return the peer's greeting.
-    pub(crate) fn peer(&self) -> &message::Greeting {
-        let Handshaken { peer, .. } = self;
-        peer
+    /// Return the version advertised by the peer.
+    pub(crate) fn remote_version(&self) -> &crate::Version {
+        self.remote_key.version()
     }
 
     /// Reconcile the two connected sessions, returning both sides' outputs.
@@ -128,19 +125,10 @@ where
             let Handshaken {
                 client: local,
                 server: remote,
-                our_version,
-                our_len,
-                peer,
+                local_key,
+                remote_key,
             } = self;
-            descend(
-                local,
-                remote,
-                our_version,
-                our_len,
-                peer.version,
-                peer.set_len,
-            )
-            .await
+            descend(local, remote, local_key, remote_key).await
         })
     }
 }
@@ -174,20 +162,16 @@ where
     S: Server<B>,
 {
     let (our_greeting, client) = client.connect().await.map_err(Error::Client)?;
-    let our_version = our_greeting.version.clone();
-    let our_len = our_greeting.set_len;
+    let local_key = our_greeting.role_key();
     let (peer, server) = server.accept(our_greeting).await.map_err(Error::Server)?;
-    let client = client
-        .complete_connect(peer.clone())
-        .await
-        .map_err(Error::Client)?;
+    let remote_key = peer.role_key();
+    let client = client.complete_connect(peer).await.map_err(Error::Client)?;
 
     Ok(Handshaken {
         client,
         server,
-        our_version,
-        our_len,
-        peer,
+        local_key,
+        remote_key,
     })
 }
 
@@ -195,17 +179,15 @@ where
 pub(crate) async fn descend<L, R, B>(
     local: L,
     remote: R,
-    local_version: Version,
-    local_len: u64,
-    remote_version: Version,
-    remote_len: u64,
+    local_key: RoleKey,
+    remote_key: RoleKey,
 ) -> Result<(L::Output, R::Output), Error<L::Error, R::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
     L: Peer<B>,
     R: Peer<B>,
 {
-    if local_version == remote_version {
+    if local_key.version() == remote_key.version() {
         return try_join_mapped(
             local.complete_equal(),
             Error::Client,
@@ -214,9 +196,7 @@ where
         )
         .await;
     }
-    // The role election of record: the smaller exchanged set initiates,
-    // canonical version bytes break ties (`message::initiates`).
-    if message::initiates(local_len, &local_version, remote_len, &remote_version) {
+    if local_key.initiates(&remote_key) {
         mirror_connected(local, remote).await
     } else {
         // Flip the remotely initiated result back into caller order.

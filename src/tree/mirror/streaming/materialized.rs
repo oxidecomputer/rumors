@@ -313,11 +313,8 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, V> {
     stats: Recorder,
 }
 
-/// The version state of a stage that has been opened but has not yet sent its
-/// handshake.
-pub struct Start {
-    our_version: Version,
-}
+/// A stage that has been opened but has not yet sent its greeting.
+pub struct Start;
 
 /// The version state of a stage that has sent its greeting but not yet
 /// received the peer's.
@@ -326,7 +323,6 @@ pub struct Start {
 /// descent reuses it instead of asking the backend for the root's children a
 /// second time (the memory model's one-query-per-prefix rule).
 pub struct Connecting<B: Backend<Node<Z>: Leaf>> {
-    our_version: Version,
     /// The root fan, already erased: everything downstream of the
     /// greeting — the descent's workers included — speaks the erased
     /// representation.
@@ -338,19 +334,47 @@ pub struct Connecting<B: Backend<Node<Z>: Leaf>> {
 ///
 /// Like [`Connecting`], retains the greeting-time root fan for the descent.
 pub struct Connected<B: Backend<Node<Z>: Leaf>> {
-    our_version: Version,
-    their_version: Version,
-    /// The peer's live message count, from its greeting.
-    their_len: u64,
-    /// The peer's largest live version-bound encoding in bytes, from
-    /// its greeting.
-    their_version_bytes: u64,
-    /// The peer's root-fan listing, from its greeting: what an elected
-    /// initiator merges its own fan against to ship its exclusive root
-    /// children as the opening's early supplies.
-    their_listing: Vec<(u8, Hash)>,
+    /// The remote tree properties consumed when the descent opens.
+    peer: PeerSummary,
     /// The root fan, erased at greeting time ([`Connecting`]).
     fan: Vec<(u8, B::Erased)>,
+}
+
+/// The remote tree properties retained from its greeting.
+struct PeerSummary {
+    /// The peer's causal version, used to bound supplies and join ceilings.
+    version: Version,
+    /// The peer's declared message count and maximum encoded version size.
+    size: ReplicaSize,
+    /// The peer's root-fan listing, consumed by the elected initiator.
+    listing: Vec<(u8, Hash)>,
+}
+
+impl PeerSummary {
+    /// Retain the greeting fields used after the driver elects roles.
+    fn from_greeting(greeting: Greeting) -> Self {
+        Self {
+            version: greeting.version,
+            size: ReplicaSize::new(greeting.set_len, greeting.max_version_bytes),
+            listing: greeting.listing,
+        }
+    }
+}
+
+/// Shared state prepared before opening either materialized role.
+struct Opening<B: Backend<Node<Z>: Leaf>> {
+    /// The peer's causal version, retained through the descent.
+    peer_version: Version,
+    /// The peer's root-fan listing, used only by an elected initiator.
+    peer_listing: Vec<(u8, Hash)>,
+    /// The session-total allowance for supplies received from the peer.
+    ledger: SupplyLedger,
+    /// The joined ceiling assigned to reconstructed nodes.
+    ceiling: Version,
+    /// The local root fan computed for the greeting.
+    fan: Vec<(u8, B::Erased)>,
+    /// The work accumulator configured from both greetings.
+    work: Work<B>,
 }
 
 /// A mirror stage inside the descent, consuming [`Reply<B, H>`](Reply)
@@ -427,9 +451,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     pub fn start(backend: B, root: Root<B>, target_message_size: u64) -> Self {
         Self {
             backend,
-            versions: Start {
-                our_version: root.ceiling.clone(),
-            },
+            versions: Start,
             root,
             window: WindowConfig::default(),
             target_message_size,
@@ -495,13 +517,11 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
     type Next = Handshaking<B, Connecting<B>>;
 
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let Start { our_version } = self.versions;
-
         let fan = greeting_fan(&self.backend, self.root.root.clone())
             .await
             .map_err(Error::Backend)?;
         let greeting = Greeting {
-            version: our_version.clone(),
+            version: self.root.ceiling.clone(),
             // The greeting's sizes come from the root's own aggregates,
             // so they cannot drift from the tree they describe.
             set_len: self.root.len(),
@@ -515,7 +535,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
         };
         let next = Handshaking {
             backend: self.backend,
-            versions: Connecting { our_version, fan },
+            versions: Connecting { fan },
             root: self.root,
             window: self.window,
             target_message_size: self.target_message_size,
@@ -532,11 +552,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
         Ok(Handshaking {
             backend: self.backend,
             versions: Connected {
-                our_version: self.versions.our_version,
-                their_version: theirs.version,
-                their_len: theirs.set_len,
-                their_version_bytes: theirs.max_version_bytes,
-                their_listing: theirs.listing,
+                peer: PeerSummary::from_greeting(theirs),
                 fan: self.versions.fan,
             },
             root: self.root,
@@ -551,40 +567,34 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
     type Next = Handshaking<B, Connected<B>>;
 
     async fn accept(self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
-        let Start { our_version } = self.versions;
-
-        let fan = greeting_fan(&self.backend, self.root.root.clone())
-            .await
-            .map_err(Error::Backend)?;
-        let greeting = Greeting {
-            version: our_version.clone(),
-            // The greeting's sizes come from the root's own aggregates,
-            // so they cannot drift from the tree they describe.
-            set_len: self.root.len(),
-            max_version_bytes: self.root.max_version_bytes(),
-            // The walk is not the wire: on a wire session the proxy
-            // stamps its codec's configured limit over this field at
-            // send, so an in-process participant carries the default.
-            payload_depth_limit: PayloadDepthLimit::default().get(),
-            target_message_size: self.target_message_size,
-            listing: fan_listing(&fan),
-        };
-        let next = Handshaking {
-            backend: self.backend,
-            versions: Connected {
-                our_version,
-                their_version: request.version,
-                their_len: request.set_len,
-                their_version_bytes: request.max_version_bytes,
-                their_listing: request.listing,
-                fan,
-            },
-            root: self.root,
-            window: self.window,
-            target_message_size: self.target_message_size,
-            stats: self.stats,
-        };
+        // The server sends the same greeting as the client path, then consumes
+        // the already-received peer greeting to reach the shared connected
+        // state. Composing the two transitions keeps greeting construction in
+        // one place.
+        let (greeting, connecting) = <Self as protocol::Connect<B>>::connect(self).await?;
+        let next = protocol::CompleteConnect::complete_connect(connecting, request).await?;
         Ok((greeting, next))
+    }
+}
+
+/// Prepare the role-independent work shared by both descent openings.
+impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
+    fn open(self) -> Opening<B> {
+        let Connected { peer, fan } = self.versions;
+        let local_size = ReplicaSize::new(self.root.len(), self.root.max_version_bytes());
+        let ceiling = self.root.ceiling | &peer.version;
+        let window = self.window.resolve([local_size, peer.size], B::node_bytes);
+        self.stats.window_granted(window.widest());
+        let ledger = SupplyLedger::new(peer.size.messages());
+        let work = Work::new(self.backend, window, self.stats);
+        Opening {
+            peer_version: peer.version,
+            peer_listing: peer.listing,
+            ledger,
+            ceiling,
+            fan,
+            work,
+        }
     }
 }
 
@@ -598,33 +608,21 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Initiator<B> for Handshaking<B,
     type Next = Descending<B, UnderRoot>;
 
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
-        let Connected {
-            our_version,
-            their_version,
-            their_len,
-            their_version_bytes,
-            their_listing,
+        let Opening {
+            peer_version,
+            peer_listing,
+            ledger,
+            ceiling,
             fan,
-        } = self.versions;
-        let ceiling = our_version | &their_version;
-
-        let window = self.window.resolve(
-            [
-                ReplicaSize::new(self.root.len(), self.root.max_version_bytes()),
-                ReplicaSize::new(their_len, their_version_bytes),
-            ],
-            B::node_bytes,
-        );
-        self.stats.window_granted(window.widest());
-        let ledger = SupplyLedger::new(their_len);
-        let mut work = Work::new(self.backend, window, self.stats);
+            mut work,
+        } = self.open();
         let (responses, queries, returns, early, finish) =
-            work.initiator_level(their_version.clone(), ceiling, fan, their_listing);
+            work.initiator_level(peer_version.clone(), ceiling, fan, peer_listing);
 
         (
             responses,
             Descending {
-                their_version,
+                their_version: peer_version,
                 ledger,
                 queries,
                 returns,
@@ -645,38 +643,21 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Responder<B> for Handshaking<B,
         self,
         requests: impl Requests<B, UnderRoot>,
     ) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
-        let Connected {
-            our_version,
-            their_version,
-            their_len,
-            their_version_bytes,
-            their_listing: _,
-            fan,
-        } = self.versions;
-        let ceiling = our_version | &their_version;
-
-        let window = self.window.resolve(
-            [
-                ReplicaSize::new(self.root.len(), self.root.max_version_bytes()),
-                ReplicaSize::new(their_len, their_version_bytes),
-            ],
-            B::node_bytes,
-        );
-        self.stats.window_granted(window.widest());
-        let ledger = SupplyLedger::new(their_len);
-        let mut work = Work::new(self.backend, window, self.stats);
-        let (responses, queries, returns, early, finish) = work.responder_level(
-            their_version.clone(),
-            ledger.clone(),
+        let Opening {
+            peer_version,
+            peer_listing: _,
+            ledger,
             ceiling,
             fan,
-            requests,
-        );
+            mut work,
+        } = self.open();
+        let (responses, queries, returns, early, finish) =
+            work.responder_level(peer_version.clone(), ledger.clone(), ceiling, fan, requests);
 
         (
             responses,
             Descending {
-                their_version,
+                their_version: peer_version,
                 ledger,
                 queries,
                 returns,

@@ -30,6 +30,7 @@ use crate::tree::{
         streaming::{
             Backend, Failing, FailingNode, Leaf, Local, Root,
             materialized::{Error as MaterializedError, Handshaking},
+            message::RoleKey,
             mirror,
             remote::{Error as RemoteError, Handshaking as RemoteHandshaking},
         },
@@ -633,18 +634,8 @@ pub fn rewritten(
 /// both of which move whenever the wire coding or a fixture's content
 /// addresses do.
 pub fn left_initiates(left: &TreeRoot, right: &TreeRoot) -> bool {
-    let len = |root: &TreeRoot| {
-        root.root
-            .as_ref()
-            .map(|node| node.len() as u64)
-            .unwrap_or_default()
-    };
-    crate::tree::mirror::streaming::message::initiates(
-        len(left),
-        &left.ceiling,
-        len(right),
-        &right.ceiling,
-    )
+    let key = |root: &TreeRoot| RoleKey::new(root.len() as u64, root.ceiling.clone());
+    key(left).initiates(&key(right))
 }
 
 /// Reconcile while mutating at most one data-stream frame on each side.

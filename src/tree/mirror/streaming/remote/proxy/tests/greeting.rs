@@ -90,14 +90,7 @@ fn order_by_election(
         b.ceiling.as_bytes(),
         "a divergent fixture must elect deterministically"
     );
-    let len = |root: &crate::tree::Root| {
-        root.root
-            .as_ref()
-            .map(|node| node.len() as u64)
-            .unwrap_or_default()
-    };
-    if crate::tree::mirror::streaming::message::initiates(len(&a), &a.ceiling, len(&b), &b.ceiling)
-    {
+    if harness::left_initiates(&a, &b) {
         (a, b)
     } else {
         (b, a)

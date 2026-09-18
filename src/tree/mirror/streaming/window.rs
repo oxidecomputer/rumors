@@ -110,6 +110,11 @@ impl ReplicaSize {
             version_bytes,
         }
     }
+
+    /// Return the replica's declared live-message count.
+    pub(crate) const fn messages(self) -> u64 {
+        self.messages
+    }
 }
 
 /// In-memory bytes of one child's slots in a level's in-flight
