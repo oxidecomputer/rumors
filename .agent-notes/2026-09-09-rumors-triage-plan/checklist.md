@@ -1,8 +1,8 @@
 # Rumors review checklist
 
-**Current:** greeting and role-election premises are complete at `6c40efb1`.
+**Current:** give the materialized walk and proxy one progress-tracing shape.
 
-**Next:** simplify the opening hand-off and proxy ingress state.
+**Next:** run the height-indexed trait experiment and judge the result.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -418,8 +418,11 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Consolidate greeting construction, role election, and materialized opening setup — `6c40efb1`.
       Sources: `materialized-11`, `mirror-common-16`, `streaming-tests-24`, T132.
 
-- [ ] Simplify the opening hand-off and proxy ingress state.
-      Sources: `async-hazards-5`, `materialized-34`, `remote-proxy-24`, T118, T119, T128, T132.
+- [x] Simplify the opening hand-off and proxy ingress state — `f12dec08`.
+      Sources: `async-hazards-5`, `materialized-34`, `remote-proxy-24`, T119, T128, T132.
+
+- [ ] Give the materialized walk and proxy one progress-tracing shape.
+      Sources: T118, T132.
 
 - [ ] Run the height-indexed trait experiment and judge the result.
       Sources: T117, T132.
