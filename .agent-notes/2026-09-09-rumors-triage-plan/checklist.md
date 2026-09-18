@@ -1,13 +1,11 @@
 # Rumors review checklist
 
-**Current:** lifecycle verification and fixture consolidation landed at
-`2a2c182d`.
+**Current:** streaming fixture consolidation landed at `83b2ba71`.
 
-**Parallel:** the full test-legibility sweep awaits owner review at `e603252e`;
-the scheduling-helper cleanup awaits review at `07fa81b3`.
+**Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** review the scheduling-helper cleanup, then consolidate streaming
-fixtures and correct their explanations.
+**Next:** generate constrained property cases directly, preserving the
+regressions and boundary shapes they must cover.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
