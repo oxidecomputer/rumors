@@ -1,11 +1,11 @@
 # Rumors review checklist
 
-**Current:** shared test and benchmark support now compiles once at `44bc234a`.
+**Current:** related test binaries consolidated without coverage loss at `812407a9`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** finish the test-binary consolidation decided with the shared support
-crate. High-count property settings wait for `before`'s generator sweep.
+**Next:** consolidate the remaining shared test helpers and observer reads.
+High-count property settings wait for `before`'s generator sweep.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -470,7 +470,7 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
 - [x] Compile the shared test and bench harness once through a path dev-dependency — `44bc234a`.
       Sources: `benches-envelope-22`, `suite-economics-8`, `tests-common-8`, `tests-disruption-handshake-28`, T115.
 
-- [ ] Fold closely related test binaries without reducing coverage or disturbing the schedule suites.
+- [x] Fold closely related test binaries without reducing coverage or disturbing the schedule suites — `812407a9`.
       Sources: `suite-economics-8`, T59, T115.
 
 - [ ] Use one set of session drivers, observer readouts, fingerprints, and fault wrappers.
