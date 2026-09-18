@@ -208,12 +208,18 @@ into otherwise small feature increments.
 
 ## 08. Resource instrumentation
 
-- [ ] Make the global heap judgment total over every allocation-bearing public
-      method and trait family. Directly cover shape walks, compound Span and
-      causal-query operations, Rank text parsing and precision formatting, and
-      wide numeric operations. Include arity-dependent `shape::combine`
-      bookkeeping; reserve not-applicable dispositions for paths that cannot
-      amplify.
+- [x] Directly cover Party, Version, and Clock shape walks and arity-dependent
+      `shape::combine` bookkeeping on the global amplification board.
+      Source: owner resource-surface audit, 2026-09-17.
+
+- [x] Directly cover Rank comparison, addition, subtraction, rendering
+      (including precision), and parsing on the global amplification board.
+      Source: owner resource-surface audit, 2026-09-17.
+
+- [ ] Make the global heap judgment total over the remaining allocation-bearing
+      public methods and trait families. Directly cover compound Span,
+      causal-query, and remaining wide numeric operations; reserve
+      not-applicable dispositions for paths that cannot amplify.
       Source: owner resource-surface audit, 2026-09-17.
 
 - [ ] Audit every counter hook for a distinct, live observation. Remove dead
@@ -291,8 +297,9 @@ into otherwise small feature increments.
       Sources: all entries in `api.md`; approval required for each external
       change.
 
-- [ ] Put the value, size, and cost guarantees Rumors relies on at the public
-      methods that own them.
+- [ ] Put each required value, size, and cost guarantee at the public method
+      that owns it, stated as a general `before` contract without naming
+      downstream consumers.
       Sources: `rumors-dependence-1`, `rumors-dependence-2`,
       `rumors-dependence-5`, and the dependence ledger.
 

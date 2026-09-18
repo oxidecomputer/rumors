@@ -782,11 +782,17 @@ fn rank_known_values() {
 #[test]
 fn rank_formatting_behaves_as_text() {
     let rank: Rank = "101.01".parse().expect("canonical rank text parses");
-    assert_eq!(format!("{rank:10}"), "101.01    ");
-    assert_eq!(format!("{rank:>10}"), "    101.01");
-    assert_eq!(format!("{rank:^10}"), "  101.01  ");
-    assert_eq!(format!("{rank:*^10}"), "**101.01**");
-    assert_eq!(format!("{rank:.4}"), "101.");
+    for (actual, expected) in [
+        (format!("{rank:10}"), "101.01    "),
+        (format!("{rank:>10}"), "    101.01"),
+        (format!("{rank:^10}"), "  101.01  "),
+        (format!("{rank:*^10}"), "**101.01**"),
+        (format!("{rank:.4}"), "101."),
+        (format!("{rank:>10.4}"), "      101."),
+        (format!("{rank:*^10.4}"), "***101.***"),
+    ] {
+        assert_eq!(actual, expected);
+    }
     assert_eq!(format!("{rank:+}"), "101.01");
     assert_eq!(format!("{rank:010}"), "101.01    ");
 }

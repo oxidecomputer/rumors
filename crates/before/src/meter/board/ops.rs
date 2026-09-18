@@ -448,29 +448,35 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
-            name: "rank_pair_ops",
+            name: "rank_cmp",
             prepare: |f| {
-                // The mismatched pair: a family-derived rank (maximal
-                // exponent on the spines) against a small integer rank, on
-                // the spine families that maximize the mismatch plus the
-                // benign control. Ranks are built at family construction,
-                // outside measurement; the denominator is the pair's value
-                // content (the `cell` module doc's rank denomination).
                 let (a, b) = f.rank_pair.clone()?;
-                let n = (a.content_bits() + b.content_bits()).div_ceil(8) as usize;
-                let floors = Floors {
-                    heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
-                    scan: na(NA_SCAN_NO_STREAM),
-                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
-                };
+                let n = rank_pair_bytes(&a, &b);
+                let floors = rank_floors(na(NA_HEAP_IN_PLACE));
+                Some(Cell::new(n, floors, move || (a.cmp(&b), a, b)))
+            },
+        },
+        Op {
+            name: "rank_add",
+            prepare: |f| {
+                let (a, b) = f.rank_pair.clone()?;
+                let n = rank_pair_bytes(&a, &b);
+                let floors = rank_floors(na(NA_HEAP_IN_PLACE));
+                Some(Cell::new(n, floors, move || (&a + &b, a, b)))
+            },
+        },
+        Op {
+            name: "rank_checked_sub",
+            prepare: |f| {
+                let (a, b) = f.rank_pair.clone()?;
+                let (larger, smaller) = if a >= b { (a, b) } else { (b, a) };
+                let n = rank_pair_bytes(&larger, &smaller);
+                let floors = rank_floors(na(NA_HEAP_IN_PLACE));
                 Some(Cell::new(n, floors, move || {
-                    let ord = a.cmp(&b);
-                    // One direction of the pair dominates; keep whichever
-                    // difference exists so the subtraction always runs.
-                    let diff = a.checked_sub(&b).or_else(|| b.checked_sub(&a));
-                    let sum = &a + &b;
-                    (ord, diff, sum, a, b)
+                    let difference = larger
+                        .checked_sub(&smaller)
+                        .expect("the operands are ordered before measurement");
+                    (difference, larger, smaller)
                 }))
             },
         },
@@ -573,6 +579,50 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
                     Rank::decode(&bytes[..]).expect("a canonical rank encoding decodes")
+                }))
+            },
+        },
+        Op {
+            name: "rank_display",
+            prepare: |f| {
+                let (rank, _) = f.rank_pair.clone()?;
+                let input_bytes = rank_content_bytes(&rank);
+                let output_bytes = rank.to_string().len();
+                let floors = rank_floors(heap_materializes(output_bytes));
+                Some(Cell::io(
+                    input_bytes,
+                    floors,
+                    rank_text_output_bytes,
+                    move || (rank.to_string(), rank),
+                ))
+            },
+        },
+        Op {
+            name: "rank_display_precision",
+            prepare: |f| {
+                let (rank, _) = f.rank_pair.clone()?;
+                let input_bytes = rank_content_bytes(&rank);
+                // Fixed precision exercises truncation while leaving rank
+                // width as the only scaling input.
+                let output_bytes = format!("{rank:.1}").len();
+                let floors = rank_floors(heap_materializes(output_bytes));
+                Some(Cell::io(
+                    input_bytes,
+                    floors,
+                    rank_text_output_bytes,
+                    move || (format!("{rank:.1}"), rank),
+                ))
+            },
+        },
+        Op {
+            name: "rank_parse",
+            prepare: |f| {
+                let (rank, _) = f.rank_pair.clone()?;
+                let text = rank.to_string();
+                let floors = rank_floors(heap_materializes(rank_numerator_bytes(&rank)));
+                Some(Cell::new(text.len(), floors, move || {
+                    text.parse::<Rank>()
+                        .expect("a displayed rank is canonical text")
                 }))
             },
         },
@@ -2229,6 +2279,35 @@ pub(super) fn ops() -> Vec<Op> {
 /// The bytes needed to store a rank's numerator, rounded up.
 fn rank_numerator_bytes(rank: &Rank) -> usize {
     rank.raw_parts().0.bits().div_ceil(8).max(1) as usize
+}
+
+/// A rank's logical value width, rounded up to bytes.
+fn rank_content_bytes(rank: &Rank) -> usize {
+    rank.content_bits().div_ceil(8) as usize
+}
+
+/// The logical value width of two rank operands, rounded up to bytes.
+fn rank_pair_bytes(a: &Rank, b: &Rank) -> usize {
+    (a.content_bits() + b.content_bits()).div_ceil(8) as usize
+}
+
+/// Resource floors shared by operations over decoded ranks.
+fn rank_floors(heap: Liveness) -> Floors {
+    Floors {
+        heap,
+        segments: seg_ceiling_only(),
+        scan: na(NA_SCAN_NO_STREAM),
+        touch: na(NA_TOUCH_RANK_ARITHMETIC),
+    }
+}
+
+/// Read the rendered text length from a rank-formatting result.
+fn rank_text_output_bytes(result: &dyn std::any::Any) -> usize {
+    result
+        .downcast_ref::<(String, Rank)>()
+        .expect("a rank display cell keeps its text")
+        .0
+        .len()
 }
 
 /// A binary serde input which gives its byte allocation to the visitor.

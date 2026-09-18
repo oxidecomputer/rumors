@@ -100,8 +100,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "clock_decode_trailing",
         ],
     ),
-    ("Rank::checked_sub", &["rank_pair_ops"]),
-    ("Rank::saturating_sub", &["rank_pair_ops"]),
+    ("Rank::checked_sub", &["rank_checked_sub"]),
+    ("Rank::saturating_sub", &["rank_checked_sub"]),
     ("Rank::encode", &["rank_encode"]),
     ("Rank::encode_to", &["rank_encode"]),
     ("Rank::decode", &["rank_decode"]),
@@ -236,7 +236,15 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
     (
         "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr",
-        &["rank_pair_ops", "rank_sum"],
+        &[
+            "rank_add",
+            "rank_checked_sub",
+            "rank_cmp",
+            "rank_sum",
+            "rank_display",
+            "rank_display_precision",
+            "rank_parse",
+        ],
     ),
     (
         "Ranked comparisons and the Ranked / Rank From conversions (the total order)",

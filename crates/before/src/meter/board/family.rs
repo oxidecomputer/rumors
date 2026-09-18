@@ -167,8 +167,10 @@ const ASCEND_CLIFF_BASE: usize = 992;
 /// scale-down.
 const DOMINATED_UNDERCUT_BASE: usize = 160;
 
-/// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops` row:
-/// small, so the pair's cost is carried entirely by the mismatch.
+/// Ticks behind the integer rank paired with each family-derived rank.
+///
+/// Keeping this operand small makes the pair rows measure the other operand's
+/// exponent and numerator width.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
 /// Two-operand jump-comb teeth at scale 1.0 (encoded pair ~35 KiB, the teeth
@@ -420,11 +422,9 @@ pub(super) struct FamilyData {
     pub(super) overlap: Option<(Vec<u8>, Vec<u8>)>,
     /// The mismatched rank pair, derived from `version` in the post-pass.
     ///
-    /// Precomputed here (shape-derived rank, small integer rank) so the
-    /// `rank_pair_ops` and `rank_sum` prepares clone their operands instead of
-    /// re-running the rank fold: the bench harness calls prepare once per timed
-    /// iteration, and the fold costs orders of magnitude more than the pair
-    /// operations it feeds.
+    /// Precomputed here (shape-derived rank, small integer rank) so rank
+    /// operation preparation does not include the version fold being measured
+    /// elsewhere.
     pub(super) rank_pair: Option<(Rank, Rank)>,
 }
 

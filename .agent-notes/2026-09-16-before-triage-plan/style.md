@@ -22,6 +22,11 @@ Do not expose an internal mechanism in public rustdoc unless understanding it
 changes how a caller should use the API. Do not bury a public contract in a
 private comment or a test.
 
+`before`'s documentation stands on its own as the documentation of a general
+library. Do not name downstream crates or explain an API by cataloguing its
+consumers. When downstream use reveals a missing guarantee, state that
+guarantee at the `before` API that owns it.
+
 ## Prefer deletion
 
 Before rewriting a sentence, ask whether it should exist. Delete:

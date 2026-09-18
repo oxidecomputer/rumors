@@ -25,6 +25,23 @@ easier to reason about. Prefer a partly finished area over opening another when
 the risks are comparable. Proximity in the source is a tie-breaker, not a reason
 to defer a more important defect.
 
+The remaining work proceeds in this dependency order:
+
+1. Close every public time and auxiliary-space contract, and make the resource
+   board directly observe every allocation-bearing public operation.
+2. Consolidate resource verification around the board, preserving only the
+   distinct signals that justify separate instruments.
+3. Close meaningful semantic-coverage gaps and give each oracle, property
+   suite, and exhaustive driver one clear job.
+4. Simplify the Party, skyline, and codec implementations behind those
+   established contracts and properties.
+5. Settle the public API, rewrite its documentation, prune verification and
+   dependency debris, and reconcile the original findings.
+
+This is an order of dependencies, not a requirement to finish an entire
+checklist section in one batch. The correctness and reviewability rules above
+still decide each increment.
+
 After every approved commit, re-read the current checklist, new evidence, and
 changes on `main` before choosing the next increment. Select the highest-priority
 work by the rules above; do not continue a previously named sequence merely
@@ -76,6 +93,10 @@ Every external `before` API change stops for owner approval before
 implementation. The same batch updates and tests Rumors against the proposed
 surface. The hard rule against mixing independently seeded universes applies to
 production code, tests, generators, and benchmarks.
+
+Downstream use may reveal a contract that `before` should state, but `before`'s
+documentation stands on its own. State the general guarantee at the API that
+owns it; do not name downstream crates or catalogue their call sites there.
 
 Preserve every proptest regression seed. Re-accept a wire or bookmark snapshot
 only for a deliberate, owner-approved format change under the repository's

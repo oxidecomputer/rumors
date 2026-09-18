@@ -131,7 +131,7 @@
 //! bits actually read, so it can never outrun the exponent that stores it).
 
 use core::cmp::Ordering;
-use core::fmt::{self, Debug, Display};
+use core::fmt::{self, Alignment, Debug, Display};
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
 use core::str::FromStr;
@@ -1095,7 +1095,8 @@ impl Default for Rank {
 /// Writing the canonical value is linear in its binary width, `O(‖r‖)`. When
 /// `r = v.rank()`, `‖r‖ = O(|v|)`, where `|v|` is the encoded size of `v`, so
 /// rendering is `O(|v|)`. Explicit padding adds time proportional to the
-/// padding written.
+/// padding written. Precision limits work to the retained prefix. Formatting
+/// uses constant auxiliary space.
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
 #[cfg_attr(
@@ -1117,44 +1118,84 @@ impl Default for Rank {
 /// ```
 impl Display for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Ordinary formatting can stream directly. Padding and precision need
-        // the complete text so `Formatter` can align or truncate it.
-        if f.width().is_none() && f.precision().is_none() {
-            return self.write_binary(f);
-        }
+        // The spelling is ASCII, so its character count follows directly from
+        // the numerator width and exponent. Knowing the count lets us apply
+        // string-style padding and truncation without building a temporary
+        // String.
+        let content_len = self
+            .text_len()
+            .min(f.precision().map_or(u64::MAX, |precision| precision as u64));
+        let padding = (f.width().unwrap_or(0) as u64).saturating_sub(content_len);
+        let (left, right) = match f.align().unwrap_or(Alignment::Left) {
+            Alignment::Left => (0, padding),
+            Alignment::Right => (padding, 0),
+            Alignment::Center => (padding / 2, padding - padding / 2),
+        };
 
-        let mut rendered = String::new();
-        self.write_binary(&mut rendered)?;
-        f.pad(&rendered)
+        Self::write_padding(f, left)?;
+        self.write_binary(f, content_len)?;
+        Self::write_padding(f, right)
     }
 }
 
 impl Rank {
-    /// Writes the canonical binary form before formatter padding or
-    /// truncation.
-    fn write_binary(&self, out: &mut impl fmt::Write) -> fmt::Result {
+    /// Number of characters in the canonical binary form.
+    fn text_len(&self) -> u64 {
         let numerator_bits = self.num.bits();
         let integer_bits = numerator_bits.saturating_sub(self.exp);
+        let integer_len = integer_bits.max(1);
+        integer_len.saturating_add(if self.exp == 0 {
+            0
+        } else {
+            self.exp.saturating_add(1)
+        })
+    }
+
+    /// Writes at most `remaining` characters of the canonical binary form.
+    fn write_binary(&self, out: &mut impl fmt::Write, mut remaining: u64) -> fmt::Result {
+        let numerator_bits = self.num.bits();
+        let integer_bits = numerator_bits.saturating_sub(self.exp);
+
+        let mut write = |character| {
+            if remaining == 0 {
+                return Ok(false);
+            }
+            out.write_char(character)?;
+            remaining -= 1;
+            Ok(true)
+        };
 
         // `exp` is the number of digits to the right of the binary point. The
         // more significant numerator bits form the integer part; when there
         // are none, its canonical spelling is `0`.
         if integer_bits == 0 {
-            out.write_char('0')?;
+            write('0')?;
         } else {
             for position in (self.exp..numerator_bits).rev() {
-                out.write_char(if self.num.bit(position) { '1' } else { '0' })?;
+                if !write(if self.num.bit(position) { '1' } else { '0' })? {
+                    return Ok(());
+                }
             }
         }
 
         // The low `exp` numerator bits are the fractional digits. A normalized
         // non-integral rank has a one in bit zero, so this part never ends in
         // a redundant zero.
-        if self.exp != 0 {
-            out.write_char('.')?;
+        if self.exp != 0 && write('.')? {
             for position in (0..self.exp).rev() {
-                out.write_char(if self.num.bit(position) { '1' } else { '0' })?;
+                if !write(if self.num.bit(position) { '1' } else { '0' })? {
+                    break;
+                }
             }
+        }
+        Ok(())
+    }
+
+    /// Writes `count` copies of the formatter's fill character.
+    fn write_padding(f: &mut fmt::Formatter<'_>, count: u64) -> fmt::Result {
+        let fill = f.fill();
+        for _ in 0..count {
+            fmt::Write::write_char(f, fill)?;
         }
         Ok(())
     }
