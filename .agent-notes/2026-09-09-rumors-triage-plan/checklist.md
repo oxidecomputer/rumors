@@ -2,7 +2,7 @@
 
 **Current:** make lifecycle properties check content, versions, and party ownership directly.
 
-**Parallel:** proxy test cleanup is ready for owner review at `ffef4706`.
+**Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
 **Next:** simplify scheduling helpers and separate backend and window explanations.
 
@@ -443,7 +443,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Simplify proxy state and clarify driver responsibilities.
       Sources: `remote-proxy-1`, `remote-proxy-5`, `remote-proxy-6`, `remote-proxy-9–11`, `remote-proxy-13–18`, `remote-proxy-21`, `remote-proxy-22`, `remote-proxy-26`, `remote-proxy-32`, T48, T49, T52, T57, T126, T132.
 
-- [ ] Consolidate proxy test setup and remove redundant assertions.
+- [x] Consolidate proxy test setup and remove redundant assertions — `6cb5685c`.
       Sources: `remote-proxy-tests-1`, `remote-proxy-tests-3`, `remote-proxy-tests-4`, `remote-proxy-tests-11`, `remote-proxy-tests-13`, `remote-proxy-tests-14`, `remote-proxy-tests-16`, `remote-proxy-tests-17`, `remote-proxy-tests-19`, T48, T50, T52, T132.
 
 - [ ] Simplify scheduling helpers and separate backend and window explanations.
