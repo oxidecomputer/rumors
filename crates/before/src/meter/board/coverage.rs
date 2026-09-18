@@ -148,13 +148,14 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "span_decode_crossed",
         ],
     ),
-    ("Span::union_all", &["version_span_all"]),
-    (
-        "Span::intersect_all",
-        &["version_join_all", "version_meet_all"],
-    ),
-    ("Span::join_all", &["version_join_all"]),
-    ("Span::meet_all", &["version_meet_all"]),
+    ("Span::union", &["span_union"]),
+    ("Span::intersect", &["span_intersect"]),
+    ("Span::join", &["span_join"]),
+    ("Span::meet", &["span_meet"]),
+    ("Span::union_all", &["span_union_all"]),
+    ("Span::intersect_all", &["span_intersect_all"]),
+    ("Span::join_all", &["span_join_all"]),
+    ("Span::meet_all", &["span_meet_all"]),
     (
         "shape::combine",
         &["shape_combine_pair", "shape_combine_many"],
@@ -193,11 +194,27 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
     (
         "Span Sum / FromIterator (spans or versions, owned and borrowed — the union fold)",
-        &["version_span_all"],
+        &["span_union_all"],
     ),
     (
         "Span Product (spans only, owned and borrowed — the intersection fold)",
-        &["version_join_all", "version_meet_all"],
+        &["span_intersect_all"],
+    ),
+    (
+        "Span + impl Into<Span> / Version + Span (Add/AddAssign, owned and borrowed — the containment join)",
+        &["span_union"],
+    ),
+    (
+        "Span * Span (Mul, owned and borrowed — the containment meet; partial, so no MulAssign and no Into widening)",
+        &["span_intersect"],
+    ),
+    (
+        "Span | impl Into<Span> / Version | Span (BitOr/BitOrAssign, owned and borrowed — the pointwise join)",
+        &["span_join"],
+    ),
+    (
+        "Span & impl Into<Span> / Version & Span (BitAnd/BitAndAssign, owned and borrowed — the pointwise meet)",
+        &["span_meet"],
     ),
     (
         "Version Eq / Hash (canonical byte compare)",
@@ -484,50 +501,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "OwnSpan::to_span",
         "two of the materializations the OwnVersion to_version row cells, one \
          per endpoint",
-    ),
-    (
-        "Span + impl Into<Span> / Version + Span (Add/AddAssign, owned and borrowed — the containment join)",
-        "the celled version meet/join, one per endpoint pair; a point-like \
-         operand pair fuses to the celled version_span walk; assigning is \
-         the value kernel written back",
-    ),
-    (
-        "Span * Span (Mul, owned and borrowed — the containment meet; partial, so no MulAssign and no Into widening)",
-        "the celled version join/meet, one per endpoint pair, plus one \
-         validating causal comparison",
-    ),
-    (
-        "Span::union",
-        "the method spelling of the containment join (`+`): the celled \
-         version meet/join, one per endpoint pair",
-    ),
-    (
-        "Span::intersect",
-        "the method spelling of the containment meet (`*`): the celled \
-         version join/meet, one per endpoint pair, plus one validating \
-         causal comparison",
-    ),
-    (
-        "Span | impl Into<Span> / Version | Span (BitOr/BitOrAssign, owned and borrowed — the pointwise join)",
-        "the celled version join, one per endpoint pair; a point-like operand \
-         pair pays one join, shared across both legs; assigning is the value \
-         kernel written back",
-    ),
-    (
-        "Span & impl Into<Span> / Version & Span (BitAnd/BitAndAssign, owned and borrowed — the pointwise meet)",
-        "the celled version meet, one per endpoint pair; a point-like operand \
-         pair pays one meet, shared across both legs; assigning is the value \
-         kernel written back",
-    ),
-    (
-        "Span::join",
-        "the method spelling of the pointwise join (`|`): the celled version \
-         join, one per endpoint pair",
-    ),
-    (
-        "Span::meet",
-        "the method spelling of the pointwise meet (`&`): the celled version \
-         meet, one per endpoint pair",
     ),
     (
         "&Span / &Party (Div — the lazy span projection view)",

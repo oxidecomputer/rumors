@@ -216,10 +216,15 @@ into otherwise small feature increments.
       (including precision), and parsing on the global amplification board.
       Source: owner resource-surface audit, 2026-09-17.
 
+- [x] Directly cover the four binary Span operations and their balanced folds,
+      using spans whose lower and upper endpoint pairs both require lattice
+      work.
+      Source: owner resource-surface audit, 2026-09-17.
+
 - [ ] Make the global heap judgment total over the remaining allocation-bearing
-      public methods and trait families. Directly cover compound Span,
-      causal-query, and remaining wide numeric operations; reserve
-      not-applicable dispositions for paths that cannot amplify.
+      public methods and trait families. Directly cover remaining causal-query
+      and wide numeric operations; reserve not-applicable dispositions for
+      paths that cannot amplify.
       Source: owner resource-surface audit, 2026-09-17.
 
 - [ ] Audit every counter hook for a distinct, live observation. Remove dead

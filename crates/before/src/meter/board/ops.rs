@@ -124,6 +124,106 @@ fn fold_model(cell: Cell, arity: u64) -> Cell {
     .with_model(Currency::Touch, ModelSpec::scaled_trend(levels))
 }
 
+/// The four balanced span folds measured by the board.
+#[derive(Clone, Copy)]
+enum SpanFold {
+    /// Containment union.
+    Union,
+    /// Containment intersection.
+    Intersect,
+    /// Pointwise join.
+    Join,
+    /// Pointwise meet.
+    Meet,
+}
+
+/// Two ordered spans derived from a family's version operands.
+///
+/// Population families contribute four independent versions, so both endpoint
+/// pairs require real lattice operations. Other version families contribute
+/// two spans with a shared meet, retaining their difficult shape on the upper
+/// endpoint pair.
+fn span_pair(f: &FamilyData) -> Option<(Span<'static>, Span<'static>, usize)> {
+    let pair = if let Some((versions, _)) = &f.population {
+        let mut versions = versions.iter().take(4).map(|bytes| decode_version(bytes));
+        let (a, a_extra, b, b_extra) = (
+            versions.next()?,
+            versions.next()?,
+            versions.next()?,
+            versions.next()?,
+        );
+        let a_hi = &a | &a_extra;
+        let b_hi = &b | &b_extra;
+        (
+            Span::new(a, a_hi).expect("a version precedes its join"),
+            Span::new(b, b_hi).expect("a version precedes its join"),
+        )
+    } else {
+        let (a, b, _) = f.version_pair()?;
+        let shared_lo = &a & &b;
+        (
+            Span::new(shared_lo.clone(), a).expect("a meet precedes its operand"),
+            Span::new(shared_lo, b).expect("a meet precedes its operand"),
+        )
+    };
+    let n = span_bytes(&pair.0) + span_bytes(&pair.1);
+    Some((pair.0, pair.1, n))
+}
+
+/// A population of ordered spans with independent lower and upper endpoints.
+fn span_population(f: &FamilyData) -> Option<Vec<Span<'static>>> {
+    let (versions, _) = f.population.as_ref()?;
+    let mut versions = versions.iter().map(|bytes| decode_version(bytes));
+    let mut spans = Vec::with_capacity(versions.len().div_ceil(2));
+    while let Some(lo) = versions.next() {
+        let Some(extra) = versions.next() else {
+            spans.push(Span::at(lo));
+            break;
+        };
+        let hi = &lo | &extra;
+        spans.push(Span::new(lo, hi).expect("a version precedes its join"));
+    }
+    (spans.len() >= 2).then_some(spans)
+}
+
+/// Measure one balanced span fold over a population-derived operand set.
+fn span_fold(f: &FamilyData, kind: SpanFold) -> Option<Cell> {
+    let mut spans = span_population(f)?;
+    let n = spans.iter().map(span_bytes).sum();
+    let arity = spans.len() as u64;
+    let receiver = spans.pop().expect("a span population is nonempty");
+    let cell = match kind {
+        SpanFold::Union => Cell::new(n, span_algebra_floors(), move || {
+            (receiver.union_all(&spans), receiver, spans)
+        }),
+        SpanFold::Intersect => Cell::new(n, span_algebra_floors(), move || {
+            (receiver.intersect_all(&spans), receiver, spans)
+        }),
+        SpanFold::Join => Cell::new(n, span_algebra_floors(), move || {
+            (receiver.join_all(&spans), receiver, spans)
+        }),
+        SpanFold::Meet => Cell::new(n, span_algebra_floors(), move || {
+            (receiver.meet_all(&spans), receiver, spans)
+        }),
+    };
+    Some(fold_model(cell, arity))
+}
+
+/// Stored endpoint bytes in a span operand or result.
+fn span_bytes(span: &Span<'_>) -> usize {
+    span.lo().as_bytes().len() + span.hi().as_bytes().len()
+}
+
+/// Resource floors for span algebra, whose endpoint kernels may exit early.
+fn span_algebra_floors() -> Floors {
+    Floors {
+        heap: na(NA_HEAP_IN_PLACE),
+        segments: seg_ceiling_only(),
+        scan: scan_touch(),
+        touch: na(NA_TOUCH_NOT_FORCED),
+    }
+}
+
 /// Multi-hole query operands derived from a population.
 ///
 /// The down-query holes retain each population version's tree shape. Its high
@@ -312,6 +412,42 @@ pub(super) fn ops() -> Vec<Op> {
                 let touch = touch_pair_fold(&v, &w);
                 Some(Cell::new(n, walk_floors(n, touch), move || {
                     (v.span(&w), v, w)
+                }))
+            },
+        },
+        Op {
+            name: "span_union",
+            prepare: |f| {
+                let (left, right, n) = span_pair(f)?;
+                Some(Cell::new(n, span_algebra_floors(), move || {
+                    (left.union(&right), left, right)
+                }))
+            },
+        },
+        Op {
+            name: "span_intersect",
+            prepare: |f| {
+                let (left, right, n) = span_pair(f)?;
+                Some(Cell::new(n, span_algebra_floors(), move || {
+                    (left.intersect(&right), left, right)
+                }))
+            },
+        },
+        Op {
+            name: "span_join",
+            prepare: |f| {
+                let (left, right, n) = span_pair(f)?;
+                Some(Cell::new(n, span_algebra_floors(), move || {
+                    (left.join(&right), left, right)
+                }))
+            },
+        },
+        Op {
+            name: "span_meet",
+            prepare: |f| {
+                let (left, right, n) = span_pair(f)?;
+                Some(Cell::new(n, span_algebra_floors(), move || {
+                    (left.meet(&right), left, right)
                 }))
             },
         },
@@ -836,6 +972,22 @@ pub(super) fn ops() -> Vec<Op> {
                     arity,
                 ))
             },
+        },
+        Op {
+            name: "span_union_all",
+            prepare: |f| span_fold(f, SpanFold::Union),
+        },
+        Op {
+            name: "span_intersect_all",
+            prepare: |f| span_fold(f, SpanFold::Intersect),
+        },
+        Op {
+            name: "span_join_all",
+            prepare: |f| span_fold(f, SpanFold::Join),
+        },
+        Op {
+            name: "span_meet_all",
+            prepare: |f| span_fold(f, SpanFold::Meet),
         },
         Op {
             name: "own_version_to_version",
