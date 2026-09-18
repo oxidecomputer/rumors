@@ -42,19 +42,13 @@ where
 }
 
 proptest! {
-    /// Bootstrapping from a provider yields exactly the provider's live
-    /// content, message identities included (versions are stable across
-    /// peers), leaves the provider's own content untouched, and creates a
-    /// *disjoint* party.
-    ///
-    /// Disjointness is proven behaviorally: a message the newcomer originates
-    /// survives a gossip round back into the provider, which a non-disjoint or
-    /// stale-floored party would silently destroy.
+    /// Bootstrap copies the provider's exact live set without changing it.
+    /// A first message from the newcomer then survives reconciliation,
+    /// showing that its inherited floor covers the provider's history.
     #[test]
     fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
         let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
-
         let control = readout(&provider.snapshot());
 
         let bootstrapped = wire_bootstrap(&provider);
@@ -68,25 +62,21 @@ proptest! {
             "serving a bootstrap must not change provider content",
         );
 
-        // The newcomer's party is disjoint from the provider's retained half
-        // and floored at the served tree's version, so a fresh origination
-        // survives reconciliation on both sides.
+        // A stale inherited floor could make this version appear already
+        // observed and redacted when the peers reconcile.
         bootstrapped.send(u64::MAX).unwrap();
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, m)| *m == u64::MAX),
+            provider.snapshot().iter().any(|(_, message)| *message == u64::MAX),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
 
-    /// `String`-`T` variant of [`bootstrap_reproduces_a_fork`]: the same
-    /// invariant for a non-primitive value type, exercising the wire
-    /// round-trip of the whole-tree frame for `T = String`.
+    /// Bootstrap preserves the same content and floor invariants for strings.
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
         let seed = Peer::<String>::seed().sync_window_floor().into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
-
         let control = readout(&provider.snapshot());
 
         let bootstrapped = wire_bootstrap(&provider);
@@ -100,13 +90,46 @@ proptest! {
             "serving a bootstrap must not change provider content",
         );
 
-        bootstrapped.send("newcomer's own".to_string()).unwrap();
+        bootstrapped.send("newcomer's own".to_owned()).unwrap();
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, m)| *m == "newcomer's own"),
+            provider
+                .snapshot()
+                .iter()
+                .any(|(_, message)| *message == "newcomer's own"),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
+}
+
+/// A newcomer does not relearn content redacted before it joined.
+#[test]
+fn bootstrap_floor_rejects_stale_redacted_content() {
+    let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let version = provider.send(1).unwrap();
+    let stale = bootstrap_fork(&provider);
+    provider.redact(&version);
+    let redacted_frontier = provider.snapshot().latest().clone();
+    let newcomer = bootstrap_fork(&provider);
+
+    assert_eq!(
+        newcomer.snapshot().latest(),
+        &redacted_frontier,
+        "bootstrap must inherit the provider's complete frontier",
+    );
+
+    wire_gossip(&newcomer, &stale);
+
+    for peer in [&newcomer, &stale] {
+        assert!(
+            !peer.snapshot().contains(&version),
+            "the stale copy must remain redacted after gossip",
+        );
+    }
+    assert!(
+        newcomer.snapshot().latest() >= version,
+        "the newcomer must inherit a frontier that covers the redacted version",
+    );
 }
 
 /// Two bootstrappers return their builders without stalling or leaving unread control bytes.
@@ -204,6 +227,9 @@ fn wire_join(
             bootstrap.join(&mut newcomer_link),
         );
         served.expect("the provider serves the bookmarked bootstrap");
+        if !matches!(&joined, Joined::Failed { .. }) {
+            assert_control_drained(provider_link, newcomer_link);
+        }
         joined
     })
 }
@@ -261,14 +287,16 @@ fn mutual_bookmarked_bail_returns_the_builder() {
 
     let (a_out, b_out) = block_on(async {
         let (mut a_link, mut b_link) = rumors::link::memory();
-        tokio::join!(
+        let outcome = tokio::join!(
             Peer::<u64>::bootstrap()
                 .bookmark(a_bookmark)
                 .join(&mut a_link),
             Peer::<u64>::bootstrap()
                 .bookmark(bookmark)
                 .join(&mut b_link),
-        )
+        );
+        assert_control_drained(a_link, b_link);
+        outcome
     });
 
     let Joined::Bailed { bootstrap } = b_out else {

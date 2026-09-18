@@ -2,15 +2,15 @@
 //! refuse peers from a different seed, even when their parties happen to
 //! look disjoint.
 //!
-//! Covers handle inheritance, remote `gossip`, and bootstrap
-//! propagation.
+//! Covers handle inheritance, bootstrap propagation, gossip, and retirement.
 
 mod common;
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::error::Mismatch;
-use rumors::{Error, Peer};
+use rumors::testing::{IoPlan, IoSide, wrap_link};
+use rumors::{Error, Peer, Retire};
 
 use crate::common::wire::{assert_control_drained, block_on};
 
@@ -54,17 +54,26 @@ fn independent_seeds_differ() {
     assert_ne!(a.network(), b.network());
 }
 
-/// Two peers from different seeds that try to [`gossip`](rumors::Rumors::gossip)
-/// are both rejected with [`Mismatch::Network`] at the handshake, before
-/// any content crosses the wire.
+/// Gossip rejects a foreign network before opening a reconciliation stream.
+///
+/// Both populated replicas remain unchanged, so the test distinguishes an
+/// early handshake rejection from reconciliation followed by an error.
 #[test]
 fn gossip_rejects_foreign_network() {
     let alice = seeded::<u64>(1).into_rumors();
     let bob = seeded::<u64>(2).into_rumors();
+    alice.send(1).unwrap();
+    bob.send(2).unwrap();
+    let alice_hash = alice.snapshot().hash();
+    let bob_hash = bob.snapshot().hash();
 
-    let (alice_out, bob_out) = block_on(async {
-        let (mut a_link, mut b_link) = rumors::link::memory();
-        tokio::join!(alice.gossip_once(&mut a_link), bob.gossip_once(&mut b_link))
+    let (alice_out, bob_out, alice_report, bob_report) = block_on(async {
+        let (a_link, b_link) = rumors::link::memory();
+        let (mut a_link, alice_report) = wrap_link(IoSide::Left, IoPlan::default(), a_link);
+        let (mut b_link, bob_report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
+        let (alice_out, bob_out) =
+            tokio::join!(alice.gossip_once(&mut a_link), bob.gossip_once(&mut b_link));
+        (alice_out, bob_out, alice_report, bob_report)
     });
 
     for (outcome, ours, theirs) in [
@@ -82,6 +91,51 @@ fn gossip_rejects_foreign_network() {
         assert_eq!(local_network, ours);
         assert_eq!(remote_network, theirs);
     }
+    assert_eq!(alice.snapshot().hash(), alice_hash);
+    assert_eq!(bob.snapshot().hash(), bob_hash);
+    for report in [alice_report.snapshot(), bob_report.snapshot()] {
+        assert_eq!(
+            report.connects + report.accepts,
+            0,
+            "a network mismatch must fail before reconciliation opens a stream",
+        );
+    }
+}
+
+/// Foreign-network retirement returns the donor with its content and party intact.
+#[test]
+fn retire_rejects_foreign_network_without_consuming_the_peer() {
+    let donor = seeded::<u64>(1).into_rumors();
+    donor.send(1).unwrap();
+    let donor_hash = donor.snapshot().hash();
+    let donor_party = donor.dangerously_alias_party();
+    let donor = block_on(donor.try_into_peer()).expect("the sole handle reclaims the peer");
+
+    let absorber = seeded::<u64>(2).into_rumors();
+    absorber.send(2).unwrap();
+    let absorber_hash = absorber.snapshot().hash();
+
+    let (retired, served) = block_on(async {
+        let (mut donor_link, mut absorber_link) = rumors::link::memory();
+        tokio::join!(
+            donor.retire(&mut donor_link),
+            absorber.gossip_once(&mut absorber_link),
+        )
+    });
+
+    let Retire::Recovered { peer, error } = retired else {
+        panic!("a network mismatch must return the donor, got {retired:?}");
+    };
+    assert!(matches!(error, Error::Mismatch(Mismatch::Network { .. })));
+    assert!(matches!(
+        served,
+        Err(Error::Mismatch(Mismatch::Network { .. }))
+    ));
+
+    let donor = peer.into_rumors();
+    assert_eq!(donor.snapshot().hash(), donor_hash);
+    assert_eq!(donor.dangerously_alias_party(), donor_party);
+    assert_eq!(absorber.snapshot().hash(), absorber_hash);
 }
 
 /// A bootstrapped peer adopts the provider's network, so it lands in exactly

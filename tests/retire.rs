@@ -242,13 +242,11 @@ fn mutual_retire_declines() {
     );
 }
 
-/// A retiree that meets a *bootstrapping* counterparty is absorbed by it:
-/// the newcomer pulls the retiree's whole tree through the descent, then
-/// receives its whole party as the trailing frame.
+/// A bootstrapper succeeds a retiree without duplicating or losing its party.
 ///
-/// The newcomer *becomes* the
-/// retiree, in the same universe, and its subsequent originations are
-/// first-class.
+/// The successor receives the retiree's complete content and party. Together
+/// with the untouched seed peer, its party therefore remains disjoint and the
+/// two parties reconstruct the network's complete identity space.
 #[test]
 fn retire_into_bootstrapper_hands_off_the_identity() {
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -271,9 +269,9 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
         content,
         "the successor holds the retiree's content"
     );
+    crate::common::sim::assert_party_invariants(&[seed.clone(), successor.clone()], 0);
 
-    // The inherited party is live: an origination from the successor
-    // survives gossip with the rest of the universe.
+    // Exercise the transferred party through the public behavior as well.
     successor.send(99).unwrap();
     wire_gossip(&successor, &seed);
     assert!(
