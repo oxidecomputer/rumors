@@ -18,7 +18,7 @@ use serde::Deserializer;
 
 use crate::causally::{self, Down, Query, Up};
 use crate::error::Decode;
-use crate::{Clock, Party, Rank, Ranked, Span, Ticks, Version};
+use crate::{shape, Clock, Party, Rank, Ranked, Span, Ticks, Version};
 
 #[cfg(any(feature = "serde", feature = "borsh"))]
 use super::ceilings::DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE;
@@ -46,8 +46,29 @@ use super::floors::{
 use super::operand::{stored_nonzero_deltas, version_output_bytes};
 use crate::meter::registry::FamilyId;
 
-/// Arity used to judge the consuming array conversions directly.
-const SPLIT_ARRAY_ARITY: usize = 16;
+/// Arity used to exercise the public const-generic array operations.
+const ARRAY_ARITY: usize = 16;
+
+/// Why shape iteration has no representation-independent heap floor.
+const NA_HEAP_SHAPE_WALK: &str =
+    "paths and rises may share input storage or live inline; heap allocation is not required";
+
+/// Drain a shape iterator while making every yielded item observable.
+fn drain_shape(items: impl IntoIterator) {
+    for item in items {
+        std::hint::black_box(item);
+    }
+}
+
+/// Resource floors shared by shape iterators that read every input bit.
+fn shape_floors(input_bytes: usize, touch: Liveness) -> Floors {
+    Floors {
+        heap: na(NA_HEAP_SHAPE_WALK),
+        segments: seg_ceiling_only(),
+        scan: scan_examines(input_bytes),
+        touch,
+    }
+}
 
 /// A fork count whose stored width matches `input_bytes`.
 ///
@@ -924,6 +945,51 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "version_shape",
+            prepare: |f| {
+                let (version, n) = f.version()?;
+                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                Some(Cell::new(n, floors, move || {
+                    drain_shape(version.shape());
+                }))
+            },
+        },
+        Op {
+            name: "shape_combine_pair",
+            prepare: |f| {
+                let (left, right, n) = f.version_pair()?;
+                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                Some(Cell::new(n, floors, move || {
+                    drain_shape(shape::combine([&left, &right]));
+                }))
+            },
+        },
+        Op {
+            name: "shape_combine_many",
+            prepare: |f| {
+                let (versions, _) = f.population.as_ref()?;
+                if versions.is_empty() {
+                    return None;
+                }
+                let versions: [Version; ARRAY_ARITY] = versions
+                    .iter()
+                    .cycle()
+                    .take(ARRAY_ARITY)
+                    .map(|bytes| decode_version(bytes))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .ok()?;
+                let n = versions
+                    .iter()
+                    .map(|version| version.as_bytes().len())
+                    .sum();
+                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                Some(Cell::new(n, floors, move || {
+                    drain_shape(shape::combine(versions.each_ref()));
+                }))
+            },
+        },
+        Op {
             name: "causally_contains",
             prepare: |f| {
                 // Membership is one-directional, so the floors fork on
@@ -1337,7 +1403,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (party, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(party, _)| party.len())?;
                 let output_bytes = {
-                    let shares: [Party; SPLIT_ARRAY_ARITY] = party.dangerously_alias().into();
+                    let shares: [Party; ARRAY_ARITY] = party.dangerously_alias().into();
                     shares.iter().map(|share| share.as_bytes().len()).sum()
                 };
                 let floors = Floors {
@@ -1355,13 +1421,13 @@ pub(super) fn ops() -> Vec<Op> {
                     floors,
                     |result| {
                         result
-                            .downcast_ref::<[Party; SPLIT_ARRAY_ARITY]>()
+                            .downcast_ref::<[Party; ARRAY_ARITY]>()
                             .expect("the party split cell yields its share array")
                             .iter()
                             .map(|share| share.as_bytes().len())
                             .sum()
                     },
-                    move || <[Party; SPLIT_ARRAY_ARITY]>::from(party),
+                    move || <[Party; ARRAY_ARITY]>::from(party),
                 ))
             },
         },
@@ -1464,6 +1530,17 @@ pub(super) fn ops() -> Vec<Op> {
                     let mut hasher = DefaultHasher::new();
                     a.hash(&mut hasher);
                     (hasher.finish(), a)
+                }))
+            },
+        },
+        Op {
+            name: "party_shape",
+            prepare: |f| {
+                let (party, _, _) = f.party_pair()?;
+                let n = party.as_bytes().len();
+                let floors = shape_floors(n, na(NA_TOUCH_ID_TREE));
+                Some(Cell::new(n, floors, move || {
+                    drain_shape(party.shape());
                 }))
             },
         },
@@ -1629,7 +1706,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, _) = f.clock()?;
                 let party_bytes = clock.party().as_bytes().len();
                 let output_party_bytes = {
-                    let clocks: [Clock; SPLIT_ARRAY_ARITY] = clock.dangerously_alias().into();
+                    let clocks: [Clock; ARRAY_ARITY] = clock.dangerously_alias().into();
                     clocks
                         .iter()
                         .map(|clock| clock.party().as_bytes().len())
@@ -1650,13 +1727,13 @@ pub(super) fn ops() -> Vec<Op> {
                     floors,
                     |result| {
                         result
-                            .downcast_ref::<[Clock; SPLIT_ARRAY_ARITY]>()
+                            .downcast_ref::<[Clock; ARRAY_ARITY]>()
                             .expect("the clock split cell yields its clock array")
                             .iter()
                             .map(|clock| clock.party().as_bytes().len())
                             .sum()
                     },
-                    move || <[Clock; SPLIT_ARRAY_ARITY]>::from(clock),
+                    move || <[Clock; ARRAY_ARITY]>::from(clock),
                 ))
             },
         },
@@ -1845,6 +1922,16 @@ pub(super) fn ops() -> Vec<Op> {
                     let mut hasher = DefaultHasher::new();
                     clock.hash(&mut hasher);
                     (hasher.finish(), clock)
+                }))
+            },
+        },
+        Op {
+            name: "clock_shape",
+            prepare: |f| {
+                let (clock, n) = f.clock()?;
+                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                Some(Cell::new(n, floors, move || {
+                    drain_shape(clock.shape());
                 }))
             },
         },

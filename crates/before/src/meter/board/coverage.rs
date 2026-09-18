@@ -28,6 +28,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::without", &["party_without", "party_without_none"]),
     ("Party::encode", &["party_encode"]),
     ("Party::encode_to", &["party_encode"]),
+    ("Party::shape", &["party_shape"]),
     (
         "Party::decode",
         &[
@@ -54,6 +55,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Version::span_all", &["version_span_all"]),
     ("Version::encode", &["version_encode"]),
     ("Version::encode_to", &["version_encode"]),
+    ("Version::shape", &["version_shape"]),
     (
         "Version::decode",
         &[
@@ -89,6 +91,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
     ("Clock::encode", &["clock_encode"]),
     ("Clock::encode_to", &["clock_encode"]),
+    ("Clock::shape", &["clock_shape"]),
     (
         "Clock::decode",
         &[
@@ -152,6 +155,10 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
     ("Span::join_all", &["version_join_all"]),
     ("Span::meet_all", &["version_meet_all"]),
+    (
+        "shape::combine",
+        &["shape_combine_pair", "shape_combine_many"],
+    ),
     (
         "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
         &["version_join", "version_join_assign"],
@@ -553,33 +560,9 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          word per step, no encoded-input axis",
     ),
     (
-        "Version::shape",
-        "a linear single-pass read of the stored stream: one topology read \
-         and one payload decode per plateau, no arithmetic and no output \
-         re-coding; a wide rise materializes at the width its own code \
-         already spells",
-    ),
-    (
-        "Party::shape",
-        "a linear single-pass read of the stored id stream: two tag bits per \
-         node, ownership read as per-region state",
-    ),
-    (
-        "Clock::shape",
-        "the two component walks advanced together under the overlay law: \
-         each stored bit read once, and the fragment count is bounded by the \
-         components' total run count",
-    ),
-    (
-        "shape::combine",
-        "the input walks advanced together under the overlay law: each \
-         stored bit read once, and the cell count is bounded by the inputs' \
-         total plateau count",
-    ),
-    (
         "shape iterators (Plateaus / Regions / Overlay / Cells / Limbs: Iterator, FusedIterator, ExactSizeIterator)",
-        "the shape methods' own walks, item by item; dispositions live on \
-         the method rows",
+        "iterator traits add no work beyond each item; the shape methods are \
+         measured directly, and Ticks::limbs has its own disposition",
     ),
     (
         "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
