@@ -10,10 +10,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use proptest::prelude::*;
 
 use crate::Version;
+use crate::message::Message;
 use crate::tree::arb::{
-    arb_divergent_pair, arb_divergent_roots, arb_tree_root, arb_wide_divergent_pair, roots_at_depth,
+    arb_divergent_pair, arb_divergent_roots, arb_tree_root, arb_wide_divergent_pair, nth_party,
+    roots_at_depth,
 };
-use crate::tree::{Root, Tree};
+use crate::tree::{Action, Root, Tree};
 
 /// Merge two roots through the public tree operation.
 fn join_tree(a: Root, b: Root) -> Root {
@@ -73,6 +75,33 @@ fn check_survivors(roots: [Root; 2]) -> Result<(), TestCaseError> {
         prop_assert_eq!(&result.ceiling, &ceiling);
     }
     Ok(())
+}
+
+/// Joining a tree with its own causal past preserves clone-derived fans.
+///
+/// Redacting each leaf in turn creates a root fan that shares the remaining
+/// child nodes with the saved past. Join must pair those children by radix;
+/// losing alignment after a shared run would delete an unrelated leaf.
+#[test]
+fn joining_own_causal_past_preserves_clone_derived_fans() {
+    let mut past = Tree::<()>::new();
+    past.act(
+        &nth_party(0),
+        (0..25).map(|_| Action::Insert(Message::new(()))),
+    );
+    let paths: Vec<_> = past
+        .iter()
+        .map(|(version, _)| crate::tree::typed::Path::for_leaf(version))
+        .collect();
+
+    for path in paths {
+        let mut current = Tree::<()>::from_root(past.root.clone());
+        current.act(&nth_party(1), [Action::Forget(path)]);
+        let expected = current.root.clone();
+
+        current.join(Tree::from_root(past.root.clone()));
+        assert_eq!(current.root, expected, "joining the past at {path:?}");
+    }
 }
 
 proptest! {

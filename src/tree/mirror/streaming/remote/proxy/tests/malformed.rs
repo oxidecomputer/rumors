@@ -7,7 +7,10 @@ use crate::tree::{
     arb::early_first_child_dispute_pair,
     mirror::streaming::remote::{
         Error as RemoteError,
-        codec::{DecodeErrorKind as CodecDecodeErrorKind, DecodeSignalError, ListingIssue},
+        codec::{
+            DecodeErrorKind as CodecDecodeErrorKind, DecodeSignalError, End, Flow, ListingIssue,
+            Signal,
+        },
         streams::StreamError,
     },
 };
@@ -92,13 +95,11 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 /// land in.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
-    const MATCH_CONTINUE_STATE: u8 = 0;
-
     let (left, right) = deep_pair();
     let corrupt_left = harness::left_initiates(&left, &right);
     let script = Script::new(
         FrameSelector::First,
-        FrameMutation::State(MATCH_CONTINUE_STATE),
+        FrameMutation::State(Signal::Match(Flow::Continue).state()),
     );
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,
@@ -245,7 +246,10 @@ fn bytes_past_the_stream_end_are_never_read() {
         write_chunk in 1usize..64,
         delays in proptest::collection::vec(0u8..=2, 0..32),
     )| {
-        let script = Script::new(FrameSelector::State(9), FrameMutation::Duplicate);
+        let script = Script::new(
+            FrameSelector::State(Signal::End(End::Stream).state()),
+            FrameMutation::Duplicate,
+        );
         let plan = IoPlan {
             read_chunk,
             write_chunk,

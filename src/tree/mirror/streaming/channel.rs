@@ -5,7 +5,7 @@
 //! named queue statistics, per-kind capacity limits, and shrinkable delays at
 //! every send and receive poll.
 
-/// One semantic edge in the materialized protocol's channel graph.
+/// One semantic edge in the streaming protocol's channel graph.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum QueueKind {
     OutgoingResponses,

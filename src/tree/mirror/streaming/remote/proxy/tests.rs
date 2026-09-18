@@ -311,20 +311,25 @@ fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
 }
 
 /// Equal versions close every unused logical stream without opening descent.
-#[pollster::test]
-async fn equal_versions_return_both_roots() {
+#[test]
+fn equal_versions_return_both_roots() {
     let root = TreeRoot {
         ceiling: Version::new(),
         root: None,
     };
-    let (a, b) = reconcile_symmetric_accepts(root.clone(), root.clone(), TRANSPORT_CAPACITY).await;
+    let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(
+        root.clone(),
+        root.clone(),
+        TRANSPORT_CAPACITY,
+    ))
+    .expect("equal versions must not leave the session quiescent");
     assert_eq!(a, root);
     assert_eq!(b, root);
 }
 
 /// Concurrent version-addressed leaves cross every proxy layer and converge.
-#[pollster::test]
-async fn divergent_leaves_converge() {
+#[test]
+fn divergent_leaves_converge() {
     let mut a = Tree::<()>::new();
     a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
     let mut b = Tree::new();
@@ -332,7 +337,12 @@ async fn divergent_leaves_converge() {
     let mut expected = a.clone();
     expected.join(b.clone());
 
-    let (a, b) = reconcile_symmetric_accepts(a.root, b.root, TRANSPORT_CAPACITY).await;
+    let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(
+        a.root,
+        b.root,
+        TRANSPORT_CAPACITY,
+    ))
+    .expect("divergent leaves must not leave the session quiescent");
     assert_eq!(a, expected.root);
     assert_eq!(b, expected.root);
 }
@@ -351,16 +361,16 @@ fn symmetric_accept_handshakes_are_live() {
     assert_eq!(a, b);
 }
 
-/// Distinct payloads exercise supplied-leaf paths different from the unit
-/// payload used by the broad protocol properties.
+/// The preamble and proxy session share control halves without consuming each
+/// other's bytes; distinct payloads also exercise supplied-leaf decoding.
 #[test]
-fn symmetric_accepts_with_distinct_payloads_are_live() {
-    let mut a_party = before::Party::seed();
-    let b_party = a_party.fork();
+fn preamble_and_proxy_session_share_control_halves() {
+    let a_party = nth_party(0);
+    let b_party = nth_party(1);
     let mut a = Tree::<u64>::new();
-    a.act(&a_party, [Action::Insert(Message::new(1_u64))]);
+    a.act(&a_party, [Action::Insert(Message::new(1))]);
     let mut b = Tree::<u64>::new();
-    b.act(&b_party, [Action::Insert(Message::new(2_u64))]);
+    b.act(&b_party, [Action::Insert(Message::new(2))]);
 
     let (a, b) = run_to_quiescence(reconcile_after_preamble::<u64>(a.root, b.root))
         .expect("distinct-payload proxy topology became quiescent");
@@ -398,37 +408,12 @@ proptest! {
                 "wire reconciliation became quiescent: {stopped:?}",
             )))?;
         trace.assert_valid();
+        trace.assert_registration_causality();
         if divergent {
             trace.assert_covers_divergent_session();
         }
         assert_proxy_channels_are_bounded(&channels);
         prop_assert_eq!(actual, expected);
-    }
-
-    /// No wire reply ever arrives before the question that scopes it was
-    /// flushed.
-    ///
-    /// Across arbitrary divergence and adversarial channel schedules,
-    /// every decode finds its scope already registered by a prior local
-    /// emission — the FIFO head, never a scope that is not.
-    /// This is the receive-side complement of the send-side ordering
-    /// `Trace::assert_valid` pins: registration happens at encode time,
-    /// attached to the exact outgoing frame which makes the question
-    /// publishable, and this pins that ordering against drift.
-    #[test]
-    fn context_registration_is_causal(
-        (a, b) in arb_divergent_pair(),
-        schedule in vec(0_u8..=2, 0..128),
-    ) {
-        let divergent = a.ceiling != b.ceiling;
-        let (result, _channels, trace) = instrumented_reconcile(a, b, schedule);
-        result.map_err(|stopped| TestCaseError::fail(format!(
-            "wire reconciliation became quiescent: {stopped:?}",
-        )))?;
-        if divergent {
-            trace.assert_covers_divergent_session();
-        }
-        trace.assert_registration_causality();
     }
 
     /// The wide-budget generator matches the in-process protocol too.
@@ -457,6 +442,8 @@ proptest! {
         schedule in vec(0_u8..=2, 0..128),
     ) {
         let failing = Failing::after(Local, operations);
+        let expected_roots = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
+            .expect("the materialized oracle should remain live");
         let result = with_schedule(schedule, || {
             run_to_quiescence(reconcile_with_failing_proxy(
                 a,
@@ -470,7 +457,7 @@ proptest! {
         )))?;
         let history = failing.history();
 
-        if let Some(expected) = history.get(operations).copied() {
+        if let Some(expected_operation) = history.get(operations).copied() {
             let (side, faulted) = if fail_left {
                 ("left", &result.0)
             } else {
@@ -485,13 +472,22 @@ proptest! {
             let observed = format!("{faulted:?}");
             prop_assert_eq!(
                 actual,
-                Some(expected),
+                Some(expected_operation),
                 "proxy failure was masked by {}",
                 observed,
             );
+            // The other endpoint may already have completed before the cut.
+            // If so, it must hold the exact oracle result.
+            if fail_left {
+                if let Ok(root) = &result.1 {
+                    prop_assert_eq!(root, &expected_roots.1);
+                }
+            } else if let Ok(root) = &result.0 {
+                prop_assert_eq!(root, &expected_roots.0);
+            }
         } else {
-            prop_assert!(result.0.is_ok(), "left endpoint failed without injection: {:?}", result.0);
-            prop_assert!(result.1.is_ok(), "right endpoint failed without injection: {:?}", result.1);
+            prop_assert_eq!(result.0.as_ref().ok(), Some(&expected_roots.0));
+            prop_assert_eq!(result.1.as_ref().ok(), Some(&expected_roots.1));
         }
     }
 

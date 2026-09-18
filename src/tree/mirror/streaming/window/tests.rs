@@ -34,6 +34,17 @@ fn replicas(messages: [u64; 2], version_bytes: [u64; 2]) -> [ReplicaSize; 2] {
     ]
 }
 
+/// Generate corpus sizes with roughly equal weight in each power-of-two range.
+fn arb_corpus_size() -> impl Strategy<Value = u64> + Clone {
+    prop_oneof![
+        Just(0),
+        (0u32..64).prop_flat_map(|bits| {
+            let first = 1u64 << bits;
+            first..=first.saturating_mul(2).saturating_sub(1)
+        }),
+    ]
+}
+
 /// Recompute a window's modeled charge from its installed capacities.
 ///
 /// Each level's population is clamped to its capacity and priced at its
@@ -158,9 +169,8 @@ fn near_root_capacities_are_structural() {
     assert!(window.capacity(KEY_DEPTH - 3) <= FAN * FAN);
 }
 
-/// The default pairing pipelines where population lives: every mid-depth
-/// level whose population exceeds one gets capacity well past the
-/// serialization floor.
+/// The default budget gives the first stage beyond the near-root caps more
+/// than one full fan of capacity.
 #[test]
 fn default_budget_pipelines_the_fat_stages() {
     let window = Window::from_budget(
@@ -168,9 +178,8 @@ fn default_budget_pipelines_the_fat_stages() {
         DEFAULT_SYNC_MEMORY_BUDGET,
         local_node_bytes,
     );
-    // Depth 4 is the first boundary whose population outgrows the
-    // structural caps at the default declaration; its height must carry
-    // real width.
+    // Depth 4 is the first boundary whose modeled population outgrows the
+    // structural caps for this declaration.
     assert!(window.capacity(KEY_DEPTH - 4) > FAN);
 }
 
@@ -334,7 +343,7 @@ proptest! {
     /// Choose the widest affordable window, except when progress requires exceeding the budget.
     #[test]
     fn window_uses_the_available_budget(
-        sizes in proptest::array::uniform2(any::<u64>()),
+        sizes in proptest::array::uniform2(arb_corpus_size()),
         budget in 0usize..=1 << 44,
     ) {
         let window = Window::from_budget(replicas(sizes, [0; 2]), budget, local_node_bytes);
@@ -364,7 +373,7 @@ proptest! {
     /// exceed the structural fan, and every stage population respects its
     /// occupied-slot cap.
     #[test]
-    fn envelopes_are_consistent(messages in 0u64.., depth in 1usize..=KEY_DEPTH) {
+    fn envelopes_are_consistent(messages in arb_corpus_size(), depth in 1usize..=KEY_DEPTH) {
         let n = u128::from(messages);
         prop_assert!(disputed(n, n * n, depth) <= occupied(n, depth));
         prop_assert!(children_quantile(n, depth) <= FAN as u128);
@@ -380,7 +389,9 @@ proptest! {
     /// maximal pair runs in every case because it is the first boundary to
     /// become nonzero if the tail constants change.
     #[test]
-    fn deep_stage_populations_are_zero(sizes in proptest::array::uniform2(any::<u64>())) {
+    fn deep_stage_populations_are_zero(
+        sizes in proptest::array::uniform2(arb_corpus_size())
+    ) {
         for sizes in [[u64::MAX; 2], sizes] {
             let n = u128::from(sizes[0].max(sizes[1]));
             let pair = u128::from(sizes[0]) * u128::from(sizes[1]);

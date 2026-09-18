@@ -94,9 +94,9 @@ pub use frame::{Frame, LeafRun, Reaction, ReplyFrame};
 #[cfg(test)]
 pub(crate) use frame::{ListingIssue, parse_listing_map, write_listing};
 pub use greeting::GreetingError;
-#[cfg(test)]
-pub(crate) use signal::DecodeSignalError;
 pub(crate) use signal::STREAM_COUNT;
+#[cfg(test)]
+pub(crate) use signal::{DecodeSignalError, Signal};
 pub use signal::{End, Flow, Speaker, Stream};
 
 /// The whole wire prefix of one initiator-spoken, reply-ending supply

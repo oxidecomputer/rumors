@@ -316,11 +316,12 @@ proptest! {
                 Backends::local(),
                 left.root,
                 right.root,
-                harness::rewritten(left_link, receiver_left.then_some(rewrite)),
-                harness::rewritten(right_link, (!receiver_left).then_some(rewrite)),
+                harness::rewritten(left_link, receiver_left.then(|| rewrite.clone())),
+                harness::rewritten(right_link, (!receiver_left).then(|| rewrite.clone())),
                 codec::<Vec<u8>>(),
                 WindowConfig::Fixed(Window::uniform(window)),
             )).expect("a deep declaration error must terminate both endpoints");
+            prop_assert!(rewrite.fired(), "the version size was not rewritten");
             let receiver = if receiver_left { left } else { right };
             prop_assert!(matches!(receiver,
                 Err(EndpointError::Proxy(Error::Decode(DecodeError::OversizedVersion {

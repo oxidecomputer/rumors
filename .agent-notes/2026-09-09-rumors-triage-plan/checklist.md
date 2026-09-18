@@ -1,9 +1,8 @@
 # Rumors review checklist
 
-**Current:** exercise meaningful walk and proxy failures, shedding, isolation,
-and terminal behavior.
+**Current:** simplify materialized-backend state and explain its ownership.
 
-**Next:** run the height-indexed trait experiment and judge the result.
+**Next:** simplify proxy state and clarify driver responsibilities.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -425,11 +424,16 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Give the materialized walk and proxy one progress-tracing shape — `e3f19fe8`.
       Sources: T118, T132.
 
-- [ ] Run the height-indexed trait experiment and judge the result.
+- [x] Declined: replacing the working phase-chain macro with recursive traits
+      adds implementation complexity without fixing a defect. Owner ruling,
+      2026-09-17.
       Sources: T117, T132.
 
-- [ ] Exercise meaningful walk and proxy failures, shedding, isolation, and terminal behavior.
+- [x] Exercise meaningful walk and proxy failures, shedding, isolation, and terminal behavior.
       Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-31` (remaining error paths), `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
+      Local-producer error variants remain diagnostics for impossible built-in
+      participant behavior; tests do not manufacture a second protocol.
+      Declined self-tests for test-only queue rosters and unreachable counter wrap.
 
 - [ ] Simplify materialized-backend state and explain its ownership.
       Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T118, T128, T132.

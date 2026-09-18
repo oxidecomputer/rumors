@@ -24,7 +24,6 @@ use crate::tree::{
         },
         window::FAN,
     },
-    typed::hash::MERKLE_HASH_LEN,
 };
 
 use super::harness::{self, EndpointError, EndpointFailure, GreetingRewrite};
@@ -47,18 +46,6 @@ fn receiver_error<'a>(
             panic!("undetected {lie} lie: the {side} proxy did not report the violation: {other:?}")
         }
     }
-}
-
-/// The observable root hash of a reconciled `tree::Root`.
-fn hash_of(root: &crate::tree::Root) -> [u8; MERKLE_HASH_LEN] {
-    Tree::<()>::from_root(root.clone()).hash()
-}
-
-/// The expected reconciled union, computed by the in-memory join oracle.
-fn union_hash(a: &crate::tree::Root, b: &crate::tree::Root) -> [u8; MERKLE_HASH_LEN] {
-    let mut union = Tree::<()>::from_root(a.clone());
-    union.join(Tree::from_root(b.clone()));
-    union.hash()
 }
 
 /// A divergent pair whose live set sizes differ strictly: one message
@@ -117,14 +104,15 @@ fn understated_target_message_size_fails_the_session() {
         // (supplying) side's target as zero.
         let rewrite = GreetingRewrite::target_message_size(0);
         let ((left, right), hears) = if receiver_left {
-            ((small, large), (Some(rewrite), None))
+            ((small, large), (Some(rewrite.clone()), None))
         } else {
-            ((large, small), (None, Some(rewrite)))
+            ((large, small), (None, Some(rewrite.clone())))
         };
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left, right, hears.0, hears.1,
         ))
         .expect("an overbatched supply run must terminate both sessions, not stall them");
+        assert!(rewrite.fired(), "the target size was not rewritten");
         let receiver_error = receiver_error(receiver_left, &left, &right, "target_message_size");
         assert!(
             matches!(
@@ -151,21 +139,22 @@ fn understated_target_message_size_fails_the_session() {
 fn overstated_target_message_size_still_converges() {
     for receiver_left in [false, true] {
         let (small, large) = batched_uneven_pair();
-        let expected = union_hash(&small, &large);
+        let expected = harness::join_oracle(&small, &large);
         let rewrite = GreetingRewrite::target_message_size(u64::MAX);
         let ((left, right), hears) = if receiver_left {
-            ((small, large), (Some(rewrite), None))
+            ((small, large), (Some(rewrite.clone()), None))
         } else {
-            ((large, small), (None, Some(rewrite)))
+            ((large, small), (None, Some(rewrite.clone())))
         };
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left, right, hears.0, hears.1,
         ))
         .expect("the session must terminate");
+        assert!(rewrite.fired(), "the target size was not rewritten");
         let left = left.expect("left endpoint reconciles despite the inflated reading");
         let right = right.expect("right endpoint reconciles despite the inflated reading");
-        assert_eq!(hash_of(&left), expected);
-        assert_eq!(hash_of(&right), expected);
+        assert_eq!(left, expected);
+        assert_eq!(right, expected);
     }
 }
 
@@ -184,10 +173,11 @@ fn understated_version_bytes_fail_the_session() {
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left,
             right,
-            receiver_left.then_some(rewrite),
-            (!receiver_left).then_some(rewrite),
+            receiver_left.then(|| rewrite.clone()),
+            (!receiver_left).then(|| rewrite.clone()),
         ))
         .expect("an oversized supplied version must terminate both sessions");
+        assert!(rewrite.fired(), "the version size was not rewritten");
         let receiver_error = receiver_error(receiver_left, &left, &right, "max_version_bytes");
         assert!(matches!(
             receiver_error,
@@ -227,14 +217,15 @@ fn understated_set_len_fails_the_session() {
         // (initiating) side's declared length as zero.
         let rewrite = GreetingRewrite::set_len(0);
         let ((left, right), hears) = if receiver_left {
-            ((large, small), (Some(rewrite), None))
+            ((large, small), (Some(rewrite.clone()), None))
         } else {
-            ((small, large), (None, Some(rewrite)))
+            ((small, large), (None, Some(rewrite.clone())))
         };
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left, right, hears.0, hears.1,
         ))
         .expect("an overdrawn supply stream must terminate both sessions");
+        assert!(rewrite.fired(), "the set length was not rewritten");
         let receiver_error = receiver_error(receiver_left, &left, &right, "set_len");
         assert!(
             matches!(
@@ -283,14 +274,15 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
         // (initiating) side's declared length as one.
         let rewrite = GreetingRewrite::set_len(1);
         let ((left, right), hears) = if receiver_left {
-            ((large, small), (Some(rewrite), None))
+            ((large, small), (Some(rewrite.clone()), None))
         } else {
-            ((small, large), (None, Some(rewrite)))
+            ((small, large), (None, Some(rewrite.clone())))
         };
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left, right, hears.0, hears.1,
         ))
         .expect("a mid-reply overdrawn supply must terminate both sessions, not stall them");
+        assert!(rewrite.fired(), "the set length was not rewritten");
         let receiver_error =
             receiver_error(receiver_left, &left, &right, "within-one-reply set_len");
         assert!(
@@ -313,19 +305,20 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
 fn overstated_version_bytes_still_converge() {
     for receiver_left in [false, true] {
         let (left, right) = early_first_child_dispute_pair();
-        let expected = union_hash(&left, &right);
+        let expected = harness::join_oracle(&left, &right);
         let rewrite = GreetingRewrite::max_version_bytes(u64::MAX);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left,
             right,
-            receiver_left.then_some(rewrite),
-            (!receiver_left).then_some(rewrite),
+            receiver_left.then(|| rewrite.clone()),
+            (!receiver_left).then(|| rewrite.clone()),
         ))
         .expect("the session must terminate");
+        assert!(rewrite.fired(), "the version size was not rewritten");
         let left = left.expect("left endpoint reconciles despite the overstated bound");
         let right = right.expect("right endpoint reconciles despite the overstated bound");
-        assert_eq!(hash_of(&left), expected);
-        assert_eq!(hash_of(&right), expected);
+        assert_eq!(left, expected);
+        assert_eq!(right, expected);
     }
 }
 
@@ -338,21 +331,22 @@ fn overstated_version_bytes_still_converge() {
 fn overstated_set_len_from_the_bulk_side_still_converges() {
     for small_left in [false, true] {
         let (small, large) = uneven_pair();
-        let expected = union_hash(&small, &large);
+        let expected = harness::join_oracle(&small, &large);
         // The smaller side hears the larger side's set size as u64::MAX.
         let rewrite = GreetingRewrite::set_len(u64::MAX);
         let ((left, right), hears) = if small_left {
-            ((small, large), (Some(rewrite), None))
+            ((small, large), (Some(rewrite.clone()), None))
         } else {
-            ((large, small), (None, Some(rewrite)))
+            ((large, small), (None, Some(rewrite.clone())))
         };
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left, right, hears.0, hears.1,
         ))
         .expect("the session must terminate");
+        assert!(rewrite.fired(), "the set length was not rewritten");
         let left = left.expect("left endpoint reconciles despite the overstated set size");
         let right = right.expect("right endpoint reconciles despite the overstated set size");
-        assert_eq!(hash_of(&left), expected);
-        assert_eq!(hash_of(&right), expected);
+        assert_eq!(left, expected);
+        assert_eq!(right, expected);
     }
 }

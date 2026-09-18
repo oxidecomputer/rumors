@@ -4,27 +4,30 @@ use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::{
     convert::Infallible,
     io,
-    ops::RangeInclusive,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll},
 };
 
 use futures::join;
-use tokio::io::{AsyncRead, AsyncWrite};
-
-use tokio::io::ReadBuf;
+use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
-use crate::link::{Acceptor, Connector, Done, Link, MemoryLink, memory_with_capacity};
+use crate::link::{
+    Acceptor, Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink,
+    memory_with_capacity,
+};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
 use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::typed::height::Z;
 use crate::tree::{
-    Root as TreeRoot,
+    Root as TreeRoot, Tree,
     mirror::{
         Error as MirrorError,
         streaming::{
@@ -32,19 +35,16 @@ use crate::tree::{
             materialized::{Error as MaterializedError, Handshaking},
             message::RoleKey,
             mirror,
-            remote::{Error as RemoteError, Handshaking as RemoteHandshaking},
+            remote::{
+                Error as RemoteError, Handshaking as RemoteHandshaking,
+                codec::{Flow, Signal},
+            },
         },
     },
 };
 
 /// Bytes buffered by each per-stream pipe before backpressure applies.
 const TRANSPORT_CAPACITY: usize = 37;
-
-/// Dense states occupied by the two nonempty-query flow variants.
-const QUERY_STATES: RangeInclusive<u8> = 4..=5;
-
-/// Dense states below this boundary carry reactions rather than bare ends.
-const REACTION_STATE_COUNT: u8 = 8;
 
 /// One endpoint's session failure, named by the participant that raised
 /// it.
@@ -86,17 +86,22 @@ pub trait TreeBackend: Backend<Node<Z>: Leaf> + Clone + Send + Sync + 'static {
     fn lower(root: Root<Self>) -> TreeRoot;
 }
 
+/// Adapt ordinary local nodes to the proxy test harness.
 impl TreeBackend for Local {
+    /// Wrap an ordinary root without changing it.
     fn lift(root: TreeRoot) -> Root<Self> {
         root.into()
     }
 
+    /// Unwrap an ordinary root without changing it.
     fn lower(root: Root<Self>) -> TreeRoot {
         root.into()
     }
 }
 
+/// Adapt operation-failing local nodes to the proxy test harness.
 impl TreeBackend for Failing<Local> {
+    /// Wrap every present root node with the failing backend.
     fn lift(root: TreeRoot) -> Root<Self> {
         Root {
             ceiling: root.ceiling,
@@ -104,6 +109,7 @@ impl TreeBackend for Failing<Local> {
         }
     }
 
+    /// Remove the failing wrapper from every present root node.
     fn lower(root: Root<Self>) -> TreeRoot {
         TreeRoot {
             ceiling: root.ceiling,
@@ -115,12 +121,17 @@ impl TreeBackend for Failing<Local> {
 /// The four participants' backends: each endpoint's materialized
 /// participant and the proxy beside it.
 pub struct Backends<B> {
+    /// The left materialized participant.
     pub left: B,
+    /// The proxy paired with the left participant.
     pub left_proxy: B,
+    /// The right materialized participant.
     pub right: B,
+    /// The proxy paired with the right participant.
     pub right_proxy: B,
 }
 
+/// Construct the ordinary in-memory backend arrangement.
 impl Backends<Local> {
     /// Every participant on the infallible in-memory backend.
     pub fn local() -> Self {
@@ -140,6 +151,13 @@ where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     PayloadCodec::new::<T>(PayloadDepthLimit::default())
+}
+
+/// Return the complete root produced by the in-memory join oracle.
+pub fn join_oracle(left: &TreeRoot, right: &TreeRoot) -> TreeRoot {
+    let mut joined = Tree::<()>::from_root(left.clone());
+    joined.join(Tree::from_root(right.clone()));
+    joined.root
 }
 
 /// Both endpoint results and their physical-I/O observations.
@@ -178,9 +196,13 @@ pub enum FrameMutation {
     UnorderQuery,
 }
 
+/// Mutable state shared by the streams carrying one frame script.
 struct ScriptState {
+    /// Which frame should be changed.
     selector: FrameSelector,
+    /// How the selected frame should be changed.
     mutation: FrameMutation,
+    /// Whether a matching frame has already been changed.
     fired: bool,
 }
 
@@ -217,16 +239,22 @@ impl Script {
 ///
 /// [`StreamSender`]: crate::tree::mirror::streaming::remote::streams::StreamSender
 pub struct ScriptedWrite<W> {
+    /// The stream that receives the resulting bytes.
     inner: W,
+    /// The shared mutation, while it remains unfired.
     script: Option<Script>,
     /// Whether the next flush still carries the label items ahead of its
     /// frame.
     label: bool,
+    /// Bytes buffered for the current frame.
     frame: Vec<u8>,
+    /// Bytes to write after applying the script.
     output: Vec<u8>,
+    /// Bytes already written from `output`.
     sent: usize,
 }
 
+/// Construct and prepare a scripted data-stream writer.
 impl<W> ScriptedWrite<W> {
     /// Wrap one stream's `inner`, applying `script` once if it reaches its
     /// selector.
@@ -280,8 +308,14 @@ impl<W> ScriptedWrite<W> {
         let selected = match script.selector {
             FrameSelector::First => true,
             FrameSelector::State(expected) => state == expected,
-            FrameSelector::Query => QUERY_STATES.contains(&state),
-            FrameSelector::EndingReaction => state < REACTION_STATE_COUNT && state % 2 == 1,
+            FrameSelector::Query => matches!(Signal::from_state(state), Ok(Signal::Query(_))),
+            FrameSelector::EndingReaction => matches!(
+                Signal::from_state(state),
+                Ok(Signal::Match(Flow::End)
+                    | Signal::QueryEmpty(Flow::End)
+                    | Signal::Query(Flow::End)
+                    | Signal::Supply(Flow::End))
+            ),
         };
         if !selected {
             return;
@@ -318,7 +352,9 @@ impl<W> ScriptedWrite<W> {
     }
 }
 
+/// Buffer writes by frame while preserving ordinary async-write behavior.
 impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
+    /// Buffer bytes until the frame's flush boundary reveals its full shape.
     fn poll_write(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
@@ -328,6 +364,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
         Poll::Ready(Ok(bytes.len()))
     }
 
+    /// Apply the script, then flush the resulting complete frame.
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         this.prepare();
@@ -351,6 +388,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
         }
     }
 
+    /// Flush the pending frame before closing the wrapped stream.
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.as_mut().poll_flush(cx) {
             Poll::Ready(Ok(())) => Pin::new(&mut self.get_mut().inner).poll_shutdown(cx),
@@ -363,7 +401,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
 /// sharing one [`Script`].
 #[derive(Clone)]
 pub struct ScriptedConnector<C> {
+    /// The connector that opens the underlying stream.
     inner: C,
+    /// The mutation shared by every opened stream.
     script: Option<Script>,
 }
 
@@ -389,47 +429,58 @@ impl<C: Connector> Connector for ScriptedConnector<C> {
 /// honest tree. The greeting is the first control traffic at this layer,
 /// so the rewriter buffers the one item, re-spells it with the field
 /// replaced, and passes everything after it through untouched.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct GreetingRewrite {
+    /// Whether this rewrite reached a complete greeting.
+    fired: Arc<AtomicBool>,
     field: GreetingField,
     /// The declaration the receiving side decodes instead of the honest one.
     value: u64,
 }
 
 #[derive(Clone, Copy)]
+/// The size declaration replaced in a received greeting.
 enum GreetingField {
+    /// The peer's message count.
     SetLen,
+    /// The largest encoded version the peer may send.
     MaxVersionBytes,
+    /// The peer's target encoded message size.
     TargetMessageSize,
 }
 
 impl GreetingRewrite {
-    /// Rewrite the received greeting's `set_len` entry.
-    pub fn set_len(value: u64) -> Self {
+    /// Configure one declaration rewrite with a shared observation flag.
+    fn new(field: GreetingField, value: u64) -> Self {
         Self {
-            field: GreetingField::SetLen,
+            fired: Arc::new(AtomicBool::new(false)),
+            field,
             value,
         }
+    }
+
+    /// Rewrite the received greeting's `set_len` entry.
+    pub fn set_len(value: u64) -> Self {
+        Self::new(GreetingField::SetLen, value)
     }
 
     /// Rewrite the received greeting's `max_version_bytes` entry.
     pub fn max_version_bytes(value: u64) -> Self {
-        Self {
-            field: GreetingField::MaxVersionBytes,
-            value,
-        }
+        Self::new(GreetingField::MaxVersionBytes, value)
     }
 
     /// Rewrite the received greeting's `target_message_size` entry.
     pub fn target_message_size(value: u64) -> Self {
-        Self {
-            field: GreetingField::TargetMessageSize,
-            value,
-        }
+        Self::new(GreetingField::TargetMessageSize, value)
+    }
+
+    /// Return whether a complete greeting was rewritten.
+    pub fn fired(&self) -> bool {
+        self.fired.load(Ordering::Relaxed)
     }
 
     /// Re-spell one buffered greeting item with this rewrite applied.
-    fn apply(self, item: &[u8]) -> Vec<u8> {
+    fn apply(&self, item: &[u8]) -> Vec<u8> {
         use crate::tree::mirror::streaming::remote::codec::greeting::{
             encode_greeting, parse_greeting,
         };
@@ -442,6 +493,7 @@ impl GreetingRewrite {
             GreetingField::MaxVersionBytes => greeting.max_version_bytes = self.value,
             GreetingField::TargetMessageSize => greeting.target_message_size = self.value,
         }
+        self.fired.store(true, Ordering::Relaxed);
         encode_greeting(&greeting)
     }
 }
@@ -450,23 +502,34 @@ impl GreetingRewrite {
 /// arbitrary read chunking: it buffers the greeting item, serves the
 /// re-spelled bytes, and passes the rest of the stream through.
 pub struct RewriteRead<R> {
+    /// The control stream being read.
     inner: R,
+    /// The current rewrite phase.
     state: RewriteState,
 }
 
+/// Progress through buffering and replacing the greeting at stream start.
 enum RewriteState {
     /// Accumulating the greeting item's bytes.
     Buffering {
+        /// The replacement to apply once the greeting is complete.
         rewrite: GreetingRewrite,
+        /// Greeting bytes received so far.
         pending: Vec<u8>,
     },
     /// Serving the re-spelled bytes ahead of the untouched stream.
-    Serving { bytes: Vec<u8>, at: usize },
+    Serving {
+        /// Rewritten and trailing bytes awaiting delivery.
+        bytes: Vec<u8>,
+        /// The next byte to deliver.
+        at: usize,
+    },
     /// Everything further passes through.
     PassThrough,
 }
 
 impl<R> RewriteRead<R> {
+    /// Wrap a control reader with an optional greeting rewrite.
     fn new(inner: R, rewrite: Option<GreetingRewrite>) -> Self {
         Self {
             inner,
@@ -491,7 +554,9 @@ fn greeting_item_len(pending: &[u8]) -> Option<usize> {
     Some(heads + usize::try_from(body.value).ok()?)
 }
 
+/// Replace the greeting before forwarding subsequent control bytes.
 impl<R: AsyncRead + Unpin> AsyncRead for RewriteRead<R> {
+    /// Buffer through the greeting, then serve the rewrite and remaining bytes.
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -553,7 +618,7 @@ pub async fn reconcile(
     left_plan: IoPlan,
     right_plan: IoPlan,
 ) -> Outcome {
-    let (left_link, right_link) = memory_with_capacity(capacity.max(1));
+    let (left_link, right_link) = memory_with_capacity(capacity);
     let (left_link, left_io) = wrap_link(IoSide::Left, left_plan, left_link);
     let (right_link, right_io) = wrap_link(IoSide::Right, right_plan, right_link);
 
@@ -608,12 +673,7 @@ pub async fn reconcile_rewritten_greetings(
 pub fn rewritten(
     link: MemoryLink,
     rewrite: Option<GreetingRewrite>,
-) -> Link<
-    RewriteRead<tokio::io::DuplexStream>,
-    tokio::io::DuplexStream,
-    crate::link::MemoryConnector,
-    crate::link::MemoryAcceptor,
-> {
+) -> Link<RewriteRead<DuplexStream>, DuplexStream, MemoryConnector, MemoryAcceptor> {
     link.map_transport(|control_read, control_write, connector, acceptor| {
         (
             RewriteRead::new(control_read, rewrite),

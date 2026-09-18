@@ -14,8 +14,11 @@ pub(super) enum Role {
     Parent { height: usize },
 }
 
+/// Delays consumed in order at backend poll boundaries.
 struct Schedule {
+    /// Pending-count choices for successive operations.
     delays: Vec<u8>,
+    /// The next choice to consume.
     step: usize,
 }
 
@@ -24,15 +27,19 @@ struct Schedule {
 // initializers that already sit in `const` blocks; the allow keeps
 // `-D warnings` honest on every platform the gate runs.
 std::thread_local! {
+    /// The schedule active on this test thread.
     #[allow(clippy::missing_const_for_thread_local)]
     static SCHEDULE: RefCell<Option<Schedule>> = const { RefCell::new(None) };
 }
 
 /// Run `f` with an explicit sequence of delays at Local backend poll boundaries.
 pub fn with_schedule<R>(delays: Vec<u8>, f: impl FnOnce() -> R) -> R {
+    /// Restore the outer schedule after a nested or panicking run.
     struct Restore(Option<Schedule>);
 
+    /// Restore the saved test-thread schedule.
     impl Drop for Restore {
+        /// Reinstate the outer schedule.
         fn drop(&mut self) {
             SCHEDULE.with(|schedule| schedule.replace(self.0.take()));
         }
@@ -61,15 +68,21 @@ pub(super) fn stream<S: Stream>(role: Role, stream: S) -> impl Stream<Item = S::
     }
 }
 
+/// A backend future with scheduled pending polls.
 struct DelayedFuture<F> {
+    /// The wrapped backend operation.
     inner: Pin<Box<F>>,
+    /// The operation surface being delayed.
     role: Role,
+    /// Pending polls left for the current operation.
     delay: Option<u8>,
 }
 
+/// Poll a backend future through its scheduled delay.
 impl<F: Future> Future for DelayedFuture<F> {
     type Output = F::Output;
 
+    /// Spend a scheduled delay or poll the wrapped future.
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let role = self.role;
         if delay(&mut self.delay, role, cx) {
@@ -79,15 +92,21 @@ impl<F: Future> Future for DelayedFuture<F> {
     }
 }
 
+/// A backend stream with scheduled pending polls.
 struct DelayedStream<S> {
+    /// The wrapped backend stream.
     inner: Pin<Box<S>>,
+    /// The operation surface being delayed.
     role: Role,
+    /// Pending polls left for the current item.
     delay: Option<u8>,
 }
 
+/// Poll a backend stream through its scheduled delay.
 impl<S: Stream> Stream for DelayedStream<S> {
     type Item = S::Item;
 
+    /// Spend a scheduled delay or poll the wrapped stream.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let role = self.role;
         if delay(&mut self.delay, role, cx) {
@@ -112,6 +131,7 @@ fn delay(delay: &mut Option<u8>, role: Role, cx: &mut Context<'_>) -> bool {
     }
 }
 
+/// Consume the next scheduled delay, or return zero outside a schedule.
 fn next_delay(_role: Role) -> u8 {
     SCHEDULE.with(|schedule| {
         let mut schedule = schedule.borrow_mut();
@@ -128,17 +148,38 @@ fn next_delay(_role: Role) -> u8 {
 mod tests {
     use std::future;
     use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::task::{Context, Poll, Wake, Waker};
 
     use futures::{Future, Stream};
 
     use super::{Role, future as delayed_future, stream as delayed_stream, with_schedule};
 
+    /// Count wakeups requested by the delayed wrappers.
+    struct WakeCount(AtomicUsize);
+
+    /// Record every requested wakeup.
+    impl Wake for WakeCount {
+        /// Count a wakeup that consumes the waker.
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+
+        /// Count a wakeup through a shared waker.
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     /// Scheduled wrappers self-wake for every delay, then preserve the backend result or item.
     #[test]
     fn future_and_stream_delays_self_wake_then_complete() {
-        let waker = Waker::noop();
-        let mut cx = Context::from_waker(waker);
+        let wakes = Arc::new(WakeCount(AtomicUsize::new(0)));
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
 
         with_schedule(vec![2, 1], || {
             let mut future = pin!(delayed_future(Role::Parent { height: 1 }, future::ready(7)));
@@ -153,5 +194,6 @@ mod tests {
             assert!(matches!(stream.as_mut().poll_next(&mut cx), Poll::Pending));
             assert_eq!(stream.as_mut().poll_next(&mut cx), Poll::Ready(Some(9)));
         });
+        assert_eq!(wakes.0.load(Ordering::Relaxed), 3);
     }
 }

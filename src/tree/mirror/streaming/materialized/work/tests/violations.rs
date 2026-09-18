@@ -1,4 +1,8 @@
 //! Semantic-violation injection across every materialized walk height.
+//!
+//! The height matrix enters each walk level directly because a connected
+//! counterparty cannot cheaply select a type-level height. Connected-session
+//! tests separately check that these violations cross the public driver.
 
 use std::{collections::BTreeSet, convert::Infallible};
 
@@ -50,6 +54,8 @@ enum ScriptedViolation {
     UnexpectedSupply,
     /// Supply a child outside radix order.
     InvalidSupply,
+    /// Supply past a held child without resolving it.
+    InvalidSupplySkipsHeld,
     /// Supply content beyond the declared version.
     UncontainedSupply,
 }
@@ -66,6 +72,7 @@ impl From<ScriptedViolation> for Violation {
             ScriptedViolation::UnexpectedQuery => Violation::UnexpectedQuery,
             ScriptedViolation::UnexpectedSupply => Violation::UnexpectedSupply,
             ScriptedViolation::InvalidSupply => Violation::InvalidSupply,
+            ScriptedViolation::InvalidSupplySkipsHeld => Violation::InvalidSupply,
             ScriptedViolation::UncontainedSupply => Violation::UncontainedSupply,
         }
     }
@@ -81,6 +88,7 @@ fn arb_scripted_violation() -> impl Strategy<Value = ScriptedViolation> {
         Just(ScriptedViolation::UnexpectedQuery),
         Just(ScriptedViolation::UnexpectedSupply),
         Just(ScriptedViolation::InvalidSupply),
+        Just(ScriptedViolation::InvalidSupplySkipsHeld),
         Just(ScriptedViolation::UncontainedSupply),
     ]
 }
@@ -195,6 +203,15 @@ where
                 }],
             )
         }
+        ScriptedViolation::InvalidSupplySkipsHeld => (
+            Some(Query {
+                prefix: prefix.erase(),
+                ours: vec![(5, <Local as Backend>::erase(ours[0].1.clone()))],
+            }),
+            vec![Reply {
+                reactions: vec![Reaction::Supply(7, supplied)],
+            }],
+        ),
         ScriptedViolation::UncontainedSupply => {
             // Structurally a legal supply — the query holds nothing, the
             // radix is fresh — so only the version escape is at fault.

@@ -5,6 +5,15 @@ use std::{
 
 use crate::tree::typed::height::{Height as _, Root, UnderRoot};
 
+/// The overlapping portion of the session that owns a publication.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Stage {
+    /// The root-to-leaf walk.
+    Walk,
+    /// The final bidirectional leaf exchange.
+    Terminal,
+}
+
 /// One progress-critical proxy publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
@@ -23,6 +32,8 @@ pub enum Kind {
 struct Event {
     /// The proxy endpoint that published this event.
     work: usize,
+    /// The independently progressing part of that endpoint.
+    stage: Stage,
     /// The question's height, shared by its answer and any derived scopes.
     height: usize,
     /// Which publication occurred.
@@ -37,18 +48,18 @@ pub struct Trace(Vec<Event>);
 impl Trace {
     /// Assert wire-before-question and reply-before-scope ordering.
     pub fn assert_valid(&self) {
-        let mut questions = BTreeMap::<(usize, usize), usize>::new();
-        let mut scopes = BTreeMap::<(usize, usize), usize>::new();
+        let mut questions = BTreeMap::<(usize, Stage, usize), usize>::new();
+        let mut scopes = BTreeMap::<(usize, Stage, usize), usize>::new();
         for (index, event) in self.0.iter().enumerate() {
             match event.kind {
                 Kind::WireReply { questions: count } => {
                     assert_drained(&questions, event, index, "questions");
-                    questions.insert((event.work, event.height), count);
+                    questions.insert((event.work, event.stage, event.height), count);
                 }
                 Kind::LocalQuestion => consume(&mut questions, event, index, "wire reply"),
                 Kind::DecodedReply { scopes: count } => {
                     assert_drained(&scopes, event, index, "scopes");
-                    scopes.insert((event.work, event.height), count);
+                    scopes.insert((event.work, event.stage, event.height), count);
                 }
                 Kind::NextScope => consume(&mut scopes, event, index, "decoded reply"),
             }
@@ -100,21 +111,25 @@ impl Trace {
     /// endpoint. Questions and answers pair in FIFO order at each height.
     /// The root opening is the sole exception: its scope comes from the greeting.
     pub fn assert_registration_causality(&self) {
-        let mut questions = BTreeMap::<(usize, usize), usize>::new();
-        let mut decoded = BTreeMap::<(usize, usize), usize>::new();
+        let mut questions = BTreeMap::<(usize, Stage, usize), usize>::new();
+        let mut decoded = BTreeMap::<(usize, Stage, usize), usize>::new();
         for (index, event) in self.0.iter().enumerate() {
             match event.kind {
                 Kind::LocalQuestion => {
-                    *questions.entry((event.work, event.height)).or_insert(0) += 1;
+                    *questions
+                        .entry((event.work, event.stage, event.height))
+                        .or_insert(0) += 1;
                 }
                 Kind::DecodedReply { .. } => {
-                    let count = decoded.entry((event.work, event.height)).or_insert(0);
+                    let count = decoded
+                        .entry((event.work, event.stage, event.height))
+                        .or_insert(0);
                     *count += 1;
                     let available = if event.height == Root::HEIGHT {
                         1
                     } else {
                         questions
-                            .get(&(event.work, event.height))
+                            .get(&(event.work, event.stage, event.height))
                             .copied()
                             .unwrap_or(0)
                     };
@@ -133,13 +148,13 @@ impl Trace {
 
 /// A reply cannot overtake the previous reply’s dependent publications.
 fn assert_drained(
-    ledger: &BTreeMap<(usize, usize), usize>,
+    ledger: &BTreeMap<(usize, Stage, usize), usize>,
     event: &Event,
     index: usize,
     items: &str,
 ) {
     let remaining = ledger
-        .get(&(event.work, event.height))
+        .get(&(event.work, event.stage, event.height))
         .copied()
         .unwrap_or(0);
     assert_eq!(
@@ -150,13 +165,13 @@ fn assert_drained(
 
 /// Charge one dependent publication to the reply that made it available.
 fn consume(
-    ledger: &mut BTreeMap<(usize, usize), usize>,
+    ledger: &mut BTreeMap<(usize, Stage, usize), usize>,
     event: &Event,
     index: usize,
     prerequisite: &str,
 ) {
     let remaining = ledger
-        .get_mut(&(event.work, event.height))
+        .get_mut(&(event.work, event.stage, event.height))
         .unwrap_or_else(|| {
             panic!("event {event:?} at trace index {index} preceded its {prerequisite}")
         });
@@ -217,9 +232,19 @@ pub fn new_work() -> usize {
 
 /// Append a publication when a trace is active on this thread.
 pub fn record(work: usize, kind: Kind, height: usize) {
+    record_stage(work, Stage::Walk, kind, height);
+}
+
+/// Append a publication for the given session stage when tracing is active.
+pub fn record_stage(work: usize, stage: Stage, kind: Kind, height: usize) {
     EVENTS.with(|events| {
         if let Some(events) = events.borrow_mut().as_mut() {
-            events.push(Event { work, height, kind });
+            events.push(Event {
+                work,
+                stage,
+                height,
+                kind,
+            });
         }
     });
 }

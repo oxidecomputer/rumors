@@ -288,7 +288,8 @@ where
             Z::HEIGHT,
         ));
         let (next_scopes, scopes) = queues::next_scopes(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
-        let responses = self.leaf_decode_pump(questions, incoming, Some(next_scopes));
+        let responses =
+            self.leaf_decode_pump(questions, incoming, Some(next_scopes), self.progress);
         (self.respond::<Z>(responses), scopes)
     }
 
@@ -301,9 +302,9 @@ where
         mut questions: Receiver<Scope>,
         mut incoming: StreamReceiver,
         next_scopes: Option<Sender<Scope>>,
+        progress: super::progress::Progress,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
-        let progress = self.progress;
         let ingress = self.ingress();
         try_stream! {
             while let Some(scope) = questions.recv().await {
@@ -373,9 +374,9 @@ where
             scopes,
             outgoing,
             Some(local_questions),
-            self.progress,
+            self.progress.terminal(),
         ));
-        let responses = self.leaf_decode_pump(questions, incoming, None);
+        let responses = self.leaf_decode_pump(questions, incoming, None, self.progress.terminal());
         let responses = self.respond::<Z>(responses);
         let completion = async move {
             let ((), read, write) = self.execute(async { Ok(()) }).await?;

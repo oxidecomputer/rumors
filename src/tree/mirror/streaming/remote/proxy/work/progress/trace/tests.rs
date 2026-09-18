@@ -141,6 +141,18 @@ fn accepts_terminal_answer_during_internal_scope_publication() {
     trace.assert_registration_causality();
 }
 
+/// Walk and terminal leaf publications use independent ledgers even when
+/// their height-zero activity interleaves on one endpoint.
+#[test]
+fn accepts_overlapping_walk_and_terminal_leaf_publications() {
+    let (_, trace) = with_trace(|| {
+        record(0, Kind::DecodedReply { scopes: 1 }, 0);
+        record_stage(0, Stage::Terminal, Kind::DecodedReply { scopes: 0 }, 0);
+        record(0, Kind::NextScope, 0);
+    });
+    trace.assert_valid();
+}
+
 /// An unanswered parent question cannot stand in for a leaf question.
 #[test]
 #[should_panic(expected = "arrived before the question that scopes it")]

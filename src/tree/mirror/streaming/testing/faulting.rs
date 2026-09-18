@@ -63,8 +63,8 @@ pub enum ReplyCorruption {
 }
 
 impl ReplyCorruption {
-    /// Every reply corruption, used by the connected-session property suite.
-    pub(crate) const ALL: [Self; 8] = [
+    /// Every reply corruption, used by the connected-session exhaustive suite.
+    pub(crate) const ALL: &'static [Self] = &[
         Self::UnaskedReply,
         Self::UnansweredQuery,
         Self::UnfinishedReply,
@@ -121,6 +121,17 @@ pub enum GreetingLie {
     /// definition (`ours | declared`), and the reconciled content must
     /// not move.
     InflatedVersion,
+}
+
+impl GreetingLie {
+    /// Every greeting lie, used by the connected-session exhaustive suite.
+    pub(crate) const ALL: &'static [Self] = &[
+        Self::ShrunkenSetLen,
+        Self::UnderdeclaredSetLen,
+        Self::InflatedSetLen,
+        Self::ShrunkenVersion,
+        Self::InflatedVersion,
+    ];
 }
 
 /// Apply one lie to an outgoing greeting.
