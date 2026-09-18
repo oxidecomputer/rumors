@@ -1,13 +1,13 @@
 # Rumors review checklist
 
-**Current:** CI now runs Rumors properties in release with one 4,000-case
-setting and a measured timeout profile — `0c929897`.
+**Current:** benchmarks now isolate the operations they report and the branch
+hash comparison exercises the production implementation — `30ce0112`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** make benchmark timings isolate the operations they claim to measure,
-then finish gate and CI reproducibility. Remaining measured performance work,
-test consolidation, broad prose work, and module hygiene follow.
+**Next:** audit the remaining unchecked entries for stale findings and explicit
+dispositions. No known production correctness or API defect remains; the live
+work is verification, cleanup, publication preparation, and final Sush review.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -410,7 +410,11 @@ Dependencies: 02, then relevant API/error changes in 09.
       Sources: `conformance-2–5`, `conformance-10`, `conformance-12`, `conformance-14`, `conformance-15`, `conformance-17`, `conformance-19`, `conformance-21–23`, `conformance-26`, `conformance-32–34`, `conformance-36`, `link-11`, `link-12`, T48–50, T132.
 
 - [ ] Simplify link/router bookkeeping and clarify public contracts.
-      Sources: `link-2`, `link-4`, `link-7–10`, `link-13`, `link-15`, `link-17–19`, `link-22–24`, `link-26`, `link-30`, `link-31`, T46, T49, T55, T80, T100, T128, T132.
+      Sources: `link-2`, `link-4`, `link-7–10`, `link-13`, `link-15`, `link-17–19`, `link-22–24`, `link-30`, `link-31`, T46, T49, T55, T80, T100, T128, T132.
+
+- [x] Give the routing table ownership of token claims and route cleanup —
+      `45aaec54`.
+      Source: `link-26`.
 
 ## 14. Walk, materialized backend, and proxy simplification
 
@@ -619,8 +623,16 @@ Dependencies: 03, 05–09, 13 and 16 as each case requires.
 - [ ] Strengthen wire examples and errors without accidental snapshot changes.
       Sources: `remote-capture-atlas-20`, `tests-wire-format-4`, `tests-wire-format-5`, `tests-wire-format-12`, `tests-wire-format-14`, `tests-wire-format-18`, `tests-wire-format-22`, `tests-wire-format-27`, T5, T85, T93, T130, T132.
 
+- [x] Preserve the capture renderer's byte distinction for containers, tags,
+      non-canonical values, and NaNs — `e1ceb38d`, `2b67345f`, `896705ce`.
+      Sources: `remote-capture-atlas-13`, `remote-capture-atlas-17`.
+
 - [ ] Simplify capture rendering and keep one vocabulary definition.
-      Sources: `remote-capture-atlas-8`, `remote-capture-atlas-12–17`, `remote-capture-atlas-19`, `remote-capture-atlas-23`, `remote-capture-atlas-27`, `remote-capture-atlas-29`, `remote-capture-atlas-31–35`, T9, T55, T132, T138, T140.
+      Sources: `remote-capture-atlas-8`, `remote-capture-atlas-12`,
+      `remote-capture-atlas-14–16`, `remote-capture-atlas-19`,
+      `remote-capture-atlas-23`, `remote-capture-atlas-27`,
+      `remote-capture-atlas-29`, `remote-capture-atlas-31–35`, T9, T55,
+      T132, T138, T140.
 
 - [ ] Keep seed and snapshot discovery accurate without deleting counterexamples.
       Sources: `streaming-tests-20`, `tests-common-31`, `tests-common-32`, `tests-lifecycle-1`, `tests-observation-38`, `tests-wire-format-19–21`, T59, T91, T132.
@@ -641,8 +653,25 @@ Dependencies: 03, 05–09, 13 and 16 as each case requires.
 
 Dependencies: 10–12 for affected implementation baselines; 16 for shared support.
 
-- [ ] Measure useful operations without fixture, runtime, or destructor work in the timed body.
-      Sources: `benches-envelope-1–3`, `benches-envelope-11–13`, `benches-envelope-15`, `benches-envelope-16`, `benches-envelope-18`, `benches-envelope-20`, `benches-envelope-23`, `benches-envelope-25`, `suite-economics-2`, `suite-economics-3`, `suite-economics-7`, T89, T109, T112, T114, T129, T132.
+- [x] Measure production work without avoidable fixture, runtime, or destructor
+      costs in the timed body — `30ce0112`.
+      Sources: `benches-envelope-1`, `benches-envelope-3`,
+      `benches-envelope-11`, `benches-envelope-12`, `benches-envelope-15`,
+      `benches-envelope-18`, T89, T109, T114, T129, T132.
+
+- [x] Start the deterministic deep-geometry fixture at its verified hint and
+      retain the exhaustive fallback — `d0e4c954`.
+      Sources: `suite-economics-2`, `suite-economics-3`, T112.
+
+- [ ] Decide whether the range-pruning performance claim warrants a test-only
+      traversal meter; correctness is already checked independently.
+      Sources: `benches-envelope-13`.
+
+- [ ] Simplify the remaining benchmark harness structure where doing so makes
+      its cost model easier to verify.
+      Sources: `benches-envelope-2`, `benches-envelope-16`,
+      `benches-envelope-20`, `benches-envelope-23`, `benches-envelope-25`,
+      `suite-economics-7`.
 
 - [x] Disposition: the reported linear session cost does not reproduce on current code; no change needed. Owner ruling, 2026-09-15.
       Sources: N52.
