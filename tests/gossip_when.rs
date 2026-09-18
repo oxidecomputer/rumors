@@ -964,18 +964,25 @@ proptest! {
     }
 }
 
-/// One step of a chaos script: a commit on either side, a tick to either
-/// driver, or letting the schedulers run for a few polls.
+/// One step of a chaos script: a send or redaction on either side, a tick to
+/// either driver, or an opportunity for the schedulers to make progress.
 ///
-/// Ticks and commits
-/// are deliberately decoupled — a tick may arrive with nothing new (must
-/// suppress), late (covering several commits), or while a session is
-/// already in flight on the same or the opposite side.
+/// Ticks and commits are deliberately decoupled: a tick may arrive with
+/// nothing new (must suppress), late (covering several commits), or while a
+/// session is already in flight on the same or the opposite side.
 #[derive(Debug, Clone, Copy)]
 enum Op {
+    /// Send a new message from A.
     SendA,
+    /// Send a new message from B.
     SendB,
+    /// Redact A's most recent unredacted local message, if any.
+    RedactA,
+    /// Redact B's most recent unredacted local message, if any.
+    RedactB,
+    /// Ask A's driver to gossip if its set changed.
     TickA,
+    /// Ask B's driver to gossip if its set changed.
     TickB,
     /// Yield to the drivers this many times, letting in-flight sessions
     /// progress (or not) between script steps.
@@ -987,6 +994,8 @@ fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
         Just(Op::SendA),
         Just(Op::SendB),
+        Just(Op::RedactA),
+        Just(Op::RedactB),
         Just(Op::TickA),
         Just(Op::TickB),
         (1u8..6).prop_map(Op::Pump),
@@ -996,12 +1005,12 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 proptest! {
     /// Chaos: under *any* interleaving of commits, ticks, and scheduler
     /// progress on both sides of one connection, no session errors and
-    /// full convergence.
+    /// full convergence on exactly the surviving messages.
     ///
     /// The interleavings include simultaneous initiations, ticks racing
     /// in-flight sessions, suppressed ticks, and idle pumps. Every
     /// driver ends cleanly once its tick source closes, and the pair
-    /// converges on exactly the union of both sides' sends.
+    /// converges on exactly the union of both sides' sends minus redactions.
     #[test]
     fn chaotic_tick_interleavings_converge_without_error(
         script in proptest::collection::vec(op_strategy(), 0..48),
@@ -1027,16 +1036,31 @@ proptest! {
             });
 
             let mut sent = 0u64;
+            let mut redacted = 0u64;
+            let mut a_live = Vec::new();
+            let mut b_live = Vec::new();
             let feeder = async {
                 for op in &script {
                     match op {
                         Op::SendA => {
-                            a.send(sent).unwrap();
+                            a_live.push(a.send(sent).unwrap());
                             sent += 1;
                         }
                         Op::SendB => {
-                            b.send(1_000_000 + sent).unwrap();
+                            b_live.push(b.send(1_000_000 + sent).unwrap());
                             sent += 1;
+                        }
+                        Op::RedactA => {
+                            if let Some(version) = a_live.pop() {
+                                a.redact(&version);
+                                redacted += 1;
+                            }
+                        }
+                        Op::RedactB => {
+                            if let Some(version) = b_live.pop() {
+                                b.redact(&version);
+                                redacted += 1;
+                            }
                         }
                         Op::TickA => a_tx.unbounded_send(()).expect("A driver holds its rx"),
                         Op::TickB => b_tx.unbounded_send(()).expect("B driver holds its rx"),
@@ -1072,7 +1096,11 @@ proptest! {
             let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
             assert_eq!(a_snapshot.hash(), b_snapshot.hash());
             assert_eq!(a_snapshot.latest(), b_snapshot.latest());
-            assert_eq!(a_snapshot.len() as u64, sent, "the union of all sends");
+            assert_eq!(
+                a_snapshot.len() as u64,
+                sent - redacted,
+                "the union of all sends minus redactions"
+            );
         });
     }
 }

@@ -25,7 +25,12 @@ use rumors_testkit::common;
 
 use rumors::{Peer, Retire, Rumors};
 
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork_async};
+use crate::common::{
+    window::WindowChoice,
+    wire::{
+        assert_control_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_window_async,
+    },
+};
 
 /// Per-stream byte capacity of the link every cell's session runs over: the
 /// harness minimum, so no frame of any phase fits in flight.
@@ -53,10 +58,9 @@ const MESSAGES_PER_ORIGINATOR: u64 = 2;
 /// link window: the fixture self-check that the greeting overflows the
 /// window many times over, without pinning its layout.
 ///
-/// ITC versions are
-/// bit-packed and stay compact even across many parties, so the one-byte
-/// window is what guarantees a multi-fill greeting; this floor guards the
-/// fixture against normalizing back to a trivial frame.
+/// ITC versions stay compact even across many parties. The one-byte window
+/// guarantees a multi-fill greeting; this floor keeps the fixture's version
+/// from normalizing back to a trivial frame.
 const GREETING_FLOOR: usize = 8;
 
 /// Messages each side commits on top of a converged pair to make a
@@ -131,9 +135,8 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
         "fixture fork retires cleanly, got {retired:?}"
     );
     assert_control_drained(fork_link, seed_link);
-    // Fixture self-check: the greeting's version frame must dwarf the
-    // minimal window, or the matrix stops exercising the hazard class. A
-    // width bound only — cells never assert greeting contents.
+    // Keep the seasoned version wide and branchy. The one-byte window alone
+    // guarantees a multi-fill greeting; this check guards the fixture shape.
     let width = rumors.snapshot().latest().as_bytes().len();
     assert!(
         width >= GREETING_FLOOR * MIN_CAPACITY,
@@ -142,9 +145,9 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     );
 }
 
-/// A seasoned replica: a fresh universe with a wide version.
-async fn seasoned() -> Rumors<u64> {
-    let seed: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+/// A fresh universe with a wide version and the selected window policy.
+async fn seasoned(window: WindowChoice) -> Rumors<u64> {
+    let seed: Rumors<u64> = window.apply(Peer::seed()).into_rumors();
     season(&seed, 0).await;
     seed
 }
@@ -152,10 +155,14 @@ async fn seasoned() -> Rumors<u64> {
 /// A converged, party-disjoint pair of seasoned replicas.
 ///
 /// Converged means equal versions, so both sides' greetings carry the same
-/// wide frame; cells that need divergence commit on top of the pair.
-async fn seasoned_pair() -> (Rumors<u64>, Rumors<u64>) {
-    let a = seasoned().await;
-    let b = bootstrap_fork_async(&a).await;
+/// wide frame; cells that need divergence commit on top of the pair. The
+/// arguments select the windows used by the session under test.
+async fn seasoned_pair(
+    a_window: WindowChoice,
+    b_window: WindowChoice,
+) -> (Rumors<u64>, Rumors<u64>) {
+    let a = seasoned(a_window).await;
+    let b = bootstrap_fork_with_window_async(&a, b_window).await;
     // The fork originates a little of its own before converging, so the
     // pair's shared version includes events from b's region too.
     for payload in 0..MESSAGES_PER_ORIGINATOR {
@@ -174,15 +181,16 @@ async fn seasoned_pair() -> (Rumors<u64>, Rumors<u64>) {
 
 /// Converged: equal wide versions, so the session ends at the greeting.
 async fn converged_session() {
-    let (a, b) = seasoned_pair().await;
+    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
     gossip_over(&a, &b, MIN_CAPACITY).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
 
 /// Divergent gossip: both sides hold unshared content, so the session runs
-/// the full descent and moves messages in both directions.
-async fn divergent_session() {
-    let (a, b) = seasoned_pair().await;
+/// the full descent under the selected window policies and moves messages in
+/// both directions.
+async fn divergent_session(a_window: WindowChoice, b_window: WindowChoice) {
+    let (a, b) = seasoned_pair(a_window, b_window).await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(100_000 + v).unwrap();
@@ -206,7 +214,7 @@ async fn divergent_session() {
 /// deterministically, and every early-supply frame dwarfs the one-byte
 /// window.
 async fn bulk_initiator_session() {
-    let (a, b) = seasoned_pair().await;
+    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -247,7 +255,7 @@ async fn empty_meets_populated_session() {
 /// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and
 /// the trailing party donation cross the minimal link.
 async fn bootstrap_session() {
-    let provider = seasoned().await;
+    let provider = seasoned(WindowChoice::Floor).await;
     let (mut p_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
         provider.gossip_once(&mut p_link),
@@ -266,7 +274,7 @@ async fn bootstrap_session() {
 /// Retire: a seasoned, divergent retiree hands its content and then its
 /// whole party to the absorber, all through the minimal link.
 async fn retire_session() {
-    let (a, b) = seasoned_pair().await;
+    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
     let converged_len = b.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -320,7 +328,7 @@ async fn mutual_bootstrap_session() {
 /// asymmetric greetings of bootstrap plus the trailing donation of retire,
 /// all through the minimal link.
 async fn retire_into_bootstrapper_session() {
-    let retiree = seasoned().await;
+    let retiree = seasoned(WindowChoice::Floor).await;
     let before = retiree.snapshot();
     let retiree = retiree
         .try_into_peer()
@@ -353,7 +361,7 @@ async fn retire_into_bootstrapper_session() {
 /// Mutual retire: both sides declare `Retire`, so the session early-outs
 /// right after the preamble and both replicas survive intact.
 async fn mutual_retire_session() {
-    let (a, b) = seasoned_pair().await;
+    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
     let a = a.try_into_peer().await.expect("a is the sole handle");
     let b = b.try_into_peer().await.expect("b is the sole handle");
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
@@ -382,7 +390,27 @@ fn converged() {
 /// converges both replicas.
 #[test]
 fn divergent() {
-    block_on(divergent_session());
+    block_on(divergent_session(WindowChoice::Floor, WindowChoice::Floor));
+}
+
+/// Default windows remain live when the transport admits only one byte at a
+/// time, and the divergent replicas converge completely.
+#[test]
+fn divergent_default_windows() {
+    block_on(divergent_session(
+        WindowChoice::Default,
+        WindowChoice::Default,
+    ));
+}
+
+/// A floor window and a default window remain live together over a one-byte
+/// transport and converge completely.
+#[test]
+fn divergent_asymmetric_windows() {
+    block_on(divergent_session(
+        WindowChoice::Floor,
+        WindowChoice::Default,
+    ));
 }
 
 /// A V2 session whose initiator ships bulk opening supplies stays live
