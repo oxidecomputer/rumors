@@ -211,11 +211,11 @@ const RANK_HARMONIC_DEPTH: usize = 65_536;
 /// Spine depth behind the max-exponent rank of the pair-mismatch scenario.
 const RANK_PAIR_DEPTH: usize = 500_000;
 
-/// Integer ranks folded by the mixed-sum scenario.
-const RANK_SUM_COUNT: usize = 10_000;
+/// Consecutive fractional exponents in the mixed-sum scenario.
+const RANK_SUM_FRACTIONS: usize = 128;
 
-/// Spine depth behind the mixed-sum scenario's one high-exponent rank.
-const RANK_SUM_EXP_DEPTH: usize = 250_000;
+/// Numerator width of the mixed-sum scenario's integer rank.
+const RANK_SUM_WIDE_BITS: usize = 250_000;
 
 // ─── pinned envelopes ───────────────────────────────────────────────────────
 
@@ -1222,9 +1222,9 @@ fn decode_alt_spine_envelope() {
 // respectively.
 //
 // RANK_PAIR_MISMATCH pins the class-first comparison's expected remainder
-// (the subtraction and addition outputs' own content), and RANK_SUM_MIXED
-// the raw-accumulator Sum (one normalization at the end, where a
-// per-summand renormalization reads magnitude-quadratic).
+// (the subtraction and addition outputs' own content). RANK_SUM_MIXED drives
+// successively finer scales after a wide numerator, where shifting the held
+// value for every summand would be superlinear.
 
 // Pins per the file doc's convention; each row's trailing comment states
 // the mechanism that prices it.
@@ -1235,7 +1235,7 @@ mod rank_env {
     pub const RANK_BIGROOT: Envelope       = envelope( 67_145,     band(8_993, 5_395), band(275_023, 165_013)); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
     pub const RANK_HARMONIC: Envelope      = envelope( 52_500, band(248_285, 148_971), band(491_530, 294_918)); // the separating family: each level's one-leaf sibling lands at the exponent gap, so touches stay linear in depth and no accumulated numerator is re-shifted
     pub const RANK_PAIR_MISMATCH: Envelope = envelope(234_400,             band(0, 0),             band(0, 0)); // class-first comparison decides the order without scanning either skyline
-    pub const RANK_SUM_MIXED: Envelope     = envelope( 78_140,   band(22_268, 13_360),             band(0, 0)); // the raw accumulator: digit-routed summands, one normalization at the end
+    pub const RANK_SUM_MIXED: Envelope     = envelope(300_000,   band(55_000, 33_000),             band(0, 0)); // each full-width shift at least doubles the occupied span
 }
 
 /// The rank fold on the dense spine stays within its envelope.
@@ -1329,32 +1329,38 @@ fn rank_pair_mismatch_envelope() {
     consumed((ord, diff, sum));
 }
 
-/// `Sum` over one high-exponent rank followed by many integer ranks stays
-/// within its envelope.
+/// `Sum` stays linear when progressively finer fractions follow a wide rank.
 ///
-/// The raw accumulator anchors at the largest exponent seen and
-/// digit-routes each summand in at its exponent gap, normalizing once at
-/// the end, so the high-exponent operand costs its own width once instead
-/// of once per later element.
-///
-/// High-first ordering is the worst arm of the fold's order dependence. Under
-/// the raw accumulator it is the order that makes
-/// every later add a shifted word, which is why the pin stays the
-/// scenario of record.
+/// Each new fraction lies one bit beyond the previous scale. Re-anchoring the
+/// wide numerator for every summand would multiply its width by the number of
+/// fractions. Reserving a wider exponent range instead makes the total digit
+/// work proportional to the ranks' combined value content.
 #[test]
 fn rank_sum_mixed_envelope() {
-    let high = version_of(&Shape::Dense.build1(RANK_SUM_EXP_DEPTH)).rank();
-    let ones: Vec<before::Rank> = (0..RANK_SUM_COUNT)
-        .map(|i| uniform_version(i as u64 % 7 + 1).rank())
+    let wide = "1"
+        .repeat(RANK_SUM_WIDE_BITS)
+        .parse::<before::Rank>()
+        .expect("a nonzero binary integer is a canonical rank");
+    let fractions: Vec<before::Rank> = (1..=RANK_SUM_FRACTIONS)
+        .map(|exp| {
+            format!("0.{}1", "0".repeat(exp - 1))
+                .parse()
+                .expect("a binary fraction ending in one is canonical")
+        })
         .collect();
-    let content_bytes = RANK_SUM_EXP_DEPTH / 8 + RANK_SUM_COUNT;
-    let ranks: Vec<before::Rank> = std::iter::once(high).chain(ones).collect();
+    let fraction_bits = RANK_SUM_FRACTIONS * (RANK_SUM_FRACTIONS + 1) / 2 + RANK_SUM_FRACTIONS;
+    let content_bytes = (RANK_SUM_WIDE_BITS + fraction_bits).div_ceil(8);
+    let ranks: Vec<before::Rank> = std::iter::once(wide).chain(fractions).collect();
+    let expected = ranks
+        .iter()
+        .fold(before::Rank::ZERO, |sum, rank| sum + rank);
     let r = metered(
         "rank_sum_mixed",
         content_bytes,
         &rank_env::RANK_SUM_MIXED,
         || ranks.into_iter().sum::<before::Rank>(),
     );
+    assert_eq!(r, expected, "the reserved exponent range preserves the sum");
     consumed(r);
 }
 

@@ -15,6 +15,15 @@ pub(crate) fn digit_len(magnitude: &BigUint) -> usize {
         .max(1)
 }
 
+/// The accumulator's occupied prefix in bits, rounded to its base-2^32 digit
+/// boundary.
+pub(crate) fn bit_span(acc: &Accumulator) -> u64 {
+    u64::try_from(acc.digit_count())
+        .expect("an allocated accumulator's digit count fits u64")
+        .checked_mul(32)
+        .expect("an allocated accumulator's bit span fits u64")
+}
+
 /// Read an accumulator into a `BigUint` magnitude.
 pub(crate) fn value(acc: &Accumulator) -> (Ordering, BigUint) {
     acc.with_sign_limbs(|sign, words| (sign, magnitude(words)))

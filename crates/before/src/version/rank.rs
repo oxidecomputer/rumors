@@ -932,31 +932,40 @@ impl AddAssign<Rank> for Rank {
     }
 }
 
-/// The empty sum is [`Rank::ZERO`], the additive identity.
+/// Sums owned ranks, with [`Rank::ZERO`] as the empty sum.
+///
+/// # Complexity
+///
+/// For `k` ranks whose binary widths sum to `n`, `O(k + n)` time and `O(n)`
+/// space, including the result.
 impl Sum<Rank> for Rank {
     fn sum<I: Iterator<Item = Rank>>(iter: I) -> Rank {
         Rank::sum_iter(iter)
     }
 }
 
-/// The empty sum is [`Rank::ZERO`], the additive identity.
+/// Sums borrowed ranks, with [`Rank::ZERO`] as the empty sum.
+///
+/// # Complexity
+///
+/// For `k` ranks whose binary widths sum to `n`, `O(k + n)` time and `O(n)`
+/// space, including the result.
 impl<'a> Sum<&'a Rank> for Rank {
     fn sum<I: Iterator<Item = &'a Rank>>(iter: I) -> Rank {
         Rank::sum_iter(iter)
     }
 }
 
-/// Sum ranks through one raw accumulator with a single final
-/// normalization.
+/// Sums ranks through one accumulator and normalizes once at the end.
 ///
-/// The accumulator holds the running numerator at the largest exponent seen so
-/// far: a summand at a smaller exponent is digit-routed in at the exponent gap
-/// (O(its own limbs), independent of the gap), and a summand raising the
-/// maximum rescales the accumulator once, O(held digits) — paid by the exponent
-/// the summand itself carries. Nothing renormalizes per element, so a
-/// high-exponent summand costs its own width once instead of once per later
-/// element, and the result is the identical [`Rank`] the pairwise fold produces
-/// (one exact value, one shared normalization at the end).
+/// `exp` is the denominator exponent shared by the held numerator. A summand
+/// with a smaller exponent enters at the corresponding bit offset. If a
+/// summand needs a larger exponent, the running numerator must shift; choosing
+/// at least its current bit span may put `exp` beyond that summand, but those
+/// extra trailing zeroes disappear during final normalization. Each such shift
+/// at least doubles the occupied prefix, so the widths shifted form a geometric
+/// series bounded by the final span. Input order therefore cannot multiply the
+/// cost by the number of summands.
 impl Rank {
     fn sum_iter<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
         // The accumulator's shifted entry points document a panic at digit
@@ -970,11 +979,24 @@ impl Rank {
         // unreachable from this fold.
         let mut acc = Accumulator::new();
         let mut exp = 0u64;
+        let mut has_value = false;
         for rank in iter {
             let rank = rank.borrow();
-            if rank.exp > exp {
-                acc.shl(rank.exp - exp);
+            if rank.num == BigUint::ZERO {
+                continue;
+            }
+            if !has_value {
                 exp = rank.exp;
+                accumulator::fold(&mut acc, &rank.num, 0, false);
+                has_value = true;
+                continue;
+            }
+            if rank.exp > exp {
+                let gap = rank.exp - exp;
+                let held_span = accumulator::bit_span(&acc);
+                let shift = gap.max(held_span).min(u64::MAX - exp);
+                acc.shl(shift);
+                exp += shift;
             }
             accumulator::fold(&mut acc, &rank.num, exp - rank.exp, false);
         }

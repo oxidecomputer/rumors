@@ -93,9 +93,14 @@ triage's dispositions and branches are leads only.
       cursor's trailing run.
       Sources: `skyline-sweep-place-masked-5`, `codec-bits-29`.
 
-- [ ] Give `Ranked::cmp`, rank folds, and `sum_ranks` contracts their actual
-      worst-case implementations and useful properties.
-      Sources: `rank-20`, `rank-33`, `skyline-query-9`.
+- [x] Make rank sums linear in their combined value content regardless of
+      summand order, and exercise ascending fractional scales after a wide
+      numerator.
+      Source: `rank-20`.
+
+- [ ] Give `Ranked::cmp` and rank-producing folds their actual worst-case
+      implementations and useful properties.
+      Sources: `rank-33`, `skyline-query-9`.
 
 - [ ] Decode `Rank` directly from `Read` without retaining a redundant copy of
       the complete input. Preserve truncation, padding, trailing-input, and I/O

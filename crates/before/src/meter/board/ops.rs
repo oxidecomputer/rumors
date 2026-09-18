@@ -448,15 +448,10 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "rank_sum",
             prepare: |f| {
-                // The mixed fold: the family-derived rank (maximal exponent
-                // on the spines) summed high-first with one small integer
-                // rank per encoded byte of the family's measure operand, so
-                // both sides of the value content scale together. High-first
-                // is the committed adversarial order: `Sum` accepts arbitrary
-                // order, and under a fold that re-normalizes per element it
-                // is the order that makes every later add a full-width
-                // operation. The denominator is the summands' total value
-                // content (the `cell` module doc's rank denomination).
+                // Sum the family-derived rank with one small integer per
+                // encoded byte of its measure operand, so both the wide value
+                // and the list length grow with the family. The denominator
+                // is the summands' total value content.
                 let (a, _) = f.rank_pair.clone()?;
                 let (_, k) = f.version()?;
                 let ones: Vec<Rank> = (0..k)
