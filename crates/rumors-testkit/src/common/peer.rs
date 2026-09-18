@@ -3,17 +3,13 @@
 //! wire gossip session, `quiesce` for full-mesh convergence to a fixed
 //! point).
 //!
-//! Observation is pull-based, mirroring the `UnorderedMessages` observer
-//! one pass at a time: a [`drain`](Peer::drain) snapshots the peer and
-//! records exactly the live leaves its causal checkpoint does not contain
-//! — local sends and gossip-learned messages alike — then absorbs the
-//! snapshot's ceiling.
-//! Every helper drains after the operation it performs, so the log stays in
-//! event order and a message redacted before it was ever drained is never
-//! observed, matching both the `UnorderedMessages` delivery contract and
-//! the shadow simulator's model in `schedule::arb`.
+//! Each peer owns a real `UnorderedMessages` observer. Every helper drains it
+//! after the operation it performs, so the log stays in event order and the
+//! generated schedules exercise the public observation API alongside gossip.
+//! A message redacted before a drain is never observed, matching both the
+//! observer's contract and the shadow simulator's model in `schedule::arb`.
 
-use rumors::{Rumors, Version, causally};
+use rumors::{Rumors, TryNext, UnorderedMessages, Version};
 
 use crate::common::wire::{block_on, wire_gossip_async};
 
@@ -24,11 +20,8 @@ use serde::de::DeserializeOwned;
 pub struct Peer<T: Send + Sync + 'static> {
     /// The peer's live Rumors handle.
     pub local: Rumors<T>,
-    /// The causal frontier up to which `observations` is complete: each
-    /// drain records the live leaves not contained here, then absorbs the
-    /// snapshot's ceiling (so redaction ticks, which have no leaves, are
-    /// covered too).
-    checkpoint: Version,
+    /// The public observer drained into `observations` after each operation.
+    observer: UnorderedMessages<T>,
     /// All observations this peer has accumulated, across `insert_one`,
     /// `gossip_step`, and `quiesce` calls.
     ///
@@ -48,10 +41,11 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
     /// independent [`rumors::Peer::seed`]: only then are all peers pairwise
     /// disjoint, the precondition for [`gossip_step`] to succeed.
     pub fn new(local: Rumors<T>) -> Self {
-        let checkpoint = local.snapshot().latest().clone();
+        let since = local.snapshot().latest().clone();
+        let observer = local.unordered_messages_since(since);
         Self {
             local,
-            checkpoint,
+            observer,
             observations: Vec::new(),
         }
     }
@@ -62,18 +56,23 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
         self.observations.clone()
     }
 
-    /// Record every live message the checkpoint does not causally contain,
-    /// then absorb the snapshot's ceiling. Returns how many were new.
+    /// Drain every message currently ready from the public observer.
+    ///
+    /// Returns the number of messages appended to the observation log.
     pub fn drain(&mut self) -> usize {
-        let snapshot = self.local.snapshot();
         let mut new = 0;
-        for (version, message) in snapshot.range(causally::since(&self.checkpoint)) {
-            self.observations
-                .push((version.clone(), (*message).clone()));
-            new += 1;
+        loop {
+            match self.observer.try_next() {
+                TryNext::Message((version, message)) => {
+                    self.observations.push((version, (*message).clone()));
+                    new += 1;
+                }
+                TryNext::Quiet => return new,
+                TryNext::Ended => {
+                    panic!("the observer cannot end while its Rumors handle is alive")
+                }
+            }
         }
-        self.checkpoint |= snapshot.latest();
-        new
     }
 
     /// Insert a single value, returning the [`Version`] created for it.
@@ -88,11 +87,11 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
         version
     }
 
-    /// Redact one message and advance the observation checkpoint past the tick.
+    /// Redact one message and advance the observer past the resulting change.
     pub fn redact_one(&mut self, version: &Version) {
         self.local.redact(version);
-        // Redactions fire no observation; the drain just absorbs the
-        // version tick into the checkpoint.
+        // Redactions yield no message, but draining completes the observer's
+        // empty pass so its checkpoint covers the change.
         self.drain();
     }
 }
