@@ -23,14 +23,12 @@ use crate::{
 /// `prefix` names the queried scope; `ours` are our children of it, one
 /// level below.
 ///
-/// This merge-join is the chokepoint where
+/// This merge-join is where
 /// [`disputed_scopes`](crate::SessionStats::disputed_scopes) is counted: it
 /// runs exactly once per scope this side resolves, and the scope was a
-/// genuine dispute exactly when both listings were non-empty (both replicas
-/// held the subtree) and some child failed to match. An all-match join is a
-/// confirmation, not a dispute, and a one-sided join is a request being
-/// served.
-#[allow(clippy::type_complexity)]
+/// dispute exactly when both replicas held the subtree and some child failed
+/// to match. An all-match join is a confirmation; a one-sided join serves a
+/// request.
 pub(super) async fn internal<B>(
     backend: &B,
     their_version: &Version,
@@ -47,7 +45,7 @@ pub(super) async fn internal<B>(
     B::Error,
 >
 where
-    B: Backend<Node<Z>: Leaf> + Sync,
+    B: Backend<Node<Z>: Leaf>,
 {
     let mut reactions = Vec::new();
     let mut asked = Vec::new();
@@ -102,13 +100,12 @@ where
 
 /// Answer one leaf-parent query by merge-joining both leaf listings.
 ///
-/// The leaf-parent twin of [`internal`]'s dispute chokepoint: a matching
-/// radix here always agrees (paths are version-derived, so equal path
-/// means equal leaf), so the scope was disputed exactly when both listings
-/// were non-empty and some leaf sat on one side alone. Each exclusive local
-/// leaf the causal filter drops is one deletion honored
+/// The leaf-parent counterpart of [`internal`]: a matching radix here always
+/// agrees (paths are version-derived, so equal path means equal leaf), so the
+/// scope was disputed exactly when both listings were non-empty and some leaf
+/// sat on one side alone. Each exclusive local leaf the causal filter drops is
+/// one deletion honored
 /// ([`messages_shed`](crate::SessionStats::messages_shed)).
-#[allow(clippy::type_complexity)]
 pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     their_version: &Version,
     prefix: ErasedPrefix,

@@ -13,6 +13,7 @@ use std::pin::pin;
 use async_stream::try_stream;
 use before::Version;
 use futures::{Stream, StreamExt, future::BoxFuture};
+use itertools::{EitherOrBoth, Itertools};
 use tokio::sync::oneshot;
 
 use super::{
@@ -25,11 +26,10 @@ use crate::tree::{
     mirror::contained,
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Root,
+        channel::{Receiver, Sender},
         erased::{self, Reaction, Reply},
         materialized::{
-            Error, OkReceiverStream, OpeningHandoff, Query, Resolution, Resolve, SupplyLedger,
-            Violation,
-            channel::{Receiver, Sender},
+            Error, OpeningHandoff, Query, Resolution, Resolve, SupplyLedger, Violation,
             fan_listing,
             unknown::{unknown, unknown_providing},
             violation,
@@ -42,6 +42,46 @@ use crate::tree::{
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
+
+/// Publish one disputed scope in its progress-critical order.
+///
+/// The yield must remain inside this macro so `async_stream` can lower it.
+/// Keeping the wire action, resolution, and dependent queries together also
+/// prevents their required publication order from drifting between walks.
+macro_rules! yield_resolve_query {
+    (
+        $progress:expr, $scope:expr;
+        $yielded:expr;
+        $resolutions:expr => $resolution:expr;
+        $queries:expr => $next_queries:expr;
+    ) => {{
+        let scope = $scope;
+        $progress.wire(scope);
+        $yielded;
+        let resolution = $resolution;
+        $progress.resolution(&resolution);
+        if $resolutions.send(resolution).await.is_err() {
+            return;
+        }
+        for query in $next_queries {
+            $progress.dependent(&query);
+            if $queries.send(query).await.is_err() {
+                return;
+            }
+        }
+    }};
+    (
+        $progress:expr, $scope:expr;
+        $yielded:expr;
+        $ready:expr;
+    ) => {{
+        let scope = $scope;
+        $progress.wire(scope);
+        $yielded;
+        $progress.ready(scope);
+        $ready;
+    }};
+}
 
 impl<B> Work<B>
 where
@@ -63,7 +103,6 @@ where
     /// handed to the next level through the returned channel, so the root
     /// resolution answers the responder's now-vestigial empty queries from
     /// local state instead of re-walking the subtrees.
-    #[allow(clippy::type_complexity)]
     pub fn initiator_level(
         &mut self,
         their_version: Version,
@@ -76,10 +115,7 @@ where
         Sender<Option<B::Erased>>,
         oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>,
         BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
-    )
-    where
-        B: Sync,
-    {
+    ) {
         let (queries, queries_rx) = initiator_root_query::<B>();
         let (returns, mut returns_rx) = initiator_root_return::<B>();
         let (early_tx, early_rx) = oneshot::channel();
@@ -89,19 +125,17 @@ where
 
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
-            // The Left-arm-only merge over (fan, their listing): exclusive
-            // root children, pruned, in radix order. Asking no question, it
-            // adds no question-owner anywhere: every scope keeps exactly one.
-            let mut exclusive = Vec::new();
-            {
-                let mut theirs = their_listing.iter().map(|(radix, _)| *radix).peekable();
-                for (radix, node) in &fan {
-                    while theirs.next_if(|theirs| theirs < radix).is_some() {}
-                    if theirs.peek() != Some(radix) {
-                        exclusive.push((*radix, node.clone()));
-                    }
-                }
-            }
+            // Keep the local-only side of the sorted root-listing merge. These
+            // scopes need no question because the peer cannot already hold
+            // them under the same radix.
+            let exclusive: Vec<_> = fan
+                .iter()
+                .merge_join_by(&their_listing, |(ours, _), (theirs, _)| ours.cmp(theirs))
+                .filter_map(|entry| match entry {
+                    EitherOrBoth::Left((radix, node)) => Some((*radix, node.clone())),
+                    EitherOrBoth::Both(_, _) | EitherOrBoth::Right(_) => None,
+                })
+                .collect();
             let mut supplies = Vec::new();
             let mut early = Vec::new();
             for (radix, node) in exclusive {
@@ -166,7 +200,6 @@ where
     /// and are handed to the next level through the returned channel,
     /// where they answer the merge-join's now-empty queries for those
     /// radices without touching the backend mid-loop.
-    #[allow(clippy::type_complexity)]
     pub fn responder_level(
         &mut self,
         their_version: Version,
@@ -180,10 +213,7 @@ where
         Sender<Option<B::Erased>>,
         oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>,
         BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
-    )
-    where
-        B: Sync,
-    {
+    ) {
         let requests = requests.erase();
         let backend = self.backend();
         let stats = self.stats.clone();
@@ -305,7 +335,7 @@ where
     ///
     /// `opening` carries the opening exchange's hand-off into the one instance
     /// that resolves root scopes; every deeper instance receives
-    /// [`OpeningHandoff::None`]:
+    /// no handoff:
     ///
     /// - [`OpeningHandoff::Survivors`] answers the responder's
     ///   root-level empty queries with empty replies (their content shipped
@@ -317,12 +347,11 @@ where
     ///
     /// Both hand-offs consume results prepared during the opening exchange,
     /// so resolving them does not repeat a backend read.
-    #[allow(clippy::type_complexity)]
     pub fn internal_level<H>(
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        opening: OpeningHandoff<B::Erased>,
+        opening: Option<OpeningHandoff<B::Erased>>,
         requests: impl Requests<B, S<S<H>>>,
         queries: Receiver<Query<B::Erased>>,
     ) -> (
@@ -332,7 +361,6 @@ where
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     )
     where
-        B: Sync,
         H: Height,
         S<H>: Height,
         S<S<H>>: Height,
@@ -353,12 +381,12 @@ where
     /// the runtime datum it already is everywhere below the types.
     // The argument list is the stage's dataflow, one edge per argument;
     // bundling edges into a struct would only rename the arity.
-    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[allow(clippy::too_many_arguments)]
     fn internal_walk(
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        opening: OpeningHandoff<B::Erased>,
+        opening: Option<OpeningHandoff<B::Erased>>,
         requests: BoxRequests<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
         asked_height: usize,
@@ -367,10 +395,7 @@ where
         Receiver<Query<B::Erased>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-    )
-    where
-        B: Sync,
-    {
+    ) {
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) =
@@ -396,12 +421,12 @@ where
             // session. Treating a closed sender as empty only keeps this walk
             // runnable until that error cancels it.
             let (mut survivors, mut supplied) = match opening {
-                OpeningHandoff::None => (BTreeMap::new(), BTreeMap::new()),
-                OpeningHandoff::Survivors(receive) => (
+                None => (BTreeMap::new(), BTreeMap::new()),
+                Some(OpeningHandoff::Survivors(receive)) => (
                     receive.await.unwrap_or_default().into_iter().collect(),
                     BTreeMap::new(),
                 ),
-                OpeningHandoff::Supplies(receive) => (
+                Some(OpeningHandoff::Supplies(receive)) => (
                     BTreeMap::new(),
                     receive.await.unwrap_or_default().into_iter().collect(),
                 ),
@@ -536,10 +561,7 @@ where
         Receiver<Prefix<Z>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-    )
-    where
-        B: Sync,
-    {
+    ) {
         let requests = requests.erase();
         let (responses, asked_rx, upper_rx, lower_rx) =
             self.leaf_parent_walk(their_version, ledger, requests, queries);
@@ -547,7 +569,6 @@ where
     }
 
     /// The leaf-parent walk's body ([`leaf_parent_level`](Self::leaf_parent_level)).
-    #[allow(clippy::type_complexity)]
     fn leaf_parent_walk(
         &mut self,
         their_version: Version,
@@ -559,10 +580,7 @@ where
         Receiver<Prefix<Z>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-    )
-    where
-        B: Sync,
-    {
+    ) {
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT), &stats);
@@ -656,7 +674,6 @@ where
     }
 
     /// The leaf walk's body ([`leaf_level`](Self::leaf_level)).
-    #[allow(clippy::type_complexity)]
     fn leaf_walk(
         &mut self,
         their_version: Version,

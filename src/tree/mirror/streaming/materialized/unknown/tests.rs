@@ -1,6 +1,5 @@
-//! The streaming [`unknown`] prune must agree, node for node,
-//! with the materialized [`Unknown`](crate::tree::traverse::unknown::Unknown)
-//! oracle it mirrors.
+//! The streaming [`unknown`] prune must agree with the in-memory
+//! [`Unknown`](crate::tree::traverse::unknown::Unknown) oracle.
 
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -90,10 +89,10 @@ fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<type
 }
 
 proptest! {
-    /// The streamed prune and the materialized prune reconcile to the same
+    /// The streamed prune and the in-memory prune produce the same
     /// tree (equal Merkle roots) for every tree and every `known` version.
     #[test]
-    fn agrees_with_materialized_oracle(
+    fn agrees_with_in_memory_oracle(
         flags_a in vec(any::<bool>(), 0..=8),
         flags_b in vec(any::<bool>(), 0..=8),
     ) {
@@ -109,10 +108,10 @@ proptest! {
     }
 
     /// Sibling leaves under one leaf-parent prefix are judged one at a
-    /// time, and each leaf-height verdict agrees with the materialized
+    /// time, and each leaf-height verdict agrees with the in-memory
     /// prune: the flagged leaves drop and the concurrent ones survive.
     #[test]
-    fn leaf_height_verdicts_agree_with_materialized_oracle(
+    fn leaf_height_verdicts_agree_with_in_memory_oracle(
         flags in vec(any::<bool>(), 1..=8),
     ) {
         let (root, known) = sibling_tree_and_known(&flags);

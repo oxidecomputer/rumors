@@ -26,30 +26,25 @@
 //!
 //! # What the types stop proving, and what catches it instead
 //!
-//! Outside the walk, pairing a height-5 payload with a height-6 consumer
-//! is a compile error, exactly as before: the schedule's typestates and
-//! message streams remain height-typed, and this module's two boundary
-//! conversions are instantiated at one height parameter apiece. Inside the
-//! walk, height agreement is a runtime-witnessed property: every prefix
-//! re-tag debug-asserts its byte length against the claimed height, the
-//! [`ops`] dispatch derives its height from that same length (so the
-//! coordinate and the witness cannot drift apart), and every channel
-//! keeps its [`QueueRole`] height label for
-//! the instrumented diagnostics. The behavioral pins — the join
-//! oracle, the violation and capacity suites, the byte-pinned wire
-//! snapshots — exercise exactly these pairings.
+//! Outside the walk, the schedule's typestates and message streams prevent
+//! pairing a height-5 payload with a height-6 consumer. This module's two
+//! boundary conversions are instantiated at one height parameter apiece. Inside
+//! the walk, height agreement is a runtime-witnessed property: every prefix
+//! re-tag debug-asserts its byte length against the claimed height, the [`ops`]
+//! dispatch derives its height from that same length (so the coordinate and the
+//! witness cannot drift apart), and every channel keeps its [`QueueRole`]
+//! height label for the instrumented diagnostics. The behavioral tests exercise
+//! exactly these pairings.
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::Stream;
-#[cfg(not(test))]
-use tokio_stream::wrappers::ReceiverStream;
 
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::{QueueRole, Receiver, Sender, channel},
+        channel::{QueueRole, ReceiverStream, Sender, channel, into_stream},
         message,
     },
     typed::{
@@ -122,7 +117,9 @@ where
     B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
-    inner: ReceiverStreamOf<Result<Reply<B::Erased>, Err>>,
+    /// The erased replies received from the response queue.
+    inner: ReceiverStream<Result<Reply<B::Erased>, Err>>,
+    /// Re-tag one erased result at this stream's height.
     assume: fn(Result<Reply<B::Erased>, Err>) -> Result<message::Reply<B, H>, Err>,
 }
 
@@ -134,31 +131,12 @@ where
 {
     type Item = Result<message::Reply<B, H>, Err>;
 
+    /// Poll the erased stream and re-tag each successful reply.
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         Pin::new(&mut this.inner)
             .poll_next(cx)
             .map(|item| item.map(this.assume))
-    }
-}
-
-/// The channel receiver as a stream, uniform across the test and
-/// production channel types.
-#[cfg(test)]
-type ReceiverStreamOf<E> = Receiver<E>;
-/// The channel receiver as a stream, uniform across the test and
-/// production channel types.
-#[cfg(not(test))]
-type ReceiverStreamOf<E> = ReceiverStream<E>;
-
-fn receiver_stream<E: Send>(receiver: Receiver<E>) -> ReceiverStreamOf<E> {
-    #[cfg(test)]
-    {
-        receiver
-    }
-    #[cfg(not(test))]
-    {
-        ReceiverStream::new(receiver)
     }
 }
 
@@ -185,7 +163,7 @@ where
     (
         sender,
         ReplyResultStream {
-            inner: receiver_stream(receiver),
+            inner: into_stream(receiver),
             assume: |item| item.map(assume_reply::<B, H>),
         },
     )
@@ -201,14 +179,17 @@ where
 /// the height from the prefix (rather than threading a separate counter)
 /// is what keeps the coordinate and the witness structurally inseparable.
 pub(crate) mod ops {
+    use std::pin::pin;
+
     use futures::StreamExt;
 
     use super::*;
     use crate::tree::{
-        mirror::streaming::{
-            backend::BoxNodeStream, materialized::children_of as children_of_typed,
+        mirror::streaming::backend::BoxNodeStream,
+        typed::{
+            ErasedPrefix, Prefix,
+            height::{Pred, S},
         },
-        typed::{ErasedPrefix, height::Pred},
     };
 
     /// Select the type-level height matching a runtime *parent* height.
@@ -239,6 +220,27 @@ pub(crate) mod ops {
                 }
             })
         }};
+    }
+
+    /// Collect one typed node's children, addressed by radix.
+    async fn children_of_typed<B, H>(
+        backend: &B,
+        prefix: Prefix<S<H>>,
+        node: B::Node<S<H>>,
+    ) -> Result<Vec<(u8, B::Node<H>)>, B::Error>
+    where
+        B: Backend<Node<Z>: Leaf>,
+        H: Height,
+        S<H>: Height,
+    {
+        let mut children = pin!(backend.clone().children(prefix, node));
+        let mut fan = Vec::new();
+        while let Some(item) = children.next().await {
+            let (prefix, child) = item?;
+            let (_, radix) = prefix.pop();
+            fan.push((radix, child));
+        }
+        Ok(fan)
     }
 
     /// Collect one erased node's children, addressed by radix

@@ -1,5 +1,6 @@
 use super::{Event, Kind, Trace};
 
+/// Build one trace event for the test endpoint.
 fn event(scope: &[u8], kind: Kind) -> Event {
     Event {
         work: 0,
@@ -20,7 +21,7 @@ fn accepts_wire_resolution_work_parent_order() {
     .assert_valid();
 }
 
-/// Internal readiness before the corresponding wire action violates write-before-publish.
+/// Internal readiness cannot be published before its corresponding wire action.
 #[test]
 #[should_panic(expected = "preceded its wire action")]
 fn rejects_internal_publication_before_wire() {
@@ -59,9 +60,8 @@ fn rejects_sibling_resolution_before_dependent_work() {
 
 /// A wire may not depart while a resolved sibling still owes dependent work.
 ///
-/// The wire-stream twin of sibling contiguity (finding #6): a wire stream
-/// that runs ahead of its siblings' dependent work satisfies the other
-/// checks and deadlocks a three-walk wait cycle at uneven fan. The
+/// A wire stream that runs ahead of its siblings' dependent work satisfies the
+/// other checks and deadlocks a three-walk wait cycle at uneven fan. The
 /// kernel-checked witness is the Lean control theorem
 /// `Control.jam_not_deadlockFree`.
 #[test]
@@ -77,8 +77,8 @@ fn rejects_wire_while_sibling_owes_dependent_work() {
 
 /// A wire may not overtake an earlier disputed sibling's resolution.
 ///
-/// The other arm of wire contiguity (finding #6): the deadlock witness
-/// sends wire B2 *before* res B1, so at wire time the earlier sibling owes
+/// This covers the case where the later sibling's wire departs before the
+/// earlier sibling resolves, so at wire time the earlier sibling owes
 /// nothing yet — only the completed trace reveals it was disputed. Without
 /// this arm the owes-work check alone would pass the deadlocking order.
 #[test]
@@ -93,36 +93,11 @@ fn rejects_wire_before_earlier_sibling_resolution() {
     .assert_valid();
 }
 
-/// The encoder's publication order rejects the parent-early (d5) discipline.
-///
-/// This trace is the encoder's own order (the same trace
-/// `accepts_wire_resolution_work_parent_order` accepts): the sole disputed
-/// child's dependent work departs after the final resolution and before the
-/// parent summary, exactly what the weave's d5 placement forbids. Pinned as
-/// the design-space record (finding #7, adjudicated: the encoder keeps the
-/// epilogue placement and the `d6`/`assert_parent_last` check instead): if
-/// this test starts failing because the panic disappears, the encoder's
-/// order changed corners — re-audit the parent-placement trade before
-/// accepting.
-#[test]
-#[should_panic(expected = "with the parent summary unsent")]
-fn real_encoder_order_violates_parent_early_discipline() {
-    Trace(vec![
-        event(&[1], Kind::Wire),
-        event(&[1], Kind::Resolution { pending: 1 }),
-        event(&[1, 2], Kind::DependentWork),
-        event(&[], Kind::ParentResolution { pending: 1 }),
-    ])
-    .assert_parent_early();
-}
-
 /// A parent resolution may not depart while a wire of its scope is unsent.
 ///
-/// The first arm of parent placement (finding #7, the `d6` ledger): the
-/// parent summary is the scope's last publication. This trace passes every
-/// older check (the trailing wire is contiguity-clean and radix-ordered),
-/// so the arm adds real coverage; it goes through `assert_valid` to prove
-/// the check is wired in.
+/// The parent summary is the scope's last publication. This trace otherwise
+/// satisfies wire contiguity and radix order, so it isolates that rule through
+/// the normal validator.
 #[test]
 #[should_panic(expected = "the parent summary is the scope's last publication")]
 fn rejects_parent_before_trailing_wire() {

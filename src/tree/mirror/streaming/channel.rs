@@ -74,6 +74,8 @@ impl QueueRole {
 
 #[cfg(not(test))]
 pub use tokio::sync::mpsc::{Receiver, Sender};
+#[cfg(not(test))]
+use tokio_stream::wrappers::ReceiverStream as TokioReceiverStream;
 
 /// Create the production Tokio channel for a named protocol edge.
 #[cfg(not(test))]
@@ -88,3 +90,23 @@ pub use instrumented::{
 
 #[cfg(test)]
 mod instrumented;
+
+/// A channel receiver viewed as a stream in both production and tests.
+#[cfg(test)]
+pub type ReceiverStream<T> = Receiver<T>;
+
+/// A channel receiver viewed as a stream in both production and tests.
+#[cfg(not(test))]
+pub type ReceiverStream<T> = TokioReceiverStream<T>;
+
+/// Convert a channel receiver into its uniform stream representation.
+pub fn into_stream<T>(receiver: Receiver<T>) -> ReceiverStream<T> {
+    #[cfg(test)]
+    {
+        receiver
+    }
+    #[cfg(not(test))]
+    {
+        TokioReceiverStream::new(receiver)
+    }
+}

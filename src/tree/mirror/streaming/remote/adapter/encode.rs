@@ -58,7 +58,6 @@ pub type Frames<E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> 
 /// top-level reply. The trailing supplies are the initiator's exclusive
 /// root children; they alone occupy wire frames, as the opening-supply
 /// reply on the initiator's first stream.
-#[allow(clippy::type_complexity)]
 pub fn opening_parts<E>(
     reply: Reply<E>,
 ) -> Result<(Vec<(u8, Hash)>, Vec<ProtocolReaction<E>>), OpeningError> {

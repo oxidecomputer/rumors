@@ -12,10 +12,8 @@ use std::convert::Infallible;
 use futures::stream;
 use proptest::prelude::*;
 
-use super::{
-    Error, SupplyLedger, Violation, absorb,
-    channel::{QueueKind, QueueRole, channel, with_schedule},
-};
+use super::{Error, SupplyLedger, Violation, absorb};
+use crate::tree::mirror::streaming::channel::{QueueKind, QueueRole, channel, with_schedule};
 use crate::tree::mirror::streaming::erased::{Reaction, Reply};
 use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
@@ -59,7 +57,6 @@ fn supply(radix: u8, version: Version) -> Reaction<Erased> {
 ///
 /// Returns the loop's result and what, if anything, it passed up to the
 /// assembly above it.
-#[allow(clippy::type_complexity)]
 fn absorb_scripted(
     declared: Version,
     ledger: SupplyLedger,
@@ -128,9 +125,8 @@ fn terminal_absorb_accepts_a_contained_supply() {
 /// A terminal leaf supply whose version strictly dominates the declared
 /// greeting version fails the closing leg with `UncontainedSupply`.
 ///
-/// The closing leg is the descent's last ingress; waving the escaped leaf
-/// through here would plant an unredactable record after every other
-/// chokepoint held.
+/// The closing leg is the descent's last ingress. Accepting the escaped leaf
+/// here would add a record the peer's declared version could not redact.
 #[test]
 fn terminal_absorb_rejects_a_dominating_supply() {
     let declared = ticked(0);
@@ -167,11 +163,9 @@ fn terminal_absorb_rejects_an_incomparable_supply() {
 /// A terminal leaf supply past the declared set length fails the closing
 /// leg with `OverdrawnSupply`.
 ///
-/// The closing leg is the one ingress the connected greeting-lie family
-/// cannot reach: an empty declaration trips at the session's first
-/// absorbed supply, never at a terminal leaf, so the terminal arm of the
-/// set-length guard is pinned here directly: a spent ledger, one contained
-/// leaf.
+/// A connected-session test with a false set length fails at the first
+/// absorbed supply, before it can reach this terminal ingress. This test starts
+/// with a spent ledger so it exercises the terminal check directly.
 #[test]
 fn terminal_absorb_rejects_an_overdrawn_supply() {
     let declared = ticked(0);

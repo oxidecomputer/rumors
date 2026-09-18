@@ -39,7 +39,7 @@
 //! frame flows. What the greeting carries — and why each field rides this
 //! early — is documented at its definition, [`message::Greeting`].
 
-// Where we're going, we need to write some Complex Types.
+// The height-indexed protocol schedule necessarily composes many associated types.
 #![allow(clippy::type_complexity)]
 
 mod backend;

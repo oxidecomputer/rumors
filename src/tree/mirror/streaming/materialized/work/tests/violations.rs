@@ -15,10 +15,9 @@ use crate::{
     Version,
     tree::mirror::streaming::{
         Backend, Local,
+        channel::{Receiver, with_schedule},
         materialized::{
-            Error, OpeningHandoff, Query, SupplyLedger, Violation, Work,
-            channel::{Receiver, with_schedule},
-            work::queues::internal_child_queries,
+            Error, Query, SupplyLedger, Violation, Work, work::queues::internal_child_queries,
         },
         message::{Reaction, Reply},
         protocol::BoxResponses,
@@ -119,7 +118,6 @@ where
 /// The declared version is snapshotted after every honest node is built,
 /// so containment never preempts the structural fault under injection; the
 /// `UncontainedSupply` script alone ticks past the snapshot.
-#[allow(clippy::type_complexity)]
 fn violation_script<H>(
     injection: ScriptedViolation,
     parent: u8,
@@ -324,7 +322,7 @@ where
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,
             SupplyLedger::new(u64::MAX),
-            OpeningHandoff::None,
+            None,
             stream::iter(requests),
             queries,
         );

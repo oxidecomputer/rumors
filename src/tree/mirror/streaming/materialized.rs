@@ -5,14 +5,12 @@
 //!
 //! # The session dataflow
 //!
-//! Two terms carry everything below. A *scope* is the subtree one question
-//! names — a prefix and whatever both sides hold under it; a *stage* is one
-//! height's pairing loop over such scopes.
+//! A *scope* is the subtree named by one query: its prefix and whatever both
+//! sides hold beneath it. A *stage* reconciles scopes at one tree height.
 //!
-//! Each stage runs a loop pairing the counterparty's reply messages, in order,
-//! with the stage's queue of pending [`Query`]s — and two [`Work::assemble`]
-//! instances recombining what the walk resolves. Three item kinds connect
-//! consecutive same-side stages over bounded channels:
+//! Each stage pairs pending [`Query`]s with the peer's replies, in order.
+//! [`Work::assemble`] rebuilds the tree from the results. Three bounded streams
+//! connect adjacent stages:
 //!
 //! - **queries** flow down: one queue item per question asked, in question
 //!   order (message order, then radix order);
@@ -62,29 +60,20 @@
 //! once; leaf resolutions contain no `Pending` slots and can be assembled
 //! immediately.
 //!
-//! Every argument above additionally assumes each edge is *independent*: a
-//! full edge stalls only its own producer, never delivery on another edge.
-//! In process that holds by construction — every edge is its own channel.
-//! Over a wire it is a premise the transport must supply, which is why the
-//! [link contract](crate::link) demands independently flow-controlled
-//! streams: replies then travel edges with exactly the semantics assumed
-//! here, and this argument covers remote sessions verbatim. It is not a
-//! premise that can be quietly weakened: multiplexing every stream onto
-//! one shared FIFO pipe looks sound edge-by-edge yet composes into a
-//! cross-stream wait cycle and deadlocks — the conformance suite's mux
-//! fixture rebuilds exactly that construction and pins that the probes
-//! catch it. Independence is an interface obligation, supplied by the
-//! link or not at all.
+//! This argument assumes each edge is *independent*: a full edge stalls only
+//! its own producer, never delivery on another edge. Within one process that
+//! holds by construction because every edge has its own channel. Over a wire it
+//! is a premise the transport must supply, which is why the [link
+//! contract](crate::link) demands independently flow-controlled streams.
+//! Multiplexing every stream through one FIFO can create a wait cycle between
+//! stages even when each stream works in isolation; the conformance suite
+//! exercises this failure mode.
 //!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
-//! can dispute a full fan of children. While the walk is still examining those
-//! reactions and constructing their parent resolution, already-launched lower
-//! scopes can all finish, but the parent resolution containing their `Pending`
-//! slots cannot be published until the reaction loop ends. Capacity for one
-//! full fan lets every completion enqueue without relying on how many blocked
-//! sender futures happen to remain independently runnable. Once the resolution
-//! is published, active assembly drains the boundary, so capacity need not grow
-//! with width or depth.
+//! can launch a full fan of child scopes before their parent resolution is
+//! available to the assembler. That queue therefore holds one full fan rather
+//! than using the session window; [`Work::assemble`] points to the capacity
+//! argument at the queue constructor.
 //!
 //! # Memory model
 //!
@@ -98,6 +87,7 @@
 //! queue retains completed node handles. On the wire, the memory unit is one
 //! reply message.
 
+use std::marker::PhantomData;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -107,7 +97,6 @@ use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Root,
         erased::{self, Reaction, Reply},
-        materialized::work::{Resolver, Work},
         message::Greeting,
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
@@ -119,52 +108,9 @@ use crate::tree::{
     },
 };
 use before::Version;
-use futures::{StreamExt, future::BoxFuture};
+use futures::{Stream, StreamExt, future::BoxFuture};
 use tokio::sync::oneshot;
 
-/// Publish one disputed scope in its progress-critical order.
-///
-/// The `yield` expression must be written inside the invocation so
-/// `async_stream` can lower it before this macro expands. Keeping all three
-/// phases in one expansion prevents a caller from sending dependent work
-/// before its resolution or publishing either before the wire reply.
-macro_rules! yield_resolve_query {
-    (
-        $progress:expr, $scope:expr;
-        $yielded:expr;
-        $resolutions:expr => $resolution:expr;
-        $queries:expr => $next_queries:expr;
-    ) => {{
-        let scope = $scope;
-        $progress.wire(scope);
-        $yielded;
-        let resolution = $resolution;
-        $progress.resolution(&resolution);
-        if $resolutions.send(resolution).await.is_err() {
-            return;
-        }
-        for query in $next_queries {
-            $progress.dependent(&query);
-            if $queries.send(query).await.is_err() {
-                return;
-            }
-        }
-    }};
-    (
-        $progress:expr, $scope:expr;
-        $yielded:expr;
-        $ready:expr;
-    ) => {{
-        let scope = $scope;
-        $progress.wire(scope);
-        $yielded;
-        $progress.ready(scope);
-        $ready;
-    }};
-}
-
-pub(super) mod channel;
-mod common;
 mod error;
 pub(super) mod progress;
 #[cfg(test)]
@@ -173,11 +119,8 @@ mod tests;
 pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
-use channel::{Receiver, Sender};
-use common::*;
-// The remote proxy explodes early-supplied whole root children into the
-// same per-child shape the walks consume, with the walks' own helper.
-pub(crate) use common::children_of;
+use super::channel::{Receiver, Sender};
+use work::{Resolver, Work};
 
 pub use error::{Error, Violation};
 
@@ -186,20 +129,13 @@ fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
     Err(Error::Violation(violation))
 }
 
-/// The session-total supplied-leaf ledger: the ingestion-side counterpart
-/// of the greeting's declared set length, shared by every stage that
-/// absorbs supplies.
+/// Tracks supplied leaves against the peer's declared set length.
 ///
-/// An honest replica supplies each leaf at most once (disputed scopes
-/// partition the tree) and only leaves its own set holds, so the running
-/// total of absorbed live leaves is bounded by the `set_len` its greeting
-/// declared — a premise the session's window solve priced. Two
-/// instruments enforce it, each holding its own ledger over the same
-/// declaration: the walk charges each supply exactly where it checks
-/// version containment, so the two declared premises are enforced side by
-/// side; the wire decoder charges each supplied record at ingress, before
-/// its payload takes backend custody, so the bound holds at every instant
-/// of a still-open reply.
+/// The peer cannot supply more live leaves than the set length in its greeting:
+/// disputed scopes partition the tree, and each leaf belongs to at most one
+/// supplied subtree. All walk stages share this counter. The wire decoder has
+/// a separate counter for the same declaration so it can enforce the bound
+/// before handing payloads to the backend.
 #[derive(Clone, Debug)]
 pub(crate) struct SupplyLedger {
     /// The sender's greeting-declared set length.
@@ -210,6 +146,7 @@ pub(crate) struct SupplyLedger {
 }
 
 impl SupplyLedger {
+    /// Begin counting against the peer's declared live-message total.
     pub(crate) fn new(declared: u64) -> Self {
         SupplyLedger {
             declared,
@@ -242,23 +179,21 @@ impl SupplyLedger {
     }
 }
 
-/// A pending query, which we will resolve by a remote reply: the pairing
-/// queue between consecutive same-side stages, and the in-process twin of
-/// the wire's expected scopes.
+/// One pending question, resolved by one remote reply.
 ///
-/// `E` is the backend's erased node representation
-/// ([`Backend::Erased`]); the prefix names the queried scope, and its
-/// byte length is the scope's height witness (see
-/// [`erased`]). A query pairs with the reply at its
-/// children's height, one level below the prefix.
+/// Queries form the pairing queue between consecutive same-side stages and
+/// mirror the scopes expected on the wire. `E` is the backend's erased node
+/// representation ([`Backend::Erased`]); the prefix names the queried scope,
+/// and its byte length is the scope's height witness (see [`erased`]). A query
+/// pairs with the reply at its children's height, one level below the prefix.
 ///
 /// If we issued a request for a node, `ours` is empty and we expect the
 /// reply to consist entirely of supplied nodes.
 pub struct Query<E> {
     /// The prefix at which the resolved node will sit.
-    pub prefix: ErasedPrefix,
+    pub(crate) prefix: ErasedPrefix,
     /// Our children of the node (empty if we don't have it at all).
-    pub ours: Vec<(u8, E)>,
+    pub(crate) ours: Vec<(u8, E)>,
 }
 
 /// One scope's resolution: its children in radix order, each resolved
@@ -279,22 +214,21 @@ pub enum Resolve<E> {
     Pending,
 }
 
-// --------------------------------------------------------------------------------
-// PROTOCOL IMPLEMENTATION TIME
-// --------------------------------------------------------------------------------
-
 /// A mirror stage still at [`Root`](height::Root) height: the handshake phases,
 /// before the tree has been disassembled into streams.
 ///
-/// `V` is the version state ([`Start`] → [`Connecting`] → [`Connected`]). The
-/// whole tree is held intact as `root` until reconciliation begins at
+/// `State` tracks the greeting exchange ([`Start`] → [`Connecting`] →
+/// [`Connected`]). The whole tree remains intact until reconciliation begins at
 /// [`initiator`](protocol::Initiator::initiator) /
 /// [`responder`](protocol::Responder::responder). The session's outgoing
 /// messages carry `backend`'s own node types, which are the ones its
 /// counterparty reads.
-pub struct Handshaking<B: Backend<Node<Z>: Leaf>, V> {
+pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
+    /// The store used to inspect and rebuild this participant's tree.
     backend: B,
-    versions: V,
+    /// State retained by the current handshake phase.
+    state: State,
+    /// The tree consumed by this session.
     root: Root<B>,
     /// The session's window choice, resolved against the exchanged set
     /// sizes; see [`window`](super::window).
@@ -310,8 +244,7 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, V> {
 /// A stage that has been opened but has not yet sent its greeting.
 pub struct Start;
 
-/// The version state of a stage that has sent its greeting but not yet
-/// received the peer's.
+/// A stage that has sent its greeting but not yet received the peer's.
 ///
 /// Carries the root fan the greeting's listing was derived from, so the
 /// descent reuses it instead of asking the backend for the root's children a
@@ -323,8 +256,7 @@ pub struct Connecting<B: Backend<Node<Z>: Leaf>> {
     fan: Vec<(u8, B::Erased)>,
 }
 
-/// The version state of a stage that has exchanged greetings with its peer
-/// and can proceed with reconciliation.
+/// A stage that has exchanged greetings and can proceed with reconciliation.
 ///
 /// Like [`Connecting`], retains the greeting-time root fan for the descent.
 pub struct Connected<B: Backend<Node<Z>: Leaf>> {
@@ -334,10 +266,11 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     fan: Vec<(u8, B::Erased)>,
 }
 
-/// Opening-only state handed to the first internal descent stage.
+/// A one-shot result passed from the opening pump to the first internal stage.
+///
+/// The opening owns the producer. The first internal stage takes this receiver;
+/// deeper stages have no opening result.
 pub(crate) enum OpeningHandoff<E> {
-    /// A stage with no opening state to consume.
-    None,
     /// Root children the initiator supplied before the responder asked.
     Supplies(oneshot::Receiver<Vec<(u8, Vec<(u8, E)>)>>),
     /// Initiator-owned root children already pruned against the peer's version.
@@ -365,7 +298,7 @@ impl PeerSummary {
     }
 }
 
-/// Shared state prepared before opening either materialized role.
+/// Role-independent state consumed when either descent opening is built.
 struct Opening<B: Backend<Node<Z>: Leaf>> {
     /// The peer's causal version, retained through the descent.
     peer_version: Version,
@@ -381,8 +314,7 @@ struct Opening<B: Backend<Node<Z>: Leaf>> {
     work: Work<B>,
 }
 
-/// A mirror stage inside the descent, consuming [`Reply<B, H>`](Reply)
-/// against a [`Query`] queue at the same height.
+/// A descent stage that pairs erased [`Reply`] messages with pending [`Query`]s.
 pub struct Descending<B: Backend<Node<Z>: Leaf>, H: Height>
 where
     S<H>: Height,
@@ -401,19 +333,19 @@ where
     queries: Receiver<Query<B::Erased>>,
     /// One resolved scope per query, in query order, to the stage above.
     returns: Sender<Option<B::Erased>>,
-    /// Opening-only state for the first descent stage; absent below it.
-    opening: OpeningHandoff<B::Erased>,
+    /// Opening-only state, consumed by the first descent stage.
+    opening: Option<OpeningHandoff<B::Erased>>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
     work: Work<B>,
     /// Resolves to this side's reconciled root once the top return arrives.
     finish: BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
-    /// The stage's height, phantom.
+    /// The stage's type-level height after its payloads have been erased.
     ///
     /// The payloads above are erased; this tag is what the schedule's
     /// typestates keep proving about them (`PhantomData<fn() -> H>` for
     /// the auto-trait shortcut; see [`typed::Node`](crate::tree::typed::Node)).
-    height: std::marker::PhantomData<fn() -> H>,
+    height: PhantomData<fn() -> H>,
 }
 
 /// The initiator's terminal state: the pending leaf requests, and the
@@ -445,7 +377,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     pub fn start(backend: B, root: Root<B>, target_message_size: u64) -> Self {
         Self {
             backend,
-            versions: Start,
+            state: Start,
             root,
             window: WindowConfig::default(),
             target_message_size,
@@ -471,7 +403,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
 }
 
 /// A materialized participant remains at root height through the greeting exchange.
-impl<B: Backend<Node<Z>: Leaf>, V: Send> protocol::Phase for Handshaking<B, V> {
+impl<B: Backend<Node<Z>: Leaf>, State: Send> protocol::Phase for Handshaking<B, State> {
     type Height = height::Root;
     type Output = Root<B>;
     type Error = Error<B::Error>;
@@ -510,6 +442,7 @@ pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<(u8, Hash)> {
 impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
     type Next = Handshaking<B, Connecting<B>>;
 
+    /// Build and send this participant's greeting.
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
         let fan = greeting_fan(&self.backend, self.root.root.clone())
             .await
@@ -529,7 +462,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
         };
         let next = Handshaking {
             backend: self.backend,
-            versions: Connecting { fan },
+            state: Connecting { fan },
             root: self.root,
             window: self.window,
             target_message_size: self.target_message_size,
@@ -542,12 +475,13 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
 impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, Connecting<B>> {
     type Next = Handshaking<B, Connected<B>>;
 
+    /// Retain the peer's greeting fields needed after role election.
     async fn complete_connect(self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
         Ok(Handshaking {
             backend: self.backend,
-            versions: Connected {
+            state: Connected {
                 peer: PeerSummary::from_greeting(theirs),
-                fan: self.versions.fan,
+                fan: self.state.fan,
             },
             root: self.root,
             window: self.window,
@@ -560,6 +494,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
     type Next = Handshaking<B, Connected<B>>;
 
+    /// Send our greeting and consume the peer greeting already received.
     async fn accept(self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         // The server sends the same greeting as the client path, then consumes
         // the already-received peer greeting to reach the shared connected
@@ -574,7 +509,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
 /// Prepare the role-independent work shared by both descent openings.
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
     fn open(self) -> Opening<B> {
-        let Connected { peer, fan } = self.versions;
+        let Connected { peer, fan } = self.state;
         let local_size = ReplicaSize::new(self.root.len(), self.root.max_version_bytes());
         let ceiling = self.root.ceiling | &peer.version;
         let window = self.window.resolve([local_size, peer.size], B::node_bytes);
@@ -593,14 +528,16 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteEqual<B> for Handshaking<B, Connected<B>> {
+    /// Return the unchanged tree when both greetings describe equal versions.
     async fn complete_equal(self) -> Result<Root<B>, Self::Error> {
         Ok(self.root)
     }
 }
 
-impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Initiator<B> for Handshaking<B, Connected<B>> {
+impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connected<B>> {
     type Next = Descending<B, UnderRoot>;
 
+    /// Open the elected initiator's first descent stage.
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let Opening {
             peer_version,
@@ -620,18 +557,19 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Initiator<B> for Handshaking<B,
                 ledger,
                 queries,
                 returns,
-                opening: OpeningHandoff::Survivors(early),
+                opening: Some(OpeningHandoff::Survivors(early)),
                 work,
                 finish,
-                height: std::marker::PhantomData,
+                height: PhantomData,
             },
         )
     }
 }
 
-impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Responder<B> for Handshaking<B, Connected<B>> {
+impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connected<B>> {
     type Next = Descending<B, UnderUnderRoot>;
 
+    /// Open the elected responder's first descent stage.
     fn responder(
         self,
         requests: impl Requests<B, UnderRoot>,
@@ -654,10 +592,10 @@ impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Responder<B> for Handshaking<B,
                 ledger,
                 queries,
                 returns,
-                opening: OpeningHandoff::Supplies(early),
+                opening: Some(OpeningHandoff::Supplies(early)),
                 work,
                 finish,
-                height: std::marker::PhantomData,
+                height: PhantomData,
             },
         )
     }
@@ -675,7 +613,7 @@ where
 
 impl<B, H> protocol::Reply<B> for Descending<B, S<S<H>>>
 where
-    B: Backend<Node<Z>: Leaf> + Sync,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
@@ -683,6 +621,7 @@ where
 {
     type Next = Descending<B, H>;
 
+    /// Advance an internal descent by two height-indexed protocol phases.
     fn reply(
         mut self,
         requests: impl Requests<B, S<S<H>>>,
@@ -690,7 +629,7 @@ where
         let (responses, queries, upper, lower) = self.work.internal_level::<H>(
             self.their_version.clone(),
             self.ledger.clone(),
-            std::mem::replace(&mut self.opening, OpeningHandoff::None),
+            self.opening.take(),
             requests,
             self.queries,
         );
@@ -704,10 +643,10 @@ where
                 ledger: self.ledger,
                 queries,
                 returns,
-                opening: OpeningHandoff::None,
+                opening: None,
                 work: self.work,
                 finish: self.finish,
-                height: std::marker::PhantomData,
+                height: PhantomData,
             },
         )
     }
@@ -715,10 +654,11 @@ where
 
 impl<B> protocol::Reply<B> for Descending<B, S<Z>>
 where
-    B: Backend<Node<Z>: Leaf> + Sync,
+    B: Backend<Node<Z>: Leaf>,
 {
     type Next = Completing<B>;
 
+    /// Advance from leaf-parent reconciliation to the terminal leaf replies.
     fn reply(
         mut self,
         requests: impl Requests<B, S<Z>>,
@@ -750,6 +690,7 @@ impl<B> protocol::CompleteResponder<B> for Descending<B, Z>
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    /// Drive leaf reconciliation and return its response stream and result.
     fn complete_responder(
         mut self,
         requests: impl Requests<B, Z>,
@@ -815,7 +756,7 @@ where
 async fn absorb<B>(
     their_version: Version,
     ledger: SupplyLedger,
-    requests: impl futures::Stream<Item = Reply<B::Erased>> + Send,
+    requests: impl Stream<Item = Reply<B::Erased>> + Send,
     mut queries: Receiver<Prefix<Z>>,
     returns: Sender<Option<B::Erased>>,
     stats: Recorder,
@@ -862,7 +803,6 @@ where
             "one radix is admitted, and the resolver rejects its duplicate"
         );
 
-        // Then we send that (optional) leaf upwards.
         if returns.send(supply).await.is_err() {
             return Ok(());
         }

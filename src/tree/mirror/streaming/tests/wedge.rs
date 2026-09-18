@@ -1,24 +1,20 @@
-//! Bridge 1: wedge realizability — real trees produce the Lean witness's
-//! dispute skeleton.
+//! Real trees can produce the `Mux.wedge` dispute shape.
 //!
-//! The mux impossibility theorem T3 (`wc_impossibility`) quantifies over one
-//! fixed skeleton, the Lean witness `Mux.wedge`:
-//! root fan 7 with the first radix child deep-disputed down to a leaf request
-//! and six whole-subtree provisions behind it. The theorem's Rust corollary
-//! needs that shape to be *tree-realizable* — a session between two real
-//! trees whose dispute skeleton IS the wedge (adjudication repair F4: for
-//! impossibilities, realizability flows from Rust to the model).
+//! The theorem `wc_impossibility` uses this fixed shape: a root fan of seven,
+//! with the first child disputed down to a leaf request and six whole-subtree
+//! supplies behind it. These tests establish that a session between real trees
+//! can produce that shape.
 //!
 //! On the committed seeds: `tests/pairwise.proptest-regressions` and
 //! `tests/shadow_validity.proptest-regressions` are integration-level
 //! seeds (three-peer networks, version-addressed leaves, whole-`Rumors`
 //! action lists) that realize the wedge's *jam mechanism*, not its
 //! byte-exact shape; a structural equality pin needs hand-placed paths.
-//! This bridge therefore constructs the pair deterministically and pins
+//! This suite therefore constructs the pair deterministically and pins
 //! the decoded skeleton to the literal.
 //!
 //! The Lean literal lives at `rootH = 6`; the protocol's real root is at
-//! height 32, where the same generator yields the same shape with the
+//! height 32, where the same construction yields the same shape with the
 //! disputed chain descending every level. Both are pinned: the generator
 //! against the transcribed literal, and the session against the generator.
 
@@ -113,20 +109,16 @@ fn wedge_trees() -> (Root, Root) {
     (rooted(wall), rooted(chain))
 }
 
-/// WEDGE REALIZABILITY: a real session between two concrete trees produces
-/// exactly the wedge dispute skeleton.
+/// A real session between two concrete trees produces the wedge dispute shape.
 ///
-/// Root fan 7, first radix child deep-disputed down to a single leaf
-/// request, six whole-subtree provisions behind it — at the protocol's real
-/// root height, with the witness's `fan` and margin-0 `capLevel` values
-/// intact.
+/// The shape has a root fan of seven: its first child is disputed down to one
+/// leaf request, followed by six whole-subtree supplies. The construction uses
+/// the protocol's real root height while preserving the model's fan and
+/// capacity values.
 ///
-/// This is the T3 Rust corollary's bridge: the
-/// impossibility's ∃-witness is realizable, so `wc_impossibility` indicts a
-/// transport, not a phantom shape. Over the link transport the session
-/// completes — the wedge jams only the single-pipe mux `wc_impossibility`
-/// models, under work-conserving senders — so the pin is shape realizability
-/// plus convergence, not a stall.
+/// This establishes that the witness used by `wc_impossibility` can arise from
+/// real trees. The session still converges over a conforming link; the theorem
+/// applies to the single-pipe multiplexing transport it models.
 #[test]
 fn session_realizes_the_wedge_shape() {
     let (wall, chain) = wedge_trees();

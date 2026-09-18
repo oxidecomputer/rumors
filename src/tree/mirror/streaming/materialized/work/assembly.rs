@@ -10,8 +10,9 @@ use super::{Work, queues::assembly_level_returns};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
+        channel::Sender,
         erased::ops,
-        materialized::{Error, Resolution, Resolve, channel::Sender},
+        materialized::{Error, Resolution, Resolve},
         tasks::next_or_cancelled,
     },
     typed::height::Z,
@@ -26,9 +27,8 @@ where
     /// `height` is the resolutions' children height, labeling the level
     /// boundary's queue for the instrumented diagnostics.
     ///
-    /// A full fan lets every lower scope enqueue before the parent resolution
-    /// containing its [`Resolve::Pending`] slots is published, without relying
-    /// on blocked sender futures remaining independently runnable.
+    /// The level queue holds a full fan for the progress reason documented by
+    /// [`assembly_level_returns`].
     pub fn assemble(
         &mut self,
         height: usize,
@@ -36,10 +36,7 @@ where
         resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> Sender<Option<B::Erased>> {
         let (level, level_rx) = assembly_level_returns::<B>(height);
-        self.return_into(
-            returns,
-            assemble(self.backend.clone(), resolutions, level_rx),
-        );
+        self.return_into(returns, assemble(self.backend(), resolutions, level_rx));
         level
     }
 
@@ -51,7 +48,7 @@ where
     ) {
         self.return_into(
             returns,
-            assemble(self.backend.clone(), resolutions, stream::empty()),
+            assemble(self.backend(), resolutions, stream::empty()),
         );
     }
 }

@@ -38,7 +38,7 @@ pub struct Event {
     pub kind: Kind,
 }
 
-/// A completed positive session's ordering trace.
+/// The ordering trace from a completed session.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Trace(pub(super) Vec<Event>);
 
@@ -50,8 +50,6 @@ impl Trace {
     }
 
     /// Check the publication order that keeps the walk live and correctly paired.
-    ///
-    /// Seven checks:
     ///
     /// - **wire before internal publication**: every internal publication
     ///   consumes a prior wire action for its scope;
@@ -84,10 +82,8 @@ impl Trace {
 
     /// Check every invariant except wire contiguity.
     ///
-    /// This test-only entry point keeps the sibling-contiguity check
-    /// independently falsifiable even though wire contiguity subsumes it on a
-    /// complete, valid trace.
-    #[cfg(test)]
+    /// This keeps sibling contiguity independently falsifiable even though
+    /// wire contiguity subsumes it on a complete, valid trace.
     pub(super) fn assert_valid_without_wire_contiguity(&self) {
         self.assert_valid_with_wire_contiguity(false);
     }
@@ -156,59 +152,6 @@ impl Trace {
                             "parent resolution {event:?} at trace index {index} departed while child {child:?} still owes {remaining} dependent work items"
                         );
                     }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    /// Check the alternative parent-early schedule.
-    ///
-    /// The current walk launches each child's dependent work immediately and
-    /// publishes the parent afterward, so it intentionally fails this check.
-    /// `Sched.deadlock_free_d5` covers the alternative schedule; the test keeps
-    /// the two designs distinct.
-    #[cfg(test)]
-    pub(super) fn assert_parent_early(&self) {
-        // Only the complete trace reveals which children were disputed.
-        let mut disputed = BTreeMap::<(usize, Vec<u8>), usize>::new();
-        for event in &self.0 {
-            if let Kind::Resolution { .. } = event.kind
-                && let Some(scope_parent) = parent(&event.scope)
-            {
-                *disputed.entry((event.work, scope_parent)).or_default() += 1;
-            }
-        }
-
-        let mut resolved = BTreeMap::<(usize, Vec<u8>), usize>::new();
-        let mut parent_done = BTreeMap::<(usize, Vec<u8>), bool>::new();
-        for (index, event) in self.0.iter().enumerate() {
-            // A child wire belongs to its parent scope; dependent work belongs
-            // to its grandparent. Root opening events have no owning scope.
-            let owner = match event.kind {
-                Kind::Wire => parent(&event.scope),
-                Kind::DependentWork => parent(&event.scope).as_deref().and_then(parent),
-                _ => None,
-            };
-            if let Some(scope) = owner {
-                let key = (event.work, scope);
-                let all_resolved = resolved.get(&key).copied().unwrap_or(0)
-                    == disputed.get(&key).copied().unwrap_or(0);
-                if all_resolved && !parent_done.get(&key).copied().unwrap_or(false) {
-                    panic!(
-                        "event {event:?} at trace index {index} departed after scope {:?}'s final resolution with the parent summary unsent",
-                        key.1,
-                    );
-                }
-            }
-            match event.kind {
-                Kind::Resolution { .. } => {
-                    if let Some(scope_parent) = parent(&event.scope) {
-                        *resolved.entry((event.work, scope_parent)).or_default() += 1;
-                    }
-                }
-                Kind::ParentResolution { .. } => {
-                    parent_done.insert((event.work, event.scope.clone()), true);
                 }
                 _ => {}
             }

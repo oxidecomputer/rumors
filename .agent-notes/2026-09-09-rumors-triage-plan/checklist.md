@@ -1,8 +1,8 @@
 # Rumors review checklist
 
-**Current:** simplify materialized-backend state and explain its ownership.
+**Current:** simplify proxy state and clarify driver responsibilities.
 
-**Next:** simplify proxy state and clarify driver responsibilities.
+**Next:** consolidate proxy test setup and remove redundant assertions.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -435,7 +435,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
       participant behavior; tests do not manufacture a second protocol.
       Declined self-tests for test-only queue rosters and unreachable counter wrap.
 
-- [ ] Simplify materialized-backend state and explain its ownership.
+- [x] Simplify materialized-backend state and explain its ownership.
       Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T118, T128, T132.
 
 - [ ] Simplify proxy state and clarify driver responsibilities.

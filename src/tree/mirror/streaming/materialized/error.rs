@@ -1,18 +1,26 @@
-/// A session-fatal failure: a backend error or a counterparty [`Violation`].
+//! Failures detected by the materialized reconciliation walk.
+//!
+//! Backend failures identify storage work that could not complete. Violations
+//! identify the protocol invariant that the peer's reply broke; they are
+//! diagnostics for finding an implementation defect in one of the peers.
+
+/// A failure that ends the materialized walk.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E> {
+    /// The backend could not read or construct a node.
     #[error(transparent)]
     Backend(#[from] E),
+    /// The peer's reply broke a reconciliation invariant.
     #[error(transparent)]
     Violation(Violation),
 }
 
-/// The ways a counterparty can misbehave: exactly the semantic faults
-/// only this side can detect, because they depend on what we hold (our
-/// questions, our tree, and the greeting the peer declared to us).
+/// A reconciliation invariant broken by the peer's reply.
 ///
-/// Non-exhaustive: enforcement of further session invariants adds
-/// variants without breaking downstream matches.
+/// These checks depend on local context that the wire decoder does not have:
+/// outstanding questions, locally held nodes, and the peer's greeting.
+/// A reply must account for held children in radix order. It may confirm a
+/// child, ask to reconcile it more deeply, or supply a child absent locally.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Violation {
@@ -25,16 +33,16 @@ pub enum Violation {
     /// The reply ended before reacting to every listed child.
     #[error("reply failed to cover every listed radix")]
     UnfinishedReply,
-    /// A positional `Match` after every held child has been answered.
+    /// The reply confirmed a child that the question did not list.
     #[error("reply attempted to match unknown child")]
     UnexpectedMatch,
-    /// A positional `Query` after every held child has been answered.
+    /// The peer asked about a child that the question did not list.
     #[error("reply attempted to query unknown child")]
     UnexpectedQuery,
-    /// A `Supply` whose radix lands on an already-held child.
+    /// The peer supplied a child that the receiving replica already holds.
     #[error("reply attempted to supply a child that is already known")]
     UnexpectedSupply,
-    /// A `Supply` whose radix violates the implicit ordering of children.
+    /// A supplied child did not fit the question's radix order.
     #[error("reply attempted to supply a child out of order")]
     InvalidSupply,
     /// A supplied subtree carrying a version not in the causal past or present

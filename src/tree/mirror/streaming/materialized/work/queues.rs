@@ -21,15 +21,14 @@
 //! for every remaining one-slot edge; only the inter-level return boundary
 //! needs a fan.
 
+use futures::{StreamExt as _, stream};
+
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
+        channel::{QueueKind, QueueRole, Receiver, ReceiverStream, Sender, channel, into_stream},
         erased::{self, Reply, ReplyResultStream},
-        materialized::{
-            Error, OkReceiverStream, Query, Resolution,
-            channel::{QueueKind, QueueRole, Receiver, Sender, channel},
-            ok_channel,
-        },
+        materialized::{Error, Query, Resolution},
         stats::Recorder,
         window::FAN,
     },
@@ -38,6 +37,15 @@ use crate::tree::{
         height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
+
+/// A channel receiver stream whose items are wrapped in `Ok`.
+pub(super) type OkReceiverStream<T, E> = stream::Map<ReceiverStream<T>, fn(T) -> Result<T, E>>;
+
+/// Create a channel whose receiver presents every item as `Ok`.
+fn ok_channel<T, E>(role: QueueRole, capacity: usize) -> (Sender<T>, OkReceiverStream<T, E>) {
+    let (sender, receiver) = channel(role, capacity);
+    (sender, into_stream(receiver).map(Ok))
+}
 
 /// A window-controlled sender that records capacity pressure.
 pub(super) struct WindowSender<T> {
@@ -353,14 +361,14 @@ where
 /// Stream terminal leaf resolutions, buffered one fan deep.
 ///
 /// Terminal resolutions contain no `Pending` slots, so leaf assembly can
-/// consume each immediately; no later item is required to unlock its
-/// consumer, and one slot is the liveness floor. But the walk produces one
-/// resolution per requested leaf, so a one-slot edge pays a waker round
-/// trip per leaf on the compute path. One fan amortizes that; unlike the
-/// window edges these items are single-leaf resolutions belonging to
-/// scopes the memory model already charges, so no knob applies. (Contrast
-/// [`assembly_level_returns`], where one fan is a correctness floor rather
-/// than an amortization.)
+/// consume each immediately; no later item is required to unlock its consumer,
+/// and one slot is the liveness floor. But the walk produces one resolution per
+/// requested leaf, so a one-slot edge pays a waker round trip per leaf on the
+/// compute path. One fan amortizes that; unlike the window edges these items
+/// are single-leaf resolutions belonging to scopes the memory model already
+/// charges, so no window capacity applies. (Contrast
+/// [`assembly_level_returns`], where one fan is a correctness floor rather than
+/// an amortization.)
 pub(super) fn terminal_leaf_resolutions<B>() -> (
     Sender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,

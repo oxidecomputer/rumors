@@ -261,7 +261,7 @@ fn chains_two_instances() {
         pollster::block_on(chained.try_collect::<Vec<_>>()).expect("no errors were fed in");
 
     let inner = parent_of(parent_prefix(3), vec![(1, Some(a)), (7, Some(b))])
-        .expect("a non-empty all-real group constructs its parent");
+        .expect("a non-empty resolved group constructs its parent");
     let expected = pollster::block_on(<Local as Backend>::parent(
         Local,
         parent_prefix(3).pop().0,

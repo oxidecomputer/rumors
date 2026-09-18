@@ -8,8 +8,8 @@
 //! there (or was deleted there) and drops out, so a deletion propagates by the
 //! receiver simply never re-learning the leaf.
 //!
-//! Unlike the materialized filter, which walks one owned subtree, this version
-//! is generic over any [`Backend`]. It never materializes more than the
+//! Unlike the in-memory filter, which walks one owned subtree, this version is
+//! generic over any [`Backend`]. It never materializes more than the
 //! [`children`](Backend::children) / [`parent`](Backend::parent) fan of a
 //! single recursing node, so it stays constant-memory and reusable across the
 //! in-memory and persistent backends alike.
@@ -17,10 +17,8 @@
 //! The walk runs on erased nodes, its level named by its prefix's byte
 //! length: one instantiation per backend, where a height-typed recursion
 //! would instantiate one per level. Each recursive call boxes its future
-//! ([`BoxFuture`]) exactly as the typed tower did — the type stays flat —
-//! and the depth is bounded by the prefix's remaining height, at most 32,
-//! so the recursion is stack-safe by construction rather than by input
-//! goodwill.
+//! ([`BoxFuture`]) so the future type stays finite. The prefix bounds recursion
+//! to the tree's key depth, so stack use cannot grow with input size.
 
 use futures::future::{BoxFuture, FutureExt};
 
@@ -85,7 +83,7 @@ pub(super) fn unknown<'a, B>(
     stats: &'a Recorder,
 ) -> BoxFuture<'a, Result<Option<B::Erased>, B::Error>>
 where
-    B: Backend<Node<Z>: Leaf> + Sync,
+    B: Backend<Node<Z>: Leaf>,
 {
     async move {
         if prefix.height() == 0 {
@@ -140,7 +138,7 @@ pub(super) async fn unknown_providing<B>(
     stats: &Recorder,
 ) -> Result<(Option<B::Erased>, Vec<(u8, B::Erased)>), B::Error>
 where
-    B: Backend<Node<Z>: Leaf> + Sync,
+    B: Backend<Node<Z>: Leaf>,
 {
     match knowledge(&node, known) {
         // Wholly unknown: the whole subtree travels.

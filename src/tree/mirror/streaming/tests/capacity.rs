@@ -12,7 +12,7 @@ use crate::tree::{
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
         Fault, Faulting, ReplyCorruption,
-        materialized::channel::{QueueKind, with_kind_capacity, with_observation},
+        channel::{QueueKind, with_kind_capacity, with_observation},
         mirror as drive_streaming,
     },
 };
@@ -298,23 +298,22 @@ fn probe_classifier_rejects_a_violation() {
     );
 }
 
-/// Probe (model finding #7): a lone parent scope stalls the real encoder
-/// exactly when its disputed fan exceeds the return capacity plus two.
+/// A lone parent scope stalls the walk when its disputed fan exceeds the
+/// return capacity plus two.
 ///
 /// The formal model's `Control.pdelay` deadlocks a parent-delaying publisher
-/// at disputed fan = capacity + 2. The real encoder IS a parent-delaying
-/// publisher (`levels.rs` sends the parent resolution in the scope epilogue,
-/// after the final child's dependent queries), yet at fan = capacity + 2 it
+/// at disputed fan = capacity + 2. The walk also publishes a parent resolution
+/// after the final child's dependent queries, yet at fan = capacity + 2 it
 /// completes under every probed poll order: the model's committed adversary
 /// explores interleavings the sequential reaction loop cannot produce. The
-/// encoder's stall boundary is the capacity-tightness law's (fan ≤ cap + 2),
+/// walk's stall boundary is the capacity-tightness law's (fan ≤ cap + 2),
 /// pinned here from both sides at cap 1.
 #[test]
 fn parent_delay_single_parent_boundary() {
     assert!(
         completes_under_every_schedule(&internal_fan(3), 1),
         "fan = cap + 2 must complete: the model's tighter pdelay boundary \
-         is not realizable in the sequential encoder"
+         is not realizable in the sequential walk"
     );
     assert!(
         stalls_under_any_schedule(&internal_fan(4), 1),
@@ -326,8 +325,7 @@ fn parent_delay_single_parent_boundary() {
     );
 }
 
-/// Probe (model finding #7): return backlog does not accumulate across
-/// sibling parent scopes at one height.
+/// Return backlog does not accumulate across sibling parent scopes at one height.
 ///
 /// The level return queue serves a whole stage, so if completions from
 /// several parents' subtrees could occupy it simultaneously, a stage much

@@ -4,13 +4,9 @@
 //! module records what actually crosses the wire: every [`Reply`] each
 //! endpoint sends, reduced to its reaction [`Label`]s — `Match`, `Supply`
 //! with its announced radix, `Query` with its listing's radices. Hashes,
-//! nodes, and versions are erased. This is the observable the formal model's
-//! payload-independence premise quantifies over — the count and order of
-//! channel operations depend only on each child's merge-join arm, never on
-//! payloads — promoted to a proptest bridge by the mux adjudication
-//! (bridge B5): the announced dispute skeleton must be reconstructible from
-//! this transcript alone, and the session's channel-op trace must be a
-//! function of that skeleton only.
+//! nodes, and versions are erased. Property tests use this view to check that
+//! the announced dispute shape determines channel operations: changing only
+//! payloads must not change the protocol schedule.
 //!
 //! Capture point: [`super::work::Work::respond`], the pump every response
 //! stream funnels through. Entries land in publication order — the moment
@@ -72,6 +68,7 @@ pub fn with_transcript<R>(f: impl FnOnce() -> R) -> (R, Transcript) {
     }
 
     impl Drop for Restore {
+        /// Restore the enclosing transcript capture when this scope exits.
         fn drop(&mut self) {
             SENT.with(|sent| sent.replace(self.sent.take()));
         }

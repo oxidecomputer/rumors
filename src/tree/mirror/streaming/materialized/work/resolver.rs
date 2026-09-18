@@ -115,10 +115,11 @@ where
                         return violation(Violation::UncontainedSupply);
                     }
                     _ => {
-                        self.ledger.absorb(node.len() as u64)?;
+                        let leaves = node.len() as u64;
+                        self.ledger.absorb(leaves)?;
                         // An absorbed supply is content this replica just
                         // learned: credit its exact live-leaf count.
-                        self.stats.gained(node.len() as u64);
+                        self.stats.gained(leaves);
                         self.resolved.push((radix, Resolve::Ready(Some(node))));
                     }
                 }

@@ -1,15 +1,17 @@
 //! Background work accumulated by materialized protocol states.
 //!
 //! [`Work`] collects the pumps created by each protocol phase. [`levels`]
-//! processes requests; [`assembly`] reconstructs resolved scopes. The terminal
-//! state drives all pumps and its final result together. A pump failure cancels
-//! the remaining work without waiting for a response consumer to read it.
+//! drives the phase-specific walks, [`answer`] compares child listings,
+//! [`resolver`] pairs replies with outstanding queries, [`assembly`]
+//! reconstructs resolved scopes, and [`queues`] owns channel capacities. The
+//! terminal state drives every pump and its final result together. A pump
+//! failure cancels the remaining work without waiting for a response consumer.
 //!
 //! Walks use [`erased`] values so their code is compiled once per backend.
 //! Their entry methods erase typed requests; [`Work::respond`] assigns the
 //! phase's height to outgoing replies for the typed protocol schedule.
 
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 
 use futures::{Stream, StreamExt, future::BoxFuture};
 
@@ -24,12 +26,8 @@ pub(super) use resolver::Resolver;
 use super::progress::Progress;
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, erased,
-        materialized::{Error, channel::Sender},
-        protocol::BoxResponses,
-        stats::Recorder,
-        tasks::complete,
-        window::Window,
+        Backend, Leaf, channel::Sender, erased, materialized::Error, protocol::BoxResponses,
+        stats::Recorder, tasks::complete, window::Window,
     },
     typed::height::{Height, Z},
 };
@@ -102,7 +100,7 @@ where
         stream: impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
         self.tasks.push(Box::pin(async move {
-            let mut stream = std::pin::pin!(stream);
+            let mut stream = pin!(stream);
             while let Some(item) = stream.next().await {
                 if returns.send(item?).await.is_err() {
                     return Ok(());
@@ -123,10 +121,8 @@ where
 
 /// Forward one walk's replies to the response queue.
 ///
-/// One buffered response is sufficient: whenever the pump blocks, that
-/// response is already available to advance the counterparty and release
-/// the slot. Buffering a fan would retain whole protocol messages without
-/// breaking another dependency.
+/// Queue capacity and its progress argument live at
+/// [`queues::outgoing_responses`].
 ///
 /// Errors return directly to the work executor. Sending them through the reply
 /// queue would require a consumer that may already have stopped reading.

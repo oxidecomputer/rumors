@@ -1,22 +1,20 @@
-//! Bridge 2: `LocalEq` soundness — the Lean view projection agrees with
-//! actual tree pairs.
+//! `Mux.LocalEq` agrees with what each real tree holds.
 //!
 //! The Lean locality definition (`Mux.viewEnc`/`Mux.LocalEq`)
 //! projects a skeleton to what party `p` holds: every D child (recursed, in
 //! radix order), R children only where `p` is the scope's asker (a held
 //! cut), nothing where `p` is the answerer (a child `p` lacks, invisible at
-//! session start), `leafReqs` erased from both views. This bridge ties that
+//! session start), `leafReqs` erased from both views. This suite ties that
 //! projection to actual trees, in both directions:
 //!
 //! - **soundness** ([`assert_view_sound`], `view_projection_is_sound`):
-//!   everything the projection RETAINS is genuinely held by the local tree,
-//!   and everything it ERASES as peer-side is genuinely absent from it —
+//!   everything retained by the projection is held by the local tree, and
+//!   everything erased as peer-side is absent from it,
 //!   checked against the literal leaf-path set the tree was built from;
 //! - **nondegeneracy** (`free_insertions_are_invisible_to_the_local_view`,
-//!   `leaf_requests_are_erased_from_the_view`): the full skeletons CAN
-//!   differ while the p-views agree — the fooling alphabet's free-insertion
-//!   moves (R children at p-answerer scopes; leaf requests) realized by
-//!   concrete trees, occurring in every constructed case.
+//!   `leaf_requests_are_erased_from_the_view`): full skeletons can differ while
+//!   the p-views agree. Every constructed case realizes a free insertion: an R
+//!   child at a p-answerer scope, or a leaf request.
 
 use std::collections::BTreeSet;
 
@@ -88,8 +86,7 @@ fn assert_view_sound(decoded: &Decoded, p: Party, local: &BTreeSet<[u8; 32]>) {
 }
 
 proptest! {
-    /// LOCALEQ SOUNDNESS: the p-view retains only locally-held structure
-    /// and erases only locally-absent structure.
+    /// The projected view retains exactly the structure held by the local tree.
     ///
     /// For one local tree against two different remotes, each session's
     /// p-view draws exactly `viewEnc`'s split — asker-side R children
@@ -124,23 +121,13 @@ proptest! {
     }
 }
 
-/// NONDEGENERACY, counted: an R child inserted at a p-answerer scope is a
-/// *free insertion* — the full skeletons differ while the p-views agree —
-/// and it is exactly one-party-blind: the counterparty's view sees the cut.
+/// A child added where the local party answers is invisible only to that party.
 ///
-/// Construction, per sampled shape: a base divergence with a guaranteed
-/// disputed chain through `[0]`, `[0, 0]`, `[0, 0, 0]`; each remote gets
-/// one extra subtree at radix 7 under a scope the local party ANSWERS
-/// (parity chosen from the computed role — `viewEnc` shows R children to
-/// the asker only), the two remotes at *different depths* of that parity,
-/// so the skeletons differ structurally while both extras stay invisible
-/// to p. The two extras also keep the remotes' set sizes and advertised
-/// ceilings identical, fixing the local role across the two sessions
-/// under the smaller-set-initiates election. Every sampled case must come
-/// out nondegenerate: `LocalEq` holds for p while the skeletons differ
-/// and `LocalEq` fails for the counterparty. This realizes the
-/// adjudicated answerer-side free-insertion move with concrete trees at
-/// 100% frequency.
+/// Each sampled shape contains a disputed chain. The two remote trees add a
+/// subtree at different answerer-side depths, so their full skeletons differ
+/// while both additions remain absent from the local view. Equal remote sizes
+/// and ceilings keep the local role fixed. Every case checks that `LocalEq`
+/// holds for the local party and fails for the counterparty.
 #[test]
 fn free_insertions_are_invisible_to_the_local_view() {
     const CASES: u32 = 32;
@@ -253,26 +240,19 @@ fn free_insertions_are_invisible_to_the_local_view() {
     );
 }
 
-/// NONDEGENERACY at the leaves: `leafReqs` is erased from both views, so
-/// leaf-request-only skeleton differences are `LocalEq`.
+/// Omitting `leafReqs` lets leaf-request-only skeleton differences remain
+/// `LocalEq`.
 ///
-/// The erasure is `Mux.viewEnc`'s adjudicated one: two sessions from
-/// the same local tree whose skeletons differ ONLY in a height-1 scope's
-/// leaf request count agree in the local party's view while the full
-/// skeletons differ.
+/// Two sessions from the same local tree differ only in a height-1 scope's
+/// leaf request count. Their local views agree while their full skeletons do
+/// not.
 ///
-/// Two constructions, one per local role (leaf requests are always issued
-/// by the initiator, so the free move differs by role): local as initiator,
-/// the second remote adds one more concurrent leaf under the disputed leaf
-/// parent (one more request for what local lacks); local as responder, the
-/// second remote additionally holds one of local's shared leaves (one fewer
-/// request against local's listing). Each construction forces its role
-/// through the election's keys: the initiator branch holds the strictly
-/// smaller set outright; the responder branch outsizes one remote and ties
-/// the other, then forces the tie with an inflation — extra ceiling ticks
-/// on a party that owns no leaf anywhere, semantically inert (nothing's
-/// supplies ride it), searched until `descend`'s canonical-byte tiebreak
-/// lands the required way.
+/// The test covers both local roles. As initiator, one remote adds a concurrent
+/// leaf that creates another request for a leaf the local tree lacks. As
+/// responder, one remote additionally holds a shared local leaf, removing one
+/// request. Set sizes choose the intended role where possible; the responder
+/// tie uses ceiling ticks on a party that owns no leaf, which changes election
+/// ordering without changing the supplied content.
 #[test]
 fn leaf_requests_are_erased_from_the_view() {
     fn leaf(last: u8) -> [u8; 32] {

@@ -17,10 +17,8 @@ use crate::tree::mirror::{
     streaming::{
         Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, ReplyCorruption,
         Root as StreamingRoot,
-        materialized::{
-            Error as MaterializedError, Handshaking, Start, Violation,
-            channel::{with_observation, with_schedule},
-        },
+        channel::{with_observation, with_schedule},
+        materialized::{Error as MaterializedError, Handshaking, Start, Violation},
         mirror as drive_streaming,
     },
 };

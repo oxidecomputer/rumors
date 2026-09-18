@@ -22,9 +22,7 @@ use crate::tree::arb::{
     uncontained_supply_pair,
 };
 use crate::tree::mirror::streaming::backend::with_local_schedule;
-use crate::tree::mirror::streaming::materialized::channel::{
-    QueueKind, with_kind_capacity, with_schedule,
-};
+use crate::tree::mirror::streaming::channel::{QueueKind, with_kind_capacity, with_schedule};
 use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
 use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
 use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Start};
