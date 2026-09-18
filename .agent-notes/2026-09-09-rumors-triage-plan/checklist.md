@@ -1,8 +1,8 @@
 # Rumors review checklist
 
-**Current:** reply fault injection is complete at `f66de43b`.
+**Current:** proxy role dispatch is complete at `873a817b`.
 
-**Next:** collapse the handshake handoff and state its premises once.
+**Next:** consolidate the remaining handshake and opening premises.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -412,8 +412,11 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
       countdown logic — `f66de43b`.
       Sources: `streaming-backend-window-23`, T132.
 
-- [ ] Collapse the handshake handoff and name its actual premises once.
-      Sources: `async-hazards-5`, `materialized-11`, `materialized-34`, `mirror-common-16`, `remote-proxy-4`, `remote-proxy-7`, `remote-proxy-24`, `streaming-tests-24`, T99, T118, T119, T128, T132.
+- [x] Defer proxy equality and role dispatch to the shared driver — `873a817b`.
+      Sources: `remote-proxy-4`, `remote-proxy-7`, `remote-proxy-8`, T119, T132.
+
+- [ ] Consolidate the remaining handshake and opening premises.
+      Sources: `async-hazards-5`, `materialized-11`, `materialized-34`, `mirror-common-16`, `remote-proxy-24`, `streaming-tests-24`, T99, T118, T119, T128, T132.
 
 - [ ] Run the height-indexed trait experiment and judge the result.
       Sources: T117, T132.
@@ -425,7 +428,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
       Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T118, T128, T132.
 
 - [ ] Simplify proxy state and clarify driver responsibilities.
-      Sources: `remote-proxy-1`, `remote-proxy-5`, `remote-proxy-6`, `remote-proxy-8–11`, `remote-proxy-13–18`, `remote-proxy-21`, `remote-proxy-22`, `remote-proxy-26`, `remote-proxy-32`, T48, T49, T52, T57, T126, T132.
+      Sources: `remote-proxy-1`, `remote-proxy-5`, `remote-proxy-6`, `remote-proxy-9–11`, `remote-proxy-13–18`, `remote-proxy-21`, `remote-proxy-22`, `remote-proxy-26`, `remote-proxy-32`, T48, T49, T52, T57, T126, T132.
 
 - [ ] Consolidate proxy test setup and remove redundant assertions.
       Sources: `remote-proxy-tests-1`, `remote-proxy-tests-3`, `remote-proxy-tests-4`, `remote-proxy-tests-11`, `remote-proxy-tests-13`, `remote-proxy-tests-14`, `remote-proxy-tests-16`, `remote-proxy-tests-17`, `remote-proxy-tests-19`, T48, T50, T52, T132.
