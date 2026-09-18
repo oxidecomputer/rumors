@@ -1,12 +1,12 @@
 # Rumors review checklist
 
-**Current:** load-insensitive session and allocation tests landed at `affd018e`
-and `d0c220eb`.
+**Current:** shared test-transport cleanup landed at `5bc8088f`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** simplify the shared fault wrappers and clarify their contracts.
-High-count property settings wait for `before`'s generator sweep.
+**Next:** compile shared test and benchmark support once through a path
+dev-dependency. High-count property settings wait for `before`'s generator
+sweep.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -478,7 +478,7 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
       deterministic per thread — `affd018e`, `d0c220eb`.
       Sources: `tests-resource-link-window-5`, T132, N11, N39, N50.
 
-- [ ] Simplify fault wrappers and clarify testing support behavior.
+- [x] Simplify fault wrappers and clarify testing support behavior — `5bc8088f`.
       Sources: `testing-infra-1`, `testing-infra-3`, `testing-infra-5–7`, `testing-infra-10`, `testing-infra-14–16`, T48, T49, T52, T53, T129, T132.
 
 - [ ] Consolidate common test helpers and use public observers.
