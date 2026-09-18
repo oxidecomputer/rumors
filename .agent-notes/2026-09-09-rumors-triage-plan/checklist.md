@@ -752,30 +752,26 @@ independently reviewable batches.
 
 - [x] Clarify the typed streaming schedule and its error routing — `02b077cd`.
 
-- [ ] Revise the remaining production file untouched since this triage began:
-      `src/tree/mirror/streaming/remote/codec/encode/async_io.rs`. Check every
-      claim against callers and implementation; simplify code where that makes
-      the explanation clearer.
+- [x] Revise the remaining production file untouched since this triage began —
+      `62b15af3`. Its writer state, helper functions, and cancellation contract
+      now state their roles directly.
       Sources: `api-core-17`, `api-core-18`, `api-core-26`, `api-core-27`,
       `session-bookmark-34`, `session-bookmark-44`, `tree-core-6`,
       `api-audit-6`, `api-audit-10`, `api-audit-16–18`, `fresh-eyes-1`,
       `fresh-eyes-5–7`, `fresh-eyes-11`, T46, T49, T51, T55, T56, T58, T75,
       T87, T93, T95, T100, T102–104, T132, T141, T158, N09.
 
-- [ ] Revise the untouched test modules and their helpers:
-      `src/tree/mirror/framing/tests.rs`,
-      `src/tree/mirror/streaming/convert/tests.rs`,
-      `src/tree/mirror/streaming/remote/codec/capture/tests.rs`,
-      `src/tree/mirror/tests.rs`, `tests/main.rs`, `tests/seed_liveness.rs`, and
-      `tests/snapshot_liveness.rs`. Preserve coverage; remove claims that the
-      assertions do not establish. Also reconcile `tests/cbor_evolution.rs`
-      with T93: its current prose calls missing-field behavior a documented
-      Rumors contract and its last test still exercises Ciborium directly.
+- [x] Review the untouched test modules and helpers — `62b15af3`. Capture,
+      containment, and persistence-anchor prose is clearer; the other named
+      suites were already sound. The isolated Ciborium missing-field test and
+      its overstated Rumors contract are gone.
       Sources: `prose-hygiene-1`, `prose-hygiene-3–12`, T5, T48, T49, T93,
       T125, T130, T132.
 
-- [ ] Review and land the full test-legibility sweep at `e603252e`, resolving
-      overlap with the untouched-test batches before merge.
+- [x] Disposition: retire the test-legibility sweep at `e603252e`. The owner
+      approved its original shape, but extensive later work left it 101 commits
+      behind and conflicting across the same tests; replaying it would repeat
+      the review rather than preserve distinct work.
 
 - [x] Keep the memory-budget setter focused on its contract, with a separate
       sizing guide — `69bdab34`.
