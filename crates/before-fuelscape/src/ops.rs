@@ -1247,17 +1247,13 @@ pub const ROSTER: &[OpSpec] = &[
     },
     OpSpec {
         name: "ranked_cmp",
-        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
+        inputs: Inputs::DistinctOperands(&[Operand::Version, Operand::Version]),
         covers: &["Ranked comparisons and the Ranked / Rank From conversions (the total order)"],
-        size_measure: "total encoded bytes of the two viewed versions, split \
-             uniform (the fused signed rank co-sweep, one byte compare on \
-             rank ties; equal operands exit at the canonical-equality probe, \
-             so the co-sweep's axis reads from the distinct pairs; view \
-             construction is O(1), and the From conversions are the O(1) \
-             views plus the rank fold the version_rank panel prices)",
+        size_measure: "total encoded bytes of two distinct viewed versions",
         variant: "",
-        contract: "`O(|self| + |other|)`",
-        claim: "n",
+        contract: "`O(M(|self| + |other|)) · log(|self| + |other|)` time, \
+             `O(|self| + |other|)` space",
+        claim: "n (log n)^2",
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);

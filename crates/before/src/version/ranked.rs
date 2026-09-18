@@ -1,6 +1,4 @@
-//! The rank view: [`Ranked`], a [`Version`] ordered totally by its causal
-//! [`Rank`], with fused comparisons and a composite key encoding. The public
-//! contract lives on the type; this module is private.
+//! A total-ordering view of a [`Version`].
 
 use core::cmp::Ordering;
 use std::borrow::Cow;
@@ -15,10 +13,9 @@ use crate::error::Decode;
 /// a deterministic tiebreak, equal only to itself, with a canonical encoding
 /// whose lexicographic order aligns with its [`Ord`] implementation.
 ///
-/// Construction is `O(1)` and borrows (or takes) the version. Two `Ranked`
-/// values compare with no intermediate [`Rank`] value materialized, which is
-/// cheaper than two rank folds and a compare, because nothing is allocated
-/// beyond the walk's accumulators.
+/// Construction is `O(1)` and borrows (or takes) the version. Comparison walks
+/// both versions together and computes the sign of their rank difference,
+/// avoiding two separate rank computations and their intermediate values.
 ///
 /// # The total order
 ///
@@ -64,7 +61,7 @@ use crate::error::Decode;
 /// let one = Clock::seed().tick().clone();
 /// // Borrowing views: no fold has run yet.
 /// let (rh, ro) = (Ranked::from(&half), Ranked::from(&one));
-/// assert!(rh < ro); // one fused co-walk, no Rank built
+/// assert!(rh < ro); // compares the ranks without building either Rank
 /// // The rank question is explicit: materialize, then compare ranks.
 /// assert!(rh.rank() < one.rank());
 /// // The composite key sorts exactly as the views compare.
@@ -363,20 +360,12 @@ impl core::fmt::Debug for Ranked<'_> {
     }
 }
 
-/// The total comparison: the fused rank co-sweep, then the version-byte
-/// tiebreak on rank ties.
-///
-/// The co-sweep is one signed walk over both encoded streams, no `Rank`
-/// materialized; the tiebreak runs only on rank ties, where the two sides are
-/// never causally ordered, so it is causally free.
+/// Compares ranks, then breaks a rank tie with the versions' canonical bytes.
 fn total_cmp(a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
-    // Equal versions are one value under the total order — the
-    // `ranked_orders_by_rank_then_bytes` law in `crate::laws` pins the whole
-    // table, equal ranks and equal bytes reading `Equal` — and canonical
-    // equality answers in `O(1)` on a shared buffer (clone identity) or one
-    // byte compare, where the rank co-sweep would fold both streams whole only
-    // to tie and tiebreak `Equal`. Unequal operands pay only the compare's
-    // early-exiting prefix.
+    // Check identity first. Shared buffers answer in constant time, and unequal
+    // buffers stop at their first different byte. Otherwise an equal pair
+    // would traverse both streams to compute a zero rank difference, then
+    // compare the same bytes again as the tiebreak.
     if crate::codec::canonical_eq(a.version.view(), b.version.view()) {
         return Ordering::Equal;
     }
@@ -384,19 +373,14 @@ fn total_cmp(a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
         .then_with(|| a.version.as_bytes().cmp(b.version.as_bytes()))
 }
 
-// The comparison family is the total order: rank first, version bytes on rank
-// ties, so `Equal` is version identity and `Eq`/`Ord`/`Hash` all speak about
-// one value — the version. Equality itself never runs the walk: byte equality
-// of canonical forms IS version identity, at one memcmp. `Ranked` compares only
-// with `Ranked`: an `==` against a bare `Rank` would have to mean rank class on
-// one side and version identity on the other, which cannot chain transitively —
-// the type docs carry the explicit `rank` spelling of the rank question.
+/// Compares version identity, matching [`Ord`] and [`Hash`](core::hash::Hash).
 impl PartialEq<Ranked<'_>> for Ranked<'_> {
     fn eq(&self, other: &Ranked<'_>) -> bool {
         self.version() == other.version()
     }
 }
 
+/// Marks version identity as an equivalence relation.
 impl Eq for Ranked<'_> {}
 
 /// Delegates to the viewed version's byte hash: consistent with [`Eq`] (version
@@ -407,20 +391,29 @@ impl core::hash::Hash for Ranked<'_> {
     }
 }
 
-/// The total order: rank first, canonical bytes on rank ties.
+/// Orders by rank, then by canonical version bytes on rank ties.
 ///
 /// # Complexity
 ///
-/// One fused signed rank co-sweep over the two viewed versions:
+/// With `n = |self| + |other|`, where each size is its version's encoded byte
+/// length, comparison uses `O(M(n) log n)` time and `O(n)` transient space in
+/// the worst case. `M(n)` is the time to multiply integers whose binary width
+/// is proportional to `n`. Exact rank ties require resolving the complete rank
+/// difference, so they have the same worst-case arithmetic as computing a
+/// rank.
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_cmp.html")))]
-#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self| + |other|)) · log(|self| + |other|)` time, `O(|self| + |other|)` space"
+)]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         total_cmp(self, other)
     }
 }
 
+/// Returns the total comparison supplied by [`Ord`].
 impl PartialOrd<Ranked<'_>> for Ranked<'_> {
     fn partial_cmp(&self, other: &Ranked<'_>) -> Option<Ordering> {
         Some(total_cmp(self, other))

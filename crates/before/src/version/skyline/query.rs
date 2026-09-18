@@ -224,17 +224,21 @@ pub fn lag(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
     })
 }
 
-/// Compare the exact ranks of the versions two skyline streams denote, with no
-/// `Rank` materialized: one fused co-sweep integrating the *signed* difference
-/// `h_a − h_b` and answering its total's sign.
+/// Compares the exact ranks of two skyline streams without constructing either
+/// [`Rank`].
 ///
-/// The signed instance of the pair co-sweep (the module doc's σ table):
-/// `rank(a) − rank(b) = ∫ (h_a − h_b)`, so the integral's sign is the rank
-/// order, and the orientation is constantly `+1` — no orientation change ever
-/// fires, exactly as in the single-stream rank fold, whose funding certificate
-/// (the [`integral`] submodule) therefore covers this walk with both operand
-/// ledgers live. Equal to `a.rank().cmp(&b.rank())` on the decoded versions,
-/// which the differential suite pins.
+/// The walk integrates `h_a - h_b` over the streams' common intervals. That
+/// integral is `rank(a) - rank(b)`, so its sign gives the order. The
+/// [`integral`] module explains how the walk keeps the arithmetic bounded by
+/// the input while preserving the exact result.
+///
+/// # Complexity
+///
+/// For `n` total encoded input bytes, the walk takes `O(M(n) log n)` time and
+/// `O(n)` transient space in the worst case. `M(n)` is the time to multiply
+/// integers whose binary width is proportional to `n`. A rank tie must settle
+/// the exact difference to zero, so retaining only its sign cannot improve the
+/// worst-case bound.
 ///
 /// # Panics
 ///

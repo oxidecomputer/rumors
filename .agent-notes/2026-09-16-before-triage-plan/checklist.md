@@ -98,9 +98,13 @@ triage's dispositions and branches are leads only.
       numerator.
       Source: `rank-20`.
 
-- [ ] Give `Ranked::cmp` and rank-producing folds their actual worst-case
-      implementations and useful properties.
-      Sources: `rank-33`, `skyline-query-9`.
+- [x] Give `Ranked::cmp` its attainable worst-case contract and exercise the
+      exact comparison on the settle-triggering families.
+      Source: `rank-33`.
+
+- [ ] Exercise rank-producing folds at the multiplication tier their
+      worst-case contract describes.
+      Source: `skyline-query-9`.
 
 - [ ] Decode `Rank` directly from `Read` without retaining a redundant copy of
       the complete input. Preserve truncation, padding, trailing-input, and I/O

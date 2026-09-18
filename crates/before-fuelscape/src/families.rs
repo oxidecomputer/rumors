@@ -13,9 +13,12 @@
 
 use before::meter::registry::Shape;
 use before::meter::Encoding;
-use before::Party;
+use before::{Party, Version};
 
 use crate::ops::{Inputs, OpSpec, Operand};
+
+#[cfg(test)]
+mod tests;
 
 /// One family's canonical byte sequences at one ramp point.
 pub struct FamilyInput {
@@ -86,13 +89,8 @@ fn stagger_versions(n: usize, m: usize) -> Vec<Vec<u8>> {
 /// the row's operand signature, except the slice rows, whose committed
 /// fold-cure families are per-operation ([`slice_overlays`]).
 ///
-/// Binary rows pair a family with itself (declared by the label) unless a
-/// committed pair generator exists — `jump_pair`, `tooth_tail`, and
-/// `concurrent_pair` are the pair-shaped families and carry both
-/// operands' design in one name. Rows that draw the same signature share
-/// the same families: each overlay point rides the row's own `measure`,
-/// so the committed shape is pushed through whatever preparation the row
-/// declares (a fork split, a rank derivation, a render round-trip).
+/// Rows with the same signature share the same families. Each overlay point
+/// passes through the row's own preparation and measured operation.
 pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
     let (operands, distinct) = match op.inputs {
         Inputs::Operands(operands) => (operands, false),
@@ -152,6 +150,18 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
             out.extend(ramp("concurrent_pair", max_bytes, |t| {
                 let (a, b) = Shape::ConcurrentPair.version_pair(2 * t);
                 Some(vec![a.encode(), b.encode()])
+            }));
+            out.extend(ramp("wide_arming × empty", max_bytes, |t| {
+                Some(vec![
+                    version_bytes(&Shape::WideArming.build2(10, t)),
+                    Version::new().encode(),
+                ])
+            }));
+            out.extend(ramp("plateau_puncture × empty", max_bytes, |t| {
+                Some(vec![
+                    version_bytes(&Shape::PlateauPuncture.build2(10, t)),
+                    Version::new().encode(),
+                ])
             }));
             out.extend(ramp("dense × self", max_bytes, |t| {
                 let v = version_bytes(&Shape::Dense.build1(t));
@@ -381,6 +391,9 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
             }));
         }
         other => panic!("no overlay mapping for operand signature {other:?}"),
+    }
+    if distinct {
+        out.retain(|family| family.inputs.windows(2).any(|pair| pair[0] != pair[1]));
     }
     out
 }
