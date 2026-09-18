@@ -1,11 +1,13 @@
 # Rumors review checklist
 
-**Current:** related test binaries consolidated without coverage loss at `812407a9`.
+**Current:** generated schedules exercise the public unordered observer at `63933cc7`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** consolidate the remaining shared test helpers and observer reads.
-High-count property settings wait for `before`'s generator sweep.
+**Next:** repair disruption and handshake properties that can pass vacuously or
+omit terminal paths, then strengthen resource and transport convergence checks.
+High-count property settings wait for `before`'s generator sweep; remaining
+shared-helper cleanup follows the correctness-shaped properties it supports.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -483,7 +485,10 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
 - [x] Simplify fault wrappers and clarify testing support behavior — `5bc8088f`.
       Sources: `testing-infra-1`, `testing-infra-3`, `testing-infra-5–7`, `testing-infra-10`, `testing-infra-14–16`, T48, T49, T52, T53, T129, T132.
 
-- [ ] Consolidate common test helpers and use public observers.
+- [x] Drive generated peer schedules through the public unordered observer — `63933cc7`.
+      Source: `tests-common-16`, T132.
+
+- [ ] Consolidate remaining common test helpers.
       Sources: `tests-common-1`, `tests-common-5`, `tests-common-7`, `tests-common-9–11`, `tests-common-13`, `tests-common-17`, `tests-common-21`, `tests-common-23`, `tests-common-24`, `tests-common-26–28`, T48, T50, T52, T56, T130, T132.
 
 ## 17. Lifecycle and observation tests
