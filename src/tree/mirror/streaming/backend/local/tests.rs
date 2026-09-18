@@ -1,11 +1,9 @@
 //! `Local`'s bulk `leaves`/`assemble` overrides against the default chain.
 //!
-//! The overrides exist purely as a cost optimization (skip the
-//! per-virtual-level unwrapping of path-compressed spines), so the property
-//! that keeps them honest is *observational equivalence*: over arbitrary
-//! leaf runs — deep compressed spines, dense branch points, multiple
-//! same-height runs — the override and the level-by-level [`Convert`]
-//! default must produce identical streams.
+//! The overrides skip per-level work along compressed paths. Their required
+//! property is observational equivalence: for deep paths, dense branches, and
+//! multiple same-height runs, each override must produce the same stream as
+//! the level-by-level [`Convert`] default.
 
 use std::convert::Infallible;
 
@@ -27,6 +25,7 @@ use crate::{
 
 use super::Local;
 
+/// An ordered sequence of prefix-keyed leaves.
 type LeafRun = Vec<(Prefix<Z>, typed::Node<Z>)>;
 
 /// One distinct-version leaf per path, in the (ascending) order given.
@@ -44,6 +43,7 @@ fn leaves_at(paths: impl IntoIterator<Item = [u8; 32]>) -> LeafRun {
         .collect()
 }
 
+/// Convert an owned leaf run into the backend's erased stream type.
 fn boxed(run: LeafRun) -> BoxNodeStream<'static, Local, Z> {
     Box::pin(stream::iter(run.into_iter().map(Ok::<_, Infallible>)))
 }
@@ -54,7 +54,7 @@ fn assemble_default<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<H>)
         .unwrap_or_else(|error| match error {})
 }
 
-/// Assemble through the backend seam, which Local overrides in bulk.
+/// Assemble through `Local`'s bulk override.
 fn assemble_local<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<H>)> {
     pollster::block_on(Local.assemble::<H>(boxed(run)).try_collect())
         .unwrap_or_else(|error| match error {})
@@ -72,7 +72,7 @@ fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRu
     .unwrap_or_else(|error| match error {})
 }
 
-/// Walk leaves through the backend seam, which Local overrides directly.
+/// Walk leaves through `Local`'s direct override.
 fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun {
     pollster::block_on(<Local as Backend>::leaves(Local, prefix, node).try_collect())
         .unwrap_or_else(|error| match error {})

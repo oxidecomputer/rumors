@@ -110,6 +110,8 @@ compatibility branch current with every external Rumors API change.
 
 ## Writing style
 
+- Inside private modules, `pub` and `pub(crate)` are both accepted; neither
+  spelling implies that an item belongs to the crate's external API.
 - Give every function, type, trait, constant, and other definition at least a
   brief doc comment explaining its purpose, including private items, trait
   implementations, and test helpers. Keep it useful; add detail only as needed.

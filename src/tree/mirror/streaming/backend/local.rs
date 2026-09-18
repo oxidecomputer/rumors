@@ -70,13 +70,17 @@ impl ErasedNode for typed::untyped::Node {
     }
 }
 
+/// Store leaf payloads directly in the in-memory tree.
 impl Leaf for typed::Node<Z> {
+    /// Borrow the stored message.
     fn message(&self) -> &Message {
         self.message()
     }
 
-    // Custody is free: the handle owns the payload and the tree it will
-    // join is resident regardless, so construction completes immediately.
+    /// Construct a leaf without asynchronous storage work.
+    ///
+    /// The handle owns the payload and the destination tree is already
+    /// resident, so construction completes immediately.
     async fn leaf(version: Version, message: Message) -> Result<Self, Infallible> {
         Ok(Self::leaf(version, message))
     }
@@ -89,43 +93,41 @@ impl Leaf for typed::Node<Z> {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Local;
 
-impl Local {
-    /// One in-flight `Local` reference costs one pointer, at every fan
-    /// and version bound.
-    ///
-    /// A node is an `Arc` handle into the session-resident tree — its
-    /// children, hash memo, and version bounds live in the tree, shared,
-    /// not per-session — verified against the node type below; the
-    /// height-typed veneer is `repr(transparent)` over that handle, so
-    /// every height costs the same.
-    pub(crate) fn node_bytes(_children: usize, _version_bound: usize) -> usize {
-        std::mem::size_of::<typed::Node<Z>>()
-    }
-}
-
-/// The handle really is pointer-sized: the window's per-reference price
-/// rests on it.
+// The handle is pointer-sized, as required by the window's per-reference price.
 const _: () = assert!(std::mem::size_of::<typed::Node<Z>>() == std::mem::size_of::<*const ()>());
 
+/// Implement backend operations with the crate's in-memory typed tree.
 impl Backend for Local {
+    /// Use the typed in-memory node at every height.
     type Node<H: Height> = typed::Node<H>;
-    // One representation for every height already: the typed node is a
-    // phantom tag over this, so both conversions are field moves.
+    /// Use the untyped node representation shared by every height.
+    ///
+    /// The typed node is a phantom tag over this value, so erasure and
+    /// restoration are field moves.
     type Erased = typed::untyped::Node;
+    /// In-memory tree operations cannot fail.
     type Error = Infallible;
 
+    /// Remove a node's phantom height tag.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
         node.into_untyped()
     }
 
+    /// Restore a node's phantom height tag.
     fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
         typed::Node::from_untyped(erased)
     }
 
-    fn node_bytes(children: usize, version_bound: usize) -> usize {
-        Local::node_bytes(children, version_bound)
+    /// Price one in-flight node reference as one pointer.
+    ///
+    /// The `Arc` handle has the same layout at every height. Its children,
+    /// hash, and version bounds belong to the tree rather than the session,
+    /// so neither argument changes the price.
+    fn node_bytes(_children: usize, _version_bound: usize) -> usize {
+        std::mem::size_of::<typed::Node<Z>>()
     }
 
+    /// Stream one branch's children in radix order.
     fn children<H>(self, prefix: Prefix<S<H>>, parent: Self::Node<S<H>>) -> impl NodeStream<Self, H>
     where
         H: Height,
@@ -138,11 +140,12 @@ impl Backend for Local {
                 .map(move |(radix, child)| Ok((prefix.push(radix), child))),
         );
         #[cfg(test)]
-        return adversarial::stream(adversarial::Role::Children { height: H::HEIGHT }, children);
+        return adversarial::stream(children);
         #[cfg(not(test))]
         children
     }
 
+    /// Assemble one in-memory branch from its surviving children.
     fn parent<H>(
         self,
         _prefix: Prefix<S<H>>,
@@ -161,31 +164,28 @@ impl Backend for Local {
                 .collect(),
         )));
         #[cfg(test)]
-        return adversarial::future(
-            adversarial::Role::Parent {
-                height: <S<H>>::HEIGHT,
-            },
-            parent,
-        );
+        return adversarial::future(parent);
         #[cfg(not(test))]
         parent
     }
 
+    /// Walk the in-memory node's compressed representation directly.
     fn leaves<H: Convert>(
         self,
         prefix: Prefix<H>,
         node: Self::Node<H>,
     ) -> impl NodeStream<Self, Z> {
         // The default level-by-level explosion pays an allocation per
-        // *virtual* level — ruinous for path-compressed spines. In-memory
+        // virtual level, which is costly for compressed paths. In-memory
         // nodes walk their own leaves directly, skipping compressed spans.
         let leaves = stream::iter(node.leaves(&prefix).map(Ok));
         #[cfg(test)]
-        return adversarial::stream(adversarial::Role::Children { height: H::HEIGHT }, leaves);
+        return adversarial::stream(leaves);
         #[cfg(not(test))]
         leaves
     }
 
+    /// Build each same-prefix leaf run as one in-memory subtree.
     fn assemble<'a, H: Convert>(
         self,
         leaves: BoxNodeStream<'a, Self, Z>,
@@ -219,7 +219,7 @@ impl Backend for Local {
             }
         };
         #[cfg(test)]
-        return adversarial::stream(adversarial::Role::Parent { height: H::HEIGHT }, assembled);
+        return adversarial::stream(assembled);
         #[cfg(not(test))]
         assembled
     }
@@ -228,14 +228,18 @@ impl Backend for Local {
 // `tree::Root` is exactly the `Local` instance of the session's generic
 // `Root`: the same (ceiling, optional root node) pair, concretely typed.
 
+/// Convert the crate's in-memory root into the backend-generic form.
 impl From<tree::Root> for Root<Local> {
+    /// Move the ceiling and optional root node without changing them.
     fn from(root: tree::Root) -> Self {
         let tree::Root { ceiling, root } = root;
         Root { ceiling, root }
     }
 }
 
+/// Convert the backend-generic in-memory root into the crate's root type.
 impl From<Root<Local>> for tree::Root {
+    /// Move the ceiling and optional root node without changing them.
     fn from(root: Root<Local>) -> Self {
         let Root { ceiling, root } = root;
         tree::Root { ceiling, root }

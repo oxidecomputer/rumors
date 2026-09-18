@@ -197,6 +197,12 @@ where
     }
 }
 
+/// Inject failures into the level-by-level backend operations.
+///
+/// This implementation intentionally retains the default `leaves` and
+/// `assemble` methods. They traverse every level through `children` and
+/// `parent`; forwarding the wrapped backend's bulk overrides would bypass
+/// those failure checkpoints.
 impl<B> Backend for Failing<B>
 where
     B: Backend<Node<Z>: Leaf>,

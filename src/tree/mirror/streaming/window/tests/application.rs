@@ -17,7 +17,9 @@ use crate::message::Message;
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::channel::{QueueKind, with_observation};
 use crate::tree::mirror::streaming::materialized::progress::{Kind, with_trace};
-use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror, stats::Recorder};
+use crate::tree::mirror::streaming::{
+    Backend, Local, materialized::Handshaking, mirror, stats::Recorder,
+};
 use crate::tree::typed::Path;
 use crate::tree::{Action, Tree};
 
@@ -114,7 +116,7 @@ fn check_session(trees: [Tree<u64>; 2], budget: usize) {
             ReplicaSize::new(a, trees[0].max_version_bytes() as u64),
             ReplicaSize::new(b, trees[1].max_version_bytes() as u64),
         ],
-        Local::node_bytes,
+        <Local as Backend>::node_bytes,
     );
     let mut expected = trees[0].clone();
     expected.join(trees[1].clone());

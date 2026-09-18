@@ -1,13 +1,14 @@
 //! Executor-agnostic test support shared across protocol and API suites.
 
 mod memnet;
+pub(crate) mod schedule;
 mod transport;
 
 use crate::{
     Snapshot,
     tree::{
         mirror::streaming::{
-            Local,
+            Backend, Local,
             remote::{self, RunBudget, codec::LeafRun},
             window::{
                 self, DISPUTE_OVERHEAD_BYTES, DISPUTE_WIRE_BYTES, REFERENCE_SCOPE_BYTES,
@@ -301,7 +302,7 @@ pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -
             ReplicaSize::new(remote_len, 0),
         ],
         budget_bytes,
-        Local::node_bytes,
+        <Local as Backend>::node_bytes,
     );
     (0..=<Root as Height>::HEIGHT)
         .map(|height| window.capacity(height))

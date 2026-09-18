@@ -14,6 +14,7 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::link::{Done, yield_once};
+use crate::testing::schedule::{Countdown, MAX_SCHEDULED_DELAY};
 
 /// Which endpoint owns an observed transport operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -185,7 +186,11 @@ impl State {
             // Supply operations have no delay schedule.
             Operation::Connect | Operation::Accept => return 0,
         };
-        let delay = delays.get(*step).copied().unwrap_or(0).min(2);
+        let delay = delays
+            .get(*step)
+            .copied()
+            .unwrap_or(0)
+            .min(MAX_SCHEDULED_DELAY);
         *step += 1;
         delay
     }
@@ -275,7 +280,7 @@ impl State {
 pub struct AdversarialRead<R> {
     inner: R,
     state: Arc<Mutex<State>>,
-    delay: Option<u8>,
+    delay: Countdown,
 }
 
 /// Summarize a reader without requiring its transport to be debuggable.
@@ -283,7 +288,7 @@ impl<R> std::fmt::Debug for AdversarialRead<R> {
     /// Format whether a scheduled delay is in progress.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AdversarialRead")
-            .field("delayed", &self.delay.is_some())
+            .field("delayed", &self.delay.is_active())
             .finish_non_exhaustive()
     }
 }
@@ -305,7 +310,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
             if state.report.injected.is_some()
                 && let Some(error) = state.failure(Operation::Read)
             {
-                this.delay = None;
+                this.delay.clear();
                 return Poll::Ready(Err(error));
             }
             let armed = state.read_fault_armed();
@@ -330,7 +335,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
         match Pin::new(&mut this.inner).poll_read(cx, &mut limited) {
             Poll::Ready(Ok(())) => {
                 let read = limited.filled().len();
-                this.delay = None;
+                this.delay.clear();
                 if read > 0 {
                     let mut state = this.state.lock().expect("transport state lock");
                     if armed {
@@ -347,7 +352,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(Err(error)) => {
-                this.delay = None;
+                this.delay.clear();
                 Poll::Ready(Err(error))
             }
             Poll::Pending => Poll::Pending,
@@ -359,8 +364,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
 pub struct AdversarialWrite<W> {
     inner: W,
     state: Arc<Mutex<State>>,
-    write_delay: Option<u8>,
-    flush_delay: Option<u8>,
+    write_delay: Countdown,
+    flush_delay: Countdown,
     buffered: Vec<u8>,
     sent: usize,
 }
@@ -370,8 +375,8 @@ impl<W> std::fmt::Debug for AdversarialWrite<W> {
     /// Format pending delays and buffered-byte progress.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AdversarialWrite")
-            .field("write_delayed", &self.write_delay.is_some())
-            .field("flush_delayed", &self.flush_delay.is_some())
+            .field("write_delayed", &self.write_delay.is_active())
+            .field("flush_delayed", &self.flush_delay.is_active())
             .field("buffered", &self.buffered.len())
             .field("sent", &self.sent)
             .finish_non_exhaustive()
@@ -391,7 +396,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
         let (limit, buffered) = {
             let mut state = this.state.lock().expect("transport state lock");
             if let Some(error) = state.failure(Operation::Write) {
-                this.write_delay = None;
+                this.write_delay.clear();
                 return Poll::Ready(Err(error));
             }
             (
@@ -412,7 +417,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
         };
         match result {
             Poll::Ready(Ok(written)) => {
-                this.write_delay = None;
+                this.write_delay.clear();
                 if written > 0 {
                     let mut state = this.state.lock().expect("transport state lock");
                     state.report.writes += 1;
@@ -422,7 +427,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
                 Poll::Ready(Ok(written))
             }
             Poll::Ready(Err(error)) => {
-                this.write_delay = None;
+                this.write_delay.clear();
                 Poll::Ready(Err(error))
             }
             Poll::Pending => Poll::Pending,
@@ -440,7 +445,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
             .expect("transport state lock")
             .failure(Operation::Flush)
         {
-            this.flush_delay = None;
+            this.flush_delay.clear();
             return Poll::Ready(Err(error));
         }
         while this.sent < this.buffered.len() {
@@ -455,7 +460,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
             Poll::Ready(Ok(())) => {
                 this.buffered.clear();
                 this.sent = 0;
-                this.flush_delay = None;
+                this.flush_delay.clear();
                 this.state
                     .lock()
                     .expect("transport state lock")
@@ -464,7 +469,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(Err(error)) => {
-                this.flush_delay = None;
+                this.flush_delay.clear();
                 Poll::Ready(Err(error))
             }
             Poll::Pending => Poll::Pending,
@@ -498,7 +503,7 @@ pub fn wrap_io<R, W>(
         AdversarialRead {
             inner: read,
             state: state.clone(),
-            delay: None,
+            delay: Countdown::default(),
         },
         wrap_write(write, state.clone()),
         IoReportHandle(state),
@@ -510,8 +515,8 @@ fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
     AdversarialWrite {
         inner: write,
         state,
-        write_delay: None,
-        flush_delay: None,
+        write_delay: Countdown::default(),
+        flush_delay: Countdown::default(),
         buffered: Vec::new(),
         sent: 0,
     }
@@ -550,7 +555,7 @@ where
             AdversarialRead {
                 inner: control_read,
                 state: state.clone(),
-                delay: None,
+                delay: Countdown::default(),
             },
             wrap_write(control_write, state.clone()),
             AdversarialConnector {
@@ -676,7 +681,7 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> 
             AdversarialRead {
                 inner: rx,
                 state: self.state.clone(),
-                delay: None,
+                delay: Countdown::default(),
             },
             Done::new(move |wrapped: AdversarialRead<A::Rx>| done.complete(wrapped.inner)),
         ))
@@ -819,21 +824,19 @@ where
 /// Suspend one operation according to its next scheduled self-waking delay.
 fn suspend(
     state: &Arc<Mutex<State>>,
-    delay: &mut Option<u8>,
+    delay: &mut Countdown,
     operation: Operation,
     cx: &Context<'_>,
 ) -> bool {
-    if delay.is_none() {
-        *delay = Some(state.lock().expect("transport state lock").delay(operation));
-    }
-    if delay.is_some_and(|remaining| remaining > 0) {
-        *delay = delay.map(|remaining| remaining - 1);
+    if delay.suspend(
+        || state.lock().expect("transport state lock").delay(operation),
+        cx,
+    ) {
         state
             .lock()
             .expect("transport state lock")
             .report
             .delayed_polls += 1;
-        cx.waker().wake_by_ref();
         true
     } else {
         false

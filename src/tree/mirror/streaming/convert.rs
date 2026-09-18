@@ -1,11 +1,11 @@
-//! Re-represent nodes from one backend in the node types of another.
+//! Convert between stored nodes and the leaf records carried on the wire.
 //!
-//! A node converts by exploding to leaves in the source backend and
-//! reassembling in the target.
-//!
-//! The protocol itself converts nowhere: both parties of a session name one
-//! backend, and a homogeneous session pays nothing. This module is what lets a
-//! heterogeneous pair meet, by re-representing each node-carrying message.
+//! The encoder calls [`Backend::leaves`] to turn each supplied node into an
+//! ordered leaf stream. The decoder calls [`Backend::assemble`] to rebuild one
+//! node per same-prefix run. Their defaults recurse through
+//! [`Backend::children`] and [`Backend::parent`]; a backend may replace either
+//! direction with a bulk operation. Leaf records contain no backend-specific
+//! node representation.
 
 use std::pin::pin;
 

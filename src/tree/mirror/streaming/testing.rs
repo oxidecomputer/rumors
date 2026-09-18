@@ -1,10 +1,9 @@
 //! Test-only decorators for protocol and backend adversity.
 //!
-//! [`Faulting<P>`] wraps a protocol state and manufactures a genuine semantic
-//! violation in one outgoing phase. [`Failing<B>`] wraps its materialized
-//! backend and returns a typed source error from one backend operation. A
-//! materialized state built on `Failing<B>` may itself be wrapped in
-//! `Faulting<P>`, so one test can independently schedule both failure kinds.
+//! [`Faulting<P>`] injects either a greeting lie or a semantic violation in one
+//! outgoing reply phase. [`Failing<B>`] returns a typed source error from one
+//! backend operation. The wrappers compose, allowing tests to schedule the two
+//! failure sources independently.
 
 mod failing;
 mod faulting;

@@ -1,23 +1,13 @@
-//! The materiality boundary: what a session's node *is* and what it costs.
+//! Node storage and pricing for streaming reconciliation.
 //!
-//! A [`Backend`] decides what a tree node physically is — a value carried
-//! in the node's handle, or a reference into storage the backend owns —
-//! and the streaming protocol is generic over that decision: an
-//! implementation may hold its tree entirely in memory or in a storage
-//! engine of its own, and the session schedule is identical either way.
-//! [`Local`] is the reference implementation: its nodes are handles into
-//! the crate's own in-memory tree, resident regardless of the session, so
-//! custody costs it nothing new.
+//! A [`Backend`] defines the node handles used by a session, the operations
+//! over those handles, and their resident-memory cost. The session window uses
+//! [`Backend::node_bytes`] to price every in-flight node reference. This
+//! boundary is crate-internal; [`Local`] is its production implementation and
+//! stores handles into the crate's in-memory tree.
 //!
-//! Materiality has a price only the backend can state:
-//! [`Backend::node_bytes`] declares what one node handle keeps resident,
-//! and the session window prices every in-flight reference through it.
-//! The obligation is sharp because its failure mode is the odd one out:
-//! everywhere else in the budget derivation a mis-estimate costs latency,
-//! while an underpriced node breaches the *memory* envelope instead. The
-//! backend conformance suite (`crate::conformance::backend`, compiled as
-//! this crate's own test gate; see [`crate::conformance`]) is how an
-//! implementation proves its account.
+//! The backend conformance suite checks the behavioral and pricing contracts
+//! against each implementation used by the crate.
 
 use std::pin::Pin;
 
@@ -36,19 +26,18 @@ use crate::{
     },
 };
 
-// The specific backends:
+/// The in-memory production backend.
 mod local;
 pub use local::Local;
 #[cfg(test)]
 pub(super) use local::with_schedule as with_local_schedule;
 
-/// A backend value is a cheap cloneable *handle* to its storage.
+/// Node storage used by a streaming session; values are cheap cloneable handles.
 pub trait Backend: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf,
 {
-    /// The type of nodes, indexed by height `H`; leaf payloads are
-    /// erased in storage and decode as `T` at the wire boundary.
+    /// The type of nodes, indexed by height `H`.
     type Node<H: Height>: Node<Height = H, Backend = Self> + Clone + Send + 'static;
 
     /// One runtime representation shared by every height's
@@ -63,9 +52,8 @@ where
     /// instantiate the whole machinery once per height.
     ///
     /// A backend whose nodes share one representation across heights (as
-    /// [`Local`]'s do) uses that representation directly; a backend with
-    /// genuinely distinct per-height representations supplies a sum of
-    /// them.
+    /// [`Local`]'s do) uses that representation directly; otherwise it uses a
+    /// sum of its per-height representations.
     type Erased: ErasedNode + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
@@ -109,8 +97,8 @@ where
     ///
     /// The result must be an **upper bound**, monotone in both arguments
     /// because the window evaluates it at estimated fan and version sizes.
-    /// Underpricing a node invalidates that estimate even when the tree
-    /// shape stays within its statistical bounds. The backend conformance
+    /// Other overestimates narrow the window and cost throughput; underpricing
+    /// a node can instead exceed the memory budget. The backend conformance
     /// suite checks monotonicity and compares prices with measured nodes.
     fn node_bytes(children: usize, version_bound: usize) -> usize;
 
@@ -124,12 +112,10 @@ where
     /// entire child set was deleted. The group may also be empty outright — a
     /// scope that resolved to nothing at all, such as the pruned-to-nothing
     /// reply to a request — and resolves to `None` the same way. Given at least
-    /// one real child, construction **must** yield a parent: under the default
+    /// one `Some` child, construction **must** yield a parent: under the default
     /// [`assemble`](Self::assemble), a `None` here becomes a missing assembled
     /// node, which the reply decoder treats as a backend contract violation
-    /// and enforces by panic. The backend conformance suite (see
-    /// [`crate::conformance`]) convicts a violating implementation in the
-    /// backend's own tests, before a live session can meet it.
+    /// and enforces by panic.
     fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -177,10 +163,9 @@ where
     /// node per maximal run of leaves sharing a height-`H` prefix, in run
     /// order.
     ///
-    /// The inverse of [`leaves`](Self::leaves), and the same kind of seam:
-    /// by default the leaves fold up through [`parent`](Self::parent) one
-    /// level at a time, but a backend whose nodes are directly
-    /// constructible may override it with a bulk builder.
+    /// This is the inverse of [`leaves`](Self::leaves). By default, leaves fold
+    /// through [`parent`](Self::parent) one level at a time; a backend with
+    /// directly constructible nodes may use a bulk builder.
     ///
     /// An override must preserve what the default guarantees — the reply
     /// decoder enforces each by panic:
@@ -188,10 +173,6 @@ where
     /// - exactly one node per maximal run, in run order (never merged,
     ///   split, or skipped);
     /// - each node at its own run's height-`H` prefix.
-    ///
-    /// The backend conformance suite (see [`crate::conformance`]) convicts
-    /// a violating override in the backend's own tests, before a live
-    /// session can meet it.
     fn assemble<'a, H: Convert>(
         self,
         leaves: BoxNodeStream<'a, Self, Z>,
@@ -271,9 +252,9 @@ pub trait Leaf: Node {
     /// backend that batches writes stages it in its own write-behind
     /// buffer — memory the backend owns and must price through
     /// [`Backend::node_bytes`] at `children = 0`, the shape the session
-    /// budget charges for every buffered leaf. [`Local`] keeps the
-    /// payload in the handle and completes immediately: its tree is
-    /// resident regardless, so custody costs it nothing new.
+    /// budget charges for every buffered leaf. [`Local`] keeps the payload in
+    /// its handle and completes immediately because its tree is already
+    /// resident.
     ///
     /// # Errors
     ///
@@ -316,7 +297,7 @@ pub(crate) type BoxNodeStream<'a, B, H> = Pin<Box<dyn NodeStream<B, H> + 'a>>;
 ///
 /// This is the backend-generic form of [`tree::Root`](crate::tree::Root); the
 /// `Local` backend converts between the two with [`From`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Root<B: Backend<Node<Z>: Leaf>> {
     /// The maximum version this tree has incorporated.
     pub ceiling: Version,
@@ -324,17 +305,7 @@ pub struct Root<B: Backend<Node<Z>: Leaf>> {
     pub root: Option<B::Node<height::Root>>,
 }
 
-// Manual because the derive would demand `T: Clone`; nodes are cloneable
-// handles regardless of the message type they carry.
-impl<B: Backend<Node<Z>: Leaf>> Clone for Root<B> {
-    fn clone(&self) -> Self {
-        Root {
-            ceiling: self.ceiling.clone(),
-            root: self.root.clone(),
-        }
-    }
-}
-
+/// Read the aggregate metadata exchanged in a session greeting.
 impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     /// The tree's live message count: the root node's [`len`](Node::len)
     /// aggregate, or zero when empty. What the session greeting carries
@@ -350,14 +321,8 @@ impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     /// bytes: what the session greeting carries as the version-size
     /// bound.
     ///
-    /// The root node's [`version_bytes`](Node::version_bytes) aggregate
-    /// — leaf versions and every interior ceiling and floor — or zero
-    /// when empty. The first read materializes it: every branch's
-    /// bounds memo is forced tree-wide, `O(#branches)` bound
-    /// folds, once per tree lineage — the memos are shared through the
-    /// node handles across snapshots, and a mutation invalidates only
-    /// its own spine. A fully converged pair pays this once, at
-    /// greeting time.
+    /// This is the root node's [`version_bytes`](Node::version_bytes)
+    /// aggregate, or zero for an empty tree.
     pub(crate) fn max_version_bytes(&self) -> u64 {
         self.root
             .as_ref()

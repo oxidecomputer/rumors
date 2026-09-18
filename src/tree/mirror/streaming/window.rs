@@ -120,7 +120,7 @@ impl ReplicaSize {
 /// In-memory bytes of one child's slots in a level's in-flight
 /// containers: a query slot, a resolution slot, and a listing entry.
 ///
-/// Derived from `size_of` of the real slot types under the in-memory
+/// Derived from `size_of` of the actual slot types under the in-memory
 /// backend, so a layout change moves the price with it instead of
 /// leaving a hand-counted byte total stale: the pointer-aligned
 /// `(u8, node-handle)` query slot; the `(u8, Resolve)` resolution
@@ -130,8 +130,8 @@ impl ReplicaSize {
 /// entry. `Resolve`'s layout does not depend on the height or payload
 /// parameters, so the leaf instantiation prices every level. Exact for
 /// pointer-class node handles; a backend whose `Node` demands a wider
-/// layout pads the real slots beyond this constant and owes that padding
-/// to its own `node_bytes` price.
+/// layout pads those slots beyond this constant must include that padding in
+/// its own `node_bytes` price.
 pub(crate) const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<Z>)>()
     + std::mem::size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
     + std::mem::size_of::<(u8, typed::Hash)>();
@@ -151,12 +151,12 @@ const LEAF_REQUEST_BYTES: usize = std::mem::size_of::<Prefix<Z>>();
 /// In-memory bytes one decode-fan slot spends beyond the leaf node value
 /// it carries: the inline leaf prefix and the pair's padding.
 ///
-/// Derived from the queue's real item layout — `size_of` of the
+/// Derived from the queue item's layout — `size_of` of the
 /// prefix-and-node pair minus the node value — so a layout change moves
 /// the price with it instead of leaving a hand-counted byte total stale.
 /// The derivation is exact for pointer-class node handles; a backend
-/// whose `Node<Z>` demands wider alignment pads the real slot beyond
-/// `node_bytes + FAN_SLOT_BYTES` and owes that padding to its own
+/// whose `Node<Z>` demands wider alignment pads the slot beyond
+/// `node_bytes + FAN_SLOT_BYTES` and must include that padding in its own
 /// `node_bytes` price.
 pub(crate) const FAN_SLOT_BYTES: usize =
     std::mem::size_of::<(Prefix<Z>, typed::Node<Z>)>() - std::mem::size_of::<typed::Node<Z>>();
@@ -529,7 +529,7 @@ pub(crate) fn tradeoff_table() -> String {
                 ReplicaSize::new(REFERENCE_SESSION_MESSAGES, 0),
             ],
             budget,
-            Local::node_bytes,
+            <Local as Backend>::node_bytes,
         )
         .widest();
         let _ = write!(table, "| {label}{default} | {window} |");
@@ -556,7 +556,12 @@ pub(crate) fn tradeoff_table() -> String {
 // checks protect the arithmetic, while `application` checks actual session
 // work.
 
-/// `256^j`, saturating above every corpus size and product of two corpus sizes.
+/// `256^j`, saturating when the exact power no longer fits in `u128`.
+///
+/// Corpus sizes come from `u64`, so the saturated value exceeds both a corpus
+/// and the product of two corpora. A minimum therefore treats it as no cap;
+/// division by it produces a sub-unit mean that the quantile calculations
+/// round upward. Saturation can narrow an estimate but cannot wrap it smaller.
 fn pow256(j: usize) -> u128 {
     if j >= 16 { u128::MAX } else { 1u128 << (8 * j) }
 }

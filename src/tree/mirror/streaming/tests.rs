@@ -31,7 +31,9 @@ use crate::tree::mirror::streaming::stats::{Recorder, SessionStats};
 use crate::tree::mirror::streaming::window::{
     DEFAULT_SYNC_MEMORY_BUDGET, ReplicaSize, Window, WindowConfig,
 };
-use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror as drive_streaming};
+use crate::tree::mirror::streaming::{
+    Backend, Local, materialized::Handshaking, mirror as drive_streaming,
+};
 use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
 mod announced;
@@ -359,7 +361,7 @@ fn wide_window() -> (WindowConfig, u64) {
     let window = Window::from_budget(
         [ReplicaSize::new(WIDE_CORPUS, 0); 2],
         DEFAULT_SYNC_MEMORY_BUDGET,
-        Local::node_bytes,
+        <Local as Backend>::node_bytes,
     );
     let widest = window.widest();
     assert!(
