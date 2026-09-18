@@ -1,8 +1,8 @@
 # Rumors review checklist
 
-**Current:** proxy role dispatch is complete at `873a817b`.
+**Current:** greeting and role-election premises are complete at `6c40efb1`.
 
-**Next:** consolidate the remaining handshake and opening premises.
+**Next:** simplify the opening hand-off and proxy ingress state.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -415,8 +415,11 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Defer proxy equality and role dispatch to the shared driver — `873a817b`.
       Sources: `remote-proxy-4`, `remote-proxy-7`, `remote-proxy-8`, T119, T132.
 
-- [ ] Consolidate the remaining handshake and opening premises.
-      Sources: `async-hazards-5`, `materialized-11`, `materialized-34`, `mirror-common-16`, `remote-proxy-24`, `streaming-tests-24`, T99, T118, T119, T128, T132.
+- [x] Consolidate greeting construction, role election, and materialized opening setup — `6c40efb1`.
+      Sources: `materialized-11`, `mirror-common-16`, `streaming-tests-24`, T132.
+
+- [ ] Simplify the opening hand-off and proxy ingress state.
+      Sources: `async-hazards-5`, `materialized-34`, `remote-proxy-24`, T118, T119, T128, T132.
 
 - [ ] Run the height-indexed trait experiment and judge the result.
       Sources: T117, T132.
