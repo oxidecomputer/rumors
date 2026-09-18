@@ -525,9 +525,8 @@ pub enum FamilyId {
     /// The harmonic spine `H(d)`: the rank fold's wide-numerator adversary,
     /// designed against the linear-functional rows and the rank pair.
     Harmonic,
-    /// The scatter-ordered fold population: balanced-forked single-tick
-    /// operands whose join accumulator never coalesces; its bundle carries fold
-    /// operands alone, so only the fold rows apply.
+    /// The scatter-ordered population: balanced-forked single-tick operands
+    /// whose join accumulator never coalesces.
     Scatter,
     /// The weave fold population: the leaves of one balanced fork tree dealt
     /// round-robin among 16 group parties (the board's weave-group constant),
@@ -540,8 +539,7 @@ pub enum FamilyId {
     /// test against the accumulator, the join merges over interleaved trees)
     /// dominate. Scatter cannot reach this genre (its operands are single
     /// leaves) and benign reaches it only diluted; the arity is fixed so the
-    /// scaling axis is both-present richness alone. Its bundle carries fold
-    /// operands alone, so only the fold rows apply.
+    /// scaling axis is both-present richness alone.
     Weave,
     /// The staggered fold population ([`Shape::StaggerPopulation`]): `n`
     /// operands of `m` unit teeth each, every operand's teeth landing in the
@@ -557,8 +555,7 @@ pub enum FamilyId {
     /// Scatter scales arity at single-leaf operands and weave scales operand
     /// size at fixed arity; this population scales both, and its bit-reversed
     /// feed forecloses the adjacent-slot coalescing luck index order would hand
-    /// the counter. Its bundle carries fold operands alone, so only the fold
-    /// rows apply.
+    /// the counter.
     Stagger,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
     ///
@@ -948,17 +945,8 @@ pub enum Coverage {
     /// rendered matrix to, so a bundle slot gained or lost without a deliberate
     /// re-declaration fails there.
     Board {
-        /// The declared operation-row reach of this family's bundle.
-        ///
-        /// Reach follows the bundle's operand shape: version-only shapes
-        /// supply the version rows (derived pairings and rejection rows
-        /// included), the id pair supplies the party rows, the cross shapes
-        /// (version, mounted party pair, clock, and the id-side rejections)
-        /// supply both sides, the fold-only populations supply exactly the
-        /// fold rows their operand bundles feed, and the benign control
-        /// supplies every row. The numbers live where they are enforced:
-        /// the board smoke suite pins each family's merged cell count
-        /// against this declaration.
+        /// The declared number of cells this bundle produces. The smoke suite
+        /// checks the merged board against it.
         cells: usize,
     },
     /// No board column: a kernel-seam probe (or an operand-tuple pairing) whose
@@ -997,10 +985,10 @@ const PARTY_BUNDLE_CELLS: usize = 34;
 const CROSS_BUNDLE_CELLS: usize = 74;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 81;
+const FULL_BUNDLE_CELLS: usize = 83;
 
-/// Board rows reached by a fold-only family.
-const FOLD_BUNDLE_CELLS: usize = 7;
+/// Board rows reached by a population family.
+const POPULATION_BUNDLE_CELLS: usize = 9;
 
 /// The default denominator: encoded input bytes.
 const ENCODED: &str = "encoded input bytes";
@@ -1257,11 +1245,11 @@ impl FamilyId {
                 name: "scatter",
                 shapes: &[],
                 coverage: Coverage::Board {
-                    cells: FOLD_BUNDLE_CELLS,
+                    cells: POPULATION_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: "fold-only bundle; the fold rows are judged by the declared \
-                             fold model",
+                    reason: "the board prices the population's folds and derived multi-hole \
+                             queries under their declared models",
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: FOLD_DENOM,
@@ -1271,11 +1259,11 @@ impl FamilyId {
                 name: "weave",
                 shapes: &[],
                 coverage: Coverage::Board {
-                    cells: FOLD_BUNDLE_CELLS,
+                    cells: POPULATION_BUNDLE_CELLS,
                 },
                 bands: Bands::Unbanded {
-                    reason: "fold-only bundle; the fold rows are judged by the declared \
-                             fold model",
+                    reason: "the board prices the population's folds and derived multi-hole \
+                             queries under their declared models",
                     decided: REGISTRY_RATIFIED,
                 },
                 denominator: FOLD_DENOM,
@@ -1289,7 +1277,7 @@ impl FamilyId {
                     Shape::StaggerId,
                 ],
                 coverage: Coverage::Board {
-                    cells: FOLD_BUNDLE_CELLS,
+                    cells: POPULATION_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&[
                     "fold_version_stagger_arity_axis_is_flat_per_unit",

@@ -407,11 +407,10 @@ pub(super) struct FamilyData {
     /// against; constants and floors stay per encoded byte (the `cell` module
     /// doc derives the split).
     pub(super) content_bytes: Option<usize>,
-    /// The encoded fold operands (versions, parties), consumed by the two fold
-    /// rows alone: the scatter, weave, and stagger populations' adversarial
-    /// orderings and the benign shape's organic control.
+    /// An encoded population of corresponding versions and disjoint parties,
+    /// kept in the family's significant order.
     #[allow(clippy::type_complexity)]
-    pub(super) fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+    pub(super) population: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
     /// An overlapping encoded party pair within one universe: the rejection
     /// rows' operands.
     ///
@@ -442,7 +441,7 @@ impl FamilyData {
             cross: None,
             output_dominated: false,
             content_bytes: None,
-            fold: None,
+            population: None,
             overlap: None,
             rank_pair: None,
         }
@@ -889,7 +888,7 @@ impl FamilyData {
         );
         let parties = scatter_order(parties.iter().map(Party::encode).collect());
         let mut data = Self::bare(FamilyId::Scatter);
-        data.fold = Some((versions, parties));
+        data.population = Some((versions, parties));
         data
     }
 
@@ -954,7 +953,7 @@ impl FamilyData {
             parties.push(group.encode());
         }
         let mut data = Self::bare(FamilyId::Weave);
-        data.fold = Some((versions, parties));
+        data.population = Some((versions, parties));
         data
     }
 
@@ -966,7 +965,7 @@ impl FamilyData {
     fn stagger(n: usize, m: usize) -> FamilyData {
         let (versions, ids) = Shape::StaggerPopulation.population(n, m);
         let mut data = Self::bare(FamilyId::Stagger);
-        data.fold = Some((
+        data.population = Some((
             versions.iter().map(|p| p.version().encode()).collect(),
             ids.into_iter().map(|p| p.bytes).collect(),
         ));
@@ -1012,7 +1011,7 @@ impl FamilyData {
         // The fold rows' organic control: the population's own versions and
         // parties in construction order (the adversarial ordering belongs to
         // the scatter family alone).
-        let fold = Some((
+        let population = Some((
             clocks.iter().map(|c| c.version().encode()).collect(),
             clocks.iter().map(|c| c.party().encode()).collect(),
         ));
@@ -1036,7 +1035,7 @@ impl FamilyData {
         let mut data = Self::bare(FamilyId::Benign);
         data.version = Some(version.encode());
         data.parties = Some((a.encode(), b.encode()));
-        data.fold = fold;
+        data.population = population;
         data
     }
 
@@ -1267,7 +1266,7 @@ pub fn study_family_versions(scale: f64) -> Vec<(&'static str, Vec<Vec<u8>>)> {
             let mut versions = Vec::new();
             versions.extend(data.version.clone());
             versions.extend(data.version2.clone());
-            if let Some((vs, _)) = &data.fold {
+            if let Some((vs, _)) = &data.population {
                 versions.extend(vs.iter().cloned());
             }
             (data.name, versions)

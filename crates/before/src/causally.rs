@@ -75,20 +75,18 @@
 //!
 //! # Polarity
 //!
-//! While it might seem desirable to permit any queries to be composed using
-//! `&`, permitting this carries a powerful hidden footgun: exactly deciding the
-//! [`coverage`](Query::coverage) of a [`Span`] against a freely constructed
-//! [`Query`] with arbitary negation is equivalent to the famously NP-complete
-//! SAT problem: exposing this interface would make it easy to express silently
-//! exponential queries.
+//! Allowing `&` between arbitrary queries would make exact
+//! [`coverage`](Query::coverage) consider combinations of opposing holes. That
+//! problem can encode Boolean satisfiability, so its worst case requires
+//! combinatorial search.
 //!
-//! Instead, we restrict queries to only those whose verdicts can assuredly be
-//! resolved in linear time: those with a uniform *polarity*. We say a [`Query`]
-//! has a [`Neutral`] polarity if it is a pure causal range (optional lower
-//! bound + optional upper bound) with no other holes; it has a [`Down`]
+//! Instead, we restrict queries to a uniform *polarity*, which permits exact
+//! verdicts without combinatorial search. We say a [`Query`] has a [`Neutral`]
+//! polarity if it is a pure causal range (optional lower bound + optional upper
+//! bound) with no other holes; it has a [`Down`] polarity if it excludes sets
+//! of versions each defined by their shared *upper* bound; it has an [`Up`]
 //! polarity if it excludes sets of versions each defined by their shared
-//! *upper* bound; it has an [`Up`] polarity if it excludes sets of versions
-//! each defined by their shared *lower* bound.
+//! *lower* bound.
 //!
 //! Queries with opposing polarities statically are prohibited from conjunction,
 //! which rules out compositions like `!after(v) & !before(w)`, which would
@@ -102,8 +100,10 @@
 //!
 //! Atoms and named constructors are `O(1)`.
 //!
-//! Each pass and walk is linear in its operands' sizes in bytes and
-//! stops as soon as its verdict is decided.
+//! With `k` bounds and `i` intervals in their common tree overlay, evaluation
+//! takes `O(n + k·i)` time for `n` encoded input bytes. Input-funded batching
+//! also keeps auxiliary space `O(n)` as well as `O(k)`. Since `i <= O(n)`, the
+//! coarser byte-only time bound is `O(k·n)`. A verdict may stop earlier.
 //!
 //! # Examples
 //!

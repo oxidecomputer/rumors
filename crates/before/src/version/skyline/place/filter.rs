@@ -1,10 +1,10 @@
-//! The query filter co-walks: one or two probe streams against any number of
-//! bound streams, in a single fused merge, each stream decoded once.
+//! The query filter co-walks one batch of bound streams against one or two
+//! probe streams.
 //!
 //! `causally`'s queries hold a floor, a ceiling, and holes — each one bound
 //! version with a [`Demand`] on its relation to a probe. Composed from the pair
-//! sweep, evaluating a query would decode the probe once per bound; these walks
-//! decode every stream exactly once, maintaining one running difference per
+//! sweep, evaluating a query would decode the probe once per bound; each batch
+//! instead shares one probe traversal, maintaining one running difference per
 //! (probe, bound) pair, in the placement walk's idiom ([`place`](super)): each
 //! walk advances by the overlay-advance law ([`advance_set`]), contributing
 //! only its slot roster and what each slot's step folds; each pair's
@@ -36,16 +36,17 @@
 //!
 //! # Cost
 //!
-//! Derived, by the placement walk's argument stream by stream: every topology
-//! bit of every stream read at most once, every leaf payload decoded once and
-//! folded into at most one accumulator per pair it participates in — the
-//! probe's deltas into each live bound's pair, a bound's deltas into its own —
-//! and the per-interval sign reads ride the accumulator's amortized-O(1)
-//! collapse. The coverage walk additionally recomputes its endpoint-liveness
-//! flags and sweeps the settled flags once per interval — O(#bounds)
-//! bookkeeping absorbed by the same per-interval read loop. `O(|v| + Σ|bound|)`
-//! for membership, `O(|lo| + |hi| + Σ|bound|)` for coverage, against the
-//! composed sweeps' one probe decode per bound.
+//! Within a batch, every topology bit is read at most once and every leaf
+//! payload is decoded once. Let `k` be the number of bounds and `i` the number
+//! of intervals in the streams' common overlay. Across all batches, each
+//! interval updates or reads at most one pair per live bound, so the work is
+//! `O(n + k·i)` for `n` encoded input bytes. The batch limit keeps auxiliary
+//! state `O(n)` as well as `O(k)`. This is `O(k·n)` in the coarser byte-only
+//! bound.
+//!
+//! Compared with composing binary sweeps, the fused walk avoids decoding the
+//! probe once per bound; it does not eliminate the work of evaluating `k`
+//! independent demands at each interval.
 
 use core::cmp::Ordering;
 
@@ -58,6 +59,21 @@ use crate::codec::{accumulator, BitsView};
 
 use super::super::overlay::{advance_set, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::super::sweep::Directions;
+
+/// Heap reserved for live side records per encoded input byte.
+///
+/// Cursor paths and spilled accumulators use additional storage in proportion
+/// to the topology and numeric payloads that fund them. Limiting the fixed
+/// records separately prevents many tiny bounds from multiplying their
+/// resident encoding into a much larger transient roster. Eight is one third
+/// of the crate's enforced 24 B/B transient ceiling, leaving most of the budget
+/// for those input-proportionate allocations and allocator rounding.
+const SIDE_BYTES_PER_INPUT_BYTE: usize = 8;
+
+/// How many side records fit within one walk's input-funded budget.
+fn side_capacity<State>(input_bytes: usize) -> usize {
+    (input_bytes.saturating_mul(SIDE_BYTES_PER_INPUT_BYTE) / std::mem::size_of::<State>()).max(1)
+}
 
 /// What a query demands of the relation between the probe and one bound stream,
 /// in the probe-first orientation (`le` is `probe <= bound`).
@@ -145,6 +161,11 @@ struct BoundSide<'a> {
     cursor: LeafCursor<'a>,
     pair: Pair,
     demand: Demand,
+}
+
+/// The maximum bounds in one membership walk over `input_bytes` of operands.
+pub(crate) fn membership_capacity(input_bytes: usize) -> usize {
+    side_capacity::<Option<BoundSide<'static>>>(input_bytes)
 }
 
 /// Whether the probe stream's version satisfies every demand, each stream
@@ -309,6 +330,11 @@ struct SpanSide<'a> {
     lo: GatedPair,
     /// The pair against the segment's maximum endpoint.
     hi: GatedPair,
+}
+
+/// The maximum bounds in one coverage walk over `input_bytes` of operands.
+pub(crate) fn coverage_capacity(input_bytes: usize) -> usize {
+    side_capacity::<Option<SpanSide<'static>>>(input_bytes)
 }
 
 /// How much of the segment `[lo, hi]` a query's demands admit, every stream

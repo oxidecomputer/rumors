@@ -12,6 +12,99 @@ use crate::Version;
 use super::currency::ByCurrency;
 use super::measure::Model;
 
+/// The board's many-hole operands retain every hole and drive both intended
+/// query paths.
+///
+/// The up probe strictly contains every hole, so every relation survives until
+/// membership rejects the conjunction at exhaustion. The down endpoint also
+/// strictly contains every hole, making coverage genuinely partial and forcing
+/// its clamp refinement without letting one hole empty the span.
+#[test]
+fn many_hole_query_operands_exercise_both_fused_walks() {
+    use crate::causally::{Coverage, Down, Query, Up};
+    use crate::meter::registry::FamilyId;
+    use crate::version::skyline::place::filter;
+    use crate::Version;
+
+    use super::family::FamilyData;
+    use super::ops::QueryOperands;
+
+    let family = FamilyData::build(FamilyId::Scatter, 0.01, 0);
+    let operands = QueryOperands::build(&family).expect("scatter supplies a population");
+    let up_hole_bytes = operands
+        .up_holes
+        .iter()
+        .map(|hole| hole.as_bytes().len())
+        .sum::<usize>();
+    assert!(
+        operands.up_holes.len()
+            > filter::membership_capacity(up_hole_bytes + operands.up_probe.as_bytes().len()),
+        "the fixture must cross a membership batch boundary"
+    );
+    let down_hole_bytes = operands
+        .down_holes
+        .iter()
+        .map(|hole| hole.as_bytes().len())
+        .sum::<usize>();
+    assert!(
+        operands.down_holes.len()
+            > filter::coverage_capacity(
+                down_hole_bytes
+                    + Version::new().as_bytes().len()
+                    + operands.down_hi.as_bytes().len()
+            ),
+        "the fixture must cross a coverage batch boundary"
+    );
+    assert!(
+        operands
+            .up_holes
+            .iter()
+            .all(|hole| hole < operands.up_probe),
+        "the up probe must strictly contain every hole"
+    );
+
+    let up = Query::<Up>::from_inclusive_holes(operands.up_holes);
+    assert!(!up.contains(&operands.up_probe));
+
+    assert!(
+        operands
+            .down_holes
+            .iter()
+            .all(|hole| hole < operands.down_hi),
+        "the down endpoint must sit strictly beyond every hole"
+    );
+    let down = Query::<Down>::from_inclusive_holes(operands.down_holes);
+    let span = Version::new().span(&operands.down_hi);
+    assert_eq!(down.coverage(span), Coverage::Partial);
+
+    for family in [FamilyId::Weave, FamilyId::Stagger, FamilyId::Benign] {
+        let data = FamilyData::build(family, 0.01, 0);
+        let operands = QueryOperands::build(&data).expect("the family supplies a population");
+        assert!(
+            operands
+                .up_holes
+                .iter()
+                .all(|hole| hole < operands.up_probe),
+            "{family:?} must put the up probe beyond every hole"
+        );
+        let up = Query::<Up>::from_inclusive_holes(operands.up_holes);
+        assert!(!up.contains(&operands.up_probe), "{family:?}");
+        assert!(
+            operands
+                .down_holes
+                .iter()
+                .all(|hole| hole < operands.down_hi),
+            "{family:?} must put the down endpoint beyond every hole"
+        );
+        let down = Query::<Down>::from_inclusive_holes(operands.down_holes);
+        assert_eq!(
+            down.coverage(Version::new().span(&operands.down_hi)),
+            Coverage::Partial,
+            "{family:?}"
+        );
+    }
+}
+
 #[cfg(feature = "touch-meter")]
 use super::judge::trend;
 #[cfg(feature = "touch-meter")]

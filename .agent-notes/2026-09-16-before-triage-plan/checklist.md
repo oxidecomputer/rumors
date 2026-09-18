@@ -102,7 +102,7 @@ triage's dispositions and branches are leads only.
       errors, then reassess the fraction and numeric-assembly temporaries.
       Source: owner review, 2026-09-17.
 
-- [ ] Make multi-hole query refinement scale with the declared inputs. Cover
+- [x] Make multi-hole query refinement scale with the declared inputs. Cover
       concurrent `since` holes against one wide probe for transient space, and
       many surviving `until` holes against a dense probe for total work, while
       varying both tree size and hole count.

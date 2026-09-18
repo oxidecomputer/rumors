@@ -112,9 +112,16 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("causally::Ceiling::contains", &["causally_contains"]),
     (
         "causally::Query::contains",
-        &["causally_contains", "query_contains"],
+        &[
+            "causally_contains",
+            "query_contains",
+            "query_contains_many",
+        ],
     ),
-    ("causally::Query::coverage", &["query_coverage"]),
+    (
+        "causally::Query::coverage",
+        &["query_coverage", "query_coverage_many"],
+    ),
     ("Span::place", &["span_place"]),
     ("Span::dominance", &["span_dominance"]),
     ("Span::precedence", &["span_precedence"]),

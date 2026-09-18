@@ -10,8 +10,9 @@ use std::hash::{Hash, Hasher};
 
 use num_bigint::BigUint;
 
+use crate::causally::{self, Down, Query, Up};
 use crate::error::Decode;
-use crate::{causally, Clock, Party, Rank, Ranked, Span, Ticks, Version};
+use crate::{Clock, Party, Rank, Ranked, Span, Ticks, Version};
 
 use super::ceilings::{
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
@@ -62,7 +63,7 @@ fn wide_fork_count(input_bytes: usize) -> (Ticks, usize) {
 /// its first half joins to an alternating-leaf region rather than the seed.
 /// The returned arity scales with populations that scale their operand count.
 fn joined_fold_prefix(f: &FamilyData) -> Option<(Party, usize)> {
-    let (_, parties) = f.fold.as_ref()?;
+    let (_, parties) = f.population.as_ref()?;
     let arity = parties.len() / 2;
     let mut parties = parties.iter().take(arity).map(|bytes| decode_party(bytes));
     let mut joined = parties
@@ -92,6 +93,70 @@ fn fold_model(cell: Cell, arity: u64) -> Cell {
         ModelSpec::scaled(levels, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL),
     )
     .with_model(Currency::Touch, ModelSpec::scaled_trend(levels))
+}
+
+/// Multi-hole query operands derived from a population.
+///
+/// The down-query holes retain each population version's tree shape. Its high
+/// endpoint advances each whole party, then one fork half by a varying count,
+/// so it dominates every hole without flattening the population's topology.
+///
+/// The up-query probe contains every hole and advances the opposite fork
+/// halves by varying counts. No hole can be dismissed before exhaustion, so
+/// the walk exercises its work per live hole over a growing probe.
+pub(super) struct QueryOperands {
+    pub(super) down_holes: Vec<Version>,
+    pub(super) up_holes: Vec<Version>,
+    pub(super) down_hi: Version,
+    pub(super) up_probe: Version,
+}
+
+impl QueryOperands {
+    /// Build both query fixtures from any population bundle.
+    pub(super) fn build(f: &FamilyData) -> Option<QueryOperands> {
+        let (versions, parties) = f.population.as_ref()?;
+        assert_eq!(
+            versions.len(),
+            parties.len(),
+            "a population pairs every version with its party"
+        );
+        let mut down_holes = Vec::with_capacity(parties.len());
+        let mut up_holes = Vec::with_capacity(parties.len());
+        let mut down_parts = Vec::with_capacity(parties.len());
+        let mut up_parts = Vec::with_capacity(parties.len());
+
+        for (i, (version, party)) in versions.iter().zip(parties).enumerate() {
+            let mut whole_party = decode_party(party);
+            let version = decode_version(version);
+            let mut down_hole = version.project(&whole_party).to_version();
+            down_hole.tick(&whole_party);
+
+            let count = u64::try_from(i % 7 + 1).expect("the count is at most seven");
+            let mut down = down_hole.clone();
+            down.tick(&whole_party);
+            let probe_party = whole_party.fork();
+            down.ticks(&probe_party, count);
+
+            let mut up_hole = Version::new();
+            up_hole.tick(&whole_party);
+            let mut up = up_hole.clone();
+            up.ticks(&probe_party, count);
+
+            down_holes.push(down_hole);
+            up_holes.push(up_hole);
+            down_parts.push(down);
+            up_parts.push(up);
+        }
+
+        let down_hi: Version = down_parts.into_iter().sum();
+        let up_probe: Version = up_parts.into_iter().sum();
+        Some(QueryOperands {
+            down_holes,
+            up_holes,
+            down_hi,
+            up_probe,
+        })
+    }
 }
 
 /// One board row: a public operation and how to instantiate it per family.
@@ -638,7 +703,7 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "version_join_all",
             prepare: |f| {
-                let (versions, _) = f.fold.as_ref()?;
+                let (versions, _) = f.population.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let mut versions: Vec<Version> =
                     versions.iter().map(|b| decode_version(b)).collect();
@@ -662,7 +727,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // levels' groups shrink toward the population's meet and
                 // canonical identity answers equal groups before any
                 // sweep).
-                let (versions, _) = f.fold.as_ref()?;
+                let (versions, _) = f.population.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let mut versions: Vec<Version> =
                     versions.iter().map(|b| decode_version(b)).collect();
@@ -684,7 +749,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // pair decoded once for both directions), so the same
                 // declared fold model and first-level touch floor as
                 // the single-direction fold rows apply.
-                let (versions, _) = f.fold.as_ref()?;
+                let (versions, _) = f.population.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
@@ -1003,6 +1068,54 @@ pub(super) fn ops() -> Vec<Op> {
                 ))
             },
         },
+        Op {
+            name: "query_contains_many",
+            prepare: |f| {
+                let operands = QueryOperands::build(f)?;
+                let n = operands
+                    .up_holes
+                    .iter()
+                    .map(|hole| hole.encode().len())
+                    .sum::<usize>()
+                    + operands.up_probe.encode().len();
+                let work = n
+                    .checked_mul(operands.up_holes.len())
+                    .expect("allocated query operands have a representable work bound");
+                let query = Query::<Up>::from_inclusive_holes(operands.up_holes);
+                let probe = operands.up_probe;
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                        (query.contains(&probe), query, probe)
+                    })
+                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                )
+            },
+        },
+        Op {
+            name: "query_coverage_many",
+            prepare: |f| {
+                let operands = QueryOperands::build(f)?;
+                let lo = Version::new();
+                let n = operands
+                    .down_holes
+                    .iter()
+                    .map(|hole| hole.encode().len())
+                    .sum::<usize>()
+                    + lo.encode().len()
+                    + operands.down_hi.encode().len();
+                let work = n
+                    .checked_mul(operands.down_holes.len())
+                    .expect("allocated query operands have a representable work bound");
+                let query = Query::<Down>::from_inclusive_holes(operands.down_holes);
+                let span = lo.span(&operands.down_hi);
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                        (query.coverage(span.reborrow()), query, span)
+                    })
+                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                )
+            },
+        },
         // ── Party ──────────────────────────────────────────────────────
         Op {
             name: "party_decode",
@@ -1204,7 +1317,7 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "party_join_all",
             prepare: |f| {
-                let (_, parties) = f.fold.as_ref()?;
+                let (_, parties) = f.population.as_ref()?;
                 let n = parties.iter().map(Vec::len).sum();
                 let arity = parties.len() as u64;
                 let mut parties = parties.iter().map(|b| decode_party(b));
@@ -1509,7 +1622,7 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "clock_sync_all",
             prepare: |f| {
-                let (versions, parties) = f.fold.as_ref()?;
+                let (versions, parties) = f.population.as_ref()?;
                 let arity = versions.len() / 2;
                 let versions: Vec<Version> = versions
                     .iter()

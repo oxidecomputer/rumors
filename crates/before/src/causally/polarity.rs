@@ -1,9 +1,9 @@
-//! The polarity markers and the sealed per-marker dispatch.
+//! The type-level restriction that every hole in a query points in the same
+//! causal direction.
 //!
-//! Everything a query does with a hole is one method on the sealed dispatch
-//! trait, stated once per marker. Concentrating the whole behavioral difference
-//! between [`Down`] and [`Up`] in this one table is what lets every other file
-//! treat the two polarities uniformly.
+//! Uniform polarity makes exact span coverage decidable without searching
+//! combinations of holes. The sealed dispatch states the order-dual behavior
+//! of [`Down`] and [`Up`] once, leaving query evaluation generic.
 
 use std::borrow::Cow;
 
@@ -40,10 +40,12 @@ mod sealed {
         fn hole_demand(strict: bool) -> Demand;
         /// Whether `hole` subtracts `probe`.
         fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool;
-        /// Whether `hole` subtracts everything the clamped segment covers: a
-        /// down-set covering the clamped top covers all of it, an up-set dually
-        /// reaching the clamped bottom.
-        fn hole_covers(hole: &Hole<'_>, clamped_lo: &Version, clamped_hi: &Version) -> bool;
+        /// The clamped endpoint that decides whether one of this polarity's
+        /// holes covers the whole segment.
+        ///
+        /// A down-set covers the segment iff it covers the maximum endpoint;
+        /// an up-set covers it iff it covers the minimum endpoint.
+        fn covering_endpoint<'a>(clamped_lo: &'a Version, clamped_hi: &'a Version) -> &'a Version;
         /// Whether `hole` still subtracts something from an interval bounded by
         /// `floor`/`ceiling`.
         fn hole_survives(
@@ -74,8 +76,8 @@ mod sealed {
             }
         }
 
-        fn hole_covers(hole: &Hole<'_>, _clamped_lo: &Version, clamped_hi: &Version) -> bool {
-            Self::hole_subtracts(hole, clamped_hi)
+        fn covering_endpoint<'a>(_clamped_lo: &'a Version, clamped_hi: &'a Version) -> &'a Version {
+            clamped_hi
         }
 
         fn hole_survives(
@@ -132,8 +134,8 @@ mod sealed {
             }
         }
 
-        fn hole_covers(hole: &Hole<'_>, clamped_lo: &Version, _clamped_hi: &Version) -> bool {
-            Self::hole_subtracts(hole, clamped_lo)
+        fn covering_endpoint<'a>(clamped_lo: &'a Version, _clamped_hi: &'a Version) -> &'a Version {
+            clamped_lo
         }
 
         fn hole_survives(
@@ -182,7 +184,10 @@ mod sealed {
             unreachable!("a neutral query holds no holes")
         }
 
-        fn hole_covers(_hole: &Hole<'_>, _clamped_lo: &Version, _clamped_hi: &Version) -> bool {
+        fn covering_endpoint<'a>(
+            _clamped_lo: &'a Version,
+            _clamped_hi: &'a Version,
+        ) -> &'a Version {
             unreachable!("a neutral query holds no holes")
         }
 
@@ -206,10 +211,9 @@ mod sealed {
 
 /// A query's polarity: which complement family it may subtract.
 ///
-/// Queries are limited to one polarity because deciding the overlap of a
-/// [`Span`](crate::Span) on a query with arbitrary negations reduces to the SAT
-/// problem; restricting queries to one polarity ensures they can be decided in
-/// linear time.
+/// Queries are limited to one polarity because arbitrary negation can encode
+/// Boolean satisfiability when deciding exact [`Span`](crate::Span) overlap.
+/// One polarity avoids searching combinations of opposing holes.
 ///
 /// The space of query polarity comprises three markers: [`Down`], [`Up`], and
 /// [`Neutral`]:
