@@ -1,3 +1,5 @@
+//! Test-only trace of the proxy's progress-critical publications.
+
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
@@ -18,11 +20,17 @@ pub enum Stage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     /// A complete outgoing reply has flushed its question frames.
-    WireReply { questions: usize },
-    /// One flushed question is being registered for decoding.
+    WireReply {
+        /// Questions published after the flush.
+        questions: usize,
+    },
+    /// One question is published after its wire reply flushes.
     LocalQuestion,
     /// An incoming answer is being published before its derived scopes.
-    DecodedReply { scopes: usize },
+    DecodedReply {
+        /// Scopes published after the answer.
+        scopes: usize,
+    },
     /// One derived scope is being published for the next exchange.
     NextScope,
 }
@@ -40,7 +48,7 @@ struct Event {
     kind: Kind,
 }
 
-/// A completed positive session's proxy-ordering trace.
+/// The proxy-ordering trace from a completed session.
 #[derive(Debug)]
 pub struct Trace(Vec<Event>);
 
@@ -110,7 +118,7 @@ impl Trace {
     /// Every decoded answer needs a previously flushed question on the same
     /// endpoint. Questions and answers pair in FIFO order at each height.
     /// The root opening is the sole exception: its scope comes from the greeting.
-    pub fn assert_registration_causality(&self) {
+    pub fn assert_question_causality(&self) {
         let mut questions = BTreeMap::<(usize, Stage, usize), usize>::new();
         let mut decoded = BTreeMap::<(usize, Stage, usize), usize>::new();
         for (index, event) in self.0.iter().enumerate() {
@@ -136,8 +144,7 @@ impl Trace {
                     assert!(
                         *count <= available,
                         "event {event:?} at trace index {index}: decoded reply {count} \
-                         arrived before the question that scopes it was flushed \
-                         ({available} available)",
+                         arrived before its question was flushed ({available} available)",
                     );
                 }
                 Kind::WireReply { .. } | Kind::NextScope => {}
@@ -182,10 +189,9 @@ fn consume(
     *remaining -= 1;
 }
 
-// clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
-// fallback-TLS lowering (illumos among the gate's targets) and denies
-// initializers that already sit in `const` blocks; the allow keeps
-// `-D warnings` honest on every platform the gate runs.
+// Clippy's `missing_const_for_thread_local` can reject const-block initializers
+// on targets that lower `thread_local!` through fallback TLS. The allow keeps
+// `-D warnings` clean on those targets.
 std::thread_local! {
     /// Publications recorded by the current trace scope.
     #[allow(clippy::missing_const_for_thread_local)]

@@ -2,8 +2,8 @@
 //!
 //! The shape deliberately follows the materialized `Work`: every outbound
 //! encoder becomes an independently runnable task, and each method returns the
-//! receiver-side stream or next-phase scope queue fed by that task. No state
-//! outside this module handles an internal sender.
+//! receiver-side stream or next-phase scope queue fed by that task. The
+//! typestates in [`state`](super::super::state) never hold an internal sender.
 //!
 //! Like the walk, the decode loops run on the erased vocabulary — one
 //! instantiation per backend and transport — behind thin typed methods
@@ -21,8 +21,9 @@
 //!   per stage.
 //!
 //! A complete wire reply precedes its local questions; a decoded reply
-//! precedes its dependent scopes. Each edge's capacity rationale lives at
-//! its constructor in [`queues`].
+//! precedes its dependent scopes. The scope edges' capacity rationales live at
+//! their constructors in [`queues`]; the response relay's lives at
+//! [`Work::respond`].
 
 use async_stream::try_stream;
 use futures::Stream;
@@ -110,7 +111,7 @@ where
         let (next_scopes, scopes) =
             queues::next_scopes(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
         let progress = self.progress;
-        let listing = std::mem::take(&mut self.peer_listing);
+        let listing = std::mem::take(&mut self.remote_listing);
         let responses = try_stream! {
             let (reply, scope) = opening_reply::<B::Erased>(listing);
             yield_reply_scopes!(
@@ -132,14 +133,14 @@ where
         let requests = requests.erase();
         let (local_questions, questions) =
             queues::local_questions(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
-        let peer_listing = std::mem::take(&mut self.peer_listing);
+        let remote_listing = std::mem::take(&mut self.remote_listing);
         self.spawn(encode::opening(
             self.backend(),
             self.budget,
             requests,
             local_questions,
             outgoing,
-            peer_listing,
+            remote_listing,
             self.progress,
         ));
         let (next_scopes, scopes) = queues::next_scopes(
@@ -223,10 +224,10 @@ where
             let mut opening = opening_supplies
                 .map(|receiver| OpeningSupplies::new(ingress.clone(), receiver));
             while let Some(scope) = questions.recv().await {
-                // A root-level request's content crossed at the opening. Its
-                // ordinary pairing reply arrives empty; after decoding that
-                // reply, supplement it with the opening stream's node, if
-                // pruning left one.
+                // A conforming initiator sends the root-level request's content
+                // at the opening and leaves this pairing reply empty. If it
+                // also sends supplies here, they precede the opening children;
+                // the materialized walk rejects duplicates by radix.
                 let opening_supply = (opening.is_some() && scope.is_request()).then(|| {
                     let parent = scope.parent();
                     let (root, radix) = parent.pop();

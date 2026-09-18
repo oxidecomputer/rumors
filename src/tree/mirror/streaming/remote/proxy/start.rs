@@ -1,11 +1,10 @@
 //! The wire participant's states for exchanging greetings.
 
-use crate::message::PayloadCodec;
-
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
     link::{Acceptor, Connector, Link},
+    message::PayloadCodec,
     observe::{CaptureRead, SessionHandle},
     tree::{
         mirror::streaming::{
@@ -36,8 +35,11 @@ pub struct Handshaking<B, R, W, C, A, V = Start>
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    /// The store used to reconstruct supplied nodes.
     backend: B,
+    /// The transport carrier reserved for this session.
     link: Link<R, W, C, A>,
+    /// State retained by the current greeting phase.
     versions: V,
     /// The session's window choice, resolved against the greeting's
     /// exchanged set sizes; see
@@ -46,8 +48,7 @@ where
     /// The session's stats recorder: every stream this session binds
     /// counts its codec bytes through it.
     stats: Recorder,
-    /// The peer's payload codec: the typed ingress every supplied
-    /// leaf record decodes through (see [`PayloadCodec`]).
+    /// This replica's payload codec for supplied messages.
     codec: PayloadCodec,
     /// The session's observation handle: every wire item this session
     /// moves is delivered through it (inert unless a handler attached).
@@ -60,8 +61,7 @@ where
 {
     /// Bind one session's link carrier before exchanging causal versions.
     ///
-    /// `codec` is the peer's payload codec: every leaf
-    /// record this session decodes builds its payload through it.
+    /// `codec` reconstructs every supplied message received in this session.
     pub fn start(backend: B, link: Link<R, W, C, A>, codec: PayloadCodec) -> Self {
         Self {
             backend,
@@ -82,7 +82,7 @@ where
     }
 
     /// Share the session's stats recorder, so a driver holding its clone
-    /// can read the codec seam's byte counts after the session completes.
+    /// can read the codec boundary's byte counts after the session completes.
     ///
     /// Without this call the session still counts, into a recorder nobody
     /// reads.
@@ -109,6 +109,7 @@ pub struct Start;
 /// Reached only through the [`Connect`] impl below, which the test
 /// harness's wire-path arrangement runs and production never does.
 pub struct Connecting {
+    /// The remote greeting retained until the local greeting is ready.
     remote: Greeting,
 }
 
@@ -215,14 +216,14 @@ where
 {
     type Next = Connected<B, R, W, C, A>;
 
-    /// Send the local server's greeting, then open only if versions differ.
-    async fn complete_connect(mut self, mut theirs: Greeting) -> Result<Self::Next, Self::Error> {
+    /// Send the local participant's greeting and retain the exchanged premises.
+    async fn complete_connect(mut self, mut local: Greeting) -> Result<Self::Next, Self::Error> {
         // The wire value of the local limit is the codec's: the one
         // configuration every parse of this session already runs under.
-        theirs.payload_depth_limit = self.codec.limit().get();
-        send::<B::Error, _>(&theirs, &mut self.link.control_write, &self.observe).await?;
+        local.payload_depth_limit = self.codec.limit().get();
+        send::<B::Error, _>(&local, &mut self.link.control_write, &self.observe).await?;
         let remote = self.versions.remote.clone();
-        self.connected(theirs, remote)
+        self.connected(local, remote)
     }
 }
 
@@ -236,19 +237,16 @@ where
 {
     type Next = Connected<B, R, W, C, A>;
 
-    /// Exchange greetings concurrently, then open only if versions differ.
-    async fn accept(
-        mut self,
-        mut request: Greeting,
-    ) -> Result<(Greeting, Self::Next), Self::Error> {
+    /// Exchange greetings concurrently and retain the exchanged premises.
+    async fn accept(mut self, mut local: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         // The wire value of the local limit is the codec's: the one
         // configuration every parse of this session already runs under.
-        request.payload_depth_limit = self.codec.limit().get();
-        let send = send::<B::Error, _>(&request, &mut self.link.control_write, &self.observe);
+        local.payload_depth_limit = self.codec.limit().get();
+        let send = send::<B::Error, _>(&local, &mut self.link.control_write, &self.observe);
         let receive = receive::<B::Error, _>(&mut self.link.control_read, &self.observe);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
         let greeting = remote.clone();
-        let next = self.connected(request, remote)?;
+        let next = self.connected(local, remote)?;
         Ok((greeting, next))
     }
 }

@@ -1,8 +1,10 @@
 # Rumors review checklist
 
-**Current:** simplify proxy state and clarify driver responsibilities.
+**Current:** make lifecycle properties check content, versions, and party ownership directly.
 
-**Next:** consolidate proxy test setup and remove redundant assertions.
+**Parallel:** consolidate proxy test setup and remove redundant assertions.
+
+**Next:** exercise driver termination, cancellation, redaction, and handshake ordering without vacuous checks.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -438,7 +440,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Simplify materialized-backend state and explain its ownership.
       Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T118, T128, T132.
 
-- [ ] Simplify proxy state and clarify driver responsibilities.
+- [x] Simplify proxy state and clarify driver responsibilities.
       Sources: `remote-proxy-1`, `remote-proxy-5`, `remote-proxy-6`, `remote-proxy-9–11`, `remote-proxy-13–18`, `remote-proxy-21`, `remote-proxy-22`, `remote-proxy-26`, `remote-proxy-32`, T48, T49, T52, T57, T126, T132.
 
 - [ ] Consolidate proxy test setup and remove redundant assertions.

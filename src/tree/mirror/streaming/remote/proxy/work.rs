@@ -1,36 +1,39 @@
 //! Background work accumulated by the remote protocol states.
 //!
-//! Like the materialized implementation's work context, this stores every
-//! independently runnable pump as the type-level schedule advances. The final
-//! protocol operation concurrently drives the stored pumps, its own terminal
-//! work, the session's accept driver, and the incoming-stream error route.
+//! [`Work`] owns the translation tasks created as the typestate advances.
+//! [`stages`] wires each transition, [`encode`] writes local replies,
+//! [`opening_supplies`] pairs early supplies with their requests, and [`queues`]
+//! owns the internal channel capacities. The terminal operation drives these
+//! tasks with the stream acceptor and incoming error route.
 
-use crate::message::PayloadCodec;
 use std::io::Cursor;
 use std::pin::{Pin, pin};
 use tokio::io::{AsyncRead, AsyncReadExt, Chain};
 
 use futures::{Stream, StreamExt, future::BoxFuture};
 
-use crate::link::Acceptor;
-use crate::tree::{
-    mirror::streaming::{
-        Backend, Leaf,
-        channel::{QueueKind, QueueRole, Sender},
-        erased,
-        materialized::SupplyLedger,
-        protocol::BoxResponses,
-        remote::{
-            codec::{RunBudget, Speaker},
-            proxy::{Error, send_or_cancel},
-            streams::{AcceptDriver, AcceptError, FirstStreamError},
+use crate::{
+    link::Acceptor,
+    message::PayloadCodec,
+    tree::{
+        mirror::streaming::{
+            Backend, Leaf,
+            channel::{QueueKind, QueueRole, Sender},
+            erased,
+            materialized::SupplyLedger,
+            protocol::BoxResponses,
+            remote::{
+                codec::{RunBudget, Speaker},
+                proxy::{Error, send_or_cancel},
+                streams::{AcceptDriver, AcceptError, FirstStreamError},
+            },
+            tasks::complete,
+            window::Window,
         },
-        tasks::complete,
-        window::Window,
-    },
-    typed::{
-        Hash,
-        height::{Height, Z},
+        typed::{
+            Hash,
+            height::{Height, Z},
+        },
     },
 };
 
@@ -39,8 +42,8 @@ use self::progress::Progress;
 mod encode;
 mod opening_supplies;
 pub(super) mod progress;
-mod pump;
 mod queues;
+mod stages;
 
 /// Remaining control input, with bytes read by the departure watch replayed first.
 ///
@@ -106,7 +109,7 @@ async fn departure(read: &mut (impl AsyncRead + Unpin), ahead: &mut Vec<u8>) -> 
     }
 }
 
-/// Deferred reply pumps and the physical session which drives them.
+/// Deferred translation tasks and the physical session which drives them.
 pub struct Work<B, R, W, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -125,10 +128,10 @@ where
     /// question; [`opening_responder`](Self::opening_responder) merges the
     /// local opening's listing against it to decide whether the
     /// early-supply stream opens.
-    peer_listing: Vec<(u8, Hash)>,
-    /// Transport and error reporting shared by the pumps.
+    remote_listing: Vec<(u8, Hash)>,
+    /// Transport and error reporting shared by the tasks.
     physical: Physical<R, W, A>,
-    /// Pumps driven concurrently when the protocol reaches its terminal step.
+    /// Tasks driven concurrently when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     /// Records reply and scope publication order in tests.
     progress: Progress,
@@ -146,13 +149,13 @@ where
     /// The remote elected speaker: the direction whose failures the
     /// terminal attributes when no single stream can be named.
     pub remote: Speaker,
-    /// Routes arriving data streams to the pumps awaiting them.
+    /// Routes arriving data streams to the tasks awaiting them.
     pub accept: AcceptDriver<A>,
     /// Receives incoming-stream failures and the acceptor's deferred I/O failure.
     pub errors: FirstStreamError,
 }
 
-/// Accumulate protocol pumps and coordinate them with the transport.
+/// Accumulate protocol tasks and coordinate them with the transport.
 impl<B, R, W, A> Work<B, R, W, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -163,14 +166,14 @@ where
         ingress: Ingress<B>,
         window: Window,
         budget: RunBudget,
-        peer_listing: Vec<(u8, Hash)>,
+        remote_listing: Vec<(u8, Hash)>,
         physical: Physical<R, W, A>,
     ) -> Self {
         Self {
             ingress,
             window,
             budget,
-            peer_listing,
+            remote_listing,
             physical,
             tasks: Vec::new(),
             progress: Progress::new(),
@@ -200,15 +203,15 @@ where
     where
         H: Height,
     {
-        // One buffered response is sufficient: whenever the pump blocks,
-        // that response is already available to advance the counterparty
+        // One buffered response is sufficient: whenever the relay blocks,
+        // that response is already available to advance the remote participant
         // and release the slot. Buffering a fan would retain whole
         // protocol messages without breaking any additional dependency.
         let (send, responses) = erased::reply_channel::<B, H, Error<B::Error>>(
             QueueRole::new(QueueKind::ProxyResponses, H::HEIGHT),
             1,
         );
-        self.spawn(pump(Box::pin(messages), send));
+        self.spawn(relay(Box::pin(messages), send));
         Box::pin(responses)
     }
 
@@ -242,7 +245,7 @@ where
             mut errors,
         } = physical;
         // Only early control items accumulate here; data-stream traffic keeps
-        // flowing through the pumps under its existing flow control.
+        // flowing through the tasks under its existing flow control.
         let mut ahead = Vec::new();
         let outcome = {
             let mut protocol = Box::pin(complete(tasks, finish));
@@ -281,10 +284,10 @@ where
     }
 }
 
-/// Forward decoded replies to the response queue.
+/// Relay decoded replies to the response queue.
 ///
 /// Return decode errors to the executor without waiting for the reply consumer.
-async fn pump<E: Send, Err: Send + 'static>(
+async fn relay<E: Send, Err: Send + 'static>(
     mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
     send: Sender<Result<erased::Reply<E>, Error<Err>>>,
 ) -> Result<(), Error<Err>> {

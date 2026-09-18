@@ -4,10 +4,10 @@
 //! flushed. Publishing them any earlier could block the encoder before the
 //! reply end reaches the remote peer which must answer them.
 //!
-//! Every encoder here consumes the erased vocabulary — its typed request
-//! stream is erased and boxed by the proxy state that spawns it — so each
-//! encoder body instantiates once per backend; the stage's height arrives
-//! as the runtime label the progress trace records.
+//! Every encoder here consumes the erased vocabulary. The [`Work`](super::Work)
+//! method that spawns it erases and boxes its typed request stream, so each
+//! encoder body instantiates once per backend. The progress trace receives the
+//! stage height as a runtime label.
 
 use std::pin::Pin;
 
@@ -39,7 +39,7 @@ use super::progress::Progress;
 pub async fn terminal<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: BoxRequests<B::Erased>,
+    mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
     questions: Option<Sender<Scope>>,
@@ -49,7 +49,6 @@ where
     B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
-    let mut requests = requests;
     // Scope-first pairing: dequeuing the scope before awaiting the local
     // reply frees its channel slot one reply earlier, so a K-slot edge
     // admits K truly in-flight scopes (the walk's stage loops make the
@@ -80,7 +79,7 @@ where
 pub async fn replies<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: BoxRequests<B::Erased>,
+    mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
     questions: Sender<Scope>,
@@ -91,7 +90,6 @@ where
     B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
-    let mut requests = requests;
     while let Some(scope) = scopes.recv().await {
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let mut encoded = encode_reply(backend.clone(), budget, scope, request);
@@ -102,14 +100,14 @@ where
     finish(requests, outgoing).await
 }
 
-/// Consume the local initiator's distinguished opening: publish its scope,
-/// then write its early supplies.
+/// Consume the local initiator's opening: publish its scope, then write its
+/// early supplies.
 ///
 /// The opening *question* writes nothing: its content — the local root-fan
 /// listing — already crossed inside the greeting, which flushed before the
 /// descent began, so the "wire before internal publication" order is
 /// satisfied vacuously and the question publishes immediately, before any
-/// supply byte. That order is load-bearing: publishing first keeps the
+/// supply byte. That order is required: publishing first keeps the
 /// responder's root reply decodable while the supply bulk is still
 /// flushing against link backpressure, so the disputed descent never waits
 /// behind it.
@@ -120,22 +118,21 @@ where
 /// radices absent from the peer's) is nonempty: the set is what the
 /// responder recomputes from the same two listings, so it must learn "all
 /// pruned away" from an empty reply rather than wait on a stream that
-/// never opens, and a session without initiator exclusives keeps today's
-/// streamless opening.
+/// never opens. A session without initiator exclusives opens no
+/// initiator-direction stream.
 pub async fn opening<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: BoxRequests<B::Erased>,
+    mut requests: BoxRequests<B::Erased>,
     questions: Sender<Scope>,
     mut outgoing: StreamSender<C>,
-    peer_listing: Vec<(u8, Hash)>,
+    remote_listing: Vec<(u8, Hash)>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
-    let mut requests = requests;
     let request = requests.next().await.ok_or(Error::MissingOpening)?;
     let (listing, supplies) = opening_parts(request).map_err(Error::OpeningEncode)?;
     let question = Scope::opening(&listing);
@@ -144,7 +141,7 @@ where
     send_or_cancel(&questions, question).await;
 
     let early = {
-        let mut peers = peer_listing.iter().map(|(radix, _)| *radix).peekable();
+        let mut peers = remote_listing.iter().map(|(radix, _)| *radix).peekable();
         listing.iter().any(|(radix, _)| {
             while peers.next_if(|peer| peer < radix).is_some() {}
             peers.peek() != Some(radix)
@@ -174,10 +171,10 @@ where
     Ok(())
 }
 
-/// Flush every frame in one reply and retain its acknowledged questions.
+/// Flush every frame in one reply and retain its flushed questions.
 async fn write_reply<C, E>(
     outgoing: &mut StreamSender<C>,
-    encoded: &mut (impl futures::Stream<Item = Result<Encoded, adapter::EncodeError<E>>> + Unpin),
+    encoded: &mut (impl Stream<Item = Result<Encoded, adapter::EncodeError<E>>> + Unpin),
 ) -> Result<Vec<Scope>, Error<E>>
 where
     C: Connector,

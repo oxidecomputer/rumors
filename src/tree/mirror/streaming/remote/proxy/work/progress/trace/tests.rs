@@ -72,7 +72,7 @@ fn rejects_next_decoded_reply_before_scopes() {
 fn empty_trace_fails_the_divergent_session_floor() {
     let (_, trace) = with_trace(|| ());
     trace.assert_valid();
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
     trace.assert_covers_divergent_session();
 }
 
@@ -88,39 +88,39 @@ fn minimal_divergent_session_meets_the_floor() {
         record(1, Kind::NextScope, Root::HEIGHT);
     });
     trace.assert_valid();
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
     trace.assert_covers_divergent_session();
 }
 
-/// A decode following its flushed question satisfies registration causality.
+/// A decode following its flushed question satisfies question causality.
 #[test]
 fn accepts_decode_after_flushed_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
         record(0, Kind::DecodedReply { scopes: 0 }, 1);
     });
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
 }
 
 /// A decode with no flushed question at the scope's height is a causality
-/// violation: the reply arrived before the question that scopes it.
+/// violation: the reply arrived before its question was flushed.
 #[test]
-#[should_panic(expected = "arrived before the question that scopes it")]
+#[should_panic(expected = "arrived before its question was flushed")]
 fn rejects_decode_before_flushed_question() {
     let (_, trace) = with_trace(|| record(0, Kind::DecodedReply { scopes: 0 }, 1));
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
 }
 
 /// Another endpoint's flushed question cannot scope this endpoint's decode:
 /// the registration FIFO is endpoint-local.
 #[test]
-#[should_panic(expected = "arrived before the question that scopes it")]
+#[should_panic(expected = "arrived before its question was flushed")]
 fn rejects_decode_scoped_by_the_other_endpoint() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
         record(1, Kind::DecodedReply { scopes: 0 }, 1);
     });
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
 }
 
 /// Terminal answers may complete while an internal answer still publishes
@@ -138,7 +138,7 @@ fn accepts_terminal_answer_during_internal_scope_publication() {
         record(0, Kind::NextScope, 1);
     });
     trace.assert_valid();
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
 }
 
 /// Walk and terminal leaf publications use independent ledgers even when
@@ -155,34 +155,34 @@ fn accepts_overlapping_walk_and_terminal_leaf_publications() {
 
 /// An unanswered parent question cannot stand in for a leaf question.
 #[test]
-#[should_panic(expected = "arrived before the question that scopes it")]
+#[should_panic(expected = "arrived before its question was flushed")]
 fn rejects_leaf_decode_scoped_by_parent_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
         record(0, Kind::DecodedReply { scopes: 0 }, 0);
     });
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
 }
 
 /// An unanswered leaf question cannot stand in for a parent question.
 #[test]
-#[should_panic(expected = "arrived before the question that scopes it")]
+#[should_panic(expected = "arrived before its question was flushed")]
 fn rejects_parent_decode_scoped_by_leaf_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 0);
         record(0, Kind::DecodedReply { scopes: 0 }, 1);
     });
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
 }
 
 /// Exactly one greeting-seeded opening reply per endpoint is scoped by the
 /// greeting itself; a second root decode has no question to pair with.
 #[test]
-#[should_panic(expected = "arrived before the question that scopes it")]
+#[should_panic(expected = "arrived before its question was flushed")]
 fn rejects_a_second_greeting_seeded_opening() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
         record(0, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
     });
-    trace.assert_registration_causality();
+    trace.assert_question_causality();
 }

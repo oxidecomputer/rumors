@@ -2,7 +2,7 @@
 
 use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 
-/// A protocol or adapter failure while proxying one remote counterparty.
+/// A failure while proxying one remote participant.
 ///
 /// When the incoming stream supply fails, transport errors may be reported
 /// as [`SupplyClosed`](streams::StreamError::SupplyClosed) with the supply's
@@ -14,7 +14,7 @@ pub enum Error<E> {
     /// The control stream failed while reconciliation still needed the peer.
     #[error("peer departed during reconciliation: {0}")]
     PeerDeparted(#[source] std::io::Error),
-    /// Reading one of the peer's greeting frames failed.
+    /// Reading the peer's greeting item failed.
     #[error("failed to read the peer's greeting")]
     GreetingRead(#[source] std::io::Error),
     /// The peer's greeting arrived but is not canonical rumors CBOR.
@@ -43,7 +43,7 @@ pub enum Error<E> {
         /// The limit the peer's greeting declared.
         remote: u64,
     },
-    /// The locally-produced distinguished opening could not be encoded.
+    /// The local opening reply could not be encoded.
     #[error("local opening reply is invalid")]
     OpeningEncode(#[source] adapter::OpeningError),
     /// A normal local reply could not be converted to wire frames.
@@ -55,16 +55,16 @@ pub enum Error<E> {
     /// An outgoing logical stream could not be opened, labeled, or written.
     #[error(transparent)]
     Send(#[from] streams::SendError),
-    /// An incoming logical stream failed to decode or ended prematurely.
+    /// An incoming logical stream failed, or its stream supply closed first.
     #[error(transparent)]
     Stream(#[from] streams::StreamError),
-    /// An incoming transport stream could not be accepted or routed.
+    /// An incoming transport stream violated the session's stream discipline.
     #[error(transparent)]
     Accept(#[from] streams::AcceptError),
-    /// The local opening stream omitted its distinguished question.
-    #[error("opening stream ended before its distinguished question")]
+    /// The local opening stream omitted its opening question.
+    #[error("opening stream ended before its opening question")]
     MissingOpening,
-    /// The local opening stream contained more than its distinguished question.
+    /// The local opening stream contained more than its opening question.
     #[error("local opening stream contained an additional reply")]
     ExtraOpening,
     /// A remote logical stream supplied a reply which answered no local query.

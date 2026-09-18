@@ -283,10 +283,9 @@ impl Trace {
     }
 }
 
-// clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
-// fallback-TLS lowering (illumos among the gate's targets) and denies
-// initializers that already sit in `const` blocks; the allow keeps
-// `-D warnings` honest on every platform the gate runs.
+// Clippy's `missing_const_for_thread_local` can reject const-block initializers
+// on targets that lower `thread_local!` through fallback TLS. The allow keeps
+// `-D warnings` clean on those targets.
 std::thread_local! {
     /// Publications captured by the current trace scope.
     #[allow(clippy::missing_const_for_thread_local)]

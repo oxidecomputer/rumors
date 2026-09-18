@@ -130,7 +130,7 @@ impl Divergence {
                 with_trace(|| session.run([left.root, right.root], plans));
             trace.assert_valid();
             trace.assert_covers_divergent_session();
-            trace.assert_registration_causality();
+            trace.assert_question_causality();
             for (role, stats) in observations
                 .queues
                 .roles()

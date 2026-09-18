@@ -408,7 +408,7 @@ proptest! {
                 "wire reconciliation became quiescent: {stopped:?}",
             )))?;
         trace.assert_valid();
-        trace.assert_registration_causality();
+        trace.assert_question_causality();
         if divergent {
             trace.assert_covers_divergent_session();
         }
@@ -496,7 +496,7 @@ proptest! {
     /// operation identity; every unreached failure is inert.
     ///
     /// The wire twin of `materialized_backend_failures_are_fail_fast`: a
-    /// walk's error item reaches the session through the proxy pump that
+    /// walk's error item reaches the session through the response task that
     /// carries its response stream, wherever in the walk it is raised. The
     /// wide generator is what puts failures on that path: a stage loop
     /// explodes nodes only under disputed scopes, and the small generator's

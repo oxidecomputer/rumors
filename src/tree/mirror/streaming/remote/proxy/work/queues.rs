@@ -6,7 +6,7 @@
 //! Both edges carry the erased [`Scope`] — one channel-machinery
 //! instantiation for the whole proxy — with each edge's height kept as
 //! its runtime [`QueueRole`] label. (The third proxy edge, the one-slot
-//! decoded-response relay, is created by the response pump itself: see
+//! decoded-response relay, is created by the response task itself: see
 //! `Work::respond`.)
 //!
 //! - [`local_questions`] holds questions whose replies are in flight. Its
@@ -23,7 +23,7 @@ use crate::tree::mirror::streaming::{
 ///
 /// This queue's occupancy tracks the questions in flight on the wire at
 /// this height: [`encode`](mod@super::encode) publishes each question once its
-/// complete reply has flushed, and [`pump`](mod@super::pump) removes one per
+/// complete reply has flushed, and [`stages`](mod@super::stages) removes one per
 /// decoded wire reply — a full round trip later. Occupancy can undercount the
 /// wire slightly: a flushing batch has not been published yet, and the decoder
 /// holds one dequeued question while reading its reply. An upstream queue may

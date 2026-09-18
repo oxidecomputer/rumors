@@ -1,11 +1,11 @@
 //! Typed protocol states over an open per-stream session.
 //!
 //! Each proxy stage owns the one [`Scope`] queue needed to interpret the local
-//! reply it will receive at that height. Its outgoing response stream pumps
-//! those local replies to the wire while decoding the remote replies which
-//! answer locally-created questions. The active [`Work`] response pump lets a
-//! stage yield its reply before publishing the lower scopes derived from it,
-//! so one-slot backpressure cannot withhold the reply which releases it.
+//! reply it will receive at that height. Background tasks write local replies
+//! while decoding the remote replies which answer local questions. The active
+//! [`Work`] response relay lets a stage yield its reply before publishing the
+//! lower scopes derived from it, so one-slot backpressure cannot withhold the
+//! reply which releases it.
 
 use std::io::Cursor;
 use std::marker::PhantomData;
@@ -59,7 +59,7 @@ where
     /// ingress (the outgoing side's copy lives in [`Work`]).
     budget: RunBudget,
     /// The session's stats recorder, handed to every stream this session
-    /// binds so the codec seam's byte counts accumulate in one place.
+    /// binds so the codec boundary's byte counts accumulate in one place.
     stats: Recorder,
     /// The session's observation handle, handed to every stream this
     /// session binds so each can create its own observer when it opens.
@@ -104,7 +104,8 @@ where
 
 /// Find the logical stream assigned to one speaker and reply height.
 fn stream_at<H: Height>(speaker: Speaker) -> Stream {
-    Stream::at_height(speaker, H::HEIGHT).expect("every protocol reply height has one stream")
+    Stream::at_height(speaker, H::HEIGHT)
+        .expect("the typestate binds each speaker only at heights on its parity")
 }
 
 /// A proxy holding exchanged premises until the driver selects its path.
@@ -209,6 +210,7 @@ where
     S<H>: Height,
     A: Acceptor,
 {
+    /// The session resources and work accumulated so far.
     session: Session<B, R, W, C, A>,
     /// The next local reply's scopes, erased: the typestate's `H` is what
     /// pins this queue to the stage that consumes it at the right height,
@@ -231,7 +233,9 @@ where
     B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
+    /// The session resources and work accumulated through the descent.
     session: Session<B, R, W, C, A>,
+    /// The leaf scopes awaiting the local terminal replies.
     scopes: Receiver<Scope>,
 }
 
@@ -294,13 +298,10 @@ where
 {
     type Next = Descending<B, UnderRoot, R, W, C, A>;
 
-    /// Replay the remote initiator's opening question from its greeting.
+    /// Bind the remote initiator's opening supplies and replay its opening.
     ///
-    /// The opening question's content already crossed inside the greeting's
-    /// listing, so no frame is read here. The initiator-direction opening
-    /// stream carries the remote's early supplies instead: its receiver is
-    /// bound now and handed to the next stage, which reads (and thereby
-    /// claims) it only when a root-level request needs an opening supply.
+    /// This state binds the lazily claimed supply stream. [`Work::initiator`]
+    /// reconstructs the opening question from the greeting.
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.open(Speaker::Initiator);
         let early = session.incoming::<UnderRoot>();
@@ -325,15 +326,9 @@ where
 {
     type Next = Descending<B, UnderUnderRoot, R, W, C, A>;
 
-    /// Proxy the opening: consume the local question, write the early
-    /// supplies, decode the remote's top-level reply.
+    /// Bind both opening streams and proxy the local responder's opening.
     ///
-    /// Binds both opening streams: the incoming (responder-spoken)
-    /// opening-reply stream and the outgoing (initiator-spoken)
-    /// opening-supply stream. The local opening question sends no frame of
-    /// its own — its content rode the greeting — but its trailing supplies
-    /// open the outgoing stream when the local initiator holds exclusive
-    /// root children.
+    /// [`Work::opening_responder`] owns the encoding and decoding mechanics.
     fn responder(
         self,
         requests: impl Requests<B, UnderRoot>,
