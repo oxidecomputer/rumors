@@ -750,8 +750,9 @@ independently reviewable batches.
 
 - [x] Clarify link type erasure and completion — `895a23ba`.
 
-- [ ] Revise the remaining production files untouched since this triage began:
-      `src/tree/mirror/streaming/driver.rs` and
+- [x] Clarify the typed streaming schedule and its error routing — `02b077cd`.
+
+- [ ] Revise the remaining production file untouched since this triage began:
       `src/tree/mirror/streaming/remote/codec/encode/async_io.rs`. Check every
       claim against callers and implementation; simplify code where that makes
       the explanation clearer.
