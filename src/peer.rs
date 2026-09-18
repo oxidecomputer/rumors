@@ -435,6 +435,11 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     /// Create a network with a caller-supplied random source.
     ///
     /// This test-support hook makes network identifiers reproducible.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the source repeatedly returns the reserved all-zero network
+    /// identifier.
     #[doc(hidden)]
     #[cfg(any(test, feature = "test-internals"))]
     pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {

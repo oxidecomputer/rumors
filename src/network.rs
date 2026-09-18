@@ -12,6 +12,9 @@ use serde::Serializer;
 /// Bytes in one encoded network identifier.
 pub(crate) const NETWORK_BYTES: usize = 16;
 
+/// Draws allowed before an all-zero random source is treated as faulty.
+const NETWORK_DRAW_ATTEMPTS: usize = 2;
+
 /// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
 /// the same [`seed`](crate::Peer::seed).
 ///
@@ -58,13 +61,17 @@ impl Network {
     /// am bootstrapping" on the wire and suppresses the network-match check.
     pub(crate) const BOOTSTRAP: Network = Network([0u8; NETWORK_BYTES]);
 
-    /// Draws a fresh random identifier: 16 bytes from `rng`.
+    /// Draws a fresh random identifier from `rng`.
     ///
-    /// Re-draws in the (cryptographically impossible, `2^-128`) event of the
-    /// all-zero value, keeping [`BOOTSTRAP`](Self::BOOTSTRAP) reserved as the
-    /// unambiguous bootstrap sentinel.
+    /// The all-zero value is retried once, then rejected as a faulty random
+    /// source. Two independent uniform draws reach that failure with
+    /// probability `2^-256`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if both draws return the reserved all-zero value.
     pub(crate) fn from_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
-        loop {
+        for _ in 0..NETWORK_DRAW_ATTEMPTS {
             let mut bytes = [0u8; NETWORK_BYTES];
             rng.fill_bytes(&mut bytes);
             let network = Network(bytes);
@@ -72,6 +79,8 @@ impl Network {
                 return network;
             }
         }
+
+        panic!("random source repeatedly returned the reserved all-zero network identifier")
     }
 
     /// Whether this is the [`BOOTSTRAP`](Self::BOOTSTRAP) placeholder rather
@@ -104,3 +113,6 @@ impl fmt::Display for Network {
         hex::encode(self.0).fmt(f)
     }
 }
+
+#[cfg(test)]
+mod tests;
