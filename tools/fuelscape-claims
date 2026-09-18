@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-// fuelscape-claims — every committed widget claim parses in the widget's
-// own expression grammar and evaluates positive and finite over its
-// measured sizes.
+// fuelscape-claims — every committed initial compensation parses in the
+// widget's expression grammar and evaluates positive and finite over its
+// measured sizes. A comparison may select a chart without becoming a public
+// claim; when both fields are empty, the chart deliberately opens unselected.
 //
-// Why this exists: the claim strings ride from the ops roster through the
-// committed datasets into the doc islands, where the widget parses each
-// as its pre-selected compensation hypothesis. The parse happens only in
-// the reader's browser, so without this check a claim typo — or a claim
-// like `log n` over a dataset whose smallest column is n=1, where it
-// evaluates to zero — renders every visit as a silently unselected
-// hypothesis (or an error chip) forever. The grammar's single truth is
+// Why this exists: the selected expressions ride from the ops roster through
+// the committed datasets into the doc islands, where the widget parses each
+// as its initial compensation. The parse happens only in the reader's browser,
+// so without this check a typo — or an expression like `log n` over a dataset
+// whose smallest column is n=1, where it evaluates to zero — renders every
+// visit as a silently unselected hypothesis (or an error chip) forever. The
+// grammar's single truth is
 // fuelscape.js itself: this check loads the widget bundle and asks its
 // exported parser, so the two can never drift.
 //
@@ -26,24 +27,39 @@ if (typeof globalThis.Fuelscape?.accepts !== "function") {
   console.error("fuelscape.js did not export Fuelscape.accepts");
   process.exit(1);
 }
-
 const dir = "crates/before/fuelscape";
 const index = JSON.parse(fs.readFileSync(path.join(dir, "index.json"), "utf8"));
 let failures = 0;
+let unselected = 0;
+let comparisons = 0;
 for (const op of index.ops) {
   const doc = JSON.parse(fs.readFileSync(path.join(dir, `${op}.json`), "utf8"));
-  const { claim, sizes } = doc.op;
+  const { claim, comparison = "", sizes } = doc.op;
+  if (claim.trim() && comparison.trim()) {
+    console.error(`${op}: claim and comparison are mutually exclusive`);
+    failures++;
+    continue;
+  }
+  const hypothesis = comparison.trim() || claim.trim();
+  if (comparison.trim()) comparisons++;
+  if (!hypothesis) {
+    unselected++;
+    continue;
+  }
   // The widget's own acceptance rule, verbatim: parse, no throws, never
   // negative, positive and finite at the anchor (a zero at a small
   // column is fine — the widget clamps it).
-  const r = globalThis.Fuelscape.accepts(claim, sizes);
+  const r = globalThis.Fuelscape.accepts(hypothesis, sizes);
   if (r.err) {
     console.error(
-      `${op}: the widget would refuse claim ${JSON.stringify(claim)} as its ` +
+      `${op}: the widget would refuse ${JSON.stringify(hypothesis)} as its ` +
         `default hypothesis: ${r.err}`
     );
     failures++;
   }
 }
 if (failures) process.exit(1);
-console.log(`fuelscape-claims: ${index.ops.length} claims accepted by the widget's own rule`);
+console.log(
+  `fuelscape-claims: ${index.ops.length - comparisons - unselected} claims and ` +
+  `${comparisons} comparisons accepted; ${unselected} chart(s) open unselected`
+);

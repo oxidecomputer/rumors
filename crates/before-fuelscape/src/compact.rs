@@ -31,15 +31,13 @@
 //!
 //! # Doc-facing strings
 //!
-//! Each operation's row in [`ROSTER`](crate::ops::ROSTER) carries the two
-//! complexity statements its doc island shows: the rustdoc *contract*
-//! (structure-size variables, e.g. `O(|self| + |party|)`) and the
-//! *claim* in the widget's expression grammar, denominated in total
-//! encoded input bytes (e.g. `n log n`). Compaction stamps both into the
-//! operation's document, and rejects a dump whose recorded
-//! `size_measure` differs from the roster row's current one: measurements
-//! drawn from an input space the roster no longer declares must not
-//! silently caption today's docs — re-measure, or re-point the roster,
+//! Each operation's row in [`ROSTER`](crate::ops::ROSTER) carries its rustdoc
+//! contract and the widget's initial compensation. The roster distinguishes a
+//! concrete claim from a comparison selected only to explore the measurements.
+//! Compaction stamps that distinction into the operation's document, and
+//! rejects a dump whose recorded `size_measure` differs from the roster row's
+//! current one. Measurements drawn from a different input space must not
+//! silently caption today's docs: re-measure or re-point the roster
 //! deliberately.
 //!
 //! # Strictness
@@ -59,6 +57,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::dump;
+use crate::ops::Compensation;
 use crate::render::{AtlasData, OverlayData, RenderMeta, RunParams};
 
 #[cfg(test)]
@@ -133,9 +132,15 @@ pub struct WidgetOp {
     /// The rustdoc complexity contract, display text
     /// (e.g. `O(|self| + |party|)`).
     pub contract: String,
-    /// The claimed growth in the widget's expression grammar,
-    /// denominated in total encoded input bytes (e.g. `n log n`).
+    /// A concrete total-input bound in the widget's expression grammar, or
+    /// empty when the contract does not state one.
     pub claim: String,
+    /// A visual comparison selected when it differs from `claim`.
+    ///
+    /// Empty means to select `claim`; when both are empty, the chart opens
+    /// without a selected expression.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub comparison: String,
     /// Octaves of fuel per histogram bin ([`RES`] at compaction time).
     pub res: f64,
     /// The size axis: total encoded input bytes per column, strictly
@@ -172,7 +177,7 @@ pub fn compact(
     data: &AtlasData,
     variant: &str,
     contract: &str,
-    claim: &str,
+    compensation: Compensation,
 ) -> io::Result<WidgetOp> {
     let mut by: BTreeMap<usize, Vec<u64>> = BTreeMap::new();
     for s in &data.samples {
@@ -219,7 +224,8 @@ pub fn compact(
         size_measure: data.size_measure.clone(),
         variant: variant.to_string(),
         contract: contract.to_string(),
-        claim: claim.to_string(),
+        claim: compensation.claim().to_string(),
+        comparison: compensation.comparison().to_string(),
         res: RES,
         sizes,
         cols,
@@ -230,7 +236,7 @@ pub fn compact(
 /// Compact a whole dump into `out`: one document per operation, plus the
 /// index, all written atomically.
 ///
-/// Each operation's contract and claim come from its
+/// Each operation's contract and compensation come from its
 /// [`ROSTER`](crate::ops::ROSTER) row, and the row's declared
 /// `size_measure` must equal the dump's recorded one (module doc,
 /// *Doc-facing strings*). Returns the operation names written, in the
@@ -271,7 +277,7 @@ pub fn compact_dump(dump_path: &Path, out: &Path) -> io::Result<Vec<String>> {
         }
         ops.push((
             meta.clone(),
-            compact(data, spec.variant, spec.contract, spec.claim)?,
+            compact(data, spec.variant, spec.contract, spec.compensation)?,
         ));
     }
     write(out, &params, &ops)?;
@@ -381,8 +387,11 @@ fn validate(path: &Path, op: &WidgetOp) -> io::Result<()> {
     if !(op.res.is_finite() && op.res > 0.0) {
         return reject("bin resolution must be finite and positive");
     }
-    if op.contract.trim().is_empty() || op.claim.trim().is_empty() {
-        return reject("the contract and claim strings must be non-empty");
+    if op.contract.trim().is_empty() {
+        return reject("the contract string must be non-empty");
+    }
+    if !op.claim.trim().is_empty() && !op.comparison.trim().is_empty() {
+        return reject("claim and comparison are mutually exclusive");
     }
     if op.sizes.is_empty() {
         return reject("the size axis is empty");

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::dump::DumpWriter;
-use crate::ops::ROSTER;
+use crate::ops::{Compensation, ROSTER};
 use crate::render::{AtlasData, OverlayData, RenderMeta, RunParams, SampleData};
 
 use super::{compact, compact_dump, read, write, WidgetCol, RES};
@@ -62,7 +62,8 @@ fn meta() -> RenderMeta {
 /// counts sum to the column's sample count.
 #[test]
 fn compaction_bins_tightly_per_column() {
-    let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
+    let op = compact(&synthetic_atlas(), "", "`O(1)`.", Compensation::Claim("1"))
+        .expect("synthetic atlas compacts");
     assert_eq!(op.sizes, vec![1, 2], "one column per distinct sample size");
     assert_eq!(op.res, RES, "the document carries the binning resolution");
     let expect_k0 = |fuel: f64| (libm::log2(fuel) / RES).floor() as i64;
@@ -101,7 +102,7 @@ fn dataset_round_trips_losslessly() {
         &synthetic_atlas(),
         "vs `Version`",
         "`O(|a| + |b|)` — \"worst\" \\ case ‖·‖",
-        "n log n",
+        Compensation::Claim("n log n"),
     )
     .expect("synthetic atlas compacts");
     write(&dir, &RunParams::from(&meta()), &[(meta(), op.clone())]).expect("dataset writes");
@@ -126,7 +127,8 @@ fn dataset_round_trips_losslessly() {
 fn compaction_rejects_zero_fuel() {
     let mut data = synthetic_atlas();
     data.samples[1].fuel = 0;
-    let err = compact(&data, "", "`O(1)`.", "1").expect_err("zero fuel must be rejected");
+    let err = compact(&data, "", "`O(1)`.", Compensation::Claim("1"))
+        .expect_err("zero fuel must be rejected");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     assert!(
         err.to_string().contains("zero fuel"),
@@ -134,13 +136,18 @@ fn compaction_rejects_zero_fuel() {
     );
 }
 
-/// Tamper with one committed document field and the loader refuses it,
-/// naming the file and check: the histogram-tightness, size-order,
-/// banner, meta-uniformity, and empty-claim rejections are each alive.
+/// Each independent document defect is rejected with a diagnostic that names
+/// the file and violated invariant.
+///
+/// The pristine document has no concrete compensation claim, proving that its
+/// omission is accepted. The edits exercise histogram tightness, size order,
+/// banners, uniform metadata, the required contract, and the distinction
+/// between a claim and a chart-only comparison.
 #[test]
 fn read_rejects_each_tampered_document() {
     let dir = temp_dir("tamper");
-    let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
+    let op = compact(&synthetic_atlas(), "", "`O(1)`.", Compensation::None)
+        .expect("synthetic atlas compacts");
     write(&dir, &RunParams::from(&meta()), &[(meta(), op)]).expect("dataset writes");
     let op_path = dir.join("synthetic.json");
     let pristine = std::fs::read(&op_path).expect("op file exists");
@@ -170,7 +177,14 @@ fn read_rejects_each_tampered_document() {
         "format",
     );
     tamper(&|doc| doc["meta"]["base_seed"] = 7.into(), "run parameters");
-    tamper(&|doc| doc["op"]["claim"] = "".into(), "non-empty");
+    tamper(&|doc| doc["op"]["contract"] = "".into(), "non-empty");
+    tamper(
+        &|doc| {
+            doc["op"]["claim"] = "n".into();
+            doc["op"]["comparison"] = "n^2".into();
+        },
+        "mutually exclusive",
+    );
     tamper(&|doc| doc["op"]["res"] = 0.0.into(), "resolution");
     tamper(
         &|doc| doc["op"]["sizes"] = serde_json::json!([2, 1]),
@@ -191,7 +205,8 @@ fn read_rejects_each_tampered_document() {
 #[test]
 fn gzipped_documents_read_transparently() {
     let dir = temp_dir("gz");
-    let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
+    let op = compact(&synthetic_atlas(), "", "`O(1)`.", Compensation::Claim("1"))
+        .expect("synthetic atlas compacts");
     write(&dir, &RunParams::from(&meta()), &[(meta(), op)]).expect("dataset writes");
     let (plain_params, plain_ops) = read(&dir).expect("plain dataset loads");
     for name in ["synthetic.json", super::INDEX_FILE] {
@@ -246,8 +261,14 @@ fn compact_dump_joins_the_roster_and_rejects_measure_drift() {
         "the roster row's contract is stamped"
     );
     assert_eq!(
-        ops[0].1.claim, spec.claim,
+        ops[0].1.claim,
+        spec.compensation.claim(),
         "the roster row's claim is stamped"
+    );
+    assert_eq!(
+        ops[0].1.comparison,
+        spec.compensation.comparison(),
+        "the roster row's comparison is stamped"
     );
 
     // The same dump with a drifted size measure is refused.

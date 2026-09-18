@@ -1,5 +1,5 @@
 use super::{listing, select};
-use crate::ops::{Inputs, OpSpec, Operand, ROSTER};
+use crate::ops::{Compensation, Inputs, OpSpec, Operand, ROSTER};
 
 /// Construct an operation whose name is the only meaningful field.
 fn spec(name: &'static str) -> OpSpec {
@@ -10,7 +10,7 @@ fn spec(name: &'static str) -> OpSpec {
         size_measure: "unused",
         variant: "",
         contract: "unused",
-        claim: "unused",
+        compensation: Compensation::None,
         measure: |_, _, _| unreachable!("selection never measures"),
     }
 }

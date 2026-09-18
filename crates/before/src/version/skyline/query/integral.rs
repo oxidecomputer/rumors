@@ -205,15 +205,14 @@
 //! reaches with the ledger never armed (the plateau-puncture family, whose
 //! exact rank numerator *is* the plateau times the punctured turn mass).
 //!
-//! Two facts make the whole settle `O(M(|v|))` when multiplication grows by a
-//! fixed power. Cluster splitting keeps every densified span
+//! Two facts make the whole settle `O(M(|v|))`, where `M(n)` is the cost of
+//! multiplying `n`-bit integers. Cluster splitting keeps every densified span
 //! funded: gaps wider than the factor split, so separated products total
 //! `O(span)` traffic, and bridged gaps cost less than the product a split would
-//! add. And the mass balance makes node products shrink geometrically down the
-//! tree, telescoping their costs into the root's.
-//!
-//! With near-linear multiplication, each tree level may instead contribute
-//! `O(M(|v|))`, giving the general `O(M(|v|) · log |v|)` bound.
+//! add. Mass balancing makes node products shrink geometrically down the tree,
+//! so their costs telescope into the root's. The integer backend's
+//! largest-input algorithm is Toom-3, giving `M(n) = O(n^(log₃ 5))`, and hence
+//! `O(n^1.465)`.
 //!
 //! ## The multiplication floor
 //!
@@ -900,16 +899,15 @@ impl Integrator {
     /// by entry count: the whole ledger is in hand at the close, so each node
     /// splits its run at the mass midpoint ([`Self::mass_split`] states the split's
     /// contract), node masses shrink geometrically down the tree, and the
-    /// per-node backend products telescope into the top node's under any
-    /// power-law multiplication tier — where an entry-count
-    /// split would let one wide arming meet an equal share of window mass at
-    /// every level and stack a polylog on top of the multiplication bound (the
-    /// module doc's settle bound carries the resulting cost). The reduction is
-    /// iterative on explicit stacks per the crate's recursion rule, and it
-    /// stays hand-rolled rather than routed through `crate::fold`'s binary
-    /// counter: the counter is an online entry-count balancer, this is an
-    /// offline mass balancer whose combiner charges the running total as a side
-    /// effect of every merge.
+    /// per-node backend products telescope into the top node's under the
+    /// backend's power-law multiplication tiers. An entry-count split would
+    /// instead let one wide arming meet an equal share of window mass at every
+    /// level, adding a logarithmic factor to the multiplication bound. The
+    /// reduction is iterative on explicit stacks per the crate's recursion
+    /// rule, and it stays hand-rolled rather than routed through `crate::fold`'s
+    /// binary counter: the counter is an online entry-count balancer, this is
+    /// an offline mass balancer whose combiner charges the running total as a
+    /// side effect of every merge.
     fn settle_armings(&mut self) {
         // The ledger must hold armings: an empty one would still push the
         // virtual closing entry and charge the final window against nobody's

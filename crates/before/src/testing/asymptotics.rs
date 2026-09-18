@@ -318,13 +318,13 @@ fn clock_join_all_log_factor_is_alive() {
     );
 }
 
-/// The multiplication-bound claims' answer-embedded product is alive —
-/// in factor *content*, not width alone.
+/// The exact-rank fold still embeds a product whose two factors carry
+/// independent content.
 ///
 /// The plateau-puncture rank equals the closed form `2·x·y + 1` at
 /// scale `2^(66d)` over the family's committed factors, computed here
 /// through an independent backend multiplication — the value
-/// structure behind the `Ω(M(|v|))` floor the rank rustdoc states:
+/// structure behind the fold's `Ω(M(|v|))` lower bound:
 /// the exact answer is a wide × dense integer product whose factors the
 /// input funds separately (the arbitrary-factor reduction is the
 /// query fold's `arbitrary_factors_embed_their_product_in_exact_rank`

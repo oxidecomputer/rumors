@@ -102,8 +102,9 @@ triage's dispositions and branches are leads only.
       exact comparison on the settle-triggering families.
       Source: `rank-33`.
 
-- [ ] Exercise rank-producing folds at the multiplication tier their
-      worst-case contract describes.
+- [x] State rank-producing folds at their attainable `O(M(n))` bound, and
+      retain the exact-product family that establishes the multiplication term
+      across the public fold paths.
       Source: `skyline-query-9`.
 
 - [ ] Decode `Rank` directly from `Read` without retaining a redundant copy of

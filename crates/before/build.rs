@@ -216,19 +216,25 @@ fn check_readme_figure_fresh(figure: &str) {
     );
 }
 
-/// One single-line island: the clickable contract-and-claim summary, the
-/// widget's data payload, and a no-JavaScript fallback.
+/// One single-line island: the clickable contract summary, the widget's data
+/// payload, and a no-JavaScript fallback.
 fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
     let contract = code_spans(op["contract"].as_str().expect("validated"));
     let claim = op["claim"].as_str().expect("validated");
+    let comparison = op["comparison"].as_str().unwrap_or("");
     // A variant label leads the summary, so a site's stacked charts
     // scan by what distinguishes them.
     let variant = match op["variant"].as_str().unwrap_or("") {
         "" => String::new(),
         label => format!("{}: ", code_spans(label)),
     };
-    // The widget's dataset payload. `default` is the claim: the
-    // pre-selected compensation hypothesis.
+    // A panel may select a visual comparison without publishing it as a claim.
+    // Otherwise a concrete claim selects itself; two empty values select none.
+    let default = if comparison.trim().is_empty() {
+        claim
+    } else {
+        comparison
+    };
     let data = serde_json::json!({
         "name": op["op_name"],
         "size_measure": op["size_measure"],
@@ -238,26 +244,29 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
         "sizes": op["sizes"],
         "cols": op["cols"],
         "res": op["res"],
-        "default": claim,
+        "default": default,
     });
     // `</` inside inline JSON would close the island's own script
     // element; JSON strings tolerate the escaped solidus verbatim.
     let data = data.to_string().replace("</", "<\\/");
-    let claim_html = escape(claim);
+    let summary = if claim.trim().is_empty() {
+        format!("{variant}{contract}")
+    } else {
+        let claim = escape(claim);
+        format!(
+            "{variant}<span class=\"fs-claim\"><code>O({claim})</code> \
+             in total input bytes</span>; {contract}"
+        )
+    };
     format!(
-        "<details class=\"toggle fs-details\"><summary>{variant}\
-         <span class=\"fs-claim\"><code>O({claim_html})</code> \
-         in total input bytes</span>; {contract}</summary>\
+        "<details class=\"toggle fs-details\"><summary>{summary}</summary>\
          <div class=\"fuelscape\"><script type=\"application/json\">{data}</script></div>\
-         <noscript><p>The interactive chart requires JavaScript; the bound \
-         is O({claim_html}) in total input bytes.</p></noscript>\
+         <noscript><p>The interactive chart requires JavaScript.</p></noscript>\
          </details>\n"
     )
 }
 
-/// The island's summary as plain Markdown: the claim and contract in the
-/// doc comments' own backtick idiom, word for word what the island's
-/// summary shows.
+/// The island's summary as plain Markdown, word for word what the island shows.
 ///
 /// The text of record for the literal each island site carries under
 /// `cfg(not(doc))`, what a reader sees wherever the island cannot render.
@@ -269,7 +278,11 @@ fn contract_paragraph(op: &serde_json::Value) -> String {
         "" => String::new(),
         label => format!("{label}: "),
     };
-    format!("{variant}`O({claim})` in total input bytes; {contract}\n")
+    if claim.trim().is_empty() {
+        format!("{variant}{contract}\n")
+    } else {
+        format!("{variant}`O({claim})` in total input bytes; {contract}\n")
+    }
 }
 
 /// Renders a contract string's backticked spans as `<code>`, escaping
@@ -318,13 +331,26 @@ fn check_banner(file: &str, doc: &serde_json::Value, expected: &str) {
 /// re-checked here because the committed files, not that reader, are
 /// this script's input.
 fn validate(file: &str, op: &serde_json::Value) {
-    for key in ["contract", "claim"] {
-        let s = op[key].as_str().unwrap_or("");
-        assert!(
-            !s.trim().is_empty(),
-            "{file}: {key} must be a non-empty string"
-        );
-    }
+    let contract = op["contract"].as_str().unwrap_or("");
+    let claim = op["claim"].as_str().unwrap_or("");
+    let comparison = op["comparison"].as_str().unwrap_or("");
+    assert!(
+        !contract.trim().is_empty(),
+        "{file}: contract must be a non-empty string"
+    );
+    assert!(
+        op["claim"].as_str().is_some(),
+        "{file}: claim must be a string"
+    );
+    assert!(
+        op.get("comparison")
+            .is_none_or(|comparison| comparison.is_string()),
+        "{file}: comparison must be a string when present"
+    );
+    assert!(
+        claim.trim().is_empty() || comparison.trim().is_empty(),
+        "{file}: claim and comparison are mutually exclusive"
+    );
     assert!(
         op["res"].as_f64().is_some_and(|r| r.is_finite() && r > 0.0),
         "{file}: res must be finite and positive"

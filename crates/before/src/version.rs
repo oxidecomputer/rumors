@@ -309,10 +309,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -384,12 +382,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_distance.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self| + |other|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of
-    /// unbounded-integer multiplication (about `O(n log n)` in this
-    /// implementation).
     ///
     /// # Example
     ///
@@ -435,12 +429,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_lag.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self| + |other|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of
-    /// unbounded-integer multiplication (about `O(n log n)` in this
-    /// implementation).
     ///
     /// # Example
     ///
@@ -1108,10 +1098,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -1135,10 +1123,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///

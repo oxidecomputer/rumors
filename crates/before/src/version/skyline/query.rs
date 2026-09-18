@@ -71,11 +71,10 @@
 //! - the certified freeze work: a settle per freeze at the multiplication
 //!   bound over the parked width and the segment's within-segment depth
 //!   variation, a ledger entry once per wide arming, and one mass-balanced
-//!   product-tree settle at the sweep's close — the [`integral`]
-//!   submodule's doc carries the settle bounds: `O(M(|v|))` under every
-//!   power-law tier of the backend's multiplication, at most one extra
-//!   tree-depth factor past its quasilinear threshold, and `Ω(M(|v|))`
-//!   mandatory for any fold that answers exactly;
+//!   product-tree settle at the sweep's close. The [`integral`] submodule
+//!   proves that these charges total `O(M(|v|))`, where `M(n)` is the cost of
+//!   multiplying `n`-bit integers, and that exact answers require
+//!   `Ω(M(|v|))` work in the worst case;
 //! - the practical regime: the freeze machinery's two feeds (segment mass
 //!   and position window) open at the first freeze, so a sweep that never
 //!   freezes — word-scale heights, the regime the `RANK_CONCURRENT` row
@@ -234,11 +233,10 @@ pub fn lag(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
 ///
 /// # Complexity
 ///
-/// For `n` total encoded input bytes, the walk takes `O(M(n) log n)` time and
-/// `O(n)` transient space in the worst case. `M(n)` is the time to multiply
-/// integers whose binary width is proportional to `n`. A rank tie must settle
-/// the exact difference to zero, so retaining only its sign cannot improve the
-/// worst-case bound.
+/// For `n` total encoded input bytes, the walk takes `O(M(n))` time and `O(n)`
+/// transient space, where `M(n)` is the cost of multiplying `n`-bit integers.
+/// A rank tie must settle the exact difference to zero, so retaining only its
+/// sign cannot improve the worst-case bound.
 ///
 /// # Panics
 ///

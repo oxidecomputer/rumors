@@ -94,10 +94,8 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -147,10 +145,8 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -178,10 +174,8 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
     /// # Example
     ///
@@ -211,12 +205,8 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of
-    /// unbounded-integer multiplication (about `O(n log n)` in this
-    /// implementation).
     ///
     /// # Example
     ///
@@ -239,12 +229,8 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of
-    /// unbounded-integer multiplication (about `O(n log n)` in this
-    /// implementation).
     ///
     /// # Example
     ///
@@ -276,12 +262,8 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_decode.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
-    ///
-    /// Typical inputs run far below the worst case; `M` is the complexity of
-    /// unbounded-integer multiplication (about `O(n log n)` in this
-    /// implementation).
     ///
     /// # Example
     ///
@@ -396,16 +378,15 @@ impl core::hash::Hash for Ranked<'_> {
 /// # Complexity
 ///
 /// With `n = |self| + |other|`, where each size is its version's encoded byte
-/// length, comparison uses `O(M(n) log n)` time and `O(n)` transient space in
-/// the worst case. `M(n)` is the time to multiply integers whose binary width
-/// is proportional to `n`. Exact rank ties require resolving the complete rank
-/// difference, so they have the same worst-case arithmetic as computing a
-/// rank.
+/// length, comparison uses `O(M(n))` time and `O(n)` transient space, where
+/// `M(n)` is the cost of multiplying `n`-bit integers. Exact rank ties require
+/// resolving the complete rank difference, so they have the same worst-case
+/// arithmetic as computing a rank.
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_cmp.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self| + |other|)) · log(|self| + |other|)` time, `O(|self| + |other|)` space"
+    doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
 )]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {

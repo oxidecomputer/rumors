@@ -143,6 +143,39 @@ const FORKS_SHARES: u32 = 8;
 /// width.
 const TICKS_COUNT: u32 = 1_000_000_000;
 
+/// The cost shared by operations that compute or verify an exact rank.
+const RANK_CONTRACT: &str = "`O(M(n))` time and `O(n)` space for `n` encoded \
+    input bytes; `M(n)` is the cost of multiplying `n`-bit integers";
+
+/// How a panel initially compensates its measured growth.
+#[derive(Clone, Copy)]
+pub enum Compensation {
+    /// Select this expression and publish it as a concrete total-input bound.
+    Claim(&'static str),
+    /// Select this expression only as a useful visual comparison.
+    Comparison(&'static str),
+    /// Open without a selected expression.
+    None,
+}
+
+impl Compensation {
+    /// The concrete claim published beside the chart, if any.
+    pub const fn claim(self) -> &'static str {
+        match self {
+            Self::Claim(expression) => expression,
+            Self::Comparison(_) | Self::None => "",
+        }
+    }
+
+    /// The visual comparison selected independently of a published claim.
+    pub const fn comparison(self) -> &'static str {
+        match self {
+            Self::Comparison(expression) => expression,
+            Self::Claim(_) | Self::None => "",
+        }
+    }
+}
+
 /// One measured operation: a roster row.
 pub struct OpSpec {
     /// The atlas name (also the output file stem).
@@ -167,17 +200,16 @@ pub struct OpSpec {
     /// panels, a leading label distinguishes them ("floor + ceiling:
     /// …"). Compaction stamps it into the committed widget data.
     pub contract: &'static str,
-    /// The claimed worst-case growth, in the widget's expression grammar.
+    /// What the widget selects initially, and whether it is a published claim.
     ///
-    /// The contract's asymptote denominated in total encoded input bytes
-    /// (e.g. `"n"`, `"n log n"`): the island's pre-selected compensation
-    /// hypothesis, so summary and chart always assert the same bound.
+    /// Expressions use the widget's grammar and denominate growth in total
+    /// encoded input bytes (for example, `"n"` or `"n log n"`).
     /// Uniform sampling shows the *bulk*, so an early-exit operation
     /// deliberately opens with a falling band — the bulk beating the
     /// claimed worst case is the finding, and the flatter guides are one
     /// click away. The envelope suite and the fuzz-fit bands own
-    /// worst-case enforcement; this string routes a reader's first look.
-    pub claim: &'static str,
+    /// worst-case enforcement; this choice routes a reader's first look.
+    pub compensation: Compensation,
     /// Stage `inputs` (one canonical byte sequence per operand) and run the
     /// measured kernel, returning its fuel.
     ///
@@ -304,7 +336,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(n)`, `n` the bytes read, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             g.stage_write(&inputs[0]);
             g.call("ff_version_decode", &[0])
@@ -317,7 +349,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call("ff_version_encode", &[0])
@@ -329,8 +361,8 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Version::rank"],
         size_measure: M_UNARY,
         variant: "",
-        contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
-        claim: "n (log n)^2",
+        contract: RANK_CONTRACT,
+        compensation: Compensation::Comparison("n (log n)^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call("ff_version_rank", &[1, 0])
@@ -343,7 +375,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call_i64("ff_version_min_ticks", &[0])
@@ -356,7 +388,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(|self|)` to drain",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call_i64("ff_version_shape", &[0])
@@ -369,7 +401,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SLICE_CAPPED,
         variant: "",
         contract: "`O(N · total input size)` to drain, `N` the compile-time arity",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, arity| {
             let n = load_slice(g, inputs);
             debug_assert_eq!(n as usize, arity, "one drawn version per slice operand");
@@ -383,7 +415,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "",
         contract: "`O(|self| + |party|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -400,7 +432,7 @@ pub const ROSTER: &[OpSpec] = &[
              large count is the whole n-dependence)",
         variant: "",
         contract: "`O(|self| + |party| + log k)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -420,7 +452,7 @@ pub const ROSTER: &[OpSpec] = &[
              projection view materialized via to_version)",
         variant: "",
         contract: "the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
-        claim: "n^2",
+        compensation: Compensation::Claim("n^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -439,7 +471,7 @@ pub const ROSTER: &[OpSpec] = &[
              preparation, and the equality entry runs the same fused mechanism)",
         variant: "vs `Version`",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -462,7 +494,7 @@ pub const ROSTER: &[OpSpec] = &[
              entry runs the same fused mechanism)",
         variant: "vs `OwnVersion`",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -478,7 +510,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "comparison",
         contract: "`O(|a| + |b|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -492,7 +524,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -510,7 +542,7 @@ pub const ROSTER: &[OpSpec] = &[
              O(1) prefix exit)",
         variant: "equality",
         contract: "`O(|a| + |b|)`: canonical byte compare, measured on equal pairs",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[0]);
@@ -525,7 +557,7 @@ pub const ROSTER: &[OpSpec] = &[
              over the canonical bytes)",
         variant: "",
         contract: "`O(|self|)`: one pass over the canonical bytes",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call_i64("ff_version_hash", &[0])
@@ -541,7 +573,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -558,7 +590,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -571,8 +603,8 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Version::distance"],
         size_measure: M_BINARY,
         variant: "",
-        contract: "`O(M(|self|) · log |self|)` time, `O(|self| + |other|)` space",
-        claim: "n (log n)^2",
+        contract: RANK_CONTRACT,
+        compensation: Compensation::Comparison("n (log n)^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -585,8 +617,8 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Version::lag"],
         size_measure: M_BINARY,
         variant: "",
-        contract: "`O(M(|self|) · log |self|)` time, `O(|self| + |other|)` space",
-        claim: "n (log n)^2",
+        contract: RANK_CONTRACT,
+        compensation: Compensation::Comparison("n (log n)^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -600,7 +632,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SLICE,
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             g.call("ff_version_join_all", &[n, 0, n])
@@ -613,7 +645,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SLICE,
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             g.call("ff_version_meet_all", &[n, 0, n])
@@ -629,7 +661,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -645,7 +677,7 @@ pub const ROSTER: &[OpSpec] = &[
              receiver, feed order preserved)",
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             g.call("ff_version_span_all", &[n, 0, n])
@@ -659,7 +691,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(|self|)` to drain",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call_i64("ff_party_shape", &[0])
@@ -672,7 +704,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(n)` with `n` the size of the input, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             g.stage_write(&inputs[0]);
             g.call("ff_party_decode", &[0])
@@ -685,7 +717,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_encode", &[0])
@@ -698,7 +730,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_UNARY,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_fork", &[1, 0])
@@ -712,7 +744,7 @@ pub const ROSTER: &[OpSpec] = &[
              constant, 8)",
         variant: "",
         contract: "a full drain costs `O(|self| + k (|self| + log k))`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_forks", &[1, 0, FORKS_SHARES])
@@ -727,7 +759,7 @@ pub const ROSTER: &[OpSpec] = &[
              partial domain is reached by re-merging a split)",
         variant: "",
         contract: "`O(|self| + |other|)`, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             prep(g, "ff_party_fork", &[1, 0]);
@@ -746,7 +778,7 @@ pub const ROSTER: &[OpSpec] = &[
              re-merging a split",
         variant: "",
         contract: "`O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, arity| {
             let shares = arity as u32;
             load_party(g, 0, &inputs[0]);
@@ -761,7 +793,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "",
         contract: "`O(|self| + |other|)`, no allocation",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -775,7 +807,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_BINARY,
         variant: "",
         contract: "`O(|self| + |other|)`, no allocation",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -790,7 +822,7 @@ pub const ROSTER: &[OpSpec] = &[
              and operand order chosen so the difference exists",
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_party(g, 1, &inputs[1]);
@@ -820,7 +852,7 @@ pub const ROSTER: &[OpSpec] = &[
              compare the version_eq panel prices on its equal pair)",
         variant: "",
         contract: "`O(|self|)`: one pass over the canonical bytes",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call_i64("ff_party_hash", &[0])
@@ -834,7 +866,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(n)` with `n` the size of the input, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             // The unmeasured encode leaves the clock's canonical bytes in
@@ -850,7 +882,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_encode", &[0])
@@ -863,7 +895,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_tick", &[0])
@@ -876,7 +908,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_fork", &[3, 0])
@@ -892,7 +924,7 @@ pub const ROSTER: &[OpSpec] = &[
              refcount-bump version clone per child)",
         variant: "",
         contract: "a full drain costs at most `O(|self| + k (|self| + log k))`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_forks", &[3, 0, FORKS_SHARES])
@@ -905,7 +937,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_send", &[0])
@@ -919,7 +951,7 @@ pub const ROSTER: &[OpSpec] = &[
              version, split uniform three ways",
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             load_version(g, 3, &inputs[2]);
@@ -933,7 +965,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK_PAIR,
         variant: "",
         contract: "`O(|self| + |other|)`, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock_pair(g, inputs);
             g.call("ff_clock_join", &[4, 5])
@@ -950,7 +982,7 @@ pub const ROSTER: &[OpSpec] = &[
              drawn clocks into the first",
         variant: "",
         contract: "`O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             // The drawn clock count rides in-band: one party, then one
             // version per clock.
@@ -977,7 +1009,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK_PAIR,
         variant: "",
         contract: "`O(|self| + |other|)`, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock_pair(g, inputs);
             g.call("ff_clock_sync", &[4, 5])
@@ -995,7 +1027,7 @@ pub const ROSTER: &[OpSpec] = &[
              participant",
         variant: "",
         contract: "`O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             // The drawn clock count rides in-band, composed exactly as
             // the clock_join_all row's.
@@ -1022,7 +1054,7 @@ pub const ROSTER: &[OpSpec] = &[
              empty batch: the bare batch tick)",
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let msgs = (inputs.len() - 2) as u32;
             load_party(g, 0, &inputs[0]);
@@ -1041,7 +1073,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(1)`",
-        claim: "1",
+        compensation: Compensation::Claim("1"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1055,7 +1087,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(1)`",
-        claim: "1",
+        compensation: Compensation::Claim("1"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_into_parts", &[3, 4, 0])
@@ -1069,7 +1101,7 @@ pub const ROSTER: &[OpSpec] = &[
              split uniform (the view materialized via to_version)",
         variant: "",
         contract: "the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
-        claim: "n^2",
+        compensation: Compensation::Claim("n^2"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_own_version", &[3, 0])
@@ -1082,7 +1114,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_CLOCK,
         variant: "",
         contract: "`O(|self|)` to drain",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call_i64("ff_clock_shape", &[0])
@@ -1097,7 +1129,7 @@ pub const ROSTER: &[OpSpec] = &[
              split uniform (ranks derived by Version::rank in preparation)",
         variant: "",
         contract: "`O(‖self‖ + ‖rhs‖)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1114,7 +1146,7 @@ pub const ROSTER: &[OpSpec] = &[
              split uniform (ranks derived by Version::rank in preparation)",
         variant: "",
         contract: "`O(‖self‖ + ‖other‖)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1132,7 +1164,7 @@ pub const ROSTER: &[OpSpec] = &[
              exists",
         variant: "",
         contract: "`O(‖self‖ + ‖other‖)`; a `None` or zero result costs only the comparison",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1158,7 +1190,7 @@ pub const ROSTER: &[OpSpec] = &[
              output)",
         variant: "",
         contract: "`O(n)` in the encoded size of the `Version` from which the rank was derived",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_rank", &[1, 0]);
@@ -1175,7 +1207,7 @@ pub const ROSTER: &[OpSpec] = &[
              the encoded input)",
         variant: "",
         contract: "`O(‖self‖)` time and space",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_rank", &[1, 0]);
@@ -1191,7 +1223,7 @@ pub const ROSTER: &[OpSpec] = &[
              preparation; the measured strict parse is linear in the stream)",
         variant: "",
         contract: "`O(n)`, `n` the bytes read, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_rank", &[1, 0]);
@@ -1207,8 +1239,8 @@ pub const ROSTER: &[OpSpec] = &[
              one rank fold, the rank stream emission, and one copy of the \
              version's canonical bytes; view construction is O(1))",
         variant: "",
-        contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
-        claim: "n (log n)^2",
+        contract: RANK_CONTRACT,
+        compensation: Compensation::Comparison("n (log n)^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call("ff_ranked_encode", &[0])
@@ -1222,8 +1254,8 @@ pub const ROSTER: &[OpSpec] = &[
              rank component alone: one fused rank fold and emission; view \
              construction is O(1))",
         variant: "",
-        contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
-        claim: "n (log n)^2",
+        contract: RANK_CONTRACT,
+        compensation: Compensation::Comparison("n (log n)^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call("ff_ranked_encode_rank", &[0])
@@ -1237,8 +1269,8 @@ pub const ROSTER: &[OpSpec] = &[
              parsed (key produced in unmeasured preparation; the measured \
              decode runs the strict parse plus the verifying rank fold)",
         variant: "",
-        contract: "`O(M(|self|) · log |self|)` time, `O(|self|)` space",
-        claim: "n (log n)^2",
+        contract: RANK_CONTRACT,
+        compensation: Compensation::Comparison("n (log n)^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_ranked_encode", &[0]);
@@ -1251,9 +1283,8 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Ranked comparisons and the Ranked / Rank From conversions (the total order)"],
         size_measure: "total encoded bytes of two distinct viewed versions",
         variant: "",
-        contract: "`O(M(|self| + |other|)) · log(|self| + |other|)` time, \
-             `O(|self| + |other|)` space",
-        claim: "n (log n)^2",
+        contract: RANK_CONTRACT,
+        compensation: Compensation::Comparison("n (log n)^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1268,7 +1299,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1284,7 +1315,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1300,7 +1331,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1316,7 +1347,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1332,7 +1363,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_HULL,
         variant: "",
         contract: "`O(|self|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1347,7 +1378,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_HULL,
         variant: "",
         contract: "`O(n)`, with `n` the bytes read, accepted or rejected",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1373,7 +1404,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PAIR,
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1399,7 +1430,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PAIR,
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1427,7 +1458,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PAIR,
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1453,7 +1484,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_PAIR,
         variant: "",
         contract: "`O(|self| + |other|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1471,7 +1502,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_FOLD,
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             for i in 0..n {
@@ -1487,7 +1518,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_FOLD,
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             for i in 0..n {
@@ -1505,7 +1536,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_FOLD,
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             for i in 0..n {
@@ -1521,7 +1552,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_SPAN_FOLD,
         variant: "",
         contract: "`O((|self| + |iter|) log k)` time, `k` the operand count",
-        claim: "n log n",
+        compensation: Compensation::Claim("n log n"),
         measure: |g, inputs, _| {
             let n = load_slice(g, inputs);
             for i in 0..n {
@@ -1545,7 +1576,7 @@ pub const ROSTER: &[OpSpec] = &[
              and the measured kernel materializes both projected endpoints)",
         variant: "",
         contract: "the view is `O(1)`; materializing both endpoints: `O(|self| + |result|)`, `|result| = O(|self|^2)`",
-        claim: "n^2",
+        compensation: Compensation::Claim("n^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1566,7 +1597,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_OWN_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1588,7 +1619,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_OWN_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1610,7 +1641,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_OWN_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1632,7 +1663,7 @@ pub const ROSTER: &[OpSpec] = &[
         size_measure: M_OWN_SPAN_PROBE,
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1658,7 +1689,7 @@ pub const ROSTER: &[OpSpec] = &[
              atom view is O(1) construction)",
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1674,7 +1705,7 @@ pub const ROSTER: &[OpSpec] = &[
              under an O(1) verdict fold; the atom view is O(1) construction)",
         variant: "",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1691,7 +1722,7 @@ pub const ROSTER: &[OpSpec] = &[
              walk over the probe and the one bound)",
         variant: "floor only",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1709,7 +1740,7 @@ pub const ROSTER: &[OpSpec] = &[
              walk over the probe and the one bound)",
         variant: "ceiling only",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1727,7 +1758,7 @@ pub const ROSTER: &[OpSpec] = &[
              fused membership walk over the probe and both bounds)",
         variant: "floor + ceiling",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1746,7 +1777,7 @@ pub const ROSTER: &[OpSpec] = &[
              fused membership walk over the probe and the one hole stream)",
         variant: "one hole",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1765,7 +1796,7 @@ pub const ROSTER: &[OpSpec] = &[
              bound streams)",
         variant: "floor + hole",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1785,7 +1816,7 @@ pub const ROSTER: &[OpSpec] = &[
              bound streams)",
         variant: "ceiling + hole",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1806,7 +1837,7 @@ pub const ROSTER: &[OpSpec] = &[
              the probe and all three bound streams)",
         variant: "floor + ceiling + hole",
         contract: "`O(|self| + |version|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1826,7 +1857,7 @@ pub const ROSTER: &[OpSpec] = &[
              two-probe co-walk plus the clamp legs it demands)",
         variant: "floor only",
         contract: "`O(|self| + |span|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1847,7 +1878,7 @@ pub const ROSTER: &[OpSpec] = &[
              fused two-probe co-walk plus the clamp legs it demands)",
         variant: "ceiling only",
         contract: "`O(|self| + |span|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1873,7 +1904,7 @@ pub const ROSTER: &[OpSpec] = &[
              fused two-probe co-walk plus the clamp legs it demands)",
         variant: "floor + ceiling",
         contract: "`O(|self| + |span|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1895,7 +1926,7 @@ pub const ROSTER: &[OpSpec] = &[
              the fused two-probe co-walk plus the clamp legs it demands)",
         variant: "one hole",
         contract: "`O(|self| + |span|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1922,7 +1953,7 @@ pub const ROSTER: &[OpSpec] = &[
              legs it demands)",
         variant: "floor + hole",
         contract: "`O(|self| + |span|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1950,7 +1981,7 @@ pub const ROSTER: &[OpSpec] = &[
              legs it demands)",
         variant: "ceiling + hole",
         contract: "`O(|self| + |span|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -1979,7 +2010,7 @@ pub const ROSTER: &[OpSpec] = &[
              two-probe co-walk plus the clamp legs it demands)",
         variant: "floor + ceiling + hole",
         contract: "`O(|self| + |span|)`",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -2003,7 +2034,7 @@ pub const ROSTER: &[OpSpec] = &[
              the measured merge joins the floors — one version join walk)",
         variant: "",
         contract: "`O(|a| + |b|)`: one fused join walk over the two bounds",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -2022,7 +2053,7 @@ pub const ROSTER: &[OpSpec] = &[
              walk, the order dual of query_conjoin_floors)",
         variant: "",
         contract: "`O(|a| + |b|)`: one fused meet walk over the two bounds",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
@@ -2048,7 +2079,7 @@ pub const ROSTER: &[OpSpec] = &[
              against the merged bounds and the cross-side pruning probes)",
         variant: "",
         contract: "`O(n)` for this fixed one-hole shape",
-        claim: "n",
+        compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
