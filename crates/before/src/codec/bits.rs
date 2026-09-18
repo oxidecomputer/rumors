@@ -286,6 +286,11 @@ pub(crate) fn require_marker_padding(bytes: &[u8], pos: u64) -> Result<(), Decod
         pos <= total,
         "padding checked at a position inside the buffer"
     );
+    if pos == 0 && !bytes.is_empty() {
+        // A value has at least one live bit. Treating the first bit as its
+        // marker would give the empty stream a nonempty spelling.
+        return Err(Decode::TrailingBits);
+    }
     let remainder = total - pos;
     match remainder {
         0 => Err(Decode::Truncated),

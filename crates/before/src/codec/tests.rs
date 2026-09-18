@@ -106,6 +106,37 @@ fn gamma_truncated() {
 
 // ───────────────────────── frozen storage (Bits) ─────────────────────────
 
+/// Every byte spelling accepted by the marker validator is canonical storage.
+///
+/// One- and two-byte buffers exhaust every final byte and every possible marker
+/// position. Earlier bytes cannot affect either padding decision; the second
+/// byte supplies all positions with more than one byte of trailing input.
+#[test]
+fn marker_validation_agrees_with_storage_canonicality() {
+    assert!(matches!(
+        super::require_marker_padding(&[], 0),
+        Err(Decode::Truncated)
+    ));
+    assert!(matches!(
+        super::require_marker_padding(&[0x80], 0),
+        Err(Decode::TrailingBits)
+    ));
+
+    for len in 1..=2usize {
+        for last in 0..=u8::MAX {
+            let mut bytes = vec![0x55; len];
+            bytes[len - 1] = last;
+            for pos in 0..=len as u64 * 8 {
+                if super::require_marker_padding(&bytes, pos).is_ok() {
+                    let bits = super::Bits::from_canonical(bytes.clone().into());
+                    assert!(super::padding_is_canonical(&bits));
+                    assert_eq!(bits.len(), pos);
+                }
+            }
+        }
+    }
+}
+
 /// Freezing a truncated buffer preserves live bits and writes canonical padding.
 #[test]
 fn freeze_canonicalizes_storage() {
@@ -145,14 +176,14 @@ fn flush_stream_carries_a_whole_marker_byte() {
     assert!(super::padding_is_canonical(&frozen));
 }
 
-/// `Bits::ptr_eq` implies value equality, and nonempty clones share storage.
+/// `Bits::ptr_eq` implies equality, and nonempty clones share storage.
 ///
 /// A clone shares the frozen buffer (`ptr_eq` true), while two independent
 /// freezes of the same *nonempty* content are equal (`canonical_eq`) but not
-/// pointer-identical. Independent empty streams may share the same dangling
-/// pointer, so pointer identity proves equality but not clone provenance.
+/// pointer-identical. Independent empty streams may share `Bytes`' static empty
+/// slice, so pointer identity does not prove clone provenance.
 #[test]
-fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
+fn ptr_eq_implies_equality_and_clones_share_nonempty_storage() {
     let build = || super::Bits::freeze(bits_buf![1, 0, 1, 1, 0]);
     let a = build();
     let clone = a.clone();
@@ -161,8 +192,8 @@ fn ptr_eq_implies_equality_with_clones_the_nonempty_source() {
     let b = build();
     assert!(!a.ptr_eq(&b));
     assert!(super::canonical_eq(&a, &b));
-    // Independently frozen empty streams alias: ptr_eq true with no clone
-    // anywhere — and still value-equal, the only fact a fast path may use.
+    // Independent empty streams can share the static empty slice without
+    // either being cloned from the other.
     let e1 = super::Bits::freeze(BitsBuf::new());
     let e2 = super::Bits::freeze(BitsBuf::new());
     assert!(e1.ptr_eq(&e2));
