@@ -1,11 +1,11 @@
 # Rumors review checklist
 
-**Current:** generated schedules exercise the public unordered observer at `63933cc7`.
+**Current:** handshake rejection and quiet-driver verdicts corrected at `2964c47a`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** repair disruption and handshake properties that can pass vacuously or
-omit terminal paths, then strengthen resource and transport convergence checks.
+**Next:** exercise driver cancellation across drop points and one-byte links
+under non-floor windows, then strengthen resource and transport convergence checks.
 High-count property settings wait for `before`'s generator sweep; remaining
 shared-helper cleanup follows the correctness-shaped properties it supports.
 
@@ -539,11 +539,14 @@ Dependencies: 04–05 and 16.
 - [x] Keep party-conservation fault coverage in the in-process harness — `37bcab3f`, `5619a9ff`, `41129172`, `64964725`.
       Sources: `suite-economics-10`, `tests-disruption-handshake-2–4`, `tests-disruption-handshake-7`, `tests-disruption-handshake-8`, T132, T143, T149, T154, N15.
 
-- [ ] Exercise driver termination, cancellation, redaction, and handshake ordering without vacuous checks.
-      Sources: `session-bookmark-18`, `session-bookmark-42`, `testing-infra-4`, `testing-infra-21`, `testing-infra-22`, `tests-disruption-handshake-14–18`, `tests-disruption-handshake-21–23`, `tests-disruption-handshake-25`, `tests-disruption-handshake-26`, T19, T28, T129, T130, T132.
+- [x] Make quiet-driver verdicts deterministic and check handshake rejection against the outbound wire and unchanged state — `2964c47a`.
+      Sources: `tests-disruption-handshake-14`, `tests-disruption-handshake-20–23`, T130, T132.
+
+- [ ] Exercise remaining driver termination, cancellation, redaction, and window schedules without vacuous checks.
+      Sources: `session-bookmark-18`, `session-bookmark-42`, `testing-infra-4`, `testing-infra-21`, `testing-infra-22`, `tests-disruption-handshake-15–18`, `tests-disruption-handshake-25`, `tests-disruption-handshake-26`, T19, T28, T129, T130, T132.
 
 - [ ] Consolidate disruption/handshake fixtures and clarify tested schedules.
-      Sources: `tests-disruption-handshake-1`, `tests-disruption-handshake-5`, `tests-disruption-handshake-6`, `tests-disruption-handshake-9`, `tests-disruption-handshake-11–13`, `tests-disruption-handshake-19`, `tests-disruption-handshake-20`, `tests-disruption-handshake-24`, `tests-disruption-handshake-27`, `tests-disruption-handshake-29–32`, T48, T50, T52, T130–132.
+      Sources: `tests-disruption-handshake-1`, `tests-disruption-handshake-5`, `tests-disruption-handshake-6`, `tests-disruption-handshake-9`, `tests-disruption-handshake-11–13`, `tests-disruption-handshake-19`, `tests-disruption-handshake-24`, `tests-disruption-handshake-27`, `tests-disruption-handshake-29–32`, T48, T50, T52, T130–132.
 
 ## 19. Bookmark behavioral tests
 
