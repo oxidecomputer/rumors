@@ -22,6 +22,48 @@ pub struct Node {
     inner: Arc<NodeInner>,
 }
 
+/// An owned, ascending walk over one node's immediate children.
+///
+/// An uncompressed branch stays shared while the iterator clones each child
+/// handle as it reaches it. A compressed node has one virtual child and must
+/// shorten its private view of the compressed prefix before yielding it.
+pub(crate) enum ChildIter {
+    /// The single child obtained by peeling one byte from a compressed prefix.
+    Compressed(Option<(u8, Node)>),
+    /// An uncompressed branch and the next radix from which to search its fan.
+    Branch {
+        /// The parent handle that keeps the borrowed fan alive.
+        node: Node,
+        /// The next radix at which to resume the walk.
+        next: Option<u8>,
+    },
+}
+
+/// Yield immediate children without copying an uncompressed branch's fan.
+impl Iterator for ChildIter {
+    /// A radix and a shared handle to its child.
+    type Item = (u8, Node);
+
+    /// Clone only the next child handle, retaining the parent for later calls.
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Compressed(child) => child.take(),
+            Self::Branch { node, next } => {
+                let start = (*next)?;
+                let Body::Branch { children, .. } = &node.inner.body else {
+                    unreachable!("a child iterator retains only an uncompressed branch")
+                };
+                let Some((radix, child)) = children.successor(start) else {
+                    *next = None;
+                    return None;
+                };
+                *next = radix.checked_add(1);
+                Some((radix, child.clone()))
+            }
+        }
+    }
+}
+
 /// Share the node and count the new handle in instrumented builds.
 impl Clone for Node {
     /// Clone the shared handle without copying node state.
@@ -212,6 +254,29 @@ impl Node {
                     Ok(mem::take(branch))
                 }
             }
+        }
+    }
+
+    /// Walk immediate children while keeping an uncompressed branch shared.
+    ///
+    /// Unlike [`into_children`](Self::into_children), this does not copy the
+    /// node and its fan when another handle shares the branch. Each yielded
+    /// child is instead one cheap shared handle. Peeling a compressed prefix
+    /// still needs a distinct node view because its hash and prefix change.
+    pub(crate) fn child_iter(mut self) -> Result<ChildIter, Node> {
+        if !self.inner.prefix.is_empty() {
+            let inner = Arc::make_mut(&mut self.inner);
+            let radix = inner.prefix.pop().expect("non-empty prefix");
+            inner.hash = OnceLock::new();
+            return Ok(ChildIter::Compressed(Some((radix, self))));
+        }
+
+        match &self.inner.body {
+            Body::Leaf { .. } => Err(self),
+            Body::Branch { .. } => Ok(ChildIter::Branch {
+                node: self,
+                next: Some(0),
+            }),
         }
     }
 

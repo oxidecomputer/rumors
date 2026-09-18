@@ -27,6 +27,48 @@ pub struct Children<H: Height> {
     inner: Fan,
 }
 
+/// Leaves buffered for one bulk-built subtree.
+///
+/// Entries already use the untyped builder's representation, so completing a
+/// run does not allocate and copy a second vector proportional to its size.
+#[derive(Default)]
+pub(crate) struct LeafRun {
+    /// Sorted paths paired with bare leaf nodes that the builder may consume.
+    entries: Vec<([u8; PATH_LEN], Option<untyped::Node>)>,
+}
+
+/// Collect and build one sorted run of bare leaves.
+impl LeafRun {
+    /// Start an empty run.
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append the next path and leaf in ascending path order.
+    pub(crate) fn push(&mut self, path: Prefix<Z>, leaf: Node<Z>) {
+        self.entries.push((path.into(), Some(leaf.into_untyped())));
+    }
+
+    /// Build the maximally compressed height-`H` subtree for this run.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless the run is nonempty, strictly ascending, and contained
+    /// by `prefix`. Session decoding establishes those conditions.
+    pub(crate) fn build<H: Height>(mut self, prefix: &Prefix<H>) -> Node<H> {
+        debug_assert!(
+            self.entries
+                .iter()
+                .all(|(path, _)| path.starts_with(prefix.as_bytes())),
+            "every leaf in a run falls under the run's prefix",
+        );
+        Node::from_untyped(untyped::Node::from_sorted_leaves(
+            prefix.as_bytes().len(),
+            &mut self.entries,
+        ))
+    }
+}
+
 /// Construct an empty child list.
 impl<H: Height> Default for Children<H> {
     /// Start with no occupied radices.
@@ -221,30 +263,6 @@ impl<H: Height> Node<H> {
         untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all())
             .map(|(key, leaf)| (Prefix::from(key), Node::from_untyped(leaf.into_node())))
     }
-
-    /// Build the height-`H` node over one sorted run of bare leaves.
-    ///
-    /// The run must be nonempty, with distinct paths in ascending order,
-    /// all extending `prefix`. This is the inverse of [`leaves`](Self::leaves);
-    /// [`untyped::Node::from_sorted_leaves`] builds the compressed subtree.
-    ///
-    /// # Panics
-    ///
-    /// Panics when the run violates those preconditions. Session decoding
-    /// validates order and scope before assembly reaches this boundary.
-    pub(crate) fn from_sorted_leaves(prefix: &Prefix<H>, run: Vec<(Prefix<Z>, Node<Z>)>) -> Self {
-        let depth = prefix.as_bytes().len();
-        debug_assert!(
-            run.iter()
-                .all(|(path, _)| path.as_bytes().starts_with(prefix.as_bytes())),
-            "every leaf in a run falls under the run's prefix",
-        );
-        let mut entries: Vec<([u8; PATH_LEN], Option<untyped::Node>)> = run
-            .into_iter()
-            .map(|(path, leaf)| (path.into(), Some(leaf.into_untyped())))
-            .collect();
-        Self::from_untyped(untyped::Node::from_sorted_leaves(depth, &mut entries))
-    }
 }
 
 /// Assemble branches or descend one level toward their children.
@@ -272,6 +290,14 @@ where
         };
 
         Children::from_fan(children)
+    }
+
+    /// Walk immediate children without copying a shared branch's fan.
+    pub(crate) fn child_iter(self) -> impl Iterator<Item = (u8, Node<H>)> + Send + use<H> {
+        self.inner
+            .child_iter()
+            .unwrap_or_else(|_| unreachable!("a nonzero-height node has a child"))
+            .map(typed_child::<H> as fn((u8, untyped::Node)) -> (u8, Node<H>))
     }
 
     /// Extend a test node's compressed prefix through slot `index`.

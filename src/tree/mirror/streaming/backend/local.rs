@@ -18,7 +18,7 @@ use crate::{
             convert::Convert,
         },
         typed::{
-            self, Path, Prefix,
+            self, LeafRun, Path, Prefix,
             height::{Height, S, Z},
         },
     },
@@ -135,8 +135,7 @@ impl Backend for Local {
     {
         let children = stream::iter(
             parent
-                .into_children()
-                .into_iter()
+                .child_iter()
                 .map(move |(radix, child)| Ok((prefix.push(radix), child))),
         );
         #[cfg(test)]
@@ -190,17 +189,15 @@ impl Backend for Local {
         self,
         leaves: BoxNodeStream<'a, Self, Z>,
     ) -> impl NodeStream<Self, H> + 'a {
-        // Buffer one maximal same-prefix run and build its subtree in one pass.
-        // The run costs `size_of::<(Prefix<Z>, typed::Node<Z>)>()` per leaf.
-        // `from_sorted_leaves` moves those items into its builder vector, so the
-        // two allocations briefly coexist. The nodes become the replica
-        // subtree, and the temporary allocations are reclaimed when the run
-        // ends. This transient grows with the replica and falls under the
-        // budget's replica-storage exclusion.
+        // Buffer one maximal same-prefix run in the bulk builder's own entry
+        // format, then consume it directly. This avoids both the default
+        // level-by-level assembly and a second run-sized conversion buffer.
+        // The remaining transient grows with the subtree being inserted and
+        // is released as soon as that subtree joins the replica.
         let assembled = try_stream! {
             let mut leaves = pin!(leaves);
             let mut current: Option<Prefix<H>> = None;
-            let mut run: Vec<(Prefix<Z>, typed::Node<Z>)> = Vec::new();
+            let mut run = LeafRun::new();
             while let Some(item) = leaves.next().await {
                 let (prefix, leaf) = item?;
                 let target = Prefix::<H>::containing(&Path::from(prefix));
@@ -209,13 +206,13 @@ impl Backend for Local {
                 {
                     yield (
                         finished,
-                        typed::Node::from_sorted_leaves(&finished, mem::take(&mut run)),
+                        mem::take(&mut run).build(&finished),
                     );
                 }
-                run.push((prefix, leaf));
+                run.push(prefix, leaf);
             }
             if let Some(finished) = current {
-                yield (finished, typed::Node::from_sorted_leaves(&finished, run));
+                yield (finished, run.build(&finished));
             }
         };
         #[cfg(test)]

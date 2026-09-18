@@ -22,6 +22,7 @@ pub mod prefix;
 pub(crate) mod untyped;
 
 pub use hash::Hash;
+pub(crate) use node::LeafRun;
 pub use node::{Children, Node};
 pub use path::Path;
 pub(crate) use prefix::ErasedPrefix;

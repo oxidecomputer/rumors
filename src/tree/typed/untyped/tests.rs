@@ -169,6 +169,38 @@ fn bulk_build_rejects_a_branch_as_a_leaf() {
 }
 
 proptest! {
+    /// The owned child cursor matches destructive expansion for every node shape.
+    ///
+    /// The cursor must preserve every radix and subtree while handling both a
+    /// materialized fan and each virtual level of a compressed path. This
+    /// comparison uses the existing inverse of `branch` as its oracle.
+    #[test]
+    fn child_cursor_matches_expansion(
+        node in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| {
+            arb_tree(depth, TREE_LEAF_BUDGET)
+        }),
+    ) {
+        match (node.clone().child_iter(), node.into_children()) {
+            (Err(cursor_leaf), Err(expanded_leaf)) => {
+                prop_assert_eq!(cursor_leaf.hash(), expanded_leaf.hash());
+            }
+            (Ok(cursor), Ok(expanded)) => {
+                let actual: Vec<_> = cursor.collect();
+                let expected: Vec<_> = expanded.into_iter().collect();
+                prop_assert_eq!(actual.len(), expected.len());
+                for ((actual_radix, actual), (expected_radix, expected)) in
+                    actual.into_iter().zip(expected)
+                {
+                    prop_assert_eq!(actual_radix, expected_radix);
+                    prop_assert_eq!(actual.hash(), expected.hash());
+                    prop_assert_eq!(actual.span(), expected.span());
+                    prop_assert_eq!(actual.len(), expected.len());
+                }
+            }
+            _ => prop_assert!(false, "both child walks classify the same node shape"),
+        }
+    }
+
     /// Duplicate and descending paths are rejected before recursive grouping,
     /// at any starting depth. A later panic must not mask a missing order check.
     #[cfg(debug_assertions)]
