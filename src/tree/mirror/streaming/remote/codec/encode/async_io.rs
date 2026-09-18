@@ -17,13 +17,16 @@ use super::{BodyEncoding, FrameEncoding};
 /// directly to the transport and are flushed before [`frame`](Self::frame)
 /// returns, so the caller can safely publish the corresponding internal work.
 pub struct FrameWrite<W> {
+    /// The local protocol role attributed to encoding failures.
     speaker: Speaker,
+    /// The transport direction that receives encoded frames.
     write: W,
     /// The directed stream's observer, if any: handed each flushed
     /// frame's contiguous bytes, and costing one branch when absent.
     observe: Option<Box<dyn StreamObserver>>,
 }
 
+/// Constructs frame writers and recovers their transport.
 impl<W> FrameWrite<W> {
     /// Bind `write` to the direction spoken by `speaker`.
     pub fn new(speaker: Speaker, write: W) -> Self {
@@ -48,6 +51,7 @@ impl<W> FrameWrite<W> {
     }
 }
 
+/// Writes complete frames to an asynchronous transport.
 impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     /// Validate, write, and flush one canonical frame.
     ///
@@ -77,6 +81,7 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     }
 }
 
+/// Write an encoding's frame head and optional body in wire order.
 async fn write_encoding(
     out: &mut (impl AsyncWrite + Unpin),
     encoding: &FrameEncoding<'_>,
@@ -95,6 +100,7 @@ async fn write_encoding(
     Ok(())
 }
 
+/// Write one frame part, preserving its identity in any error.
 async fn write(
     out: &mut (impl AsyncWrite + Unpin),
     part: FramePart,

@@ -1,12 +1,9 @@
-//! The capture renderer's pins.
+//! Pins the wire-capture renderer used by the protocol snapshots.
 //!
-//! The framing the harness owns (item index, exact byte count,
-//! protocol-phase label) is stated on each header line; every item body
-//! is cbor-diag's diagnostic notation, verbatim, when the item is
-//! canonical, and otherwise an explicit failure above its exact hex, so
-//! two different byte strings never share a rendering and no body line
-//! begins with `frame `; and the totality witness ([`assert_items_account_for`]) refuses
-//! any gap between observed items and wire bytes.
+//! Each header identifies the item, its byte length, and its protocol phase.
+//! Canonical CBOR appears in diagnostic notation; every other spelling falls
+//! back to exact hexadecimal bytes. [`assert_items_account_for`] verifies that
+//! the observed items cover the complete wire transcript.
 
 use super::*;
 

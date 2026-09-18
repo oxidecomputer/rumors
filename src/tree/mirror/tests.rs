@@ -3,16 +3,13 @@
 use super::contained;
 use crate::{Version, tree::arb::nth_party};
 
-/// `contained` accepts exactly the causally-at-or-below regime: an equal or
-/// dominated bound passes, while a bound strictly above *or incomparable
-/// with* the declared version is uncontained.
+/// Four representative versions distinguish equality, strict containment,
+/// strict dominance, and causal incomparability.
 ///
-/// The incomparable case is the reason the predicate is named at all: a
-/// bare `!(a <= b)` invites the misreading that only strict dominance is
-/// rejected, when on a partial order an escape onto a disjoint party is
-/// just as uncontained.
+/// The incomparable case protects the subtle boundary: a version on a
+/// disjoint party is no more contained than one strictly above the declaration.
 #[test]
-fn contained_covers_all_three_regimes() {
+fn contained_distinguishes_representative_causal_relations() {
     let party = nth_party(0);
     let disjoint = nth_party(1);
 

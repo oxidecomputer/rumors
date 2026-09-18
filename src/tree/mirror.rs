@@ -6,15 +6,16 @@
 //!
 //! # Malformed input
 //!
-//! Wherever peer-controlled bytes enter a parser, the
-//! tripwire contract is uniform: malformed bytes surface a typed session
-//! error — never a panic, never a hang, never a silent misparse. Under the
-//! trusted-counterparty model (see the crate docs) this validation is a bug
-//! tripwire, not a security boundary; in particular, peer-declared frame
-//! lengths are trusted for allocation once the preamble has vetted the
-//! counterparty (see [`framing`]). Every ingress ships with a malformed-input
-//! suite in the `tests.rs` sibling of the parser it exercises, and a new
-//! ingress must bring its own.
+//! Once an ingress can determine that received bytes violate the protocol, it
+//! returns a typed session error rather than panicking or accepting them. A
+//! non-conforming peer can instead leave an item or exchange incomplete—for
+//! example, by announcing a body and withholding some of it—and leave the
+//! session waiting; applications impose deadlines on that wait. Under the
+//! trusted-counterparty model (see the crate docs), validation detects
+//! implementation defects rather than enforcing a security boundary. In
+//! particular, frame lengths are trusted for allocation after the preamble
+//! validates the counterparty (see [`framing`]). Every ingress has
+//! malformed-input tests beside its parser.
 
 pub mod streaming;
 

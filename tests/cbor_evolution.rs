@@ -1,5 +1,5 @@
-//! Pins the payload-evolution contract the CBOR encoding was chosen for:
-//! field and variant *names* are the wire contract, not positions.
+//! Pins the payload-evolution properties Rumors relies on: CBOR identifies
+//! fields and variants by name rather than position.
 //!
 //! Two struct types with reordered fields, and two enum types with
 //! reordered variants, exchange messages end to end — a `Peer` of one type
@@ -9,11 +9,11 @@
 //! payload-encoding change that breaks name-keyed decoding (for example, a
 //! positional struct encoding) fails these tests loudly.
 //!
-//! The evolution rules the crate documents ride the same mechanism and are
-//! pinned beside it: unknown fields are skipped, and missing fields error
-//! unless the field carries `#[serde(default)]`.
+//! The same path shows that a narrower receiver ignores fields it does not
+//! define. Whether a payload type accepts missing fields remains that type's
+//! Serde contract; Rumors adds no separate rule.
 //!
-//! The complement is pinned here too: payload bytes that do *not* decode
+//! The complement is pinned too: payload bytes that do *not* decode
 //! as the receiving type fail the session cleanly — a decode error at the
 //! receiver's wire ingress, never a panic, moving nothing into its set.
 //! Ingress decodes every payload through the receiving peer's own
@@ -21,11 +21,11 @@
 //! a foreign payload; these tests are the committed demonstration of that
 //! claim.
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use rumors::Peer;
 
-use serde::de::DeserializeOwned;
 /// A struct payload in one field order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct WideV1 {
@@ -212,41 +212,4 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
     let snapshot = receiver.snapshot();
     let values: Vec<u32> = snapshot.iter().map(|(_, m)| *m).collect();
     assert_eq!(values, vec![7u32], "a failed session moves nothing");
-}
-
-/// A missing field errors without `#[serde(default)]` and fills with it:
-/// the documented boundary between tolerated and rejected evolution.
-#[test]
-fn missing_fields_error_absent_a_default() {
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    struct Narrow {
-        id: u64,
-    }
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    struct Wide {
-        id: u64,
-        tag: String,
-    }
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    struct WideDefaulted {
-        id: u64,
-        #[serde(default)]
-        tag: String,
-    }
-
-    let mut narrow = Vec::new();
-    ciborium::ser::into_writer(&Narrow { id: 5 }, &mut narrow).unwrap();
-
-    // Without a default, the absent field is an error, not a guess.
-    assert!(ciborium::de::from_reader::<Wide, _>(narrow.as_slice()).is_err());
-
-    // With one, the absent field fills in.
-    let filled: WideDefaulted = ciborium::de::from_reader(narrow.as_slice()).unwrap();
-    assert_eq!(
-        filled,
-        WideDefaulted {
-            id: 5,
-            tag: String::new()
-        }
-    );
 }
