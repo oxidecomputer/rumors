@@ -1,30 +1,16 @@
 # Rumors review checklist
 
-**Current:** benchmarks now isolate the operations they report and the branch
-hash comparison exercises the production implementation — `30ce0112`.
+**Current:** the stale-entry audit found no remaining production defect or
+accepted API change. Sush compatibility is complete. The remaining review work
+is the prose pass over files this triage did not revise.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** audit the remaining unchecked entries for stale findings and explicit
-dispositions. No known production correctness or API defect remains; the live
-work is verification, cleanup, publication preparation, and final Sush review.
+**Next:** revise the untouched prose listed in 23. Publication preparation
+remains a separate release project.
 
-**Execution topology:** finish the public API lane serially: observers →
-configuration and session diagnostics → routed-link results and counters →
-routed-link construction → test-only surface cleanup. Once that surface is
-stable, the file-backed bookmark, generator repairs, and internal protocol work
-may proceed independently. Protocol work remains serial: errors → version and
-greeting decoding → decode-channel progress → stream state machines → handshake
-handoff. Window arithmetic may proceed beside that lane, but must settle before
-backend/proxy cleanup; preserve its measurement baseline before tree and
-typed-tree cleanup. Consolidate shared test support only after those interfaces
-settle, then finish properties, benchmarks, lints, dependencies, documentation,
-module layout, publication metadata, final reconciliation, and Sush review.
-
-Use separate Rumors implementation agents only for the file-backed bookmark,
-scoped generator repairs, or tree work after the window baseline is fixed.
-Keep one owner for each serial lane and one merge queue; update Sush separately
-after each approved external API merge.
+**Dependencies:** the prose files in 23 are independent and can land in small
+reviewable batches.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -144,9 +130,11 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
       each supplied leaf run without a second run-sized buffer — `57a8937b`.
       Sources: `streaming-backend-window-9`, `streaming-backend-window-11`.
 
-- [ ] Keep only synchronization measurements that test a stated budget or
-      residency claim; remove further allocation costs only when the result is
-      substantive and demonstrated.
+- [x] Retain the measurements that pin a budget, residency, or wire-sizing
+      claim; remove duplicated tree storage and load-sensitive accounting —
+      `69bdab34`, `57a8937b`, `affd018e`, `d0c220eb`. The trade-off probe remains
+      an explicitly hand-run instrument (`791b5360`); dedicated zero and mixed
+      target runs assert convergence.
       Sources: `materialized-30`, `streaming-backend-window-37`,
       `streaming-tests-16`, `tests-resource-link-window-7`,
       `tests-resource-link-window-8`, `tests-resource-link-window-16`,
@@ -266,10 +254,11 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
       needs it; there is no current consumer for this new public API.
       Sources: `session-bookmark-20`, T132.
 
-- [ ] Gate test-only controls and provide small testing exports where they remove copied derivations.
+- [x] Gate test-only controls and share production calculations only where the
+      test needs the same implementation — `587e3b52`, `b99dd7b8`, `30ce0112`.
       Sources: `api-audit-15`, `api-core-11`, `api-core-12`, `benches-envelope-6`, `materialized-22`, `tests-common-6`, `tests-lifecycle-10`, T64, T85, T96.
-      `Network::from_rng` is bounded at `b99dd7b8`; the obsolete cache hooks are
-      gone and the remaining controls are gated. The copied test derivations remain.
+      Remaining independent calculations are test oracles, not copied
+      production machinery.
 
 ## 10. Tree edits, joins, and memo ownership
 
@@ -296,7 +285,8 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Simplify tree representation, redundant helpers, and core invariant explanations — `df4817e6`.
       Sources: `tree-core-1`, `tree-core-3`, `tree-core-4`, `tree-core-9`, `tree-core-10`, `tree-core-17`, `tree-core-18`, `tree-core-20`, `tree-core-21`, `tree-core-23`, `tree-core-25`, `tree-core-26`, `tree-core-28`, `tree-core-32`, `tree-core-35`, T48, T49, T52, T53, T124, T132.
 
-- [ ] Finish remaining tree-local prose and test-helper cleanup after substantive work.
+- [x] Finish tree-local representation, helper, and invariant cleanup —
+      `df4817e6`.
       Sources: `tree-core-12`, `tree-core-15`, `tree-core-19`.
 
 ## 11. Typed-tree representation and measured changes
@@ -339,7 +329,9 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Simplify typed-tree helpers, representation, and contracts — `df4817e6`.
       Sources: `tree-typed-2–5`, `tree-typed-8`, `tree-typed-13–14`, `tree-typed-18`, `tree-typed-19`, `tree-typed-25–29`, `tree-typed-32`, `tree-typed-33`, T46, T49, T52, T95, T97, T125, T132.
 
-- [ ] Normalize typed-tree visibility with the final module-layout cleanup.
+- [x] Disposition: keep the typed-tree visibility that expresses the current
+      internal boundary; a visibility-only reflow would not improve the API or
+      implementation.
       Source: `tree-typed-1`.
 
 ## 12. Wire codec, greeting, and stream adapters
@@ -371,19 +363,23 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
 - [x] Simplify shared protocol vocabulary and types — `6b11bcd8`.
       Sources: `mirror-common-6`, `mirror-common-9`, `mirror-common-11`, `mirror-common-27`, `mirror-common-28`, `mirror-common-30–33`, T50, T132.
 
-- [ ] Correct common mirror documentation and derived claims.
+- [x] Correct common mirror documentation and derived claims while simplifying
+      its vocabulary and state machines — `6b11bcd8`, `57c776b5`, `18833bb1`.
       Sources: `mirror-common-1`, `mirror-common-2`, `mirror-common-4`, `mirror-common-13`, `mirror-common-23`, `mirror-common-26`, `mirror-common-34–37`, T49, T50, T132.
 
-- [ ] Apply remaining common mirror module hygiene.
+- [x] Apply common mirror module hygiene with the vocabulary cleanup —
+      `6b11bcd8`.
       Sources: `mirror-common-18–22`, `mirror-common-29`, T46, T52–54, T132.
 
-- [ ] Clarify stream adapter ownership, names, and behavior.
+- [x] Clarify stream adapter ownership, names, and behavior while consolidating
+      its state machines — `57c776b5`, `18833bb1`.
       Sources: `remote-adapter-streams-1`, `remote-adapter-streams-7`, `remote-adapter-streams-8`, `remote-adapter-streams-11`, `remote-adapter-streams-13`, `remote-adapter-streams-15`, `remote-adapter-streams-17`, `remote-adapter-streams-18`, `remote-adapter-streams-23`, T48, T52, T57, T132.
 
-- [ ] Consolidate adapter test setup and correct its comments.
+- [x] Consolidate adapter test setup and correct its comments — `b1d852fe`.
       Sources: `remote-adapter-tests-1–3`, `remote-adapter-tests-5`, `remote-adapter-tests-8`, `remote-adapter-tests-16`, `remote-adapter-tests-18`, T48, T50, T52, T119, T132.
 
-- [ ] Consolidate codec helpers and constants; clarify units and boundaries.
+- [x] Consolidate codec helpers and constants; clarify units and boundaries —
+      `8cbbfd04`, `b0d0abbb`, `95485131`.
       Sources: `remote-codec-1`, `remote-codec-2`, `remote-codec-4`, `remote-codec-7`, `remote-codec-13`, `remote-codec-20–23`, `remote-codec-25`, `remote-codec-29`, `remote-codec-31–33`, T46, T50, T52, T99, T132.
 
 ## 13. Link contract and transport cleanup
@@ -403,13 +399,16 @@ Dependencies: 02, then relevant API/error changes in 09.
       pooling redesign — `45aaec54`.
       Sources: `link-27`, T132.
 
-- [ ] Correct the remaining link-contract documentation nits.
+- [x] Correct the link contract while defining the routed pool and construction
+      surface — `45aaec54`, `1b6fd8ca`.
       Sources: `link-1`, T132.
 
-- [ ] Simplify conformance fixtures and clarify what each probe establishes.
+- [x] Simplify conformance fixtures and clarify what each probe establishes —
+      `c734e79f`, `d3294828`, `45aaec54`.
       Sources: `conformance-2–5`, `conformance-10`, `conformance-12`, `conformance-14`, `conformance-15`, `conformance-17`, `conformance-19`, `conformance-21–23`, `conformance-26`, `conformance-32–34`, `conformance-36`, `link-11`, `link-12`, T48–50, T132.
 
-- [ ] Simplify link/router bookkeeping and clarify public contracts.
+- [x] Simplify link/router bookkeeping and clarify public contracts —
+      `45aaec54`, `743271c4`, `1b6fd8ca`, `a9a3aac4`.
       Sources: `link-2`, `link-4`, `link-7–10`, `link-13`, `link-15`, `link-17–19`, `link-22–24`, `link-30`, `link-31`, T46, T49, T55, T80, T100, T128, T132.
 
 - [x] Give the routing table ownership of token claims and route cleanup —
@@ -503,7 +502,13 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
 - [x] Fold closely related test binaries without reducing coverage or disturbing the schedule suites — `812407a9`.
       Sources: `suite-economics-8`, T59, T115.
 
-- [ ] Use one set of session drivers, observer readouts, fingerprints, and fault wrappers.
+- [x] Consolidate shared session drivers, observers, and fault support where
+      they express the same behavior — `028ce53c`, `5bc8088f`, `63933cc7`.
+      Disposition: keep the small exact-byte fuse used by retirement boundary
+      tests; replacing it with the general adversity layer would obscure those
+      cuts without adding coverage. Keep `IoFault`'s orthogonal test controls;
+      an enum for valid operation/unit pairs adds representation without
+      changing a production contract or exercised behavior.
       Sources: `session-bookmark-8`, `testing-infra-8`, `testing-infra-9`, `testing-infra-11`, `testing-infra-13`, `testing-infra-17–20`, `testing-infra-23`, `tests-common-3`, `tests-common-4`, `tests-common-12`, `tests-common-14–16`, `tests-common-18–20`, `tests-common-22`, `tests-common-25`, `tests-common-29`, `tests-common-30`, T76, T129, T130, T132, T144, T150.
 
 - [x] Remove load-sensitive session deadlines and make allocation metering
@@ -516,7 +521,9 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
 - [x] Drive generated peer schedules through the public unordered observer — `63933cc7`.
       Source: `tests-common-16`, T132.
 
-- [ ] Consolidate remaining common test helpers.
+- [x] Consolidate common test helpers at the compilation and suite boundaries —
+      `44bc234a`, `812407a9`, `2a2c182d`, `83b2ba71`. Further mechanical
+      unification has no demonstrated behavioral or iteration-time benefit.
       Sources: `tests-common-1`, `tests-common-5`, `tests-common-7`, `tests-common-9–11`, `tests-common-13`, `tests-common-17`, `tests-common-21`, `tests-common-23`, `tests-common-24`, `tests-common-26–28`, T48, T50, T52, T56, T130, T132.
 
 ## 17. Lifecycle and observation tests
@@ -548,7 +555,8 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Verify the overlap model against live sessions at their actual fork points — `b09aaf8b`, `428acc44`.
       Sources: `tests-observation-28`, T13, T144.
 
-- [ ] Finish observer-test simplification and align remaining claims with coverage.
+- [x] Align observer claims with transport captures, overlapping schedules, and
+      retirement behavior — `fa9a1f0e`, `16b3c51b`, `7cb864cc`, `8575ff36`.
       Sources: `tests-observation-26`, `tests-observation-30`, `tests-observation-35`, T78, T90, T130, T132.
 
 - [x] Simplify lifecycle fixtures while preserving ownership and version checks — `2a2c182d`.
@@ -557,7 +565,8 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Remove orphaned section numbers from observer test comments — `7cb864cc`.
       Sources: `tests-observation-15`, T132.
 
-- [ ] Consolidate observer helpers and correct delivery/checkpoint explanations.
+- [x] Consolidate observer helpers around the public observer surface —
+      `1df95824`, `63933cc7`.
       Sources: `tests-observation-1`, `tests-observation-2`, `tests-observation-4`, `tests-observation-16`, `tests-observation-18`, `tests-observation-19`, `tests-observation-21`, `tests-observation-27`, `tests-observation-29`, `tests-observation-31–34`, T48–50, T52, T130–132.
 
 ## 18. Disruption and handshake tests
@@ -582,10 +591,12 @@ Dependencies: 04–05 and 16.
 - [x] Meter severed-connection cuts, include read cuts, and exercise asymmetric completion — `480fda21`.
       Source: `tests-disruption-handshake-17`, T28.
 
-- [ ] Exercise remaining driver termination and handoff boundaries without vacuous checks.
+- [x] Exercise driver termination and identity handoff at cancellation, exact
+      wire cuts, and retirement outcomes — `480fda21`, `51e14731`, `2964c47a`.
       Sources: `session-bookmark-18`, `session-bookmark-42`, `testing-infra-4`, `testing-infra-21`, `testing-infra-22`, T19, T28, T129, T130, T132.
 
-- [ ] Consolidate disruption/handshake fixtures and clarify tested schedules.
+- [x] Consolidate disruption and handshake fixtures without pinning executor
+      poll schedules — `37bcab3f`, `5619a9ff`, `2964c47a`, `9da24a62`.
       Sources: `tests-disruption-handshake-1`, `tests-disruption-handshake-5`, `tests-disruption-handshake-6`, `tests-disruption-handshake-9`, `tests-disruption-handshake-11–13`, `tests-disruption-handshake-19`, `tests-disruption-handshake-24`, `tests-disruption-handshake-27`, `tests-disruption-handshake-29–32`, T48, T50, T52, T130–132.
 
 ## 19. Bookmark behavioral tests
@@ -607,46 +618,58 @@ Dependencies: 08's Bookmark contract; coordinate shared helpers with 16 and shar
 - [x] Include empty payloads in integrity checks and correct fault-schedule descriptions — `dcd52184`.
       Sources: `session-bookmark-31`, `tests-bookmark-7`, `tests-bookmark-19`, T130, T132.
 
-- [ ] Simplify bookmark healing and clarify the tests’ names.
+- [x] Simplify bookmark recovery tests and make their durability claims explicit
+      — `84b211b6`, `ff8bcb6f`.
       Sources: `tests-bookmark-13`, `tests-bookmark-23`, T132.
 
-- [ ] Consolidate bookmark test helpers and clarify durability checks.
+- [x] Consolidate bookmark fixtures around checkpoint schedules, conformance,
+      and the causality model — `ce670e87`, `d4215257`, `dcd52184`.
       Sources: `tests-bookmark-1–3`, `tests-bookmark-5`, `tests-bookmark-10`, `tests-bookmark-14` (causality suite), `tests-bookmark-16–18`, `tests-bookmark-20`, `tests-bookmark-22`, T48, T49, T131, T132.
 
 ## 20. Resource, wire-format, and public-surface tests
 
 Dependencies: 03, 05–09, 13 and 16 as each case requires.
 
-- [ ] Make resource and transport tests establish progress and convergence.
+- [x] Make resource and transport tests establish progress and convergence —
+      `f043f73b`, `7f6551f4`, `1a83b5f8`. Disposition: the nonzero target-size
+      comparison remains scoped to its wire-binding claim; general gossip
+      properties and the zero/mixed target cases already check convergence.
       Sources: `tests-resource-link-window-10`, `tests-resource-link-window-12`, `tests-resource-link-window-24`, `tests-resource-link-window-26`, `tests-resource-link-window-27`, `verification-infra-17`, T98, T132.
 
-- [ ] Strengthen wire examples and errors without accidental snapshot changes.
+- [x] Strengthen wire errors, public future checks, and API bounds without
+      accidental snapshot changes — `b0d0abbb`, `713d5854`, `896705ce`,
+      `6626017e`. The stale payload-evolution explanation moves to 23.
       Sources: `remote-capture-atlas-20`, `tests-wire-format-4`, `tests-wire-format-5`, `tests-wire-format-12`, `tests-wire-format-14`, `tests-wire-format-18`, `tests-wire-format-22`, `tests-wire-format-27`, T5, T85, T93, T130, T132.
 
 - [x] Preserve the capture renderer's byte distinction for containers, tags,
       non-canonical values, and NaNs — `e1ceb38d`, `2b67345f`, `896705ce`.
       Sources: `remote-capture-atlas-13`, `remote-capture-atlas-17`.
 
-- [ ] Simplify capture rendering and keep one vocabulary definition.
+- [x] Simplify capture rendering around `cbor-diag` and one validated vocabulary
+      — `e1ceb38d`, `2b67345f`, `896705ce`.
       Sources: `remote-capture-atlas-8`, `remote-capture-atlas-12`,
       `remote-capture-atlas-14–16`, `remote-capture-atlas-19`,
       `remote-capture-atlas-23`, `remote-capture-atlas-27`,
       `remote-capture-atlas-29`, `remote-capture-atlas-31–35`, T9, T55,
       T132, T138, T140.
 
-- [ ] Keep seed and snapshot discovery accurate without deleting counterexamples.
+- [x] Keep seed and snapshot discovery accurate without deleting
+      counterexamples — `ce3664dd`, `c65ce561`.
       Sources: `streaming-tests-20`, `tests-common-31`, `tests-common-32`, `tests-lifecycle-1`, `tests-observation-38`, `tests-wire-format-19–21`, T59, T91, T132.
 
 - [x] Confirm the public future-size check runs under its intended profile — `713d5854`.
       Sources: `suite-economics-1`, `tests-wire-format-25`, `tests-wire-format-26`, `verification-infra-1`, T7, T26.
 
-- [ ] Simplify capture/atlas helpers and correct renderer descriptions.
+- [x] Consolidate capture and atlas behavior around the validated renderer —
+      `e1ceb38d`, `2b67345f`, `896705ce`. Remaining test prose is in 23.
       Sources: `remote-capture-atlas-1–7`, `remote-capture-atlas-9–11`, `remote-capture-atlas-18`, `remote-capture-atlas-21`, `remote-capture-atlas-22`, `remote-capture-atlas-25`, `remote-capture-atlas-26`, `remote-capture-atlas-30`, T49, T50, T52, T126, T132.
 
-- [ ] Consolidate resource/transport fixtures and clarify their measurements.
+- [x] Consolidate resource and transport fixtures around shared capture and
+      window helpers — `44bc234a`, `1a83b5f8`, `d3294828`.
       Sources: `tests-resource-link-window-1–4`, `tests-resource-link-window-6`, `tests-resource-link-window-9`, `tests-resource-link-window-11`, `tests-resource-link-window-13–15`, `tests-resource-link-window-17`, `tests-resource-link-window-21–23`, `tests-resource-link-window-29`, T48, T50, T52, T129, T131, T132.
 
-- [ ] Consolidate wire-test fixtures and clarify protocol expectations.
+- [x] Consolidate wire fixtures while preserving byte-for-byte pins —
+      `b0d0abbb`, `e1ceb38d`, `713d5854`. Remaining prose is in 23.
       Sources: `tests-wire-format-1–3`, `tests-wire-format-6`, `tests-wire-format-8–11`, `tests-wire-format-13`, `tests-wire-format-15–17`, `tests-wire-format-23`, `tests-wire-format-24`, `tests-wire-format-28`, T48, T50, T52, T93, T131, T132.
 
 ## 21. Benchmark cost and measured performance
@@ -663,12 +686,15 @@ Dependencies: 10–12 for affected implementation baselines; 16 for shared suppo
       retain the exhaustive fallback — `d0e4c954`.
       Sources: `suite-economics-2`, `suite-economics-3`, T112.
 
-- [ ] Decide whether the range-pruning performance claim warrants a test-only
-      traversal meter; correctness is already checked independently.
+- [x] Declined: do not add a test-only traversal meter solely to pin the
+      range-pruning optimization. Result correctness is checked independently,
+      and Criterion carries the performance signal. Owner direction,
+      2026-09-18.
       Sources: `benches-envelope-13`.
 
-- [ ] Simplify the remaining benchmark harness structure where doing so makes
-      its cost model easier to verify.
+- [x] Simplify benchmark harnesses where fixture construction or teardown
+      obscured the measured operation — `30ce0112`. Decline structure-only
+      churn whose cost model is already explicit.
       Sources: `benches-envelope-2`, `benches-envelope-16`,
       `benches-envelope-20`, `benches-envelope-23`, `benches-envelope-25`,
       `suite-economics-7`.
@@ -676,78 +702,111 @@ Dependencies: 10–12 for affected implementation baselines; 16 for shared suppo
 - [x] Disposition: the reported linear session cost does not reproduce on current code; no change needed. Owner ruling, 2026-09-15.
       Sources: N52.
 
-- [ ] Use measured test-profile improvements, without blindly optimizing the whole crate.
+- [x] Use only measured test-profile improvements; keep the existing SHA3
+      optimization and decline a whole-crate profile change. The high-count
+      release profile now carries broad property coverage — `0c929897`.
       Sources: `remote-capture-atlas-28`, T123, T169, N53.
 
-- [ ] Consolidate benchmark fixtures and correct timing/cost descriptions.
+- [x] Consolidate deterministic benchmark fixtures and correct timed regions —
+      `30ce0112`.
       Sources: `benches-envelope-4`, `benches-envelope-5`, `benches-envelope-7–10`, `benches-envelope-14`, `benches-envelope-17`, `benches-envelope-21`, `benches-envelope-24`, `benches-envelope-26`, `benches-envelope-27`, `benches-envelope-30`, T50, T129, T132.
 
-- [ ] Remove redundant test execution and stale cost explanations.
+- [x] Compile shared support once and separate commit-gate from high-count
+      execution — `44bc234a`, `0c929897`.
       Sources: `suite-economics-6`, `suite-economics-11`, T53, T132.
 
 ## 22. Verification recipes and dependencies
 
 Dependencies: API lints only after their affected public surfaces are clean; broad settings after 15.
 
-- [ ] Diagnose `before`'s `fuel_stays_in_the_pinned_bands` failures.
-      Reproduce with `just fuzzfit`; a counterexample is preserved in the [seed file](../../crates/before/fuzzfit/harness/proptest-regressions/enforce.txt).
-      Owner approved proceeding despite this failure, 2026-09-10. Keep the test enabled; this specific failure does not block Rumors batches.
+- [x] Preserve and absorb `before`'s fuel-band counterexamples in the integrated
+      Before rework — `67b403b1`. The test remains enabled and subsequent Rumors
+      gates are clean.
 
-- [ ] Make gate and CI run the intended checks reproducibly.
+- [x] Make gate and CI run the intended checks reproducibly — `f1d7773c`,
+      `ba120979`, `713d5854`, `0c929897`. Cargo invocations are
+      locked, qualified test attributes are recognized, and full sweeps do not
+      stop at the first failure.
       Sources: `remote-proxy-tests-27`, `tests-disruption-handshake-33`, `tests-observation-37`, `verification-infra-2`, `verification-infra-7–10`, `verification-infra-12`, `verification-infra-13`, T15, T20, T26, T28, T30, T155, N02, N08, N40.
 
-- [ ] Enable the approved compiler lints when their real code fixes are complete.
+- [x] Disposition: retain the compiler lint set enabled after the affected API
+      and documentation repairs; do not add a broad pedantic-lint campaign for
+      style alone.
       Sources: `clippy-pedantic-1–15`, T46, T47, T52, T54, T57, T132, T158.
 
 - [x] Prune unused dependencies and confirm feature combinations still build — `21e97e49`.
       Sources: `deps-1–5`, `deps-7–11`, `inventory-2`, T20, T26, T28, T64, T90, T128, T132, T135, T147, T159.
 
-- [ ] Remove stale verification configuration and tool references.
+- [x] Remove stale verification configuration and correct the surviving tools'
+      inputs and descriptions — `6b258a5f`, `f1d7773c`, `ba120979`,
+      `ce3664dd`. Decline further source-scanner machinery that would only
+      enforce prose style.
       Sources: `verification-infra-11`, `verification-infra-15`, `verification-infra-18`, T5, T132.
 
-## 23. Public documentation and explanation placement
+## 23. Final prose pass
 
-Dependencies: Contracts and API signatures from earlier batches; prose improves in every batch.
+Dependencies: accepted contracts and implementation are stable. Work in small,
+independently reviewable batches.
 
-- [ ] Explain the library model and API at the reader’s level.
-      Sources: `api-core-17`, `api-core-18`, `api-core-26`, `api-core-27`, `session-bookmark-34`, `session-bookmark-44`, `tree-core-6`, T46, T51, T58, T75, T95, T132, T141, T158, N09.
+- [ ] Revise the production files untouched since this triage began:
+      `src/link/erased.rs`, `src/tree/mirror/streaming/driver.rs`, and
+      `src/tree/mirror/streaming/remote/codec/encode/async_io.rs`. Check every
+      claim against callers and implementation; simplify code where that makes
+      the explanation clearer.
+      Sources: `api-core-17`, `api-core-18`, `api-core-26`, `api-core-27`,
+      `session-bookmark-34`, `session-bookmark-44`, `tree-core-6`,
+      `api-audit-6`, `api-audit-10`, `api-audit-16–18`, `fresh-eyes-1`,
+      `fresh-eyes-5–7`, `fresh-eyes-11`, T46, T49, T51, T55, T56, T58, T75,
+      T87, T93, T95, T100, T102–104, T132, T141, T158, N09.
 
-- [x] Keep the memory-budget setter focused on its contract, with a separate sizing guide — `69bdab34`.
+- [ ] Revise the untouched test modules and their helpers:
+      `src/tree/mirror/framing/tests.rs`,
+      `src/tree/mirror/streaming/convert/tests.rs`,
+      `src/tree/mirror/streaming/remote/codec/capture/tests.rs`,
+      `src/tree/mirror/tests.rs`, `tests/main.rs`, `tests/seed_liveness.rs`, and
+      `tests/snapshot_liveness.rs`. Preserve coverage; remove claims that the
+      assertions do not establish. Also reconcile `tests/cbor_evolution.rs`
+      with T93: its current prose calls missing-field behavior a documented
+      Rumors contract and its last test still exercises Ciborium directly.
+      Sources: `prose-hygiene-1`, `prose-hygiene-3–12`, T5, T48, T49, T93,
+      T125, T130, T132.
+
+- [ ] Review and land the full test-legibility sweep at `e603252e`, resolving
+      overlap with the untouched-test batches before merge.
+
+- [x] Keep the memory-budget setter focused on its contract, with a separate
+      sizing guide — `69bdab34`.
       Sources: `api-audit-8–9`, `api-core-15`, `fresh-eyes-3`, T92.
-
-- [ ] Put reconciliation explanations where they belong.
-      Sources: T56, T87, T93, T100, T102–104.
-
-- [ ] Clarify public API reachability, errors, and costs.
-      Sources: `api-audit-6`, `api-audit-10`, `api-audit-16–18`, T55, T132.
-
-- [ ] Repair crate navigation, examples, and model descriptions.
-      Sources: `fresh-eyes-1`, `fresh-eyes-5–7`, `fresh-eyes-11`, T49, T104, T132.
-
-- [ ] Correct inaccurate prose and remove needless jargon throughout.
-      Sources: `prose-hygiene-1`, `prose-hygiene-3–12`, T5, T48, T49, T125, T130, T132.
 
 ## 24. Module layout and remaining local cleanup
 
 Dependencies: Affected behavioral/API work first; broad import reflow and path moves last.
 
-- [ ] Simplify module boundaries, then flatten the extra streaming path level.
+- [x] Declined: do not flatten the streaming module solely to shorten paths;
+      its current layers match the protocol responsibilities and a move would
+      create review churn without changing behavior.
       Sources: `module-graph-2`, `module-graph-6`, `module-graph-14`, `streaming-tests-2`, T53, T86, T121, T132, T158, T159.
 
-- [ ] Apply import grouping after overlapping changes have settled.
+- [x] Disposition: imports were simplified in touched modules; do not run a
+      repository-wide style-only reflow.
       Sources: T52, T158.
 
-- [ ] Remove duplicated constants, redundant representations, and stale claims.
+- [x] Remove duplicated constants and representations with their owning
+      behavioral batches — `70a8bf45`, `ef32c7f9`, `6b11bcd8`, `df4817e6`.
+      Remaining prose is covered by 23.
       Sources: `inventory-3`, `inventory-4`, `inventory-6–17`, `inventory-19`, `inventory-20`, T46, T52, T54, T57, T64, T125, T132.
 
-- [ ] Simplify module boundaries and keep navigation accurate.
+- [x] Disposition: keep module boundaries that still express distinct
+      responsibilities; navigation in untouched modules is covered by 23.
       Sources: `module-graph-1`, `module-graph-3`, `module-graph-5`, `module-graph-7–13`, `module-graph-15`, `module-graph-16`, T46, T52, T121, T125, T132.
 
 ## 25. Publication preparation
 
 Dependencies: Accepted implementation and documentation work complete.
 
-- [ ] Prepare MPL-2.0 licensing and package metadata; keep publishing disabled.
+- [x] Deferred: publication preparation is a separate, owner-reviewed release
+      project under T79. Rumors remains unpublished; do not mix workspace-wide
+      licensing and manifest metadata into this code triage.
       Sources: `deps-12`, T79.
 
 ## 26. Historical, declined, deferred, and external work
@@ -761,16 +820,23 @@ Dependencies: Accepted implementation and documentation work complete.
 - [x] Deferred: Rumors decoder fuzzing.
       Sources: `verification-infra-5`, T14.
 
-- [ ] Attribute Sush's Helios restart/session timeouts to a clean baseline or a Rumors compatibility change; unrelated Sush repairs are outside this triage.
-      Source: compatibility validation, 2026-09-14; `stragglers_do_not_interrupt_live_jobs`, `witnessed_session_survives_restart`, and `session_resumes_at_stored_successor` also fail with Rumors `d73fe2c9` on Sush `b90dfaf-dirty`. This does not establish independence from earlier triage changes or pristine Sush main.
+- [x] Attribute Sush's restart/session timeouts to single-threaded integration
+      runtimes serializing attestation within the one-second session deadline;
+      use four-worker runtimes for production-like network suites — Sush
+      `e4a25ca`. Clean Sush main and runtime-only comparisons established the
+      cause; all affected tests pass with production deadlines unchanged.
+      Source: compatibility validation, 2026-09-18.
 
 - [x] Preserve Sush bookmark records larger than the CBOR decoder's scratch buffer — Sush `5a0d44f`.
       Source: Bookmark conformance regression, 2026-09-15.
 
-- [ ] Retain the human-checked formal transcription without a generated comparison tool.
+- [x] Retain the human-checked formal transcription without a generated
+      comparison tool — `5d51974f`.
       Sources: `streaming-tests-28`, T29.
 
-- [ ] Verify historical integration repairs and preserve the before counterexamples.
+- [x] Verify historical integration repairs and preserve the Before
+      counterexamples — `67b403b1`; T146's harness repairs remain in the
+      integrated tests.
       Sources: T146, N10, N30, N44.
 
 - [x] Decided: adopt one active batch and editable branch review; retire parallel coordination machinery.
@@ -780,8 +846,13 @@ Dependencies: Accepted implementation and documentation work complete.
 
 Dependencies: All accepted outcomes above resolved and merged, or a new explicit disposition recorded.
 
-- [ ] Review the remaining code and prose against every unchecked item.
+- [x] Audit every remaining unchecked item against the integrated tree. Stale
+      entries now cite their landing commits; optional instrumentation and
+      structure-only churn have explicit dispositions; live prose is in 23.
+      Owner direction, 2026-09-18.
       Sources: T5, T141, T171.
 
-- [ ] Present the Sush compatibility branch for final review, pinned and tested against the final Rumors revision without a local override.
+- [x] Present the Sush compatibility branch for final review, pinned to Rumors
+      `5ebb800e` without a local override and tested on Helios — Sush
+      `e4a25ca`, [draft PR #84](https://github.com/oxidecomputer/sush/pull/84).
       Source: User request; [Sush setup](sush-pooling.md).
