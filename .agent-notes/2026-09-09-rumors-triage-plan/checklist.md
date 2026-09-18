@@ -452,7 +452,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Simplify scheduling helpers and separate backend and window explanations — `5895bde9`.
       Sources: `streaming-backend-window-1–8`, `streaming-backend-window-10`, `streaming-backend-window-12–14`, `streaming-backend-window-17`, `streaming-backend-window-19`, `streaming-backend-window-21`, `streaming-backend-window-22`, `streaming-backend-window-24`, `streaming-backend-window-27`, `streaming-backend-window-33`, `streaming-backend-window-35`, T46, T48, T49, T53, T102, T103, T128, T132.
 
-- [ ] Consolidate streaming fixtures and correct test explanations.
+- [x] Consolidate streaming fixtures and correct test explanations — `83b2ba71`.
       Sources: `streaming-tests-1`, `streaming-tests-4`, `streaming-tests-5`, `streaming-tests-8–10`, `streaming-tests-12–15`, `streaming-tests-21`, `streaming-tests-22`, `streaming-tests-25`, `streaming-tests-27`, T48, T49, T52, T128, T132.
 
 ## 15. Generators and property-test runs
