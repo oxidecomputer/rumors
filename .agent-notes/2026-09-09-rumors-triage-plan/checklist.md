@@ -1,14 +1,13 @@
 # Rumors review checklist
 
-**Current:** core API forwarding and causal staging are simplified at
-`bd8b61e5`; causal observers no longer allocate a copied key per version.
+**Current:** degenerate deterministic randomness now fails promptly instead of
+hanging peer construction — `b99dd7b8`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** review the bounded network-RNG correction, then finish the remaining
-test-only API surface. High-count property settings wait for `before`'s
-generator sweep; remaining verification and shared-helper cleanup follow the
-production-facing work.
+**Next:** simplify the remaining tree and typed-tree invariants and helpers.
+High-count property settings wait for `before`'s generator sweep; test-only API
+exports and remaining verification cleanup follow production-facing work.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -258,6 +257,8 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 
 - [ ] Gate test-only controls and provide small testing exports where they remove copied derivations.
       Sources: `api-audit-15`, `api-core-11`, `api-core-12`, `benches-envelope-6`, `materialized-22`, `tests-common-6`, `tests-lifecycle-10`, T64, T85, T96.
+      `Network::from_rng` is bounded at `b99dd7b8`; the obsolete cache hooks are
+      gone and the remaining controls are gated. The copied test derivations remain.
 
 ## 10. Tree edits, joins, and memo ownership
 
