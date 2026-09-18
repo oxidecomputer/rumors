@@ -1,15 +1,13 @@
-//! Protocol preamble exchange (`mirror::remote::preamble`).
+//! Protocol preamble exchange.
 //!
 //! Drives [`rumors::Rumors::gossip_once`] against a counterparty whose control
-//! halves are driven by hand over an in-memory [`rumors::link`] pair,
-//! asserting that a mismatched magic, version, or intent surfaces as the
-//! error variant rather than corrupting the local rumor set. The V2
-//! preamble is one self-described CBOR item of exactly 30 bytes with no
-//! redundant length:
+//! stream is driven by hand over an in-memory [`rumors::link`] pair. Each
+//! rejection test checks the outbound wire spelling, the reported error, and
+//! that the local set remains unchanged. The preamble is one self-described
+//! CBOR item of exactly 30 bytes with no redundant length:
 //! `55799(["rumors", version: uint, network: bstr(16), intent: uint])`.
-//! The layout is transcribed here by hand, deliberately: this suite is an
-//! independent oracle of the documented wire spelling, so it must not
-//! derive the bytes from the code under test.
+//! The layout is transcribed here so the test remains independent of the
+//! encoder and decoder it checks.
 //! Network mismatch rejection rides the same preamble but needs
 //! a real peer in a different universe, so it is exercised separately in
 //! `tests/network.rs`.
@@ -17,7 +15,7 @@
 use rumors_testkit::common;
 
 use rumors::error::Mismatch;
-use rumors::{Error, Peer, Protocol, Rumors};
+use rumors::{Error, Gossiped, Peer, Protocol, Rumors};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::common::wire::{assert_control_drained, bootstrap_fork_async};
@@ -35,30 +33,51 @@ const V2_OPENING: [u8; 11] = [
 /// Intent value for a peer that participates and remains.
 const INTENT_REMAIN: u8 = 0;
 
-/// Assemble a V2 preamble item by hand, matching the layout in the module
-/// doc, with caller-selected opening bytes.
+/// Intent value for a peer that donates its identity after reconciliation.
+const INTENT_RETIRE: u8 = 1;
+
+/// The wire version carried by this dialect's preamble.
+const WIRE_VERSION: u8 = 2;
+
+/// Assemble a preamble item by hand, matching the layout in the module doc.
 ///
-/// The network bytes are arbitrary: every scenario below fails (or
-/// completes) before the network would be consulted. `version` and
-/// `intent` must be below 24 so each spells as a one-byte uint item.
-fn preamble(opening: [u8; 11], version: u8, intent: u8) -> [u8; PREAMBLE_LEN] {
+/// `version` and `intent` must be below 24 so each spells as a one-byte uint.
+fn preamble(opening: [u8; 11], version: u8, network: [u8; 16], intent: u8) -> [u8; PREAMBLE_LEN] {
     assert!(version < 24 && intent < 24, "one-byte uint items only");
     let mut p = [0u8; PREAMBLE_LEN];
     p[..11].copy_from_slice(&opening);
     p[11] = version;
     p[12] = 0x50;
-    p[13..29].copy_from_slice(&[0xAB; 16]);
+    p[13..29].copy_from_slice(&network);
     p[29] = intent;
     p
 }
 
-/// The fixed markers match the hand-encoded layout: the self-described
-/// CBOR opening starts every preamble, and the wire version is the
-/// dialect's discriminant.
-#[test]
-fn protocol_constants_match_spec() {
-    assert_eq!(Protocol::V2 as u16, 2);
-    assert_eq!(&V2_OPENING[..3], &[0xd9, 0xd9, 0xf7]);
+/// Run one gossip attempt against a hand-written preamble reply.
+///
+/// The fake peer checks every stable outbound byte: the opening, version,
+/// network byte-string head, and intent. Its network value varies per seed,
+/// so only that field is omitted. A rejected reply must leave the local set
+/// byte-for-byte unchanged.
+async fn gossip_against(reply: &[u8]) -> Result<Gossiped, Error> {
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
+    let before = alice.snapshot();
+    let (mut a_link, b) = rumors::link::memory();
+    let mut b_read = b.control_read;
+    let mut b_write = b.control_write;
+
+    let fake_peer = async move {
+        let mut got = [0u8; PREAMBLE_LEN];
+        b_read.read_exact(&mut got).await.expect("fake peer read");
+        let expected = preamble(V2_OPENING, WIRE_VERSION, [0; 16], INTENT_REMAIN);
+        assert_eq!(&got[..13], &expected[..13], "outbound preamble head");
+        assert_eq!(got[29], INTENT_REMAIN, "outbound gossip intent");
+        b_write.write_all(reply).await.expect("fake peer write");
+    };
+
+    let (result, ()) = tokio::join!(alice.gossip_once(&mut a_link), fake_peer);
+    assert_eq!(alice.snapshot(), before, "rejection changed the local set");
+    result
 }
 
 /// Two well-behaved peers in the same universe complete the preamble and
@@ -84,25 +103,9 @@ async fn handshake_roundtrip_succeeds() {
 /// [`Error::Protocol`] before reconciliation.
 #[pollster::test]
 async fn unrecognized_preamble_is_a_violation() {
-    let (mut a_link, b) = rumors::link::memory();
-    let mut b_r = b.control_read;
-    let mut b_w = b.control_write;
-
     let bad_opening = *b"NOPENOPENOP";
-    let fake_peer = async move {
-        // Drain alice's preamble (so her write_all completes) and reply with a
-        // non-rumors one.
-        let mut got = [0u8; PREAMBLE_LEN];
-        b_r.read_exact(&mut got).await.expect("fake peer read");
-        let reply = preamble(bad_opening, Protocol::V2 as u8, INTENT_REMAIN);
-        b_w.write_all(&reply).await.expect("fake peer write");
-    };
-
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip_once(&mut a_link);
-
-    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
-    match alice_result {
+    let reply = preamble(bad_opening, WIRE_VERSION, [0xAB; 16], INTENT_REMAIN);
+    match gossip_against(&reply).await {
         Err(Error::Protocol(error)) => {
             assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
@@ -114,27 +117,11 @@ async fn unrecognized_preamble_is_a_violation() {
 /// with [`Mismatch::Protocol`].
 #[pollster::test]
 async fn version_mismatch_surfaces_error() {
-    let (mut a_link, b) = rumors::link::memory();
-    let mut b_r = b.control_read;
-    let mut b_w = b.control_write;
-
     // Pick a version we definitely don't speak yet (kept below 24 so the
     // item's width matches the fixed layout).
     let bogus_version: u8 = 7;
-    let fake_peer = async move {
-        let mut got = [0u8; PREAMBLE_LEN];
-        b_r.read_exact(&mut got).await.expect("fake peer read");
-        // Correct opening, bogus version: the version check fires on the
-        // preamble item before the network or intent are interpreted.
-        let reply = preamble(V2_OPENING, bogus_version, INTENT_REMAIN);
-        b_w.write_all(&reply).await.expect("fake peer write");
-    };
-
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip_once(&mut a_link);
-
-    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
-    match alice_result {
+    let reply = preamble(V2_OPENING, bogus_version, [0xAB; 16], INTENT_REMAIN);
+    match gossip_against(&reply).await {
         Err(Error::Mismatch(Mismatch::Protocol {
             local_protocol,
             remote_version,
@@ -152,23 +139,9 @@ async fn version_mismatch_surfaces_error() {
 /// validated rather than assumed.
 #[pollster::test]
 async fn invalid_intent_surfaces_error() {
-    let (mut a_link, b) = rumors::link::memory();
-    let mut b_r = b.control_read;
-    let mut b_w = b.control_write;
-
     let bogus_intent: u8 = 2;
-    let fake_peer = async move {
-        let mut got = [0u8; PREAMBLE_LEN];
-        b_r.read_exact(&mut got).await.expect("fake peer read");
-        let reply = preamble(V2_OPENING, Protocol::V2 as u8, bogus_intent);
-        b_w.write_all(&reply).await.expect("fake peer write");
-    };
-
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip_once(&mut a_link);
-
-    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
-    match alice_result {
+    let reply = preamble(V2_OPENING, WIRE_VERSION, [0xAB; 16], bogus_intent);
+    match gossip_against(&reply).await {
         Err(Error::Protocol(error)) => {
             assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
@@ -179,25 +152,8 @@ async fn invalid_intent_surfaces_error() {
 /// Closing mid-preamble reports a transport EOF in the preamble phase.
 #[pollster::test]
 async fn truncated_handshake_surfaces_typed_truncation() {
-    let (mut a_link, b) = rumors::link::memory();
-    let mut b_r = b.control_read;
-    let mut b_w = b.control_write;
-
-    let fake_peer = async move {
-        let mut got = [0u8; PREAMBLE_LEN];
-        b_r.read_exact(&mut got).await.expect("fake peer read");
-        // Write only the first six bytes, then drop the write half to signal
-        // EOF before the fixed preamble is complete.
-        let partial = preamble(V2_OPENING, Protocol::V2 as u8, INTENT_REMAIN);
-        b_w.write_all(&partial[..6]).await.expect("partial write");
-        drop(b_w);
-    };
-
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip_once(&mut a_link);
-
-    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
-    match alice_result {
+    let reply = preamble(V2_OPENING, WIRE_VERSION, [0xAB; 16], INTENT_REMAIN);
+    match gossip_against(&reply[..6]).await {
         Err(Error::Transport(error)) => {
             assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
             assert_eq!(error.source.kind(), std::io::ErrorKind::UnexpectedEof);
@@ -212,26 +168,11 @@ async fn truncated_handshake_surfaces_typed_truncation() {
 /// Never accepted, and never blamed on the transport.
 #[pollster::test]
 async fn malformed_preamble_surfaces_typed_defect() {
-    let (mut a_link, b) = rumors::link::memory();
-    let mut b_r = b.control_read;
-    let mut b_w = b.control_write;
-
-    let fake_peer = async move {
-        let mut got = [0u8; PREAMBLE_LEN];
-        b_r.read_exact(&mut got).await.expect("fake peer read");
-        // Correct opening and version, but the network item's head spells
-        // a 16-byte *text* string (0x70) where the wire demands a 16-byte
-        // byte string (0x50).
-        let mut reply = preamble(V2_OPENING, Protocol::V2 as u8, INTENT_REMAIN);
-        reply[12] = 0x70;
-        b_w.write_all(&reply).await.expect("fake peer write");
-    };
-
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip_once(&mut a_link);
-
-    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
-    match alice_result {
+    // The network item's head spells a 16-byte text string (0x70) where
+    // the wire requires a 16-byte byte string (0x50).
+    let mut reply = preamble(V2_OPENING, WIRE_VERSION, [0xAB; 16], INTENT_REMAIN);
+    reply[12] = 0x70;
+    match gossip_against(&reply).await {
         Err(Error::Protocol(error)) => {
             assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
@@ -239,33 +180,16 @@ async fn malformed_preamble_surfaces_typed_defect() {
     }
 }
 
-/// The preamble must be the connection's first bytes: a peer that skips it and
-/// goes straight to protocol traffic is rejected as a preamble violation before
-/// any peer-declared protocol frame length can be read or trusted.
+/// A bootstrap network paired with a retiring intent is rejected because a
+/// peer cannot receive and donate an identity in the same session.
 #[pollster::test]
-async fn handshake_precedes_protocol_traffic() {
-    let (mut a_link, b) = rumors::link::memory();
-    let mut b_r = b.control_read;
-    let mut b_w = b.control_write;
-
-    let fake_peer = async move {
-        let mut got = [0u8; PREAMBLE_LEN];
-        b_r.read_exact(&mut got).await.expect("fake peer read");
-        // Arbitrary protocol-looking bytes whose opening is definitely not
-        // a rumors preamble.
-        let reply = [b'X'; PREAMBLE_LEN];
-        b_w.write_all(&reply).await.expect("fake peer write");
-    };
-
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip_once(&mut a_link);
-
-    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
-    match alice_result {
+async fn bootstrap_retire_conflict_is_a_violation() {
+    let reply = preamble(V2_OPENING, WIRE_VERSION, [0; 16], INTENT_RETIRE);
+    match gossip_against(&reply).await {
         Err(Error::Protocol(error)) => {
             assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
-        other => panic!("expected a preamble violation, got {other:?}"),
+        other => panic!("expected a bootstrap-retire violation, got {other:?}"),
     }
 }
 

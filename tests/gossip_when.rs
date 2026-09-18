@@ -1,18 +1,26 @@
 //! Continuous gossip under per-connection initiation policies.
 //!
 //! Hand-driven policy streams exercise suppression, remote serving, connection reuse,
-//! and cancellation. Closed in-memory schedules use the quiescence detector;
-//! tests involving Tokio tasks also carry a wall-clock backstop.
+//! and cancellation. Closed in-memory schedules use the quiescence detector, including
+//! every assertion that a driver has gone quiet. Tokio tasks carry a wall-clock
+//! backstop only when the test expects progress.
 
 use rumors_testkit::common;
 
-use std::{future::poll_fn, task::Poll, time::Duration};
+use std::{
+    future::{Future, poll_fn},
+    task::Poll,
+    time::Duration,
+};
 
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use futures::stream;
 use futures::{FutureExt, StreamExt};
 use proptest::prelude::*;
-use rumors::{Error, Gossip, Gossiped, Led, Peer, Rumors, testing::run_to_quiescence};
+use rumors::{
+    Error, Gossip, Gossiped, Led, Peer, Rumors,
+    testing::{Quiescence, run_to_quiescence},
+};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
@@ -45,6 +53,17 @@ fn links() -> (rumors::link::MemoryLink, rumors::link::MemoryLink) {
 fn ticks<I>() -> (UnboundedSender<I>, impl stream::Stream<Item = I>) {
     let (tx, rx) = unbounded();
     (tx, rx)
+}
+
+/// Assert that a closed in-memory future has parked without producing an item.
+fn assert_stalled(future: impl Future, failure: &str) {
+    match run_to_quiescence(future) {
+        Err(Quiescence::Stalled) => {}
+        Err(Quiescence::PollBudget) => {
+            panic!("{failure}: the future kept waking without completing")
+        }
+        Ok(_) => panic!("{failure}"),
+    }
 }
 
 /// Install a hand-driven stream on a fixture that owns its sole gossip handle.
@@ -174,10 +193,9 @@ async fn suppression_swallows_echoes_not_news() {
     // `changes()` has an echo tick queued. Suppression must swallow it:
     // polling both drivers now yields nothing — no echo session — and the
     // drivers go quiet.
-    let echo = futures::future::join(a_sessions.next(), b_sessions.next());
-    assert!(
-        timeout(Duration::from_millis(100), echo).await.is_err(),
-        "an echo session ran on a converged connection"
+    assert_stalled(
+        futures::future::join(a_sessions.next(), b_sessions.next()),
+        "an echo session ran on a converged connection",
     );
 
     // But real news still initiates: a change on B drives exactly one more
@@ -216,10 +234,9 @@ async fn heartbeat_ticks_are_free_until_divergence() {
     for _ in 0..3 {
         a_tx.unbounded_send(()).expect("driver alive");
     }
-    let idle = futures::future::join(a_sessions.next(), b_sessions.next());
-    assert!(
-        timeout(Duration::from_millis(100), idle).await.is_err(),
-        "a heartbeat tick initiated a session on a converged connection"
+    assert_stalled(
+        futures::future::join(a_sessions.next(), b_sessions.next()),
+        "a heartbeat tick initiated a session on a converged connection",
     );
 
     // Diverged, with a tick stream that carries no change information (an
@@ -280,20 +297,18 @@ async fn unconditional_requests_probe_a_converged_connection() {
     }
 
     // No observer woke: the probes' joins were no-ops at both ends.
-    let woke = futures::future::join(a_changes.next(), b_changes.next());
-    assert!(
-        timeout(Duration::from_millis(100), woke).await.is_err(),
-        "a no-news probe session woke a changes() observer"
+    assert_stalled(
+        futures::future::join(a_changes.next(), b_changes.next()),
+        "a no-news probe session woke a changes() observer",
     );
 
     // A when-changed request on the same converged connection still initiates
     // nothing: the two policies differ exactly in the suppression check.
     a_tx.unbounded_send(Gossip::WhenChanged)
         .expect("driver alive");
-    let idle = futures::future::join(a_sessions.next(), b_sessions.next());
-    assert!(
-        timeout(Duration::from_millis(100), idle).await.is_err(),
-        "a when-changed request initiated a session on a converged connection"
+    assert_stalled(
+        futures::future::join(a_sessions.next(), b_sessions.next()),
+        "a when-changed request initiated a session on a converged connection",
     );
 }
 
@@ -395,10 +410,9 @@ async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
     }
 
     // Converged and quiet: every echo tick is suppressed.
-    let idle = futures::future::join4(a_drv.next(), b_ab_drv.next(), b_bc_drv.next(), c_drv.next());
-    assert!(
-        timeout(Duration::from_millis(100), idle).await.is_err(),
-        "a converged chain must be quiet"
+    assert_stalled(
+        futures::future::join4(a_drv.next(), b_ab_drv.next(), b_bc_drv.next(), c_drv.next()),
+        "a converged chain must be quiet",
     );
 
     // A sends and redacts between driver polls: the commit's only surviving
