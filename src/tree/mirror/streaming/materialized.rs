@@ -130,40 +130,35 @@ use tokio::sync::oneshot;
 /// before its resolution or publishing either before the wire reply.
 macro_rules! yield_resolve_query {
     (
-        $work:expr, $scope:expr;
+        $progress:expr, $scope:expr;
         $yielded:expr;
         $resolutions:expr => $resolution:expr;
         $queries:expr => $next_queries:expr;
     ) => {{
-        let _scope = $scope;
-        #[cfg(test)]
-        progress::wire($work, _scope);
+        let scope = $scope;
+        $progress.wire(scope);
         $yielded;
         let resolution = $resolution;
-        #[cfg(test)]
-        progress::resolution($work, &resolution);
+        $progress.resolution(&resolution);
         if $resolutions.send(resolution).await.is_err() {
             return;
         }
         for query in $next_queries {
-            #[cfg(test)]
-            progress::dependent($work, &query);
+            $progress.dependent(&query);
             if $queries.send(query).await.is_err() {
                 return;
             }
         }
     }};
     (
-        $work:expr, $scope:expr;
+        $progress:expr, $scope:expr;
         $yielded:expr;
         $ready:expr;
     ) => {{
-        let _scope = $scope;
-        #[cfg(test)]
-        progress::wire($work, _scope);
+        let scope = $scope;
+        $progress.wire(scope);
         $yielded;
-        #[cfg(test)]
-        progress::ready($work, _scope);
+        $progress.ready(scope);
         $ready;
     }};
 }
@@ -171,7 +166,6 @@ macro_rules! yield_resolve_query {
 pub(super) mod channel;
 mod common;
 mod error;
-#[cfg(test)]
 pub(super) mod progress;
 #[cfg(test)]
 mod tests;

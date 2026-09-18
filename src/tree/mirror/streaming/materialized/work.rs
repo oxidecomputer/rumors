@@ -21,8 +21,7 @@ mod resolver;
 
 pub(super) use resolver::Resolver;
 
-#[cfg(test)]
-use super::{progress, transcript};
+use super::progress::Progress;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf, erased,
@@ -50,9 +49,8 @@ where
     stats: Recorder,
     /// Pumps driven together when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
-    /// Identifies this walk in test traces.
-    #[cfg(test)]
-    trace_id: usize,
+    /// Records progress-critical publications for tests.
+    progress: Progress,
 }
 
 /// Accumulate phase work and drive its pumps to completion.
@@ -68,8 +66,7 @@ where
             window,
             stats,
             tasks: Vec::new(),
-            #[cfg(test)]
-            trace_id: progress::new_work(),
+            progress: Progress::new(),
         }
     }
 
@@ -92,8 +89,8 @@ where
         self.tasks.push(Box::pin(pump(
             Box::pin(messages),
             send,
-            #[cfg(test)]
-            (self.trace_id, H::HEIGHT),
+            self.progress,
+            H::HEIGHT,
         )));
         Box::pin(responses)
     }
@@ -136,13 +133,12 @@ where
 async fn pump<E: Send, Err: Send + 'static>(
     mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
     send: Sender<Result<erased::Reply<E>, Error<Err>>>,
-    #[cfg(test)] (work, height): (usize, usize),
+    progress: Progress,
+    height: usize,
 ) -> Result<(), Error<Err>> {
     while let Some(reply) = messages.next().await {
         let reply = reply?;
-        // Record produced replies in stream order.
-        #[cfg(test)]
-        transcript::reply(work, height, &reply);
+        progress.reply(height, &reply);
         if send.send(Ok(reply)).await.is_err() {
             return Ok(());
         }

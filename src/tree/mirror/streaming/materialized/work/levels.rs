@@ -21,8 +21,6 @@ use super::{
     queues::*,
     resolver::{Dispute, Resolver},
 };
-#[cfg(test)]
-use crate::tree::mirror::streaming::materialized::progress;
 use crate::tree::{
     mirror::contained,
     mirror::streaming::{
@@ -87,8 +85,7 @@ where
         let (early_tx, early_rx) = oneshot::channel();
         let backend = self.backend();
         let stats = self.stats.clone();
-        #[cfg(test)]
-        let trace_id = self.trace_id;
+        let progress = self.progress;
 
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
@@ -119,8 +116,7 @@ where
             // Filled before the opening yields, so the level consuming it
             // never waits: its first query cannot arrive earlier.
             let _ = early_tx.send(early);
-            #[cfg(test)]
-            progress::wire(trace_id, root_scope);
+            progress.wire(root_scope);
             yield Reply {
                 reactions: std::iter::once(Reaction::Query(fan_listing(&fan)))
                     .chain(supplies)
@@ -130,8 +126,7 @@ where
                 prefix: root_scope,
                 ours: fan,
             };
-            #[cfg(test)]
-            progress::initial_query(trace_id, &query);
+            progress.initial_query(&query);
             if queries.send(query).await.is_err() {
                 return;
             }
@@ -197,8 +192,7 @@ where
         let (resolution, resolution_rx) = responder_root_resolution::<B>();
         let (early_tx, early_rx) = oneshot::channel();
         let assembling = backend.clone();
-        #[cfg(test)]
-        let trace_id = self.trace_id;
+        let progress = self.progress;
 
         let responses = try_stream! {
             let mut requests = requests;
@@ -264,7 +258,7 @@ where
                 answer::internal(&backend, &their_version, root_scope, ours, theirs, &stats)
                     .await?;
             yield_resolve_query!(
-                trace_id, root_scope;
+                progress, root_scope;
                 yield Reply { reactions };
                 resolution => Resolution {
                     prefix: root_scope,
@@ -391,8 +385,7 @@ where
             self.window.capacity(asked_height + 1),
             &stats,
         );
-        #[cfg(test)]
-        let trace_id = self.trace_id;
+        let progress = self.progress;
 
         let responses = try_stream! {
             let mut requests = requests;
@@ -444,8 +437,7 @@ where
                             .map(|(radix, child)| (radix, Resolve::Ready(Some(child))))
                             .collect(),
                     };
-                    #[cfg(test)]
-                    progress::parent_resolution(trace_id, &resolution);
+                    progress.parent_resolution(&resolution);
                     if upper.send(resolution).await.is_err() {
                         return;
                     }
@@ -472,7 +464,7 @@ where
                         // the same filter the opening supply used.
                         if let Some(survivor) = survivors.remove(&radix) {
                             yield_resolve_query!(
-                                trace_id, child_prefix;
+                                progress, child_prefix;
                                 yield Reply { reactions: Vec::new() };
                                 resolver.ready(radix, survivor);
                             );
@@ -486,7 +478,7 @@ where
                             .map(|(radix, child)| Reaction::Supply(radix, child))
                             .collect();
                         yield_resolve_query!(
-                            trace_id, child_prefix;
+                            progress, child_prefix;
                             yield Reply { reactions };
                             resolver.ready(radix, node);
                         );
@@ -504,7 +496,7 @@ where
                     )
                     .await?;
                     yield_resolve_query!(
-                        trace_id, child_prefix;
+                        progress, child_prefix;
                         yield Reply { reactions };
                         lower => Resolution {
                             prefix: child_prefix,
@@ -518,8 +510,7 @@ where
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
-                #[cfg(test)]
-                progress::parent_resolution(trace_id, &resolution);
+                progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {
                     return;
                 }
@@ -579,8 +570,7 @@ where
             leaf_parent_resolutions::<B>(self.window.capacity(<S<Z>>::HEIGHT), &stats);
         let (lower, lower_rx) =
             leaf_child_resolutions::<B>(self.window.capacity(Z::HEIGHT), &stats);
-        #[cfg(test)]
-        let trace_id = self.trace_id;
+        let progress = self.progress;
 
         let responses = try_stream! {
             let mut requests = requests;
@@ -610,7 +600,7 @@ where
                             .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
                             .collect();
                         yield_resolve_query!(
-                            trace_id, child_prefix;
+                            progress, child_prefix;
                             yield Reply { reactions };
                             resolver.ready(radix, node);
                         );
@@ -621,7 +611,7 @@ where
                     let (reactions, next_queries, resolved) =
                         answer::leaf_parent(&their_version, child_prefix, leaves, listing, &stats);
                     yield_resolve_query!(
-                        trace_id, child_prefix;
+                        progress, child_prefix;
                         yield Reply { reactions };
                         lower => Resolution {
                             prefix: child_prefix,
@@ -635,8 +625,7 @@ where
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
-                #[cfg(test)]
-                progress::parent_resolution(trace_id, &resolution);
+                progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {
                     return;
                 }
@@ -680,8 +669,7 @@ where
     ) {
         let (upper, upper_rx) = terminal_leaf_resolutions::<B>();
         let stats = self.stats.clone();
-        #[cfg(test)]
-        let trace_id = self.trace_id;
+        let progress = self.progress;
 
         let responses = try_stream! {
             let mut requests = requests;
@@ -706,15 +694,14 @@ where
                         answer::leaf(&their_version, radix, node, listing, &stats)
                             .map_err(Error::Violation)?;
                     yield_resolve_query!(
-                        trace_id, child_prefix;
+                        progress, child_prefix;
                         yield Reply { reactions };
                         resolver.ready(radix, node);
                     );
                 }
 
                 let resolution = resolver.finish()?;
-                #[cfg(test)]
-                progress::parent_resolution(trace_id, &resolution);
+                progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {
                     return;
                 }
