@@ -5,7 +5,7 @@
 //! sweep parks either of two sessions at every polling round; generated
 //! schedules mix overlapping sessions with local sends and redactions.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 

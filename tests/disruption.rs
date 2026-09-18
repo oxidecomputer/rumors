@@ -14,7 +14,7 @@
 //! load on a multi-thread executor. Nextest's process limit remains its outer
 //! runaway guard.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeSet;
 

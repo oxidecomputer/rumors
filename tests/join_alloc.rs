@@ -2,7 +2,7 @@
 
 #[path = "support/allocation.rs"]
 mod allocation;
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeSet;
 

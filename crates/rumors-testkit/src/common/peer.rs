@@ -22,6 +22,7 @@ use serde::de::DeserializeOwned;
 
 /// One simulated peer.
 pub struct Peer<T: Send + Sync + 'static> {
+    /// The peer's live Rumors handle.
     pub local: Rumors<T>,
     /// The causal frontier up to which `observations` is complete: each
     /// drain records the live leaves not contained here, then absorbs the
@@ -87,6 +88,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
         version
     }
 
+    /// Redact one message and advance the observation checkpoint past the tick.
     pub fn redact_one(&mut self, version: &Version) {
         self.local.redact(version);
         // Redactions fire no observation; the drain just absorbs the
@@ -109,7 +111,7 @@ where
 
 /// Drive every peer to a full-mesh fixed point.
 ///
-/// See [`quiesce_refs`] for the fixed-point criterion and the
+/// See `quiesce_refs` for the fixed-point criterion and the
 /// non-termination guard.
 pub fn quiesce<T>(peers: &mut [Peer<T>])
 where

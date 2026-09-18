@@ -1,6 +1,6 @@
 //! Application-owned deadlines bound active exchanges without timing idle links.
 
-mod common;
+use rumors_testkit::common;
 
 use std::sync::{Arc, Mutex};
 

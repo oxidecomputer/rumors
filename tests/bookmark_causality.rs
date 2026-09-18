@@ -26,7 +26,7 @@
 //! Tokio's internal `select!` ordering can still change which frame meets a wire
 //! cut; clean schedules replay exactly, while faulted schedules retain that limit.
 
-mod common;
+use rumors_testkit::common;
 #[path = "bookmark_causality/concurrent.rs"]
 mod concurrent;
 

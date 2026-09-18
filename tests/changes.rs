@@ -5,7 +5,7 @@
 //! that was), ticks for every kind of commit — send, redact, and a join
 //! learned by gossip — and a clean end once the set closes.
 
-mod common;
+use rumors_testkit::common;
 
 use std::pin::Pin;
 use std::sync::{

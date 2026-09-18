@@ -31,11 +31,6 @@
 //! advances only while every task is blocked on the wire, so the hop
 //! counts are exact and wall compute is excluded.
 
-// Only the delayed wire is exercised here.
-#[allow(dead_code)]
-#[path = "../benches/support/latency.rs"]
-mod latency;
-
 use std::time::Duration;
 
 use rand::{RngCore, SeedableRng};
@@ -45,6 +40,7 @@ use rumors::testing::{
     supply_decode_envelope_bytes, window_capacities,
 };
 use rumors::{Peer, Rumors};
+use rumors_testkit::bench::latency;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;

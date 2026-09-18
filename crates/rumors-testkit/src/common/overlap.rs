@@ -6,7 +6,7 @@
 //!
 //! [`execute_overlap`] runs these operations as a schedule. Its generator uses
 //! [`Knowledge`] to track which messages each peer can redact and when sessions
-//! take their snapshots after the preamble exchange ([`FORK_ROUNDS`]). The
+//! take their snapshots after the preamble exchange (`FORK_ROUNDS`). The
 //! executor still checks the live observation log before redacting; the
 //! shadow-validity suite checks the model against the actual observations.
 
@@ -123,36 +123,66 @@ impl Session {
 #[derive(Debug, Clone)]
 pub enum OverlapEvent<T> {
     /// Insert `value` at `peer`.
-    Insert { peer: usize, value: T },
+    Insert {
+        /// Fleet index of the peer performing the insertion.
+        peer: usize,
+        /// Message to insert.
+        value: T,
+    },
     /// Redact the message created by the `Insert` at `target_event_idx`.
     /// Valid by construction: the generator's shadow guarantees `peer`
     /// has observed that message when this event runs.
     Redact {
+        /// Fleet index of the peer performing the redaction.
         peer: usize,
+        /// Schedule index of the insertion being redacted.
         target_event_idx: EventIdx,
     },
     /// One whole (non-overlapped) session between `a` and `b`, as the
     /// serial executor runs them.
-    Gossip { a: usize, b: usize },
+    Gossip {
+        /// One endpoint's fleet index.
+        a: usize,
+        /// The other endpoint's fleet index.
+        b: usize,
+    },
     /// Open a session between `a` and `b` in `slot` without polling it;
     /// it installs at its `Close`, or at a `Step` that completes it.
     ///
     /// Nothing forks here: each side forks its view under the polls that
-    /// complete its preamble exchange ([`FORK_ROUNDS`]), and the shadow
+    /// complete its preamble exchange (`FORK_ROUNDS`), and the shadow
     /// models exactly that.
-    Open { slot: usize, a: usize, b: usize },
+    Open {
+        /// Slot that will hold the unfinished session.
+        slot: usize,
+        /// One endpoint's fleet index.
+        a: usize,
+        /// The other endpoint's fleet index.
+        b: usize,
+    },
     /// Poll the session in `slot` at most `polls` times.
-    Step { slot: usize, polls: usize },
+    Step {
+        /// Slot holding the session.
+        slot: usize,
+        /// Maximum number of poll rounds to perform.
+        polls: usize,
+    },
     /// Drive the session in `slot` to completion and install.
-    Close { slot: usize },
+    Close {
+        /// Slot holding the session.
+        slot: usize,
+    },
 }
 
+/// A generated schedule that can interleave polling of several sessions.
 #[derive(Debug, Clone)]
 pub struct OverlapSchedule<T> {
+    /// Number of peers present at the start of the schedule.
     pub n_peers: usize,
-    /// Fork topology, as in [`schedule::events::Schedule`]: peer 0 seeds,
+    /// Fork topology, as in [`super::schedule::Schedule`]: peer 0 seeds,
     /// `fork_parents[i] < i`, so the fleet is pairwise disjoint.
     pub fork_parents: Vec<usize>,
+    /// Operations to execute in order.
     pub events: Vec<OverlapEvent<T>>,
 }
 
@@ -300,7 +330,7 @@ const FORK_ROUNDS: [usize; 2] = [2, 1];
 
 /// Generate local actions and overlapping sessions from a populated, converged fleet.
 ///
-/// Insert [`SessionPair`]s into arbitrary actions so both session orderings
+/// Insert `SessionPair`s into arbitrary actions so both session orderings
 /// receive regular coverage, including cases where one session starts with
 /// equal snapshots and another changes the replica before it publishes.
 pub fn arb_overlap_schedule<T, S>(

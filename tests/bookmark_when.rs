@@ -13,7 +13,7 @@
 //! without reproducing the cache's version arithmetic. The property compares
 //! the two throughout a generated peer lifetime.
 
-mod common;
+use rumors_testkit::common;
 #[path = "bookmark_when/reclamation.rs"]
 mod reclamation;
 

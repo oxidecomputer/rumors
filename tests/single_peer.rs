@@ -4,8 +4,6 @@
 //! surface: live-leaf fan-out, distinct versions within a batch, and strict
 //! monotonicity of the local party's component.
 
-mod common;
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;

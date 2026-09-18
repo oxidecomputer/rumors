@@ -5,19 +5,12 @@
 //! queue widths and serialize despite a generous memory budget. They must
 //! still reconcile correctly, but this latency ceiling does not apply to them.
 
-mod common;
-
-// Only the delayed wire is exercised here; the module's pipes and
-// conformance surface belong to the benches and `latency_link.rs`.
-#[allow(dead_code)]
-#[path = "../benches/support/latency.rs"]
-mod latency;
-
 use std::time::Duration;
 
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors};
+use rumors_testkit::{bench::latency, common};
 
 use common::window::WindowChoice;
 use common::wire::bootstrap_fork_with_window;

@@ -25,7 +25,7 @@
 //! Comparison is set-wise: callback order within a batch is
 //! unspecified, so a sequence-wise comparison would over-constrain.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -10,7 +10,7 @@
 //! in polling order. Re-accept a snapshot only after a deliberate protocol change.
 //!
 //! Each in-memory link is wrapped at its control halves and connector. The
-//! control wrappers share a [`Log`]; each opened data stream has its own write
+//! control wrappers share a `Log`; each opened data stream has its own write
 //! buffer. These transport records can then be compared with observation
 //! callbacks or parsed without using the Rumors codec.
 
@@ -102,7 +102,7 @@ impl Log {
 pub use rumors::testing::LinkCapture as CapturedLink;
 
 /// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one control half that
-/// records every byte crossing it into a shared [`Log`].
+/// records every byte crossing it into a shared `Log`.
 pub struct Recorder {
     inner: DuplexStream,
     peer: &'static str,

@@ -1124,6 +1124,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rumors",
+ "rumors-testkit",
  "schnellru",
  "seq-macro",
  "serde",
@@ -1132,6 +1133,23 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tinyvec",
+ "tokio",
+]
+
+[[package]]
+name = "rumors-testkit"
+version = "0.1.0"
+dependencies = [
+ "before",
+ "ciborium",
+ "futures",
+ "pollster",
+ "proptest",
+ "rand",
+ "rand_chacha",
+ "rumors",
+ "serde",
+ "sha3",
  "tokio",
 ]
 

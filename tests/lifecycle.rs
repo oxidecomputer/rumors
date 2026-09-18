@@ -11,7 +11,7 @@
 //! these are their integration-tier complements, driving whole sessions
 //! between real replicas.
 
-mod common;
+use rumors_testkit::common;
 #[path = "lifecycle/reunion.rs"]
 mod reunion;
 

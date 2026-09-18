@@ -4,7 +4,7 @@
 //! and cancellation. Closed in-memory schedules use the quiescence detector;
 //! tests involving Tokio tasks also carry a wall-clock backstop.
 
-mod common;
+use rumors_testkit::common;
 
 use std::{future::poll_fn, task::Poll, time::Duration};
 

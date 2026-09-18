@@ -10,7 +10,7 @@
 //! whole session, and a session whose initiator holds no exclusive root
 //! children never opens the opening-supply stream at all.
 
-mod common;
+use rumors_testkit::common;
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;

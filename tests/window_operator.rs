@@ -6,18 +6,13 @@
 //! That accounts for traffic across concurrent streams instead of assuming
 //! the configured per-stream rate is the link's aggregate rate.
 
-// Only the delayed wire is exercised here; the module's pipes and
-// conformance surface belong to the benches and `latency_link.rs`.
-#[allow(dead_code)]
-#[path = "../benches/support/latency.rs"]
-mod latency;
-
 use std::time::Duration;
 
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::testing::{supply_decode_envelope_bytes, window_capacities};
 use rumors::{Peer, Rumors};
+use rumors_testkit::bench::latency;
 
 /// One-way delay for the virtual-time measurements (the timer grain).
 const DELAY: Duration = Duration::from_millis(10);

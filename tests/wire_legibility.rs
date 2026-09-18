@@ -9,7 +9,7 @@
 //! This complements wire snapshots: even an accepted snapshot change must still
 //! produce bytes that a CBOR library can read without the Rumors codec.
 
-mod common;
+use rumors_testkit::common;
 
 use ciborium::value::Value;
 use proptest::prelude::*;

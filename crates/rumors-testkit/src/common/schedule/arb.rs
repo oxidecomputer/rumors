@@ -6,7 +6,7 @@
 //! event always references an `Insert` whose message the redacting peer
 //! has already observed by that point, and every event names only peers
 //! alive when it runs (a `Retire` needs two distinct live peers). To
-//! enforce this, the generator drives a [`SimState`] in lockstep with
+//! enforce this, the generator drives a `SimState` in lockstep with
 //! the choices it emits — a shadow simulator that mirrors what each
 //! `Peer<T>` would observe under the protocol (including the
 //! deletion-honoring propagation of redactions during gossip, the

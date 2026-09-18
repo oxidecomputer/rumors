@@ -11,7 +11,7 @@
 //! no change to report, actors still live), and an *ended* one (no further
 //! change possible, complete final state already yielded).
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::{BTreeMap, BTreeSet};
 

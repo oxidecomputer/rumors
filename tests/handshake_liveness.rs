@@ -21,7 +21,7 @@
 //! as a failed poll-progress check (with this file's cell name attached)
 //! rather than as a hung gate or a wall-clock guess.
 
-mod common;
+use rumors_testkit::common;
 
 use rumors::{Peer, Retire, Rumors};
 

@@ -1,6 +1,6 @@
 //! Bootstrap transfers content and identity, and returns usable state on failure.
 
-mod common;
+use rumors_testkit::common;
 
 use std::sync::{Arc, Mutex};
 

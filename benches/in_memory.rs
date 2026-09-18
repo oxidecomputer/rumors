@@ -47,12 +47,7 @@ use std::iter;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::{FutureExt, StreamExt};
 use rumors::{CausalMessages, Peer, Rumors, UnorderedMessages, Version, causally};
-
-// The shared grid module exposes a superset of helpers; each bench binary uses
-// a subset, so the unused remainder is expected per-binary.
-#[allow(dead_code)]
-#[path = "support/grid.rs"]
-mod grid;
+use rumors_testkit::bench::grid;
 
 use grid::{SIZES, sample_size_for};
 

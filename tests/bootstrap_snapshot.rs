@@ -20,7 +20,7 @@
 //! spot in the hex), except [`string_payload`], which pins how a
 //! variable-length value is framed inside the served whole-tree transfer.
 
-mod common;
+use rumors_testkit::common;
 
 use rumors::{Peer, Rumors};
 

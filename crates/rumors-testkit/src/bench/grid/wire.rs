@@ -15,6 +15,14 @@ pub struct Wire {
     b_link: MemoryLink,
 }
 
+/// Allocate a fresh in-memory connection.
+impl Default for Wire {
+    /// Allocate a fresh in-memory connection.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Wire {
     /// Allocate one bounded in-memory link pair, one end per side.
     pub fn new() -> Self {

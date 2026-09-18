@@ -14,6 +14,7 @@ use rumors::{Snapshot, Version};
 
 use super::schedule::EventIdx;
 
+/// Reference state for the live messages described by a generated schedule.
 pub struct Oracle<T> {
     values: BTreeMap<EventIdx, T>,
     redacted: BTreeSet<EventIdx>,
@@ -29,10 +30,12 @@ impl<T> Default for Oracle<T> {
 }
 
 impl<T: Clone + Ord> Oracle<T> {
+    /// Record the value created by insertion event `id`.
     pub fn insert(&mut self, id: EventIdx, value: T) {
         self.values.insert(id, value);
     }
 
+    /// Mark the insertion at `id` as redacted.
     pub fn redact(&mut self, id: EventIdx) {
         self.redacted.insert(id);
     }
@@ -55,6 +58,7 @@ impl<T: Clone + Ord> Oracle<T> {
         &self.values
     }
 
+    /// Report whether the insertion at `id` has been redacted.
     pub fn is_redacted(&self, id: EventIdx) -> bool {
         self.redacted.contains(&id)
     }

@@ -14,7 +14,7 @@
 //! a real peer in a different universe, so it is exercised separately in
 //! `tests/network.rs`.
 
-mod common;
+use rumors_testkit::common;
 
 use rumors::error::Mismatch;
 use rumors::{Error, Peer, Protocol, Rumors};

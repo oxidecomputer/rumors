@@ -68,12 +68,20 @@ pub enum Vanish {
     /// The next write there is where the endpoint dies, mid-frame like a
     /// cut. An endpoint that opens fewer streams, or writes no more than
     /// `offset` bytes on that one, never reaches the point.
-    OnStream { index: usize, offset: usize },
+    OnStream {
+        /// Zero-based index among data streams opened by this endpoint.
+        index: usize,
+        /// Bytes successfully written before the endpoint vanishes.
+        offset: usize,
+    },
     /// At its first outgoing stream open: after the handshake, which rides
     /// the control half, and before its first data stream.
     AtFirstConnect,
     /// While writing the control stream, after `offset` bytes.
-    OnControl { offset: usize },
+    OnControl {
+        /// Bytes successfully written before the endpoint vanishes.
+        offset: usize,
+    },
 }
 
 impl FaultPlan {

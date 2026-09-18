@@ -16,7 +16,7 @@
 //! Retirement consumes the unique `Peer`, excluding concurrent writers.
 //! Snapshot and message observers may remain and drain its final state.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 

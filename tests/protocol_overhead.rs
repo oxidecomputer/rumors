@@ -17,7 +17,7 @@
 //! stamp later messages, so reusing a corpus would change their versions and
 //! paths. A `Rumors` clone shares the same replica and cannot serve as a copy.
 
-mod common;
+use rumors_testkit::common;
 
 use bytes::Bytes;
 use rand::SeedableRng;

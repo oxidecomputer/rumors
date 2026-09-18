@@ -36,7 +36,7 @@
 //! schedules instead run one clean session at a time, which is what lets
 //! the sharper equalities (2)–(4) hold after *every* step.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 

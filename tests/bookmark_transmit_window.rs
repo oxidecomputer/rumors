@@ -10,7 +10,7 @@
 //! check recovery and convergence. The closed-world poller reports a stall
 //! instead of leaving an in-memory session waiting indefinitely.
 
-mod common;
+use rumors_testkit::common;
 #[path = "bookmark_transmit_window/retirement.rs"]
 mod retirement;
 

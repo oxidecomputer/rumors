@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use rumors::link::MemoryLink;
-use rumors::{Bootstrap, Peer, Protocol, Rumors, testing::run_to_quiescence};
+use rumors::{Bootstrap, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 

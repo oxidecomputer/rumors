@@ -12,7 +12,7 @@
 //! tree shape, versions, and batching all affect how much metadata accompanies
 //! each message.
 
-mod common;
+use rumors_testkit::common;
 
 use bytes::Bytes;
 use rand::{RngCore, SeedableRng};

@@ -1,6 +1,6 @@
 //! Payload destructors may read and change their own replica.
 
-mod common;
+use rumors_testkit::common;
 
 use std::sync::{Arc, mpsc};
 use std::thread;

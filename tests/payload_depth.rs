@@ -14,7 +14,7 @@
 //! exits with an error when a counterparty aborts mid-session on a decode
 //! failure.
 
-mod common;
+use rumors_testkit::common;
 
 use rumors::error::Mismatch;
 use rumors::{DEFAULT_PAYLOAD_DEPTH_LIMIT, Peer, Rumors};

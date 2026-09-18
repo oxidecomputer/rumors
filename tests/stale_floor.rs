@@ -19,7 +19,7 @@
 //! would break: messages sent by a newcomer bootstrapped from a peer that
 //! ticked heavily beforehand must survive reconciliation in both directions.
 
-mod common;
+use rumors_testkit::common;
 
 use common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 use rumors::Peer;

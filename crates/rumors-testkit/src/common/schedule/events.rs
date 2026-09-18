@@ -5,10 +5,14 @@
 /// executor, and the shadow simulator.
 pub type EventIdx = usize;
 
+/// One operation in a serial peer schedule.
 #[derive(Debug, Clone)]
 pub enum Event<T> {
+    /// Insert one message at a peer.
     Insert {
+        /// Fleet index of the peer performing the insertion.
         peer: usize,
+        /// Message to insert.
         value: T,
     },
     /// Redact the message (by its created `Version`) sent by the
@@ -18,11 +22,16 @@ pub enum Event<T> {
     /// The strategy guarantees the redacting peer has observed that
     /// message by the time this event runs.
     Redact {
+        /// Fleet index of the peer performing the redaction.
         peer: usize,
+        /// Schedule index of the insertion being redacted.
         target_event_idx: EventIdx,
     },
+    /// Gossip between two existing peers.
     Gossip {
+        /// One endpoint's fleet index.
         a: usize,
+        /// The other endpoint's fleet index.
         b: usize,
     },
     /// Create a new peer mid-schedule by serving it a bootstrap from
@@ -33,7 +42,9 @@ pub enum Event<T> {
     /// replaying the schedule. Emitted only by the membership strategy;
     /// the strategy guarantees `parent` is alive at this point.
     Bootstrap {
+        /// Fleet index of the peer serving the bootstrap.
         parent: usize,
+        /// Fleet index assigned to the new peer.
         newcomer: usize,
     },
     /// Retire `retiree` into `absorber` over a clean wire: the
@@ -43,13 +54,17 @@ pub enum Event<T> {
     /// Emitted only by the membership strategy; the strategy guarantees
     /// both peers are alive and distinct.
     Retire {
+        /// Fleet index of the peer leaving the network.
         retiree: usize,
+        /// Fleet index of the peer accepting its state.
         absorber: usize,
     },
 }
 
+/// A serial schedule over a fleet forked from one seed.
 #[derive(Debug, Clone)]
 pub struct Schedule<T> {
+    /// Number of peers present at the start of the schedule.
     pub n_peers: usize,
     /// Fork topology of the peer fleet.
     ///
@@ -60,5 +75,6 @@ pub struct Schedule<T> {
     /// precondition for `join`/`gossip` under the `before` crate's Law of
     /// Disjointness. A star (every entry 0) is the shrink target.
     pub fork_parents: Vec<usize>,
+    /// Operations to execute in order.
     pub events: Vec<Event<T>>,
 }

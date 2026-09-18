@@ -1,6 +1,6 @@
 //! A latency-injecting in-memory link: the wire-delay knob for benchmarks.
 //!
-//! [`delayed_pair`] mirrors the topology of [`rumors::link::memory`] — a
+//! [`crate::bench::latency::delayed_pair`] mirrors the topology of [`rumors::link::memory`] — a
 //! bidirectional control stream plus announced unidirectional data streams —
 //! but builds every stream from a *delayed pipe*: bytes written at instant
 //! `t` become readable at `t + delay`, under a byte-bounded in-flight
@@ -9,7 +9,7 @@
 //!
 //! # The measurement model
 //!
-//! [`DelayedWire`] drives both session ends on a current-thread Tokio
+//! [`crate::bench::latency::DelayedWire`] drives both session ends on a current-thread Tokio
 //! runtime whose clock is **paused**: pipe arrival deadlines live in
 //! virtual time, which advances only when the runtime's one thread has no
 //! ready task left and parks on its own timer driver. A session's cost
@@ -26,14 +26,14 @@
 //!   it. Every pipe deadline is `delay` past an instant that is itself
 //!   a whole number of delays past the runtime's epoch, so the figure
 //!   lands on the delay lattice: dividing by `delay` reads serialized
-//!   one-way hops exactly. [`DelayedWire::round_trip_virtual`] reports
+//!   one-way hops exactly. [`crate::bench::latency::DelayedWire::round_trip_virtual`] reports
 //!   this component alone; it is the load-independent measurement the window
-//!   suites (`tests/window_knee.rs` and siblings) pin their bounds on.
+//!   suites pin their bounds on.
 //! - the *wall* component: real CPU time spent computing — both peers
-//!   serialized on one thread, the same convention as the zero-latency
-//!   harness in [`wire.rs`](wire.rs). It moves with machine load.
+//!   serialized on one thread, as in the zero-latency harness. It moves with
+//!   machine load.
 //!
-//! [`DelayedWire::round_trip`] reports their sum, which approximates
+//! [`crate::bench::latency::DelayedWire::round_trip`] reports their sum, which approximates
 //! session completion time on a link with the given latency (an
 //! overestimate insofar as a real deployment overlaps one peer's compute
 //! with the other's wait). At `delay = 0` the virtual component vanishes
@@ -42,8 +42,8 @@
 //! intercept is computational overhead, the slope is latency sensitivity
 //! — which suits the benches, where load noise averages out across
 //! samples; assertions belong on the virtual figure instead. On the
-//! [`new_wall_clock`](DelayedWire::new_wall_clock) cross-check variant
-//! the clocks coincide, and [`DelayedWire::round_trip`]'s report is real
+//! [`new_wall_clock`](crate::bench::latency::DelayedWire::new_wall_clock) cross-check variant
+//! the clocks coincide, and [`crate::bench::latency::DelayedWire::round_trip`]'s report is real
 //! elapsed time alone.
 //!
 //! Two deliberate simplifications:
@@ -63,8 +63,8 @@
 //!
 //! # Conformance
 //!
-//! `tests/latency_link.rs` runs this link through the public
-//! [`rumors::conformance`] suite, at zero and at nonzero delay. The clauses
+//! The latency-link integration test runs this link through the public
+//! [`rumors::conformance`] suite at zero and nonzero delay. The clauses
 //! the suite cannot observe hold by construction: buffering is bounded by
 //! `capacity` per stream, a stream mid-delivery when an `accept` future is
 //! dropped is redelivered by the next `accept` (the announcement channel

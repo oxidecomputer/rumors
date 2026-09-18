@@ -5,7 +5,7 @@
 //! These tests distinguish storage errors from invalid records and check that
 //! failed reads leave the stored bytes and the peer's state intact.
 
-mod common;
+use rumors_testkit::common;
 
 use std::sync::{Arc, Mutex};
 

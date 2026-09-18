@@ -24,7 +24,7 @@
 //! As in `gossip_snapshot.rs` the payload is `u64`: a fixed 8 bytes, easy to
 //! spot in the hex.
 
-mod common;
+use rumors_testkit::common;
 
 use rumors::{Peer, Retire, Rumors};
 

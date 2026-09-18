@@ -23,11 +23,6 @@
 //!
 //!     cargo nextest run -E 'binary(hop_trace)' --no-capture
 
-// Only the pipe layer is reused; the wire driver here is trace-aware.
-#[allow(dead_code)]
-#[path = "../benches/support/latency.rs"]
-mod latency;
-
 use std::collections::BTreeMap;
 use std::io;
 use std::pin::Pin;
@@ -41,6 +36,7 @@ use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Rumors, Version};
+use rumors_testkit::bench::latency;
 use sha3::Digest;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;

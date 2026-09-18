@@ -16,7 +16,7 @@
 //! concurrent inserts stay incomparable and gossip between them never
 //! fails.
 
-mod common;
+use rumors_testkit::common;
 
 use std::fmt::Debug;
 

@@ -12,7 +12,7 @@
 //! silently — a strategy edit could drop an arm, or a plumbing change
 //! could quietly stop applying the choice.
 
-mod common;
+use rumors_testkit::common;
 
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;

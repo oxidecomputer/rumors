@@ -9,7 +9,7 @@
 //! loop that re-gossips a long-lived connection whenever local content
 //! changes.
 
-mod common;
+use rumors_testkit::common;
 
 use std::time::Duration;
 

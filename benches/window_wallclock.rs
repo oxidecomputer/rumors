@@ -12,16 +12,13 @@
 //! same shape. Compare by eye after `just bench window_wallclock`; the
 //! grid is small because every wave here costs real milliseconds.
 
-#[allow(dead_code)]
-#[path = "support/latency.rs"]
-mod latency;
-
 use std::time::Duration;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors};
+use rumors_testkit::bench::latency;
 
 /// One-way delay: small, so a serialized cell still finishes in tens of
 /// milliseconds of real time.

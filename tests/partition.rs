@@ -17,7 +17,7 @@
 //! *self-consistency*, not equality with a hypothetical
 //! un-partitioned twin.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 

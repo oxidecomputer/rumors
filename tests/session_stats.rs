@@ -6,7 +6,7 @@
 //! Point tests cover catch-up, one-sided redaction, no-op sessions, the minimum
 //! window, and the continuous gossip driver's results.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 

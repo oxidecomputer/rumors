@@ -1,0 +1,31 @@
+[package]
+name = "rumors-testkit"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Shared test and benchmark support for the rumors workspace"
+
+[dependencies]
+before = { workspace = true, features = ["serde"] }
+ciborium = { workspace = true }
+futures = { workspace = true }
+pollster = { workspace = true }
+proptest = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rumors = { workspace = true, features = ["test-internals"] }
+serde = { workspace = true, default-features = true, features = ["derive"] }
+sha3 = { workspace = true }
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "io-util",
+    "net",
+    "sync",
+    "time",
+    "test-util",
+] }
+
+[lints.rust]
+missing_docs = "warn"

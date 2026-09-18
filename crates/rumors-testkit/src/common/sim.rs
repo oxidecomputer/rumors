@@ -21,14 +21,14 @@
 //!    byte offsets, and endpoints vanish mid-stream, via [`FaultPlan`]s.
 //!    Serving a bootstrap mid-chaos puts
 //!    the snapshot-and-fork critical section under concurrent sends from
-//!    sibling handles (see [`run_boot`]); a failed attempt may orphan the
+//!    sibling handles (see `run_boot`); a failed attempt may orphan the
 //!    served fork's id-region — counted, see below. Each peer also carries
 //!    one observer of each kind
 //!    ([`UnorderedMessages`](rumors::UnorderedMessages) and
 //!    [`CausalMessages`](rumors::CausalMessages)), drained concurrently
 //!    with the chaos and asserting the delivery contracts inline -- no
 //!    message twice, no causal inversion, and full coverage of the peer's live set
-//!    once the writers settle (see [`run_observers`]). This is the only
+//!    once the writers settle (see `run_observers`). This is the only
 //!    place the observers' watch-coalescing path runs against genuinely
 //!    parallel writers.
 //! 3. **Retire**: planned retirements over possibly-faulty wires — the only
@@ -44,7 +44,7 @@
 //! every survivor agrees on the *wrong* set, so the engine also keeps a
 //! content ledger independent of the merge machinery: every inserted value
 //! is known from the plan, and every executed redaction is logged at
-//! execution time by [`run_activity`] — execution time because a
+//! execution time by `run_activity` — execution time because a
 //! [`Activity::Redact`] resolves its target against the peer's snapshot
 //! only when it runs, so no pre-run analysis of the plan can know which
 //! `(Version, value)` it removed. [`SimOutcome`] carries both sides of the
@@ -73,7 +73,6 @@
 //! space, because a newborn holds no unique content.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -82,7 +81,7 @@ use proptest::prelude::*;
 use rumors::{Error, Gossiped, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan, Vanish};
-use crate::common::oracle::{readout, readout_multiset, version_key};
+use crate::common::oracle::{readout, version_key};
 use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
 use crate::common::wire::wire_gossip_async;
 
@@ -143,7 +142,7 @@ pub struct Plan {
     /// the entry is the fault plan for the *bootstrapping* endpoint.
     ///
     /// Even a clean entry matters: it serves the party-fork critical
-    /// section while sibling handles are mid-send (see [`run_boot`]).
+    /// section while sibling handles are mid-send (see `run_boot`).
     pub faulty_boots: Vec<FaultPlan>,
     /// Per-peer scripts (length `n_peers`) of local sends and redactions,
     /// run concurrently with every session.
@@ -176,9 +175,13 @@ pub enum Activity {
 /// own fault plan.
 #[derive(Debug, Clone, Copy)]
 pub struct Session {
+    /// One endpoint's fleet index.
     pub a: usize,
+    /// The other endpoint's fleet index.
     pub b: usize,
+    /// Faults applied to `a`'s endpoint.
     pub fault_a: FaultPlan,
+    /// Faults applied to `b`'s endpoint.
     pub fault_b: FaultPlan,
 }
 
@@ -186,12 +189,15 @@ pub struct Session {
 /// fleet indices), the retiree's endpoint faulted by `fault`.
 #[derive(Debug, Clone, Copy)]
 pub struct RetireOp {
+    /// Fleet index of the peer leaving the network.
     pub retiree: usize,
+    /// Fleet index of the peer accepting its state.
     pub absorber: usize,
+    /// Faults applied to the retiring endpoint.
     pub fault: FaultPlan,
 }
 
-/// One executed redaction, logged by [`run_activity`] at the moment it
+/// One executed redaction, logged by `run_activity` at the moment it
 /// resolved its target, and deduplicated per [`Version`] (two peers racing
 /// to redact the same message are one redaction of it).
 #[derive(Debug, Clone)]

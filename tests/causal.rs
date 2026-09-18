@@ -11,7 +11,7 @@
 //! *item*, a *quiet* observer (no change to report, actors live), or an
 //! *ended* one (final state fully delivered).
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -4,7 +4,7 @@
 //!
 //! Covers handle inheritance, bootstrap propagation, gossip, and retirement.
 
-mod common;
+use rumors_testkit::common;
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;

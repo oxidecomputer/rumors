@@ -1,10 +1,9 @@
 //! Shared fixtures for the reconciliation benchmarks.
 //!
-//! [`gossip_grid`](../gossip_grid.rs) reconciles two diverged peers over a
-//! simulated wire via [`Rumors::gossip`](rumors::Rumors::gossip) across
-//! the divergence grid below; [`in_memory`](../in_memory.rs) shares the size
-//! sweep and sample-size policy for the single-set surface (inserts,
-//! iteration, ranges, observers, lookups).
+//! The gossip benchmarks reconcile two diverged peers over a simulated wire
+//! across the divergence grid below. The in-memory benchmarks share the size
+//! sweep and sample-size policy for inserts, iteration, ranges, observers, and
+//! lookups.
 //!
 //! # The divergence grid
 //!
@@ -31,7 +30,7 @@ use std::iter;
 
 use rumors::{Peer, Rumors, Version};
 
-#[path = "wire.rs"]
+#[path = "grid/wire.rs"]
 pub mod wire;
 
 /// Live message counts for the single-set benchmarks (`batch_insert`,
@@ -77,8 +76,11 @@ pub fn sample_size_for(n: usize) -> usize {
 /// space.
 #[derive(Clone, Copy, Debug)]
 pub struct Cell {
+    /// Messages both peers already share.
     pub common: usize,
+    /// Messages each peer originates after forking.
     pub differing: usize,
+    /// Shared messages each peer redacts after forking.
     pub redacted: usize,
 }
 
@@ -140,7 +142,7 @@ pub fn cells() -> impl Iterator<Item = Cell> {
 /// Build the two peers for one grid cell.
 ///
 /// `left` is a fresh [`Peer::seed`]; `right` is a genuine disjoint peer created
-/// from it via [`bootstrap_fork`], so their parties are disjoint (the
+/// from it via [`wire::bootstrap_fork`], so their parties are disjoint (the
 /// precondition for `gossip`). The shared prefix is inserted before the
 /// split; the `differing` messages and `redacted` deletions are applied
 /// independently to each side after it.

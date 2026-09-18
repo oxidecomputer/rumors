@@ -9,18 +9,13 @@
 //! while a session runs, and sessions timed on a real clock rather than
 //! the paused one.
 
-// Only the delayed wire is exercised here; the module's pipes and
-// conformance surface belong to the benches and `latency_link.rs`.
-#[allow(dead_code)]
-#[path = "../benches/support/latency.rs"]
-mod latency;
-
 use std::time::Duration;
 
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::testing::run_to_quiescence;
 use rumors::{Peer, Rumors};
+use rumors_testkit::bench::latency;
 
 /// One-way delay for the virtual-time measurements (the timer grain).
 const DELAY: Duration = Duration::from_millis(10);

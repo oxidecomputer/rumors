@@ -3,6 +3,7 @@ members = [
     "crates/before",
     "crates/before-viz",
     "crates/rumors-tracing",
+    "crates/rumors-testkit",
     "crates/surface-scan",
     "crates/suanpan",
 ]
@@ -63,6 +64,7 @@ rand = "0.9"
 rand_chacha = "0.9"
 rayon = "1"
 rumors = { path = "." }
+rumors-testkit = { path = "crates/rumors-testkit" }
 schnellru = { version = "0.2.4", default-features = false }
 seq-macro = "0.3"
 serde = { version = "1", default-features = false }
@@ -151,6 +153,7 @@ cbor-diag = { workspace = true, optional = true }
 
 [dev-dependencies]
 rumors = { workspace = true, features = ["test-internals", "conformance"] }
+rumors-testkit = { workspace = true }
 # The meter feature lights before's instrument surface for this crate's
 # own tests: the conservation suite reads the exact-bit-length observation
 # (`encoded_bits`) it denominates identity conservation in.

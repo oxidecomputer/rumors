@@ -7,7 +7,7 @@
 //! the degenerate zero) leaves reconciliation convergent, and the minimum
 //! binds both encoders regardless of which side advertised it.
 
-mod common;
+use rumors_testkit::common;
 
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;

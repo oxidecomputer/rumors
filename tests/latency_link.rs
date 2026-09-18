@@ -1,22 +1,17 @@
 //! The benchmark-support latency link satisfies the link contract.
 //!
-//! `benches/support/latency.rs` builds the delayed-pipe link the latency
-//! benchmarks sweep; these tests run it through the public
+//! The shared test kit builds the delayed-pipe link the latency benchmarks
+//! sweep; these tests run it through the public
 //! [`rumors::conformance::link`] suite so the sweep measures the protocols, not
 //! an accidentally nonconforming transport. Delays live in virtual time
 //! (paused-clock runtimes), so the nonzero-delay pass costs no wall time.
 //! The wire harness's cost-reporting contract is pinned here too, in both
 //! clock modes.
 
-// The bench support module is compiled into this test verbatim; the pair
-// constructor and the wire harness are exercised, the rest is bench-only.
-#[allow(dead_code)]
-#[path = "../benches/support/latency.rs"]
-mod latency;
-
 use std::time::Duration;
 
 use rumors::{Peer, Rumors};
+use rumors_testkit::bench::latency;
 
 /// Small per-stream window so the suite's independence probe fills it
 /// quickly: coupling hidden behind buffering must reveal itself.

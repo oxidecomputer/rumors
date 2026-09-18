@@ -4,7 +4,7 @@
 //! small socket buffers. TCP checks use timeouts to detect stalled sessions.
 //! The mesh test checks that unrelated header stalls do not block gossip.
 
-mod common;
+use rumors_testkit::common;
 
 use std::net::SocketAddr;
 use std::time::Duration;

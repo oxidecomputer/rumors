@@ -27,7 +27,7 @@
 //! - `gossip_latency_bidir_insertions`: `I ∈ {0, 5000}`.
 //! - `gossip_latency_bidir_redactions`: `R = 2500`.
 //!
-//! Sessions run over the delayed-pipe link (`support/latency.rs`), which
+//! Sessions run over the test kit's delayed-pipe link, which
 //! charges wire delay to a paused runtime clock, so the sweep costs
 //! wall-clock compute only and the reported duration is wall compute plus
 //! virtual wire stall. Read each line's intercept as the protocol's
@@ -49,15 +49,7 @@ use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
-
-// The shared grid module exposes a superset of helpers; this bench only needs
-// its sample-size policy so fixed-N runs line up with the existing benches.
-#[allow(dead_code)]
-#[path = "support/grid.rs"]
-mod grid;
-
-#[path = "support/latency.rs"]
-mod latency;
+use rumors_testkit::bench::{grid, latency};
 
 const N: usize = 10_000;
 const INSERT_STEP: usize = 500;

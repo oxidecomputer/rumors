@@ -8,7 +8,7 @@
 //!
 //! [`Schedule`]: crate::common::schedule::Schedule
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::{BTreeMap, BTreeSet};
 

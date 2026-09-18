@@ -6,7 +6,7 @@
 //! a real transport, not only in memory. Socket I/O uses real deadlines:
 //! a paused clock could expire while the OS is still delivering bytes.
 
-mod common;
+use rumors_testkit::common;
 
 use std::time::Duration;
 

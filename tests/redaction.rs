@@ -5,7 +5,7 @@
 //! These tests target the redaction-specific corners with smaller,
 //! more legible schedules.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 

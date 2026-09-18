@@ -8,7 +8,7 @@
 //! alongside session kinds and role elections. A separate property compares
 //! observed and unobserved sessions to ensure attachment leaves the wire intact.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

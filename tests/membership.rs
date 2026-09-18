@@ -9,7 +9,7 @@
 //! chaos engine's loss accounting, the oracle equality here is
 //! unconditional.
 
-mod common;
+use rumors_testkit::common;
 
 use std::collections::BTreeMap;
 

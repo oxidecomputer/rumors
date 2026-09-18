@@ -12,7 +12,7 @@
 //!
 //! Most fixtures use small `u64` payloads to keep the captures readable.
 
-mod common;
+use rumors_testkit::common;
 
 use rumors::{Rumors, Version};
 

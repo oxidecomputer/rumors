@@ -14,18 +14,13 @@
 //! virtual time on a delayed link: flat below the knee, growing with the
 //! wave count above it.
 
-// Only the delayed wire is exercised here; the module's pipes and
-// conformance surface belong to the benches and `latency_link.rs`.
-#[allow(dead_code)]
-#[path = "../benches/support/latency.rs"]
-mod latency;
-
 use std::time::Duration;
 
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::testing::window_capacities;
 use rumors::{Peer, Rumors};
+use rumors_testkit::bench::latency;
 
 /// A budget sized so the binding capacity lands in the low hundreds:
 /// small enough that a modest divergence crosses the knee at test scale,

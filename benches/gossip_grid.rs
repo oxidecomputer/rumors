@@ -23,12 +23,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-
-// The shared grid module exposes a superset of helpers; each bench binary uses
-// a subset, so the unused remainder is expected per-binary.
-#[allow(dead_code)]
-#[path = "support/grid.rs"]
-mod grid;
+use rumors_testkit::bench::grid;
 
 use grid::sample_size_for;
 
