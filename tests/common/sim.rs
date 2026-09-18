@@ -74,10 +74,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
-use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use before::Party;
 use proptest::prelude::*;
@@ -107,13 +105,10 @@ pub const MAX_CUT: usize = 3072;
 /// Headroom on the heal loop, as in `peer::quiesce`.
 const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
 
-/// Deadline for in-memory sessions, including survivors of peer departure.
-/// Enough headroom for scheduling, short enough to shrink deadlocks promptly.
-const SESSION_DEADLINE: Duration = Duration::from_secs(2);
-
-/// Shrink-time bound for the plan proptests, in milliseconds: with every
-/// shrink candidate that parks costing [`SESSION_DEADLINE`], this keeps a
-/// failing run under nextest's termination budget so the seed persists.
+/// Shrink-time bound for the plan proptests, in milliseconds.
+///
+/// This leaves time inside nextest's process limit for proptest to persist a
+/// failing case after shrinking it.
 pub const MAX_SHRINK_TIME: u32 = 60_000;
 
 /// Upper bound on the data-stream ordinal a generated vanish names.
@@ -467,13 +462,6 @@ pub fn assert_survivor(out: &Result<Gossiped, Error>) {
     assert_honest_gossip(out);
 }
 
-/// Fail with the session's name if its in-memory work stops making progress.
-async fn bounded<F: Future>(what: &str, work: F) -> F::Output {
-    tokio::time::timeout(SESSION_DEADLINE, work)
-        .await
-        .unwrap_or_else(|_| panic!("{what} did not finish within {SESSION_DEADLINE:?}"))
-}
-
 // ---- the engine ------------------------------------------------------------
 
 /// Run one gossip session between two handles over a fault-injected
@@ -482,7 +470,7 @@ async fn bounded<F: Future>(what: &str, work: F) -> F::Output {
 /// Each side's halves are owned by its own task, so the failing side's
 /// drop surfaces as EOF to its counterparty instead of wedging the
 /// session. A side that vanishes leaves its counterparty to end alone,
-/// with an honest error; exceeding the deadline fails the test.
+/// with an honest error.
 async fn run_session(
     a: Rumors<u64>,
     b: Rumors<u64>,
@@ -496,7 +484,7 @@ async fn run_session(
     let task_b = tokio::spawn(fault::drive(link_b, fault_b, async move |link| {
         b.gossip_once(link).await
     }));
-    let (driven_a, driven_b) = bounded("a session", async { tokio::join!(task_a, task_b) }).await;
+    let (driven_a, driven_b) = tokio::join!(task_a, task_b);
     let driven_a = driven_a.expect("session task A");
     let driven_b = driven_b.expect("session task B");
     match (&driven_a.outcome, &driven_b.outcome) {
@@ -539,7 +527,7 @@ async fn run_boot(
     let boot = tokio::spawn(fault::drive(boot_side, fault, async move |link| {
         Peer::<u64>::bootstrap().join(link).await
     }));
-    let (served, driven) = bounded("a bootstrap", async { tokio::join!(serve, boot) }).await;
+    let (served, driven) = tokio::join!(serve, boot);
     let served = served.expect("bootstrap serve task");
     let Some(joined) = driven.expect("bootstrap join task").outcome else {
         assert_survivor(&served);
@@ -850,8 +838,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
                 absorber.gossip_once(&mut link).await
             }
         });
-        let (driven, absorbed) =
-            bounded("a retirement", async { tokio::join!(retiring, absorbing) }).await;
+        let (driven, absorbed) = tokio::join!(retiring, absorbing);
         let driven = driven.expect("retire task");
         let absorbed = absorbed.expect("absorb task");
         let outcome = match driven.outcome {

@@ -7,6 +7,12 @@
 //! interleavings are nondeterministic, so a counterexample may not replay
 //! byte-for-byte; the invariants quantify over *all* interleavings, so any
 //! failure is a genuine one.
+//!
+//! The focused departure tests below use [`run_to_quiescence`] to detect a
+//! stalled in-memory session deterministically. The concurrent simulator has
+//! no local deadline: elapsed time cannot distinguish a deadlock from host
+//! load on a multi-thread executor. Nextest's process limit remains its outer
+//! runaway guard.
 
 mod common;
 
@@ -77,8 +83,7 @@ proptest! {
     /// cloned [`Rumors`] handles, concurrent sends and redactions,
     /// bootstraps served mid-chaos against the same shared state,
     /// retirements, and endpoints that vanish mid-protocol (their session
-    /// dropped with its link, promised streams never opened). Every surviving
-    /// session must finish before the deadline, including after a vanish.
+    /// dropped with its link, promised streams never opened).
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
         mt_runtime().block_on(check_plan(plan));
