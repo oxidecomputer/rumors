@@ -17,18 +17,16 @@
 //! *self-consistency*, not equality with a hypothetical
 //! un-partitioned twin.
 
-use rumors_testkit::common;
-
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 
-use crate::common::oracle::readout_multiset;
-use crate::common::peer::quiesce;
-use crate::common::schedule::events::Event;
-use crate::common::schedule::executor::ExecutionResult;
-use crate::common::schedule::{Schedule, arb_schedule, execute_with};
-use crate::common::window::{WindowAssignment, arb_window_assignment};
+use rumors_testkit::common::oracle::readout_multiset;
+use rumors_testkit::common::peer::quiesce;
+use rumors_testkit::common::schedule::events::Event;
+use rumors_testkit::common::schedule::executor::ExecutionResult;
+use rumors_testkit::common::schedule::{Schedule, arb_schedule, execute_with};
+use rumors_testkit::common::window::{WindowAssignment, arb_window_assignment};
 
 /// Fleet sizes exercised by generated partition schedules.
 const N_PEERS: std::ops::RangeInclusive<usize> = 3..=8;

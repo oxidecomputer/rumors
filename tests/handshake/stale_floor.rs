@@ -19,10 +19,8 @@
 //! would break: messages sent by a newcomer bootstrapped from a peer that
 //! ticked heavily beforehand must survive reconciliation in both directions.
 
-use rumors_testkit::common;
-
-use common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 use rumors::Peer;
+use rumors_testkit::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 
 /// A message sent by a freshly-bootstrapped peer survives gossip, no
 /// matter how far the provider had ticked before serving the bootstrap:

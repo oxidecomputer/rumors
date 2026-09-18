@@ -268,3 +268,11 @@ async fn handshake_precedes_protocol_traffic() {
         other => panic!("expected a preamble violation, got {other:?}"),
     }
 }
+
+/// Check ownership of the first supply reply after the greeting.
+#[path = "handshake/opening_supply.rs"]
+mod opening_supply;
+
+/// Check that gossip preserves messages sent after a bootstrap snapshot.
+#[path = "handshake/stale_floor.rs"]
+mod stale_floor;

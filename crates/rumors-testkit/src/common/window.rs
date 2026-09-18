@@ -10,10 +10,9 @@
 //! so sessions between differently-configured endpoints (asymmetric
 //! windows) arise throughout the population.
 //!
-//! `tests/window_sweep.rs` holds the liveness pins for this dimension:
-//! proof that the non-floor choices actually widen the granted window at
-//! suite-scale set sizes, so the sweep cannot silently degenerate to
-//! floor-everywhere.
+//! The window integration suite pins that the non-floor choices actually widen
+//! the granted window at suite-scale set sizes, so the sweep cannot silently
+//! degenerate to floor-everywhere.
 
 use proptest::prelude::*;
 
@@ -85,15 +84,14 @@ impl WindowAssignment {
 /// Smallest power-of-two exponent the budget arm draws: budgets from
 /// `2^MIN_BUDGET_EXPONENT` bytes upward.
 ///
-/// `tests/window_sweep.rs` pins that a session at this endpoint's budget
-/// grants exactly one slot at suite-scale content, so the
-/// budget-resolution path's floor-equivalent regime stays in the
-/// population.
+/// The window integration suite pins that a session at this endpoint's budget
+/// grants exactly one slot at suite-scale content, so the budget-resolution
+/// path's floor-equivalent regime stays in the population.
 pub const MIN_BUDGET_EXPONENT: u32 = 12;
 
 /// Largest power-of-two exponent the budget arm draws.
 ///
-/// `tests/window_sweep.rs` pins that a session at this endpoint's budget
+/// The window integration suite pins that a session at this endpoint's budget
 /// grants a window wider than one slot at suite-scale content, so the
 /// budget arm provably straddles the width-granting threshold.
 pub const MAX_BUDGET_EXPONENT: u32 = 24;
@@ -103,7 +101,7 @@ pub const MAX_BUDGET_EXPONENT: u32 = 24;
 /// The budget arm draws `2^e + jitter` for `e` across
 /// [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`]; the two endpoint
 /// regimes (one-slot at the minimum, wider-than-one at the maximum) are
-/// pinned by `tests/window_sweep.rs`, so the arm provably spans both
+/// pinned by the window integration suite, so the arm provably spans both
 /// sides of the width-granting threshold. Shrinking heads toward
 /// [`WindowChoice::Floor`], the deadlock-certified baseline.
 pub fn arb_window_choice() -> impl Strategy<Value = WindowChoice> {

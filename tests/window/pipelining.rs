@@ -10,10 +10,9 @@ use std::time::Duration;
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors};
-use rumors_testkit::{bench::latency, common};
-
-use common::window::WindowChoice;
-use common::wire::bootstrap_fork_with_window;
+use rumors_testkit::bench::latency;
+use rumors_testkit::common::window::WindowChoice;
+use rumors_testkit::common::wire::bootstrap_fork_with_window;
 
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;

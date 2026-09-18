@@ -12,16 +12,14 @@
 //! silently — a strategy edit could drop an arm, or a plumbing change
 //! could quietly stop applying the choice.
 
-use rumors_testkit::common;
-
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
 use rumors::Gossiped;
 
-use crate::common::window::{
+use rumors_testkit::common::window::{
     MAX_BUDGET_EXPONENT, MIN_BUDGET_EXPONENT, WindowChoice, arb_window_choice,
 };
-use crate::common::wire::{block_on, divergent_pair, gossip_pair_async};
+use rumors_testkit::common::wire::{block_on, divergent_pair, gossip_pair_async};
 
 /// Values each endpoint originates in the widening pins' sessions:
 /// enough that a wide window's population clamp sits well above one

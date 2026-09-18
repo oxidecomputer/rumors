@@ -260,3 +260,7 @@ fn schedule_population_contains_redactions() {
          has silently left the population"
     );
 }
+
+/// Check convergence after isolated peer groups reconnect.
+#[path = "multi_peer/partition.rs"]
+mod partition;

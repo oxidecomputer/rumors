@@ -10,11 +10,11 @@
 //! that moves only with the derivation or the wire law. Run it after
 //! either moves:
 //!
-//!     cargo nextest run --release --test tradeoff_probe \
-//!         --run-ignored all --no-capture
+//!     cargo nextest run --release --test window \
+//!         --run-ignored ignored-only --no-capture
 //!
-//! Method (window_operator.rs's session shape, generalized over record
-//! size), per record size `m`:
+//! The method generalizes the operator suite's session shape over each record
+//! size `m`:
 //!
 //! 1. Measure the transfer-bound baseline (an unbounded budget) in exact
 //!    one-way hops, self-calibrating the link's BDP in messages.

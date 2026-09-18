@@ -10,16 +10,14 @@
 //! whole session, and a session whose initiator holds no exclusive root
 //! children never opens the opening-supply stream at all.
 
-use rumors_testkit::common;
-
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
 use sha3::Digest;
 
-use crate::common::gossip_snapshot::capture_gossip_returning;
-use crate::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
-use crate::common::wire::{block_on, bootstrap_fork_async};
+use rumors_testkit::common::gossip_snapshot::capture_gossip_returning;
+use rumors_testkit::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
+use rumors_testkit::common::wire::{block_on, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG so the capture is deterministic.
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
