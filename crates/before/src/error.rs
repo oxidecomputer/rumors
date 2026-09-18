@@ -79,6 +79,9 @@ pub struct ParseRank;
 /// // arbitrary bytes are not a canonical clock encoding
 /// assert!(Clock::decode(&[0xff, 0xff][..]).is_err());
 /// ```
+///
+/// An input may have more than one defect. Unless a decoder documents a
+/// precedence rule, callers should handle any applicable variant.
 #[derive(Debug, thiserror::Error)]
 pub enum Decode {
     /// The input ended before the value did: mid-tree, mid-integer, or cut
@@ -89,16 +92,16 @@ pub enum Decode {
     /// input cut just before it is truncated, not trailing-malformed.
     #[error("unexpected end of input")]
     Truncated,
-    /// The input did not end in a complete tree followed by exactly its
-    /// canonical padding: a `1` marker bit, then zeros to the byte
-    /// boundary.
+    /// A complete value was followed by bits or bytes that are not part of its
+    /// canonical encoding.
     ///
-    /// Malformed padding (a cleared marker, a stray set bit) and spurious
-    /// input past the one padded byte both land here; an input that ends
-    /// before any padding arrives is [`Decode::Truncated`] instead.
-    #[error("malformed or spurious trailing padding")]
+    /// For marker-padded values this includes a cleared marker, nonzero padding,
+    /// and bytes after the padded value. An input that ends before required
+    /// padding arrives is [`Decode::Truncated`] instead.
+    #[error("malformed or spurious trailing input")]
     TrailingBits,
-    /// The structure is well-formed but not in canonical normal form.
+    /// The input is structurally valid but is not canonical for the requested
+    /// value.
     #[error("input is not canonical")]
     NotCanonical,
     /// The underlying reader failed.

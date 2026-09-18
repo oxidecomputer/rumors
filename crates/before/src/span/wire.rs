@@ -75,8 +75,10 @@ impl<'a> Span<'a> {
         self.hi.encode_to(writer)
     }
 
-    /// Decodes a [`Span`] from a reader of canonical bytes, strictly
-    /// rejecting everything else.
+    /// Decodes one [`Span`] from a reader.
+    ///
+    /// A successful decode requires exactly one canonical encoding; trailing
+    /// bytes are an error.
     ///
     /// # Errors
     ///

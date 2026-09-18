@@ -246,8 +246,10 @@ impl<'a> Ranked<'a> {
         writer.write_all(&self.encode_rank())
     }
 
-    /// Decodes an owned view from a reader of canonical
-    /// [`encode`](Self::encode)d bytes, strictly rejecting everything else.
+    /// Decodes one owned view from a reader.
+    ///
+    /// A successful decode requires exactly one canonical encoding; trailing
+    /// bytes are an error.
     ///
     /// # Errors
     ///

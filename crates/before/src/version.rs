@@ -1138,7 +1138,19 @@ impl Version {
         self.ranked().encode_rank_to(writer)
     }
 
-    /// Decodes a [`Version`] from a reader of canonical bytes.
+    /// Decodes one [`Version`] from a reader.
+    ///
+    /// A successful decode requires exactly one canonical encoding; bytes after
+    /// its padding are an error.
+    ///
+    /// # Errors
+    ///
+    /// - [`Decode::Truncated`] if the tree, an integer, or the padding is
+    ///   incomplete;
+    /// - [`Decode::TrailingBits`] if the padding is malformed or followed by
+    ///   more bytes;
+    /// - [`Decode::NotCanonical`] if the tree is not in normal form;
+    /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity
     ///

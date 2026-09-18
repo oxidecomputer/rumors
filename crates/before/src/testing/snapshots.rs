@@ -278,7 +278,7 @@ fn error_display_strings() {
     Crossed               span endpoints cross: the start is not within the end
     ParseRank             invalid rank
     Decode::Truncated     unexpected end of input
-    Decode::TrailingBits  malformed or spurious trailing padding
+    Decode::TrailingBits  malformed or spurious trailing input
     Decode::NotCanonical  input is not canonical
     ");
 

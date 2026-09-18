@@ -613,15 +613,24 @@ impl Party {
         self.0.len()
     }
 
-    /// Decodes a [`Party`] from a reader of canonical bytes, strictly rejecting
-    /// non-canonical representations.
+    /// Decodes one [`Party`] from a reader.
+    ///
+    /// A successful decode requires exactly one canonical encoding; bytes after
+    /// its padding are an error.
     ///
     /// # Warning
     ///
-    /// Serializing a [`Clock`](crate::Clock) circumvents its otherwise
-    /// compiler-enforced `!Clone` linearity. Deserializing one can violate
-    /// causality. Treat serialization/deserialization boundaries as *moves* of
-    /// the [`Clock`](crate::Clock).
+    /// Decoding can recreate a party that is still live elsewhere, bypassing
+    /// its `!Clone` linearity. Treat transfer through bytes as a move: never let
+    /// the source and decoded party participate in the same system.
+    ///
+    /// # Errors
+    ///
+    /// - [`Decode::Truncated`] if the tree or its padding is incomplete;
+    /// - [`Decode::TrailingBits`] if the padding is malformed or followed by
+    ///   more bytes;
+    /// - [`Decode::NotCanonical`] if the tree contains a collapsible node;
+    /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity
     ///

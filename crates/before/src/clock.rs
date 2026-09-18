@@ -786,14 +786,25 @@ impl Clock {
         self.version.encode_to(writer)
     }
 
-    /// Decodes a [`Clock`] from a reader of canonical bytes, strictly rejecting
-    /// malformed or non-canonical input.
+    /// Decodes one [`Clock`] from a reader.
+    ///
+    /// A successful decode requires exactly one canonical party followed by
+    /// one canonical version; bytes after the version are an error.
     ///
     /// # Warning
     ///
-    /// Serializing a [`Clock`] circumvents its otherwise compiler-enforced
-    /// `!Clone` linearity. Deserializing one can violate causality. Treat
-    /// serialization/deserialization boundaries as *moves* of the [`Clock`].
+    /// Decoding can recreate a clock that is still live elsewhere, bypassing
+    /// its `!Clone` linearity. Treat transfer through bytes as a move: never let
+    /// the source and decoded clock participate in the same system.
+    ///
+    /// # Errors
+    ///
+    /// - [`Decode::Truncated`] if either component is incomplete or missing its
+    ///   padding;
+    /// - [`Decode::TrailingBits`] if either component's padding is malformed or
+    ///   bytes follow the version;
+    /// - [`Decode::NotCanonical`] if either component is not in normal form;
+    /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity
     ///

@@ -61,10 +61,15 @@ pub(crate) fn validate_prefix(bits: BitsView<'_>) -> Result<u64, Decode> {
 
 /// Validate one skyline tree from a sequential bit cursor.
 ///
-/// Returns with the cursor just past the tree. Errors: running out of bits
-/// mid-tree or mid-code is [`Decode::Truncated`]; a collapsible sibling pair
-/// (an internal node's two leaf children with a zero right delta) or a delta
-/// driving the running leaf height negative is [`Decode::NotCanonical`].
+/// Returns with the cursor just past the tree.
+///
+/// # Errors
+///
+/// - [`Decode::Truncated`] if the cursor ends within the tree or an integer;
+/// - [`Decode::NotCanonical`] if sibling leaves collapse or a delta makes the
+///   running height negative;
+/// - [`Decode::Io`] if the cursor reads from a failing byte stream. Slice
+///   cursors report exhaustion as [`Decode::Truncated`] instead.
 pub(crate) fn validate_from<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,

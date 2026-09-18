@@ -368,6 +368,11 @@ impl Rank {
     /// safe to use generically as one part of *any* composite key, not merely
     /// when composed with [`Version`] as it is in [`Ranked`].
     ///
+    /// # Encoded size
+    ///
+    /// The representation uses at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits: one
+    /// bit per integral bit and nine bits per eight fractional bits.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html")))]
@@ -427,15 +432,10 @@ impl Rank {
         writer.write_all(&Self::encode_parts(&self.num, self.exp))
     }
 
-    /// Decodes a rank from a reader of canonical [`encode`](Rank::encode)
-    /// bytes, strictly rejecting everything else.
+    /// Decodes one rank from a reader.
     ///
-    /// # Encoded size
-    ///
-    /// The serialized representation of a [`Rank`] is at most `9⁄8 · ‖r‖ +
-    /// O(log ‖r‖)` bits: one bit per integral bit, nine bits per eight
-    /// fractional bits. The fractional framing keeps distinct encodings from
-    /// being prefixes of one another.
+    /// A successful decode requires exactly one canonical encoding; trailing
+    /// bytes are an error.
     ///
     /// # Errors
     ///

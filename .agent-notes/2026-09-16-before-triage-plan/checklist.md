@@ -51,12 +51,12 @@ triage's dispositions and branches are leads only.
       strict canonical decoding across supported formats.
       Sources: `crate-root-34`, `crate-root-35`, `fresh-eyes-2`.
 
-- [ ] Cover every canonicality condition through the public decoders,
+- [x] Cover every canonicality condition through the public decoders,
       including the span admission walk's collapsible-pair boundary.
       Sources: `skyline-coding-6`, `testing-oracles-4`, codec rejection
       findings and witness evidence.
 
-- [ ] Reconcile marker padding, truncation, trailing input, and error
+- [x] Reconcile marker padding, truncation, trailing input, and error
       precedence across the id, version, rank, clock, span, serde, and borsh
       entries.
       Sources: `codec-bits-8`, `codec-base-text-tree-*`, `rank-10`,
