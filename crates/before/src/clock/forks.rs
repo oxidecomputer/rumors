@@ -12,8 +12,8 @@ use crate::{party, Clock, Party, Ticks, Version};
 /// [`Party`] with a clone of the parent's [`Version`]. The clock it borrows
 /// keeps the residual and every party share not yet returned.
 ///
-/// [`Iterator::size_hint`] is exact while the remaining count fits `usize`;
-/// beyond `usize::MAX`, it returns `(usize::MAX, None)`.
+/// [`Iterator::size_hint`] is exact for initial counts fitting `usize`. Wider
+/// counts report a sound lower bound and no upper bound.
 ///
 /// # Complexity
 ///

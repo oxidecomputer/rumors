@@ -62,6 +62,11 @@ triage's dispositions and branches are leads only.
       Sources: `codec-bits-8`, `codec-base-text-tree-*`, `rank-10`,
       `skyline-coding-31`, `fresh-eyes-2`, `api-audit-8`.
 
+- [ ] Exercise serde and borsh through their actual buffering and ownership
+      paths on wide-leaf and deep-topology inputs rather than delegating their
+      resource claims to slice-backed codecs.
+      Source: independent resource-surface audit, 2026-09-17.
+
 ## 04. Core semantic verification
 
 - [ ] Consolidate the Party and Clock properties around disjointness,
@@ -97,10 +102,25 @@ triage's dispositions and branches are leads only.
       errors, then reassess the fraction and numeric-assembly temporaries.
       Source: owner review, 2026-09-17.
 
-- [ ] Make multi-hole query refinement scale with the declared inputs, with
-      properties varying both tree size and hole count.
+- [ ] Make multi-hole query refinement scale with the declared inputs. Cover
+      concurrent `since` holes against one wide probe for transient space, and
+      many surviving `until` holes against a dense probe for total work, while
+      varying both tree size and hole count.
       Sources: `span-causally-24`, `span-causally-36`,
       `skyline-sweep-place-masked-21`.
+
+- [ ] Make full drains of `Party::forks`, `Clock::forks`, consuming array
+      splits, and `Clock::sync_all` honor their aggregate bounds. Exercise
+      arity scaling where scattered input parties join to an alternating-leaf
+      union, so producing every child cannot hide repeated scans or copies
+      behind a one-child iterator probe.
+      Source: independent resource-surface audit, 2026-09-17.
+
+- [ ] Price Query conjunction over independently growing hole sets, and make
+      clone and ownership-conversion claims account for unbounded hole count.
+      Reuse concurrent singleton bounds so retained holes, rather than early
+      elimination, drive the measurement.
+      Source: independent resource-surface audit, 2026-09-17.
 
 - [x] Remove paper-notation text I/O and literal construction instead of
       maintaining their parsers, renderers, and complexity instruments.
@@ -116,9 +136,9 @@ triage's dispositions and branches are leads only.
       open boundaries and reign records compactly, with exact fallbacks.
       Sources: `skyline-watermark` open question 4; owner review, 2026-09-17.
 
-- [x] Make arbitrary-count Party and Clock splitting linear in the stored
-      values and count representation, and bring iterator construction,
-      iteration, partial drop, and consuming array splits under direct heap
+- [x] Make each arbitrary-count Party and Clock fork step linear in the stored
+      values and count representation, with compact state per open ancestor.
+      Bring iterator construction, one step, and partial drop under direct heap
       judgment.
       Source: owner resource-surface audit, 2026-09-17.
 
@@ -180,8 +200,10 @@ into otherwise small feature increments.
 
 - [ ] Make the global heap judgment total over every allocation-bearing public
       method and trait family. Directly cover shape walks, compound Span and
-      causal-query operations, text conversion, and wide numeric operations;
-      reserve not-applicable dispositions for paths that cannot amplify.
+      causal-query operations, Rank text parsing and precision formatting, and
+      wide numeric operations. Include arity-dependent `shape::combine`
+      bookkeeping; reserve not-applicable dispositions for paths that cannot
+      amplify.
       Source: owner resource-surface audit, 2026-09-17.
 
 - [ ] Audit every counter hook for a distinct, live observation. Remove dead
@@ -190,12 +212,20 @@ into otherwise small feature increments.
       stack-segment findings across `board-*`, `recursion-1`, and
       `envelopes-a-2`.
 
+- [ ] Make the board's headline bounds match what it proves. Reconcile the
+      flat heap allowance and row-specific denominators with any universal
+      amplification claim, and ensure plain formatting, parsing, and integer
+      work cannot read green merely because scan and touch do not observe it.
+      Source: independent resource-surface audit, 2026-09-17.
+
 - [ ] Consolidate resource amplification into the board. Model each family as
       valid operands, derive every bundle those operands support, and apply it
       to every compatible public operation rather than only the operation that
-      motivated the family. Retain a separate instrument only for a distinct
-      claim the board cannot express, and remove the duplicated harness, pins,
-      and prose otherwise.
+      motivated the family. Promote useful envelope-only families, and preserve
+      the correlated pairs, masks, and populations that make them difficult
+      instead of replacing those relationships with generic adapters. Retain a
+      separate instrument only for a distinct claim the board cannot express,
+      and remove the duplicated harness, pins, and prose otherwise.
       Sources: `envelopes-a-*`, `envelopes-b-*`, `board-frame-*`,
       `board-families-floors-judge-*`, `board-ops-render-*`,
       `meter-adequacy-*`.
