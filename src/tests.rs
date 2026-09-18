@@ -1,30 +1,28 @@
-//! Crate-level unit tests for party mechanics that the public integration tests
-//! can't reach.
+//! Crate-level tests that need private internals.
 //!
-//! They need either a *forged* `Peer` (private fields) or to read a `Peer`'s
-//! [`Party`] and compare it to [`Party::seed`]. Both require in-crate access,
-//! so they live here rather than in `tests/`.
+//! These cover party ownership across joining and leaving, failure at exact
+//! retirement wire boundaries, link poisoning after protocol rejection, and
+//! root-hash metering.
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use before::Party;
-use std::sync::Arc;
 use tokio::io::AsyncWrite;
-
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
-use crate::link::{Connector, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
+use crate::link::{Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::observe::Attachment;
 use crate::testing::{Quiescence, run_to_quiescence};
 use crate::tree::{Root, Tree};
 use crate::{Error, Inner, Peer, Retire};
 
-/// The preamble's wire length: magic(6) + proto_version(2) + network(16) +
-/// intent(1). The fault-injection budgets
-/// below land cuts on exact protocol boundaries relative to this.
+/// The handshake's fixed preamble width, used to place exact wire cuts.
 const PREAMBLE_LEN: usize = crate::tree::mirror::preamble::V2_PREAMBLE_LEN;
 
 /// Insert each of `vals` into `k` as one committed batch.
@@ -135,7 +133,7 @@ fn overlapping_retiree_party_is_rejected() {
 #[test]
 fn retiring_all_forks_reconstitutes_the_seed_party() {
     let survivor = Peer::<u64>::seed();
-    // Each child is a genuine party-disjoint fork, created by serving a bootstrap.
+    // Each child is a party-disjoint fork created by serving a bootstrap.
     // All are empty, so they share the seed's version, are reflexively dominated,
     // and retire with no prior gossip.
     let (survivor, c1) = bootstrap_from(survivor);
@@ -255,17 +253,16 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
     }
 }
 
-/// The wire length of `retiree`'s complete greeting — the causal-version
-/// frame plus the root-fan listing frame — so a [`Fuse`] budget can land on
-/// an exact protocol boundary.
+/// The wire length of `retiree`'s greeting item, used to place an exact cut
+/// after the handshake.
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized, message::Greeting};
 
     let root: streaming::Root<Local> = retiree.inner.borrow().tree.clone().root.into();
     let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root.clone()))
         .unwrap_or_else(|never| match never {});
-    // Reassemble the exact greeting the session sends — the same field
-    // sources the handshake draws from — and measure its one wire item.
+    // Reassemble the greeting from the same fields as the session, then
+    // measure its single wire item.
     let greeting = Greeting {
         version: retiree.snapshot().latest().clone(),
         set_len: root.len(),
@@ -297,14 +294,14 @@ struct FusedConnector {
 impl Connector for FusedConnector {
     type Tx = Fuse<tokio::io::DuplexStream>;
 
-    async fn connect(&self) -> std::io::Result<(Self::Tx, crate::link::Done<Self::Tx>)> {
+    async fn connect(&self) -> std::io::Result<(Self::Tx, Done<Self::Tx>)> {
         let (inner, _) = self.inner.connect().await?;
         Ok((
             Fuse {
                 inner,
                 remaining: Arc::clone(&self.remaining),
             },
-            crate::link::Done::discard(),
+            Done::discard(),
         ))
     }
 }
@@ -390,8 +387,8 @@ fn severed_descent_recovers_the_retiree() {
     );
 
     // The recovered retiree still owns its live region: a clean retire (whose
-    // gossip round re-carries the divergent content) succeeds, and the
-    // survivor's party normalizes back to the whole id-space — nothing leaked.
+    // gossip round re-carries the divergent content) succeeds. The survivor's
+    // party then normalizes back to the whole identity space.
     let survivor = retire_child_into(survivor, child);
     assert_eq!(
         party_of(&survivor),
@@ -400,13 +397,13 @@ fn severed_descent_recovers_the_retiree() {
     );
 }
 
-/// A session severed on the retiree's epilogue marker itself — the last byte
-/// of a clean retire session — still consumes the retiree.
+/// A session severed as the retiree writes its epilogue marker still consumes
+/// the retiree.
 ///
 /// The party frame was delivered whole, so the absorber may well hold the
 /// identity: [`Retire::Recovered`] here would let the same identity live
 /// twice, and [`Retire::Retired`] would overstate (the peer's commit was
-/// never confirmed). The only sound outcome is [`Retire::Uncertain`], and
+/// never confirmed). The only safe outcome is [`Retire::Uncertain`], and
 /// its error identifies [`Phase::Completion`](crate::error::Phase::Completion).
 /// Failure at this point must preserve the uncertain retirement outcome;
 /// the donated identity cannot be recovered safely.
@@ -415,10 +412,8 @@ fn severed_epilogue_marker_is_uncertain() {
     let survivor = Peer::<u64>::seed();
     let (mut survivor, child) = bootstrap_from(survivor);
 
-    // Both empty and converged, so the retiree's outgoing bytes are exactly
-    // preamble + greeting + party frame + epilogue marker. The budget is
-    // that full clean session minus one byte: everything through the party
-    // frame is delivered, and the marker write is the write that fails.
+    // Both peers are empty and converged. This budget admits the preamble,
+    // greeting, and party item, then fails the write of the epilogue marker.
     let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len(&child);
     let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 
@@ -449,8 +444,8 @@ fn a_cancelled_session_poisons_the_link_for_gossip() {
 
     // Cancel a session mid-flight, deterministically: the counterparty
     // never drives its end, so the session stalls awaiting the peer's
-    // preamble and the bounded-poll harness reports the stall — dropping
-    // (cancelling) the session future on its way out.
+    // preamble. The bounded-poll harness reports the stall and drops the
+    // session future.
     assert_eq!(
         run_to_quiescence(child.gossip_once(&mut a_link)).err(),
         Some(Quiescence::Stalled),
@@ -489,8 +484,8 @@ fn retire_on_a_poisoned_link_recovers_the_peer() {
         "the fail-fast error is the poison diagnosis, got {error:?}"
     );
 
-    // The recovered peer is genuinely intact: over a fresh link it retires
-    // cleanly, reconstituting the seed's whole id-space in the survivor.
+    // The recovered peer remains intact: over a fresh link it retires cleanly,
+    // reconstituting the seed's whole identity space in the survivor.
     let survivor = retire_child_into(survivor, peer);
     assert_eq!(
         party_of(&survivor),
@@ -535,12 +530,10 @@ fn severed_party_frame_is_uncertain() {
 /// replica's content is untouched, and the link is poisoned so the next
 /// session on it fails fast with [`Error::LinkPoisoned`].
 ///
-/// The peer-tier parity leg of the containment tripwires: the same
-/// rejection the mirror tiers pin in process and over their wires, here
-/// observed at the public API. The poisoned store is forged through the
-/// local `Tree::join` seam — no session tripwire guards an in-memory join —
-/// the residency mechanism the tree tier pins in
-/// `escaped_version_defeats_redaction_in_a_poisoned_store`.
+/// This observes through [`Rumors::gossip`](crate::Rumors::gossip) the same
+/// rejection the mirror tests exercise directly. A local [`Tree::join`]
+/// builds the invalid store because session validation cannot guard an
+/// in-process join.
 #[test]
 fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     use crate::message::Message;
@@ -549,14 +542,14 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     let survivor = Peer::<u64>::seed();
     let (survivor, child) = bootstrap_from(survivor);
 
-    // Honest, causally concurrent divergence on both sides, so the session
+    // Causally concurrent divergence on both sides makes the session
     // descends instead of short-circuiting on equal declared versions.
     let receiver = with_messages(survivor, &[1]);
     let poisoned = with_messages(child, &[2]);
 
     // Poison the serving peer's store: the escaped leaf plants above the
-    // declared ceiling, which stays honest — the store an authorized but
-    // nonconforming implementation would then serve.
+    // declared ceiling while leaving that ceiling unchanged, creating the
+    // store a nonconforming implementation would serve.
     let base = poisoned.inner.borrow().tree.latest().clone();
     let (escaped_root, _, escaped) =
         crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
@@ -602,7 +595,7 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     );
 
     // The failed session poisoned the link: the next session on it fails
-    // fast, before any wire traffic — no counterparty is even present.
+    // before any wire traffic; no counterparty is present.
     let retry =
         run_to_quiescence(receiver.gossip_once(&mut a_link)).expect("fail-fast needs no peer");
     assert!(
@@ -614,8 +607,8 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
 /// The root-hash meter is alive: a root-hash read through the public
 /// snapshot surface moves the per-thread counter by exactly one.
 ///
-/// The liveness leg for the two commit-path pins below — a ceiling asserted
-/// over a counter that stopped counting would pass vacuously.
+/// This makes the counters used by `batch_commit_root_hash_reads` and
+/// `gossip_session_root_hash_reads` fail if root-hash reads stop registering.
 #[test]
 fn root_hash_read_meter_is_live() {
     let peer = with_messages(Peer::<u64>::seed(), &[1]);
@@ -663,7 +656,7 @@ fn gossip_session_root_hash_reads() {
     let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
     let (provider, joiner) = bootstrap_from(provider);
 
-    // Honest divergence on both sides, so the session has real work: each
+    // Divergence on both sides gives the session real work: each
     // side both provides and absorbs content.
     let provider = with_messages(provider, &[10]);
     let joiner = with_messages(joiner, &[20]);

@@ -4,6 +4,18 @@ mod memnet;
 pub(crate) mod schedule;
 mod transport;
 
+use std::{
+    future::Future,
+    pin::pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    task::{Context, Poll, Wake, Waker},
+};
+
+use tokio::io::AsyncRead;
+
 use crate::{
     Snapshot,
     tree::{
@@ -134,14 +146,11 @@ pub fn supply_decode_envelope_bytes() -> usize {
 /// Read exactly `declared` payload bytes under the framing layer's
 /// growth policy, returning the payload.
 ///
-/// This is the declared-length payload read every variable-length body
-/// funnels through — the party hand-off's byte string and the codec's
-/// framed bodies alike — unwrapped from any session machinery, with the
-/// peer-declared length supplied directly. The allocator meter
-/// (`tests/decode_alloc.rs`) drives it to price a declared payload in
-/// bytes requested from the allocator.
+/// This is the declared-length payload read used for party hand-offs and
+/// framed codec bodies, without the surrounding session. The decoder
+/// allocation tests use it to measure memory requested for a declared length.
 pub async fn read_declared_payload(
-    mut read: impl tokio::io::AsyncRead + Unpin,
+    mut read: impl AsyncRead + Unpin,
     declared: usize,
 ) -> std::io::Result<Vec<u8>> {
     crate::tree::mirror::framing::read_payload(&mut read, declared).await
@@ -149,9 +158,8 @@ pub async fn read_declared_payload(
 
 /// The initial reservation granule of the framed-payload readers.
 ///
-/// Exposed so the allocator meter (`tests/decode_alloc.rs`) states its
-/// ceilings in the decoder's own chunk constant rather than a transcribed
-/// copy.
+/// The decoder allocation tests use this value so their ceilings cannot drift
+/// from the implementation.
 pub fn frame_payload_chunk_len() -> usize {
     crate::tree::mirror::framing::PAYLOAD_CHUNK_LEN
 }
@@ -201,46 +209,37 @@ pub fn supply_frame_head(declared: usize) -> Vec<u8> {
 /// A structurally valid lone-record run of exactly `len` bytes, with
 /// arbitrary record content.
 ///
-/// Exposed so the allocator meter (`tests/decode_alloc.rs`) builds run
-/// bodies from the wire's own record heads rather than a transcribed
-/// copy.
+/// The decoder allocation tests use this to build run bodies through the wire
+/// implementation rather than a copy of its format.
 pub fn lone_record_run(len: usize) -> Vec<u8> {
     remote::lone_record_run(len)
 }
 
 /// Decode one streaming-codec supply frame, discarding the decoded run.
 ///
-/// The allocator meter (`tests/decode_alloc.rs`) drives the codec's supply
-/// read path through this; the decoded value is noise to that meter, but
-/// the typed [`CodecDecodeError`] passes
-/// through so the meter can also assert how a failure classified. Runs at
-/// the framing-ceiling run budget, so every well-framed declaration reaches
-/// the body-read path this entry prices; the budget's ingress gate is
-/// priced separately through [`decode_supply_frame_budgeted`].
-pub async fn decode_supply_frame(
-    read: impl tokio::io::AsyncRead + Unpin,
-) -> Result<(), CodecDecodeError> {
+/// The decoder allocation tests drive the codec's supply-read path through
+/// this function and retain [`CodecDecodeError`] for failure classification.
+/// It admits every framing-valid run; [`decode_supply_frame_budgeted`] covers
+/// rejection at the session-budget boundary.
+pub async fn decode_supply_frame(read: impl AsyncRead + Unpin) -> Result<(), CodecDecodeError> {
     decode_supply_frame_budgeted(read, usize::MAX).await
 }
 
 /// Decode one streaming-codec supply frame under a session run budget of
 /// `budget` bytes, discarding the decoded run.
 ///
-/// The allocator meter (`tests/decode_alloc.rs`) drives the codec's
-/// run-budget ingress gate through this, pricing what a budget-violating
-/// frame costs before it is rejected; budgets at or above the framing
-/// ceiling saturate to it, making [`decode_supply_frame`] this entry's
-/// everything-admitted case.
+/// The decoder allocation tests use this to measure rejection at the
+/// run-budget boundary. Budgets at or above the framing ceiling admit the same
+/// inputs as [`decode_supply_frame`].
 pub async fn decode_supply_frame_budgeted(
-    read: impl tokio::io::AsyncRead + Unpin,
+    read: impl AsyncRead + Unpin,
     budget: usize,
 ) -> Result<(), CodecDecodeError> {
     remote::decode_frame_discarded(read, RunBudget::from_bytes(budget)).await
 }
 
-/// Build one canonical streaming-codec frame of `shape` ahead of writing
-/// it, so the encoder allocation meter (`tests/encode_alloc.rs`) prices
-/// the write alone.
+/// Build one canonical streaming-codec frame outside the encoder allocation
+/// measurement.
 pub fn prepare_frame(shape: FrameShape) -> PreparedFrame {
     remote::prepare_frame(shape)
 }
@@ -248,9 +247,8 @@ pub fn prepare_frame(shape: FrameShape) -> PreparedFrame {
 /// Write a prepared frame through the streaming codec's async frame
 /// writer into `out`, exactly as a session's stream sender writes it.
 ///
-/// Pre-reserve `out` for the frame's bytes: the encoder allocation meter
-/// (`tests/encode_alloc.rs`) counts every allocation inside this call,
-/// and the transport's own growth is not the encoder's.
+/// The caller pre-reserves `out`, allowing the encoder allocation tests to
+/// exclude growth of the destination buffer.
 pub async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
     remote::write_prepared_frame(frame, out).await
 }
@@ -309,16 +307,6 @@ pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -
         .collect()
 }
 
-use std::{
-    future::Future,
-    pin::pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    task::{Context, Poll, Wake, Waker},
-};
-
 /// Why polling stopped before a closed in-memory future completed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Quiescence {
@@ -328,13 +316,17 @@ pub enum Quiescence {
     PollBudget,
 }
 
+/// Records whether the subject future requested another poll.
 struct WakeFlag(AtomicBool);
 
+/// Convert wakeups into a flag the closed-world poller can inspect.
 impl Wake for WakeFlag {
+    /// Record an owned wakeup.
     fn wake(self: Arc<Self>) {
         self.0.store(true, Ordering::Release);
     }
 
+    /// Record a borrowed wakeup.
     fn wake_by_ref(self: &Arc<Self>) {
         self.0.store(true, Ordering::Release);
     }
@@ -374,61 +366,6 @@ pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> 
     Err(Quiescence::PollBudget)
 }
 
+/// Unit tests for this support module.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A self-wake is progress while a permanently parked future is stalled.
-    #[test]
-    fn observes_wake_contract() {
-        let mut first = true;
-        let self_waking = std::future::poll_fn(move |cx| {
-            if std::mem::take(&mut first) {
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            } else {
-                Poll::Ready(7)
-            }
-        });
-        assert_eq!(run_to_quiescence(self_waking), Ok(7));
-        assert_eq!(
-            run_to_quiescence(std::future::pending::<()>()),
-            Err(Quiescence::Stalled),
-        );
-    }
-
-    /// A future that self-wakes on every poll without ever completing
-    /// exhausts the poll budget and is reported as such, not as a stall.
-    #[test]
-    fn runaway_self_waking_exhausts_the_poll_budget() {
-        let runaway = std::future::poll_fn(|cx: &mut Context<'_>| {
-            cx.waker().wake_by_ref();
-            Poll::<()>::Pending
-        });
-        assert_eq!(run_to_quiescence(runaway), Err(Quiescence::PollBudget));
-    }
-
-    /// An inherited Tokio task budget cannot masquerade as protocol quiescence.
-    #[tokio::test(flavor = "current_thread")]
-    async fn ignores_tokio_cooperative_yields() {
-        const ITEMS: usize = 256;
-
-        let (send, mut receive) = tokio::sync::mpsc::channel(ITEMS);
-        for item in 0..ITEMS {
-            send.try_send(item).expect("channel has room");
-        }
-
-        let received = run_to_quiescence(async move {
-            let mut items = Vec::with_capacity(ITEMS);
-            while let Some(item) = receive.recv().await {
-                items.push(item);
-                if items.len() == ITEMS {
-                    break;
-                }
-            }
-            items
-        });
-
-        assert_eq!(received, Ok((0..ITEMS).collect()));
-    }
-}
+mod tests;

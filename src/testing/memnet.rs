@@ -6,8 +6,8 @@
 //! to the listener, exactly the accept/connect primitive the
 //! [`routed`](crate::link::routed) adapter builds on. Everything is
 //! channels and buffers, so suites run deterministically under a
-//! single-poll executor, and names are plain strings, which keeps the
-//! address seam honest: nothing here resembles an IP address.
+//! single-poll executor. Names are plain strings, so they cannot be mistaken
+//! for network addresses.
 
 use std::collections::HashMap;
 use std::io;
@@ -22,11 +22,6 @@ use crate::link::routed::{Addr, Dial, Listen, Unencodable};
 /// blocks on its reader.
 const CONNECTION_CAPACITY: usize = 8 * 1024;
 
-/// Dialed-but-unaccepted connections a listener holds; past it, dials
-/// are refused, as a full accept backlog refuses connections on a real
-/// transport.
-const LISTEN_BACKLOG: usize = 64;
-
 /// A name on a [`MemoryNet`]: an arbitrary string, encoded as its
 /// UTF-8 bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,14 +34,17 @@ impl MemoryName {
     }
 }
 
+/// Encode names as UTF-8 for routed-link headers.
 impl Addr for MemoryName {
     // UTF-8 carries every string faithfully, so encoding never
     // refuses; the endpoint's construction-time length check still
     // binds the name to the header's bounds.
+    /// Encode this name as UTF-8 bytes.
     fn encode(&self) -> Result<Vec<u8>, Unencodable> {
         Ok(self.0.clone().into_bytes())
     }
 
+    /// Decode a UTF-8 name.
     fn decode(bytes: &[u8]) -> Option<Self> {
         String::from_utf8(bytes.to_vec()).ok().map(MemoryName)
     }
@@ -60,7 +58,7 @@ impl Addr for MemoryName {
 /// from [`dial`](Self::dial).
 #[derive(Clone, Default)]
 pub struct MemoryNet {
-    listeners: Arc<Mutex<HashMap<String, mpsc::Sender<DuplexStream>>>>,
+    listeners: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<DuplexStream>>>>,
 }
 
 /// Hide the listener registry while making the test network debuggable.
@@ -79,7 +77,7 @@ impl MemoryNet {
 
     /// Bind a listener at `name`, displacing any earlier binding.
     pub fn listen(&self, name: &MemoryName) -> MemoryListen {
-        let (sender, receiver) = mpsc::channel(LISTEN_BACKLOG);
+        let (sender, receiver) = mpsc::unbounded_channel();
         self.registry().insert(name.0.clone(), sender);
         MemoryListen { conns: receiver }
     }
@@ -92,7 +90,7 @@ impl MemoryNet {
     /// Lock the listener registry, riding through a poisoning panic:
     /// each critical section is a single map operation, so the map is
     /// never torn.
-    fn registry(&self) -> MutexGuard<'_, HashMap<String, mpsc::Sender<DuplexStream>>> {
+    fn registry(&self) -> MutexGuard<'_, HashMap<String, mpsc::UnboundedSender<DuplexStream>>> {
         self.listeners
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -113,10 +111,12 @@ impl std::fmt::Debug for MemoryDial {
     }
 }
 
+/// Dial listeners registered in the shared memory network.
 impl Dial for MemoryDial {
     type Addr = MemoryName;
     type Conn = DuplexStream;
 
+    /// Create and deliver one in-memory connection.
     async fn dial(&self, addr: &MemoryName) -> io::Result<Self::Conn> {
         let listener = self.net.registry().get(&addr.0).cloned().ok_or_else(|| {
             io::Error::new(
@@ -125,14 +125,13 @@ impl Dial for MemoryDial {
             )
         })?;
         let (dialed, accepted) = duplex(CONNECTION_CAPACITY);
-        // A full or abandoned backlog refuses the dial outright; a
-        // dial never waits on the listener's accept pace, mirroring
-        // the routed adapter's requirement that opens not serialize
-        // behind anyone else's progress.
-        listener.try_send(accepted).map_err(|_| {
+        // Delivery is unbounded because this is a test network. A dial never
+        // waits on the listener's accept pace, matching the routed adapter's
+        // requirement that one open not block another.
+        listener.send(accepted).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::ConnectionRefused,
-                "the listener's backlog is full",
+                "the listener at this name was dropped",
             )
         })?;
         Ok(dialed)
@@ -141,7 +140,7 @@ impl Dial for MemoryDial {
 
 /// The [`Listen`] half of one [`MemoryNet`] name.
 pub struct MemoryListen {
-    conns: mpsc::Receiver<DuplexStream>,
+    conns: mpsc::UnboundedReceiver<DuplexStream>,
 }
 
 /// Summarize a listener without exposing its channel implementation.
@@ -154,13 +153,15 @@ impl std::fmt::Debug for MemoryListen {
     }
 }
 
+/// Accept connections delivered to this bound memory listener.
 impl Listen for MemoryListen {
     type Conn = DuplexStream;
 
+    /// Wait for the next delivered connection.
     async fn accept(&mut self) -> io::Result<Self::Conn> {
         self.conns
             .recv()
             .await
-            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "the memory network is gone"))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "this listener is unbound"))
     }
 }

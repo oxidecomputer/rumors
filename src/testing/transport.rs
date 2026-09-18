@@ -13,15 +13,15 @@ use std::{
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::link::{Done, yield_once};
+use crate::link::{Acceptor, Connector, Done, Link, yield_once};
 use crate::testing::schedule::{Countdown, MAX_SCHEDULED_DELAY};
 
 /// Which endpoint owns an observed transport operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Side {
-    /// The first proxy endpoint in the test harness.
+    /// The endpoint the test labels as left.
     Left,
-    /// The second proxy endpoint in the test harness.
+    /// The endpoint the test labels as right.
     Right,
 }
 
@@ -167,6 +167,7 @@ impl IoReportHandle {
     }
 }
 
+/// One endpoint's shared fault plan, progress counters, and delay cursors.
 struct State {
     side: Side,
     plan: IoPlan,
@@ -176,6 +177,7 @@ struct State {
     flush_step: usize,
 }
 
+/// Advance and query one endpoint's adversity state.
 impl State {
     /// Take the next bounded delay assigned to `operation`.
     fn delay(&mut self, operation: Operation) -> u8 {
@@ -293,7 +295,9 @@ impl<R> std::fmt::Debug for AdversarialRead<R> {
     }
 }
 
+/// Apply the configured read fragmentation, delays, and fault boundary.
 impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
+    /// Poll one read through the shared adversity state.
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -329,7 +333,6 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
             };
             (limit, armed)
         };
-        let before = buf.filled().len();
         let window = buf.initialize_unfilled_to(limit);
         let mut limited = ReadBuf::new(window);
         match Pin::new(&mut this.inner).poll_read(cx, &mut limited) {
@@ -348,7 +351,6 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
                     state.report.largest_read = state.report.largest_read.max(read);
                 }
                 buf.advance(read);
-                debug_assert_eq!(buf.filled().len() - before, read);
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(Err(error)) => {
@@ -383,7 +385,9 @@ impl<W> std::fmt::Debug for AdversarialWrite<W> {
     }
 }
 
+/// Apply configured fragmentation, buffering, delays, and faults to writes.
 impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
+    /// Admit one write through the shared adversity state.
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -434,6 +438,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
         }
     }
 
+    /// Deliver buffered bytes and apply the configured flush behavior.
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         if suspend(&this.state, &mut this.flush_delay, Operation::Flush, cx) {
@@ -476,6 +481,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
         }
     }
 
+    /// Flush buffered bytes before shutting down the wrapped writer.
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.as_mut().poll_flush(cx) {
             Poll::Ready(Ok(())) => Pin::new(&mut self.get_mut().inner).poll_shutdown(cx),
@@ -522,25 +528,22 @@ fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
     }
 }
 
-/// Wrap one endpoint's whole [`Link`](crate::link::Link) under one plan and
+/// Wrap one endpoint's whole [`Link`] under one plan and
 /// one report.
 ///
-/// The control halves and every data stream the link ever supplies share
-/// the plan. Delay schedules and fault thresholds count operations across
-/// all of the side's streams in poll order, so a single plan exercises (or
-/// fails) whichever surface reaches the threshold first — the same
-/// single-threshold coverage [`wrap_io`] gives one ordered pipe, extended
-/// over a whole link.
+/// The control halves and every data stream share the plan. Delay schedules
+/// and fault thresholds count operations across all of the endpoint's streams
+/// in poll order, extending [`wrap_io`]'s single-pipe behavior to the link.
 pub fn wrap_link<CR, CW, C, A>(
     side: Side,
     plan: IoPlan,
-    link: crate::link::Link<CR, CW, C, A>,
+    link: Link<CR, CW, C, A>,
 ) -> (AdversarialLink<CR, CW, C, A>, IoReportHandle)
 where
-    CR: tokio::io::AsyncRead + Unpin + Send,
-    CW: tokio::io::AsyncWrite + Unpin + Send,
-    C: crate::link::Connector,
-    A: crate::link::Acceptor,
+    CR: AsyncRead + Unpin + Send,
+    CW: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
 {
     let state = Arc::new(Mutex::new(State {
         side,
@@ -572,14 +575,14 @@ where
 }
 
 /// A link wholly wrapped in one side's shared adversity state.
-pub type AdversarialLink<CR, CW, C, A> = crate::link::Link<
+pub type AdversarialLink<CR, CW, C, A> = Link<
     AdversarialRead<CR>,
     AdversarialWrite<CW>,
     AdversarialConnector<C>,
     AdversarialAcceptor<A>,
 >;
 
-/// A [`Connector`](crate::link::Connector) whose opened streams write
+/// A [`Connector`] whose opened streams write
 /// through the side's shared adversity state.
 pub struct AdversarialConnector<C> {
     inner: C,
@@ -595,7 +598,9 @@ impl<C> std::fmt::Debug for AdversarialConnector<C> {
     }
 }
 
+/// Clone the connector while retaining its shared adversity state.
 impl<C: Clone> Clone for AdversarialConnector<C> {
+    /// Clone the underlying connector and state handle.
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -604,9 +609,11 @@ impl<C: Clone> Clone for AdversarialConnector<C> {
     }
 }
 
-impl<C: crate::link::Connector> crate::link::Connector for AdversarialConnector<C> {
+/// Apply the shared fault plan to outgoing stream opens and writes.
+impl<C: Connector> Connector for AdversarialConnector<C> {
     type Tx = AdversarialWrite<C::Tx>;
 
+    /// Open a stream unless its configured fault boundary has been reached.
     async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         // The fault fires in place of the call: a healthy supply's connects
         // always succeed, so the clean run's success count is also its call
@@ -633,7 +640,7 @@ impl<C: crate::link::Connector> crate::link::Connector for AdversarialConnector<
     }
 }
 
-/// An [`Acceptor`](crate::link::Acceptor) whose accepted streams read
+/// An [`Acceptor`] whose accepted streams read
 /// through the side's shared adversity state.
 pub struct AdversarialAcceptor<A> {
     inner: A,
@@ -649,9 +656,11 @@ impl<A> std::fmt::Debug for AdversarialAcceptor<A> {
     }
 }
 
-impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> {
+/// Apply the shared fault plan to incoming stream accepts and reads.
+impl<A: Acceptor> Acceptor for AdversarialAcceptor<A> {
     type Rx = AdversarialRead<A::Rx>;
 
+    /// Accept a stream unless its configured fault boundary has been reached.
     async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         // An already-injected accept fault keeps failing without consuming
         // further arrivals.
@@ -688,52 +697,43 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> 
     }
 }
 
-/// Cooperative yields an accept spends genuinely waiting for a further
-/// arrival to reorder before releasing what it already holds.
+/// Cooperative yields spent waiting for another arrival before releasing a
+/// held batch.
 ///
 /// Each yield hands the whole closed-world topology one more poll, so the
 /// budget bounds the wait in peer progress rather than wall time. It must
 /// be generous enough for a concurrently working peer to open its next
-/// stream; expiring is always safe — the held batch releases, at worst
-/// unreordered.
+/// stream. Expiry releases the held batch, possibly without reordering it.
 const REORDER_PATIENCE: u8 = 32;
 
-/// An [`Acceptor`](crate::link::Acceptor) delivering arrivals in reversed
-/// batches: worst-case-legal stream reordering.
+/// An [`Acceptor`] that releases arrivals newest-first in bounded batches.
 ///
 /// The link contract leaves cross-stream arrival order unspecified, so a
 /// session must pair streams by label alone; this decorator inverts arrival
-/// order whenever the traffic admits it. Each accept awaits one arrival,
-/// then *holds it* and genuinely waits for further arrivals — up to `batch`
-/// in total — before releasing the accumulated batch newest-first. The wait
-/// is bounded by a patience budget of cooperative yields
-/// (`REORDER_PATIENCE`), so a lone final stream still flows and a peer
-/// wedged behind the held stream cannot deadlock the harness.
+/// order whenever the traffic admits it. Each accept awaits one arrival, then
+/// holds it while waiting for up to `batch` arrivals. A fixed patience budget
+/// bounds this wait in cooperative yields, so a lone final stream still flows
+/// and a peer waiting behind the held stream cannot deadlock the harness.
 ///
-/// Every batch of two or more is a genuine inversion, recorded in the
-/// shared `reordered` counter so a test can assert the adversity's actual
-/// disposition instead of assuming it. The genuine wait is load-bearing: a
-/// decorator that only drains arrivals already `Ready` never sees a second
-/// arrival under the deterministic scheduler and silently degenerates to
-/// pass-through — which is exactly what the asserted counter makes loud.
-/// The unit witness `reordering_acceptor_inverts_a_patient_batch` in this
-/// module's tests shows the wait forming a batch of two from an arrival
-/// that lands only after the first has been held.
+/// A release of two or more arrivals is an inversion and increments the
+/// shared `reordered` counter. Consumers assert that counter so a ready-only
+/// drain cannot become pass-through unnoticed. The module's unit test shows a
+/// second arrival joining a batch after the first has been held.
 ///
 /// The link conformance suite decorates its memory ends with this
 /// acceptor too, so a conformance pass under reordering certifies it.
-pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
+pub struct ReorderingAcceptor<A: Acceptor> {
     inner: A,
     held: VecDeque<(A::Rx, Done<A::Rx>)>,
     /// Arrivals buffered before each reversed release.
     batch: usize,
-    /// Batches of two or more released: genuine inversions.
+    /// Batches of two or more released in reverse order.
     reordered: Arc<AtomicUsize>,
 }
 
 /// Summarize a reordering acceptor without requiring its transport to be
 /// debuggable.
-impl<A: crate::link::Acceptor> std::fmt::Debug for ReorderingAcceptor<A> {
+impl<A: Acceptor> std::fmt::Debug for ReorderingAcceptor<A> {
     /// Format the batch configuration and observed reordering progress.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReorderingAcceptor")
@@ -744,19 +744,20 @@ impl<A: crate::link::Acceptor> std::fmt::Debug for ReorderingAcceptor<A> {
     }
 }
 
-impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
+/// Release accepted streams in bounded newest-first batches.
+impl<A: Acceptor> Acceptor for ReorderingAcceptor<A> {
     type Rx = A::Rx;
 
+    /// Accept the next stream, forming a reversed batch when arrivals overlap.
     async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
         if let Some(held) = self.held.pop_front() {
             return Ok(held);
         }
         let first = self.inner.accept().await?;
         self.held.push_front(first);
-        // Hold the arrival and genuinely wait for company: each round polls
-        // a fresh inner accept once — dropping it while pending is exactly
-        // the cancellation tolerance the link contract demands — then
-        // yields, giving the peer polls in which to open its next stream.
+        // Hold the arrival while waiting for company. Each round polls a fresh
+        // accept once, drops it if pending as the link contract permits, then
+        // yields so the peer can open its next stream.
         let mut patience = REORDER_PATIENCE;
         while self.held.len() < self.batch {
             let mut next = std::pin::pin!(self.inner.accept());
@@ -766,11 +767,9 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
                     patience = REORDER_PATIENCE;
                 }
                 // Errored: stop batching and release what is held.
-                // Swallowing the error is sound for the memory-backed
-                // acceptors this decorator wraps, whose errors are
-                // persistent (a closed supply errors on every later
-                // accept, so the next call resurfaces it); the decorator
-                // is not built for acceptors with one-shot errors.
+                // The memory acceptors used here report persistent errors, so
+                // the next call resurfaces this error after the held batch is
+                // released. This wrapper does not support one-shot errors.
                 Poll::Ready(Err(_)) => break,
                 Poll::Pending => {
                     let Some(remaining) = patience.checked_sub(1) else {
@@ -789,22 +788,22 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
 }
 
 /// Wrap `link`'s acceptor so arrivals release in reversed batches of `batch`,
-/// counting genuine inversions into `reordered`.
+/// recording reversed batches of two or more in `reordered`.
 ///
 /// Always assert on the counter after the run: nonzero where the topology
 /// admits reordering (that is the proof the adversity fired), zero as a
-/// tripwire where it provably cannot — without either, the decorator is
-/// indistinguishable from pass-through and the test's claims rot silently.
+/// tripwire where it cannot. Without either assertion, pass-through behavior
+/// would satisfy the test unnoticed.
 pub fn reorder_accepts<CR, CW, C, A>(
-    link: crate::link::Link<CR, CW, C, A>,
+    link: Link<CR, CW, C, A>,
     batch: usize,
     reordered: Arc<AtomicUsize>,
-) -> crate::link::Link<CR, CW, C, ReorderingAcceptor<A>>
+) -> Link<CR, CW, C, ReorderingAcceptor<A>>
 where
-    CR: tokio::io::AsyncRead + Unpin + Send,
-    CW: tokio::io::AsyncWrite + Unpin + Send,
-    C: crate::link::Connector,
-    A: crate::link::Acceptor,
+    CR: AsyncRead + Unpin + Send,
+    CW: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
 {
     link.map_transport(|control_read, control_write, connector, acceptor| {
         (
@@ -843,145 +842,6 @@ fn suspend(
     }
 }
 
+/// Unit tests for this support module.
 #[cfg(test)]
-mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-
-    use futures::{pin_mut, poll};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex, split};
-
-    use super::{IoPlan, Side, reorder_accepts, wrap_io, yield_once};
-    use crate::link::{Acceptor, Connector, memory};
-    use crate::testing::run_to_quiescence;
-
-    /// The patient wait forms a batch of two and releases it newest-first,
-    /// counting one inversion.
-    ///
-    /// The second stream is connected only after the acceptor has held the
-    /// first and begun yielding, so a drain of only-`Ready` arrivals would
-    /// release the first alone and count nothing.
-    #[test]
-    fn reordering_acceptor_inverts_a_patient_batch() {
-        let reordered = Arc::new(AtomicUsize::new(0));
-        let (a, b) = memory();
-        let mut acceptor = reorder_accepts(a, 2, reordered.clone()).acceptor;
-        let connector = b.connector;
-        let released = run_to_quiescence(async {
-            let (_streams, released) = futures::join!(
-                async {
-                    let (mut first, _done) = connector.connect().await.unwrap();
-                    first.write_all(b"1").await.unwrap();
-                    // Let the acceptor take the first arrival and start
-                    // waiting before the second exists.
-                    for _ in 0..4 {
-                        yield_once().await;
-                    }
-                    let (mut second, _done) = connector.connect().await.unwrap();
-                    second.write_all(b"2").await.unwrap();
-                    (first, second)
-                },
-                async {
-                    let mut released = Vec::new();
-                    for _ in 0..2 {
-                        let (mut rx, _done) = acceptor.accept().await.unwrap();
-                        let mut tag = [0u8; 1];
-                        rx.read_exact(&mut tag).await.unwrap();
-                        released.push(tag[0]);
-                    }
-                    released
-                },
-            );
-            released
-        })
-        .expect("the batch releases and the harness stays live");
-        assert_eq!(released, b"21", "the batch of two releases newest-first");
-        assert_eq!(
-            reordered.load(Ordering::Relaxed),
-            1,
-            "one batch of two is one recorded inversion"
-        );
-    }
-
-    /// Flush buffering keeps completed writes invisible to the peer until the
-    /// corresponding flush is polled.
-    #[test]
-    fn flush_buffering_withholds_bytes_until_flush() {
-        let (left, right) = duplex(8);
-        let (read, write) = split(left);
-        let plan = IoPlan {
-            hold_until_flush: true,
-            ..IoPlan::default()
-        };
-        let (_read, mut write, report) = wrap_io(Side::Left, plan, read, write);
-        let (mut peer_read, _peer_write) = split(right);
-
-        let received = run_to_quiescence(async {
-            write.write_all(b"abcd").await.unwrap();
-
-            let mut bytes = [0; 4];
-            let receive = peer_read.read_exact(&mut bytes);
-            pin_mut!(receive);
-            assert!(poll!(receive.as_mut()).is_pending());
-
-            write.flush().await.unwrap();
-            receive.await.unwrap();
-            bytes
-        })
-        .expect("the buffered transport should remain live");
-
-        assert_eq!(received, *b"abcd");
-        let snapshot = report.snapshot();
-        assert_eq!(snapshot.writes, 1);
-        assert_eq!(snapshot.write_bytes, 4);
-        assert_eq!(snapshot.flushes, 1);
-    }
-
-    /// Fragmentation, delays, and flush buffering compose without losing bytes.
-    #[test]
-    fn successful_adversity_is_lossless() {
-        let (left, right) = duplex(1);
-        let (read, write) = split(left);
-        let plan = IoPlan {
-            read_chunk: 1,
-            write_chunk: 2,
-            read_delays: vec![1; 8],
-            write_delays: vec![1; 8],
-            flush_delays: vec![1],
-            hold_until_flush: true,
-            fault: None,
-        };
-        let (mut read, mut write, report) = wrap_io(Side::Left, plan, read, write);
-        let (mut peer_read, mut peer_write) = split(right);
-        let (sent, received, peer_received) = run_to_quiescence(async {
-            futures::join!(
-                async {
-                    write.write_all(b"abcd").await.unwrap();
-                    write.flush().await.unwrap();
-                },
-                async {
-                    let mut bytes = [0; 2];
-                    read.read_exact(&mut bytes).await.unwrap();
-                    bytes
-                },
-                async {
-                    let mut bytes = [0; 4];
-                    peer_read.read_exact(&mut bytes).await.unwrap();
-                    peer_write.write_all(b"xy").await.unwrap();
-                    peer_write.flush().await.unwrap();
-                    bytes
-                },
-            )
-        })
-        .expect("the closed transport should remain live");
-        assert_eq!(sent, ());
-        assert_eq!(received, *b"xy");
-        assert_eq!(peer_received, *b"abcd");
-        let snapshot = report.snapshot();
-        assert_eq!(snapshot.write_bytes, 4);
-        assert_eq!(snapshot.read_bytes, 2);
-        assert!(snapshot.delayed_polls > 0);
-    }
-}
+mod tests;
