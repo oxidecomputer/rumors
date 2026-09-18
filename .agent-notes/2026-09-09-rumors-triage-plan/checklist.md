@@ -1,11 +1,11 @@
 # Rumors review checklist
 
-**Current:** streaming fixture consolidation landed at `83b2ba71`.
+**Current:** constrained property-case generation landed at `107da6ac`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** generate constrained property cases directly, preserving the
-regressions and boundary shapes they must cover.
+**Next:** remove allocation-count nondeterminism. High-count property settings
+wait for `before`'s generator sweep.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -457,7 +457,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 
 Dependencies: Scoped generator repairs can start independently; workspace settings wait for compatible before generators.
 
-- [ ] Generate constrained cases directly while preserving the regressions they must cover.
+- [x] Generate constrained cases directly while preserving the regressions they must cover. Landed at `107da6ac`.
       Sources: `remote-capture-atlas-24`, T132, T157, T161, N13, N17, N20, N36, N45, N46.
 
 - [ ] Run meaningful high-count release properties with one case-count setting.
