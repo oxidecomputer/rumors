@@ -1,12 +1,11 @@
 # Rumors review checklist
 
-**Current:** shared test-transport cleanup landed at `5bc8088f`.
+**Current:** shared test and benchmark support now compiles once at `44bc234a`.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
-**Next:** compile shared test and benchmark support once through a path
-dev-dependency. High-count property settings wait for `before`'s generator
-sweep.
+**Next:** finish the test-binary consolidation decided with the shared support
+crate. High-count property settings wait for `before`'s generator sweep.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -468,8 +467,11 @@ Dependencies: Scoped generator repairs can start independently; workspace settin
 
 Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07–09 and 13.
 
-- [ ] Compile the shared test and bench harness once through a path dev-dependency.
+- [x] Compile the shared test and bench harness once through a path dev-dependency — `44bc234a`.
       Sources: `benches-envelope-22`, `suite-economics-8`, `tests-common-8`, `tests-disruption-handshake-28`, T115.
+
+- [ ] Fold closely related test binaries without reducing coverage or disturbing the schedule suites.
+      Sources: `suite-economics-8`, T59, T115.
 
 - [ ] Use one set of session drivers, observer readouts, fingerprints, and fault wrappers.
       Sources: `session-bookmark-8`, `testing-infra-8`, `testing-infra-9`, `testing-infra-11`, `testing-infra-13`, `testing-infra-17–20`, `testing-infra-23`, `tests-common-3`, `tests-common-4`, `tests-common-12`, `tests-common-14–16`, `tests-common-18–20`, `tests-common-22`, `tests-common-25`, `tests-common-29`, `tests-common-30`, T76, T129, T130, T132, T144, T150.
