@@ -1,10 +1,13 @@
 # Rumors review checklist
 
-**Current:** paused after the lifecycle boundary checks; no increment is active.
+**Current:** lifecycle verification and fixture consolidation landed at
+`2a2c182d`.
 
-**Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
+**Parallel:** the full test-legibility sweep awaits owner review at `e603252e`;
+the scheduling-helper cleanup awaits review at `07fa81b3`.
 
-**Next:** simplify scheduling helpers and separate backend and window explanations.
+**Next:** review the scheduling-helper cleanup, then consolidate streaming
+fixtures and correct their explanations.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -489,7 +492,7 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Pin bootstrap floors, cross-network rejection, retire recovery, bootstrapper handoff, and bookmarked-session drainage — `9afdd2ea`.
       Sources: `tests-lifecycle-4`, `tests-lifecycle-5`, `tests-lifecycle-7`, `tests-lifecycle-11`, `tests-lifecycle-23`, T132.
 
-- [ ] Finish lifecycle properties for content, versions, and party ownership.
+- [x] Finish lifecycle properties for content, versions, and party ownership — `2a2c182d`.
       Sources: `api-core-20`, `suite-economics-5`, `tests-lifecycle-9`, `tests-lifecycle-15–18`, `tests-lifecycle-20`, `tests-lifecycle-21`, `tests-lifecycle-25`, `tests-lifecycle-26`, `tests-lifecycle-28`, `tests-lifecycle-29`, `tests-lifecycle-33`, T26, T59, T108, T130–132, T158, N16.
 
 - [x] Check observer delivery under remote redactions and partial reads, duplicate-free checkpoint resumes, and change-signal wakeups — `fa9a1f0e`.
@@ -513,7 +516,7 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [ ] Finish observer-test simplification and align remaining claims with coverage.
       Sources: `tests-observation-26`, `tests-observation-30`, `tests-observation-35`, T78, T90, T130, T132.
 
-- [ ] Simplify lifecycle fixtures while preserving ownership and version checks.
+- [x] Simplify lifecycle fixtures while preserving ownership and version checks — `2a2c182d`.
       Sources: `tests-lifecycle-2`, `tests-lifecycle-3`, `tests-lifecycle-6`, `tests-lifecycle-8`, `tests-lifecycle-12–14`, `tests-lifecycle-19`, `tests-lifecycle-22`, `tests-lifecycle-24`, `tests-lifecycle-27`, `tests-lifecycle-30`, `tests-lifecycle-32`, T52, T130–132.
 
 - [x] Remove orphaned section numbers from observer test comments — `7cb864cc`.
