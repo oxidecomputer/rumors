@@ -3,9 +3,9 @@
 //!
 //! Each family supplies a related set of operands. Every operation that can use
 //! those operands becomes a board cell, so adding a family or operation expands
-//! coverage without hand-writing individual pairings. The coverage table also
-//! requires every public operation to be either measured or explicitly
-//! inapplicable.
+//! coverage without hand-writing individual pairings. The coverage table
+//! requires every rostered public method and grouped trait family to be either
+//! measured or explicitly inapplicable.
 //!
 //! # What a cell measures
 //!
@@ -73,7 +73,6 @@ mod tests;
 mod worst;
 
 pub use ceilings::{
-    ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE, ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE,
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, DEFAULT_SCALE,
     FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, HEAP_FLAT_ALLOWANCE_BYTES, LADDER_TOP_SCALE,
     MACHINE_WORD_MAGNITUDE_BITS, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,

@@ -1,85 +1,59 @@
-//! The min-ticks fold's bookkeeping: subtree minima as reigns over the
-//! anchored-minimum web, and the frozen component as an epoch ledger settled
+//! Bookkeeping for the streaming [`min_ticks`](super::min_ticks) fold.
+//!
+//! The value is
+//!
+//! `Σ leaf heights − Σ internal-node subtree minima`.
+//!
+//! A skyline stores the first height and then the differences between adjacent
+//! leaves. Reconstructing every absolute height and subtree minimum would make
+//! a small difference repeatedly traverse an old, much wider value. This
+//! module instead records recent differences and settles each older wide value
 //! once.
 //!
-//! [`min_ticks`](super::min_ticks) folds `Σ leaf heights − Σ internal-node
-//! subtree minima` over one leaf sweep. Both sums are event streams over
-//! evolving wide quantities — each leaf folds the running height, each closing
-//! node folds the minimum of its completed span — and this module is the
-//! accounting that keeps every event narrow: no event ever reads a width its
-//! own boundary's codes did not pay for.
+//! # Tracking heights
 //!
-//! # The minima side: reigns over the anchored-minimum web
+//! The sweep treats the current height as `F + L`. `L` is the live drift held
+//! in one accumulator. When it becomes much wider than the next stored
+//! difference, [`EpochLedger`] moves it into a new epoch; `F` is the conceptual
+//! sum of those frozen drifts and is never materialized.
 //!
-//! Subtree spans nest LIFO along the sweep, so "the closing node's subtree
-//! minimum" is always *the innermost open range's minimum* at the close — the
-//! range-minimum problem the anchored-minimum web solves. The web itself — the
-//! one `gap` register against a shared anchor, the latent boundary a close
-//! parks by move, the compressed difference stack, and the propagation each
-//! undercut funds — is [`watermark`](crate::version::skyline::watermark)'s,
-//! held once for both its clients; this module drives it through [`ReignWeb`]
-//! at payload [`Reign`] and contributes only the fold's own semantics.
+//! Each leaf contributes its live offset immediately and adds one reference to
+//! its epoch. A subtree minimum contributes the negative of its offset and its
+//! number of uses. At the end, summation by parts recovers every contribution
+//! from `F` without rebuilding an absolute height:
 //!
-//! What the closes *fold into the total* rides the web as value identity: a
-//! [`Reign`]. The innermost minimum's value is a leaf height the sweep already
-//! paid for — recorded once, at the boundary that made it the minimum, as a
-//! narrow frozen-relative offset (below) — and every close while that value
-//! reigns just counts. The record settles into the total exactly once, at its
-//! death (a lower leaf dethrones it, a propagating drop annihilates its
-//! difference, or the stream ends), as one compacted `offset × count` product
-//! priced by the offset's width. A record whose reign is interrupted — an inner
-//! range arms above it — rides the interrupting boundary as its payload and
-//! returns at the pop with its count intact, so an interruption never re-reads
-//! the offset.
+//! `Σ_e refs_e · F_e = Σ_f drift_f · Σ_{e ≥ f} refs_e`.
 //!
-//! # The heights side: the epoch ledger
+//! Thus each frozen drift participates in one product with the suffix of the
+//! reference counts. An offset remains attached to the epoch in which it was
+//! observed, so freezing never requires updating existing records.
 //!
-//! The sweep splits the running height `h = F + L`: `L` (*live*) the drift
-//! since the last freeze on one accumulator, `F` (*frozen*) the rest — never
-//! materialized anywhere. [`EpochLedger`] holds one signed drift per freeze
-//! (epoch 0's "drift" is the first leaf's absolute) and one signed reference
-//! count per epoch: a leaf event folds its narrow `L`-offset into the total
-//! directly and counts `+1` against its epoch; a settling reign counts `−count`
-//! against the epoch its offset was recorded under. The frozen component
-//! reaches the total once, at the end, by summation by parts:
+//! # Tracking subtree minima
 //!
-//! `Σ_e refs_e · F_e = Σ_f drift_f · Σ_{e ≥ f} refs_e`
+//! Open subtrees are nested, so a closing node needs the minimum of the
+//! innermost open range. [`ReignTracker`] uses the range-minimum machinery in
+//! [`watermark`](crate::version::skyline::watermark) to track that value. A
+//! *reign* is the interval during which one leaf value remains the relevant
+//! minimum. Its record holds the leaf's live offset, its epoch, and the number
+//! of nodes that closed while it was the minimum. Closing a node normally only
+//! increments that count. When a lower leaf replaces the minimum, or the range
+//! ends, the record is settled once as `offset × count`.
 //!
-//! — one compacted `drift × suffix-count` product per freeze, priced by the
-//! drift's own width (which the codes that built the drift funded) times the
-//! count's O(1) compacted digits. No event is ever re-based across a freeze: an
-//! offset recorded under epoch `e` keeps its epoch, and the ledger's settle
-//! carries the frozen difference for it.
+//! [`StoredReign`] stores a signed 32-bit offset, about eight million epochs,
+//! and 255 closes in one word. [`ReignStore`] preserves larger values exactly.
+//! A spill adds one stable record. Its count still increments in constant time,
+//! while a wide offset costs space and settlement work proportional to the
+//! offset that the input encoded.
 //!
-//! # Funding: the potential function and its arity
+//! # Why the cost remains bounded
 //!
-//! The certificate is a **one-ledger potential over the single operand**:
-//! folding a code of `w` digits deposits `Θ(w)` into `Φ`, and each topology bit
-//! deposits O(1). Every charge names its deposit:
-//!
-//! - folds into `L` and `gap`, and each leaf's offset fold and undercut
-//!   sign read: the boundary's own code (the freeze trigger keeps `L`
-//!   within the allowance of the last code; `gap`'s sign reads amortize
-//!   against the folds that widened it);
-//! - creating and eventually settling a reign record: the code funding the
-//!   leaf offset it snapshots (moving a record and adding to its count are
-//!   O(1));
-//! - a close: O(1) — a count bump plus a boundary *move* into the
-//!   latent register;
-//! - an undercut's propagation: each consumed difference dies by one
-//!   fold into the residue at the dying side's width (the width a
-//!   previous arm deposited), decided by top-index domination before
-//!   any fold, with zero runs passing whole (the `watermark` module's
-//!   width-conservation discipline);
-//! - a freeze: the drift's one eviction read, funded by the codes that
-//!   built the drift, which the eviction consumes and resets;
-//! - the ledger settle: one product per freeze at the evicted drift's
-//!   own width.
-//!
-//! The arity is one: min_ticks is a single-stream fold, so no charge can draw
-//! on a ledger its own operand did not fund — the two-operand co-sweep's
-//! per-operand split (the funding section of [`integral`](super::integral)) is
-//! not needed here.
+//! Each stored difference is folded once into the live height and the stack's
+//! gap. Each close increments a count or moves one boundary. When a new
+//! minimum propagates outward, every difference it consumes is removed from
+//! the stack and folded once at the width previously stored for it. Each freeze
+//! moves one live drift into the epoch ledger, and the final settlement visits
+//! every epoch once. The wide work is therefore charged to the input that
+//! introduced that width; later small differences do not repeatedly read it.
 
 use suanpan::Accumulator;
 
@@ -87,7 +61,10 @@ use num_bigint::{BigInt, BigUint, Sign};
 
 use crate::codec::accumulator;
 
-use super::super::watermark::{Close, MinWeb};
+use super::super::watermark::{Close, RangeMinima};
+
+#[cfg(test)]
+mod tests;
 
 /// Add (or, with `subtract`, remove) `factor · digits · 2^shift` in the total:
 /// one `factor`-wide product per nonzero signed digit of the compacted `digits`
@@ -97,7 +74,7 @@ use super::super::watermark::{Close, MinWeb};
 /// signed digits, so an all-ones run — the usual shape of a dyadic mass — costs
 /// one subtract at its floor and one carry past its top instead of a product
 /// per digit. The `shift` carries a `digits` operand read out at a scale (a
-/// segment mass parked deep in the stream) without ever materializing the
+/// segment mass located far along the stream) without ever materializing the
 /// scaled value.
 ///
 /// The cost is the factor's width times the operand's compacted density, so
@@ -113,20 +90,15 @@ pub(super) fn mul_into(
     shift: u64,
     subtract: bool,
 ) {
-    // Both callers hand in nonzero counts (a settled reign counts at least
-    // its one close; the ledger settle skips zero suffixes), and a zero
-    // `digits` operand would fall through the empty digit walk below as a
-    // no-op anyway; a zero factor is the one identity worth skipping — a
-    // reign offset sitting exactly at its epoch's frozen component.
+    // A zero digit sequence naturally does no work. Skip a zero factor here
+    // because it would otherwise clone and multiply it for every nonzero
+    // digit.
     if *factor == BigUint::ZERO {
         return;
     }
-    // The shifts routed below are digit positions of walked-value widths
-    // (a width over 32, plus the caller's scale): bounded by the stored
-    // stream's bit length, which the storage caps below 2^32 — multiple
-    // binary orders of magnitude under the accumulator entry points'
-    // documented panic bound (a digit position past `usize`, from shift
-    // 2^37 on a 32-bit target).
+    // These shifts are positions within a stored value, whose bit length is
+    // below 2^32. They therefore remain well below the accumulator's shift
+    // bound even on 32-bit targets.
     let mut carry = 0u64;
     let mut add_term = |digit: u64, sign: Sign, shift: u64| {
         if digit == 0 {
@@ -158,9 +130,7 @@ pub(super) fn mul_into(
     }
 }
 
-/// The value the innermost minimum currently holds, as the sweep folds it: a
-/// frozen-relative offset, its epoch, and the closes counted at it since the
-/// record was created (module doc: the minima side).
+/// One minimum's offset, epoch, and number of range closes.
 struct Reign {
     /// The signed offset relative to its epoch's frozen component.
     offset: BigInt,
@@ -171,16 +141,16 @@ struct Reign {
 }
 
 impl Reign {
-    /// A fresh record at a leaf's value, no closes counted yet.
-    fn new(offset: &BigInt, epoch: usize) -> Reign {
+    /// Construct an exact reign record.
+    fn new(offset: BigInt, epoch: usize, count: u64) -> Reign {
         Reign {
-            offset: offset.clone(),
+            offset,
             epoch,
-            count: 0,
+            count,
         }
     }
 
-    /// Settle this dying record into the total and its epoch.
+    /// Add this completed record's contribution to the total and epoch ledger.
     fn settle(self, total: &mut Accumulator, ledger: &mut EpochLedger) {
         if self.count == 0 {
             return;
@@ -197,67 +167,244 @@ impl Reign {
     }
 }
 
-/// The min-ticks fold's view of the anchored-minimum web: the shared core at
-/// payload [`Reign`], plus the innermost minimum's own record (module doc).
-pub(super) struct ReignWeb {
-    /// The anchored-minimum web, each stacked boundary carrying the record
-    /// whose reign that arming interrupted.
-    web: MinWeb<Reign>,
-    /// The innermost minimum's record; `Some` exactly while the web is
-    /// armed.
-    winner: Option<Reign>,
+/// One reign record, inline when its fields fit or indexed into `ReignStore`.
+///
+/// An inline record covers every signed 32-bit frozen-relative leaf offset,
+/// about eight million freeze epochs, and 255 closes during one reign. In
+/// input terms, spilling therefore requires a live offset outside `i32` (from
+/// one large jump or more than two billion net ticks since the last freeze),
+/// more than eight million nonzero freezes, or a leaf that remains the minimum
+/// through more than 255 nested closes. Each epoch is created only when the
+/// accumulated live drift is nonzero and more than eight 32-bit digits wider
+/// than the next leaf's delta.
+#[derive(Clone, Copy)]
+struct StoredReign(u64);
+
+/// Bits that hold any signed `i32` offset.
+const REIGN_OFFSET_BITS: u32 = 32;
+/// Bits that hold the first eight million epochs.
+const REIGN_EPOCH_BITS: u32 = 23;
+/// Bits that hold up to 255 closes.
+const REIGN_COUNT_BITS: u32 = 8;
+/// Marks a `StoredReign` as an index into the spill store.
+const REIGN_SPILLED: u64 = 1 << 63;
+/// Mask selecting the inline offset.
+const REIGN_OFFSET_MASK: u64 = (1 << REIGN_OFFSET_BITS) - 1;
+/// Mask selecting the inline epoch.
+const REIGN_EPOCH_MASK: u64 = (1 << REIGN_EPOCH_BITS) - 1;
+/// Mask selecting the inline count.
+const REIGN_COUNT_MASK: u64 = (1 << REIGN_COUNT_BITS) - 1;
+/// Bit position of the inline epoch.
+const REIGN_EPOCH_SHIFT: u32 = REIGN_OFFSET_BITS;
+/// Bit position of the inline count.
+const REIGN_COUNT_SHIFT: u32 = REIGN_OFFSET_BITS + REIGN_EPOCH_BITS;
+
+const _: () = assert!(REIGN_OFFSET_BITS + REIGN_EPOCH_BITS + REIGN_COUNT_BITS == 63);
+
+impl StoredReign {
+    /// Encode a reign in one word when its three fields fit.
+    ///
+    /// These are representation thresholds, not input limits. The spill path
+    /// preserves every larger value exactly.
+    fn inline(offset: &BigInt, epoch: usize) -> Option<Self> {
+        let offset = i32::try_from(offset).ok()?;
+        if epoch > REIGN_EPOCH_MASK as usize {
+            return None;
+        }
+        let offset = u64::from(offset as u32);
+        Some(Self(offset | (epoch as u64) << REIGN_EPOCH_SHIFT))
+    }
+
+    /// Whether this word names an out-of-line record.
+    fn is_spilled(self) -> bool {
+        self.0 & REIGN_SPILLED != 0
+    }
+
+    /// Decode an inline record.
+    fn decode(self) -> Reign {
+        debug_assert!(!self.is_spilled());
+        let raw_offset = self.0 & REIGN_OFFSET_MASK;
+        let offset = raw_offset as u32 as i32;
+        let epoch = ((self.0 >> REIGN_EPOCH_SHIFT) & REIGN_EPOCH_MASK) as usize;
+        let count = (self.0 >> REIGN_COUNT_SHIFT) & REIGN_COUNT_MASK;
+        Reign::new(BigInt::from(offset), epoch, count)
+    }
+
+    /// Index of the exact record in the spill store.
+    fn spill_index(self) -> usize {
+        debug_assert!(self.is_spilled());
+        (self.0 & !REIGN_SPILLED) as usize
+    }
 }
 
-impl ReignWeb {
-    pub(super) fn new() -> ReignWeb {
-        ReignWeb {
-            web: MinWeb::compacting(),
+/// Exact storage for reigns that do not fit `StoredReign`'s inline form.
+///
+/// A spill allocates one stable slot and clones the offset once. Subsequent
+/// count increments remain O(1), settlement uses the same arithmetic as an
+/// inline record, and the slot can be reused. Wide offsets use space
+/// proportional to their encoded magnitude; epoch and count overflows add one
+/// fixed-size record to an input already containing the corresponding freezes
+/// or nested closes.
+struct ReignStore {
+    /// Stable slots addressed by spilled records.
+    slots: Vec<Option<Reign>>,
+    /// Vacant slots available for reuse.
+    free: Vec<usize>,
+}
+
+impl ReignStore {
+    /// Construct an empty spill store.
+    fn new() -> Self {
+        Self {
+            slots: Vec::new(),
+            free: Vec::new(),
+        }
+    }
+
+    /// Store a fresh reign inline when possible.
+    fn store(&mut self, offset: &BigInt, epoch: usize) -> StoredReign {
+        StoredReign::inline(offset, epoch)
+            .unwrap_or_else(|| self.spill(Reign::new(offset.clone(), epoch, 0)))
+    }
+
+    /// Put an exact reign in a stable spill slot.
+    fn spill(&mut self, reign: Reign) -> StoredReign {
+        let index = if let Some(index) = self.free.pop() {
+            debug_assert!(self.slots[index].is_none());
+            self.slots[index] = Some(reign);
+            index
+        } else {
+            let index = self.slots.len();
+            self.slots.push(Some(reign));
+            index
+        };
+        let index = u64::try_from(index).expect("reign spill index fits u64");
+        assert!(index < REIGN_SPILLED, "reign spill index fits 63 bits");
+        StoredReign(REIGN_SPILLED | index)
+    }
+
+    /// Count one close against a stored reign, spilling on inline overflow.
+    fn increment(&mut self, reign: &mut StoredReign) {
+        if reign.is_spilled() {
+            self.slots[reign.spill_index()]
+                .as_mut()
+                .expect("a spilled reign owns its slot")
+                .count += 1;
+            return;
+        }
+        let count = (reign.0 >> REIGN_COUNT_SHIFT) & REIGN_COUNT_MASK;
+        if count < REIGN_COUNT_MASK {
+            reign.0 += 1 << REIGN_COUNT_SHIFT;
+            return;
+        }
+        let mut exact = reign.decode();
+        exact.count += 1;
+        *reign = self.spill(exact);
+    }
+
+    /// Remove a stored reign, returning its exact values.
+    fn take(&mut self, reign: StoredReign) -> Reign {
+        if !reign.is_spilled() {
+            return reign.decode();
+        }
+        let index = reign.spill_index();
+        let exact = self.slots[index]
+            .take()
+            .expect("a spilled reign owns its slot");
+        self.free.push(index);
+        exact
+    }
+
+    /// Settle a stored reign and release any spill slot it occupied.
+    fn settle(&mut self, reign: StoredReign, total: &mut Accumulator, ledger: &mut EpochLedger) {
+        self.take(reign).settle(total, ledger);
+    }
+}
+
+/// Mutable accounting used while arming a range.
+struct ReignContext<'a> {
+    /// The record for the current innermost minimum.
+    winner: &'a mut Option<StoredReign>,
+    /// Storage for exact out-of-line records.
+    reigns: &'a mut ReignStore,
+    /// Offset of the leaf that may begin a new reign.
+    offset: &'a BigInt,
+    /// Epoch of the leaf that may begin a new reign.
+    epoch: usize,
+    /// Running min-ticks total.
+    total: &'a mut Accumulator,
+    /// Frozen-height accounting by epoch.
+    ledger: &'a mut EpochLedger,
+}
+
+/// State needed to settle records consumed by an undercut.
+struct SettlementContext<'a> {
+    /// Storage for exact out-of-line records.
+    reigns: &'a mut ReignStore,
+    /// Running min-ticks total.
+    total: &'a mut Accumulator,
+    /// Frozen-height accounting by epoch.
+    ledger: &'a mut EpochLedger,
+}
+
+/// Tracks the current minimum and its accounting record for every open range.
+pub(super) struct ReignTracker {
+    /// Nested minima; each positive boundary carries the outer minimum's record.
+    minima: RangeMinima<StoredReign>,
+    /// The innermost minimum's record; present while a range is armed.
+    winner: Option<StoredReign>,
+    /// Exact records that exceed the common inline representation.
+    reigns: ReignStore,
+}
+
+impl ReignTracker {
+    /// Construct an empty tracker with no open ranges or current minimum.
+    pub(super) fn new() -> ReignTracker {
+        ReignTracker {
+            minima: RangeMinima::new(),
             winner: None,
+            reigns: ReignStore::new(),
         }
     }
 
     /// Open `count` ranges: the internal nodes a descent just entered.
     pub(super) fn open(&mut self, count: u64) {
-        self.web.open(count);
+        self.minima.open(count);
     }
 
-    /// Fold one consumed delta into the height side of the web's `gap`.
+    /// Move the running height by one consumed delta.
     pub(super) fn fold_height(&mut self, delta: &BigInt) {
-        self.web.fold_height(delta);
+        self.minima.fold_height(delta);
     }
 
-    /// Close the innermost range: fold its minimum into the total (one count on
-    /// the reigning record) and merge it into its parent.
+    /// Close the innermost range and add its minimum to the total.
     ///
-    /// The web's close is O(1) — a zero-run decrement, or a boundary move into
-    /// the latent register — and its outcome carries the reign bookkeeping: a
-    /// parked boundary's record resumes reigning with its count intact while
-    /// the inner record dies by its one settle, and the last close settles the
-    /// final record as the web retires.
+    /// If the parent has the same minimum, its current record continues. If
+    /// the parent has a lower minimum, that record resumes and the inner one is
+    /// settled. Closing the final range settles the final record.
     pub(super) fn close(&mut self, total: &mut Accumulator, ledger: &mut EpochLedger) {
-        // The reigning record counts this close on every outcome — the
-        // increment rides each arm, after the dispatch, because each arm
-        // hands the record off differently (kept, taken, replaced) and the
-        // count must land on the record that reigned over this close.
-        match self.web.close() {
-            Close::ZeroRun => {
-                self.winner
-                    .as_mut()
-                    .expect("an armed web has a reigning record")
-                    .count += 1;
+        // Count the close on the record that supplied this range's minimum,
+        // before that record continues, settles, or is replaced.
+        match self.minima.close() {
+            Close::Equal => {
+                self.reigns.increment(
+                    self.winner
+                        .as_mut()
+                        .expect("an armed range has a current record"),
+                );
             }
             Close::Retired => {
                 let mut reign = self.winner.take().expect("the reigning record was live");
-                reign.count += 1;
-                reign.settle(total, ledger);
+                self.reigns.increment(&mut reign);
+                self.reigns.settle(reign, total, ledger);
             }
-            Close::Parked(interrupted) => {
+            Close::Lower(interrupted) => {
                 let mut dead = self
                     .winner
                     .replace(interrupted)
                     .expect("the reigning record was live");
-                dead.count += 1;
-                dead.settle(total, ledger);
+                self.reigns.increment(&mut dead);
+                self.reigns.settle(dead, total, ledger);
             }
         }
     }
@@ -267,8 +414,8 @@ impl ReignWeb {
     ///
     /// Arms any pending ranges at the leaf; otherwise an amortized sign read
     /// decides whether the leaf undercuts the innermost minimum, and only a
-    /// true undercut does more than O(1) work — funded by the differences it
-    /// consumes, each dying record settling as its difference dies.
+    /// true undercut does more than O(1) work. It consumes each crossed
+    /// boundary and settles that boundary's record once.
     pub(super) fn leaf(
         &mut self,
         offset: &BigInt,
@@ -276,59 +423,71 @@ impl ReignWeb {
         total: &mut Accumulator,
         ledger: &mut EpochLedger,
     ) {
-        if self.web.has_pending() {
-            if !self.web.armed() {
-                // The first arming: the web seats its anchor at the leaf.
-                self.winner = Some(Reign::new(offset, epoch));
+        if self.minima.has_pending() {
+            if !self.minima.armed() {
+                // The first minimum also establishes the anchor.
+                self.winner = Some(self.reigns.store(offset, epoch));
             }
-            // The trichotomy through the hooks: an arming above the old
-            // minimum stacks the interrupted record as the boundary's
-            // payload, an exact meet leaves the old record reigning
-            // untouched, and an arming undercut settles it dead — each
-            // record minted or moved only on the arm that needs it.
-            let winner = &mut self.winner;
-            self.web.arm_at_height(
-                || {
-                    winner
-                        .replace(Reign::new(offset, epoch))
-                        .expect("an armed web has a reigning record")
+            // A higher minimum stores the prior record on its boundary. An
+            // equal minimum keeps that record. A lower minimum settles it.
+            let mut context = ReignContext {
+                winner: &mut self.winner,
+                reigns: &mut self.reigns,
+                offset,
+                epoch,
+                total,
+                ledger,
+            };
+            self.minima.arm_at_height(
+                &mut context,
+                |context| {
+                    context
+                        .winner
+                        .replace(context.reigns.store(context.offset, context.epoch))
+                        .expect("an armed range has a current record")
                 },
-                |reign| reign.settle(total, ledger),
+                |reign, context| context.reigns.settle(reign, context.total, context.ledger),
             );
             return;
         }
-        if !self.web.armed() {
+        if !self.minima.armed() {
             // A single-leaf stream: no node will ever fold a minimum.
             return;
         }
-        if !self.web.undercuts_here() {
+        if !self.minima.undercuts_here() {
             return;
         }
-        // A true undercut: the old record dies by its settle, the new leaf
-        // reigns, and the drop propagates outward, settling each record
-        // whose difference it consumes.
+        // The new leaf supplies the minimum. Settle the displaced record, then
+        // settle every outer record whose boundary the drop consumes.
         let dead = self
             .winner
-            .replace(Reign::new(offset, epoch))
-            .expect("an armed web has a reigning record");
-        dead.settle(total, ledger);
-        self.web.undercut(|reign| reign.settle(total, ledger));
+            .take()
+            .expect("an armed range has a current record");
+        self.reigns.settle(dead, total, ledger);
+        self.winner = Some(self.reigns.store(offset, epoch));
+        let mut context = SettlementContext {
+            reigns: &mut self.reigns,
+            total,
+            ledger,
+        };
+        self.minima.undercut(&mut context, |reign, context| {
+            context.reigns.settle(reign, context.total, context.ledger);
+        });
     }
 
     /// Close every remaining range at the stream's end.
     pub(super) fn drain(&mut self, total: &mut Accumulator, ledger: &mut EpochLedger) {
         debug_assert!(
-            !self.web.has_pending(),
+            !self.minima.has_pending(),
             "the final leaf armed every open range"
         );
-        while self.web.armed() {
+        while self.minima.armed() {
             self.close(total, ledger);
         }
     }
 }
 
-/// The frozen component as per-epoch drifts and reference counts, settled by
-/// summation by parts once, at the end (module doc: the heights side).
+/// Frozen height drifts and their reference counts, grouped by epoch.
 pub(super) struct EpochLedger {
     /// One signed drift per epoch: entry 0 is the first leaf's absolute height,
     /// every later entry one freeze's evicted live drift.
@@ -348,7 +507,7 @@ impl EpochLedger {
         }
     }
 
-    /// The current epoch: the number of nonzero drifts parked so far.
+    /// The current epoch, equal to the number of stored nonzero drifts.
     pub(super) fn epoch(&self) -> usize {
         self.drifts.len() - 1
     }
@@ -374,9 +533,8 @@ impl EpochLedger {
         live.reset();
     }
 
-    /// Settle the frozen component: `Σ_e refs_e · F_e` by summation by parts —
-    /// one `drift × suffix-count` product per epoch, each priced by the drift's
-    /// own width.
+    /// Settle `Σ_e refs_e · F_e` by summation by parts, using one
+    /// `drift × suffix-count` product per epoch.
     pub(super) fn settle(self, total: &mut Accumulator) {
         let mut suffix: i128 = 0;
         for (drift, refs) in self.drifts.iter().zip(&self.refs).rev() {

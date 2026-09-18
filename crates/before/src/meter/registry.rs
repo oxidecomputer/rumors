@@ -608,7 +608,7 @@ pub enum FamilyId {
     /// The pure-comb cross: `pure_comb(s, s)` × its own id.
     ///
     /// The reveal comb's cycle with no left-full site anywhere — no memo, no
-    /// pre-scan, no site consume: the watermark web's own arm-move +
+    /// pre-scan, no site consume: the range-minimum stack's own arm-move +
     /// close-pop width circulation, isolated from the frame ledger. The
     /// designated cross of the two tick rows.
     PureComb,
@@ -630,7 +630,7 @@ pub enum FamilyId {
     AscendPlateau,
     /// The dominated-undercut cross: `dominated_undercut(s, s)` × its own id.
     ///
-    /// Each of `s` raise sites re-arms the watermark web at the top of a
+    /// Each of `s` raise sites re-arms the range-minimum stack at the top of a
     /// `5·2^s`-scale climb and then emits its copied region's block minimum
     /// from one word above it — a no-latent, word-scale-offset emission
     /// against a wide-negative anchor gap, the one shape that routes the
@@ -893,9 +893,8 @@ pub enum FamilyId {
     /// survivor's top digit decides its sign fold at one touch either way),
     /// so the stop band's charge is width conservation alone: the surviving
     /// boundary is never read across its width while it survives, and the
-    /// arm's value flow rides the closed form. The
-    /// The descending- and stopping-boundary bands price the family; the
-    /// stopping pair also supplies the pool-miss row's steady-state shape.
+    /// arm's value flow rides the closed form. The descending- and
+    /// stopping-boundary bands price the family.
     PropagateSeam,
     /// The latent-ladder family `LL(w, k)`: the parked-latent undercut
     /// decision's O(1) claim, on the axis that would falsify it.

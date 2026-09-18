@@ -1,19 +1,21 @@
 //! Coverage tables for the amplification board.
 //!
-//! [`BOARD_PRICED`] maps each public operation to the measurements that bound
-//! its cost. Several operations may share a measurement when they use the same
-//! implementation. [`BOARD_NOT_APPLICABLE`] records operations for which the
-//! board's resource model does not apply. Tests require the two tables to cover
-//! the public API without overlap and require every named measurement to exist.
+//! [`BOARD_PRICED`] maps each rostered public method or grouped trait family to
+//! the measurements that bound its cost. Several operations may share a
+//! measurement when they use the same implementation.
+//! [`BOARD_NOT_APPLICABLE`] records rows for which the board's resource model
+//! does not apply. Tests require the tables to cover the method and family
+//! rosters without overlap and require every named measurement to exist.
 //!
 //! Rejection rows place errors as late as possible in the input. Errors handled
 //! by the same decoder, parser, or pairwise operation share that measurement;
 //! errors bounded by a machine word or caller-owned I/O need no separate row.
 
-/// Measurements that bound each public operation's resource use.
+/// Measurements that bound each priced method or trait family's resource use.
 ///
-/// The coverage test requires every public operation to appear in exactly one
-/// coverage table and every named measurement to exist and be used.
+/// The coverage test requires every rostered method and trait family to appear
+/// in exactly one coverage table and every named measurement to exist and be
+/// used.
 pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::tick", &["version_tick", "version_tick_adv_party"]),
     ("Party::ticks", &["version_ticks"]),

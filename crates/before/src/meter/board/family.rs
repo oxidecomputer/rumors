@@ -103,7 +103,7 @@ const REVEAL_COMB_BASE: usize = 500;
 /// Pure-comb level count and leaf-magnitude bits at scale 1.0 (equal,
 /// as above; encoded pair ~1 KiB).
 ///
-/// The watermark web's own cycle runs at ~2 wide folds per level — a
+/// The range-minimum stack's own cycle runs at ~2 wide folds per level — a
 /// tenth of the reveal comb's constant — so the base sits higher for comparable
 /// work.
 const PURE_COMB_BASE: usize = 1_000;

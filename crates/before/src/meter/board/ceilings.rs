@@ -16,12 +16,11 @@
 //!   level; a quadratic left fold still reads ~2 and stays red, and the
 //!   log factor's own liveness is held per public entry point by the claims
 //!   suite's `*_log_factor_is_alive` pins.
-//! - **Family-stated heap ceilings** (the ascend-cliff tick trio and
-//!   the ascend-cliff `version_min_ticks` cell, and the output-dominated
-//!   comb-scatter projections): a tighter or larger flat heap bound derived
-//!   for that operation and shape. Each constant carries its derivation. The
-//!   exponent leg stays at the global bound, so a constant declaration cannot
-//!   hide superlinear growth.
+//! - **Family-stated heap ceilings** (the output-dominated comb-scatter
+//!   projections): a tighter flat heap bound derived for that operation and
+//!   shape. Each constant carries its derivation. The exponent leg stays at
+//!   the global bound, so a constant declaration cannot hide superlinear
+//!   growth.
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
 //
@@ -180,55 +179,6 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
 /// at the board's largest committed scale; the ceiling applies the standard
 /// 25% margin and rounds up. Their exponent remains judged independently.
 pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 3.0;
-
-/// The ascending-cliff tick trio's family-stated heap ceiling, in bytes per
-/// encoded input byte.
-///
-/// `version_tick`, `version_ticks`, and `clock_tick` on the ascend-cliff cross
-/// are judged at this flat constant in place of
-/// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`] (the declared-models section; the exponent
-/// leg stays at the global bound).
-///
-/// Derivation: the ascending cliff is the one committed shape that defeats
-/// certificate consumption — the accumulator's zero-run ledger certificates on
-/// a monotone climb occupy memory until consumed, bounded at one entry per
-/// jump-write (at most half the held digit positions; the bound verified
-/// against the ledger code) — so the tick walk's live certificate state is
-/// honest `Θ(input)` work-state with a large constant, intended and modeled,
-/// not amplification. The per-entry footprint prices the accumulator's
-/// word-backed quick register alongside its digit state — the trade that
-/// buys the tick walk's word-scale fast path — with the certificate
-/// buffers' capacity rounded at powers of two, sampled at the position
-/// inside that period the family base fixes for every ladder point (the
-/// base's own doc carries the choice). The profile at the release profile
-/// of record is a flat per-byte constant, not a class — the exponent leg
-/// stays at the global bound, so growth cannot hide under the stated
-/// constant — and the ceiling is the worst reading across the ladder's two
-/// sampling scales ×1.25, rounded up (owner-ratified, conditional on
-/// exactly this flat-constant profile; the readings live in the pin
-/// commit). A reading over it is a genuine certificate-memory regression
-/// on the one shape that defeats consumption.
-pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 227.0;
-
-/// The ascending-cliff `version_min_ticks` cell's family-stated heap ceiling,
-/// in bytes per encoded input byte (judged in place of
-/// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`]; the exponent leg stays at the global
-/// bound).
-///
-/// Derivation: the exact fold's anchor web holds one live reign record per
-/// simultaneously-open minimum, and the ascending cliff is the one committed
-/// shape that defeats batching — `Θ(k)` minima stay open at once, so the fold
-/// legitimately holds `Θ(k)` live reign records (the state that keeps the
-/// fold's *exponent* linear, each pricing its accumulators' word-backed
-/// quick registers alongside their digit state) at a flat per-byte constant:
-/// intended and modeled, not amplification. The profile at the release
-/// profile of record is a flat per-byte constant, not a class — the
-/// exponent leg stays at the global bound — and the ceiling is the worst
-/// reading across the ladder's two sampling scales ×1.25, rounded up
-/// (owner-ratified, conditional on exactly this flat-constant profile; the
-/// readings live in the pin commit). A reading over it is a genuine
-/// reign-state regression on the one shape that defeats batching.
-pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 247.0;
 
 /// The base sampling scale of the measurement ladder, and the size
 /// multiplier of a bare single-scale board run.

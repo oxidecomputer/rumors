@@ -38,6 +38,15 @@ pub(crate) fn signed_value(acc: &Accumulator) -> BigInt {
     )
 }
 
+/// Normalize and consume an accumulator as a signed integer.
+///
+/// The sign read first collapses redundant leading digits. Converting the
+/// magnitude then visits only the normalized value's width.
+pub(crate) fn into_signed_value(mut acc: Accumulator) -> BigInt {
+    acc.sign();
+    signed_value(&acc)
+}
+
 /// Add a signed integer to an accumulator.
 pub(crate) fn fold_signed(acc: &mut Accumulator, value: &BigInt) {
     fold(acc, value.magnitude(), 0, value.sign() == Sign::Minus);

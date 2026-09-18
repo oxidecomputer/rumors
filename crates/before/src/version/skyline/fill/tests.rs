@@ -505,7 +505,7 @@ fn materialize_is_a_noop_once_built() {
 /// The driven path: the left-full raise diverges the walk, the copied sibling
 /// region climbs beyond `u64` and returns, and the region's block-minimum
 /// emission then arrives with a word-scale negative offset against a
-/// wide-negative anchor gap — the watermark web's scale-disparate undercut,
+/// wide-negative anchor gap — the range-minimum stack's scale-disparate undercut,
 /// whose residue is `m − v = −gap − offset`. Folding the offset into that
 /// residue with the opposite polarity would leave a phantom `2·|offset|`
 /// boundary on the difference stack, and the enclosing range's minimum — read

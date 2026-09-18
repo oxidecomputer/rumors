@@ -820,9 +820,13 @@ bench-alloc-ab target arm="shipped" *filter:
 # measures each cell's whole ladder in one judgment. Optional scale
 # multiplies the input sizes, e.g. `just amp-board 4`.
 
+# One command serves every board recipe, keeping the production profile part
+# of the instrument rather than a convention each entry point must repeat.
+amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter"
+
 # Render the amplification board at one scale: a debugging view of the red-green matrix.
 amp-board *args:
-    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- {{ args }}
+    {{ amp_board_command }} -- {{ args }}
 
 # The board's one verdict of record: one invocation measures each cell's
 # whole ladder — two sizes at each of the two sampling scales
@@ -837,7 +841,7 @@ amp-board *args:
 
 # Run the board's acceptance judgment: the whole measurement ladder, one verdict.
 amp-board-acceptance:
-    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- acceptance
+    {{ amp_board_command }} -- acceptance
 
 # The surface-totality leg: the operation roster in
 # crates/before/src/surface.rs (METHOD_SURFACE, the machine-readable
@@ -892,7 +896,7 @@ surface-totality: surface-json
 
 # Render the worst-case map: the argmax family per operation x currency, one table per sampling scale.
 worst-cases:
-    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- worst-cases
+    {{ amp_board_command }} -- worst-cases
 
 # The map's rankings are pinned: a committed expectation table (the
 # WORST_RANKINGS const beside the fold) is entry-compared against the live
@@ -906,7 +910,7 @@ worst-cases:
 
 # Entry-compare the live worst-case fold against the committed ranking pin.
 worst-cases-pin:
-    cargo run --release -p before --example amp_board --features touch-meter,scan-meter -- worst-cases-check
+    {{ amp_board_command }} -- worst-cases-check
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
 # `ci` is the build-everything tier: formatting and lints, the feature matrix,

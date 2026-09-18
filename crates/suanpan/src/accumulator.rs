@@ -477,9 +477,8 @@ impl Accumulator {
 
     /// Reset to zero, keeping the digit buffer's capacity.
     ///
-    /// The pool-reuse entry point: a caller that opens and closes many
-    /// scoped totals re-arms one cleared accumulator instead of
-    /// allocating per scope.
+    /// A caller that opens and closes many scoped totals can re-arm one
+    /// accumulator instead of allocating per scope.
     ///
     /// A reset **scans**: it zeroes every held digit to keep the
     /// allocation. Replacing the accumulator with a fresh
@@ -502,7 +501,7 @@ impl Accumulator {
             self.zero_runs.clear();
         }
         // Back to the register: the zeroed digit buffer stays for the
-        // next spill, so pooled reuse keeps its capacity.
+        // next spill, so reuse keeps its capacity.
         self.quick = Some(0);
     }
 
@@ -746,6 +745,23 @@ impl Accumulator {
         match self.quick {
             Some(value) => value == 0,
             None => self.top == 0 && self.digits[0] == 0,
+        }
+    }
+
+    /// Move out an exact `i64` held in the quick register, returning `self`
+    /// unchanged when the value is wider or has entered the digit engine.
+    ///
+    /// A digit-engine value may happen to fit in `i64`; this method deliberately
+    /// does not normalize it to find out. It is a representation query for
+    /// callers choosing compact temporary storage, not a numeric conversion.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` with no digit touches or allocation.
+    pub fn into_i64(self) -> Result<i64, Self> {
+        match self.quick.and_then(|value| i64::try_from(value).ok()) {
+            Some(value) => Ok(value),
+            None => Err(self),
         }
     }
 
@@ -1286,6 +1302,16 @@ fn landing(position: u128) -> usize {
 impl Default for Accumulator {
     fn default() -> Accumulator {
         Accumulator::new()
+    }
+}
+
+/// Construct an accumulator from a signed machine word without allocation.
+impl From<i64> for Accumulator {
+    fn from(value: i64) -> Accumulator {
+        Accumulator {
+            quick: Some(i128::from(value)),
+            ..Accumulator::new()
+        }
     }
 }
 

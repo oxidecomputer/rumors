@@ -160,3 +160,29 @@ fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
     acc.sub_u64_shl(1u64 << 32, 32 * index);
     acc.sub_u64_shl((1u64 << 32) - 1, 32 * index);
 }
+
+/// `into_i64` extracts only quick-register values that fit and otherwise
+/// returns the accumulator unchanged.
+#[test]
+fn into_i64_is_a_representation_query() {
+    let mut minimum = Accumulator::new();
+    minimum.add_small(i64::MIN);
+    assert_eq!(minimum.into_i64().unwrap(), i64::MIN);
+
+    let mut maximum = Accumulator::new();
+    maximum.add_small(i64::MAX);
+    assert_eq!(maximum.into_i64().unwrap(), i64::MAX);
+
+    let mut too_wide = Accumulator::new();
+    too_wide.add_u64_shl(1, 64);
+    let too_wide = too_wide.into_i64().expect_err("2^64 does not fit in i64");
+    assert_value(&too_wide, &(IBig::from(1u8) << 64));
+
+    let mut spilled = Accumulator::new();
+    spilled.add_small(7);
+    spilled.spill();
+    let spilled = spilled
+        .into_i64()
+        .expect_err("a digit-engine value is not normalized for this query");
+    assert_value(&spilled, &IBig::from(7u8));
+}

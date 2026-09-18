@@ -1,139 +1,173 @@
-//! Range-minimum watermarks over one running height: the anchored-minimum
-//! web both skyline sweeps share.
+//! Nested range minima for a streaming skyline walk.
 //!
-//! One [`MinWeb`] tracks, for every open range of a LIFO sweep, the minimum
-//! *emitted* value in that range — without materializing any of them. A *range*
-//! is the client's own bracket, opened and closed by the client's sweep and
-//! never interpreted by the web; the web holds one record per open range. Two
-//! clients drive it: the fill walk (payload `()`, followers installed) and the
-//! min-ticks fold (`query`'s `web` module, riding its reign records as the
-//! payload). The representation, the emission decisions, and the cost
-//! discipline live here once; each client contributes only its own semantics
-//! through the payload seam below.
+//! # Purpose and constraint
 //!
-//! # The representation
+//! A skyline walk encounters values in leaf order while its tree ranges open
+//! and close in properly nested order. For every such range, this module
+//! computes
 //!
-//! - One signed accumulator `gap = h − A` (`h` the sweep's running input
-//!   height, `A` an *anchor* at or above the innermost armed range's
-//!   minimum `m`).
-//! - One optional latent boundary `Λ = A − m` (strictly positive when
-//!   present; absent means `A = m` exactly).
-//! - A stack of nonnegative differences `min(inner) − min(outer)` between
-//!   adjacent armed ranges, with runs of zero differences compressed to
-//!   one counted entry and — where the instantiation elects it
-//!   ([`MinWeb::compacting`]) — each nonzero difference held at machine
-//!   width whenever it fits ([`Boundary`]).
+//! `minimum(values emitted between open and close)`.
 //!
-//! Ranges nest LIFO and minima are monotone outward (an outer range's emissions
-//! include its inner ranges'), so the differences are nonnegative by
-//! construction and one `gap` serves every range.
+//! It also supports comparing a prospective value with the innermost minimum
+//! and carrying caller-owned values relative to that minimum. These are one
+//! family of operations over the same nested minima, not separate indexes.
 //!
-//! # The cost discipline: width conservation
+//! Correctness alone is not enough. Skyline heights are delta-coded and
+//! arbitrary precision. A short input can build a wide running height and then
+//! contain many tiny deltas or deeply nested ranges. A direct implementation
+//! could make every tiny event copy, scan, or update that old wide value,
+//! allowing a pathological input to cause far more work than its bytes account
+//! for. The earlier wide delta pays for processing its digits once; it must not
+//! grant every later one-byte event another traversal. The tracker is designed
+//! around the stronger rule that topology costs
+//! constant work, while arbitrary-precision work is proportional to the input
+//! differences or stored state whose digits it consumes. A wide value may
+//! survive many cheap operations, but those operations must not traverse it.
 //!
-//! (An amortization argument, self-contained: a first read can skip to the
-//! operations and return here.)
+//! [`Accumulator`] provides the arithmetic needed to enforce that rule: folds
+//! read the operand rather than the receiver, sign reads are amortized constant
+//! time, leading digits can decide comparisons between well-separated widths,
+//! and `merge_into_wider` reads the narrower operand while retaining the wider
+//! buffer. The representation below arranges the algorithm so every call uses
+//! one of those bounded operations.
 //!
-//! Every digit touch is paid by a consumed input code, an emitted output code,
-//! or the death of the digits it reads — so wide content can shuttle between
-//! the difference stack and the latent register by moves alone, and no schedule
-//! of arms and closes re-reads a width the input paid for only once. Enforced
-//! by shape:
+//! # Abstract model
 //!
-//! - Each consumed input delta folds into `gap` once (a uniform shift of
-//!   `h` against a fixed anchor) — never once per open range.
-//! - A close never folds: a popped nonzero boundary MOVES into the latent
-//!   register (merged with one already parked by
-//!   [`Accumulator::merge_into_wider`]: the narrower buffer folds into the
-//!   wider, costing the dying narrow side's width), leaving
-//!   `gap` and the followers untouched — the anchor goes stale by exactly
-//!   the parked width.
-//! - An arm recycles: the arming offset `v − A` is narrow whenever the
-//!   input moved little since the anchor was seated, and the true boundary
-//!   `v − m` is that offset merged into the latent's buffer
-//!   (`merge_into_wider` again, the narrow side dying) —
-//!   pushed back as the new difference by move, the register drained.
-//! - An emission compares against `m` by one amortized sign read against
-//!   the anchor; a drop landing under the anchor is decided against the
-//!   latent by top-index domination (a clear gap between the two
-//!   operands' top digit indices decides the sign with no fold) in O(1),
-//!   and only comparable scales
-//!   fold — a narrower-into-wider collapse whose near-cancellation funds
-//!   it,
-//!   after which re-widening the latent costs the input a fresh climb.
-//!   When a comparison must fold, it folds the *priced* side (the
-//!   emission's own offset, paid by the scan or code that produced it —
-//!   *priced by* is the cost convention the [`overlay`](super::overlay)
-//!   module's Cost section mints) and
-//!   restores it, or it is the dying side's single terminal fold. A wide
-//!   `gap` is never folded into anything while it survives; a word-scale
-//!   offset against a dominating `gap` is decided post-sign with no fold
-//!   at all.
-//! - An undercut (an emission below `m`) replaces `gap`, annihilates any
-//!   latent into the residue (the drop dominated it), and propagates the
-//!   drop outward:
-//!   - whole zero runs pass in O(1) (their ranges' minima track the
-//!     innermost implicitly);
-//!   - word-scale boundaries fold in O(1) outright;
-//!   - each wide difference the drop consumes dies by one fold into the
-//!     residue;
-//!   - the stopping range absorbs exactly one surviving fold, bounded by
-//!     the residue the input or the emission already paid for;
-//!   - the residue is never folded into ranges it passes.
-//! - Dying accumulators return to a pool and are re-armed cleared, so
-//!   range churn allocates nothing in steady state: misses (leases the
-//!   pool could not serve, counted by the [`pool_traffic`](super::pool_traffic)
-//!   meter) are bounded by the walk's peak simultaneous demand, never its
-//!   churn length — the seam-stop pool row of `tests/meter.rs` pins it,
-//!   the heap meter being structurally blind to a dead recycle.
+//! [`RangeMinima`] is a stack of open ranges. A client opens ranges, advances
+//! one running height `h`, reports values emitted inside the ranges, and closes
+//! them in reverse order. A range is *pending* until its first emission gives
+//! it a minimum, then *armed* until it closes.
+//!
+//! [`RangeMinima::new`] creates the empty stack. [`RangeMinima::open`] adds
+//! pending ranges, and [`RangeMinima::fold_height`] advances `h`. A client with
+//! payloads reports a first emission through [`RangeMinima::arm_at_height`] or
+//! [`RangeMinima::arm_below`], then uses [`RangeMinima::undercut`] when a later
+//! emission lowers the minimum. The payload-free form provides
+//! [`RangeMinima::emit_here`] and [`RangeMinima::emit_offset`] for those steps.
+//! [`RangeMinima::close`] consumes ranges from the inside out; closing the final
+//! armed range makes the stack empty again.
+//!
+//! # Minima as differences
+//!
+//! An outer range contains every value of its inner range, so armed minima form
+//! a monotone chain:
+//!
+//! `outer_min <= ... <= inner_min`.
+//!
+//! Storing every absolute minimum would duplicate any wide prefix shared by
+//! many nested ranges. The stack instead stores each adjacent difference:
+//!
+//! `boundary = inner_min - outer_min >= 0`.
+//!
+//! Wide storage is therefore proportional to the differences present in the
+//! input, not to their depth times a shared absolute value. Equal minima become
+//! zero boundaries, compressed into counted runs.
+//!
+//! Each positive boundary also owns one opaque payload `P`. The minimum
+//! algorithm only moves or returns it. The payload lets a client suspend state
+//! for the outer minimum while a different inner minimum is current. For
+//! example, if the outer minimum is `10` and the inner minimum is `17`, their
+//! boundary is `7`. Closing the inner range returns the state for `10`; an
+//! emission below `10` removes the boundary and sends the state to the
+//! retirement callback. Equal minima need no separate suspended state. Moving
+//! the payload with its boundary avoids copying or reconstructing client state.
+//! Payload construction and retirement are client work, outside this module's
+//! arithmetic bound. A constructed payload is either stored once and later
+//! returned or retired, or retired immediately when a new minimum displaces
+//! its state.
+//!
+//! # One height relative to one anchor
+//!
+//! Let `m` be the innermost armed minimum. The stack keeps one accumulator
+//! `gap = h - A`, where the anchor `A` normally equals `m`. Every height change
+//! folds into this single value, independent of the number of open ranges.
+//! [`Accumulator`] makes a fold proportional to the input operand rather than
+//! the possibly much wider running value, and answers sign queries in
+//! amortized constant time.
+//!
+//! Closing the innermost range exposes its parent. If their boundary is `b`,
+//! the parent's minimum is `m - b`. Immediately changing `gap` would make a
+//! sequence of closes repeatedly modify the same wide accumulator. Instead the
+//! anchor stays fixed and the boundary moves into the deferred distance
+//!
+//! `Λ = A - m > 0`.
+//!
+//! The true distance is `h - m = gap + Λ`. Further closes merge their
+//! boundaries into `Λ`; [`Accumulator::merge_into_wider`] reads only the
+//! narrower operand and keeps the wider buffer. An operation resolves `Λ` into
+//! `gap` only when it needs the true minimum. Thus each closed boundary is
+//! moved or folded once, while a wide surviving value is not revisited at
+//! every nesting level.
+//!
+//! # Emissions and undercuts
+//!
+//! The first emission inside pending ranges arms all of them. Its distance
+//! above the old minimum becomes a boundary; equality extends a zero run. If
+//! the emission is below the old minimum, define
+//!
+//! `drop = old_min - emitted_value > 0`.
+//!
+//! The drop moves outward through the boundary stack. At each boundary `b`:
+//!
+//! - `drop < b`: the outer minimum stays put, `b` shrinks by `drop`, and the
+//!   walk stops;
+//! - `drop = b`: the two minima meet, so the boundary becomes zero and the
+//!   walk stops;
+//! - `drop > b`: the outer minimum also falls, the boundary becomes zero, and
+//!   `drop - b` continues outward.
+//!
+//! [`RangeMinima::propagate_drop`] implements these cases explicitly. It skips
+//! a zero run as one record. For wide values,
+//! [`Accumulator::sign_dominates_at`] orders values with well-separated widths
+//! from their leading digits. Subtraction then reads the smaller value, not the
+//! wide survivor. Values close enough in width for that test to be inconclusive
+//! are subtracted once at comparable cost. A boundary crossed by a drop is
+//! permanently removed, so no later emission can charge its width again.
 //!
 //! # Followers
 //!
-//! *Followers* ride the stack: accumulators tracking `m − X` for a caller-fixed
-//! reference `X`. What `X` means is the client's business — the web maintains
-//! the relation and never reads it. Only the fill walk installs any (two, for
-//! relations named in `fill.rs`; the min-ticks fold installs none and pays two
-//! `None` checks per event). Arms, undercuts, and collapses fold the same
-//! operand they already price into each active follower; closes touch no
-//! follower at all — each active slot goes *anchor-relative* under a one-bit
-//! tag (`f_true = f_stored − Λ`), resolved at the follower's own death:
-//! symbolically where the consumer is itself anchor-relative or the switch's
-//! terms cancel, by one latent fold where an emitted code prices it, and by the
-//! death-event fan-out at undercuts and collapses. A set tag never outlives its
-//! latent. ([`park`](MinWeb::park) is where the tag is set; its doc discharges
-//! the value-preservation of both cases.)
+//! A client may attach a *follower* holding `m - X` for one of its own values
+//! `X`. While `Λ` exists, the stored follower remains relative to `A`; a bit
+//! records that subtracting `Λ` is still owed. A close can therefore defer the
+//! same shift for `gap` and every follower without traversing any of them.
 //!
-//! # The arming paths
+//! # Use in `before`
 //!
-//! Three entry points arm pending ranges, split by where the emission's value
-//! comes from:
+//! The fill walk needs subtree minima to decide the value of a collapsed or
+//! raised child. It uses `RangeMinima<()>`: the stack supplies comparisons and
+//! emitted minima. One follower tracks the next output delta relative to the
+//! minimum; another tracks the difference from a memoized range minimum. Both
+//! move automatically when the tracked minimum moves, so the walk need not
+//! reconstruct either endpoint as an absolute height. Its pre-scan uses the
+//! same abstraction to obtain minima needed before their ranges are emitted.
 //!
-//! - [`arm_at_height`](MinWeb::arm_at_height): `v = h` exactly. Handles the
-//!   first arming (it seats the anchor); the dying `gap` is itself the
-//!   anchor-relative offset, moved out whole with no fold.
-//! - [`arm_below`](MinWeb::arm_below): `v = h − below`, the accumulator
-//!   moving in as the new `gap`. Handles the first arming too; the offset
-//!   `gap_old − below` costs one fold of the narrow dying side.
-//! - [`arm_relative`](MinWeb::arm_relative): `v = A + arm_offset`,
-//!   anchor-relative from the start. Requires an armed anchor — it cannot
-//!   first-arm; the memo consumer's arming, its offset recycling any parked
-//!   latent.
+//! [`min_ticks`](super::query::min_ticks) computes
+//! `sum(leaf heights) - sum(internal subtree minima)`. Each internal subtree is
+//! one range, so closing the range contributes its tracked minimum. That fold
+//! uses a payload for the accounting record attached to each distinct minimum.
+//! If an inner range has a higher minimum, the outer record waits on their
+//! boundary; a close resumes it, while an undercut that removes the boundary
+//! settles it permanently.
 //!
-//! All three converge on the shared boundary bookkeeping
-//! ([`push_boundary`](MinWeb::push_boundary)): fold the offset into the active
-//! followers, merge it with any latent, then push it as the new difference,
-//! count it as an exact meet, or propagate it as an arming undercut's residue.
+//! # Invariants
 //!
-//! # The payload seam
+//! - Pending ranges are inside every armed range.
+//! - Expanding zero runs yields exactly `armed - 1` boundaries.
+//! - Every boundary is nonnegative, and every positive boundary has one
+//!   payload.
+//! - `gap = h - A`. If `Λ` exists, `Λ = A - m > 0`; otherwise `A = m`.
+//! - A follower is either `m - X`, or is tagged as the deferred form `A - X`.
+//! - With no armed range, the boundary stack and deferred state are empty.
 //!
-//! The payload `P` is per-boundary client freight, moved — never read — by the
-//! web: a pushed-above arm stacks the payload its caller mints lazily beside
-//! the new difference, a close hands the popped boundary's payload back
-//! ([`Close::Parked`]) as it parks the boundary, and every operation that kills
-//! a difference (an undercut's propagation, an arming undercut) surrenders the
-//! dying entry's payload to the caller's `on_die` at exactly the moment the
-//! difference dies — so a client can account per-range state (min-ticks' reign
-//! records) with the web's own move-only lifetimes, and a payload-free client
-//! (`P = ()`) pays nothing.
+//! Together these rules ensure that each input difference and stored boundary
+//! pays for at most a constant number of folds over its own width. Depth alone
+//! adds compact stack records and constant-time operations; it does not
+//! multiply the cost of a wide height or minimum. For a validated skyline
+//! stream, the tracker therefore performs amortized arithmetic work linear in
+//! the encoded value bits plus the topology events, and retains state linear in
+//! those same inputs. The surrounding algorithms add their own work, but they
+//! cannot use this tracker to make a small later input repeatedly traverse a
+//! wide earlier value.
 
 use core::cmp::Ordering;
 
@@ -145,178 +179,724 @@ use crate::codec::accumulator;
 
 use super::web_traffic;
 
-/// Follower slots the web carries (the fill walk's two relations; a const
-/// assert beside the fill walk's slot constants binds the two rosters).
+/// Number of client values that can follow the innermost minimum.
 pub(super) const FOLLOWER_SLOTS: usize = 2;
 
-/// A stacked boundary `min(inner) − min(outer)`, held at machine width when
-/// the instantiation compacts and the value fits
-/// ([`MinWeb::compacting`]).
+/// One positive difference between adjacent range minima.
+///
+/// Common differences stay in a machine word. Only differences wider than a
+/// `u64` retain an accumulator, so ordinary nesting has small resident cost.
 enum Boundary {
-    /// A machine-word difference (strictly positive).
+    /// A positive difference that fits in a machine word.
     Word(u64),
-    /// A wide difference on its own accumulator (strictly positive).
+    /// A positive difference that requires arbitrary precision.
     Wide(Accumulator),
 }
 
-/// One record of the difference stack.
+/// The result of lowering an inner minimum across one stored boundary.
+///
+/// If the inner minimum falls by `drop` and the boundary is
+/// `inner_min - outer_min`, exactly one of three things happens:
+///
+/// - `drop > boundary`: the outer minimum falls too, by the remainder;
+/// - `drop < boundary`: the outer minimum is unchanged and the boundary
+///   shrinks;
+/// - equality: the two minima meet.
+enum DropOutcome<P> {
+    /// The boundary vanished; continue outward with the remaining drop.
+    BoundaryConsumed {
+        /// `drop - boundary`, strictly positive.
+        remaining_drop: Accumulator,
+        /// Payload whose boundary vanished.
+        retired: P,
+    },
+    /// The drop stopped here; retain the smaller boundary.
+    DropConsumed {
+        /// `boundary - drop`, strictly positive.
+        remaining_boundary: Boundary,
+        /// Payload that remains attached to the boundary.
+        payload: P,
+    },
+    /// The drop and boundary were equal; both vanished.
+    Equal {
+        /// Payload whose boundary vanished.
+        retired: P,
+    },
+}
+
+/// Result of comparing a value below the anchor with the true minimum.
+///
+/// The third case records a representation change: comparable wide values are
+/// combined, making the anchor equal to the true minimum. The caller must then
+/// read `gap` again to distinguish below, equal, and above.
+enum DeferredComparison {
+    /// The value lies between the true minimum and the anchor.
+    AboveMinimum,
+    /// The value lies below the true minimum.
+    BelowMinimum,
+    /// The deferred distance was resolved; compare against the new anchor.
+    Reanchored,
+}
+
+/// One logical record popped from [`DifferenceStack`].
 enum Entry<P> {
-    /// `count` consecutive ranges whose minima equal the next inner range's.
+    /// `count` consecutive boundaries of zero.
     ZeroRun(u64),
-    /// A range whose minimum sits `boundary` below the next-inner one, with
-    /// the payload its client rode on that boundary.
+    /// One positive boundary and the client state suspended on it.
     Diff { boundary: Boundary, payload: P },
 }
 
-/// What [`MinWeb::close`] popped, for the client to dispatch on.
-pub(super) enum Close<P> {
-    /// The last armed range closed and the web retired.
-    Retired,
-    /// The popped record was a zero run: the parent range's minimum equals
-    /// the closed one's.
+/// Storage class of one logical [`DifferenceStack`] record.
+#[repr(u8)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum EntryKind {
+    /// A run of equal minima.
     ZeroRun,
-    /// The popped boundary parked in the latent register; its payload
-    /// resumes at the parent range.
-    Parked(P),
+    /// A difference held in one machine word.
+    Word,
+    /// A difference held in the wide-value stack.
+    Wide,
 }
 
-/// The LIFO web of range-minimum watermarks (module doc).
-pub(super) struct MinWeb<P> {
-    /// `h − A` for the anchor `A` of the innermost armed range (`A = m + Λ` for
-    /// the latent `Λ`, so `A = m` exactly while no latent lives); zero-valued
-    /// while `armed == 0`.
+/// Compact LIFO storage for the boundaries between armed ranges.
+///
+/// A direct `Vec<Entry<P>>` would give every zero run enough space and alignment
+/// for a payload and a wide accumulator. Instead, `kinds` and `words` describe
+/// every logical record, while `payloads` contains only positive boundaries and
+/// `wide` contains only arbitrary-precision boundaries. Because every column is
+/// popped in LIFO order, sparse columns need no per-record indices.
+struct DifferenceStack<P> {
+    /// The representation of each logical record.
+    kinds: Vec<EntryKind>,
+    /// A zero-run count or word-sized difference for each logical record.
+    words: Vec<u64>,
+    /// Payloads for nonzero differences.
+    payloads: Vec<P>,
+    /// Differences too wide for `words`.
+    wide: Vec<Accumulator>,
+}
+
+impl<P> DifferenceStack<P> {
+    /// Construct an empty set of synchronized storage columns.
+    fn new() -> Self {
+        Self {
+            kinds: Vec::new(),
+            words: Vec::new(),
+            payloads: Vec::new(),
+            wide: Vec::new(),
+        }
+    }
+
+    /// Whether there are no logical boundary records.
+    fn is_empty(&self) -> bool {
+        debug_assert_eq!(self.kinds.len(), self.words.len());
+        self.kinds.is_empty()
+    }
+
+    /// Push one positive boundary.
+    ///
+    /// The kind selects either the inline word or the next entry on `wide`.
+    /// Every positive boundary also appends exactly one payload.
+    fn push_diff(&mut self, boundary: Boundary, payload: P) {
+        match boundary {
+            Boundary::Word(word) => {
+                self.kinds.push(EntryKind::Word);
+                self.words.push(word);
+            }
+            Boundary::Wide(wide) => {
+                self.kinds.push(EntryKind::Wide);
+                self.words.push(0);
+                self.wide.push(wide);
+            }
+        }
+        self.payloads.push(payload);
+    }
+
+    /// Push `count` zero boundaries.
+    ///
+    /// Adjacent runs are merged, so any number of nested ranges sharing one
+    /// minimum needs a single logical record.
+    fn push_zeros(&mut self, count: u64) {
+        if count == 0 {
+            return;
+        }
+        if self.kinds.last() == Some(&EntryKind::ZeroRun) {
+            *self.words.last_mut().expect("each kind has a value") += count;
+        } else {
+            self.kinds.push(EntryKind::ZeroRun);
+            self.words.push(count);
+        }
+    }
+
+    /// Pop the boundary nearest the innermost armed range.
+    ///
+    /// The kind determines which sparse columns also have a top entry. Keeping
+    /// all columns in lockstep here preserves the one-payload-per-boundary
+    /// invariant.
+    fn pop(&mut self) -> Option<Entry<P>> {
+        let kind = self.kinds.pop()?;
+        let word = self.words.pop().expect("each kind has a value");
+        Some(match kind {
+            EntryKind::ZeroRun => Entry::ZeroRun(word),
+            EntryKind::Word => Entry::Diff {
+                boundary: Boundary::Word(word),
+                payload: self.payloads.pop().expect("each difference has a payload"),
+            },
+            EntryKind::Wide => Entry::Diff {
+                boundary: Boundary::Wide(self.wide.pop().expect("each wide kind has a value")),
+                payload: self.payloads.pop().expect("each difference has a payload"),
+            },
+        })
+    }
+}
+
+/// What becomes visible after closing the innermost range.
+pub(super) enum Close<P> {
+    /// No armed range remains.
+    Retired,
+    /// The parent has the same minimum, so no client state changes.
+    Equal,
+    /// The parent has a lower minimum; its suspended state becomes current.
+    Lower(P),
+}
+
+/// A stack of nested range minima relative to one running height.
+///
+/// The module documentation defines the abstract stack and its equations. The
+/// fields below are its compact representation: one height gap, one optional
+/// deferred anchor shift, a difference stack, and a fixed number of followers.
+pub(super) struct RangeMinima<P> {
+    /// `h - A`, where `A` is the current anchor; zero when no range is armed.
     gap: Accumulator,
-    /// The latent boundary `Λ = A − m`: the anchor's stale excess over the
-    /// innermost armed range's true minimum.
+    /// Deferred distance `A - m` from the anchor to the true minimum.
     ///
-    /// Strictly positive when present; at most one lives, conceptually at the
-    /// top of the difference stack; it holds no height content (heights fold
-    /// into `gap` only) and dies with the last armed range.
-    latent: Option<Accumulator>,
-    /// Per follower slot: whether the stored content is anchor-relative
-    /// (`f_true = f_stored − Λ`). Set only while the latent lives; a set tag
-    /// never outlives it.
+    /// Present only when positive. Closing more ranges adds their boundaries
+    /// here instead of repeatedly updating `gap`.
+    deferred: Option<Accumulator>,
+    /// Whether each follower is relative to `A` and still needs `deferred`
+    /// subtracted to become relative to `m`.
     anchor_relative: [bool; FOLLOWER_SLOTS],
-    /// Adjacent-range differences outward from the innermost armed range, zero
-    /// runs compressed; last entry = nearest the innermost.
-    diffs: Vec<Entry<P>>,
-    /// Open ranges with no emission yet, all inner of every armed one.
+    /// Boundaries between armed ranges, with the innermost boundary last.
+    ///
+    /// Expanding zero runs produces exactly `armed - 1` boundaries.
+    diffs: DifferenceStack<P>,
+    /// Innermost open ranges that have not yet seen an emission.
     pending: u64,
-    /// Armed ranges (the difference stack carries `armed − 1` range
-    /// records).
+    /// Open ranges whose minima are represented by `gap` and `diffs`.
     armed: u64,
-    /// Active followers (module doc), tracking `m − X` (anchor-relative while
-    /// the slot's tag is set). The fill walk installs them; the min-ticks
-    /// fold leaves both slots empty.
+    /// Optional client values tracking `m - X`.
     followers: [Option<Accumulator>; FOLLOWER_SLOTS],
-    /// Whether pushed boundaries compact to [`Boundary::Word`] when the
-    /// value fits — each instantiation's constructor states its client's
-    /// measured basis ([`new`](Self::new), [`compacting`](Self::compacting)).
-    compact_words: bool,
-    /// Cleared accumulators awaiting reuse.
-    pool: Vec<Accumulator>,
 }
 
-impl<P> MinWeb<P> {
-    /// A fresh web whose pushed boundaries stay on their own accumulators.
+impl<P> RangeMinima<P> {
+    /// Construct an empty range-minimum stack.
     ///
-    /// The fill walk's instantiation. The walk's boundary buffers live in
-    /// the pool either way, so per-push word compaction would improve no
-    /// committed transient — and it reads one extra touch per word-scale
-    /// site (the compacting read-out), measured on the walk's committed
-    /// families (the `width_circulation_cost` and memo modules of
-    /// `tests/meter.rs`).
+    /// No anchor exists until the first emission arms a range. Until then,
+    /// height changes are irrelevant and are deliberately not accumulated.
     pub(super) fn new() -> Self {
-        MinWeb {
+        RangeMinima {
             gap: Accumulator::new(),
-            latent: None,
+            deferred: None,
             anchor_relative: [false; FOLLOWER_SLOTS],
-            diffs: Vec::new(),
+            diffs: DifferenceStack::new(),
             pending: 0,
             armed: 0,
             followers: [None, None],
-            compact_words: false,
-            pool: Vec::new(),
         }
     }
 
-    /// A fresh web that stores each pushed boundary at machine width when
-    /// the value fits ([`Boundary::Word`]).
-    ///
-    /// The min-ticks instantiation. Compaction pays exactly where nonzero
-    /// boundaries stack, in two currencies: per-boundary transient storage
-    /// (an inline word per stacked difference instead of an accumulator
-    /// entry) and undercut propagation (a residue consumes each word
-    /// boundary by one O(1) fold instead of an accumulator-width hop). The
-    /// measured basis is the boundary-stacking row — the
-    /// `skyline_min_ticks_ascend` envelope of `tests/meter.rs`, whose shape
-    /// holds one nonzero unit difference per open range simultaneously:
-    /// un-compacted storage reads ×1.41 that row's pinned peak heap and
-    /// ×2.0 its pinned touches, over both ceilings. Shapes whose stacked
-    /// differences are all zero runs (the committed dense and comb rows)
-    /// never store a boundary, so compaction is invisible there.
-    pub(super) fn compacting() -> Self {
-        MinWeb {
-            compact_words: true,
-            ..Self::new()
-        }
-    }
-
-    /// Whether any range is armed (an emission has occurred inside an
-    /// open range).
+    /// Whether the stack has an innermost minimum to query or update.
     pub(super) fn armed(&self) -> bool {
         self.armed > 0
     }
 
-    /// Whether any open range is still pending (no emission has armed it):
-    /// the next emission will arm.
+    /// Whether one or more innermost ranges still need their first minimum.
     pub(super) fn has_pending(&self) -> bool {
         self.pending > 0
     }
 
-    /// Open `count` ranges: `count` more ranges, each unarmed until the
-    /// next emission.
+    /// Open `count` nested ranges inside every existing range.
+    ///
+    /// They remain pending because an empty range has no minimum. Their first
+    /// emission arms all of them at the same value, so opening is `O(1)` and
+    /// allocates no boundary records.
     pub(super) fn open(&mut self, count: u64) {
         self.pending += count;
     }
 
-    /// Fold one consumed input step into the height side of `gap`.
+    /// Move the running height by `delta` without changing any minimum.
     ///
-    /// `h` moved while every `m` stayed: exactly the innermost range's
-    /// `gap` shifts; the differences and followers are height-free.
+    /// For an armed stack, `A` stays fixed, so `gap = h - A` changes by exactly
+    /// `delta`. For an empty stack there is no anchor and nothing is stored.
+    /// The fold reads `delta`, not the potentially wider accumulated gap.
     pub(super) fn fold_height(&mut self, delta: &BigInt) {
         if self.armed > 0 {
             accumulator::fold_signed(&mut self.gap, delta);
         }
     }
 
-    /// Close the innermost range, merging its minimum into its parent.
+    /// Give every pending range its first minimum at the current height `v = h`.
     ///
-    /// **Callers close only armed ranges**: every range a client opens is
-    /// armed by an emission before its close arrives — both sweeps emit
-    /// inside every range they open, since a closing node's leaves have all
-    /// been consumed — so no pending range is ever open at a close
-    /// (debug-asserted below).
+    /// If no older range is armed, the emission establishes the first anchor:
+    /// all pending minima equal `h`, `gap` becomes zero, and their internal
+    /// boundaries form one zero run.
     ///
-    /// Monotone nesting makes the merge free — the parent's minimum already
-    /// reflects every inner emission (propagation kept it live) — and the
-    /// latent makes it O(1): a popped zero run decrements; a popped nonzero
-    /// boundary MOVES into the latent register (minting it, or dying by
-    /// `merge_into_wider` into a live one), leaving `gap` and the followers
-    /// untouched. Each active follower goes anchor-relative by its one-bit tag
-    /// instead of absorbing a fold, so a close never touches a follower digit.
-    /// The last armed range's close retires the web: `gap` and any latent drop
-    /// unread (followers are already dead, so no surviving relation needs
-    /// re-anchoring).
+    /// Otherwise, the old `gap = h - A` is also `v - A`. Move it out, replace
+    /// the gap with zero for the new anchor `v`, and pass the offset to
+    /// [`finish_arming`](Self::finish_arming). The payload closure is lazy: an
+    /// equal minimum needs no payload, so that case never constructs one.
+    pub(super) fn arm_at_height<C>(
+        &mut self,
+        context: &mut C,
+        payload: impl FnOnce(&mut C) -> P,
+        on_die: impl FnMut(P, &mut C),
+    ) {
+        debug_assert!(self.pending > 0, "arming requires a pending range");
+        let pending = core::mem::replace(&mut self.pending, 0);
+        if self.armed == 0 {
+            debug_assert!(
+                self.followers.iter().all(Option::is_none),
+                "followers attach after the first arming"
+            );
+            debug_assert!(
+                self.deferred.is_none(),
+                "an empty stack has no deferred distance"
+            );
+            self.armed = pending;
+            let fresh = Accumulator::new();
+            let old = core::mem::replace(&mut self.gap, fresh);
+            drop(old);
+            self.diffs.push_zeros(pending - 1);
+            return;
+        }
+        let fresh = Accumulator::new();
+        let offset = core::mem::replace(&mut self.gap, fresh);
+        self.armed += pending;
+        self.finish_arming(offset, pending, context, payload, on_die);
+    }
+
+    /// Give every pending range its first minimum at `v = h - below`.
     ///
-    /// The outcome carries the popped payload where one was stacked
-    /// ([`Close::Parked`]). The fill walk discards the whole outcome — not
-    /// just the payload — while the min-ticks fold dispatches on all three
-    /// arms.
+    /// If this is the first armed range, `below` becomes `gap = h - v` and the
+    /// pending ranges contribute only zero boundaries.
+    ///
+    /// With an existing anchor, move `below` into `gap`, then compute the new
+    /// value relative to the old anchor from the displaced gap:
+    ///
+    /// `v - A = (h - A) - (h - v) = old_gap - below`.
+    ///
+    /// Only the displaced accumulator is folded; the new gap stays in place.
+    pub(super) fn arm_below<C>(
+        &mut self,
+        below: Accumulator,
+        context: &mut C,
+        payload: impl FnOnce(&mut C) -> P,
+        on_die: impl FnMut(P, &mut C),
+    ) {
+        debug_assert!(self.pending > 0, "arming requires a pending range");
+        let pending = core::mem::replace(&mut self.pending, 0);
+        if self.armed == 0 {
+            debug_assert!(
+                self.followers.iter().all(Option::is_none),
+                "followers attach after the first arming"
+            );
+            debug_assert!(
+                self.deferred.is_none(),
+                "an empty stack has no deferred distance"
+            );
+            self.armed = pending;
+            let old = core::mem::replace(&mut self.gap, below);
+            drop(old);
+            self.diffs.push_zeros(pending - 1);
+            return;
+        }
+        // v - A = (h - A) - (h - v).
+        let mut offset = core::mem::replace(&mut self.gap, below);
+        offset.sub_accum(&self.gap);
+        self.armed += pending;
+        self.finish_arming(offset, pending, context, payload, on_die);
+    }
+
+    /// Join newly armed ranges at value `v` to an existing armed stack.
+    ///
+    /// On entry, `gap` already uses `v` as its anchor and `offset = v - A_old`.
+    /// The method then:
+    ///
+    /// 1. adds `offset` to each follower, changing `A_old - X` into `v - X`;
+    /// 2. combines `offset` with `deferred = A_old - m`, yielding `v - m`;
+    /// 3. interprets the sign of `v - m`.
+    ///
+    /// If positive, the old minimum is lower: store one boundary and its
+    /// payload, followed by `pending - 1` zero boundaries among the new ranges.
+    /// If zero, all `pending` new boundaries are zero. If negative, `v` lowers
+    /// the old minimum: retire its payload, propagate `m - v` outward, and add
+    /// `pending` zero boundaries because the new ranges and old innermost range
+    /// now share `v`.
+    ///
+    /// Combining `offset` and `deferred` uses `merge_into_wider`, so the
+    /// narrower value is read once and the wider buffer survives.
+    fn finish_arming<C>(
+        &mut self,
+        offset: Accumulator,
+        pending: u64,
+        context: &mut C,
+        payload: impl FnOnce(&mut C) -> P,
+        mut on_die: impl FnMut(P, &mut C),
+    ) {
+        for (follower, anchor_relative) in self.followers.iter_mut().zip(&mut self.anchor_relative)
+        {
+            if let Some(follower) = follower {
+                follower.add_accum(&offset);
+            }
+            *anchor_relative = false;
+        }
+        let mut offset = offset;
+        if let Some(deferred) = self.deferred.take() {
+            let drained = offset.merge_into_wider(deferred);
+            drop(drained);
+        }
+        match offset.sign() {
+            Ordering::Greater => {
+                let boundary = Self::compact_boundary(offset);
+                self.diffs.push_diff(boundary, payload(context));
+                self.diffs.push_zeros(pending - 1);
+            }
+            Ordering::Equal => {
+                drop(offset);
+                self.diffs.push_zeros(pending);
+            }
+            Ordering::Less => {
+                on_die(payload(context), context);
+                let mut drop = offset;
+                drop.negate();
+                self.propagate_drop(drop, context, on_die);
+                self.diffs.push_zeros(pending);
+            }
+        }
+    }
+
+    /// Whether an emission at the current height would lower the minimum.
+    ///
+    /// The decision proceeds from cheapest to most expensive:
+    ///
+    /// 1. If `gap = h - A >= 0`, then `h >= A >= m`; the minimum cannot fall.
+    /// 2. If `gap < 0` and no distance is deferred, then `A = m` and `h < m`.
+    /// 3. Otherwise compare `A - h = -gap` with `A - m = deferred`. Only the
+    ///    larger first distance places `h` below `m`.
+    ///
+    /// Accumulator sign reads are amortized constant time. Well-separated
+    /// widths are ordered from leading digits; comparable widths are resolved
+    /// once into a new anchor at `m`.
+    pub(super) fn undercuts_here(&mut self) -> bool {
+        if self.gap.sign() != Ordering::Less {
+            return false;
+        }
+        if self.deferred.is_none() {
+            return true;
+        }
+        match self.compare_below_anchor_to_minimum() {
+            DeferredComparison::AboveMinimum => false,
+            DeferredComparison::BelowMinimum => true,
+            DeferredComparison::Reanchored => self.gap.sign() == Ordering::Less,
+        }
+    }
+
+    /// Compare a value `v < A` with `m = A - deferred`.
+    ///
+    /// `gap` holds `v - A`, so its magnitude is the candidate drop `A - v`.
+    /// The leading-digit checks first ask whether either positive distance is
+    /// too wide for the other to overtake:
+    ///
+    /// - if `deferred` dominates, then `A - m > A - v`, hence `v > m`;
+    /// - if `-gap` dominates, then `A - v > A - m`, hence `v < m`;
+    /// - otherwise the widths are comparable, so resolve `deferred` and let the
+    ///   caller compare `v - m` directly.
+    ///
+    /// The first two paths inspect only leading digits. The last path performs
+    /// work proportional to values of comparable width and consumes the
+    /// deferred state, so the same wide distance cannot be charged again.
+    fn compare_below_anchor_to_minimum(&mut self) -> DeferredComparison {
+        let gap_floor = self.gap.digit_count() - 1;
+        let deferred = self
+            .deferred
+            .as_mut()
+            .expect("this comparison requires a deferred distance");
+        // Reading the sign also removes cancelling leading digits, so the
+        // digit counts used by the constant-time comparisons are current.
+        let deferred_sign = deferred.sign();
+        debug_assert_eq!(
+            deferred_sign,
+            Ordering::Greater,
+            "the deferred distance is strictly positive"
+        );
+        if deferred.sign_dominates_at(gap_floor).1 {
+            return DeferredComparison::AboveMinimum;
+        }
+        let deferred_floor = deferred.digit_count() - 1;
+        if self.gap.sign_dominates_at(deferred_floor).1 {
+            return DeferredComparison::BelowMinimum;
+        }
+        self.resolve_deferred();
+        DeferredComparison::Reanchored
+    }
+
+    /// Make the current height the innermost minimum after a confirmed undercut.
+    ///
+    /// [`undercuts_here`](Self::undercuts_here) has established `h < m`. This
+    /// method performs the state change in two steps:
+    ///
+    /// 1. Move the negative `gap = h - A` out and replace it with zero. The new
+    ///    anchor is therefore the emitted value `h`.
+    /// 2. Negate the old gap to obtain `A - h`, then update followers,
+    ///    deferred state, and outer boundaries through [`Self::apply_undercut`].
+    ///
+    /// Moving the old accumulator avoids copying its possibly wide contents.
+    pub(super) fn undercut<C>(&mut self, context: &mut C, on_die: impl FnMut(P, &mut C)) {
+        let fresh = Accumulator::new();
+        let mut drop = core::mem::replace(&mut self.gap, fresh);
+        drop.negate();
+        self.apply_undercut(drop, context, on_die);
+    }
+
+    /// Complete an undercut after the anchor has moved to the emitted value `v`.
+    ///
+    /// The input `drop` initially equals `A - v` for the old anchor. Processing
+    /// proceeds in dependency order:
+    ///
+    /// 1. Every follower also changes anchors from `A` to `v`, so subtract
+    ///    `A - v` and clear its anchor-relative tag.
+    /// 2. If a distance was deferred, subtract `A - m` from the drop. What
+    ///    remains is `(A - v) - (A - m) = m - v`.
+    /// 3. Apply that true decrease in the old minimum to enclosing ranges.
+    ///
+    /// The deferred accumulator is consumed once. Propagation consumes or
+    /// shrinks boundaries without reconstructing an absolute minimum.
+    fn apply_undercut<C>(
+        &mut self,
+        mut drop: Accumulator,
+        context: &mut C,
+        on_die: impl FnMut(P, &mut C),
+    ) {
+        for (follower, anchor_relative) in self.followers.iter_mut().zip(&mut self.anchor_relative)
+        {
+            if let Some(follower) = follower {
+                debug_assert_eq!(
+                    *anchor_relative,
+                    self.deferred.is_some(),
+                    "a deferred distance keeps every active follower tagged"
+                );
+                follower.sub_accum(&drop);
+                *anchor_relative = false;
+            }
+        }
+        if let Some(deferred) = self.deferred.take() {
+            // (A - v) - (A - m) = m - v.
+            drop.sub_accum(&deferred);
+        }
+        self.propagate_drop(drop, context, on_die);
+    }
+
+    /// Carry a decrease in the innermost minimum through enclosing ranges.
+    ///
+    /// On entry, `drop = old_inner_min - new_inner_min > 0`; `gap`,
+    /// `deferred`, and followers already describe the new inner minimum. The
+    /// stack is consumed from inner to outer:
+    ///
+    /// 1. A zero boundary means the outer range shared the old minimum, so it
+    ///    necessarily shares the new one. Consume the whole zero run and keep
+    ///    the same drop.
+    /// 2. At a positive boundary `b`, [`Self::cross_boundary`] compares `drop`
+    ///    with `b`.
+    /// 3. If the drop crosses `b`, retire that boundary's payload, turn the
+    ///    boundary into zero, and continue with `drop - b`.
+    /// 4. If `b` stops the drop, restore the surviving boundary `b - drop` and
+    ///    stop. Equality turns the boundary into zero and also stops.
+    /// 5. Push all newly created zero boundaries as one merged run.
+    ///
+    /// A crossed boundary is permanently consumed, so its width is charged
+    /// only once. A much wider surviving boundary is compared from leading
+    /// digits and updated by reading the smaller drop; comparable values pay
+    /// for one ordinary subtraction.
+    fn propagate_drop<C>(
+        &mut self,
+        drop: Accumulator,
+        context: &mut C,
+        mut on_die: impl FnMut(P, &mut C),
+    ) {
+        let mut drop = drop;
+        // Every crossed boundary now separates equal minima. Defer one merged
+        // zero run until the walk stops.
+        let mut zeros = 0u64;
+        while let Some(entry) = self.diffs.pop() {
+            match entry {
+                Entry::ZeroRun(count) => zeros += count,
+                Entry::Diff { boundary, payload } => {
+                    match Self::cross_boundary(drop, boundary, payload) {
+                        DropOutcome::BoundaryConsumed {
+                            remaining_drop,
+                            retired,
+                        } => {
+                            on_die(retired, context);
+                            zeros += 1;
+                            drop = remaining_drop;
+                        }
+                        DropOutcome::DropConsumed {
+                            remaining_boundary,
+                            payload,
+                        } => {
+                            self.diffs.push_diff(remaining_boundary, payload);
+                            break;
+                        }
+                        DropOutcome::Equal { retired } => {
+                            on_die(retired, context);
+                            zeros += 1;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        self.diffs.push_zeros(zeros);
+    }
+
+    /// Route a positive drop through either representation of a boundary.
+    ///
+    /// The returned outcome owns every input: it either carries the remaining
+    /// drop outward, restores the surviving boundary and payload, or retires
+    /// the payload at equality. This makes it impossible for propagation to
+    /// accidentally use a consumed boundary again.
+    fn cross_boundary(drop: Accumulator, boundary: Boundary, payload: P) -> DropOutcome<P> {
+        match boundary {
+            Boundary::Word(word) => Self::cross_word_boundary(drop, word, payload),
+            Boundary::Wide(boundary) => Self::cross_wide_boundary(drop, boundary, payload),
+        }
+    }
+
+    /// Subtract a word-sized boundary from a positive drop and classify the sign.
+    ///
+    /// The word fold is amortized constant time. A negative result is negated
+    /// to recover the positive surviving boundary `boundary - drop`.
+    fn cross_word_boundary(mut drop: Accumulator, boundary: u64, payload: P) -> DropOutcome<P> {
+        drop.sub_u64(boundary);
+        match drop.sign() {
+            Ordering::Greater => DropOutcome::BoundaryConsumed {
+                remaining_drop: drop,
+                retired: payload,
+            },
+            Ordering::Equal => DropOutcome::Equal { retired: payload },
+            Ordering::Less => {
+                drop.negate();
+                DropOutcome::DropConsumed {
+                    remaining_boundary: Self::compact_boundary(drop),
+                    payload,
+                }
+            }
+        }
+    }
+
+    /// Compare two positive wide values without traversing a much larger survivor.
+    ///
+    /// The method deliberately avoids first subtracting one arbitrary-precision
+    /// value from the other. It proceeds as follows:
+    ///
+    /// 1. If `drop` is at least two base-2^32 digits wider, ask whether its
+    ///    leading digits prove that it dominates `boundary`. When they do,
+    ///    subtract the smaller boundary and continue outward.
+    /// 2. Apply the symmetric test when `boundary` is wider. When it succeeds,
+    ///    subtract the smaller drop and restore the boundary.
+    /// 3. Otherwise subtract once and use the sign to classify the result.
+    ///
+    /// Two digits are the first separation at which Accumulator's redundant
+    /// representation can certify domination. A failed certificate is safe:
+    /// the values are then close enough in stored width that one subtraction is
+    /// proportional to both. In every path, arithmetic reads the value that is
+    /// consumed or a value comparable in width to its survivor.
+    fn cross_wide_boundary(
+        mut drop: Accumulator,
+        mut boundary: Accumulator,
+        payload: P,
+    ) -> DropOutcome<P> {
+        if drop.digit_count() >= boundary.digit_count() + 2 {
+            match drop.sign_dominates_at(boundary.digit_count() - 1) {
+                (Ordering::Greater, true) => {
+                    drop.sub_accum(&boundary);
+                    return DropOutcome::BoundaryConsumed {
+                        remaining_drop: drop,
+                        retired: payload,
+                    };
+                }
+                (_, true) => unreachable!("the drop is strictly positive"),
+                (_, false) => {}
+            }
+        }
+        if boundary.digit_count() >= drop.digit_count() + 2 {
+            match boundary.sign_dominates_at(drop.digit_count() - 1) {
+                (Ordering::Greater, true) => {
+                    boundary.sub_accum(&drop);
+                    return DropOutcome::DropConsumed {
+                        remaining_boundary: Self::compact_boundary(boundary),
+                        payload,
+                    };
+                }
+                (_, true) => unreachable!("stored boundaries are strictly positive"),
+                (_, false) => {}
+            }
+        }
+
+        boundary.sub_accum(&drop);
+        match boundary.sign() {
+            Ordering::Greater => DropOutcome::DropConsumed {
+                remaining_boundary: Self::compact_boundary(boundary),
+                payload,
+            },
+            Ordering::Equal => DropOutcome::Equal { retired: payload },
+            Ordering::Less => {
+                boundary.negate();
+                DropOutcome::BoundaryConsumed {
+                    remaining_drop: boundary,
+                    retired: payload,
+                }
+            }
+        }
+    }
+
+    /// Choose the smallest representation for a positive boundary.
+    ///
+    /// At base `2^32`, any `u64` occupies at most two digits. A wider
+    /// accumulator therefore cannot fit and is retained without normalization.
+    /// For at most two digits, materialize once and store the value inline when
+    /// conversion succeeds. This keeps common boundaries small without
+    /// scanning every wide boundary merely to reject it.
+    fn compact_boundary(difference: Accumulator) -> Boundary {
+        if difference.digit_count() <= 2 {
+            let (sign, magnitude) = accumulator::value(&difference);
+            debug_assert_eq!(sign, Ordering::Greater, "boundaries are strictly positive");
+            if let Ok(word) = u64::try_from(&magnitude) {
+                return Boundary::Word(word);
+            }
+        }
+        Boundary::Wide(difference)
+    }
+
+    /// Close the innermost armed range and expose its parent.
+    ///
+    /// Before the close, let `m` be the inner minimum. There are three cases:
+    ///
+    /// 1. If this is the final armed range, clear `gap` and `deferred`; no
+    ///    minimum remains.
+    /// 2. If the next boundary is zero, the parent also has minimum `m`.
+    ///    Consume one zero boundary and leave the anchor unchanged.
+    /// 3. If the boundary is `b > 0`, the parent minimum is `m - b`. Keep the
+    ///    anchor fixed, add `b` to `deferred`, and return the payload belonging
+    ///    to the parent minimum.
+    ///
+    /// This operation never reconstructs either absolute minimum. A zero close
+    /// is constant time; a positive boundary is moved and, when necessary,
+    /// merged at the cost of the narrower accumulator.
     pub(super) fn close(&mut self) -> Close<P> {
         debug_assert_eq!(
             self.pending, 0,
-            "callers close only armed ranges: an emission armed every open range before its close"
+            "every closing range must first see an emission"
         );
         debug_assert!(
             self.armed > 0,
@@ -327,624 +907,159 @@ impl<P> MinWeb<P> {
             debug_assert!(self.diffs.is_empty(), "no differences without ranges");
             debug_assert!(
                 self.followers.iter().all(Option::is_none),
-                "followers die before their anchor web does"
+                "followers are removed before their ranges close"
             );
             self.anchor_relative = [false; FOLLOWER_SLOTS];
-            if let Some(latent) = self.latent.take() {
-                self.retire(latent);
+            if let Some(deferred) = self.deferred.take() {
+                drop(deferred);
             }
             let gap = core::mem::take(&mut self.gap);
-            self.retire(gap);
+            drop(gap);
             return Close::Retired;
         }
         match self.diffs.pop().expect("armed > 1 has a difference record") {
             Entry::ZeroRun(count) => {
                 if count > 1 {
-                    self.diffs.push(Entry::ZeroRun(count - 1));
+                    self.diffs.push_zeros(count - 1);
                 }
-                Close::ZeroRun
+                Close::Equal
             }
             Entry::Diff { boundary, payload } => {
-                // m widens from the child's to the parent's, the boundary
-                // lower; the anchor stays where it is and the boundary parks in
-                // the latent (`Λ += boundary` by `merge_into_wider`, or the
-                // mint move).
-                self.park(boundary);
-                Close::Parked(payload)
+                // The parent minimum is lower by this boundary. Keep the
+                // anchor fixed and defer that change in Λ.
+                self.defer_boundary(boundary);
+                Close::Lower(payload)
             }
         }
     }
 
-    /// Park a popped boundary in the latent register: a move, never a fold of
-    /// the wide side.
+    /// Add a closed range's positive boundary to the deferred anchor shift.
     ///
-    /// Active followers were exact against the old anchor state, so tagging
-    /// them anchor-relative is value-preserving: a mint finds them `m`-exact
-    /// with `A = m_old`, a merge finds them already tagged (a live latent keeps
-    /// every active follower tagged).
-    fn park(&mut self, boundary: Boundary) {
-        match self.latent.take() {
+    /// Suppose the old innermost minimum is `m` and the exposed parent's
+    /// minimum is `m - b`. The anchor `A` does not move, so the new deferred
+    /// distance is `(A - m) + b`.
+    ///
+    /// On the first such close, each follower still contains `A - X` even
+    /// though its abstract value is now `(m - b) - X`; its tag records that the
+    /// deferred distance must later be subtracted. Further closes leave the tag
+    /// unchanged and add only their boundary. Word boundaries update in
+    /// amortized constant time; wide boundaries use `merge_into_wider`, which
+    /// preserves the wider buffer and reads the narrower value once.
+    fn defer_boundary(&mut self, boundary: Boundary) {
+        match self.deferred.take() {
             None => {
-                for slot in 0..self.followers.len() {
-                    debug_assert!(
-                        !self.anchor_relative[slot],
-                        "a set tag never outlives its latent"
-                    );
-                    if self.followers[slot].is_some() {
-                        self.anchor_relative[slot] = true;
-                    }
+                for (follower, anchor_relative) in
+                    self.followers.iter().zip(&mut self.anchor_relative)
+                {
+                    debug_assert!(!*anchor_relative, "a tag requires a deferred distance");
+                    *anchor_relative = follower.is_some();
                 }
-                let latent = match boundary {
+                let deferred = match boundary {
                     Boundary::Word(word) => {
-                        let mut latent = self.lease();
-                        latent.add_u64(word);
-                        latent
+                        let mut deferred = Accumulator::new();
+                        deferred.add_u64(word);
+                        deferred
                     }
-                    Boundary::Wide(latent) => latent,
+                    Boundary::Wide(deferred) => deferred,
                 };
-                self.latent = Some(latent);
+                self.deferred = Some(deferred);
             }
-            Some(mut latent) => {
+            Some(mut deferred) => {
                 debug_assert!(
-                    (0..self.followers.len())
-                        .all(|slot| self.followers[slot].is_none() || self.anchor_relative[slot]),
-                    "a live latent keeps every active follower tagged"
+                    self.followers.iter().zip(self.anchor_relative).all(
+                        |(follower, anchor_relative)| { follower.is_none() || anchor_relative }
+                    ),
+                    "a deferred distance keeps every active follower tagged"
                 );
                 match boundary {
-                    Boundary::Word(word) => latent.add_u64(word),
+                    Boundary::Word(word) => deferred.add_u64(word),
                     Boundary::Wide(wide) => {
-                        let drained = latent.merge_into_wider(wide);
-                        self.retire(drained);
+                        let drained = deferred.merge_into_wider(wide);
+                        drop(drained);
                     }
                 }
-                self.latent = Some(latent);
+                self.deferred = Some(deferred);
             }
         }
     }
 
-    /// Retire the latent into the true minimum.
+    /// Move the anchor from `A` to the true minimum `m`.
     ///
-    /// The anchor re-bases to `m` (`gap += Λ` by `merge_into_wider`), each
-    /// tagged follower resolves by one fold of the dying latent (its
-    /// death-event fan-out), and the tags clear. A no-op while no latent lives.
+    /// Before resolution:
     ///
-    /// Callers fund the death: a comparable-scale decision (the merge's
-    /// near-cancellation), an emission whose output code the latent's width
-    /// widens, or a re-anchor riding one — every caller resolves at a point
-    /// where an emission or a comparable-scale collapse prices the fold.
-    pub(super) fn resolve_latent(&mut self) {
-        let Some(latent) = self.latent.take() else {
+    /// - `gap = h - A`;
+    /// - `deferred = A - m`;
+    /// - each tagged follower contains `A - X`.
+    ///
+    /// Adding `deferred` makes the gap `h - m`. Subtracting it from tagged
+    /// followers makes them `m - X`. The deferred value is then consumed and
+    /// every tag clears. `merge_into_wider` ensures the gap/deferred merge reads
+    /// only the narrower buffer; the fixed number of followers adds only a
+    /// constant multiple of the deferred value's width.
+    pub(super) fn resolve_deferred(&mut self) {
+        let Some(deferred) = self.deferred.take() else {
             return;
         };
-        for slot in 0..self.followers.len() {
-            if self.anchor_relative[slot] {
-                self.followers[slot]
+        for (follower, anchor_relative) in self.followers.iter_mut().zip(&mut self.anchor_relative)
+        {
+            if *anchor_relative {
+                follower
                     .as_mut()
                     .expect("a set tag rides an active follower")
-                    .sub_accum(&latent);
-                self.anchor_relative[slot] = false;
+                    .sub_accum(&deferred);
+                *anchor_relative = false;
             }
         }
-        let drained = self.gap.merge_into_wider(latent);
-        self.retire(drained);
+        let drained = self.gap.merge_into_wider(deferred);
+        drop(drained);
     }
 
-    /// Whether a latent boundary is live (the anchor sits above the
-    /// true minimum).
-    pub(super) fn latent_live(&self) -> bool {
-        self.latent.is_some()
-    }
-
-    /// Whether an emission at the current height (`v = h`) strictly
-    /// undercuts the innermost tracked minimum.
-    ///
-    /// `v − A = gap`: one amortized sign read answers at or above the anchor —
-    /// at or above the minimum, nothing changes and nothing further is read. A
-    /// drop below the anchor is decided against the latent by the domination
-    /// ladder ([`Self::decide_undercut_through_latent`]); a comparable-scales
-    /// collapse re-bases the anchor to `m` and the final re-test reads the
-    /// plain sign. A `true` return leaves `gap` still holding `v − A`
-    /// (negative) for the undercut that must follow.
-    ///
-    /// May retire the latent (a funded collapse): the web's *value* is
-    /// unchanged, its representation is not — unlike the fold-and-restore
-    /// readers ([`compare_above_vs`](Self::compare_above_vs),
-    /// [`bridge_add_gap`](Self::bridge_add_gap)), which restore exactly.
-    pub(super) fn undercuts_here(&mut self) -> bool {
-        // v − A = gap: at or above the anchor is at or above the minimum.
-        if self.gap.sign() != Ordering::Less {
-            return false;
-        }
-        // v < A: only a drop past the latent too is a true undercut.
-        if self.latent.is_some() && !self.decide_undercut_through_latent() {
-            return false;
-        }
-        // A collapse may have re-based the anchor to m; re-test plainly.
-        self.gap.sign() == Ordering::Less
-    }
-
-    /// Decide a drop below the anchor (`gap < 0` holding `v − A`) against the
-    /// true minimum `m = A − Λ` while a latent lives.
-    ///
-    /// Top-index domination answers scale-disparate cases in O(1): a dominating
-    /// latent means `m < v < A` — return false, nothing changes; a dominated
-    /// one means a true undercut — return true with the latent left live for
-    /// the undercut's residue to annihilate. Comparable tops retire the latent
-    /// (the near-cancellation funds the merge, and re-widening it costs the
-    /// input a fresh climb) and return true for the caller's plain re-test
-    /// against the re-based anchor.
-    ///
-    /// The O(1) cost claim is owned by the
-    /// `skyline_min_ticks_latent_ladder_is_flat_per_unit` band of
-    /// `tests/meter.rs`: the per-decision marginal cost of the
-    /// dominating-latent read stays flat across a doubling of the parked
-    /// latent's width, so a decision that reads the latent across its width
-    /// trips the band. The value flow of all four arms — both dominations
-    /// and both post-collapse re-test sides — is pinned against the
-    /// recursive oracle by the latent-ladder differentials in
-    /// `fill/tests.rs`.
-    fn decide_undercut_through_latent(&mut self) -> bool {
-        let gap_floor = self.gap.digit_count() - 1;
-        let latent = self.latent.as_mut().expect("the caller saw a live latent");
-        // Collapse for an honest top before the domination reads: a sign
-        // read folds any cancelling prefix down, so a domination floor
-        // derived from digit_count immediately after one decides where the
-        // stale count's floor would refuse — suanpan's witness
-        // `sign_collapse_tightens_the_top_and_arms_domination`. Both floors
-        // here rest on that clause: gap's sign was read by the caller, the
-        // latent's is read now.
-        let _sign = latent.sign();
-        debug_assert_eq!(_sign, Ordering::Greater, "the latent is strictly positive");
-        if latent.sign_dominates_at(gap_floor).1 {
-            return false;
-        }
-        let latent_floor = latent.digit_count() - 1;
-        if self.gap.sign_dominates_at(latent_floor).1 {
-            return true;
-        }
-        self.resolve_latent();
-        true
-    }
-
-    /// Drop the innermost minimum to the current height (`gap < 0` holding `v −
-    /// A`, the true-undercut decision already made —
-    /// [`undercuts_here`](Self::undercuts_here)).
-    ///
-    /// `gap` dies into the residue and a fresh zero seats the new anchor `A =
-    /// v`; the drop then drives outward ([`drop_below`](Self::drop_below)).
-    pub(super) fn undercut(&mut self, on_die: impl FnMut(P)) {
-        let fresh = self.lease();
-        let mut residue = core::mem::replace(&mut self.gap, fresh);
-        residue.negate();
-        self.drop_below(residue, on_die);
-    }
-
-    /// Drive a drop below the old anchor outward, `residue = A − v > 0` already
-    /// negated positive and `gap` already re-seated by the caller.
-    ///
-    /// Each active follower absorbs the anchor-relative drop `A − v` — one fold
-    /// that also resolves a set tag, since a tagged follower's content is
-    /// anchor-relative and the new anchor is `v` itself — a live latent
-    /// annihilates into the residue (the drop dominated it), and the drop
-    /// propagates through the difference stack.
-    fn drop_below(&mut self, mut residue: Accumulator, on_die: impl FnMut(P)) {
-        for slot in 0..self.followers.len() {
-            if let Some(follower) = &mut self.followers[slot] {
-                debug_assert_eq!(
-                    self.anchor_relative[slot],
-                    self.latent.is_some(),
-                    "a live latent keeps every active follower tagged"
-                );
-                follower.sub_accum(&residue);
-                self.anchor_relative[slot] = false;
-            }
-        }
-        if let Some(latent) = self.latent.take() {
-            // The annihilation: residue = (A − v) − Λ = m − v > 0.
-            residue.sub_accum(&latent);
-            self.retire(latent);
-        }
-        self.propagate(residue, on_die);
-    }
-
-    /// Arm every pending range at an emission `v = h` exactly: the
-    /// anchor-relative offset is the dying `gap` itself, moved out whole with
-    /// no fold at all, and a fresh zero seats the new anchor `A = v`.
-    ///
-    /// `payload` mints lazily: only the arms that store or kill a boundary read
-    /// it (the pushed-above arm stacks it; an arming undercut hands it straight
-    /// to `on_die` — [`push_boundary`](Self::push_boundary)).
-    pub(super) fn arm_at_height(&mut self, payload: impl FnOnce() -> P, on_die: impl FnMut(P)) {
-        debug_assert!(
-            self.pending > 0,
-            "an arm fires only while a pending range awaits it"
-        );
-        let pending = core::mem::replace(&mut self.pending, 0);
-        if self.armed == 0 {
-            debug_assert!(
-                self.followers.iter().all(Option::is_none),
-                "followers attach after the first arming"
-            );
-            debug_assert!(self.latent.is_none(), "the latent dies with the web");
-            self.armed = pending;
-            let fresh = self.lease();
-            let old = core::mem::replace(&mut self.gap, fresh);
-            self.retire(old);
-            self.push_zeros(pending - 1);
-            return;
-        }
-        let fresh = self.lease();
-        let offset = core::mem::replace(&mut self.gap, fresh);
-        self.armed += pending;
-        self.push_boundary(offset, pending, payload, on_die);
-    }
-
-    /// Arm every pending range at the emission `v = h − below`, moving `below`
-    /// in as the new `gap`.
-    ///
-    /// The accumulator moves into the web — wide content is stored once and
-    /// read only at the arming boundary it prices. The anchor-relative offset
-    /// `v − A_old = gap_old − below` costs one fold of the narrow dying side.
-    pub(super) fn arm_below(
-        &mut self,
-        below: Accumulator,
-        payload: impl FnOnce() -> P,
-        on_die: impl FnMut(P),
-    ) {
-        debug_assert!(
-            self.pending > 0,
-            "an arm fires only while a pending range awaits it"
-        );
-        let pending = core::mem::replace(&mut self.pending, 0);
-        if self.armed == 0 {
-            debug_assert!(
-                self.followers.iter().all(Option::is_none),
-                "followers attach after the first arming"
-            );
-            debug_assert!(self.latent.is_none(), "the latent dies with the web");
-            self.armed = pending;
-            let old = core::mem::replace(&mut self.gap, below);
-            self.retire(old);
-            self.push_zeros(pending - 1);
-            return;
-        }
-        // The anchor-relative offset: offset = v − A_old = gap_old − below.
-        // gap_old dies into it (a move of the buffer, one narrow fold), and
-        // the boundary bookkeeping recycles any parked latent.
-        let mut offset = core::mem::replace(&mut self.gap, below);
-        offset.sub_accum(&self.gap);
-        self.armed += pending;
-        self.push_boundary(offset, pending, payload, on_die);
-    }
-
-    /// Arm bookkeeping shared by the arming paths, after `gap` is seated for
-    /// the new anchor `A = v` and `armed` counts the new ranges.
-    ///
-    /// Folds the anchor-relative offset `offset = v − A_old` into each active
-    /// follower (resolving set tags — the offset is exactly the tagged
-    /// content's shift to the new anchor, where the latent is spent), merges
-    /// the offset with any latent into the true boundary `v − m_old`, and
-    /// pushes it (a positive difference, compacted to machine width when it
-    /// fits), counts it (an exact meet), or propagates it (an arming undercut's
-    /// residue). Only the pushed-above arm mints the payload; an arming
-    /// undercut's payload dies by `on_die` before the residue drives outward,
-    /// and an exact meet touches no payload at all — the reigning state
-    /// continues.
-    fn push_boundary(
-        &mut self,
-        offset: Accumulator,
-        pending: u64,
-        payload: impl FnOnce() -> P,
-        mut on_die: impl FnMut(P),
-    ) {
-        for slot in 0..self.followers.len() {
-            if let Some(follower) = &mut self.followers[slot] {
-                follower.add_accum(&offset);
-                self.anchor_relative[slot] = false;
-            }
-        }
-        let mut offset = offset;
-        if let Some(latent) = self.latent.take() {
-            let drained = offset.merge_into_wider(latent);
-            self.retire(drained);
-        }
-        match offset.sign() {
-            Ordering::Greater => {
-                let boundary = self.compact(offset);
-                self.diffs.push(Entry::Diff {
-                    boundary,
-                    payload: payload(),
-                });
-                self.push_zeros(pending - 1);
-            }
-            Ordering::Equal => {
-                self.retire(offset);
-                self.push_zeros(pending);
-            }
-            Ordering::Less => {
-                on_die(payload());
-                let mut residue = offset;
-                residue.negate();
-                self.propagate(residue, on_die);
-                self.push_zeros(pending);
-            }
-        }
-    }
-
-    /// Drive an undercut's residue (`residue > 0`, the drop below the old
-    /// innermost minimum) outward through the difference stack.
-    ///
-    /// Zero runs pass whole in O(1); word-scale boundaries fold in O(1)
-    /// outright; each wide difference the drop exceeds dies by one fold *into
-    /// the residue* at the difference's own width — its payload surrendered to
-    /// `on_die` — and the stopping range absorbs the one surviving fold: the
-    /// residue's terminal death into the difference that outlasts it. Top-index
-    /// domination decides each wide hop's direction before any fold, so the
-    /// dying side always funds the fold that consumes it and the wide side of a
-    /// scale-disparate hop is never read across its width while it survives;
-    /// only comparable scales fold undecided, the near-cancellation pricing
-    /// either direction. The caller has already adjusted `gap` and the
-    /// followers.
-    ///
-    /// The descending- and stopping-boundary bands in `tests/meter.rs` hold both
-    /// wide-hop arms at the guards' minimal clearance: the plunge bands
-    /// price the residue-dominates arm's dying-width folds (a hop rerouted
-    /// onto the comparable fold pays the residue's width instead, and the
-    /// clearance band reads the decision boundary itself), and the stop
-    /// band pins the boundary-dominates arm's width conservation — the
-    /// surviving boundary never read across its width per hop.
-    fn propagate(&mut self, residue: Accumulator, mut on_die: impl FnMut(P)) {
-        let mut residue = residue;
-        // Deferred zero-run bookkeeping: every consumed entry whose range's
-        // minimum now equals the new innermost one's counts here, and one flush
-        // after the loop pushes the merged run — every escape path below
-        // reaches that flush.
-        let mut zeros = 0u64;
-        // Loop invariant: `residue > 0` is always the drop still to apply at
-        // the current stack position. Every arm either kills it (the stopping
-        // range absorbs it, or the stack empties — break), consumes a
-        // difference whole and keeps it going, or replaces it with the
-        // surviving remainder of a comparable-scale fold.
-        loop {
-            match self.diffs.pop() {
-                None => {
-                    // The outermost armed range dropped; nothing is
-                    // outward of it.
-                    self.retire(residue);
-                    break;
-                }
-                Some(Entry::ZeroRun(count)) => zeros += count,
-                Some(Entry::Diff {
-                    boundary: Boundary::Word(word),
-                    payload,
-                }) => {
-                    // A word-scale boundary folds outright: O(1) against any
-                    // residue.
-                    residue.sub_u64(word);
-                    match residue.sign() {
-                        Ordering::Greater => {
-                            // The boundary died; the drop keeps going.
-                            on_die(payload);
-                            zeros += 1;
-                        }
-                        Ordering::Equal => {
-                            // Exact meet: this range's minimum now equals
-                            // the new innermost one's.
-                            on_die(payload);
-                            self.retire(residue);
-                            zeros += 1;
-                            break;
-                        }
-                        Ordering::Less => {
-                            // The boundary survives, shrunk: the dying
-                            // residue's terminal fold already happened.
-                            residue.negate();
-                            let boundary = self.compact(residue);
-                            self.diffs.push(Entry::Diff { boundary, payload });
-                            break;
-                        }
-                    }
-                }
-                Some(Entry::Diff {
-                    boundary: Boundary::Wide(mut diff),
-                    payload,
-                }) => {
-                    // The width guards skip domination reads a top index could
-                    // never decide: in the digit engine, a `sign_dominates_at`
-                    // read one digit short of two digits of clearance never
-                    // certifies (suanpan's witness
-                    // `domination_decision_index_is_tight_at_floor_plus_two`),
-                    // while at the clearance line a decided certificate exists
-                    // and covers extreme redundant operands (suanpan's
-                    // `decided_domination_covers_extreme_accumulator_operands`)
-                    // — so the guards forfeit no decision the digit fold could
-                    // make, and a comparable-scale hop pays no extra read. A
-                    // register-held side can certify with less clearance; that
-                    // forfeited certificate only reroutes the hop onto the
-                    // comparable fold below.
-                    // Tops are honest: a pushed difference had its sign read at
-                    // push, and the residue collapses under its own reads here.
-                    // Both sides are strictly positive, so a decided domination
-                    // is always `Greater` — anything else is a violated
-                    // invariant and panics — while an honestly undecided read
-                    // (a top digit too small to clear the redundant-spelling
-                    // bound at this clearance) falls through to the total
-                    // fold-then-sign path.
-                    if residue.digit_count() >= diff.digit_count() + 2 {
-                        match residue.sign_dominates_at(diff.digit_count() - 1) {
-                            (Ordering::Greater, true) => {
-                                // The residue dwarfs the difference: it dies by
-                                // its one fold into the surviving residue,
-                                // which stays positive and keeps dropping.
-                                residue.sub_accum(&diff);
-                                self.retire(diff);
-                                on_die(payload);
-                                zeros += 1;
-                                continue;
-                            }
-                            (_, true) => {
-                                unreachable!("undercut residues are strictly positive")
-                            }
-                            (_, false) => {}
-                        }
-                    }
-                    if diff.digit_count() >= residue.digit_count() + 2 {
-                        match diff.sign_dominates_at(residue.digit_count() - 1) {
-                            (Ordering::Greater, true) => {
-                                // The difference dwarfs the residue: the drop
-                                // stops here, and the dying residue's terminal
-                                // fold shrinks the survivor.
-                                diff.sub_accum(&residue);
-                                self.retire(residue);
-                                self.diffs.push(Entry::Diff {
-                                    boundary: Boundary::Wide(diff),
-                                    payload,
-                                });
-                                break;
-                            }
-                            (_, true) => {
-                                unreachable!("stacked differences are strictly positive")
-                            }
-                            (_, false) => {}
-                        }
-                    }
-                    // Comparable scales: the near-cancellation prices the fold
-                    // — the dying side's digits within a constant, whichever
-                    // side dies.
-                    diff.sub_accum(&residue);
-                    self.retire(residue);
-                    match diff.sign() {
-                        Ordering::Greater => {
-                            // The drop stops here: the difference survives,
-                            // shrunk.
-                            let boundary = self.compact(diff);
-                            self.diffs.push(Entry::Diff { boundary, payload });
-                            break;
-                        }
-                        Ordering::Equal => {
-                            // Exact meet: this range's minimum now equals
-                            // the new innermost one's.
-                            on_die(payload);
-                            self.retire(diff);
-                            zeros += 1;
-                            break;
-                        }
-                        Ordering::Less => {
-                            // The difference dies; the remainder keeps
-                            // dropping.
-                            on_die(payload);
-                            diff.negate();
-                            residue = diff;
-                            zeros += 1;
-                        }
-                    }
-                }
-            }
-        }
-        self.push_zeros(zeros);
-    }
-
-    /// Store a strictly positive difference at machine width when the
-    /// instantiation compacts and the value fits, retiring its buffer; keep the
-    /// accumulator otherwise.
-    ///
-    /// The width test reads the digit count alone — two digits cover a `u64` at
-    /// the accumulator's base-2^32 digit width, so anything wider can never fit
-    /// — and a wide difference is therefore never normalized just to learn it
-    /// would not fit.
-    fn compact(&mut self, difference: Accumulator) -> Boundary {
-        if self.compact_words && difference.digit_count() <= 2 {
-            let (sign, magnitude) = accumulator::value(&difference);
-            debug_assert_eq!(sign, Ordering::Greater, "boundaries are strictly positive");
-            if let Ok(word) = u64::try_from(&magnitude) {
-                self.retire(difference);
-                return Boundary::Word(word);
-            }
-        }
-        Boundary::Wide(difference)
-    }
-
-    /// Push `count` zero-difference ranges, merging with a top run.
-    fn push_zeros(&mut self, count: u64) {
-        if count == 0 {
-            return;
-        }
-        if let Some(Entry::ZeroRun(run)) = self.diffs.last_mut() {
-            *run += count;
-        } else {
-            self.diffs.push(Entry::ZeroRun(count));
-        }
-    }
-
-    /// A cleared accumulator, pooled when one is available.
-    ///
-    /// An empty pool records one miss ([`pool_traffic`](super::pool_traffic))
-    /// — the observable behind the steady-state claim above: misses count
-    /// the walk's peak simultaneous demand, never its churn.
-    pub(super) fn lease(&mut self) -> Accumulator {
-        match self.pool.pop() {
-            Some(cleared) => cleared,
-            None => {
-                super::pool_traffic::record_miss();
-                Accumulator::default()
-            }
-        }
-    }
-
-    /// Retire a dying accumulator into the pool, clearing it.
-    pub(super) fn retire(&mut self, mut dying: Accumulator) {
-        dying.reset();
-        self.pool.push(dying);
+    /// Whether a close has left the anchor above the true minimum.
+    pub(super) fn deferred_live(&self) -> bool {
+        self.deferred.is_some()
     }
 }
 
-/// The payload-free surface the fill walk and its pre-scan drive.
+/// Convenience operations when boundaries carry no client state.
 ///
-/// Emissions at, above, and below the running height, the raise-decision reads,
-/// the follower slots, and the anchor-switch bridges. Every method forwards to
-/// the shared discipline above with trivial hooks; only the emission vocabulary
-/// and the priced-offset handling live here.
-impl MinWeb<()> {
-    /// Record an emission at the current height (`v = h`).
+/// They translate skyline emissions and comparisons into the generic arming
+/// and undercut transitions above, using `()` as the payload and retirement
+/// context.
+impl RangeMinima<()> {
+    /// Record an emission at the current height `v = h`.
+    ///
+    /// Pending ranges receive their first minimum through `arm_at_height`.
+    /// Otherwise the emission changes state only if `h` is below the current
+    /// minimum, in which case `undercut` lowers every enclosing minimum it
+    /// reaches.
     pub(super) fn emit_here(&mut self) {
         if self.pending > 0 {
-            // v = h exactly: the dying gap is itself the anchor-relative
-            // offset, moved out whole with no fold
-            // ([`arm_at_height`](Self::arm_at_height)).
-            self.arm_at_height(|| (), |()| ());
+            self.arm_at_height(&mut (), |_| (), |(), _| ());
             return;
         }
-        if !self.undercuts_here() {
-            return;
+        if self.undercuts_here() {
+            self.undercut(&mut (), |(), _| ());
         }
-        // Undercut: m drops to v, gap dies into the residue and re-seats
-        // at zero.
-        let mut residue = core::mem::take(&mut self.gap);
-        residue.negate();
-        self.drop_below(residue, |()| ());
-        self.gap = self.lease();
     }
 
-    /// Record an emission at `v = h + offset` for a signed, priced offset (a
-    /// consuming scan's extremum, or a raise decided against it).
+    /// Record an emission at `v = h + offset`.
     ///
-    /// Five paths, in order:
+    /// The method follows the state machine in this order:
     ///
-    /// 1. A zero offset delegates to [`emit_here`](Self::emit_here).
-    /// 2. Pending ranges arm at `v` ([`arm_below`](Self::arm_below) with
-    ///    `below = −offset`).
-    /// 3. No latent and a word-scale offset: post-sign domination reads the
-    ///    answer with no fold — a dominating-positive `gap` returns; a
-    ///    wide-negative `gap` is an undercut whose residue dwarfs the
-    ///    offset.
-    /// 4. Otherwise the priced offset folds into `gap`, and three gates each
-    ///    restore the fold on exit: `v` at or above the anchor; a drop that
-    ///    does not carry through the latent; a collapse that re-based the
-    ///    anchor with `v` not below it.
-    /// 5. A true undercut. The fold is deliberately *not* restored — the
-    ///    folded offset funds the residue (`gap` holds `v − A`, negated
-    ///    into `m − v`) — and the re-seated `gap` is `h − v = −offset`
-    ///    exactly.
+    /// 1. A zero offset is the `emit_here` case.
+    /// 2. If ranges are pending, convert the offset to `h - v = -offset` and
+    ///    arm them through `arm_below`.
+    /// 3. Otherwise compare `v` with the minimum. Since
+    ///    `v - A = gap + offset`, a word-sized offset may be decided from the
+    ///    wide gap's leading digits without a fold.
+    /// 4. If that shortcut cannot decide, temporarily add `offset` to `gap`.
+    ///    Restore it before returning unless `v` is a new minimum.
+    /// 5. For an undercut, negate the folded `v - A` to obtain the drop, apply
+    ///    it, and set the new gap to `h - v = -offset`.
+    ///
+    /// The shortcut prevents a stream of small offsets from repeatedly walking
+    /// a wide gap. The general path reads the offset once; a comparable
+    /// deferred distance is consumed rather than repeatedly compared.
     pub(super) fn emit_offset(&mut self, offset: &BigInt) {
         if offset.sign() == Sign::NoSign {
             self.emit_here();
@@ -952,131 +1067,137 @@ impl MinWeb<()> {
         }
         if self.pending > 0 {
             // below = h − v = −offset.
-            let mut below = self.lease();
+            let mut below = Accumulator::new();
             accumulator::subtract_signed(&mut below, offset);
-            self.arm_below(below, || (), |()| ());
+            self.arm_below(below, &mut (), |_| (), |(), _| ());
             return;
         }
-        // v − A = gap + offset. With no latent, post-sign domination decides
-        // against a word-scale offset with no fold (with one live, the
-        // O(offset) fold below is cheap for a word and the ladder decides).
-        if self.latent.is_none() && u64::try_from(offset.magnitude()).is_ok() {
-            let (sign, decided) = self.gap.sign_dominates_word();
-            if decided {
-                if sign == Ordering::Greater {
-                    web_traffic::record(web_traffic::Decision::DominatedAbove);
-                    return;
-                }
-                web_traffic::record(web_traffic::Decision::DominatedUndercut);
-                // gap wide-negative: v sits far below the minimum; the
-                // drop dwarfs the offset. Residue = m − v = −gap − offset.
-                let mut residue = core::mem::take(&mut self.gap);
-                residue.negate();
-                accumulator::subtract_signed(&mut residue, offset);
-                for follower in self.followers.iter_mut().flatten() {
-                    follower.sub_accum(&residue);
-                }
-                let mut gap = self.lease();
-                accumulator::subtract_signed(&mut gap, offset);
-                self.gap = gap;
-                self.propagate(residue, |()| ());
-                return;
-            }
-            web_traffic::record(web_traffic::Decision::Undecided);
+        if self.emit_offset_when_gap_dominates(offset) {
+            return;
         }
-        // Fold the priced side; restore it unless it funds the residue.
+
         accumulator::fold_signed(&mut self.gap, offset);
         if self.gap.sign() != Ordering::Less {
-            // v at or above the anchor, hence at or above the minimum.
             accumulator::subtract_signed(&mut self.gap, offset);
             return;
         }
-        // v < A: only a drop past the latent too is a true undercut.
-        if self.latent.is_some() && !self.decide_undercut_through_latent() {
-            accumulator::subtract_signed(&mut self.gap, offset);
-            return;
+        if self.deferred.is_some() {
+            let undercuts = match self.compare_below_anchor_to_minimum() {
+                DeferredComparison::AboveMinimum => false,
+                DeferredComparison::BelowMinimum => true,
+                DeferredComparison::Reanchored => self.gap.sign() == Ordering::Less,
+            };
+            if !undercuts {
+                accumulator::subtract_signed(&mut self.gap, offset);
+                return;
+            }
         }
-        if self.gap.sign() != Ordering::Less {
-            // A collapse re-based the anchor to m and v is not below it.
-            accumulator::subtract_signed(&mut self.gap, offset);
-            return;
-        }
-        // Undercut: gap holds v − A, offset stays folded to fund the
-        // residue; the re-seated gap is h − v = −offset exactly.
-        let mut residue = core::mem::take(&mut self.gap);
-        residue.negate();
-        self.drop_below(residue, |()| ());
-        let mut gap = self.lease();
+
+        let mut drop = core::mem::take(&mut self.gap);
+        drop.negate();
+        self.apply_undercut(drop, &mut (), |(), _| ());
+        let mut gap = Accumulator::new();
         accumulator::subtract_signed(&mut gap, offset);
         self.gap = gap;
     }
 
-    /// Record an emission at `v = h − below` where `below` arrives as a funded
-    /// accumulator (a resolved memoized minimum), arming the pending range that
-    /// must exist for it.
+    /// Try to decide a word-sized offset from a much wider gap.
     ///
-    /// The accumulator moves into the web — it becomes the new `gap` — so wide
-    /// content is stored once and read only at the arming boundary it prices.
-    pub(super) fn emit_below_accum(&mut self, below: Accumulator) {
-        debug_assert!(self.pending > 0, "a raise arms its own node's range");
-        self.arm_below(below, || (), |()| ());
+    /// This shortcut applies only when the anchor already equals the minimum.
+    /// If the gap's leading digits prove that a word cannot change its sign,
+    /// then that sign also orders `v = h + offset` against the minimum:
+    ///
+    /// - a positive gap means `v` remains above the minimum and no state moves;
+    /// - a negative gap means `v` is an undercut. The drop is
+    ///   `-gap - offset`, and the new height gap is `-offset`.
+    ///
+    /// Returns `false` when the offset is wide, a distance is deferred, or the
+    /// leading digits do not prove the ordering. Those cases use the ordinary
+    /// folded comparison.
+    fn emit_offset_when_gap_dominates(&mut self, offset: &BigInt) -> bool {
+        if self.deferred.is_some() || u64::try_from(offset.magnitude()).is_err() {
+            return false;
+        }
+        let (sign, decided) = self.gap.sign_dominates_word();
+        if !decided {
+            web_traffic::record(web_traffic::Decision::Undecided);
+            return false;
+        }
+        match sign {
+            Ordering::Greater => {
+                web_traffic::record(web_traffic::Decision::DominatedAbove);
+            }
+            Ordering::Less => {
+                web_traffic::record(web_traffic::Decision::DominatedUndercut);
+                // Since gap dominates offset, -gap-offset is positive.
+                let mut drop = core::mem::take(&mut self.gap);
+                drop.negate();
+                accumulator::subtract_signed(&mut drop, offset);
+                self.apply_undercut(drop, &mut (), |(), _| ());
+
+                let mut gap = Accumulator::new();
+                accumulator::subtract_signed(&mut gap, offset);
+                self.gap = gap;
+            }
+            Ordering::Equal => unreachable!("a decisive gap is nonzero"),
+        }
+        true
     }
 
-    /// Whether `h + above` reaches the innermost armed minimum:
-    /// `Ordering::Less` means strictly below `m`.
+    /// Record the first emission of pending ranges at `v = h - below`.
     ///
-    /// The raise arms' decision read. Post-sign domination answers a word-scale
-    /// offset with no fold; otherwise the priced offset is folded and restored,
-    /// with the latent ladder deciding drops that land between the true minimum
-    /// and the anchor (domination in O(1), or a funded collapse at comparable
-    /// scales).
+    /// This is the ownership-taking form used when another calculation already
+    /// produced `below` as an accumulator. Passing it to `arm_below` moves that
+    /// allocation into the stack as the new gap instead of materializing or
+    /// copying it.
+    pub(super) fn emit_below_accum(&mut self, below: Accumulator) {
+        debug_assert!(self.pending > 0, "a raise arms its own node's range");
+        self.arm_below(below, &mut (), |_| (), |(), _| ());
+    }
+
+    /// Compare `v = h + above` with the innermost minimum `m`.
     ///
-    /// May retire the latent (a funded collapse): the web's *value* is
-    /// unchanged, its representation is not — unlike the fold-and-restore
-    /// readers, which restore exactly.
+    /// `Less` means the candidate would lower the minimum. A word-sized
+    /// `above` is first compared from the wide gap's leading digits when no
+    /// distance is deferred. Otherwise:
+    ///
+    /// 1. add `above` to `gap`, obtaining `v - A`;
+    /// 2. if `A > m`, compare a negative result with the deferred distance;
+    /// 3. subtract `above` again, restoring the original height gap.
+    ///
+    /// A comparable deferred distance may be resolved into the anchor during
+    /// step 2. That changes representation but not the tracked minimum.
     pub(super) fn compare_above(&mut self, above: &BigInt) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed range");
-        if self.latent.is_none() && u64::try_from(above.magnitude()).is_ok() {
+        if self.deferred.is_none() && u64::try_from(above.magnitude()).is_ok() {
             let (sign, decided) = self.gap.sign_dominates_word();
             if decided {
                 return sign;
             }
         }
         accumulator::fold_signed(&mut self.gap, above);
-        let mut sign = self.gap.sign();
-        if self.latent.is_some() {
-            sign = match sign {
-                // v = A > m exactly when a latent lives.
-                Ordering::Equal | Ordering::Greater => Ordering::Greater,
-                Ordering::Less => {
-                    if !self.decide_undercut_through_latent() {
-                        Ordering::Greater
-                    } else if self.latent.is_some() {
-                        // The drop dominates the latent: v < m.
-                        Ordering::Less
-                    } else {
-                        // Collapsed at comparable scales: re-test
-                        // plainly against the re-based anchor A = m.
-                        self.gap.sign()
-                    }
-                }
-            };
-        }
+        let sign = match (self.gap.sign(), self.deferred.is_some()) {
+            (sign, false) => sign,
+            (Ordering::Equal | Ordering::Greater, true) => Ordering::Greater,
+            (Ordering::Less, true) => match self.compare_below_anchor_to_minimum() {
+                DeferredComparison::AboveMinimum => Ordering::Greater,
+                DeferredComparison::BelowMinimum => Ordering::Less,
+                DeferredComparison::Reanchored => self.gap.sign(),
+            },
+        };
         accumulator::subtract_signed(&mut self.gap, above);
         sign
     }
 
-    /// Whether `h + above` reaches a minimum sitting `arm_offset` above the
-    /// anchor (`A + arm_offset`, signed): `Ordering::Less` means strictly below
-    /// it.
+    /// Compare `h + above` with an anchor-relative candidate minimum.
     ///
-    /// The memo consumer's decision read: `(h + above) − (A + arm_offset) = gap
-    /// − arm_offset + above`, folded and restored — `above` is priced,
-    /// `arm_offset` is anchor-relative dying content (a ledger link net of the
-    /// taken relation, narrow whenever the reference minima agree), and the
-    /// latent never participates: the anchor-relative target cancels it
-    /// exactly, so the read costs the operands' own widths no matter how wide
-    /// the parked boundary is.
+    /// The candidate is `A + arm_offset`, so their difference is
+    ///
+    /// `(h + above) - (A + arm_offset) = gap + above - arm_offset`.
+    ///
+    /// The method folds those two operands into `gap`, reads the sign, then
+    /// reverses both folds. Because the anchor appears on both sides, any
+    /// deferred distance to the true minimum cancels and is never read.
     pub(super) fn compare_above_vs(
         &mut self,
         above: &BigInt,
@@ -1091,86 +1212,70 @@ impl MinWeb<()> {
         sign
     }
 
-    /// Arm the pending range at a minimum `arm_offset` above the anchor
-    /// (`v = A + arm_offset`, signed and dying here).
+    /// Give pending ranges their first minimum at `v = A + arm_offset`.
     ///
-    /// The memo consumer's arming: the new `gap = gap_old − arm_offset` needs
-    /// no read of the old web beyond `arm_offset`'s own width, and `arm_offset`
-    /// recycles any parked latent — the true boundary `v − m` is `arm_offset +
-    /// Λ`, realized by folding the narrow dying offset into the latent's buffer
-    /// (`merge_into_wider`) and pushing the merged buffer (or, negated,
-    /// propagating it as the undercut's residue).
+    /// Subtracting `arm_offset` changes the height gap from `h - A` to
+    /// `h - v`. The same owned accumulator then passes to `finish_arming`,
+    /// which combines it with the deferred `A - m` to obtain the boundary
+    /// `v - m`. One value therefore serves both calculations without a clone.
     pub(super) fn arm_relative(&mut self, arm_offset: Accumulator) {
         debug_assert!(self.pending > 0, "a raise arms its own node's range");
         debug_assert!(self.armed > 0, "a relative arming needs an armed anchor");
         let pending = core::mem::replace(&mut self.pending, 0);
         self.gap.sub_accum(&arm_offset);
         self.armed += pending;
-        self.push_boundary(arm_offset, pending, || (), |()| ());
+        self.finish_arming(arm_offset, pending, &mut (), |_| (), |(), _| ());
     }
 
-    /// Install follower `slot` tracking `m − X`, where `X` is whatever
-    /// reference the caller's accumulator currently encodes.
+    /// Attach one client value to changes in the innermost minimum.
     ///
-    /// While a latent lives the caller's content must be anchor-relative (`A −
-    /// X`) — the slot is tagged and reads resolve through the latent. Every
-    /// install site either derives its content from the anchor web itself
-    /// (already anchor-relative) or runs where no latent can live (after an
-    /// arm's recycle or a [`resolve_latent`](Self::resolve_latent)), so no fold
-    /// is ever needed to install.
+    /// Abstractly the follower is `m - X`. When `A = m`, the supplied
+    /// accumulator already has that form. When a distance is deferred, the
+    /// supplied value is `A - X`; `anchor_relative[slot]` records that
+    /// `deferred = A - m` must be subtracted later. Storing the one-bit debt
+    /// avoids immediately traversing either wide accumulator.
     pub(super) fn follower_set(&mut self, slot: usize, follower: Accumulator) {
         debug_assert!(self.followers[slot].is_none(), "one follower per slot");
         debug_assert!(self.armed > 0, "a follower needs an armed anchor");
-        self.anchor_relative[slot] = self.latent.is_some();
+        self.anchor_relative[slot] = self.deferred.is_some();
         self.followers[slot] = Some(follower);
     }
 
-    /// Remove and return follower `slot`, as stored.
+    /// Detach a follower and return the accumulator exactly as stored.
     ///
-    /// The content is anchor-relative when the slot was tagged (a latent
-    /// lives): `f_true = f_stored − Λ`. Callers either consume it against
-    /// another anchor-relative quantity (the tag cancels symbolically), retire
-    /// it unread, or run under a preceding
-    /// [`resolve_latent`](Self::resolve_latent) that made it exact — never
-    /// store it raw into state that outlives the latent.
+    /// An untagged result is `m - X`. A tagged result is `A - X`; its consumer
+    /// must either combine it with another anchor-relative value, where the
+    /// deferred term cancels, or call `resolve_deferred` before taking it. The
+    /// tag clears because the stack no longer owns the returned value.
     pub(super) fn follower_take(&mut self, slot: usize) -> Accumulator {
         self.anchor_relative[slot] = false;
         self.followers[slot].take().expect("the follower is active")
     }
 
-    /// Materialize a dying accumulator: collapse, then read the sign and
-    /// magnitude (held digits exceed the value's width by at most the collapse
-    /// slack), retiring the buffer.
-    pub(super) fn materialize(&mut self, mut dying: Accumulator) -> BigInt {
-        dying.sign();
-        let value = accumulator::signed_value(&dying);
-        self.retire(dying);
-        value
-    }
-
-    /// Fold the stored `gap` into `delta` (`delta += h − A`): the
-    /// watermark-to-height anchor switch's bridge read, priced by the code
-    /// emitted at the switch that needs it.
+    /// Change an anchor-relative follower into a height-relative value.
     ///
-    /// Deliberately anchor-relative: the caller's `delta` is a follower taken
-    /// raw, so a live latent cancels symbolically — `(f_true) + (h − m) =
-    /// (f_stored − Λ) + (gap + Λ) = f_stored + gap` — and no latent digit is
-    /// ever touched by this switch.
+    /// The stored follower is `A - X` and `gap = h - A`. Adding them gives
+    /// `h - X`. If the follower is tagged, this is exactly the useful shortcut:
+    /// the abstract forms contain opposite deferred terms,
+    ///
+    /// `(A - X - deferred) + (h - A + deferred) = h - X`.
+    ///
+    /// The terms cancel symbolically, so this conversion never reads the
+    /// deferred accumulator.
     pub(super) fn bridge_add_gap(&mut self, delta: &mut Accumulator) {
         delta.add_accum(&self.gap);
     }
 
-    /// Fold the innermost `gap` out of `delta` (`delta −= h − m`): the
-    /// height-to-watermark anchor switch's bridge read.
+    /// Change a height-relative value into one relative to the true minimum.
     ///
-    /// The caller resolves any latent first
-    /// ([`resolve_latent`](Self::resolve_latent) — the switch's emission
-    /// re-anchors to the true minimum, which retires the latent anyway), so
-    /// `gap` is exact here.
+    /// On entry, `delta` is relative to `h`. The anchor must already be
+    /// resolved, making `gap = h - m`. Subtracting the gap therefore replaces
+    /// the height reference with `m`. The assertion prevents an accidental use
+    /// of `h - A`, which would leave the result off by the deferred distance.
     pub(super) fn bridge_sub_gap(&mut self, delta: &mut Accumulator) {
         debug_assert!(
-            self.latent.is_none(),
-            "the height-to-watermark switch resolves the latent first"
+            self.deferred.is_none(),
+            "the height-to-watermark switch resolves the deferred distance first"
         );
         delta.sub_accum(&self.gap);
     }

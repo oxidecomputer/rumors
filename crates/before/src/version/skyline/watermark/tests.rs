@@ -1,8 +1,7 @@
-//! Direct tests of [`MinWeb`]'s latent-boundary and range-closing invariants.
+//! Direct tests of [`RangeMinima`]'s deferred-boundary and closing invariants.
 //!
-//! Fixed cases reach internal branches that encoded walks cannot reliably
-//! isolate. Properties vary magnitudes across accumulator representations and
-//! verify that closing batch-armed ranges consumes one record at a time.
+//! Fixed cases isolate the comparisons around the anchor and true minimum.
+//! Properties vary value widths and the number of ranges.
 
 use core::cmp::Ordering;
 
@@ -10,294 +9,286 @@ use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
-use super::{Close, MinWeb};
+use super::{Close, RangeMinima};
 use crate::codec::accumulator;
 
-/// A priced word-scale offset `−n`: an emission `n` below the running height.
+/// Return the offset for a value `n` below the running height.
 fn below(n: u64) -> BigInt {
     BigInt::from_biguint(Sign::Minus, BigUint::from(n))
 }
 
-/// A priced offset `−n` for an arbitrary-width magnitude.
+/// Return the offset for a value `n` below the running height.
 fn below_magnitude(n: &BigUint) -> BigInt {
     BigInt::from_biguint(Sign::Minus, n.clone())
 }
 
-/// Collapsing a comparable-scale latent preserves the tracked minimum.
+/// Resolving a deferred boundary leaves the tracked minimum unchanged.
 ///
-/// The fixture parks a latent of `1000`, then emits at `25`. Probes below, at,
-/// and above the original minimum verify the restored fold's value and sign.
+/// Closing the inner range defers a distance of `1000`. An emission at `25`
+/// makes the two compared distances similar enough to resolve that state.
+/// Probes on both sides of the original minimum verify the result.
 #[test]
-fn post_collapse_restore_returns_the_priced_fold() {
-    let mut web: MinWeb<()> = MinWeb::new();
-    web.open(2);
-    web.emit_here(); // both ranges arm at v = 0
-    web.open(1);
-    web.fold_height(&BigInt::from(1000u64)); // h = 1000
-    web.emit_here(); // the inner range arms at v = 1000
-    web.close(); // parks the popped boundary: Λ = 1000, A = 1000, m = 0
-    assert!(web.latent_live(), "the close parks the popped boundary");
-    web.emit_offset(&below(975)); // v = 25: comparable scales, not below m
+fn resolving_a_deferred_boundary_preserves_the_minimum() {
+    let mut minima: RangeMinima<()> = RangeMinima::new();
+    minima.open(2);
+    minima.emit_here(); // both ranges arm at v = 0
+    minima.open(1);
+    minima.fold_height(&BigInt::from(1000u64)); // h = 1000
+    minima.emit_here(); // the inner range arms at v = 1000
+    minima.close(); // Λ = 1000, A = 1000, m = 0
+    assert!(minima.deferred_live(), "the close defers the boundary");
+    minima.emit_offset(&below(975)); // v = 25, above m
     assert!(
-        !web.latent_live(),
-        "comparable scales collapse the latent inside the ladder"
+        !minima.deferred_live(),
+        "the comparison resolves the deferred distance"
     );
-    // h = 1000 and m = 0: an exact restore leaves every probe reading the
-    // true minimum.
+    // h = 1000 and m = 0 after resolution.
     assert_eq!(
-        web.compare_above(&below(1000)),
+        minima.compare_above(&below(1000)),
         Ordering::Equal,
         "the probe at the true minimum reads exact"
     );
     assert_eq!(
-        web.compare_above(&below(975)),
+        minima.compare_above(&below(975)),
         Ordering::Greater,
         "a probe above the minimum reads above"
     );
     assert_eq!(
-        web.compare_above(&below(1001)),
+        minima.compare_above(&below(1001)),
         Ordering::Less,
         "a probe below the minimum reads below"
     );
 }
 
-/// A drop larger than a live latent transfers the undercut residue exactly.
+/// An undercut accounts for a deferred boundary before moving outward.
 ///
-/// The fixture parks a latent of `50`, then undercuts the prior minimum by
-/// `2^34`. Probes before and after closing the range verify that the surviving
-/// boundary contains `m - v`, not `A - v`.
+/// Closing the inner range defers `A - m = 50`. The next emission lowers `m`
+/// by `2^34`, so the drop propagated to the outer boundary must be `m - v`,
+/// not the larger `A - v`. Probes before and after closing verify both minima.
 #[test]
-fn dominated_latent_annihilates_into_the_undercut_residue() {
+fn undercut_subtracts_the_deferred_distance_before_propagating() {
     const D: u64 = 1 << 36;
     const E: u64 = 1 << 34;
-    let mut web: MinWeb<()> = MinWeb::new();
-    web.open(2);
-    web.emit_here(); // both ranges arm at v = 0
-    web.fold_height(&BigInt::from(D));
-    web.open(1);
-    web.emit_here(); // the middle range arms at v = D
-    web.fold_height(&BigInt::from(50u64)); // h = D + 50
-    web.open(1);
-    web.emit_here(); // the inner range arms at v = D + 50
-    web.close(); // parks Λ = 50: A = D + 50, innermost minimum m = D
-    assert!(web.latent_live(), "the close parks the popped boundary");
-    web.emit_offset(&below(50 + E)); // v = D − E: a dominating drop
+    let mut minima: RangeMinima<()> = RangeMinima::new();
+    minima.open(2);
+    minima.emit_here(); // both ranges arm at v = 0
+    minima.fold_height(&BigInt::from(D));
+    minima.open(1);
+    minima.emit_here(); // the middle range arms at v = D
+    minima.fold_height(&BigInt::from(50u64)); // h = D + 50
+    minima.open(1);
+    minima.emit_here(); // the inner range arms at v = D + 50
+    minima.close(); // Λ = 50, A = D + 50, m = D
+    assert!(minima.deferred_live(), "the close defers the boundary");
+    minima.emit_offset(&below(50 + E)); // v = D - E
     assert!(
-        !web.latent_live(),
-        "the undercut annihilates the latent into its residue"
+        !minima.deferred_live(),
+        "the undercut consumes the deferred distance"
     );
     // The undercut seated the innermost minimum at v = D − E exactly.
     assert_eq!(
-        web.compare_above(&below(50 + E)),
+        minima.compare_above(&below(50 + E)),
         Ordering::Equal,
         "the probe at the undercut emission reads exact"
     );
-    // Close the dropped range: the boundary that survived the residue pops
-    // and parks, and the probes then read the outer minimum 0 through it —
-    // exact only if the residue annihilated the latent.
-    web.close();
+    // Closing the dropped range exposes the outer minimum at zero. The
+    // surviving boundary is correct only if propagation used m - v.
+    minima.close();
     assert_eq!(
-        web.compare_above(&below(D + 50)),
+        minima.compare_above(&below(D + 50)),
         Ordering::Equal,
         "the probe at the outer minimum reads exact"
     );
     assert_eq!(
-        web.compare_above(&below(D + 49)),
+        minima.compare_above(&below(D + 49)),
         Ordering::Greater,
         "a probe above the outer minimum reads above"
     );
     assert_eq!(
-        web.compare_above(&below(D + 51)),
+        minima.compare_above(&below(D + 51)),
         Ordering::Less,
         "a probe below the outer minimum reads below"
     );
 }
 
-/// A drop that remains above the parked minimum leaves the web unchanged.
+/// A value between the anchor and true minimum does not lower the minimum.
 ///
-/// A latent of `2^36` dominates a drop of `50`. The latent remains live and
-/// three probes establish that the tracked minimum is still zero.
+/// The deferred distance is `2^36`, while the value is only `50` below the
+/// anchor. The deferred state remains and three probes establish that the
+/// minimum is still zero.
 #[test]
-fn a_drop_short_of_the_latent_minimum_refuses_the_undercut() {
+fn a_word_sized_value_between_anchor_and_minimum_preserves_the_minimum() {
     const D: u64 = 1 << 36;
-    let mut web: MinWeb<()> = MinWeb::new();
-    web.open(2);
-    web.emit_here(); // both ranges arm at v = 0
-    web.open(1);
-    web.fold_height(&BigInt::from(D)); // h = D
-    web.emit_here(); // the inner range arms at v = D
-    web.close(); // parks Λ = D: A = D, m = 0
-    assert!(web.latent_live(), "the close parks the popped boundary");
-    web.fold_height(&BigInt::from(-50)); // h = D − 50
-    web.emit_here(); // v = D − 50: below the anchor, above the minimum
+    let mut minima: RangeMinima<()> = RangeMinima::new();
+    minima.open(2);
+    minima.emit_here(); // both ranges arm at v = 0
+    minima.open(1);
+    minima.fold_height(&BigInt::from(D)); // h = D
+    minima.emit_here(); // the inner range arms at v = D
+    minima.close(); // Λ = D, A = D, m = 0
+    assert!(minima.deferred_live(), "the close defers the boundary");
+    minima.fold_height(&BigInt::from(-50)); // h = D − 50
+    minima.emit_here(); // v = D − 50: below the anchor, above the minimum
     assert!(
-        web.latent_live(),
-        "a dominating latent answers the drop with no state change"
+        minima.deferred_live(),
+        "the comparison leaves the deferred distance intact"
     );
-    // h = D − 50 and m = 0: the minimum is read through the surviving latent.
+    // h = D - 50 and m = 0: the deferred distance still reaches the minimum.
     assert_eq!(
-        web.compare_above(&below(D - 50)),
+        minima.compare_above(&below(D - 50)),
         Ordering::Equal,
         "the probe at the true minimum reads exact"
     );
     assert_eq!(
-        web.compare_above(&below(D - 51)),
+        minima.compare_above(&below(D - 51)),
         Ordering::Greater,
         "a probe above the minimum reads above"
     );
     assert_eq!(
-        web.compare_above(&below(D - 49)),
+        minima.compare_above(&below(D - 49)),
         Ordering::Less,
         "a probe below the minimum reads below"
     );
 }
 
-/// The spilled-accumulator path also preserves a minimum above the drop.
+/// The wide-accumulator path also preserves a minimum below the value.
 ///
-/// A latent of `2^200` forces the digit engine, while the word-sized drop keeps
-/// the expected ordering easy to calculate. Three probes establish the result.
+/// A deferred distance of `2^200` forces wide storage, while a drop of `50`
+/// keeps the expected ordering simple. Three probes establish the result.
 #[test]
-fn a_spilled_latent_refuses_the_drop_on_the_folded_certificate() {
+fn a_wide_deferred_distance_preserves_the_minimum() {
     let lambda = BigUint::from(1u8) << 200usize;
-    let mut web: MinWeb<()> = MinWeb::new();
-    web.open(2);
-    web.emit_here(); // both ranges arm at v = 0
-    web.open(1);
-    web.fold_height(&BigInt::from(lambda.clone())); // h = Λ
-    web.emit_here(); // the inner range arms at v = Λ
-    web.close(); // parks Λ = 2^200: A = Λ, m = 0
-    assert!(web.latent_live(), "the close parks the popped boundary");
-    web.fold_height(&BigInt::from(-50)); // h = Λ − 50
-    web.emit_here(); // v = Λ − 50: below the anchor, above the minimum
+    let mut minima: RangeMinima<()> = RangeMinima::new();
+    minima.open(2);
+    minima.emit_here(); // both ranges arm at v = 0
+    minima.open(1);
+    minima.fold_height(&BigInt::from(lambda.clone())); // h = Λ
+    minima.emit_here(); // the inner range arms at v = Λ
+    minima.close(); // Λ = 2^200, A = Λ, m = 0
+    assert!(minima.deferred_live(), "the close defers the boundary");
+    minima.fold_height(&BigInt::from(-50)); // h = Λ − 50
+    minima.emit_here(); // v = Λ − 50: below the anchor, above the minimum
     assert!(
-        web.latent_live(),
-        "a dominating latent answers the drop with no state change"
+        minima.deferred_live(),
+        "the comparison leaves the deferred distance intact"
     );
     let height = &lambda - BigUint::from(50u8);
     assert_eq!(
-        web.compare_above(&below_magnitude(&height)),
+        minima.compare_above(&below_magnitude(&height)),
         Ordering::Equal,
         "the probe at the true minimum reads exact"
     );
     assert_eq!(
-        web.compare_above(&below_magnitude(&(&height - BigUint::from(1u8)))),
+        minima.compare_above(&below_magnitude(&(&height - BigUint::from(1u8)))),
         Ordering::Greater,
         "a probe above the minimum reads above"
     );
     assert_eq!(
-        web.compare_above(&below_magnitude(&(&height + BigUint::from(1u8)))),
+        minima.compare_above(&below_magnitude(&(&height + BigUint::from(1u8)))),
         Ordering::Less,
         "a probe below the minimum reads below"
     );
 }
 
 proptest! {
-    /// A dominant undercut subtracts exactly `m - v` from every live follower.
+    /// A wide undercut moves every follower by exactly `m - v`.
     ///
-    /// One range arms at `0` with a follower installed at a known offset, the
-    /// height drops `2^b`, and a word-scale offset emission arrives. Past
-    /// `2^128` the gap's sign dominates a word whatever spelling the
-    /// accumulator holds it in, so the emission takes the scale-disparate
-    /// undercut answered with no fold: the residue `m − v = 2^b + k` moves out
-    /// whole, and a follower tracking `m − X` must come down by exactly it.
-    ///
-    /// Varying the drop and starting value checks both the residue's magnitude
-    /// and its negative sign.
+    /// One range has minimum zero and a follower at a known offset. The height
+    /// falls by `2^b`, then an emission arrives another `k` lower. For these
+    /// widths the leading digits decide the undercut without folding the small
+    /// offset into the wide gap. Varying both widths and offsets verifies the
+    /// resulting follower's sign and magnitude.
     #[test]
-    fn a_dominated_undercut_subtracts_its_residue_from_live_followers(
+    fn a_wide_undercut_moves_live_followers_by_the_exact_drop(
         b in 128usize..=300,
         k in 1u64..=u64::from(u32::MAX),
         start in 0u64..=1_000_000,
     ) {
         const SLOT: usize = 0;
         let drop = BigUint::from(1u8) << b;
-        let mut web: MinWeb<()> = MinWeb::new();
-        web.open(1);
-        web.emit_here(); // the range arms at v = 0: A = 0, m = 0
+        let mut minima: RangeMinima<()> = RangeMinima::new();
+        minima.open(1);
+        minima.emit_here(); // A = m = 0
         let mut follower = Accumulator::new();
         accumulator::fold(&mut follower, &BigUint::from(start), 0, false);
-        web.follower_set(SLOT, follower); // a live follower at m − X = start
-        web.fold_height(&-BigInt::from(drop.clone())); // h = −2^b
-        web.emit_offset(&below(k)); // v = −2^b − k: the dominated undercut
-        let taken = web.follower_take(SLOT);
-        let moved = web.materialize(taken);
-        // start − (2^b + k), necessarily negative: the residue dwarfs `start`.
-        let residue = &drop + BigUint::from(k);
+        minima.follower_set(SLOT, follower); // m - X = start
+        minima.fold_height(&-BigInt::from(drop.clone())); // h = −2^b
+        minima.emit_offset(&below(k)); // v = -2^b - k
+        let taken = minima.follower_take(SLOT);
+        let moved = accumulator::into_signed_value(taken);
+        let expected_drop = &drop + BigUint::from(k);
         prop_assert_eq!(
             moved.sign(),
             Sign::Minus,
-            "the residue leaves the follower below where it stood, never above"
+            "the undercut moves the follower downward"
         );
         prop_assert_eq!(
             moved.magnitude(),
-            &(residue - BigUint::from(start)),
-            "the follower moved by exactly the residue m − v"
+            &(expected_drop - BigUint::from(start)),
+            "the follower moved by exactly m - v"
         );
     }
 }
 
 proptest! {
-    /// A drop between the parked minimum and anchor preserves the minimum and
+    /// A value between the true minimum and anchor preserves the minimum and
     /// permits a later undercut.
     ///
-    /// Magnitudes cover register-held and spilled accumulators. Probes verify
-    /// the first drop, then a true undercut verifies that the preserved state
+    /// Magnitudes cover word-sized and wide accumulators. Probes verify the
+    /// first value, then a true undercut verifies that the deferred state
     /// remains usable.
     #[test]
-    fn a_drop_inside_the_latent_never_moves_the_minimum(
+    fn values_between_anchor_and_minimum_preserve_the_minimum(
         b in 34usize..=260,
         d in 1u64..=(1u64 << 33),
     ) {
         let lambda = BigUint::from(1u8) << b;
-        let mut web: MinWeb<()> = MinWeb::new();
-        web.open(2);
-        web.emit_here(); // both ranges arm at v = 0
-        web.open(1);
-        web.fold_height(&BigInt::from(lambda.clone())); // h = Λ
-        web.emit_here(); // the inner range arms at v = Λ
-        web.close(); // parks Λ: A = Λ, m = 0
-        prop_assert!(web.latent_live(), "the close parks the popped boundary");
-        web.fold_height(&-BigInt::from(d)); // h = Λ − d
-        web.emit_here(); // v = Λ − d: strictly inside (m, A)
+        let mut minima: RangeMinima<()> = RangeMinima::new();
+        minima.open(2);
+        minima.emit_here(); // both ranges arm at v = 0
+        minima.open(1);
+        minima.fold_height(&BigInt::from(lambda.clone())); // h = Λ
+        minima.emit_here(); // the inner range arms at v = Λ
+        minima.close(); // A = Λ, m = 0
+        prop_assert!(minima.deferred_live(), "the close defers the boundary");
+        minima.fold_height(&-BigInt::from(d)); // h = Λ − d
+        minima.emit_here(); // v = Λ − d: strictly inside (m, A)
         // The minimum is still 0, whichever arm answered.
         let height = &lambda - BigUint::from(d);
         prop_assert_eq!(
-            web.compare_above(&below_magnitude(&height)),
+            minima.compare_above(&below_magnitude(&height)),
             Ordering::Equal,
             "the probe at the true minimum reads exact"
         );
         prop_assert_eq!(
-            web.compare_above(&below_magnitude(&(&height - BigUint::from(1u8)))),
+            minima.compare_above(&below_magnitude(&(&height - BigUint::from(1u8)))),
             Ordering::Greater,
             "a probe above the minimum reads above"
         );
         prop_assert_eq!(
-            web.compare_above(&below_magnitude(&(&height + BigUint::from(1u8)))),
+            minima.compare_above(&below_magnitude(&(&height + BigUint::from(1u8)))),
             Ordering::Less,
             "a probe below the minimum reads below"
         );
-        // The refusal left the web intact: a drop that does pass the minimum
-        // still seats it exactly.
-        web.fold_height(&-BigInt::from(&height + BigUint::from(1u8))); // h = −1
-        web.emit_here(); // v = −1: past m = 0, a true undercut
-        // The undercut runs with the outer range still armed, so it propagates
-        // to a live follower. Close the dropped range and read the outer
-        // minimum back through the boundary that parked: the value survives
-        // only if the follower's residue moved at the right polarity.
-        web.close();
-        web.fold_height(&BigInt::from(100u64)); // h = 99
+        // The earlier comparison left enough state for a later undercut.
+        minima.fold_height(&-BigInt::from(&height + BigUint::from(1u8))); // h = −1
+        minima.emit_here(); // v = −1: past m = 0, a true undercut
+        // Closing the dropped range exposes the outer range, whose minimum was
+        // also lowered to -1 by the undercut.
+        minima.close();
+        minima.fold_height(&BigInt::from(100u64)); // h = 99
         prop_assert_eq!(
-            web.compare_above(&below(100)),
+            minima.compare_above(&below(100)),
             Ordering::Equal,
-            "the outer minimum reads the undercut emission through the parked boundary"
+            "the outer minimum equals the undercut emission"
         );
         prop_assert_eq!(
-            web.compare_above(&below(99)),
+            minima.compare_above(&below(99)),
             Ordering::Greater,
             "a probe above the outer minimum reads above"
         );
         prop_assert_eq!(
-            web.compare_above(&below(101)),
+            minima.compare_above(&below(101)),
             Ordering::Less,
             "a probe below the outer minimum reads below"
         );
@@ -305,47 +296,46 @@ proptest! {
 }
 
 proptest! {
-    /// Batch-armed ranges close one at a time and consume one record each.
+    /// Ranges armed by one emission still close one at a time.
     ///
-    /// The records consumed are `n − 1` zero-run entries, then the one
-    /// stacked boundary parking; throughout, the outer range stays armed
-    /// with its tracked minimum exactly where its own arming emission put
-    /// it.
+    /// One emission gives `n` nested ranges the same minimum, represented by a
+    /// zero run above one positive outer boundary. Each close consumes exactly
+    /// one range, and the outer minimum remains unchanged.
     #[test]
     fn batch_armed_closes_consume_exactly_one_range_record(n in 1usize..40) {
-        let mut web: MinWeb<()> = MinWeb::new();
-        web.open(1);
-        web.emit_here(); // the outer range arms at v = 0
-        web.fold_height(&BigInt::from(7u64)); // h = 7
-        web.open(n as u64);
-        web.emit_here(); // all n inner ranges arm at v = 7: one boundary, n − 1 zeros
+        let mut minima: RangeMinima<()> = RangeMinima::new();
+        minima.open(1);
+        minima.emit_here(); // the outer range arms at v = 0
+        minima.fold_height(&BigInt::from(7u64)); // h = 7
+        minima.open(n as u64);
+        minima.emit_here(); // all n inner ranges arm at v = 7: one boundary, n − 1 zeros
         for i in 0..n {
             if i < n - 1 {
                 prop_assert!(
-                    matches!(web.close(), Close::ZeroRun),
-                    "a batch-armed inner range closes as one zero-run entry"
+                    matches!(minima.close(), Close::Equal),
+                    "each equal inner minimum closes separately"
                 );
             } else {
                 prop_assert!(
-                    matches!(web.close(), Close::Parked(())),
-                    "the batch's last close pops the one stacked boundary"
+                    matches!(minima.close(), Close::Lower(())),
+                    "the final inner close exposes the lower outer minimum"
                 );
             }
         }
-        prop_assert!(!web.has_pending(), "the arming emission left nothing pending");
-        prop_assert!(web.armed(), "the outer range survives its inner ranges' closes");
+        prop_assert!(!minima.has_pending(), "the arming emission left nothing pending");
+        prop_assert!(minima.armed(), "the outer range survives its inner ranges' closes");
         prop_assert_eq!(
-            web.compare_above(&below(7)),
+            minima.compare_above(&below(7)),
             Ordering::Equal,
             "the probe at the outer minimum reads exact"
         );
         prop_assert_eq!(
-            web.compare_above(&below(6)),
+            minima.compare_above(&below(6)),
             Ordering::Greater,
             "a probe above the outer minimum reads above"
         );
         prop_assert_eq!(
-            web.compare_above(&below(8)),
+            minima.compare_above(&below(8)),
             Ordering::Less,
             "a probe below the outer minimum reads below"
         );

@@ -107,10 +107,20 @@ triage's dispositions and branches are leads only.
       Sources: `party-11`, `clock-14`, `version-core-16`,
       `codec-base-text-tree-13`, `skyline-coding-20`, `skyline-coding-29`.
 
-- [ ] Bound tick's memo and suspended-level storage by a small constant multiple
+- [x] Bound tick's memo and suspended-level storage by a small constant multiple
       of input size without introducing a second representation solely for a
       meter.
       Sources: `skyline-fill-grow-2` and its witness.
+
+- [x] Apply the global transient-heap ceiling to `min_ticks` by storing its
+      open boundaries and reign records compactly, with exact fallbacks.
+      Sources: `skyline-watermark` open question 4; owner review, 2026-09-17.
+
+- [ ] Make arbitrary-count Party and Clock splitting linear in the stored
+      values and count representation, and bring iterator construction,
+      iteration, partial drop, and consuming array splits under direct heap
+      judgment.
+      Source: owner resource-surface audit, 2026-09-17.
 
 - [ ] Recheck every remaining public complexity and allocation claim against
       its implementation; meet it, correct it, or bring an unattainable bound
@@ -167,6 +177,12 @@ into otherwise small feature increments.
       and the old triage's later findings.
 
 ## 08. Resource instrumentation
+
+- [ ] Make the global heap judgment total over every allocation-bearing public
+      method and trait family. Directly cover shape walks, compound Span and
+      causal-query operations, text conversion, and wide numeric operations;
+      reserve not-applicable dispositions for paths that cannot amplify.
+      Source: owner resource-surface audit, 2026-09-17.
 
 - [ ] Audit every counter hook for a distinct, live observation. Remove dead
       currencies and production hooks whose only consumer is decorative.

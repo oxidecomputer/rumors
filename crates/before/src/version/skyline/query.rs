@@ -96,7 +96,7 @@
 //! parked value and one window per arming, dropped at the close), never an
 //! emitted stream.
 //!
-//! min_ticks adds one fold into the range-minimum web's gap per delta, O(1) web
+//! min_ticks adds one fold into the range-minimum stack's gap per delta, O(1)
 //! bookkeeping per node (a count bump at each close, a boundary move at each
 //! pop), one settle per reign record at the record's own funded width, and the
 //! epoch ledger's one product per freeze at the evicted drift's width — the
@@ -348,7 +348,7 @@ impl Integrator {
 /// as narrow live offsets over a frozen component that lives entirely in an
 /// epoch ledger — one drift per freeze, settled against per-epoch reference
 /// counts once, at the end — and the closing nodes' minima ride a range-minimum
-/// anchor web whose closes count against reigning value records instead of
+/// stack whose closes count against current value records instead of
 /// folding widths (the `web` submodule carries both structures, the accounting,
 /// and the funding certificate). Equal to
 /// [`Version::min_ticks`](crate::Version::min_ticks) on the decoded version,
@@ -369,26 +369,24 @@ pub fn min_ticks(bits: BitsView<'_>) -> BigUint {
     // term relative to its own epoch's frozen component.
     let mut total = Accumulator::new();
     let mut ledger = web::EpochLedger::new(first);
-    // The minima side: subtree spans nest LIFO along the sweep, so each closing
-    // node's minimum is the innermost open range's — the range-minimum web (the
-    // `web` module carries the discipline and the funding argument).
-    let mut web = web::ReignWeb::new();
-    web.open(cursor.depth());
+    // Subtree ranges nest, so each close uses the innermost open minimum.
+    let mut minima = web::ReignTracker::new();
+    minima.open(cursor.depth());
     ledger.leaf_ref();
-    web.leaf(&BigInt::from(0u8), 0, &mut total, &mut ledger);
+    minima.leaf(&BigInt::from(0u8), 0, &mut total, &mut ledger);
     while !cursor.done() {
         let depth_before = cursor.depth();
         let (flip, step) = cursor.step();
         Side::A.fold(&mut live, &step);
-        web.fold_height(&step);
+        minima.fold_height(&step);
         // Every popped right-branch level closed one internal node: its subtree
         // minimum folds into the total (a count on the
         // web's reigning record) and merges into its parent.
         for _ in 0..depth_before - flip {
-            web.close(&mut total, &mut ledger);
+            minima.close(&mut total, &mut ledger);
         }
         // Every left branch the descent pushed opened one node's range.
-        web.open(cursor.depth() - flip);
+        minima.open(cursor.depth() - flip);
         // The new leaf: a stale-wide live component is evicted first, so the
         // offset entering the total is paid by the codes that built it (the
         // freeze discipline's funding argument).
@@ -404,11 +402,11 @@ pub fn min_ticks(bits: BitsView<'_>) -> BigUint {
         accumulator::fold(&mut total, &leaf_offset, 0, leaf_sign == Sign::Minus);
         ledger.leaf_ref();
         let leaf_offset = BigInt::from_biguint(leaf_sign, leaf_offset);
-        web.leaf(&leaf_offset, ledger.epoch(), &mut total, &mut ledger);
+        minima.leaf(&leaf_offset, ledger.epoch(), &mut total, &mut ledger);
     }
     // The final leaf closes every remaining ancestor from the right, then the
     // ledger folds the frozen component's every reference.
-    web.drain(&mut total, &mut ledger);
+    minima.drain(&mut total, &mut ledger);
     ledger.settle(&mut total);
     let (sign, magnitude) = accumulator::value(&total);
     debug_assert_ne!(

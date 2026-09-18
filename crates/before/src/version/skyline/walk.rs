@@ -37,7 +37,7 @@ use crate::codec::{accumulator, gamma, BitCursor, BitStack, DsiCursor};
 /// is the caller's. The cursor is a per-call argument rather than owned state
 /// so the caller keeps it between calls — the consuming walks read their
 /// payloads through the same cursor the driver descends with, and their
-/// surrounding state (watermark webs, output builders, height accumulators)
+/// surrounding state (range-minimum stacks, output builders, height accumulators)
 /// borrows freely alongside.
 pub(super) struct LeafWalk {
     /// Root-to-leaf branch directions for the current leaf, root first: `false`

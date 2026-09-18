@@ -123,7 +123,7 @@ const CLIFF_SCALE: usize = 1_024;
 const TICK_CROSS_SCALE: usize = 4_000;
 
 /// Staircase depth of the ownership-hole tick scenario: enough distinct
-/// plateaus that the unowned regions' per-leaf freight would dominate
+/// plateaus that the unowned regions' per-leaf work would dominate
 /// the envelope if the block scan failed to engage.
 const HOLE_STAIR_DEPTH: usize = 2_000;
 
@@ -139,7 +139,7 @@ const HOLE_ID_DEPTH: usize = 8;
 const SCAN_HOLE_UNITS: usize = 16;
 
 /// Descending steps per sub-scan hole region: deep enough that rerouting
-/// one lead's regions alone from block summaries to per-leaf freight
+/// one lead's regions alone from block summaries to per-leaf work
 /// moves the pinned columns past their ceilings.
 const SCAN_HOLE_STEPS: usize = 128;
 
@@ -2085,7 +2085,7 @@ mod skyline_flatness {
     // boundary-dominates arm (k three-digit residues dying against one
     // five-digit survivor), and each is paired with a wire-near-identical
     // control whose run difference isolates the hops from the shared
-    // consume/arm freight. The clearance band moves only the residue's
+    // consume/arm work. The clearance band moves only the residue's
     // digit clearance and holds per-byte cost flat in both directions: a
     // guard that stops deciding at the line (or starts demanding more
     // clearance) inflates exactly the minimal-clearance point.
@@ -2309,7 +2309,7 @@ mod skyline_flatness {
     /// retire unfolded at its empty stack. The difference is therefore the
     /// boundary-dominates hop itself (plus the one stacked-boundary arming
     /// and its drain park, O(1) in `k`): a per-hop read of the surviving
-    /// boundary's width lands whole here, undiluted by the shared freight.
+    /// boundary's width lands whole here, undiluted by the shared work.
     const STOPPING_DIFF_BAND: (u64, u64) = (5_904, 9_840);
 
     /// The stopping arm uses O(1) work per hop beside the retiring fold:
@@ -3369,7 +3369,7 @@ mod skyline_flatness {
     ///
     /// Flat per encoded byte across the doubling: this family never
     /// freezes, so no segment feed deposits, and its wide cycling pays
-    /// one quick-register spill per lease epoch. With certificate
+    /// one spill each time the quick register is re-entered. With certificate
     /// consumption disabled (a local probe build whose scans step
     /// digit by digit), the reading goes quadratic — `n² + O(n)`
     /// touches — and fails the band, so this band is the before-level
@@ -4068,7 +4068,7 @@ mod ledger_wide_arming {
 // banked mass) by ~t/32 base-2^32 digits while every cluster's span
 // stays put. So across a tail doubling, span-priced work (the walk, the
 // folds, the settle products, the images the settle densifies) grows
-// only with the tail's own linear scan freight, and work priced by a
+// only with the tail's own linear scan work, and work priced by a
 // cluster's absolute position — the case invisible to the width and
 // touch counters, because a zeroed image byte no digit lands on enters
 // no operand width and touches no accumulator digit — scales with the
@@ -5317,7 +5317,7 @@ mod query_env {
     pub const TICKS_MIRROR_WIDE: Envelope            = envelope( 63_520,   band(72_582, 43_548),     band(220_048, 132_028)); // second-walk fill branch, as the nested-wide row; the frame ledger uses one usize queue cell per site, and the pre-scan records minima only, so per-site collapse re-reads and raise-mirror folds stay out of the scan and touch columns
     pub const SKYLINE_MIN_TICKS_DENSE: Envelope      = envelope( 30_720, band(312_508, 187_504),     band(468_758, 281_254)); // every delta folds into two accumulators — the live height and the web's gap — so touches run ~2x the rank row's with no minima circulation
     pub const SKYLINE_MIN_TICKS_CLIFF: Envelope      = envelope(  3_530,    band(12_000, 7_200),       band(17_923, 10_753)); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
-    pub const SKYLINE_MIN_TICKS_ASCEND: Envelope     = envelope(553_660,   band(20_044, 12_026),        band(12_823, 7_693)); // the boundary-stacking row: compact boundary words keep both heap and touch work within these ceilings
+    pub const SKYLINE_MIN_TICKS_ASCEND: Envelope     = envelope(54_000,    band(20_044, 12_026),        band(12_823, 7_693)); // the boundary-stacking row: dense stack columns keep both heap and touch work within these ceilings
     pub const SKYLINE_PROJECT_COMB_SCATTER: Envelope = envelope(988_890,   band(44_924, 26_954), band(7_922_599, 1_591_299)); // output-dominated: the split builder holds at most two stream forms and scans the output once to separate it and once to interleave it
     pub const FOLD_VERSION_SCATTER: Envelope         = envelope(    323,   band(61_429, 36_857),     band(330_913, 198_547)); // the balanced reduction: near-linear in the population's encoded bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
     pub const FOLD_PARTY_SCATTER: Envelope           = envelope(    780,             band(0, 0),     band(322_068, 193_240)); // pure stream scanning through the balanced merges; one refcount control block per frozen stream lives in the fold's groups
@@ -5453,22 +5453,14 @@ fn skyline_min_ticks_cliff_envelope() {
     );
 }
 
-/// The min_ticks kernel on the ascending cliff stays within its
-/// envelope — the boundary-stacking case, and the committed basis for
-/// the anchor web's per-boundary word compaction.
+/// The min_ticks kernel on the ascending cliff stays within its envelope.
 ///
 /// The ascending spine arms every open range one above its parent's
 /// minimum, so the web holds `ASCEND_STACK_DEPTH − 1` nonzero unit
 /// boundary differences simultaneously at the terminal cliff — the one
-/// committed min_ticks shape where per-boundary transient storage is
-/// the envelope. The heap and touch ceilings are what the compacting
-/// instantiation buys: each word-scale difference is stored inline
-/// instead of as an accumulator entry, and the terminal cliff's
-/// undercut consumes each one by an O(1) word fold instead of an
-/// accumulator hop. With compaction deleted the same body reads over
-/// both the heap and touch ceilings \[demonstrated under the live
-/// swap, same harness\], so this row is the measured basis
-/// `MinWeb::compacting` cites.
+/// committed min_ticks shape where boundary storage determines the transient
+/// heap. Each unit difference occupies the word arm of the compact boundary
+/// stack, and the terminal cliff consumes it with an O(1) word fold.
 #[test]
 fn skyline_min_ticks_ascend_envelope() {
     let p = Shape::AscendCliff.build2(ASCEND_STACK_DEPTH, ASCEND_STACK_MAGNITUDE_BITS);
@@ -5593,7 +5585,7 @@ fn tick_mirror_wide_envelope() {
 ///
 /// The fill walk's unowned regions are whole staircase runs, and the
 /// block scan must fold each into O(1) accumulator work instead of
-/// per-leaf freight. The touch ceiling is the skip's liveness signal
+/// per-leaf work. The touch ceiling is the skip's liveness signal
 /// — it sits below the per-leaf mechanism's reading, so the fast path
 /// must demonstrably engage; the scan column pins that every skipped
 /// bit is still read.
@@ -5645,7 +5637,7 @@ fn tick_ownership_comb_envelope() {
 /// Each unit's fully-owned range is crossed exactly once, by the walk's
 /// consuming max scan at its descend arm, and the crossing must ride the
 /// block summary: the touch ceiling sits below what per-leaf register
-/// freight over the same ranges reads, and the scan column holds every
+/// work over the same ranges reads, and the scan column holds every
 /// folded bit still read.
 #[test]
 fn tick_collapse_hole_envelope() {
@@ -6795,31 +6787,24 @@ mod meet_fold {
     }
 }
 
-// ─── the memo resolution's touch cost (the frame ledger's pins) ─────────────
-//
-// The committed witnesses that the memoized pre-scan's site resolution is
-// LINEAR in accumulator digit touches on consumption-order adversaries —
-// every ledger link read exactly once, dying into the raise decision it
-// serves — while the shared-minimum control shows the records themselves
-// cost nothing (zero links are unstored). Each family separates the
-// frame ledger from a refuted resolution, so a regression re-admitting
-// one reads over the x2.5 doubling ceiling: the chain family defeats any
-// resolution that re-reads recorded differences per crossing interval
-// (consumption order permutes recording order, so interval folds pay
-// Θ(k) links per site); the comb family additionally defeats anchoring
-// to the previously consumed site (its interleaved shallow/covering
-// sites keep consecutive consumptions Θ(d) apart in recording order
-// under that anchoring too) — a conforming resolution reads sites
-// against the walk's own live relation, one link fold each.
+// ─── memo resolution ────────────────────────────────────────────────────────
+
+/// Resource bounds for the memoized pre-scan.
+///
+/// The distinct-minimum chain gives every site one stored link. The comb nests
+/// one suspended recording level per site. Together they bound both sources of
+/// retained state while their size doublings check that each link is read once.
 #[cfg(feature = "touch-meter")]
 mod memo_resolution_cost {
+    use super::HEAP;
     use before::meter;
+    use before::meter::board::MAX_HEAP_BYTES_PER_INPUT_BYTE;
     use before::meter::registry::Shape;
     use before::Party;
     use suanpan::touch_meter;
 
-    /// One tick run over a memo family cross: the tick's encoded
-    /// input bytes and the accumulator digit touches of its body.
+    /// One tick run's encoded input size, peak transient heap, and accumulator
+    /// digit touches.
     ///
     /// The input is the version's own stored stream — the skyline
     /// coding, not the generator's construction language, whose
@@ -6827,11 +6812,11 @@ mod memo_resolution_cost {
     /// orders of magnitude — plus the id.
     struct Run {
         input: u64,
+        peak_heap: usize,
         touches: u64,
     }
 
-    /// Tick the event × id cross and read the touch counter over the
-    /// tick body alone.
+    /// Tick the event × id cross and measure the operation body alone.
     ///
     /// Enforces a one-touch-per-eight-input-bytes liveness floor before
     /// returning, derived from the walk's irreducible work: every
@@ -6847,10 +6832,13 @@ mod memo_resolution_cost {
         let mut v = ev.version();
         let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
         let input = (v.encode().len() + id.bytes.len()) as u64;
+        HEAP.reset_peak_usage();
+        let baseline = HEAP.current_usage();
         touch_meter::reset();
         v.tick(&p);
         let run = Run {
             input,
+            peak_heap: HEAP.peak_usage().saturating_sub(baseline),
             touches: touch_meter::touches(),
         };
         assert!(
@@ -6862,17 +6850,23 @@ mod memo_resolution_cost {
         run
     }
 
-    /// Assert the linear signature: touches grow by at most ×2.5
-    /// across a size doubling.
+    /// Assert the heap ceiling and at-most-×2.5 touch growth across a size
+    /// doubling.
     ///
     /// A linear resolution reads ×2.0 (the input doubles); a
     /// resolution that re-reads links once per crossing reads ~×4. A
     /// reading over the ceiling means a link is being read more than
     /// once — re-pin only with a cure, never by deleting the family.
-    fn assert_flat(name: &str, small: &Run, large: &Run) {
+    fn assert_linear(name: &str, small: &Run, large: &Run) {
         eprintln!(
-            "MEASURED {name}: small={}/{}B large={}/{}B",
-            small.touches, small.input, large.touches, large.input,
+            "MEASURED {name}: small={}/{}B touches, {}B heap; \
+             large={}/{}B touches, {}B heap",
+            small.touches,
+            small.input,
+            small.peak_heap,
+            large.touches,
+            large.input,
+            large.peak_heap,
         );
         assert!(
             u128::from(large.touches) * 2 <= u128::from(small.touches) * 5,
@@ -6881,10 +6875,51 @@ mod memo_resolution_cost {
             small.touches,
             large.touches,
         );
+        assert_heap_bound(format_args!("{name} small"), small);
+        assert_heap_bound(format_args!("{name} large"), large);
     }
 
-    /// Resolving the flat memo chain's distinct-minimum sites is
-    /// linear in digit touches.
+    /// Assert the crate's general transient-heap ceiling for one run.
+    fn assert_heap_bound(name: impl core::fmt::Display, run: &Run) {
+        let ratio = run.peak_heap as f64 / run.input as f64;
+        assert!(
+            ratio <= MAX_HEAP_BYTES_PER_INPUT_BYTE,
+            "{name}: peak heap {} B over {} input B is {ratio:.2} B/B, above \
+             the {MAX_HEAP_BYTES_PER_INPUT_BYTE:.2} B/B ceiling",
+            run.peak_heap,
+            run.input,
+        );
+    }
+
+    /// Assert the heap ceiling and at-most-×1.25 growth in touches per input
+    /// byte across a size doubling.
+    fn assert_linear_per_byte(name: &str, small: &Run, large: &Run) {
+        eprintln!(
+            "MEASURED {name}: small={}/{}B touches, {}B heap; \
+             large={}/{}B touches, {}B heap",
+            small.touches,
+            small.input,
+            small.peak_heap,
+            large.touches,
+            large.input,
+            large.peak_heap,
+        );
+        assert!(
+            u128::from(large.touches) * u128::from(small.input) * 4
+                <= u128::from(small.touches) * u128::from(large.input) * 5,
+            "{name}: per-byte touch cost grew more than x1.25 across the size \
+             doubling: {}/{}B -> {}/{}B",
+            small.touches,
+            small.input,
+            large.touches,
+            large.input,
+        );
+        assert_heap_bound(format_args!("{name} small"), small);
+        assert_heap_bound(format_args!("{name} large"), large);
+    }
+
+    /// Distinct-minimum chain links stay within the heap ceiling and are each
+    /// read once.
     ///
     /// `k` consumption-sibling sites' links each die into their own
     /// raise decision — one fold per link across the whole walk, the
@@ -6901,7 +6936,7 @@ mod memo_resolution_cost {
             Shape::MemoChain.build_flagged(2_000, true),
             Shape::MemoChainId.build1(2_000),
         );
-        assert_flat("memo_chain_distinct", &small, &large);
+        assert_linear("memo_chain_distinct", &small, &large);
     }
 
     /// The shared-minimum control stays flat per input byte (×1.25
@@ -6920,24 +6955,11 @@ mod memo_resolution_cost {
             Shape::MemoChain.build_flagged(2_000, false),
             Shape::MemoChainId.build1(2_000),
         );
-        eprintln!(
-            "MEASURED memo_chain_shared: small={}/{}B large={}/{}B",
-            small.touches, small.input, large.touches, large.input,
-        );
-        assert!(
-            u128::from(large.touches) * u128::from(small.input) * 4
-                <= u128::from(small.touches) * u128::from(large.input) * 5,
-            "memo_chain_shared: per-byte touch cost grew more than x1.25 across \
-             the size doubling: {}/{}B -> {}/{}B",
-            small.touches,
-            small.input,
-            large.touches,
-            large.input,
-        );
+        assert_linear_per_byte("memo_chain_shared", &small, &large);
     }
 
-    /// Resolving the memo comb's interleaved sites is linear in digit
-    /// touches.
+    /// The memo comb's nested recording levels stay within the heap ceiling,
+    /// and its interleaved links are each read once.
     ///
     /// Consecutive consumptions sit Θ(d) apart in recording order —
     /// the shape that defeats the recording-chain and the
@@ -6952,7 +6974,7 @@ mod memo_resolution_cost {
             Shape::MemoComb.build1(1_000),
             Shape::MemoCombId.build1(1_000),
         );
-        assert_flat("memo_comb", &small, &large);
+        assert_linear("memo_comb", &small, &large);
     }
 
     /// Absolute touch ceiling on the wide fan-out's larger run: the
@@ -6989,7 +7011,7 @@ mod memo_resolution_cost {
             Shape::MemoFanout.build2(2_000, 2_048),
             Shape::MemoChainId.build1(2_000),
         );
-        assert_flat("memo_fanout", &small, &large);
+        assert_linear("memo_fanout", &small, &large);
         assert!(
             large.touches <= MEMO_FANOUT_TOUCH_CEILING,
             "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute \
@@ -7000,7 +7022,7 @@ mod memo_resolution_cost {
         assert!(
             large.touches >= MEMO_FANOUT_TOUCH_TRIPWIRE,
             "memo_fanout: {} touches read below the {MEMO_FANOUT_TOUCH_TRIPWIRE} \
-             improvement tripwire (measured x0.75): attribute the drop — an \
+             improvement tripwire (measured x0.75): attribute the drop — a \
              genuine improvement re-pins the band; a dead meter is the bypass \
              this column exists to catch",
             large.touches,
@@ -7022,19 +7044,7 @@ mod memo_resolution_cost {
             Shape::MemoOscillating.build2(2_000, 512),
             Shape::MemoChainId.build1(2_000),
         );
-        eprintln!(
-            "MEASURED memo_oscillating: small={}/{}B large={}/{}B",
-            small.touches, small.input, large.touches, large.input,
-        );
-        assert!(
-            u128::from(large.touches) * u128::from(small.input) * 4
-                <= u128::from(small.touches) * u128::from(large.input) * 5,
-            "memo_oscillating: per-byte touch cost grew more than x1.25 across              the size doubling: {}/{}B -> {}/{}B",
-            small.touches,
-            small.input,
-            large.touches,
-            large.input,
-        );
+        assert_linear_per_byte("memo_oscillating", &small, &large);
     }
 
     /// Full-penetration minimum drops with recorded minima in flight
@@ -7052,7 +7062,7 @@ mod memo_resolution_cost {
             Shape::MemoChurn.build1(1_600),
             Shape::MemoChurnId.build1(1_600),
         );
-        assert_flat("memo_churn", &small, &large);
+        assert_linear("memo_churn", &small, &large);
     }
 
     /// Raises landing below the frame's minimum at every consume
@@ -7074,7 +7084,7 @@ mod memo_resolution_cost {
             Shape::DescendingRaises.build1(1_600),
             Shape::DescendingRaisesId.build1(1_600),
         );
-        assert_flat("descending_raises", &small, &large);
+        assert_linear("descending_raises", &small, &large);
     }
 }
 
@@ -7089,7 +7099,7 @@ mod memo_resolution_cost {
 // site's fill collapses to the shared plateau leaf; the per-site
 // output deltas are unit codes) — an amplification the input+output
 // denominator cannot excuse. The watermark web's latent boundary
-// register is what these pins hold: a close MOVES the popped wide
+// register is what these pins hold: a close moves the popped wide
 // boundary into the register and the next consume's arm recycles it
 // by a narrow anchor-relative fold, with the relation follower going
 // anchor-relative under a one-bit tag — so the cycle's marginal cost
@@ -7237,7 +7247,7 @@ mod width_circulation_cost {
     /// Each of the comb's k − 1 close-reveal cycles pays two touches the
     /// arm-recycle mechanism cannot avoid: the recycle's fold of the
     /// arriving offset with the parked latent boundary (a fold of an
-    /// accumulator operand touches at least one digit, a leased zero
+    /// accumulator operand touches at least one digit, a fresh zero
     /// included) and the merged boundary's sign read deciding the push
     /// trichotomy.
     /// The wide plateau's own code folds into the running height once,
@@ -7651,98 +7661,6 @@ mod dominated_undercut_cost {
              irreducible work): the walk's accumulator work left the metered \
              representation",
             large.touches,
-        );
-    }
-}
-
-// ─── the anchor web's pool-recycle liveness ──────────────────────────────────
-//
-// The committed pin that the anchored-minimum web's accumulator pool
-// actually recycles: range churn allocates nothing in steady state, so
-// pool misses (leases the pool could not serve, `meter::pool_misses`)
-// are bounded by the walk's peak simultaneous demand and independent of
-// the churn length. No other instrument can see this property: a dead
-// recycle (retire dropping its buffer instead of pooling it) leaves
-// every peak-heap reading untouched — each dropped buffer's bytes are
-// released before the fresh allocation that replaces it — and every
-// touch reading unchanged, since a fresh accumulator folds exactly like a
-// reset one. Only the miss count separates the two.
-#[cfg(feature = "touch-meter")]
-mod pool_recycle {
-    use super::ticks_from_big;
-    use before::meter;
-    use before::meter::registry::Shape;
-    use num_bigint::BigUint;
-
-    /// Sites of the pool row's small run (the large run doubles it — a
-    /// doubling of the arm/retire churn).
-    const CHURN_SMALL_K: usize = 512;
-
-    /// The stopping pair's closed form (the semantic check, proving the
-    /// generator builds the churn this row reasons about).
-    fn stopping_boundary_ticks(k: usize) -> BigUint {
-        (BigUint::from(5u8) << 128usize)
-            + (BigUint::from((k - 1) as u64) << 80usize)
-            + (BigUint::from(5u8) << 64usize) * BigUint::from((k * (k - 1) / 2) as u64)
-    }
-
-    /// Pool-miss ceiling, derived from the walk's peak simultaneous
-    /// demand on this family — never from churn.
-    ///
-    /// The pool starts empty and a miss occurs exactly when a lease finds
-    /// it empty, so the total is the peak count of simultaneously
-    /// outstanding pool-served buffers. On the stopping family that peak
-    /// is two: the first arming leases its fresh gap before any buffer
-    /// has retired, and the one stacked boundary then holds a leased
-    /// buffer across the next arming's fresh-gap lease; every later
-    /// cycle's lease is preceded by its own predecessor's residue
-    /// retiring, so steady-state churn adds nothing. A third miss means
-    /// a cycle stopped returning its dying buffer before the next lease.
-    const STOPPING_POOL_WARMUP: u64 = 2;
-
-    /// One `Version::min_ticks` run over `SS(k)`, reading the pool-miss
-    /// counter over the fold body alone, with the closed form as the
-    /// semantic leg.
-    fn churn_run(k: usize) -> u64 {
-        let v = Shape::SeamStop.build1(k).version();
-        meter::reset_pool_misses();
-        let ticks = v.min_ticks();
-        let misses = meter::pool_misses();
-        assert_eq!(
-            ticks,
-            ticks_from_big(&stopping_boundary_ticks(k)),
-            "min_ticks disagrees with the stopping-family closed form"
-        );
-        misses
-    }
-
-    /// Steady-state range churn allocates nothing: pool misses are the
-    /// warm-up constant, equal across a churn doubling, and at least one
-    /// (the counter's own liveness — the fill phase always misses).
-    ///
-    /// A dead recycle reads misses proportional to the churn instead:
-    /// each cycle's arming lease finds the pool empty, so the reading
-    /// lands near `k` and both the ceiling and the equality trip.
-    #[test]
-    fn stopping_boundary_pool_misses_stay_at_warmup_across_churn_doubling() {
-        let small = churn_run(CHURN_SMALL_K);
-        let large = churn_run(2 * CHURN_SMALL_K);
-        eprintln!("MEASURED seam_stop_pool: misses small={small} large={large}");
-        assert!(
-            small >= 1,
-            "seam_stop_pool: zero misses — the pool's fill phase always \
-             misses at least once, so the counter is dead"
-        );
-        assert_eq!(
-            small, large,
-            "seam_stop_pool: misses moved across the churn doubling — the \
-             pool's fill phase is reading the churn, not the peak demand"
-        );
-        assert!(
-            large <= STOPPING_POOL_WARMUP,
-            "seam_stop_pool: {large} misses exceed the derived peak-demand \
-             ceiling {STOPPING_POOL_WARMUP}: a cycle stopped returning its \
-             dying buffer before the next lease"
         );
     }
 }

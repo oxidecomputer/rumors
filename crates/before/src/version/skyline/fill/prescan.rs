@@ -2,7 +2,7 @@
 //! sibling, ahead of the walk.
 //!
 //! [`PreScan`] computes every interior left-full site's `min(fill(ir, er))` on
-//! its own watermark web and records each as a frame-ledger link (the `memo`
+//! its own range-minimum stack and records each as a frame-ledger link (the `memo`
 //! module carries the ledger's discipline), so the walk arrives with every
 //! raise argument resolved and no position is pre-scanned twice.
 //!
@@ -45,9 +45,9 @@ use crate::codec::{self, accumulator, gamma, BitCursor, BitStack, BitsView, PopS
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::walk::{fold_region, net_leaves, skip_leaves, Extremum, LeafWalk};
-use super::super::watermark::MinWeb;
+use super::super::watermark::RangeMinima;
 use super::memo::Memo;
-use super::{DeltaReg, REL_FOLLOWER};
+use super::{restore_accumulator, store_accumulator, DeltaReg, StoredAccumulator, REL_FOLLOWER};
 use num_bigint::{BigInt, Sign};
 
 /// The pre-scan's cursor, web, and recording state (module doc); the `&mut`
@@ -58,7 +58,7 @@ pub(super) struct PreScan<'a, 'm> {
     /// cursor is untouched (the scan never consumes).
     cursor: codec::DsiCursor<'a>,
     /// The pre-scan's own range-minimum watermarks.
-    pub(super) web: MinWeb<()>,
+    pub(super) minima: RangeMinima<()>,
     /// `h′ − h(scan entry)`, alive until the first virtual arming seeds the
     /// recording head.
     entry_net: Option<Accumulator>,
@@ -78,18 +78,12 @@ pub(super) struct PreScan<'a, 'm> {
     /// Its link (`m_first − m_parent`) is deferred to the parent's own record —
     /// the one reference not final at the child's close.
     first_slot: Option<usize>,
-    /// The site-nesting level the head currently serves (0: the outermost
-    /// site's own level, whose reference is the scan-entry height and never
-    /// defers). `u64` per the module doc's width contract.
+    /// The site-nesting level served by the current recording head.
     head_level: u64,
     /// Suspended outer levels, innermost last, LIFO by the site forest's
     /// nesting.
     ///
-    /// Recorder invariants, jointly over the four fields above: `head_level ==
-    /// 0` iff `first_slot.is_none()` (only the outermost level never defers a
-    /// first-child link), and `suspend.len() == head_level` (one suspended
-    /// record per outer level; the terminal case is asserted where the walk
-    /// drains the scan).
+    /// Empty exactly when the current head serves the outermost level.
     pub(super) suspend: Vec<SuspendedLevel>,
 }
 
@@ -98,12 +92,12 @@ pub(super) struct PreScan<'a, 'm> {
 pub(super) struct SuspendedLevel {
     /// The outer head's final value, `m_first(inner) − m_ref(outer)` —
     /// immutable once pushed, both minima final.
-    head: Accumulator,
+    head: StoredAccumulator,
     /// The outer level's sibling-chain keeper.
-    keeper: Accumulator,
+    keeper: StoredAccumulator,
     /// The outer level's deferred first-site queue slot.
     first_slot: Option<usize>,
-    /// The outer level's site-nesting level.
+    /// The site-nesting level served by the suspended head.
     level: u64,
 }
 
@@ -113,7 +107,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     pub(super) fn new(event: BitsView<'a>, start: u64, memo: &'m mut Memo) -> Self {
         PreScan {
             cursor: codec::DsiCursor::new_at(event, start),
-            web: MinWeb::new(),
+            minima: RangeMinima::new(),
             entry_net: Some(Accumulator::new()),
             pending_relation: None,
             memo,
@@ -193,20 +187,20 @@ impl<'a, 'm> PreScan<'a, 'm> {
                         // fill(0, er): the leaves stay as they are, and the
                         // walk re-derives this raise from its own local scan —
                         // nothing is recorded.
-                        self.web.open(1);
+                        self.minima.open(1);
                         self.copy_range();
-                        self.web.close();
+                        self.minima.close();
                         break;
                     }
                     let slot = self.reserve(self.cursor.position());
                     frames.push_site(slot);
                     level += 1;
-                    self.web.open(1);
+                    self.minima.open(1);
                     continue; // walk the sibling range
                 }
                 // An ordinary node: the left child's range first.
                 frames.push_node(right);
-                self.web.open(1);
+                self.minima.open(1);
                 if left {
                     continue; // descend into the left child
                 }
@@ -220,10 +214,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 let Some(top) = frames.top() else {
                     return self.cursor.position();
                 };
-                self.web.close();
+                self.minima.close();
                 match top {
                     // A site's sibling range finished: record its ledger link.
-                    // The site's own raise leaves no mark in the web: the
+                    // The site's own raise leaves no mark in the minima: the
                     // raised value is `max(max(el), m_s)` where `m_s` is
                     // exactly the sibling minimum this range just tracked, so
                     // it never falls below the innermost tracked minimum and a
@@ -249,20 +243,20 @@ impl<'a, 'm> PreScan<'a, 'm> {
                             // virtual value.
                             id.skip();
                             let above = self.max_range();
-                            if self.web.compare_above(&above) != Ordering::Less {
+                            if self.minima.compare_above(&above) != Ordering::Less {
                                 self.emit_offset(&above);
                             }
                             frames.pop_node();
                         } else if right {
                             frames.flip_to_await_right();
-                            self.web.open(1);
+                            self.minima.open(1);
                             continue 'descend; // walk the right child
                         } else {
                             // Absent right child: fill(0, er) in its own
                             // frame.
-                            self.web.open(1);
+                            self.minima.open(1);
                             self.copy_range();
-                            self.web.close();
+                            self.minima.close();
                             frames.pop_node();
                         }
                     }
@@ -302,15 +296,12 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// minimum is not final yet — and suspends the outer head, whose value is
     /// immutable from here on (both its endpoints are final minima).
     pub(super) fn record(&mut self, slot: usize, level: u64) {
-        // The head and the suspends store true minimum differences, so no
-        // anchor-relative content may escape into the ledger: a latent parked
-        // by a nested site's close retires here (its one death), making every
-        // head read below exact. The recording cycle's own arm has already
-        // drained the register, so the sibling-chain case pays nothing.
-        self.web.resolve_latent();
+        // Ledger links store differences between true minima. Resolve the
+        // anchor before copying any follower into the ledger.
+        self.minima.resolve_deferred();
         debug_assert!(
-            !self.web.latent_live(),
-            "ledger links and suspends never snapshot a latent-relative quantity"
+            !self.minima.deferred_live(),
+            "ledger links and suspends never snapshot an anchor-relative quantity"
         );
         // A deeper level is complete iff the head still serves it: its forest
         // parent is THIS site, whose minimum is final now.
@@ -321,9 +312,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // A sibling record (the scan's outermost site records here too, as
             // the sibling of the entry-height pseudo-site): the head IS the
             // link, `m_s − m_prev`.
-            let mut head = self.web.follower_take(REL_FOLLOWER);
+            let mut head = self.minima.follower_take(REL_FOLLOWER);
             if head.sign() == Ordering::Equal {
-                self.web.retire(head);
+                drop(head);
             } else {
                 if level > 0 {
                     // keeper: m_latest − m_first, one fold at the
@@ -332,17 +323,17 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     // keeper is never read — skip the fold.
                     self.keeper.add_accum(&head);
                 }
-                self.memo.set_link(slot, head);
+                self.memo.set_link(slot, store_accumulator(head));
             }
         } else {
             debug_assert!(self.head_level < level, "levels resolve LIFO");
             // This level's first site: suspend the outer head by
             // move — its value (m_s − m_ref(outer)) is immutable now.
-            let head = self.web.follower_take(REL_FOLLOWER);
-            let keeper = core::mem::replace(&mut self.keeper, self.web.lease());
+            let head = self.minima.follower_take(REL_FOLLOWER);
+            let keeper = core::mem::replace(&mut self.keeper, Accumulator::new());
             self.suspend.push(SuspendedLevel {
-                head,
-                keeper,
+                head: store_accumulator(head),
+                keeper: store_accumulator(keeper),
                 first_slot: self.first_slot.take(),
                 level: self.head_level,
             });
@@ -356,8 +347,8 @@ impl<'a, 'm> PreScan<'a, 'm> {
         // here no emission follows at all — the site's raise leaves no mark
         // in the web (the site-close arm's argument) — so the install just
         // seats the head for the next range's emissions.
-        let zero = self.web.lease();
-        self.web.follower_set(REL_FOLLOWER, zero);
+        let zero = Accumulator::new();
+        self.minima.follower_set(REL_FOLLOWER, zero);
     }
 
     /// Resolve the innermost suspended level.
@@ -368,8 +359,8 @@ impl<'a, 'm> PreScan<'a, 'm> {
     fn resolve_inner(&mut self) {
         // chain_span := (min − m_last) + (m_last − m_first) = min − m_first;
         // the keeper dies into it (its buffer is re-armed for the outer level
-        // below — nothing is minted per resolve).
-        let mut chain_span = self.web.follower_take(REL_FOLLOWER);
+        // below, without allocating another accumulator per resolve).
+        let mut chain_span = self.minima.follower_take(REL_FOLLOWER);
         chain_span.add_accum(&self.keeper);
         if chain_span.sign() != Ordering::Equal {
             // link(first) = m_first − m_parent = −chain_span: one clone at the
@@ -377,29 +368,28 @@ impl<'a, 'm> PreScan<'a, 'm> {
             let first_slot = self
                 .first_slot
                 .expect("a nested level's first site is recorded at its suspension");
-            let mut link = self.web.lease();
+            let mut link = Accumulator::new();
             link.add_accum(&chain_span);
             link.negate();
-            self.memo.set_link(first_slot, link);
+            self.memo.set_link(first_slot, store_accumulator(link));
         }
         // The outer head resumes: (m_first − m_ref(outer)) + (min − m_first).
-        // The fold runs NARROW side INTO wide survivor: chain_span dies at the
-        // link's own funded width (zero when the minima are shared), while the
-        // suspended diff's content — wide when one wide minimum spans a whole
-        // first-child chain — is moved, never re-read, so a nested chain over
-        // one wide minimum costs nothing per level.
+        // The narrower chain span folds into the surviving outer head. The
+        // span is read once at the link width; the suspended value moves
+        // without being read again.
         let outer = self
             .suspend
             .pop()
             .expect("a deeper head level implies a suspended outer level");
-        let mut resumed = outer.head;
+        let mut resumed = restore_accumulator(outer.head);
         resumed.add_accum(&chain_span);
-        self.web.retire(chain_span);
-        let dead = core::mem::replace(&mut self.keeper, outer.keeper);
-        self.web.retire(dead);
+        drop(chain_span);
+        let keeper = restore_accumulator(outer.keeper);
+        let dead = core::mem::replace(&mut self.keeper, keeper);
+        drop(dead);
         self.first_slot = outer.first_slot;
         self.head_level = outer.level;
-        self.web.follower_set(REL_FOLLOWER, resumed);
+        self.minima.follower_set(REL_FOLLOWER, resumed);
     }
 
     /// Read one payload at the cursor, folding the step into the height side of
@@ -412,7 +402,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     fn payload(&mut self) -> BigInt {
         let code = self.cursor.read_int().expect("canonical skyline bits");
         let delta = gamma::decode_signed(code);
-        self.web.fold_height(&delta);
+        self.minima.fold_height(&delta);
         if let Some(net) = &mut self.entry_net {
             accumulator::fold_signed(net, &delta);
         }
@@ -422,21 +412,21 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// A virtual emission at the current height.
     fn emit_here(&mut self) {
         self.seed_relation(None);
-        self.web.emit_here();
+        self.minima.emit_here();
         self.install_relation();
     }
 
     /// A virtual emission at `h′ + offset`.
     fn emit_offset(&mut self, offset: &BigInt) {
         self.seed_relation(Some(offset));
-        self.web.emit_offset(offset);
+        self.minima.emit_offset(offset);
         self.install_relation();
     }
 
     /// Before the scan's first arming: seed the recording relation `rel = v −
     /// h(scan entry)` from the dying entry net.
     fn seed_relation(&mut self, offset: Option<&BigInt>) {
-        if self.web.armed() {
+        if self.minima.armed() {
             return;
         }
         let mut relation = self
@@ -452,7 +442,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// After the arming emission: install the seeded relation.
     fn install_relation(&mut self) {
         if let Some(relation) = self.pending_relation.take() {
-            self.web.follower_set(REL_FOLLOWER, relation);
+            self.minima.follower_set(REL_FOLLOWER, relation);
         }
     }
 
@@ -483,7 +473,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         // `first: false`: the scan reads only deltas (`payload`'s doc).
         let skip = skip_leaves(&mut walk, &mut self.cursor, false, Some(first_leaf_depth))
             .expect("the descended leaf is pending");
-        self.web.fold_height(&skip.net);
+        self.minima.fold_height(&skip.net);
         if let Some(net) = &mut self.entry_net {
             accumulator::fold_signed(net, &skip.net);
         }
@@ -515,7 +505,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             return;
         }
         let net = net_leaves(&mut walk, &mut self.cursor);
-        self.web.fold_height(&net);
+        self.minima.fold_height(&net);
         if let Some(entry) = &mut self.entry_net {
             accumulator::fold_signed(entry, &net);
         }
@@ -543,7 +533,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             self.entry_net.is_none(),
             "a completed range emits before any raise scans for its maximum, so the entry net is already retired"
         );
-        let mut above = Extremum::max(self.web.lease());
+        let mut above = Extremum::max(Accumulator::new());
         let mut walk = LeafWalk::new();
         let first_leaf_depth = walk
             .descend(&mut self.cursor)
@@ -569,9 +559,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 Some(first_leaf_depth),
             );
             let net = accumulator::signed_value(&net);
-            self.web.fold_height(&net);
+            self.minima.fold_height(&net);
         }
-        let result = self.web.materialize(above.into_offset());
+        let result = accumulator::into_signed_value(above.into_offset());
         debug_assert!(result.sign() != Sign::Minus, "the fold floors at zero");
         result
     }

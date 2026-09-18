@@ -14,8 +14,8 @@ fn board_ops() -> BTreeSet<String> {
         .collect()
 }
 
-/// The full public surface: every mechanically extracted `pub fn` plus every
-/// coverage family row.
+/// The resource roster: every mechanically extracted `pub fn` plus every
+/// grouped trait-family row.
 fn public_surface() -> BTreeSet<String> {
     let mut surface: BTreeSet<String> = surface_coverage::extract_public_fns();
     surface.extend(
@@ -26,8 +26,8 @@ fn public_surface() -> BTreeSet<String> {
     surface
 }
 
-/// Every public operation is either measured by the board or explicitly marked
-/// not applicable, never both.
+/// Every rostered method and trait family is either measured by the board or
+/// explicitly marked not applicable, never both.
 ///
 /// The test also rejects duplicates, stale names, and references to missing
 /// board operations.

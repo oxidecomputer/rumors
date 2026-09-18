@@ -5,7 +5,7 @@
 //! memory. The counters observe peak heap, stack growth, encoded traversal,
 //! accumulator work, and a few focused internal events.
 //!
-//! The generators themselves are private: every instrument mints its shapes
+//! The generators themselves are private: every instrument constructs its shapes
 //! through the family registry ([`registry`]), whose roster is the single
 //! source of truth for adversarial families — the registry module doc states
 //! the invariant and the compiler ties that hold it. A shape lands in one of
@@ -67,7 +67,7 @@ pub use crate::version::skyline;
 /// ([`span_traffic`]/[`reset_span_traffic`]).
 pub use crate::version::hull_traffic::SpanTraffic;
 
-/// The watermark web's domination-decision snapshot, re-exported beside its
+/// The range-minimum stack's leading-digit decisions, re-exported beside its
 /// readers ([`emit_traffic`]/[`reset_emit_traffic`]).
 pub use crate::version::skyline::web_traffic::EmitTraffic;
 
@@ -699,7 +699,7 @@ fn staircase(d: usize) -> Encoding {
 /// on its first descent's depth — per-leaf below depth 2, one block summary
 /// at or above it — and this region is built to make the block side the
 /// only cheap answer. The staircase body undercuts at every step, so a
-/// per-leaf pass pays the walk's full register freight (and, on the
+/// per-leaf pass pays the walk's full register work (and, on the
 /// emitting scans, one watermark undercut) per leaf where the block summary
 /// folds the whole range into one net movement and one streaming extremum;
 /// the `lead` knob (2 or 3) places the routing decision on each side of the
@@ -1370,7 +1370,7 @@ fn descending_raises_id(d: usize) -> Encoding {
 /// [`reveal_comb_id`], each site is a left-full pre-scan site whose consume
 /// arms the tracked minimum `2^b` above the floor, and the left-leaning spine
 /// closes the site's node frame back into the 0-floor frame between consecutive
-/// consumes: the width-`b` boundary difference is minted at every consume and
+/// consumes: the width-`b` boundary difference is created at every consume and
 /// popped at every close — per-object-legal moves circulating one width with no
 /// input delta, no output code, and no undercut descent funding any hop. Normal
 /// form: no equal leaf pair exists (site pairs are `(2^b − 1, 2^b)`), and every
@@ -1487,7 +1487,7 @@ fn reveal_comb_id(k: usize) -> Encoding {
 /// [`pure_comb_id`], no left-full site exists anywhere — no memo, no pre-scan,
 /// no site consume: each wide leaf is walked in its own leaf-under-internal-id
 /// frame, whose first emission arms it `2^b` above the floor and whose close
-/// pops the width-`b` boundary difference back — the watermark web's own
+/// pops the width-`b` boundary difference back — the range-minimum stack's own
 /// arm-move + close-pop cycle, isolated from the pre-scan's frame ledger.
 /// Normal form: every comb node's subtree minimum is 0 via the floor, and no
 /// two sibling leaves are equal (`2^b` pairs with an internal node or the
@@ -2562,7 +2562,7 @@ const DOMINATED_UNDERCUT_EXIT_RISE: u64 = 1;
 /// rises [`DOMINATED_UNDERCUT_EXIT_RISE`] above the region's minimum —
 /// terminated by a leaf 0. Crossed with [`dominated_undercut_id`], each site's
 /// left-full raise diverges the walk and arms at the sibling region's minimum,
-/// the region's first (wide) leaf re-arms the watermark web at the climb's
+/// the region's first (wide) leaf re-arms the range-minimum stack at the climb's
 /// top, and the region's remaining block then returns below with the exit one
 /// above its minimum — so the block-minimum emission arrives with no latent, a
 /// word-scale nonzero offset, and an anchor gap of `−(5·2^b − 1)`: the
@@ -2650,8 +2650,8 @@ fn dominated_undercut_id(k: usize) -> Encoding {
 /// digit at the sign fold's decision bound (a top digit of 5 decides a
 /// domination read at its first touch).
 ///
-/// Every stacked boundary and every dying residue the seam shapes mint holds
-/// exactly this width: wide enough that the compacting instantiation cannot
+/// Every stacked boundary and every dying residue the seam shapes create holds
+/// exactly this width: wide enough that the compact boundary representation cannot
 /// store it inline (`u64` covers two digits), narrow enough that the dying
 /// side's one fold is three digit touches — the unit the seam bands' floors
 /// count in.
@@ -2799,11 +2799,6 @@ fn seam_plunge_control(k: usize, r: usize) -> Encoding {
 /// committed shape reaches the boundary-dominates arm at all: their
 /// cascades either annihilate exactly or penetrate to the stack's end.
 ///
-/// Each cycle leases one fresh accumulator at its arming and retires its
-/// dead residue in propagation, so the shape is also the steady-state
-/// arm/retire churn family the pool-miss row drives: the pool's fill phase
-/// is the peak outstanding lease count, not the churn length.
-///
 /// Normal form: the descent subtree's minimum is its final leaf (rel 0), the
 /// root's children minima are `(0, B)`, and no sibling leaves are equal. All
 /// descending leaves share `bitlen = 81` (the rung sum stays under `2^80`
@@ -2827,10 +2822,9 @@ fn seam_stop(k: usize) -> Encoding {
 ///
 /// With no floor leaf below it, the subtree's first leaf is the web's first
 /// arming — no boundary stacks — so each descending residue propagates into
-/// an empty difference stack and retires: the same leaf codes, folds, sign
-/// reads, and lease/retire churn as [`seam_stop`], less exactly the
-/// per-cycle boundary hop (and the drain's one park). The seam-stop band
-/// prices the difference.
+/// an empty difference stack and retires: the same leaf codes, folds, and sign
+/// reads as [`seam_stop`], less exactly the per-cycle boundary hop and the
+/// drain's one park. The seam-stop band prices the difference.
 ///
 /// # Panics
 ///
@@ -3597,7 +3591,7 @@ pub fn reset_span_traffic() {
 
 /// The fill walk's priced-offset domination decisions since the last
 /// [`reset_emit_traffic`]: how many word-scale emissions each of the
-/// watermark web's no-fold arms answered, and how many fell back to the
+/// range-minimum stack's no-fold arms answered, and how many fell back to the
 /// fold path.
 ///
 /// The deterministic stand-in for emission-arm *liveness*, which no cost
@@ -3615,30 +3609,6 @@ pub fn emit_traffic() -> EmitTraffic {
 /// Reset the decision counters behind [`emit_traffic`] to zero.
 pub fn reset_emit_traffic() {
     crate::version::skyline::web_traffic::reset()
-}
-
-/// The anchor web's pool misses since the last [`reset_pool_misses`]:
-/// leases the accumulator pool could not serve.
-///
-/// The deterministic stand-in for steady-state churn allocation, which no
-/// other meter can see: the web recycles dying accumulators through a pool,
-/// and a dead recycle changes no peak-heap reading (each dropped buffer is
-/// released before the fresh allocation replacing it) and no touch reading (a
-/// fresh accumulator folds exactly like a reset one) — only the
-/// miss count separates a pool that recycles (misses bounded by peak
-/// simultaneous demand) from one that leaks its churn (misses proportional
-/// to it). The seam-stop pool row in `tests/meter.rs` pins both directions.
-/// Process-global, with the same isolation requirement as [`stack_segments`];
-/// compiled under the `meter` feature.
-#[cfg(feature = "meter")]
-pub fn pool_misses() -> u64 {
-    crate::version::skyline::pool_traffic::misses()
-}
-
-/// Reset the pool-miss counter behind [`pool_misses`] to zero.
-#[cfg(feature = "meter")]
-pub fn reset_pool_misses() {
-    crate::version::skyline::pool_traffic::reset()
 }
 
 /// The encoded bits scanned and written since the last

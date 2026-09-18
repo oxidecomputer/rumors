@@ -11,10 +11,7 @@ use std::hash::{Hash, Hasher};
 use crate::error::Decode;
 use crate::{causally, Clock, Party, Rank, Ranked, Span, Version};
 
-use super::ceilings::{
-    ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE, ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE,
-    COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, TICKS_BOARD_COUNT,
-};
+use super::ceilings::{COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, TICKS_BOARD_COUNT};
 use super::cell::Cell;
 use super::currency::{Floors, Liveness};
 use super::defect::{
@@ -44,9 +41,8 @@ pub(super) struct Op {
     pub(super) prepare: fn(&FamilyData) -> Option<Cell>,
 }
 
-/// The operation table: every public operation with a meaningful encoded
-/// operand ([`BOARD_NOT_APPLICABLE`](super::coverage::BOARD_NOT_APPLICABLE)
-/// and the `coverage` module doc list the rest).
+/// The operation table: every priced method or trait-family row with a
+/// meaningful encoded operand. The `coverage` module accounts for the rest.
 #[allow(clippy::too_many_lines)]
 pub(super) fn ops() -> Vec<Op> {
     vec![
@@ -221,18 +217,10 @@ pub(super) fn ops() -> Vec<Op> {
                 // seed.
                 if let Some((mut v, party, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
-                    let cell = Cell::new(n, floors, move || {
+                    return Some(Cell::new(n, floors, move || {
                         v.tick(&party);
                         (v, party)
-                    });
-                    // The ascending cliff defeats certificate consumption,
-                    // so its tick cells carry the ratified family-stated
-                    // heap ceiling (the constant's derivation).
-                    return Some(if matches!(f.kind, FamilyId::AscendCliff) {
-                        cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
-                    } else {
-                        cell
-                    });
+                    }));
                 }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
@@ -257,17 +245,10 @@ pub(super) fn ops() -> Vec<Op> {
                 // input axis).
                 if let Some((mut v, party, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
-                    let cell = Cell::new(n, floors, move || {
+                    return Some(Cell::new(n, floors, move || {
                         v.ticks(&party, TICKS_BOARD_COUNT);
                         (v, party)
-                    });
-                    // As the tick cell above: the ascending cliff's
-                    // certificate memory is family-stated.
-                    return Some(if matches!(f.kind, FamilyId::AscendCliff) {
-                        cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
-                    } else {
-                        cell
-                    });
+                    }));
                 }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
@@ -589,15 +570,7 @@ pub(super) fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
-                let cell = Cell::new(n, floors, move || (v.min_ticks(), v));
-                // The ascending cliff defeats reign batching, so this
-                // cell carries the ratified family-stated heap ceiling
-                // (the constant's derivation).
-                Some(if matches!(f.kind, FamilyId::AscendCliff) {
-                    cell.with_declared_heap(ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE)
-                } else {
-                    cell
-                })
+                Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
             },
         },
         Op {
@@ -1173,17 +1146,10 @@ pub(super) fn ops() -> Vec<Op> {
                 if let Some((v, p, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
                     let mut clock = Clock::from_parts(p, v);
-                    let cell = Cell::new(n, floors, move || {
+                    return Some(Cell::new(n, floors, move || {
                         clock.tick();
                         clock
-                    });
-                    // As version_tick: the ascending cliff's certificate
-                    // memory is family-stated.
-                    return Some(if matches!(f.kind, FamilyId::AscendCliff) {
-                        cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
-                    } else {
-                        cell
-                    });
+                    }));
                 }
                 let (mut clock, n) = f.clock()?;
                 // A version-bearing shape's clock ticks its seed party (an
