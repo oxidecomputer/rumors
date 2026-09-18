@@ -1,6 +1,7 @@
 # Rumors review checklist
 
-**Current:** give the materialized walk and proxy one progress-tracing shape.
+**Current:** exercise meaningful walk and proxy failures, shedding, isolation,
+and terminal behavior.
 
 **Next:** run the height-indexed trait experiment and judge the result.
 
@@ -421,7 +422,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Simplify the opening hand-off and proxy ingress state — `f12dec08`.
       Sources: `async-hazards-5`, `materialized-34`, `remote-proxy-24`, T119, T128, T132.
 
-- [ ] Give the materialized walk and proxy one progress-tracing shape.
+- [x] Give the materialized walk and proxy one progress-tracing shape — `e3f19fe8`.
       Sources: T118, T132.
 
 - [ ] Run the height-indexed trait experiment and judge the result.
