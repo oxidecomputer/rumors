@@ -976,19 +976,19 @@ pub enum Bands {
 }
 
 /// Board rows reached by a family with version operands.
-const VERSION_BUNDLE_CELLS: usize = 70;
+const VERSION_BUNDLE_CELLS: usize = 75;
 
 /// Board rows reached by a family with party operands.
 const PARTY_BUNDLE_CELLS: usize = 38;
 
 /// Board rows reached by a family with version, party, and clock operands.
-const CROSS_BUNDLE_CELLS: usize = 91;
+const CROSS_BUNDLE_CELLS: usize = 96;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 107;
+const FULL_BUNDLE_CELLS: usize = 112;
 
 /// Board rows reached by a population family.
-const POPULATION_BUNDLE_CELLS: usize = 20;
+const POPULATION_BUNDLE_CELLS: usize = 24;
 
 /// The default denominator: encoded input bytes.
 const ENCODED: &str = "encoded input bytes";

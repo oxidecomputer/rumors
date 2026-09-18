@@ -92,11 +92,10 @@ struct Fit {
 ///
 /// - the denominator span must scale ([`MIN_EXPONENT_DENOM_GROWTH`] from the
 ///   first used point to the last), or the fit divides by a vanishing log;
-/// - a heap trend is fitted only over the points that clear
-///   the flat allowance the constant leg already forgives (a point inside the
-///   forgiven flat zone deflates the fit and manufactures an exponent at the
-///   allowance boundary), and judged only when at least two such points
-///   remain and they span a scaling denominator.
+/// - a two-point heap trend uses only points above the flat allowance, because
+///   crossing that boundary can manufacture a slope; the four-point acceptance
+///   trend instead clamps smaller readings to the allowance and keeps the whole
+///   ladder, so one allocation tier cannot define the fit.
 fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
     let points: Option<Vec<(usize, u64)>> = samples
         .iter()
@@ -122,6 +121,16 @@ fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
         last as f64 >= first as f64 * MIN_EXPONENT_DENOM_GROWTH
     };
     if c == Currency::Heap {
+        if points.len() > 2 {
+            let clamped: Vec<(usize, u64)> = points
+                .iter()
+                .map(|&(n, m)| (n, m.max(HEAP_FLAT_ALLOWANCE_BYTES as u64)))
+                .collect();
+            return Fit {
+                exp: Some(trend(&clamped)),
+                judged: spans(&clamped),
+            };
+        }
         let cleared: Vec<(usize, u64)> = points
             .iter()
             .copied()

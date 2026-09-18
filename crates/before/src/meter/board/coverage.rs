@@ -113,6 +113,14 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Ranked::decode", &["ranked_decode"]),
     ("causally::Floor::contains", &["causally_contains"]),
     ("causally::Ceiling::contains", &["causally_contains"]),
+    ("causally::since", &["query_single_hole"]),
+    ("causally::until", &["query_single_hole"]),
+    ("causally::strictly_after", &["query_single_hole"]),
+    ("causally::strictly_before", &["query_single_hole"]),
+    ("causally::delta", &["query_single_hole"]),
+    ("causally::toward", &["query_single_hole"]),
+    ("causally::Floor::or_concurrent", &["query_single_hole"]),
+    ("causally::Ceiling::or_concurrent", &["query_single_hole"]),
     (
         "causally::Query::contains",
         &[
@@ -264,6 +272,18 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
+        &["ticks_clone", "ticks_add", "ticks_sum", "ticks_display"],
+    ),
+    (
+        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
+        &["ticks_clone", "ticks_display"],
+    ),
+    (
+        "causally ! complement (atom negation into the polar hole)",
+        &["query_single_hole"],
+    ),
+    (
         "Ranked comparisons and the Ranked / Rank From conversions (the total order)",
         &["ranked_cmp"],
     ),
@@ -388,50 +408,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          coverage rows price the sweeps",
     ),
     (
-        "causally::since",
-        "stores its bound version as one hole and performs no walk; the \
-         membership and coverage rows price the sweeps",
-    ),
-    (
-        "causally::until",
-        "stores its bound version as one hole and performs no walk; the \
-         membership and coverage rows price the sweeps",
-    ),
-    (
-        "causally::strictly_after",
-        "stores its bound version as floor and hole (one buffer-sharing clone) \
-         and performs no walk; the membership and coverage rows price the sweeps",
-    ),
-    (
-        "causally::strictly_before",
-        "stores its bound version as ceiling and hole (one buffer-sharing clone) \
-         and performs no walk; the membership and coverage rows price the sweeps",
-    ),
-    (
-        "causally::delta",
-        "assembles its bounds through the cross-side merge, which performs no \
-         comparison; the query_coverage row prices the verdicts it feeds",
-    ),
-    (
-        "causally::toward",
-        "assembles its bounds through the cross-side merge, which performs no \
-         comparison; the query_coverage row prices the verdicts it feeds",
-    ),
-    (
-        "causally::Floor::or_concurrent",
-        "moves its bound version into one hole and performs no walk; the \
-         membership and coverage rows price the sweeps",
-    ),
-    (
-        "causally::Ceiling::or_concurrent",
-        "moves its bound version into one hole and performs no walk; the \
-         membership and coverage rows price the sweeps",
-    ),
-    (
-        "causally ! complement (atom negation into the polar hole)",
-        "O(1) hole mint over the atom's bound: no comparison, no walk",
-    ),
-    (
         "Span::new",
         "stores two borrows plus one validating causal comparison, the \
          identical comparison the causally_contains row prices",
@@ -530,12 +506,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          celled at the OwnVersion rows",
     ),
     (
-        "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
-        "an opaque count carrier: word-to-width-scale arithmetic with no \
-         encoded-input axis; the operations denominated in it are celled at \
-         their own rows (version_ticks, version_min_ticks)",
-    ),
-    (
         "Ticks::limbs",
         "a borrowing view of the stored count: word-scale construction, one \
          word per step, no encoded-input axis",
@@ -544,11 +514,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "shape iterators (Plateaus / Regions / Overlay / Cells / Limbs: Iterator, FusedIterator, ExactSizeIterator)",
         "iterator traits add no work beyond each item; the shape methods are \
          measured directly, and Ticks::limbs has its own disposition",
-    ),
-    (
-        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
-        "value carriers: word-scale fields plus one count held at its own \
-         width",
     ),
     (
         "unbounded depth (beyond the differential grids)",

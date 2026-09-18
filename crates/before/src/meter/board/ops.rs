@@ -6,6 +6,7 @@
 
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::{self, Write};
 use std::hash::{Hash, Hasher};
 
 #[cfg(feature = "borsh")]
@@ -52,6 +53,41 @@ const ARRAY_ARITY: usize = 16;
 /// Why shape iteration has no representation-independent heap floor.
 const NA_HEAP_SHAPE_WALK: &str =
     "paths and rises may share input storage or live inline; heap allocation is not required";
+
+/// Why tick-count arithmetic does not drive the accumulator meter.
+const NA_TOUCH_TICK_COUNT: &str =
+    "tick counts use ordinary big-integer operations, not the skyline accumulator";
+
+/// Why tick-count operations do not drive the encoded-stream meter.
+const NA_SCAN_TICK_COUNT: &str = "tick counts have no encoded stream to walk";
+
+/// Why formatting a tick count has no representation-independent heap floor.
+const NA_HEAP_TICK_FORMAT: &str =
+    "decimal digits may be streamed directly: heap allocation is not required";
+
+/// Why constructing one query hole has no representation-independent heap floor.
+const NA_HEAP_QUERY_CONSTRUCTION: &str =
+    "one hole may live inline and its version buffer may be shared";
+
+/// A formatting sink that counts UTF-8 bytes without storing them.
+#[derive(Default)]
+struct TextLen(usize);
+
+/// Count the bytes written by a formatter.
+impl fmt::Write for TextLen {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        self.0 += text.len();
+        Ok(())
+    }
+}
+
+/// Format into a counting sink and return the number of bytes written.
+fn formatted_len(args: fmt::Arguments<'_>) -> usize {
+    let mut len = TextLen::default();
+    len.write_fmt(args)
+        .expect("counting formatted bytes cannot fail");
+    len.0
+}
 
 /// Drain a shape iterator while making every yielded item observable.
 fn drain_shape(items: impl IntoIterator) {
@@ -763,6 +799,65 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "ticks_clone",
+            prepare: |f| {
+                let count = tick_counts(f)?
+                    .into_iter()
+                    .max_by_key(|count| count.0.bits())?;
+                let n = tick_count_bytes(&count);
+                Some(Cell::new(
+                    n,
+                    tick_count_floors(heap_materializes(tick_count_value_bytes(&count))),
+                    move || (count.clone(), count),
+                ))
+            },
+        },
+        Op {
+            name: "ticks_add",
+            prepare: |f| {
+                let mut counts = tick_counts(f)?.into_iter();
+                let (a, b) = (counts.next()?, counts.next()?);
+                let n = tick_count_bytes(&a) + tick_count_bytes(&b);
+                let output_bytes = tick_count_value_bytes(&a).max(tick_count_value_bytes(&b));
+                Some(Cell::new(
+                    n,
+                    tick_count_floors(heap_materializes(output_bytes)),
+                    move || (&a + &b, a, b),
+                ))
+            },
+        },
+        Op {
+            name: "ticks_sum",
+            prepare: |f| {
+                let counts = tick_counts(f)?;
+                let n = counts.iter().map(tick_count_bytes).sum();
+                let output_bytes = counts.iter().map(tick_count_value_bytes).max()?;
+                Some(Cell::new(
+                    n,
+                    tick_count_floors(heap_materializes(output_bytes)),
+                    move || {
+                        let sum: Ticks = counts.iter().sum();
+                        (sum, counts)
+                    },
+                ))
+            },
+        },
+        Op {
+            name: "ticks_display",
+            prepare: |f| {
+                let count = tick_counts(f)?
+                    .into_iter()
+                    .max_by_key(|count| count.0.bits())?;
+                let n = tick_count_bytes(&count);
+                Some(Cell::io(
+                    n,
+                    tick_count_floors(na(NA_HEAP_TICK_FORMAT)),
+                    tick_count_text_output_bytes,
+                    move || (formatted_len(format_args!("{count}")), count),
+                ))
+            },
+        },
+        Op {
             name: "version_distance",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
@@ -1202,6 +1297,21 @@ pub(super) fn ops() -> Vec<Op> {
                 Some(Cell::new(n, floors, move || {
                     let hit = causally::since(&v).contains(&w);
                     (hit, v, w)
+                }))
+            },
+        },
+        Op {
+            name: "query_single_hole",
+            prepare: |f| {
+                let (version, n) = f.version()?;
+                let floors = Floors {
+                    heap: na(NA_HEAP_QUERY_CONSTRUCTION),
+                    segments: seg_ceiling_only(),
+                    scan: na(NA_SCAN_QUERY_CLONE),
+                    touch: na(NA_TOUCH_NOT_FORCED),
+                };
+                Some(Cell::new(n, floors, move || {
+                    (causally::strictly_after(version.clone()), version)
                 }))
             },
         },
@@ -2460,6 +2570,53 @@ fn rank_text_output_bytes(result: &dyn std::any::Any) -> usize {
         .expect("a rank display cell keeps its text")
         .0
         .len()
+}
+
+/// Tick counts derived from a family's rank or population values.
+fn tick_counts(f: &FamilyData) -> Option<Vec<Ticks>> {
+    if let Some((versions, _)) = &f.population {
+        let counts = versions
+            .iter()
+            .map(|bytes| {
+                let version = decode_version(bytes);
+                Ticks(version.rank().raw_parts().0.clone())
+            })
+            .collect::<Vec<_>>();
+        return (!counts.is_empty()).then_some(counts);
+    }
+    let (a, b) = f.rank_pair.as_ref()?;
+    Some(vec![
+        Ticks(a.raw_parts().0.clone()),
+        Ticks(b.raw_parts().0.clone()),
+    ])
+}
+
+/// A tick count's numeric width, rounded up to bytes.
+fn tick_count_bytes(count: &Ticks) -> usize {
+    tick_count_value_bytes(count).max(1)
+}
+
+/// Bytes needed to store a tick count's significant bits.
+fn tick_count_value_bytes(count: &Ticks) -> usize {
+    count.0.bits().div_ceil(8) as usize
+}
+
+/// Resource floors shared by operations over decoded tick counts.
+fn tick_count_floors(heap: Liveness) -> Floors {
+    Floors {
+        heap,
+        segments: seg_ceiling_only(),
+        scan: na(NA_SCAN_TICK_COUNT),
+        touch: na(NA_TOUCH_TICK_COUNT),
+    }
+}
+
+/// Read the rendered text length from a tick-count formatting result.
+fn tick_count_text_output_bytes(result: &dyn std::any::Any) -> usize {
+    result
+        .downcast_ref::<(usize, Ticks)>()
+        .expect("a tick-count display cell keeps its byte count")
+        .0
 }
 
 /// A binary serde input which gives its byte allocation to the visitor.

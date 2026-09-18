@@ -61,10 +61,10 @@
 //!   equal byte for byte (canonical identity answers them before any
 //!   sweep), and operands whose streams store no fold-forcing delta
 //!   codes.
-//! - **Heap** floors bind on the codec and text rows, whose results must
-//!   materialize at least their encoded bytes; everywhere else allocation is
-//!   not semantically forced (and the heap meter reads the process
-//!   allocator, which no re-routing inside the crate can bypass).
+//! - **Heap** floors bind where the result must materialize a known byte count,
+//!   including encoded output and arbitrary-width numeric values. Elsewhere
+//!   allocation is not semantically forced (and the heap meter reads the
+//!   process allocator, which no re-routing inside the crate can bypass).
 //! - **Segments** is ceiling-only by policy: the target is walks that never
 //!   grow the stack, so its honest floor is zero and a zero floor asserts
 //!   nothing.
@@ -124,9 +124,9 @@ pub(super) const NA_SCAN_SEED_PROJECTION: &str = "the whole-interval (seed) part
 pub(super) const NA_SCAN_RANK_BYTES: &str =
     "the canonical rank bytes are read through a plain slice walk, not the metered \
      encoded primitives; the heap floor carries the row's liveness";
-/// Heap floor: the result materializes at least its encoded bytes.
+/// Heap floor: the result materializes at least its required bytes.
 const WHY_HEAP_MATERIALIZES: &str =
-    "materializes a result at least as large as the encoded bytes it codes";
+    "materializes a result at least as large as its required output bytes";
 /// Heap NA: the forked child's version hand-over shares the refcounted
 /// stored buffer.
 ///
@@ -470,10 +470,10 @@ pub(super) fn sync_floors(v: &Version, w: &Version) -> Floors {
     }
 }
 
-/// A materialization heap floor over `encoded_bytes`.
-pub(super) fn heap_materializes(encoded_bytes: usize) -> Liveness {
+/// A materialization heap floor over `output_bytes`.
+pub(super) fn heap_materializes(output_bytes: usize) -> Liveness {
     Liveness::Floor {
-        min: encoded_bytes as u64,
+        min: output_bytes as u64,
         why: WHY_HEAP_MATERIALIZES,
     }
 }

@@ -279,12 +279,12 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
          touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B; \
          and every committed liveness floor met (flr[...]: a counter below its floor is red: \
          the meter is not watching that work; segments is ceiling-only by policy, its honest \
-         floor is zero). exponent legs are fitted only where the denominator pair scales \
-         (>= x{MIN_EXPONENT_DENOM_GROWTH} between probes) and, on heap, where both readings \
-         clear the flat allowance the constant leg already forgives (a base inside the \
-         forgiven zone manufactures an exponent at the boundary); an unjudged exponent \
-         renders -.-- and the cell rides its constants and floors. every judged quantity is \
-         deterministic"
+         floor is zero). exponent legs are fitted only where the denominator scales \
+         (>= x{MIN_EXPONENT_DENOM_GROWTH}); a two-point heap fit uses only readings above \
+         the flat allowance, while the acceptance trend clamps smaller readings to the \
+         allowance and keeps all four points so one allocation tier cannot define it; an \
+         unjudged exponent renders -.-- and the cell rides its constants and floors. every \
+         judged quantity is deterministic"
     )?;
     writeln!(out)?;
     writeln!(out, "liveness declarations on this board:")?;

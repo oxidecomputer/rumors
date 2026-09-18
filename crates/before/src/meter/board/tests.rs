@@ -435,6 +435,72 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
     );
 }
 
+/// The acceptance heap trend replaces readings below the flat allowance with
+/// the allowance itself. A one-time allocation-tier jump therefore stays green
+/// while sustained quadratic growth remains exponent-red.
+#[test]
+fn acceptance_heap_trend_absorbs_one_tier_and_rejects_quadratic_growth() {
+    use super::floors::na;
+    use super::judge::evaluate_acceptance;
+    use super::measure::Sample;
+    use super::{ByCurrency, Floors};
+    const PROBE_NA: &str = "probe: the heap acceptance trend alone is under test";
+    let sample = |denom: usize, heap: u64| -> Sample {
+        Sample {
+            denom_bytes: denom,
+            exp_denom_bytes: denom,
+            floors: Floors {
+                heap: na(PROBE_NA),
+                segments: na(PROBE_NA),
+                scan: na(PROBE_NA),
+                touch: na(PROBE_NA),
+            },
+            models: no_model_overrides(),
+            readings: ByCurrency {
+                heap: Some(heap),
+                segments: Some(0),
+                scan: None,
+                touch: None,
+            },
+        }
+    };
+    let judge = |heap: [u64; 4]| {
+        evaluate_acceptance(
+            "heap_trend_probe",
+            "four-point-ladder",
+            (sample(1_000, heap[0]), sample(2_000, heap[1])),
+            (sample(4_000, heap[2]), sample(8_000, heap[3])),
+        )
+    };
+
+    let (lo, hi) = judge([1_000, 6_000, 11_000, 28_000]);
+    for cell in [&lo, &hi] {
+        assert!(
+            !cell
+                .red
+                .iter()
+                .any(|reason| reason.contains("heap exponent")),
+            "one fixed allocation tier must not define the acceptance trend: {:?}",
+            cell.red
+        );
+    }
+
+    let quadratic = |n: u64| n * n / 10;
+    let (lo, hi) = judge([
+        quadratic(1_000),
+        quadratic(2_000),
+        quadratic(4_000),
+        quadratic(8_000),
+    ]);
+    for cell in [&lo, &hi] {
+        assert!(
+            cell.red.contains(&"heap exponent"),
+            "sustained quadratic growth must remain exponent-red: {:?}",
+            cell.red
+        );
+    }
+}
+
 /// The acceptance judgment fits one exponent trend over all four measured
 /// points, so a single generator lump cannot define the estimate, while a
 /// genuine super-linearity bends every point and still reads red.
