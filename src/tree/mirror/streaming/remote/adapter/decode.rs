@@ -3,8 +3,6 @@ use std::task::Poll;
 
 use async_stream::try_stream;
 use futures::{FutureExt, Stream, StreamExt};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     message::PayloadCodec,
@@ -12,11 +10,15 @@ use crate::{
         mirror::streaming::{
             Backend, Leaf,
             backend::BoxNodeStream,
+            channel::{QueueKind, QueueRole, Receiver, Sender, channel},
             erased::{Reaction as ProtocolReaction, Reply, ops},
             materialized::SupplyLedger,
             window::FAN,
         },
-        typed::{ErasedPrefix, Hash, Path, Prefix, height::Z},
+        typed::{
+            ErasedPrefix, Hash, Path, Prefix,
+            height::{Height, Z},
+        },
     },
 };
 
@@ -32,6 +34,22 @@ pub struct Decoded<E> {
     pub reply: Reply<E>,
     /// Lower scopes created by the reply's queries, in wire order.
     pub questions: Vec<Scope>,
+}
+
+/// Create the bounded edge from wire decoding to leaf assembly.
+fn leaf_channel<B>(
+    capacity: usize,
+) -> (
+    Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+)
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    channel(
+        QueueRole::new(QueueKind::DecodedLeaves, Z::HEIGHT),
+        capacity,
+    )
 }
 
 /// Replay the initiator's distinguished opening question from the root-fan
@@ -84,7 +102,7 @@ where
     try_stream! {
         // The same reader/assembler split as `decode`, driven jointly so
         // completed groups surface while later frames are still arriving.
-        let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
+        let (tx, rx) = leaf_channel::<B>(FAN);
         let mut assembled = assembly(backend.clone(), parent.height() - 1, rx);
         let mut read = pin!(read_early::<B, _>(
             version_bytes,
@@ -134,7 +152,7 @@ async fn read_early<B, F>(
     ledger: &SupplyLedger,
     parent: ErasedPrefix,
     mut frames: F,
-    leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
     codec: PayloadCodec,
 ) -> Result<(), DecodeError<B::Error>>
 where
@@ -304,7 +322,7 @@ where
     // sides, and a blocked send wakes the assembler that drains it. The
     // production fan is therefore a throughput choice whose maximum residency
     // the window charges, not a liveness requirement.
-    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(LEAF_CAPACITY);
+    let (tx, rx) = leaf_channel::<B>(LEAF_CAPACITY);
     let read = ReadReply::read::<B, _>(version_bytes, &ledger, scope, frames, level, tx, codec);
     let assemble = assemble_supplies::<B>(backend, children_height, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
@@ -327,7 +345,7 @@ where
 async fn assemble_supplies<B>(
     backend: B,
     height: usize,
-    leaves: mpsc::Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    leaves: Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
 ) -> Result<Vec<(ErasedPrefix, B::Erased)>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -348,12 +366,11 @@ where
 fn assembly<B>(
     backend: B,
     height: usize,
-    leaves: mpsc::Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    leaves: Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
 ) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send>>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let leaves = ReceiverStream::new(leaves);
     #[cfg(test)]
     let leaves = leaves.inspect(|_| fan_probe::on_recv());
     let leaves: BoxNodeStream<'static, B, Z> = Box::pin(leaves);
@@ -384,7 +401,7 @@ impl ReadReply {
         mut scope: Scope,
         frames: &mut F,
         level: ReplyLevel,
-        leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+        leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
         codec: PayloadCodec,
     ) -> Result<Option<Self>, DecodeError<B::Error>>
     where

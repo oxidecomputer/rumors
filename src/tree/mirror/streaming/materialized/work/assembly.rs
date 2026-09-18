@@ -3,8 +3,7 @@
 use std::pin::pin;
 
 use async_stream::try_stream;
-use futures::{Stream, stream};
-use tokio_stream::StreamExt;
+use futures::{Stream, StreamExt as _, stream};
 
 use super::{Work, queues::assembly_level_returns};
 use crate::tree::{

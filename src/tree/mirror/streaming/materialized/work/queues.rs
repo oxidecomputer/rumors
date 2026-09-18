@@ -26,7 +26,7 @@ use futures::{StreamExt as _, stream};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::{QueueKind, QueueRole, Receiver, ReceiverStream, Sender, channel, into_stream},
+        channel::{QueueKind, QueueRole, Receiver, Sender, channel},
         erased::{self, Reply, ReplyResultStream},
         materialized::{Error, Query, Resolution},
         stats::Recorder,
@@ -39,12 +39,12 @@ use crate::tree::{
 };
 
 /// A channel receiver stream whose items are wrapped in `Ok`.
-pub(super) type OkReceiverStream<T, E> = stream::Map<ReceiverStream<T>, fn(T) -> Result<T, E>>;
+pub(super) type OkReceiverStream<T, E> = stream::Map<Receiver<T>, fn(T) -> Result<T, E>>;
 
 /// Create a channel whose receiver presents every item as `Ok`.
 fn ok_channel<T, E>(role: QueueRole, capacity: usize) -> (Sender<T>, OkReceiverStream<T, E>) {
     let (sender, receiver) = channel(role, capacity);
-    (sender, into_stream(receiver).map(Ok))
+    (sender, receiver.map(Ok))
 }
 
 /// A window-controlled sender that records capacity pressure.

@@ -244,7 +244,7 @@ where
         local.payload_depth_limit = self.codec.limit().get();
         let send = send::<B::Error, _>(&local, &mut self.link.control_write, &self.observe);
         let receive = receive::<B::Error, _>(&mut self.link.control_read, &self.observe);
-        let (_, remote) = futures_util::future::try_join(send, receive).await?;
+        let (_, remote) = futures::future::try_join(send, receive).await?;
         let greeting = remote.clone();
         let next = self.connected(local, remote)?;
         Ok((greeting, next))

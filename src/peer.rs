@@ -429,13 +429,20 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     /// with each other. The payload type must follow the
     /// [payload contract](crate#choosing-a-payload-type).
     pub fn seed() -> Self {
-        Self::seed_rng(&mut rand::rng())
+        Self::seed_from_rng(&mut rand::rng())
     }
 
-    /// Like [`seed`](Self::seed), but draws the universe's [`Network`]
-    /// identifier from a caller-supplied RNG.
+    /// Create a network with a caller-supplied random source.
+    ///
+    /// This test-support hook makes network identifiers reproducible.
     #[doc(hidden)]
+    #[cfg(any(test, feature = "test-internals"))]
     pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+        Self::seed_from_rng(rng)
+    }
+
+    /// Create a new network using `rng` for its identifier.
+    fn seed_from_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
         Self {
             network: Network::from_rng(rng),
             window: WindowConfig::default(),

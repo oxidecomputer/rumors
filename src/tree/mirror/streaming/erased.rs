@@ -44,7 +44,7 @@ use futures::Stream;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::{QueueRole, ReceiverStream, Sender, channel, into_stream},
+        channel::{QueueRole, Receiver, Sender, channel},
         message,
     },
     typed::{
@@ -118,7 +118,7 @@ where
     H: Height,
 {
     /// The erased replies received from the response queue.
-    inner: ReceiverStream<Result<Reply<B::Erased>, Err>>,
+    inner: Receiver<Result<Reply<B::Erased>, Err>>,
     /// Re-tag one erased result at this stream's height.
     assume: fn(Result<Reply<B::Erased>, Err>) -> Result<message::Reply<B, H>, Err>,
 }
@@ -163,7 +163,7 @@ where
     (
         sender,
         ReplyResultStream {
-            inner: into_stream(receiver),
+            inner: receiver,
             assume: |item| item.map(assume_reply::<B, H>),
         },
     )

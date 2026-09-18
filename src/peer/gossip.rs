@@ -8,8 +8,8 @@
 use std::{fmt, sync::Arc, time::Instant};
 
 use before::{Party, Ticks};
+use futures::StreamExt;
 use futures::{Stream, future::BoxFuture};
-use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -713,115 +713,112 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         // (callers consume it directly, no `pin!` ceremony), and it moves
         // the driver's in-flight session future — a large state machine —
         // off the caller's stack.
-        Box::pin(futures_util::stream::unfold(
-            drive,
-            |mut drive| async move {
-                if drive.done {
-                    return None;
+        Box::pin(futures::stream::unfold(drive, |mut drive| async move {
+            if drive.done {
+                return None;
+            }
+            loop {
+                // A driver started on a poisoned link must fail fast
+                // here, before the idle select: its session would fail
+                // the same way, but only once a trigger fired, leaving
+                // a driver that looks live while parked on a dead link.
+                if drive.state.poisoned() {
+                    drive.done = true;
+                    return Some((Err(Error::LinkPoisoned.widen()), drive));
                 }
-                loop {
-                    // A driver started on a poisoned link must fail fast
-                    // here, before the idle select: its session would fail
-                    // the same way, but only once a trigger fired, leaving
-                    // a driver that looks live while parked on a dead link.
-                    if drive.state.poisoned() {
-                        drive.done = true;
-                        return Some((Err(Error::LinkPoisoned.widen()), drive));
+                // No timer runs here. Receiving the first bytes returns
+                // immediately, so a partial preamble enters the timed
+                // exchange instead of leaving the driver idle.
+                let trigger = {
+                    tokio::select! {
+                        arrival = drive.staged.wait_for_start(&mut *drive.read) => Trigger::Arrival(arrival),
+                        item = drive.when.next() => Trigger::Tick(item),
                     }
-                    // No timer runs here. Receiving the first bytes returns
-                    // immediately, so a partial preamble enters the timed
-                    // exchange instead of leaving the driver idle.
-                    let trigger = {
-                        tokio::select! {
-                            arrival = drive.staged.wait_for_start(&mut *drive.read) => Trigger::Arrival(arrival),
-                            item = drive.when.next() => Trigger::Tick(item),
+                };
+                let led = match trigger {
+                    Trigger::Arrival(Err(e)) => {
+                        // An I/O failure invalidates the link even when
+                        // no bytes arrived and no session began.
+                        drive.state.poison();
+                        drive.done = true;
+                        return Some((Err(Error::from(e).widen()), drive));
+                    }
+                    // EOF or policy exhaustion at an untouched boundary
+                    // ends cleanly. Once any bytes arrive, this same poll
+                    // proceeds to `begin` before it can suspend again.
+                    Trigger::Arrival(Ok(false)) | Trigger::Tick(None) => return None,
+                    Trigger::Arrival(Ok(true)) => Led::Remote,
+                    Trigger::Tick(Some(Gossip::WhenChanged)) => {
+                        // Suppression: a WhenChanged request initiates only
+                        // if the local frontier has advanced past what
+                        // this connection last converged on. The
+                        // comparison is local-only — it can never block
+                        // learning *remote* news, which always arrives
+                        // remote-led.
+                        let news = {
+                            let inner = drive.peer.inner.borrow();
+                            drive.converged.as_ref() != Some(inner.tree.latest())
+                        };
+                        if !news {
+                            continue;
                         }
-                    };
-                    let led = match trigger {
-                        Trigger::Arrival(Err(e)) => {
-                            // An I/O failure invalidates the link even when
-                            // no bytes arrived and no session began.
-                            drive.state.poison();
-                            drive.done = true;
-                            return Some((Err(Error::from(e).widen()), drive));
-                        }
-                        // EOF or policy exhaustion at an untouched boundary
-                        // ends cleanly. Once any bytes arrive, this same poll
-                        // proceeds to `begin` before it can suspend again.
-                        Trigger::Arrival(Ok(false)) | Trigger::Tick(None) => return None,
-                        Trigger::Arrival(Ok(true)) => Led::Remote,
-                        Trigger::Tick(Some(Gossip::WhenChanged)) => {
-                            // Suppression: a WhenChanged request initiates only
-                            // if the local frontier has advanced past what
-                            // this connection last converged on. The
-                            // comparison is local-only — it can never block
-                            // learning *remote* news, which always arrives
-                            // remote-led.
-                            let news = {
-                                let inner = drive.peer.inner.borrow();
-                                drive.converged.as_ref() != Some(inner.tree.latest())
-                            };
-                            if !news {
-                                continue;
-                            }
-                            Led::Local
-                        }
-                        // An unconditional request's purpose is a session that
-                        // may have nothing to say: the round-trip is the
-                        // liveness probe, and the convergence is the
-                        // anti-entropy pull.
-                        Trigger::Tick(Some(Gossip::Unconditionally)) => Led::Local,
-                    };
+                        Led::Local
+                    }
+                    // An unconditional request's purpose is a session that
+                    // may have nothing to say: the round-trip is the
+                    // liveness probe, and the convergence is the
+                    // anti-entropy pull.
+                    Trigger::Tick(Some(Gossip::Unconditionally)) => Led::Local,
+                };
 
-                    let epoch = match drive.state.begin() {
-                        Ok(epoch) => epoch,
-                        Err(e) => {
-                            drive.done = true;
-                            return Some((Err(e.widen()), drive));
-                        }
-                    };
-                    // `unfold` keeps the session and its deadline alive when
-                    // the caller drops a `next()` future between polls.
-                    let (_, result) = drive
-                        .peer
-                        .session(
-                            Intent::Remain,
-                            &mut drive.staged,
-                            (
-                                &mut *drive.read,
-                                &mut *drive.write,
-                                drive.connector.clone(),
-                                &mut *drive.acceptor,
-                                epoch,
-                            ),
-                        )
-                        .await;
-                    return match result {
-                        Ok((converged, stats)) => {
-                            // Re-arm for the next session: un-poison the
-                            // link (this session completed cleanly), a
-                            // fresh staging buffer (this preamble is
-                            // consumed), and the new suppression token.
-                            drive.state.finish();
-                            drive.staged = preamble::Staged::new();
-                            drive.converged = Some(converged.clone());
-                            Some((
-                                Ok(Gossiped {
-                                    converged,
-                                    led,
-                                    stats,
-                                }),
-                                drive,
-                            ))
-                        }
-                        Err(e) => {
-                            drive.done = true;
-                            Some((Err(e), drive))
-                        }
-                    };
-                }
-            },
-        ))
+                let epoch = match drive.state.begin() {
+                    Ok(epoch) => epoch,
+                    Err(e) => {
+                        drive.done = true;
+                        return Some((Err(e.widen()), drive));
+                    }
+                };
+                // `unfold` keeps the session and its deadline alive when
+                // the caller drops a `next()` future between polls.
+                let (_, result) = drive
+                    .peer
+                    .session(
+                        Intent::Remain,
+                        &mut drive.staged,
+                        (
+                            &mut *drive.read,
+                            &mut *drive.write,
+                            drive.connector.clone(),
+                            &mut *drive.acceptor,
+                            epoch,
+                        ),
+                    )
+                    .await;
+                return match result {
+                    Ok((converged, stats)) => {
+                        // Re-arm for the next session: un-poison the
+                        // link (this session completed cleanly), a
+                        // fresh staging buffer (this preamble is
+                        // consumed), and the new suppression token.
+                        drive.state.finish();
+                        drive.staged = preamble::Staged::new();
+                        drive.converged = Some(converged.clone());
+                        Some((
+                            Ok(Gossiped {
+                                converged,
+                                led,
+                                stats,
+                            }),
+                            drive,
+                        ))
+                    }
+                    Err(e) => {
+                        drive.done = true;
+                        Some((Err(e), drive))
+                    }
+                };
+            }
+        }))
     }
 }
 
@@ -1051,7 +1048,7 @@ async fn epilogue(
         observe.control_received(&marker);
         Ok(())
     };
-    futures_util::future::try_join(send, receive)
+    futures::future::try_join(send, receive)
         .await
         .map(|((), ())| ())
 }

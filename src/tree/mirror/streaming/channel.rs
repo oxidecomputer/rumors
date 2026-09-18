@@ -1,29 +1,57 @@
 //! Named bounded channels shared by streaming protocol implementations.
 //!
-//! Production uses Tokio's channel types directly. Unit tests substitute a
-//! wrapper which preserves Tokio's capacity and wakeup behavior while exposing
-//! named queue statistics, per-kind capacity limits, and shrinkable delays at
-//! every send and receive poll.
+//! The receiver is also a stream, keeping that conversion at the channel
+//! boundary. Unit tests substitute wrappers which preserve Tokio's capacity
+//! and wakeup behavior while exposing named queue statistics, per-kind capacity
+//! limits, and shrinkable delays at every send and receive poll.
+
+#[cfg(not(test))]
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+#[cfg(not(test))]
+use futures::Stream;
 
 /// One semantic edge in the streaming protocol's channel graph.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum QueueKind {
+    /// Responses waiting for the protocol schedule.
     OutgoingResponses,
+    /// Completed nodes returning to the next assembly level.
     AssemblyLevelReturns,
+    /// The initiator's query below the root.
     InitiatorRootQuery,
+    /// The initiator's reconstructed root.
     InitiatorRootReturn,
+    /// Child queries issued by the responder.
     ResponderChildQueries,
+    /// The responder's resolution below the root.
     ResponderRootResolution,
+    /// Nodes returning to the responder's root assembly.
     ResponderRootReturns,
+    /// Child queries issued within a recursive level.
     InternalChildQueries,
+    /// Resolutions sent to a recursive level's parent.
     InternalParentResolutions,
+    /// Resolutions returned by a recursive level's children.
     InternalChildResolutions,
+    /// Leaf prefixes awaiting lookup.
     LeafRequests,
+    /// Leaf resolutions sent to their parent level.
     LeafParentResolutions,
+    /// Leaf resolutions returned by child work.
     LeafChildResolutions,
+    /// Leaf resolutions awaiting terminal assembly.
     TerminalLeafResolutions,
+    /// Decoded wire leaves awaiting backend assembly.
+    DecodedLeaves,
+    /// Remote-proxy responses awaiting encoding.
     ProxyResponses,
+    /// Questions issued by the local proxy walk.
     ProxyLocalQuestions,
+    /// Scopes passed to the proxy's next level.
     ProxyNextScopes,
 }
 
@@ -73,14 +101,35 @@ impl QueueRole {
 }
 
 #[cfg(not(test))]
-pub use tokio::sync::mpsc::{Receiver, Sender};
+pub use tokio::sync::mpsc::Sender;
+
+/// The receiving half of a production protocol channel.
 #[cfg(not(test))]
-use tokio_stream::wrappers::ReceiverStream as TokioReceiverStream;
+pub struct Receiver<T>(tokio::sync::mpsc::Receiver<T>);
+
+#[cfg(not(test))]
+impl<T> Receiver<T> {
+    /// Receive the next item, or `None` after every sender is dropped.
+    pub async fn recv(&mut self) -> Option<T> {
+        self.0.recv().await
+    }
+}
+
+#[cfg(not(test))]
+impl<T> Stream for Receiver<T> {
+    type Item = T;
+
+    /// Poll the underlying bounded channel for its next item.
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.0.poll_recv(cx)
+    }
+}
 
 /// Create the production Tokio channel for a named protocol edge.
 #[cfg(not(test))]
 pub fn channel<T>(_: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
-    tokio::sync::mpsc::channel(capacity)
+    let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
+    (sender, Receiver(receiver))
 }
 
 #[cfg(test)]
@@ -90,23 +139,3 @@ pub use instrumented::{
 
 #[cfg(test)]
 mod instrumented;
-
-/// A channel receiver viewed as a stream in both production and tests.
-#[cfg(test)]
-pub type ReceiverStream<T> = Receiver<T>;
-
-/// A channel receiver viewed as a stream in both production and tests.
-#[cfg(not(test))]
-pub type ReceiverStream<T> = TokioReceiverStream<T>;
-
-/// Convert a channel receiver into its uniform stream representation.
-pub fn into_stream<T>(receiver: Receiver<T>) -> ReceiverStream<T> {
-    #[cfg(test)]
-    {
-        receiver
-    }
-    #[cfg(not(test))]
-    {
-        TokioReceiverStream::new(receiver)
-    }
-}

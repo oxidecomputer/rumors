@@ -351,7 +351,7 @@ where
             }),
         }
     };
-    futures_util::future::try_join(write, read).await?;
+    futures::future::try_join(write, read).await?;
     let preamble = staged.validate()?;
     // Only a validated frame is delivered: the item contract holds for
     // conforming exchanges, and a malformed preamble aborts the session
