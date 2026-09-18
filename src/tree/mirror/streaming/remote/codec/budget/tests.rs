@@ -83,6 +83,6 @@ fn over_ceiling_budgets_saturate_to_the_framing_ceiling() {
         super::super::frame::checked_run_len(body + 1).is_ok(),
         "an admitted flush must stay within the run byte cap",
     );
-    // Negative control: the ceiling genuinely binds.
+    // Negative control: the ceiling binds.
     assert!(!budget.admits(body + 1, 1));
 }

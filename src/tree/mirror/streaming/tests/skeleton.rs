@@ -1,30 +1,20 @@
-//! The formal model's skeleton vocabulary, and its decoders from session
-//! observability.
+//! The formal model's skeleton vocabulary and its decoders from sessions.
 //!
-//! This is the bridge layer between the formal model and real sessions: a
-//! Rust mirror of the Lean model's `Skel`, its per-party view projection
-//! and `LocalEq` (the Lean `viewEnc` form), the Lean witness shape
-//! `Mux.wedge`, and two decoders that
-//! extract a skeleton from a real session:
+//! This module mirrors the Lean model's `Skel`, per-party `viewEnc` projection,
+//! `LocalEq`, and `Mux.wedge` witness. Two independent decoders extract a
+//! skeleton from a session:
 //!
 //! - [`decode`] reads the materialized progress [`Trace`] (both endpoints'
-//!   internal publications) and rebuilds the session's dispute skeleton,
-//!   cross-checking every resolution's `pending` count and every event's
-//!   endpoint against the model's role-parity and count laws (the Lean
-//!   `asks` and `Skel.asmResList`) as it goes;
-//! - [`announced`] reads the payload-erased wire [`Transcript`] alone — no
-//!   tree, no internal events — and rebuilds the *announced* skeleton by
-//!   replaying the protocol's positional pairing, which is exactly the
-//!   reconstruction bridge B5 asks for: payload-erased frame contents
-//!   determine the announced skeleton, the fact charter locality rests on.
+//!   internal publications), checking resolution counts and endpoint roles
+//!   against `asks` and `Skel.asmResList`;
+//! - [`announced`] reads only the payload-erased reply [`Transcript`] and
+//!   reconstructs the same skeleton from choices announced by the protocol.
 //!
-//! Deviations from the Lean, recorded: the mirror carries `scopes` and
-//! `rootH` only. `Skel.fan` and `Skel.capLevel` are model configuration with
-//! a single Rust value each (`FAN = 256` and the margin-0 discipline), so
-//! their equality conjuncts in `LocalEq` are vacuous here; their per-witness
-//! values are asserted separately ([`Skel::max_fan`], [`Skel::max_d_count`]).
-//! `viewEnc`'s fuel is dropped: decoded skeletons are finite trees, so the
-//! fuel-exhaustion token `0` is unreachable and the recursion is structural.
+//! The Rust mirror omits model parameters fixed by the implementation: fan is
+//! fixed by `FAN`, and capacity uses the margin-zero discipline. Witness tests
+//! check their values through [`Skel::max_fan`] and [`Skel::max_d_count`]. It
+//! also omits `viewEnc`'s fuel because decoded skeletons are finite trees and
+//! the recursion is structural.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -66,8 +56,7 @@ pub(super) struct Scope {
     pub leaf_reqs: usize,
 }
 
-/// A dispute skeleton (the Lean `Skel`, minus the `fan`/`capLevel`
-/// configuration — module doc).
+/// A dispute skeleton (the Lean `Skel`, with fixed configuration omitted).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Skel {
     /// The scopes; index 0 is the root, ids BFS order.
@@ -77,8 +66,8 @@ pub(super) struct Skel {
 }
 
 impl Skel {
-    /// The widest fan any scope exhibits: the tight per-witness value of the
-    /// Lean `Skel.fan` field (Rust reality bounds it by `FAN = 256`).
+    /// The widest fan any scope exhibits: the witness's `Skel.fan`, bounded
+    /// by the protocol's `FAN`.
     pub fn max_fan(&self) -> usize {
         self.scopes
             .iter()
@@ -335,16 +324,16 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
     let initiator = initial.work;
     let responder = *works.iter().find(|&&work| work != initiator).unwrap();
 
-    // The endpoint the height-parity theorem assigns each role at height `h`.
-    let asker_at = |h: usize| {
-        if h.is_multiple_of(2) {
+    // Translate the model's role predicate into the trace's work identities.
+    let asker_at = |height| {
+        if asks(Party::I, height) {
             initiator
         } else {
             responder
         }
     };
-    let answerer_at = |h: usize| {
-        if h.is_multiple_of(2) {
+    let answerer_at = |height| {
+        if asks(Party::I, height) {
             responder
         } else {
             initiator
@@ -467,7 +456,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
 
 // ------------------------------------------------------- transcript decoding
 
-/// The announced skeleton as reconstructed from the wire transcript alone.
+/// The announced skeleton reconstructed from outgoing replies alone.
 #[derive(Debug)]
 pub(super) struct Announced {
     /// The announced dispute skeleton.
@@ -487,19 +476,15 @@ enum Question {
     LeafRequest { prefix: Vec<u8> },
 }
 
-/// Reconstruct the announced dispute skeleton from the payload-erased frame
-/// transcript alone — no tree access, no internal events.
+/// Reconstruct the announced dispute skeleton from payload-erased replies,
+/// without tree access or internal events.
 ///
-/// This is bridge B5 (payload-independence made checkable): the reconstruction
-/// replays the protocol's positional pairing, so it works precisely because
-/// every consumption-order discriminator is announced in-band. Per stream,
-/// each reply answers the oldest unanswered question at its height; a
-/// dispute reply's `Match`/`Query` reactions consume the asker's announced
-/// radices in order (`Supply` reactions carry their own radix and consume
-/// none); a nonempty `Query` listing announces a deeper dispute, an empty
-/// one a whole-subtree request (a leaf request at leaf height). The global
-/// capture order is causally consistent (transcript module doc), so
-/// processing entries in order keeps every queue ahead of its consumer.
+/// The reconstruction replays the protocol's positional pairing. Each reply
+/// answers the oldest unanswered question on its stream. `Match` and `Query`
+/// consume the asker's radices in order, while `Supply` carries its own radix.
+/// A nonempty query announces a deeper dispute; an empty one requests a whole
+/// subtree, or a leaf at leaf height. The transcript's causal order keeps each
+/// question ahead of its answer.
 pub(super) fn announced(transcript: &Transcript) -> Announced {
     let entries = transcript.sent();
     let works: BTreeSet<usize> = entries.iter().map(|sent| sent.work).collect();
@@ -517,7 +502,7 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
     );
     // The opening leads with the root-listing query; any trailing labels
     // are the initiator's early supplies, which carry their own radices
-    // and consume no positions — exactly like supplies inside a dispute
+    // and consume no positions, exactly like supplies inside a dispute
     // reply, they are `M` moves the skeleton drops.
     let [Label::Query(root_radices), early @ ..] = opening.labels.as_slice() else {
         panic!("the opening leads with the root-listing query: {opening:?}");
@@ -622,22 +607,39 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
 
 // ------------------------------------------------------- channel projections
 
+/// One progress channel, with event payloads removed.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum Channel {
+    /// Replies published by the walk.
+    Reply,
+    /// The initiator's opening query.
+    InitialQuery,
+    /// A scope resolution.
+    Resolution,
+    /// Work released by a preceding resolution.
+    DependentWork,
+    /// A whole-subtree supply becoming ready.
+    Ready,
+    /// A completed child returned to its parent.
+    ParentResolution,
+}
+
 /// Group publications by model channel: endpoint, event kind, and scope depth.
 ///
 /// Preserve order within each channel. The payload-independence comparison
 /// permits different interleavings between channels, as the model does.
 pub(super) fn trace_channels(
     trace: &Trace,
-) -> BTreeMap<(usize, &'static str, usize), Vec<(Vec<u8>, usize)>> {
+) -> BTreeMap<(usize, Channel, usize), Vec<(Vec<u8>, usize)>> {
     let mut channels: BTreeMap<_, Vec<_>> = BTreeMap::new();
     for event in trace.events() {
         let (kind, pending) = match event.kind {
-            EventKind::Wire => ("wire", 0),
-            EventKind::InitialQuery => ("initial-query", 0),
-            EventKind::Resolution { pending } => ("resolution", pending),
-            EventKind::DependentWork => ("dependent-work", 0),
-            EventKind::Ready => ("ready", 0),
-            EventKind::ParentResolution { pending } => ("parent-resolution", pending),
+            EventKind::Wire => (Channel::Reply, 0),
+            EventKind::InitialQuery => (Channel::InitialQuery, 0),
+            EventKind::Resolution { pending } => (Channel::Resolution, pending),
+            EventKind::DependentWork => (Channel::DependentWork, 0),
+            EventKind::Ready => (Channel::Ready, 0),
+            EventKind::ParentResolution { pending } => (Channel::ParentResolution, pending),
         };
         channels
             .entry((event.work, kind, event.scope.len()))
@@ -647,11 +649,11 @@ pub(super) fn trace_channels(
     channels
 }
 
-/// A transcript's per-stream projection: for each (endpoint, stream height),
-/// the ordered payload-erased replies it carried.
+/// A transcript's per-stream projection: the ordered payload-erased replies
+/// for each endpoint and stream height.
 ///
-/// Per-stream order IS the wire order (transcript module doc); the
-/// cross-stream interleaving is scheduler freedom, as for [`trace_channels`].
+/// Cross-stream interleaving remains scheduler freedom, as for
+/// [`trace_channels`].
 pub(super) fn transcript_streams(
     transcript: &Transcript,
 ) -> BTreeMap<(usize, usize), Vec<Vec<Label>>> {

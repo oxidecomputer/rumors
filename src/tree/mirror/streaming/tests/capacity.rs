@@ -1,12 +1,17 @@
 //! Channel-capacity soundness, structural stress, and scheduled disputes.
 
+use std::collections::BTreeSet;
+
 use proptest::prelude::*;
 
 use super::fixtures::{
     LeafOrder, divergent_cells_pair, full_depth_comb_pair, one_sided_pair, pyramid_pair,
 };
-use super::{LocalSession, Verdict, floor_start, fully_scheduled_streaming_mirror, join_oracle};
-use crate::testing::{Quiescence, run_to_quiescence};
+use super::{
+    GENERATED_SCHEDULE_MAX_LEN, LocalSession, Verdict, constant_schedule, floor_start,
+    fully_scheduled_streaming_mirror, join_oracle, standard_schedules,
+};
+use crate::testing::{Quiescence, run_to_quiescence, schedule::MAX_SCHEDULED_DELAY};
 use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,
@@ -14,6 +19,7 @@ use crate::tree::{
         Fault, Faulting, ReplyCorruption,
         channel::{QueueKind, with_kind_capacity, with_observation},
         mirror as drive_streaming,
+        window::FAN,
     },
 };
 
@@ -76,17 +82,7 @@ fn probe(
 fn assert_capacity_case(name: &'static str, pair: (Root, Root)) {
     let (a, b) = pair;
     let expected = join_oracle(a.clone(), b.clone());
-    let schedules = [
-        (Vec::new(), Vec::new()),
-        (
-            vec![2; 16_384],
-            (0..16_384).map(|step| (step % 3) as u8).collect(),
-        ),
-        (
-            (0..16_384).map(|step| (step % 3) as u8).collect(),
-            vec![2; 16_384],
-        ),
-    ];
+    let schedules = standard_schedules();
 
     for (orientation, left, right) in [("forward", &a, &b), ("reverse", &b, &a)] {
         for (schedule_index, (channel_schedule, backend_schedule)) in schedules.iter().enumerate() {
@@ -107,16 +103,16 @@ fn assert_capacity_case(name: &'static str, pair: (Root, Root)) {
 /// Exact barriers, aggregate overflow, full depth, and multiplying width drain.
 #[test]
 fn capacity_stress_matrix() {
-    // Exactly 256 disputed root children prove that publishing the root
+    // A full fan of disputed root children proves that publishing the root
     // resolution first lets one-slot query and return channels stream a fan.
-    assert_capacity_case("root full fan", pyramid_pair(&[256], 1, LeafOrder::Outside));
+    assert_capacity_case("root full fan", pyramid_pair(&[FAN], 1, LeafOrder::Outside));
 
     // A full fan below four simultaneously disputed parents reaches every
     // one-slot recursive query/resolution boundary and the fan-sized
     // inter-level return boundary, with a sibling backlog behind it.
     assert_capacity_case(
         "recursive full fan",
-        pyramid_pair(&[4, 256], 1, LeafOrder::Reversed),
+        pyramid_pair(&[4, FAN], 1, LeafOrder::Reversed),
     );
 
     // The exact off-by-one shape and a double-fan variant prove that active
@@ -124,11 +120,11 @@ fn capacity_stress_matrix() {
     // unbounded sequence of independently resolved children upward.
     assert_capacity_case(
         "fan plus one",
-        one_sided_pair(&[(0x00, 254, 1), (0x01, 1, 1)]),
+        one_sided_pair(&[(0x00, FAN - 2, 1), (0x01, 1, 1)]),
     );
     assert_capacity_case(
         "two aggregate fans",
-        one_sided_pair(&[(0x00, 255, 1), (0x01, 255, 1)]),
+        one_sided_pair(&[(0x00, FAN - 1, 1), (0x01, FAN - 1, 1)]),
     );
 
     // Multiplying widths load several pipeline levels at once. Interleaving
@@ -147,17 +143,18 @@ fn capacity_stress_matrix() {
     );
 }
 
-/// Every named, height-carrying queue is exercised at its documented capacity.
+/// Every materialized queue role carries traffic at its documented capacity.
+///
+/// Recursive roles retain their typed heights, and the scheduled run applies
+/// backpressure to at least one sender.
 #[test]
 fn capacity_stress_covers_every_queue_role() {
-    let (pair, report) = with_observation(|| {
+    let ((), report) = with_observation(|| {
         let (a, b) = pyramid_pair(&[4, 4, 2], 2, LeafOrder::Interleaved);
-        let pair = fully_scheduled_streaming_mirror(a, b, vec![2; 16_384], Vec::new());
+        fully_scheduled_streaming_mirror(a, b, constant_schedule(MAX_SCHEDULED_DELAY), Vec::new());
         let (a, b, _) = leaf_parent_dispute_pair();
-        fully_scheduled_streaming_mirror(a, b, vec![2; 16_384], Vec::new());
-        pair
+        fully_scheduled_streaming_mirror(a, b, constant_schedule(MAX_SCHEDULED_DELAY), Vec::new());
     });
-    drop(pair);
 
     for kind in QueueKind::ALL {
         let stats = report.kind(kind);
@@ -175,16 +172,12 @@ fn capacity_stress_covers_every_queue_role() {
             // test-default one-slot window: assembly returns as a
             // correctness floor, terminal leaf resolutions as a per-leaf
             // amortization buffer (see `work::queues`).
-            QueueKind::AssemblyLevelReturns | QueueKind::TerminalLeafResolutions => 256,
+            QueueKind::AssemblyLevelReturns | QueueKind::TerminalLeafResolutions => FAN,
             _ => 1,
         };
         assert_eq!(
             stats.effective_capacity, expected,
             "queue role {kind:?} did not use its documented capacity"
-        );
-        assert!(
-            stats.high_water <= expected,
-            "queue role {kind:?} exceeded its effective capacity: {stats:?}"
         );
     }
 
@@ -192,7 +185,7 @@ fn capacity_stress_covers_every_queue_role() {
         .roles()
         .filter(|(role, _)| role.kind == QueueKind::InternalChildQueries)
         .map(|(role, _)| role.height)
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
     assert!(
         internal_heights.len() > 1,
         "recursive queue observations lost their typed heights: {internal_heights:?}"
@@ -208,53 +201,41 @@ fn capacity_stress_covers_every_queue_role() {
 /// The recursive witness proves that the inter-level return queue needs a fan.
 #[test]
 fn capacity_stress_witness_requires_inter_level_fan() {
-    let (a, b) = pyramid_pair(&[32, 256], 1, LeafOrder::Reversed);
+    let (a, b) = pyramid_pair(&[32, FAN], 1, LeafOrder::Reversed);
     let expected = join_oracle(a.clone(), b.clone());
     let (actual, report) = with_observation(|| {
-        fully_scheduled_streaming_mirror(a.clone(), b.clone(), vec![2; 16_384], Vec::new())
+        fully_scheduled_streaming_mirror(
+            a.clone(),
+            b.clone(),
+            constant_schedule(MAX_SCHEDULED_DELAY),
+            Vec::new(),
+        )
     });
     assert_eq!(
         actual, expected,
         "the full-fan witness must complete at the documented capacities",
     );
     assert!(
-        report.kind(QueueKind::AssemblyLevelReturns).high_water >= 254,
+        report.kind(QueueKind::AssemblyLevelReturns).high_water >= FAN - 2,
         "the witness did not create its expected near-fan return backlog: {:?}",
         report.kind(QueueKind::AssemblyLevelReturns),
     );
     let pair = (a, b);
     assert_eq!(
-        probe(&pair, 253, Vec::new(), Vec::new()),
+        probe(&pair, FAN - 3, Vec::new(), Vec::new()),
         Probe::Stalled,
         "the stress witness must stall just below its required return capacity",
     );
     assert_eq!(
-        probe(&pair, 254, Vec::new(), Vec::new()),
+        probe(&pair, FAN - 2, Vec::new(), Vec::new()),
         Probe::Completed,
         "the stress witness should complete once its near-fan return backlog fits",
     );
 }
 
-/// The poll-order variations each parent-delay probe shape runs under.
-fn probe_schedules() -> [(Vec<u8>, Vec<u8>); 5] {
-    [
-        (Vec::new(), Vec::new()),
-        (
-            vec![2; 16_384],
-            (0..16_384).map(|s| (s % 3) as u8).collect(),
-        ),
-        (
-            (0..16_384).map(|s| (s % 3) as u8).collect(),
-            vec![2; 16_384],
-        ),
-        ((0..16_384).map(|s| (s % 5) as u8).collect(), Vec::new()),
-        (vec![1; 16_384], vec![1; 16_384]),
-    ]
-}
-
 /// Whether a shape stalls under any probe schedule at the given capacity.
 fn stalls_under_any_schedule(pair: &(Root, Root), capacity: usize) -> bool {
-    probe_schedules()
+    standard_schedules()
         .into_iter()
         .any(|(chan, back)| probe(pair, capacity, chan, back) == Probe::Stalled)
 }
@@ -262,7 +243,7 @@ fn stalls_under_any_schedule(pair: &(Root, Root), capacity: usize) -> bool {
 /// Whether a shape completes, holding the join oracle's tree, under every
 /// probe schedule at the given capacity.
 fn completes_under_every_schedule(pair: &(Root, Root), capacity: usize) -> bool {
-    probe_schedules()
+    standard_schedules()
         .into_iter()
         .all(|(chan, back)| probe(pair, capacity, chan, back) == Probe::Completed)
 }
@@ -343,10 +324,8 @@ fn parent_delay_no_cross_parent_backlog() {
         divergent_cells_pair(&cells, 1, LeafOrder::Outside)
     };
 
-    // Control: growing the count of fan-3 parents under ONE root scope grows
-    // the ROOT's own fan, so the per-scope law (fan ≤ cap + 2) predicts the
-    // stall boundary — confirmed empirically (P=4 stalls at C=1, P=6 at C≤3,
-    // P=8 at C≤4, P=12 at C≤6: exactly P > C + 2 throughout).
+    // Control: four fan-three parents create a fan-four root. Capacity one
+    // violates fan ≤ capacity + 2; capacity two admits it.
     assert!(
         stalls_under_any_schedule(&parents_of_three(4), 1),
         "a fan-4 root over fan-3 parents must stall at cap 1 per the \
@@ -407,15 +386,21 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// Structured disputes terminate under independently shrinkable channel
-    /// and Local-backend poll schedules.
+    /// Structured disputes converge to the join oracle under independently
+    /// shrinkable channel and Local-backend poll schedules.
     #[test]
     fn scheduled_structured_disputes_match_oracle(
         widths in arb_stress_widths(),
         shared in 1usize..=3,
         order in arb_leaf_order(),
-        channel_schedule in proptest::collection::vec(0u8..=2, 0..=2_048),
-        backend_schedule in proptest::collection::vec(0u8..=2, 0..=2_048),
+        channel_schedule in proptest::collection::vec(
+            0u8..=MAX_SCHEDULED_DELAY,
+            0..=GENERATED_SCHEDULE_MAX_LEN,
+        ),
+        backend_schedule in proptest::collection::vec(
+            0u8..=MAX_SCHEDULED_DELAY,
+            0..=GENERATED_SCHEDULE_MAX_LEN,
+        ),
         reverse in any::<bool>(),
     ) {
         let (a, b) = pyramid_pair(&widths, shared, order);

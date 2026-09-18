@@ -129,7 +129,7 @@ fn codec_error_atlas_snapshot() {
 }
 
 /// Every inventoried error variant has an atlas witness, and every
-/// exemption is genuinely absent (a witnessed exemption is stale).
+/// exemption is absent (a witnessed exemption is stale).
 #[test]
 fn atlas_covers_every_error_variant() {
     let atlas = build_atlas();

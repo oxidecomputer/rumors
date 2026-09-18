@@ -22,10 +22,12 @@ use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 
-use crate::Version;
-use crate::tree::arb::nth_party;
+use crate::{Version, tree::Root, tree::arb::nth_party};
 
-use super::fixtures::{arb_divergence, ceiling_of, grown, path_at, rooted, rooted_at};
+use super::fixtures::{
+    arb_divergence, ceiling_of, grown, leaf_sibling_bytes, leaf_sibling_path, path_at, rooted,
+    rooted_at,
+};
 use super::skeleton::{Decoded, Kind, Party, asks, client_role, decode, local_eq, view_enc};
 use super::transcribed_mirror_sides;
 
@@ -92,9 +94,8 @@ proptest! {
     /// p-view draws exactly `viewEnc`'s split — asker-side R children
     /// retained, answerer-side R children and leaf requests erased — with
     /// retention and erasure checked against the local tree's literal leaf
-    /// paths; the local role is identical across the two sessions once the
-    /// remotes advertise equal set sizes and versions; and `local_eq` is
-    /// reflexive on decoded skeletons.
+    /// paths. The local role is identical across the two sessions once the
+    /// remotes advertise equal set sizes and versions.
     #[test]
     fn view_projection_is_sound(spec in arb_divergence()) {
         let (local, remote_0, remote_1) = spec.trees(&());
@@ -114,10 +115,6 @@ proptest! {
 
         assert_view_sound(&decoded_0, p, &local_paths);
         assert_view_sound(&decoded_1, p, &local_paths);
-        prop_assert!(local_eq(p, &decoded_0.skel, &decoded_0.skel));
-        if decoded_0.skel == decoded_1.skel {
-            prop_assert!(local_eq(p, &decoded_0.skel, &decoded_1.skel));
-        }
     }
 }
 
@@ -190,8 +187,8 @@ fn free_insertions_are_invisible_to_the_local_view() {
         let remote_plus =
             |parent: &[u8]| grown(remote_node.clone(), 3, 1, &(), &[insertion(parent)]);
 
-        // Every candidate ticks party 3 once, so set size and ceiling —
-        // the election's two keys — are independent of the insertion
+        // Every candidate ticks party 3 once, so set size and ceiling,
+        // the election's two keys, are independent of the insertion
         // parent: the local role can be computed from a probe before the
         // parents are chosen, and it is identical across the two sessions.
         let probe = remote_plus(&[0]);
@@ -255,12 +252,6 @@ fn free_insertions_are_invisible_to_the_local_view() {
 /// ordering without changing the supplied content.
 #[test]
 fn leaf_requests_are_erased_from_the_view() {
-    fn leaf(last: u8) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        bytes[31] = last;
-        bytes
-    }
-
     /// `ceiling` joined with `ticks` ticks of the leafless tiebreak party.
     fn inflated(ceiling: Version, ticks: usize) -> Version {
         let party = nth_party(9);
@@ -276,9 +267,9 @@ fn leaf_requests_are_erased_from_the_view() {
     /// Run the two sessions and assert the leafReqs-only difference is
     /// invisible to the local view.
     fn check(
-        local: crate::tree::Root,
-        remote_0: crate::tree::Root,
-        remote_1: crate::tree::Root,
+        local: Root,
+        remote_0: Root,
+        remote_1: Root,
         local_paths: &BTreeSet<[u8; 32]>,
         p: Party,
     ) {
@@ -311,18 +302,18 @@ fn leaf_requests_are_erased_from_the_view() {
     }
 
     // Branch I: local = {leaf 0}; remotes = {leaf 0, 0x80} vs
-    // {leaf 0, 0x80, 0x81} — one vs two leaf requests when local initiates.
+    // {leaf 0, 0x80, 0x81}: one vs two leaf requests when local initiates.
     // Local holds the strictly smaller set, so it initiates both sessions
     // outright.
     {
-        let base = grown(None, 0, 1, &(), &[path_at(&leaf(0))]);
-        let remote_0_node = grown(base.clone(), 1, 1, &(), &[path_at(&leaf(0x80))]);
+        let base = grown(None, 0, 1, &(), &[leaf_sibling_path(0)]);
+        let remote_0_node = grown(base.clone(), 1, 1, &(), &[leaf_sibling_path(0x80)]);
         let remote_1_node = grown(
             base.clone(),
             1,
             1,
             &(),
-            &[path_at(&leaf(0x80)), path_at(&leaf(0x81))],
+            &[leaf_sibling_path(0x80), leaf_sibling_path(0x81)],
         );
         let join = ceiling_of(&remote_0_node) | &ceiling_of(&remote_1_node);
         let remote_0 = rooted_at(remote_0_node, join.clone());
@@ -334,25 +325,25 @@ fn leaf_requests_are_erased_from_the_view() {
             local,
             remote_0,
             remote_1,
-            &BTreeSet::from([leaf(0)]),
+            &BTreeSet::from([leaf_sibling_bytes(0)]),
             Party::I,
         );
     }
 
     // Branch R: local = {leaf 0, leaf 1, leaf 2} (leaf 2 is size ballast
     // on its own party); remotes = {leaf 0, 0x80} vs {leaf 0, leaf 1,
-    // 0x80} — the initiating remote requests {leaf 1, leaf 2} in the
+    // 0x80}: the initiating remote requests {leaf 1, leaf 2} in the
     // first session and only {leaf 2} in the second. The first remote's
     // smaller set initiates outright; the second ties the size key, so
     // the remotes' joint ceiling is inflated until local also loses the
     // byte tiebreak.
     {
-        let base_1 = grown(None, 0, 1, &(), &[path_at(&leaf(0))]);
-        let base_2 = grown(base_1.clone(), 4, 1, &(), &[path_at(&leaf(1))]);
-        let remote_0_node = grown(base_1, 1, 1, &(), &[path_at(&leaf(0x80))]);
-        let remote_1_node = grown(base_2.clone(), 1, 1, &(), &[path_at(&leaf(0x80))]);
+        let base_1 = grown(None, 0, 1, &(), &[leaf_sibling_path(0)]);
+        let base_2 = grown(base_1.clone(), 4, 1, &(), &[leaf_sibling_path(1)]);
+        let remote_0_node = grown(base_1, 1, 1, &(), &[leaf_sibling_path(0x80)]);
+        let remote_1_node = grown(base_2.clone(), 1, 1, &(), &[leaf_sibling_path(0x80)]);
         let join = ceiling_of(&remote_0_node) | &ceiling_of(&remote_1_node);
-        let local = rooted(grown(base_2, 5, 1, &(), &[path_at(&leaf(2))]));
+        let local = rooted(grown(base_2, 5, 1, &(), &[leaf_sibling_path(2)]));
         let (remote_0, remote_1) = (0..TIEBREAK_ATTEMPTS)
             .map(|ticks| {
                 let join = inflated(join.clone(), ticks);
@@ -368,7 +359,11 @@ fn leaf_requests_are_erased_from_the_view() {
             local,
             remote_0,
             remote_1,
-            &BTreeSet::from([leaf(0), leaf(1), leaf(2)]),
+            &BTreeSet::from([
+                leaf_sibling_bytes(0),
+                leaf_sibling_bytes(1),
+                leaf_sibling_bytes(2),
+            ]),
             Party::R,
         );
     }

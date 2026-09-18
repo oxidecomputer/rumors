@@ -1,8 +1,4 @@
 //! Honest-peer behavior and the shared in-memory driver harness.
-//!
-//! Capacity/scheduling stress lives in [`capacity`], connected abort and
-//! lifecycle checks in [`faults`], and deterministic tree builders in
-//! [`fixtures`].
 
 use std::{
     cell::Cell,
@@ -16,7 +12,9 @@ use proptest::prelude::*;
 
 use super::driver::try_join_mapped;
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
-use crate::testing::{Quiescence, node_census, node_census_reset, run_to_quiescence};
+use crate::testing::{
+    Quiescence, node_census, node_census_reset, run_to_quiescence, schedule::MAX_SCHEDULED_DELAY,
+};
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
     uncontained_supply_pair,
@@ -156,7 +154,7 @@ impl LocalSession {
         self
     }
 
-    /// Record the payload-erased wire transcript.
+    /// Record the walk's outgoing replies with their payloads erased.
     fn transcript(mut self) -> Self {
         self.transcript = true;
         self
@@ -285,7 +283,10 @@ fn streaming_mirror_sides(a: Root, b: Root) -> (Root, Root) {
 }
 
 /// Reconcile through the local backend, returning both roots, the validated
-/// publication trace, and the payload-erased wire transcript.
+/// publication trace, and the walk's payload-erased replies.
+///
+/// This capture precedes the proxy's byte-budgeted framing of supply runs, so
+/// it describes the walk's protocol decisions rather than link-level frames.
 fn transcribed_mirror_sides(a: Root, b: Root) -> (Root, Root, Trace, Transcript) {
     let mut outcome = LocalSession::new(a, b).trace().transcript().run();
     let trace = outcome
@@ -324,6 +325,38 @@ fn fully_scheduled_streaming_mirror(
         .run();
     outcome.trace().assert_valid();
     outcome.converged()
+}
+
+/// Entries supplied to fixed schedule-stress cases.
+///
+/// This comfortably covers every fixed streaming fixture. Generated schedules
+/// vary their own lengths independently.
+const STRESS_SCHEDULE_LEN: usize = 16_384;
+
+/// Largest generated schedule, keeping each property case cheap to shrink.
+const GENERATED_SCHEDULE_MAX_LEN: usize = 2_048;
+
+/// Repeat one delay for a full fixed-fixture stress run.
+fn constant_schedule(delay: u8) -> Vec<u8> {
+    vec![delay; STRESS_SCHEDULE_LEN]
+}
+
+/// Cycle through every effective delay for a full fixed-fixture stress run.
+fn cycling_schedule() -> Vec<u8> {
+    let modulus = usize::from(MAX_SCHEDULED_DELAY) + 1;
+    (0..STRESS_SCHEDULE_LEN)
+        .map(|step| u8::try_from(step % modulus).expect("the delay fits in u8"))
+        .collect()
+}
+
+/// Representative independent schedules shared by fixed streaming tests.
+fn standard_schedules() -> [(Vec<u8>, Vec<u8>); 4] {
+    [
+        (Vec::new(), Vec::new()),
+        (constant_schedule(MAX_SCHEDULED_DELAY), cycling_schedule()),
+        (cycling_schedule(), constant_schedule(MAX_SCHEDULED_DELAY)),
+        (constant_schedule(1), constant_schedule(1)),
+    ]
 }
 
 /// Merge `a` and `b` through `Tree::join`: the in-memory oracle.
@@ -491,11 +524,11 @@ proptest! {
     }
 }
 
-/// A dispute that survives to leaf-parent height — both sides hold the same
-/// `S<Z>` prefix with different leaf sets — converges to the union.
+/// A dispute that survives to leaf-parent height converges to the union.
 ///
-/// The responder's closing `uncertain` lists its leaves, and the leaf-height
-/// `Closing`/`Complete` words carry the difference in both directions.
+/// Both sides hold the same leaf-parent prefix with different leaf sets. The
+/// answerer merge-joins their listings, supplies its exclusive leaves, and
+/// requests each leaf it lacks.
 #[test]
 fn converges_on_leaf_parent_dispute() {
     let (a, b, expected) = leaf_parent_dispute_pair();
@@ -513,13 +546,7 @@ fn converges_on_leaf_parent_dispute() {
 fn honors_redaction_under_leaf_parent_dispute() {
     let (a, b, expected) = leaf_parent_redaction_pair();
     for (left, right) in [(a.clone(), b.clone()), (b, a)] {
-        for (channel_schedule, backend_schedule) in [
-            (Vec::new(), Vec::new()),
-            (
-                vec![2; 2_048],
-                (0..2_048).map(|step| (step % 3) as u8).collect(),
-            ),
-        ] {
+        for (channel_schedule, backend_schedule) in standard_schedules() {
             assert_eq!(
                 fully_scheduled_streaming_mirror(
                     left.clone(),

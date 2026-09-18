@@ -1,7 +1,10 @@
 //! Deterministic tree shapes for streaming integration, capacity, and
 //! skeleton-bridge tests.
 
+use std::collections::BTreeSet;
+
 use proptest::prelude::*;
+use serde::Serialize;
 
 use crate::{
     Version,
@@ -9,17 +12,29 @@ use crate::{
     tree::{
         Root,
         arb::nth_party,
+        mirror::streaming::window::FAN,
         traverse::{Action, act},
         typed::{Node as TreeNode, Path, height},
     },
 };
 
-use serde::Serialize;
 /// A 32-byte path with the given prefix, zero-padded.
 pub(super) fn path_at(prefix: &[u8]) -> Path {
     let mut bytes = [0u8; 32];
     bytes[..prefix.len()].copy_from_slice(prefix);
     Path::from(bytes)
+}
+
+/// Leaf bytes on the all-zero leaf parent, distinguished by the final byte.
+pub(super) fn leaf_sibling_bytes(last: u8) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[31] = last;
+    bytes
+}
+
+/// A leaf path on the all-zero leaf parent, distinguished by its final byte.
+pub(super) fn leaf_sibling_path(last: u8) -> Path {
+    Path::from(leaf_sibling_bytes(last))
 }
 
 /// Extend `node` with one leaf per path, all carrying `value`, versioned on
@@ -28,7 +43,7 @@ pub(super) fn path_at(prefix: &[u8]) -> Path {
 /// Building successive trees on top of a shared node keeps the shared
 /// subtrees hash-identical by construction; distinct parties keep each
 /// side's extras causally concurrent, so nothing is deletion-pruned when
-/// provided across. The `stride` and `value` knobs are payload perturbation:
+/// provided across. The `stride` and `value` parameters perturb payloads:
 /// they change versions or contents (hence every hash on the path) without
 /// touching the path structure the reconciliation keys on.
 pub(super) fn grown<T>(
@@ -61,11 +76,7 @@ where
 /// Wrap a node as a [`Root`] whose ceiling is the node's own.
 pub(super) fn rooted(node: Option<TreeNode<height::Root>>) -> Root {
     Root {
-        ceiling: node
-            .as_ref()
-            .map(TreeNode::ceiling)
-            .cloned()
-            .unwrap_or_default(),
+        ceiling: ceiling_of(&node),
         root: node,
     }
 }
@@ -76,10 +87,9 @@ pub(super) fn rooted(node: Option<TreeNode<height::Root>>) -> Root {
 /// (`streaming.rs::descend`: the smaller set initiates, canonical version
 /// bytes break ties) comes out identical across two sessions against the
 /// same local tree once the remotes' set sizes are also equal. Inflating a
-/// ceiling with ticks from parties the tree's own leaves never ride is
-/// semantically inert here: deletion-pruning compares leaf versions against
-/// the PEER's ceiling, and every fixture keeps each side's supplies on
-/// chains the other side's ceiling never covers.
+/// ceiling with ticks from parties absent from the tree's leaves is inert here:
+/// deletion pruning compares leaf versions with the counterparty's ceiling,
+/// and each fixture keeps supplied leaves on chains that ceiling never covers.
 pub(super) fn rooted_at(node: Option<TreeNode<height::Root>>, ceiling: Version) -> Root {
     Root {
         ceiling,
@@ -167,7 +177,7 @@ impl Divergence {
     /// sampled cells may repeat a prefix, and one path is one leaf — an
     /// insert never lands on an occupied path.
     pub fn shared_paths(&self) -> Vec<[u8; 32]> {
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = BTreeSet::new();
         self.cells
             .iter()
             .flat_map(|cell| (0..cell.shared).map(|i| cell.path(SHARED_SLOT, i)))
@@ -178,7 +188,7 @@ impl Divergence {
     /// The local tree's one-sided extras, deduplicated as
     /// [`shared_paths`](Self::shared_paths) does.
     pub fn local_paths(&self) -> Vec<[u8; 32]> {
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = BTreeSet::new();
         self.cells
             .iter()
             .filter(|cell| cell.local)
@@ -198,7 +208,7 @@ impl Divergence {
     /// with the shared join ceiling ([`Self::trees`]), the local tree's
     /// role election is then identical across the two sessions.
     pub fn remote_paths(&self, which: usize) -> Vec<[u8; 32]> {
-        let distinct = |which: usize| -> std::collections::BTreeSet<[u8; 32]> {
+        let distinct = |which: usize| -> BTreeSet<[u8; 32]> {
             self.cells
                 .iter()
                 .filter(|cell| cell.remote[which])
@@ -220,7 +230,7 @@ impl Divergence {
 
     /// Every path the local tree holds: the membership oracle the view
     /// soundness checks compare skeleton scopes against.
-    pub fn local_path_set(&self) -> std::collections::BTreeSet<[u8; 32]> {
+    pub fn local_path_set(&self) -> BTreeSet<[u8; 32]> {
         self.shared_paths()
             .into_iter()
             .chain(self.local_paths())
@@ -325,7 +335,7 @@ pub(super) fn arb_divergence() -> impl Strategy<Value = Divergence> {
 /// both sides with different content, every root child disputes but nothing
 /// disputes below it: the session's descent is empty, and the whole diff
 /// resolves in the first descending stage.
-pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root, Root) {
+pub(super) fn one_sided_pair(spec: &[(u8, usize, usize)]) -> (Root, Root) {
     let path = |b0: u8, b1: u8| {
         let mut bytes = [0u8; 32];
         bytes[0] = b0;
@@ -333,51 +343,34 @@ pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root, Root) {
         Path::from(bytes)
     };
 
-    // The shared base: one version chain on party 0, identical in both trees
-    // (b is built on top of a's node, so the shared subtrees are literally
-    // the same nodes and their hashes match by construction).
-    let shared_party = nth_party(0);
-    let mut version = Version::new();
-    let mut shared = Vec::new();
-    for &(radix, n_shared, _) in spec {
-        for i in 0..n_shared {
-            version.tick(&shared_party);
-            shared.push((
-                path(radix, i),
-                version.clone(),
-                Action::Insert(Message::new(())),
-            ));
-        }
-    }
-    let a_node = act(None, shared, &mut |_| ());
+    assert!(
+        spec.iter().all(|&(_, shared, extra)| shared + extra <= FAN),
+        "shared and extra leaves must fit one radix fan"
+    );
+    let shared = spec
+        .iter()
+        .flat_map(|&(radix, count, _)| {
+            (0..count)
+                .map(move |index| path(radix, u8::try_from(index).expect("a radix fan fits in u8")))
+        })
+        .collect::<Vec<_>>();
+    let extras = spec
+        .iter()
+        .flat_map(|&(radix, _, count)| {
+            (0..count).map(move |index| {
+                path(
+                    radix,
+                    u8::MAX - u8::try_from(index).expect("a radix fan fits in u8"),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
 
-    // b's extras: a separate chain on a disjoint party, so they are causally
-    // concurrent with a's version and survive deletion-pruning when provided.
-    // Extras count down from 0xff so they never collide with a shared radix.
-    let b_party = nth_party(1);
-    let mut b_version = Version::new();
-    let mut extras = Vec::new();
-    for &(radix, _, n_extra) in spec {
-        for i in 0..n_extra {
-            b_version.tick(&b_party);
-            extras.push((
-                path(radix, 0xff - i),
-                b_version.clone(),
-                Action::Insert(Message::new(())),
-            ));
-        }
-    }
-    let b_node = act(a_node.clone(), extras, &mut |_| ());
-
-    let root = |node: Option<TreeNode<height::Root>>| Root {
-        ceiling: node
-            .as_ref()
-            .map(TreeNode::ceiling)
-            .cloned()
-            .unwrap_or_default(),
-        root: node,
-    };
-    (root(a_node), root(b_node))
+    // Both trees share party 0's base. Party 1's extras remain concurrent
+    // with that base and therefore survive when supplied to the first tree.
+    let a = grown(None, 0, 1, &(), &shared);
+    let b = grown(a.clone(), 1, 1, &(), &extras);
+    (rooted(a), rooted(b))
 }
 
 /// The radix ordering of shared leaves and each side's extra leaf.
@@ -392,16 +385,33 @@ pub(super) enum LeafOrder {
 }
 
 impl LeafOrder {
+    /// Largest shared run when the two extras occupy the end slots.
+    const OUTSIDE_SHARED_LIMIT: usize = FAN - 2;
+
+    /// Largest shared run when even slots hold it and odd slots hold extras.
+    const INTERLEAVED_SHARED_LIMIT: usize = (FAN - 1) / 2;
+
+    /// Assign distinct leaf slots to the shared run and both extras.
     fn slots(self, shared: usize) -> (Vec<u8>, u8, u8) {
-        assert!((1..=100).contains(&shared));
+        let slots = |step: usize| {
+            (1..=shared)
+                .map(|slot| u8::try_from(slot * step).expect("shared slots fit one radix fan"))
+                .collect()
+        };
         match self {
-            Self::Outside => ((1..=shared as u8).collect(), 0x00, 0xff),
-            Self::Reversed => ((1..=shared as u8).collect(), 0xff, 0x00),
-            Self::Interleaved => (
-                (1..=shared as u8).map(|slot| slot * 2).collect(),
-                0x03,
-                0x01,
-            ),
+            Self::Outside | Self::Reversed => {
+                assert!((1..=Self::OUTSIDE_SHARED_LIMIT).contains(&shared));
+                let (a, b) = if matches!(self, Self::Outside) {
+                    (u8::MIN, u8::MAX)
+                } else {
+                    (u8::MAX, u8::MIN)
+                };
+                (slots(1), a, b)
+            }
+            Self::Interleaved => {
+                assert!((1..=Self::INTERLEAVED_SHARED_LIMIT).contains(&shared));
+                (slots(2), 0x03, 0x01)
+            }
         }
     }
 }
@@ -421,59 +431,28 @@ pub(super) fn divergent_cells_pair(
         Path::from(bytes)
     };
 
-    // The shared base: one version chain on party 0, identical in both trees
-    // (both sides are built on top of the same base node, so the shared
-    // subtrees are literally the same nodes and their hashes match by
-    // construction).
-    let shared_party = nth_party(0);
-    let mut version = Version::new();
-    let mut base = Vec::new();
-    for cell in cells {
-        for &slot in &shared_slots {
-            version.tick(&shared_party);
-            base.push((
-                path(cell, slot),
-                version.clone(),
-                Action::Insert(Message::new(())),
-            ));
-        }
-    }
-    let base_node = act(None, base, &mut |_| ());
-
-    // Each side's extras ride their own party's chain, concurrent with the
-    // shared chain and with each other, so both survive deletion-pruning
-    // when provided across.
-    let extras = |party_index: usize, slot: u8| {
-        let party = nth_party(party_index);
-        let mut version = Version::new();
-        let mut actions = Vec::new();
-        for cell in cells {
-            version.tick(&party);
-            actions.push((
-                path(cell, slot),
-                version.clone(),
-                Action::Insert(Message::new(())),
-            ));
-        }
-        actions
+    let base_paths = cells
+        .iter()
+        .flat_map(|cell| shared_slots.iter().map(|&slot| path(cell, slot)))
+        .collect::<Vec<_>>();
+    let extra_paths = |slot| {
+        cells
+            .iter()
+            .map(|cell| path(cell, slot))
+            .collect::<Vec<_>>()
     };
-    let a_node = act(base_node.clone(), extras(2, a_slot), &mut |_| ());
-    let b_node = act(base_node, extras(1, b_slot), &mut |_| ());
 
-    let root = |node: Option<TreeNode<height::Root>>| Root {
-        ceiling: node
-            .as_ref()
-            .map(TreeNode::ceiling)
-            .cloned()
-            .unwrap_or_default(),
-        root: node,
-    };
-    (root(a_node), root(b_node))
+    // The trees share party 0's base. Their extras use disjoint parties, so
+    // both sets remain concurrent and survive reconciliation.
+    let base = grown(None, 0, 1, &(), &base_paths);
+    let a = grown(base.clone(), 2, 1, &(), &extra_paths(a_slot));
+    let b = grown(base, 1, 1, &(), &extra_paths(b_slot));
+    (rooted(a), rooted(b))
 }
 
 /// Build a cartesian pyramid whose disputes descend every controlled level.
 pub(super) fn pyramid_pair(widths: &[usize], shared: usize, order: LeafOrder) -> (Root, Root) {
-    assert!(widths.iter().all(|&width| (1..=256).contains(&width)));
+    assert!(widths.iter().all(|&width| (1..=FAN).contains(&width)));
     let mut cells: Vec<Vec<u8>> = vec![Vec::new()];
     for &width in widths {
         cells = cells

@@ -1,19 +1,17 @@
-//! Test-only transcript of the session's outgoing wire messages, payload-erased.
+//! Test-only transcript of the walk's outgoing replies, payload-erased.
 //!
 //! Where [`super::progress`] records the walk's *internal* publications, this
-//! module records what actually crosses the wire: every [`Reply`] each
-//! endpoint sends, reduced to its reaction [`Label`]s — `Match`, `Supply`
-//! with its announced radix, `Query` with its listing's radices. Hashes,
-//! nodes, and versions are erased. Property tests use this view to check that
-//! the announced dispute shape determines channel operations: changing only
-//! payloads must not change the protocol schedule.
+//! module records every [`Reply`] each endpoint produces, reduced to its
+//! reaction [`Label`]s: `Match`, `Supply` with its radix, or `Query` with its
+//! listing's radices. Hashes, nodes, and versions are erased. The capture sits
+//! before the remote proxy frames supplies by byte budget, so it describes the
+//! walk's decisions rather than link-level frames.
 //!
 //! Capture point: [`super::work::Work::respond`], the pump every response
-//! stream funnels through. Entries land in publication order — the moment
-//! the pump pulls a reply from its walk, before the counterparty can have
-//! seen it — so per-stream order is exactly the wire order, and the global
-//! order is causally consistent: a reply is always recorded before any reply
-//! that reacts to it.
+//! stream funnels through. Entries land when that pump pulls a reply from the
+//! walk, before the counterparty can receive it. Per-stream order therefore
+//! matches the walk, and the global order is causally consistent: a reply is
+//! recorded before any reply that reacts to it.
 
 use std::cell::RefCell;
 
@@ -30,7 +28,7 @@ pub enum Label {
     Query(Vec<u8>),
 }
 
-/// One captured wire message.
+/// One captured outgoing reply.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Sent {
     /// The sending endpoint's work identity (shared with the progress trace).
@@ -41,7 +39,7 @@ pub struct Sent {
     pub labels: Vec<Label>,
 }
 
-/// A completed session's outgoing-message transcript, in publication order.
+/// A completed session's outgoing replies, in publication order.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Transcript(Vec<Sent>);
 
@@ -56,16 +54,20 @@ impl Transcript {
 // on targets that lower `thread_local!` through fallback TLS. The allow keeps
 // `-D warnings` clean on those targets.
 std::thread_local! {
+    /// Reply capture active on this test thread.
     #[allow(clippy::missing_const_for_thread_local)]
     static SENT: RefCell<Option<Vec<Sent>>> = const { RefCell::new(None) };
 }
 
-/// Run `f` while capturing every wire message it publishes.
+/// Run `f` while capturing every outgoing reply it publishes.
 pub fn with_transcript<R>(f: impl FnOnce() -> R) -> (R, Transcript) {
+    /// Capture displaced by a nested transcript scope.
     struct Restore {
+        /// Replies captured by the enclosing scope.
         sent: Option<Vec<Sent>>,
     }
 
+    /// Reinstate the enclosing capture when the nested scope ends.
     impl Drop for Restore {
         /// Restore the enclosing transcript capture when this scope exits.
         fn drop(&mut self) {

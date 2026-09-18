@@ -10,7 +10,6 @@ use super::{
 };
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::testing::run_to_quiescence;
-use crate::tree::arb::{arb_wide_divergent_pair, leaf_parent_dispute_pair};
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::{
     Error as MirrorError,
@@ -22,13 +21,14 @@ use crate::tree::mirror::{
         mirror as drive_streaming,
     },
 };
+use crate::tree::{
+    Root,
+    arb::{arb_wide_divergent_pair, leaf_parent_dispute_pair},
+};
 
 /// A `Failing<Local>` endpoint at the floor window over `root`, its nodes
 /// wrapped for the failing backend.
-fn failing_start(
-    backend: Failing<Local>,
-    root: crate::tree::Root,
-) -> Handshaking<Failing<Local>, Start> {
+fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
     let root = StreamingRoot {
         ceiling: root.ceiling,
         root: root.root.map(FailingNode::new),
@@ -168,7 +168,7 @@ fn greeting_lies_are_classified_exhaustively() {
             let expected = match lie {
                 // The zero declaration trips at the first absorbed supply;
                 // the one-leaf declaration admits supply first and trips on
-                // the ledger's accumulation — both land as the same
+                // the ledger's accumulation; both land as the same
                 // violation, from opposite ends of the allowance.
                 GreetingLie::ShrunkenSetLen | GreetingLie::UnderdeclaredSetLen => {
                     Some(Violation::OverdrawnSupply)
@@ -201,8 +201,7 @@ fn greeting_lies_are_classified_exhaustively() {
                     }
                 }
                 (None, Ok((ours, theirs))) => {
-                    let (ours, theirs): (crate::tree::Root, crate::tree::Root) =
-                        (ours.into(), theirs.into());
+                    let (ours, theirs): (Root, Root) = (ours.into(), theirs.into());
                     let (base_client, base_server) =
                         streaming_mirror_sides(client_root, server_root);
                     assert_eq!(&ours.root, &base_client.root);

@@ -5,20 +5,15 @@
 //! supplies behind it. These tests establish that a session between real trees
 //! can produce that shape.
 //!
-//! On the committed seeds: `tests/pairwise.proptest-regressions` and
-//! `tests/shadow_validity.proptest-regressions` are integration-level
-//! seeds (three-peer networks, version-addressed leaves, whole-`Rumors`
-//! action lists) that realize the wedge's *jam mechanism*, not its
-//! byte-exact shape; a structural equality pin needs hand-placed paths.
-//! This suite therefore constructs the pair deterministically and pins
-//! the decoded skeleton to the literal.
+//! The pair is hand-placed because a structural equality check needs exact
+//! paths, which content-addressed generators cannot supply.
 //!
 //! The Lean literal lives at `rootH = 6`; the protocol's real root is at
 //! height 32, where the same construction yields the same shape with the
 //! disputed chain descending every level. Both are pinned: the generator
 //! against the transcribed literal, and the session against the generator.
 
-use super::fixtures::{grown, path_at, rooted};
+use super::fixtures::{grown, leaf_sibling_path, path_at, rooted};
 use super::skeleton::{Kind, Party, ROOT_H, Scope, Skel, client_role, decode, wedge};
 use super::transcribed_mirror_sides;
 use crate::tree::Root;
@@ -34,12 +29,8 @@ const LEAN_WEDGE_CAP_LEVEL: usize = 1;
 /// Transcribes the Lean definition `Mux.wedge`, the source of truth, scope
 /// for scope.
 ///
-/// The transcription is human-checked: whenever either side changes, the
-/// editor reads the twelve scopes here against `Mux.wedge` in
-/// `Instances.lean`. No gate leg compares them, and that suffices: the
-/// literal is twelve scopes; the generator pin and the session pin below
-/// hold the Rust side rigid; and a Lean edit to the witness is an
-/// owner-level change to the theorems' subject, never an incidental one.
+/// Review this transcription against `Mux.wedge` whenever either changes.
+/// The generator and session checks below hold the Rust side to this shape.
 fn lean_wedge_literal() -> Skel {
     let sc = |kind, height, kids: &[usize], leaf_reqs| Scope {
         kind,
@@ -90,7 +81,7 @@ fn wedge_generator_matches_the_lean_literal() {
 /// exclusive content, it ships as whole root-level supplies and never enters
 /// the dispute skeleton.
 fn wedge_trees() -> (Root, Root) {
-    let shared = grown(None, 0, 1, &(), &[path_at(&[0u8; 32])]);
+    let shared = grown(None, 0, 1, &(), &[leaf_sibling_path(0)]);
 
     let mut wall_paths = Vec::new();
     for radix in 1..=6u8 {
@@ -98,9 +89,7 @@ fn wedge_trees() -> (Root, Root) {
     }
     let wall = grown(shared.clone(), 2, 1, &(), &wall_paths);
 
-    let mut extra = [0u8; 32];
-    extra[31] = 1;
-    let mut chain_paths = vec![path_at(&extra)];
+    let mut chain_paths = vec![leaf_sibling_path(1)];
     for radix in 7..=13u8 {
         chain_paths.push(path_at(&[radix]));
     }
