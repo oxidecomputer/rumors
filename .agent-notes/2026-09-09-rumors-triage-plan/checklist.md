@@ -449,7 +449,7 @@ exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch
 - [x] Consolidate proxy test setup and remove redundant assertions — `6cb5685c`.
       Sources: `remote-proxy-tests-1`, `remote-proxy-tests-3`, `remote-proxy-tests-4`, `remote-proxy-tests-11`, `remote-proxy-tests-13`, `remote-proxy-tests-14`, `remote-proxy-tests-16`, `remote-proxy-tests-17`, `remote-proxy-tests-19`, T48, T50, T52, T132.
 
-- [ ] Simplify scheduling helpers and separate backend and window explanations.
+- [x] Simplify scheduling helpers and separate backend and window explanations — `5895bde9`.
       Sources: `streaming-backend-window-1–8`, `streaming-backend-window-10`, `streaming-backend-window-12–14`, `streaming-backend-window-17`, `streaming-backend-window-19`, `streaming-backend-window-21`, `streaming-backend-window-22`, `streaming-backend-window-24`, `streaming-backend-window-27`, `streaming-backend-window-33`, `streaming-backend-window-35`, T46, T48, T49, T53, T102, T103, T128, T132.
 
 - [ ] Consolidate streaming fixtures and correct test explanations.
