@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Current:** make lifecycle properties check content, versions, and party ownership directly.
+**Current:** paused after the lifecycle boundary checks; no increment is active.
 
 **Parallel:** the full test-legibility sweep awaits owner review at `e603252e`.
 
@@ -486,8 +486,11 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
 Dependencies: tests of API changes follow those changes in 07. Shared-helper
 refactors are coupled with 16; focused properties can use the existing harness.
 
-- [ ] Make lifecycle properties check content, versions, and party ownership directly.
-      Sources: `api-core-20`, `suite-economics-5`, `tests-lifecycle-4`, `tests-lifecycle-5`, `tests-lifecycle-7`, `tests-lifecycle-9`, `tests-lifecycle-11`, `tests-lifecycle-15–18`, `tests-lifecycle-20`, `tests-lifecycle-21`, `tests-lifecycle-23`, `tests-lifecycle-25`, `tests-lifecycle-26`, `tests-lifecycle-28`, `tests-lifecycle-29`, `tests-lifecycle-33`, T26, T59, T108, T130–132, T158, N16.
+- [x] Pin bootstrap floors, cross-network rejection, retire recovery, bootstrapper handoff, and bookmarked-session drainage — `9afdd2ea`.
+      Sources: `tests-lifecycle-4`, `tests-lifecycle-5`, `tests-lifecycle-7`, `tests-lifecycle-11`, `tests-lifecycle-23`, T132.
+
+- [ ] Finish lifecycle properties for content, versions, and party ownership.
+      Sources: `api-core-20`, `suite-economics-5`, `tests-lifecycle-9`, `tests-lifecycle-15–18`, `tests-lifecycle-20`, `tests-lifecycle-21`, `tests-lifecycle-25`, `tests-lifecycle-26`, `tests-lifecycle-28`, `tests-lifecycle-29`, `tests-lifecycle-33`, T26, T59, T108, T130–132, T158, N16.
 
 - [x] Check observer delivery under remote redactions and partial reads, duplicate-free checkpoint resumes, and change-signal wakeups — `fa9a1f0e`.
       Sources: `tests-observation-5–8`, `tests-observation-20`, T130, T132.
