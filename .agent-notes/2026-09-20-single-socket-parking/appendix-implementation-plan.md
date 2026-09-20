@@ -198,13 +198,18 @@ must fail fast). Ownership expresses the latch better than a flag:
   its life (dropping the driver drops the connection, which is what
   "cancellation poisons the link" meant); `Bootstrap::join` and
   `Peer::retire` return the halves inside their success outcomes. A
-  failed session keeps the halves, so a caller cannot reuse a pipe whose
-  position is unknown, and `Error::LinkPoisoned` goes.
-- The alternative, `&mut R, &mut W` with a documented "discard on
-  failure", is the smaller signature change but loses the fail-fast: a
-  caller who reuses a failed pipe would see a garbled preamble, or a
-  read that waits on a peer that has given up, instead of a typed error.
-  Owner's ruling; the plan assumes by-value.
+  failed session keeps the halves, so a caller who passed them by value
+  cannot reuse a pipe whose position is unknown, and `Error::LinkPoisoned`
+  goes.
+- The by-value signature already admits references: `&mut T` satisfies
+  the same `AsyncRead`/`AsyncWrite` bounds through tokio's blanket impls,
+  so a caller who wants to keep the halves passes `&mut read, &mut write`
+  and gets them back regardless of outcome. Ownership then guards reuse
+  only for callers who opt into it, so the session functions' docs must
+  carry the rule for the other case: after an error, the byte stream's
+  position is unknown, and running another session on it yields a
+  garbled preamble or a read that waits on a peer that has given up,
+  rather than a typed error. Discard the connection. (Ruled 2026-09-20.)
 - Delete `link.rs` and everything under it: `Link`, `SessionState`,
   `map_transport` (callers wrap the halves themselves), `Connector`,
   `Acceptor`, `Done`, `link::STREAM_COUNT` (the public constant;

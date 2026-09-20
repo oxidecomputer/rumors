@@ -464,9 +464,10 @@ case, this costs less than it first appears.
 **What is removed.** The transport contract collapses to one ordered duplex
 byte stream whose two directions are independent, and with it the `Link`
 abstraction that bundled streams: a session takes the read and write halves
-directly, by value, and hands them back when it completes. A session that
-fails keeps them, which is ownership saying what a poison flag said before,
-that the stream's position can no longer be trusted. The stream-supply
+directly, by value or by mutable reference, and hands them back when it
+completes. A session that fails leaves the stream's position unknown; a
+caller who passed the halves by value cannot reuse them, and one who passed
+references is told not to. The stream-supply
 machinery that served the bundle (the appendix inventories it) is replaced
 by the multiplexer and demultiplexer of §6.2, and the session's preamble
 and closing marker share the one pipe with the frames, in order. A QUIC
