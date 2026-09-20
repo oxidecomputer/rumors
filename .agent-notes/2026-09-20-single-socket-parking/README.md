@@ -5,10 +5,12 @@ today over a bundle of independently flow-controlled streams because its
 deadlock-freedom argument needs them. This note shows that a single ordered
 duplex byte stream suffices, at the same round-trip count and under a fixed
 memory bound, with no flow-control machinery added to the wire and no change
-to the walk or its messages. The change is confined to the receiving side:
-each level parks decoded replies in a queue sized from that side's own
-window plus one fan, and a counting fact about the protocol guarantees the
-queue is never full for a conforming peer.
+to the walk or its messages. The change is confined to the receiving side,
+and it is a resizing, not a re-plumbing: the per-level queue of decoded
+replies that holds one reply today is sized from that side's own window
+plus one fan, and a counting fact about the protocol guarantees no reply
+ever arrives to find it full. With the streams gone, the `Link`
+abstraction goes too: a session takes the two halves of a byte stream.
 
 - [`exposition.md`](exposition.md): the argument, built up from the tree
   and the level-at-a-time protocol through the streaming protocol to the

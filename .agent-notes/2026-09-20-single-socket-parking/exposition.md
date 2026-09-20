@@ -26,7 +26,13 @@ counting fact about the protocol as it already is:
 
 A receiver that reserves room for that many decoded replies per level can
 always drain the socket, and a socket that is always drained never couples
-one level to another.
+one level to another. The room already exists: each level has a queue of
+decoded replies between its decoder and its stage, holding one reply
+today. The change is to size that queue, per session, from the window the
+session already computes, plus one fan. No queue is added and no edge is
+re-plumbed, and with the streams gone the transport abstraction that
+supplied them goes too: a session takes the two halves of a byte stream
+and nothing else.
 
 Sections 2 to 4 build the protocol up to the point where the bundle became
 necessary; §5 shows the deadlock the bundle prevents; §6 does the count; §7
@@ -335,15 +341,19 @@ worth, plus one.
 
 ### 6.2 Parking
 
-Give each level on the receiving side room for `K(ℓ) + 257` *decoded*
-replies, a *parking* queue between the socket and stage ℓ, and the opening
-batch one fan of room of its own. A demultiplexer reads a frame, hands it
-to that level's decoder, and reads the next; the decoder assembles frames
-into a reply and parks it. The decoder's only dependency is the storage
-backend, never a stage, so it always finishes; and by the count no reply
-ever arrives to find its queue full, so the demultiplexer never waits on
-any stage and the socket is always drained. Stage ℓ takes replies from its
-parking queue in order, exactly as it took them from its stream before.
+On the receiving side, each level already has a queue of *decoded* replies
+between its decoder and stage ℓ, one reply deep. Size it to hold
+`K(ℓ) + 257`, and give the opening batch's decoder one fan of room for its
+decoded root children. That is the whole change to the dataflow: the same
+queue, on the same edge, with a capacity taken from the window the session
+computes from the greeting. Call the widened queue the level's *parking*.
+A demultiplexer reads a frame, hands it to that level's decoder, and reads
+the next; the decoder assembles frames into a reply and parks it. The
+decoder's only dependency is the storage backend, never a stage, so it
+always finishes; and by the count no reply ever arrives to find its queue
+full, so the demultiplexer never waits on any stage and the socket is
+always drained. Stage ℓ takes replies from its parking queue in order,
+exactly as it took them from its stream before.
 
 On the sending side, the per-level encoders feed one multiplexer that
 writes ready frames to the socket. Any order that starves no level is safe,
@@ -452,7 +462,11 @@ stream; since a session completes no earlier than its slowest level in any
 case, this costs less than it first appears.
 
 **What is removed.** The transport contract collapses to one ordered duplex
-byte stream whose two directions are independent. The stream-supply
+byte stream whose two directions are independent, and with it the `Link`
+abstraction that bundled streams: a session takes the read and write halves
+directly, by value, and hands them back when it completes. A session that
+fails keeps them, which is ownership saying what a poison flag said before,
+that the stream's position can no longer be trusted. The stream-supply
 machinery that served the bundle (the appendix inventories it) is replaced
 by the multiplexer and demultiplexer of §6.2, and the session's preamble
 and closing marker share the one pipe with the frames, in order. A QUIC

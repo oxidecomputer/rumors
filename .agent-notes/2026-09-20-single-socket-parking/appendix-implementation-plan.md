@@ -50,9 +50,12 @@ Commit: "Pin the in-flight question bound".
 
 ## Step 1: park decoded replies, on the existing transport
 
-Receive side only. Capacity monotonicity means widening a receive-side
-channel cannot cost liveness, so this lands on the multi-stream `Link` with
-every existing suite as its regression net.
+Receive side only, and a resizing rather than a re-plumbing: two existing
+channels widen, one publish moves to a later point on its existing edge,
+and the opening decoder gains a buffer. No new edge enters the dataflow.
+Capacity monotonicity means widening a receive-side channel cannot cost
+liveness, so this lands on the multi-stream `Link` with every existing
+suite as its regression net.
 
 1. **`ProxyResponses` widens.** Today `Work::respond` (`proxy/work.rs`)
    builds it at capacity 1 with the argument "one buffered response is
@@ -180,28 +183,45 @@ One atomic commit for the code (nothing compiles halfway), then a prose
 sweep. This is the public-API change; per the triage plan, Sush's
 compatibility branch is updated and tested alongside it.
 
-### The link
+### The link, dissolved
 
-- `Link<R, W>` holds `read: R`, `write: W`, and `SessionState`. The
-  "control" qualifier on the halves has no referent once there is one
-  stream; propose plain `read`/`write`. `SessionState` keeps its poison
-  latch; the epoch counter loses its label tripwire role and may stay as a
-  session count or go.
-- Delete `Connector`, `Acceptor`, `Done`, `link::STREAM_COUNT` (the public
-  constant; `window.rs` takes the decoder count from the codec's
-  `Stream::COUNT`), `link/erased.rs` (the `DynRead`/`DynWrite` erasure in
-  `peer/gossip.rs` is what remains), `link/routed.rs` and `link/routed/*`,
+Nothing remains for a `Link` to carry. Its `SessionState` held an epoch
+(the stream-label tripwire, gone with the labels) and a poison latch (a
+failed session leaves the byte stream mid-frame, so the next session on it
+must fail fast). Ownership expresses the latch better than a flag:
+
+- The session functions take the halves directly, by value, and return
+  them on success:
+  `Rumors::gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error>`,
+  with `R: AsyncRead + Unpin + Send` and `W: AsyncWrite + Unpin + Send`;
+  the continuous `gossip` driver takes them by value and owns them for
+  its life (dropping the driver drops the connection, which is what
+  "cancellation poisons the link" meant); `Bootstrap::join` and
+  `Peer::retire` return the halves inside their success outcomes. A
+  failed session keeps the halves, so a caller cannot reuse a pipe whose
+  position is unknown, and `Error::LinkPoisoned` goes.
+- The alternative, `&mut R, &mut W` with a documented "discard on
+  failure", is the smaller signature change but loses the fail-fast: a
+  caller who reuses a failed pipe would see a garbled preamble, or a
+  read that waits on a peer that has given up, instead of a typed error.
+  Owner's ruling; the plan assumes by-value.
+- Delete `link.rs` and everything under it: `Link`, `SessionState`,
+  `map_transport` (callers wrap the halves themselves), `Connector`,
+  `Acceptor`, `Done`, `link::STREAM_COUNT` (the public constant;
+  `window.rs` takes the decoder count from the codec's `Stream::COUNT`),
+  `link/erased.rs` (the `DynRead`/`DynWrite` erasure in `peer/gossip.rs`
+  is what remains, internal), `link/routed.rs` and `link/routed/*`,
   `conformance/link.rs` and `conformance/link/*`, and their tests. The
-  `conformance` feature keeps `bookmark`; whether a minimal pipe check
-  (duplex independence, EOF on departure) is worth keeping is the owner's
-  call.
-- `link::memory()` and `memory_with_capacity()` return a `tokio::io::duplex`
-  pair per direction.
-- The contract, restated in `link.rs`'s module doc: one reliable, ordered,
-  duplex byte stream; the two directions independent (a side's read
-  progresses while its write is blocked); receiver-paced backpressure at
-  any positive capacity; EOF or error on peer departure. The security
-  paragraph is unchanged.
+  `conformance` feature keeps `bookmark` only. `link::memory()` becomes a
+  `tokio::io::duplex` pair the tests build where they need it (a helper in
+  `testing` if the repetition warrants one), not a public constructor.
+- The requirement on the halves, stated on the session functions' docs
+  rather than as a contract module: one reliable, ordered, duplex byte
+  stream; the two directions independent (a side's read progresses while
+  its write is blocked, which the greeting exchange needs); receiver-paced
+  backpressure at any positive capacity; EOF or error on peer departure.
+  The security paragraph (authentication is authorization, integrity,
+  confidentiality, freshness) moves to the crate docs unchanged.
 
 ### The proxy
 
@@ -246,14 +266,14 @@ compatibility branch is updated and tested alongside it.
 
 ### The session drivers and tests
 
-- `Rumors::gossip_once`, `Bootstrap::join`, `Peer::retire`, and the gossip
-  driver take `&mut Link<R, W>`; `SessionTransport` becomes the two erased
-  halves plus the session state.
+- `SessionTransport` becomes the two erased halves; the session funnels
+  in `peer/gossip.rs` lose their `SessionState::begin`/`finish` calls and
+  return the halves on success instead.
 - `testing::transport` loses the `Connect`/`Accept` fault kinds;
   `testing::memnet` goes; the testkit's `routed_tcp` and `tcp` helpers
   become one TCP-pipe helper; `tests/routed_link.rs` goes;
-  `tests/latency_link.rs` and the latency bench move to a delayed duplex
-  pair; `tests/hop_trace.rs` re-anchors on the pipe and must reproduce its
+  `tests/latency_link.rs` goes with the suite it ran, and the latency bench
+  moves to a delayed duplex pair; `tests/hop_trace.rs` re-anchors on the pipe and must reproduce its
   ledger (`3 + L + 1`); `benches/window_wallclock.rs` runs over the pipe.
 - The observation surface keeps `StreamObserver` keyed by logical stream
   index and direction; only its prose changes ("data stream" becomes
@@ -301,7 +321,7 @@ deployments. The hop ledger must not move under either policy.
   items only, and the commit message says so; the window census is
   re-baselined with its parent-commit measurement recorded.
 - Sush's compatibility branch builds and its tests pass against the new
-  `Link`.
+  session signatures.
 
 ## Risks, named
 
