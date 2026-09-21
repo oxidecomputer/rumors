@@ -31,6 +31,13 @@ surviving as an optional layer, since QUIC loss isolation buys nothing for
 logically coupled streams; the formal counting lemma is secondary to the code
 and its tests.
 
+A second version of all three documents, reviewed and then revised by
+GPT-6-Astra through the Codex CLI with no access to the repository,
+sits in [`astra/`](astra/README.md) beside its [review](astra/review.md),
+the [author's factual answers](astra/author-answers.md) it revised
+against, and its [notes](astra/revision-notes.md). The two versions are
+kept side by side for comparison; neither supersedes the other yet.
+
 Prior notes this one answers: the [streaming wire
 deadlock](../2026-07-17-streaming-wire-deadlock/README.md) (the cycle, and
 the determination to demand independent streams), [eager
