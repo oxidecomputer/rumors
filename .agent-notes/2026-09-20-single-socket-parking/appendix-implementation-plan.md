@@ -21,6 +21,60 @@ the frame signal grammar (`codec/signal.rs`), supply runs and the
 `RunBudget`, the causal sieve, the violation vocabulary, and every
 in-process test that drives two walks through `mirror_connected`.
 
+## The rule for full queues: violations, not waits
+
+The never-full argument turns on one discipline, applied everywhere on the
+receive path: **the demultiplexer, and the decoders it feeds, never wait on
+a condition the peer controls.** Every such condition is either impossible
+for a conforming peer, in which case its occurrence is a typed violation
+that fails the session, or a bounded local computation, in which case
+waiting is fine. Today's per-stream transport tolerates a decoder that
+waits on the peer (only that stream stalls, and the application's deadline
+ends it); on one socket that same wait blocks every level, so each site
+gets a rule. The sites, with the rule at each:
+
+- **Parking at capacity on arrival** (`ProxyResponses`, widened in step
+  1). A reply arriving for a level whose queue already holds
+  `K(h) + FAN + 1` is a reply nobody asked for. Violation, the ingress twin
+  of `Violation::UnaskedReply`; never a wait. Apply it in step 1 already,
+  even though on the multi-stream link the wait would be harmless, so the
+  invariant is tested there first.
+- **A reply with no question to pair it with.** The decoder dequeues a
+  scope from `local_questions` before decoding a reply at that height. If
+  frames for height `h` arrive when no question at `h` has been flushed,
+  waiting for the scope would block the demultiplexer forever on a
+  non-conforming peer. Keep a per-height count of questions flushed (the
+  encoder bumps it after `write_reply`) and of replies begun (the decoder
+  bumps it at each reply's first frame); a reply begun beyond the flushed
+  count is a violation at the frame that begins it. A scope that is
+  merely late (flushed, not yet published because the encoder is between
+  the flush and the publish) is a bounded local wait and stays a wait.
+- **The opening batch.** Its decoder holds at most one fan of decoded root
+  children, and the responder computes the batch's membership from the two
+  listings. A supplied root child outside that set, or a second supply for
+  one already received, is a violation at the decoder, not a full queue to
+  wait on.
+- **Supply overdraw and frame bounds.** Existing violations, unchanged: a
+  supply beyond the greeting's declared set length (`SupplyLedger`), a run
+  beyond the negotiated frame bound, a malformed frame, an unknown stream
+  index.
+- **Local queues that only this side fills.** `local_questions` and
+  `next_scopes` are filled by this side's own encoder and typed exit;
+  overflow there means the walk over-asked or the release argument is
+  wrong, a crate bug, so a full queue is a `debug_assert`, never a wait
+  and never a peer violation.
+- **Bounded local waits that stay waits.** The capacity-1 handoff from the
+  demultiplexer to a height's decoder (full only while that decoder is
+  mid-frame, and the decoder depends only on the backend); the decoder's
+  fan-bounded leaf channel into `Backend::assemble`; and, on the sending
+  side, the capacity-1 frame channels into the multiplexer and the walk's
+  own question and resolution queues, all of whose waits point at this
+  side's own progress and are covered by the walk's argument.
+
+Step 0's instrument should count arrivals at a full parking queue and
+replies begun beyond the flushed count as zero on every conforming run;
+the malformed-input suites gain one case per violation above.
+
 ## Step 0: pin the count on today's code
 
 No behavior change. Land the instrument first.
@@ -247,9 +301,11 @@ must fail fast). Ownership expresses the latch better than a flag:
   connector, claims, and route; `Physical` loses `accept` and `errors`;
   `work.rs::execute` selects the protocol against the demux's single
   failure route.
-- Parking overflow becomes a typed violation at the demux (a reply arrived
-  for a height with no room, which a conforming peer cannot cause): fail
-  fast, never wait.
+- Every peer-controlled wait on the receive path becomes a typed
+  violation, per the rule for full queues above: parking at capacity on
+  arrival, a reply begun beyond the flushed-question count, an opening
+  supply outside the computed batch. The demultiplexer waits only on
+  bounded local work.
 
 ### The wire
 
