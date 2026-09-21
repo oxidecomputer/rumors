@@ -446,17 +446,121 @@ it starts from accurate, gate-clean documentation.
 Commits: "Collapse the transport to one pipe", then, if useful,
 "Polish the single-pipe explanation".
 
+## The socket's send buffer: where one socket's latency residual lives
+
+The whole thing is about *where* a queue lives relative to *who* gets to
+reorder it.
+
+### A TCP socket is a reservoir with a FIFO outlet
+
+When the multiplexer writes a frame to the socket, the bytes do not go
+onto the wire. They go into the kernel's send buffer, and TCP drains that
+buffer onto the wire at whatever rate the congestion window and the
+peer's receive window allow. The buffer holds bytes in two states:
+
+```text
+  application ──write──▶ [ unsent │ sent, awaiting ACK ] ──▶ wire
+                            ▲                ▲
+                     queued behind      already transmitted;
+                     everything sent    kept only for retransmission
+```
+
+The right part must be large. To keep a link busy, TCP needs a
+bandwidth-delay product of bytes in flight: on a 1 Gbps link with a
+100 ms round trip that is 12.5 MB, all of it "sent, awaiting ACK", all of
+it sitting in the send buffer until acknowledged. So a well-tuned buffer
+is at least a BDP, and Linux autotunes it upward toward that.
+
+The left part is the problem. A `write` only blocks when the *whole*
+buffer is full. A bulk sender therefore fills it: at steady state it holds
+roughly a BDP of in-flight bytes *plus* however much room is left as
+unsent bytes. If the buffer is two BDPs, there is a BDP of unsent supply
+bytes queued in the kernel at all times while supplies are flowing.
+
+### Priority is decided at the inlet, but delay is paid at the outlet
+
+The multiplexer's job is to choose what to write *next*. "Next" means:
+after everything already in the buffer. The kernel drains the buffer in
+order and offers userspace no way to reorder it. So when a thin,
+critical-path reply becomes ready and the mux correctly puts it ahead of
+every unsent supply frame *in its own queues*, the reply still lands
+behind whatever supplies are already in the kernel's unsent portion.
+
+How long is that? Unsent bytes ahead of it, divided by bandwidth. The
+bytes in flight cost nothing extra, since they are already transmitting
+and ACKs return at wire rate, so new bytes go out as fast as the unsent
+queue ahead of them drains. With a BDP of unsent bytes ahead, the reply
+waits one BDP's transmission time, which by definition is one round-trip
+time: 100 ms on that link. The priority decision was right; it was made
+too far upstream of the wire to matter.
+
+This is exactly the failure HTTP/2 prioritization hit in practice a few
+years ago: browsers asked servers to prioritize HTML over images, servers
+did, and it made no difference because the reordering happened above a
+kernel buffer holding megabytes of already-queued image bytes.
+
+### The fix is to bound the unsent portion, not the buffer
+
+You cannot shrink the buffer below a BDP without losing throughput,
+because the in-flight bytes have to live somewhere. What you want is a
+buffer that is deep enough to hold a BDP in flight but shallow in unsent
+bytes. That is precisely what the `TCP_NOTSENT_LOWAT` socket option does
+(it exists on Linux and macOS; Apple introduced it for this reason): the
+socket reports itself unwritable whenever its *unsent* bytes exceed the
+threshold, regardless of how much is in flight. The application then
+writes only when the unsent queue has nearly drained, so each of the
+mux's decisions takes effect within about a threshold's worth of
+transmission.
+
+With the threshold at one frame, the worst case for a thin reply is: the
+mux has just written a supply frame (up to the frame bound, about 1.6 MB
+by default), the reply becomes ready, the socket stays unwritable until
+that frame has mostly drained, then the reply is written behind at most a
+threshold more. About two frames' transmission in all: 26 ms at 1 Gbps,
+2.6 ms at 10 Gbps. Smaller supply frames shrink it further, and that knob
+already exists (`target_message_size`, negotiated to the smaller of the
+two peers' settings), because the default frame bound was chosen for
+memory symmetry with the largest *query* reply, not because supplies need
+to be that large.
+
+Two things worth being clear about. This is a latency effect only;
+parking guarantees liveness whatever the buffer holds. And the crate
+cannot set the option, because it sees only the read and write halves; it
+belongs in the deployment's socket setup, which is why it is recorded as a
+deployment note rather than a code change.
+
+### Why the stream bundle never had this problem
+
+On the bundle, each level had its own connection or QUIC stream, and the
+kernel or QUIC stack interleaves *across* streams at packet granularity,
+about 1.4 KB at a time. A level's unsent bytes delay only that level. A
+thin reply on its own stream reaches the wire within a packet or two of
+being written, microseconds rather than milliseconds. That is the
+bundle's one real latency advantage on a loss-free link, and it is the
+thing `TCP_NOTSENT_LOWAT` plus supply deprioritization recovers to within
+a couple of frames.
+
+There is a receive-side twin, smaller and harmless: a thin frame behind
+bulk in the kernel's *receive* buffer waits for the demultiplexer to read
+and hand off the bulk ahead of it, which is decode time rather than
+transmission time, and it is bounded by one frame because the handoffs
+are capacity one and the decoders run concurrently.
+
 ## Step 3: the multiplexer's residual, measured
 
 The multiplexer prefers question-bearing frames from the start (ruled
 2026-09-21); every frame is still served in finite time because a
-session's traffic is finite. Measure the residual: a maximum-size supply
-frame already committed ahead of a thin deep reply on the delayed pipe,
-plus the transport's buffered bytes; evaluate a smaller TCP send buffer
-if the buffered bytes dominate. Priority cannot preempt an in-progress
-frame or bytes already buffered, and the frame bound limits one frame,
-not aggregate queuing delay. The dependency-hop ledger must stay fixed;
-elapsed latency may change.
+session's traffic is finite. What remains is the residual the previous
+section locates: a thin reply waits for the frame in progress plus the
+socket's *unsent* bytes, never for the unsent supply backlog above the
+socket. Measure that on the delayed pipe with a maximum-size supply frame
+committed ahead of a thin deep reply, once with the socket's unsent bytes
+unbounded and once with `TCP_NOTSENT_LOWAT` at about one frame, and
+record both. The deployment docs then say two things for TCP: set
+`TCP_NOTSENT_LOWAT` to about one frame, and choose `target_message_size`
+for the head-of-line delay a deployment will accept, since the default is
+sized for memory symmetry rather than for latency. The dependency-hop
+ledger must stay fixed; elapsed latency may change.
 
 ## Step 4: records
 
