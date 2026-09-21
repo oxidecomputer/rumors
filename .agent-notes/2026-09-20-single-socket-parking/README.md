@@ -27,9 +27,10 @@ the `+ FAN` slack in the parking bound is acceptable (no reserve-first
 tightening); eager absorption of supplied subtrees into the backend before
 commit is desired, with the backend owning reclamation as it does for
 in-memory handles; the `Link`'s stream bundle collapses outright rather than
-surviving as an optional layer, since QUIC loss isolation buys nothing for
-logically coupled streams; the formal counting lemma is secondary to the code
-and its tests.
+surviving as an optional layer, giving up QUIC's per-stream loss isolation
+(on one TCP connection a lost segment stalls every level for one recovery,
+and work that would have overlapped it waits); the formal counting lemma is
+secondary to the code and its tests.
 
 A second version of all three documents, reviewed and then revised by
 GPT-6-Astra through the Codex CLI with no access to the repository,
