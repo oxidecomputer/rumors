@@ -523,12 +523,12 @@ further delay. The greeting's frame limit bounds each frame, not the total
 backlog. The multiplexer serves question-bearing frames first, so a ready
 thin reply waits only for frames already committed ahead of it, never for
 the unsent supply backlog. Priority cannot preempt those frames or the
-transport's buffered bytes, and since supplies are written only when no
-thin frame is ready, those buffered bytes are supplies only in a
-bulk-heavy phase, where the delay is hidden behind the bulk transfer
-except at the session's tail; the appendix explains the mechanism, its
-cost, and the deployment setting that bounds it. On TCP, a lost segment
-delays all levels for
+transport's buffered bytes. That costs no round trips, since buffering
+adds transmission time and never a crossing, and it costs elapsed time
+only in a session with enough bulk to fill the buffer, at most a few
+times the buffer's drain time; the appendix explains the mechanism and
+the deployment setting that bounds it. On TCP, a lost segment delays all
+levels for
 recovery. Work that could have advanced on another QUIC stream now waits;
 the owner has accepted that loss of isolation.
 

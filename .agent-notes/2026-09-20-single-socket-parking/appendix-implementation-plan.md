@@ -499,24 +499,32 @@ years ago: browsers asked servers to prioritize HTML over images, servers
 did, and it made no difference because the reordering happened above a
 kernel buffer holding megabytes of already-queued image bytes.
 
-### How much this costs, and when
+### What this costs
 
-Less than the mechanism suggests, because priority settles the order
-completely. A supply frame is written only in a gap when no level has a
-thin frame ready, so the unsent portion fills with supplies only in the
-bulk-heavy phase of a session, when supplies are being discovered faster
-than the wire drains them. In that phase the wire is busy with bulk
-regardless. A thin reply delayed behind the unsent queue delays only the
-work that depends on it; the bulk transfer itself is not extended. The
-delay becomes visible only where that dependent work would otherwise
-have finished *after* the bulk: at the tail, where the last thin hops
-discover the last supplies. Each such hop waits behind the unsent
-portion once, so the exposed cost is a few unsent-drain times at the end
-of a bulk-heavy session, and nothing in a session with little bulk,
-because then the unsent portion is never full. With the unsent portion
-bounded to about one frame, the tail cost falls to a few frames'
-transmission. Liveness, hop count, and ordering are unaffected either
-way; this is a tuning note for deployments, and step 3 measures it.
+Nothing in round trips. The dependent-crossing count is a property of
+the protocol's ordering, and buffering adds transmission time, never a
+crossing. The session's round-trip count is therefore optimal whether or
+not the send buffer is tuned, and tuning it is not required for that.
+
+What buffering can add is elapsed time, in one situation only. Because a
+supply frame is written only when no level has a thin frame ready,
+supplies accumulate in the kernel's unsent portion only while the
+session is discovering supplies faster than the wire can carry them.
+During that time the wire is saturated with bulk that must be
+transmitted anyway, so a thin reply waiting behind queued supplies costs
+no elapsed time: the wire would have been busy with those supplies
+either way. The wait costs elapsed time only if the descent is still in
+progress once that bulk has drained. The waits its last thin replies
+incurred earlier have shifted the discovery of the last supplies later,
+so those supplies are transmitted after the wire has gone idle instead of
+during the bulk. The cost is at most the sum of those waits (each at most
+the queued bytes divided by bandwidth), less however long the bulk
+outlasted the descent: a few times the buffer's drain time in a session
+with enough bulk to fill the buffer, and nothing in a session with
+little bulk, which never fills it. Bounding the unsent portion to about
+one frame shrinks the worst case to a few frames' transmission. Liveness,
+hop count, and ordering are unaffected either way; this is a tuning note
+for deployments, and step 3 measures it.
 
 ### The fix is to bound the unsent portion, not the buffer
 
