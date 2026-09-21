@@ -499,6 +499,25 @@ years ago: browsers asked servers to prioritize HTML over images, servers
 did, and it made no difference because the reordering happened above a
 kernel buffer holding megabytes of already-queued image bytes.
 
+### How much this costs, and when
+
+Less than the mechanism suggests, because priority settles the order
+completely. A supply frame is written only in a gap when no level has a
+thin frame ready, so the unsent portion fills with supplies only in the
+bulk-heavy phase of a session, when supplies are being discovered faster
+than the wire drains them. In that phase the wire is busy with bulk
+regardless. A thin reply delayed behind the unsent queue delays only the
+work that depends on it; the bulk transfer itself is not extended. The
+delay becomes visible only where that dependent work would otherwise
+have finished *after* the bulk: at the tail, where the last thin hops
+discover the last supplies. Each such hop waits behind the unsent
+portion once, so the exposed cost is a few unsent-drain times at the end
+of a bulk-heavy session, and nothing in a session with little bulk,
+because then the unsent portion is never full. With the unsent portion
+bounded to about one frame, the tail cost falls to a few frames'
+transmission. Liveness, hop count, and ordering are unaffected either
+way; this is a tuning note for deployments, and step 3 measures it.
+
 ### The fix is to bound the unsent portion, not the buffer
 
 You cannot shrink the buffer below a BDP without losing throughput,
@@ -530,10 +549,13 @@ which a rack-internal deployment does and a WAN deployment may not, and
 it costs throughput if the BDP is underestimated. On illumos the send
 buffer is a fixed per-connection size, 48 KB by default (`send_buf`),
 unless `SO_SNDBUF` sets it, and `SO_SNDBUF` is capped by the `max_buf`
-tunable (1 MB by default), so a rack deployment there
-sets both deliberately: `max_buf` above the link's BDP, and `SO_SNDBUF`
-to BDP plus a frame. Since the control plane runs on illumos, this is the
-case the deployment docs must cover first.
+tunable (1 MB by default); a deployment there that needs more than 1 MB
+in flight sets both deliberately, `max_buf` above the link's BDP and
+`SO_SNDBUF` to BDP plus a frame, and one that does not is already
+bounded by the buffer it has. The deployment docs present both cases on
+equal footing, the option where it exists and the buffer bound where it
+does not, since the crate is general-purpose and neither case is the
+primary one.
 
 With the threshold at one frame, the worst case for a thin reply is: the
 mux has just written a supply frame (up to the frame bound, about 1.6 MB
