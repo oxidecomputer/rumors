@@ -1,25 +1,57 @@
 # Appendix: implementation plan
 
-For a reader who knows the code. The [exposition](exposition.md) is the
-argument; this is the route from the tree at `772cce34` to a crate whose
-sessions run over one `AsyncRead + AsyncWrite` pair. Steps are ordered so
-that every intermediate tree is gate-clean and every claim lands with its
-instrument. Public-API shapes below are proposals for the owner's ruling,
-not decisions.
+For a reader who knows the code. The [exposition](exposition.md) gives the
+argument; this is the route from `772cce34` to sessions over one pair of
+read and write halves. The sequence instruments the count, changes
+reception on the existing transport, then collapses the transport to one
+pipe and demonstrates the cure in that same commit. Each commit includes
+the tests and documentation needed to keep that intermediate tree
+gate-clean.
 
-Vocabulary used throughout: *walk* is the materialized participant
-(`streaming/materialized/`); *proxy* is the wire-bound participant
-(`streaming/remote/`); *height* is the code's coordinate (leaves at 0, root
-at 32), where the exposition said *level*.
+The removal of `Link`, by-value ownership of the halves, their return on
+success, and support for callers passing mutable references are settled
+by the owner's ruling of 2026-09-20. The ruling of 2026-09-21 simplifies
+the plan in five ways, each applied below: sent-question records are
+published before the reply is flushed, so an arriving reply without a
+record is a violation with no counter and no transient wait; the
+opening-supply shortcut is removed; no throwaway demonstrator transport is
+built; `StreamSender` and `StreamReceiver` dissolve into channels; and the
+multiplexer prefers question-bearing frames from the start. The pipe
+module's name remains an implementation choice.
+
+Here, *walk* means the materialized participant
+(`streaming/materialized/`) and *proxy* the wire-bound participant
+(`streaming/remote/`). Code height runs from leaves at 0 to the root at
+32. A node at address depth `d` has height `32 − d`. In the interior
+descent, an exposition question at level `ℓ` lists or reacts to children
+of height `h = 32 − ℓ`; its subject node has height `h + 1 = 33 − ℓ`.
+A terminal request concerns a leaf at height 0, with no children to list.
+Below, `K(ℓ)` always means
+the capacity of the local question-record queue for that logical level.
+When joining code counters and constructors, distinguish child height,
+subject height, and codec stream index; the opening and terminal streams
+also have explicit roles. The convention is uniform: the walk's
+question-queue constructors, `Window::capacity`, and both `Progress` hooks
+(`wire_reply` and `decoded_reply`) take the *children's* typed height,
+`h = 32 − ℓ`, so one label names the same logical queue everywhere.
+
+A *task* below is a future registered with the session's `Work`
+(`Work::spawn`) and driven by its terminal `complete`, never a runtime
+spawn: the crate is runtime-independent, and the session's own driver is
+what schedules its concurrent pieces.
 
 ## What does not change
 
-The walk, in full: `yield_resolve_query!`, its two ordering rules, the
-assembler chain, the `Window` derivation's search, the population bounds,
-the version-size pricing, the greeting, the `Reply`/`Reaction` vocabulary,
-the frame signal grammar (`codec/signal.rs`), supply runs and the
-`RunBudget`, the causal sieve, the violation vocabulary, and every
-in-process test that drives two walks through `mirror_connected`.
+The walk's exchange rules: `yield_resolve_query!`, its publication orders,
+the assembler chain, the `Window` search for an affordable width, population
+bounds, version-size pricing, greeting, `Reply`/`Reaction` vocabulary,
+frame signal grammar (`codec/signal.rs`), supply runs and `RunBudget`,
+and causal sieve. In-process tests connecting two walks through
+`mirror_connected` remain. The window's byte prices and granted widths do
+change; the receive proxy changes scope custody; the opening-supply
+shortcut is removed (step 1). Existing protocol violations remain
+applicable, with parking overflow handled explicitly. Transport-specific
+errors disappear with the machinery that produced them.
 
 ## The rule for full queues: violations, not waits
 
@@ -39,21 +71,14 @@ gets a rule. The sites, with the rule at each:
   of `Violation::UnaskedReply`; never a wait. Apply it in step 1 already,
   even though on the multi-stream link the wait would be harmless, so the
   invariant is tested there first.
-- **A reply with no question to pair it with.** The decoder dequeues a
-  scope from `local_questions` before decoding a reply at that height. If
-  frames for height `h` arrive when no question at `h` has been flushed,
-  waiting for the scope would block the demultiplexer forever on a
-  non-conforming peer. Keep a per-height count of questions flushed (the
-  encoder bumps it after `write_reply`) and of replies begun (the decoder
-  bumps it at each reply's first frame); a reply begun beyond the flushed
-  count is a violation at the frame that begins it. A scope that is
-  merely late (flushed, not yet published because the encoder is between
-  the flush and the publish) is a bounded local wait and stays a wait.
-- **The opening batch.** Its decoder holds at most one fan of decoded root
-  children, and the responder computes the batch's membership from the two
-  listings. A supplied root child outside that set, or a second supply for
-  one already received, is a violation at the decoder, not a full queue to
-  wait on.
+- **A reply with no record to pair it with.** The decoder takes a record
+  from `local_questions` before decoding a reply at that height. Because
+  the encoder publishes a reply's records *before* writing the reply
+  (step 1), a conforming peer's reply can never arrive before its record
+  exists. The decoder therefore takes the record with a non-blocking
+  receive, and an empty queue at a reply's first frame is a violation:
+  the reply to a question never sent. No counter, and no transient-wait
+  case.
 - **Supply overdraw and frame bounds.** Existing violations, unchanged: a
   supply beyond the greeting's declared set length (`SupplyLedger`), a run
   beyond the negotiated frame bound, a malformed frame, an unknown stream
@@ -72,329 +97,420 @@ gets a rule. The sites, with the rule at each:
   side's own progress and are covered by the walk's argument.
 
 Step 0's instrument should count arrivals at a full parking queue and
-replies begun beyond the flushed count as zero on every conforming run;
-the malformed-input suites gain one case per violation above.
+replies begun with no record present as zero on every conforming run; the
+malformed-input suites gain one case per violation above.
 
 ## Step 0: pin the count on today's code
 
 No behavior change. Land the instrument first.
 
-- The quantity: per party, per height `h`, `flushed(h) − paired(h)`, where
-  `flushed` counts questions the proxy's encoder has written to the wire
-  (the `batch.len()` it publishes into `local_questions` after
-  `write_reply`, plus the batch in hand while blocked publishing) and
-  `paired` counts questions the walk's stage at `h` has dequeued and matched
-  with a reply. The proxy's `Progress` trace (`proxy/work/progress.rs`)
-  already records `wire_reply(height, batch_len)` and
-  `decoded_reply(height, count)`; add the pairing event or read the
-  `InternalChildQueries` receive count from the channel stats.
-- The assertion: high-water of that quantity `≤ window.capacity(h) + FAN + 1`
-  at every height, for every run of `streaming/tests/capacity.rs`'s stress
-  matrix, the proxy harness suites under `remote/proxy/tests/`, and the
-  adversarial scheduler in `testing::schedule`, at the budget window and at
-  `WindowConfig::FLOOR`.
-- Also pin the two facts the count rests on, as named tests if they are not
-  already: a stage yields no second reply before its current reply's
-  questions are all recorded (the sequential-scope shape of the
-  `levels.rs` loops); and the proxy encoder publishes a reply's scopes
-  only after that reply's last frame flushed, and takes no further local
-  reply while blocked publishing (`encode::replies`).
+- Measure, per party and logical level, `sent(ℓ) − consumed(ℓ)`. Increment
+  `sent` by the number of questions in an outgoing reply when its last
+  frame has flushed, before publication into `local_questions` can block.
+  Increment `consumed` when the consuming stage takes the matching reply
+  from the decoded-reply queue. Dequeuing an `InternalChildQueries` record
+  is earlier and is not a substitute for this event. Completion of reply
+  processing is later and is not the event either.
+- Use `Progress` (`proxy/work/progress.rs`) and its
+  `wire_reply(height, batch_len)` and `decoded_reply(height, count)` hooks
+  where they match those boundaries. Add an explicit take event;
+  decoding alone does not mean consumption. Register the greeting's one
+  level-1 question separately; the opening batch, still present at step
+  0, stays outside this counter.
+- Assert a high-water mark at most `K(ℓ) + FAN + 1`, with at most one
+  outstanding greeting reply. Exercise `streaming/tests/capacity.rs`,
+  `remote/proxy/tests/`, and `testing::schedule`, at both the budget window
+  and `WindowConfig::FLOOR`.
+- Pin the sequential-production facts in named tests: a stage sends no
+  further outgoing reply until all questions in its current one are
+  recorded; `encode::replies` takes no further local reply until the
+  current one's records are published (today after the final frame
+  flushes; step 1 moves the publish before the write, and the pin moves
+  with it).
 
 Commit: "Pin the in-flight question bound".
 
-## Step 1: park decoded replies, on the existing transport
+## Step 1: remove the shortcut, then park decoded replies
 
-Receive side only, and a resizing rather than a re-plumbing: two existing
-channels widen, one publish moves to a later point on its existing edge,
-and the opening decoder gains a buffer. No new edge enters the dataflow.
-Capacity monotonicity means widening a receive-side channel cannot cost
-liveness, so this lands on the multi-stream `Link` with every existing
-suite as its regression net.
+Two commits, both on the multi-stream `Link`, with every existing suite
+as the regression net. The first removes the opening-supply shortcut; the
+second widens two existing channels and moves two publications, one
+later and one earlier on its own edge. No new dependency edge enters the
+dataflow. Widening alone introduces no capacity wait, but that
+observation does not justify the publication moves; those need their own
+ordering and occupancy checks below.
 
-1. **`ProxyResponses` widens.** Today `Work::respond` (`proxy/work.rs`)
-   builds it at capacity 1 with the argument "one buffered response is
-   sufficient". Move the constructor into `proxy/work/queues.rs` beside its
-   siblings and build it at `window.capacity(H::HEIGHT) + FAN + 1`, with the
-   counting argument of exposition §6.1 written at the constructor. The
-   relay task (`relay`) is unchanged; its send now never blocks for a
-   conforming peer.
-2. **`local_questions` widens** to the same capacity. Its doc already
-   observes that occupancy "can undercount the wire slightly"; restate that
-   the undercount is at most `FAN + 1` and that the queue is sized so the
-   encoder's publish never waits. Overflow here would mean the local walk
-   over-asked, a crate bug and not a peer violation: `debug_assert`, never a
-   wait.
-3. **Scopes release at take time, not decode time.** The decode pump
-   currently yields the reply and then publishes its derived scopes into
-   `next_scopes` (window-sized), blocking there if full. Once the pump feeds
-   a parking queue it must never block on anything downstream, so it yields
-   `(Reply, Vec<Scope>)` and touches `next_scopes` no longer. The scopes are
-   published at the walk-facing exit of `Work::respond`, immediately before
-   the reply is handed to the walk (an async map over the response stream).
-   `next_scopes` capacity becomes `FAN + 1`, with this argument at the
-   constructor: when the walk takes reply *r + 1*, every scope of reply *r*
-   has been dequeued by the encoder except possibly one (the encoder
-   dequeues scope-first and may still be writing the previous reply), and
-   the walk cannot take *r + 2* until the encoder has taken all of
-   *r + 1*'s replies, so occupancy never exceeds one straggler plus one
-   reply's fan. The `yield_reply_scopes!` macro's ordering role ("reply
-   before its scopes") moves to that exit and is restated there.
-4. **The opening supplies park too.** The initiator's early supplies
-   (`OpeningSupplies`, stream 0 in the initiator direction) are decoded
-   incrementally and consumed by the under-under-root decode pump's
-   `advance_to` calls as it meets each root-level request. Once the pump
-   feeds a parking queue it may run ahead of the walk, but it may also lag
-   behind the demux, and today an unpolled opening decoder would back its
-   frames up into a capacity-1 handoff and stall the demux. Give the opening
-   decoder its own task and a `FAN`-deep queue of decoded root children
-   (one handle each; the batch is at most one fan by construction, and the
-   responder computes its membership from the two listings), so the demux
-   never waits on it.
-5. **The window prices the parked half.** In `window::from_budget`, add to
-   the per-depth scope price a term for the parked reply: at child depth
-   `d`, `children_quantile(n, d − 1)` reactions, each costing a reaction
-   slot plus `children_quantile(n, d) × LISTING_ENTRY_BYTES` for a query
-   listing (supply reactions cost one handle, already priced). Add the fixed
-   slack pre-charge, `min(FAN + 1, 256^(d−1)) × parked_reply_price(d)` at
-   every depth, beside the existing `supply_fans` pre-charge it mirrors
-   (both sides run the same calculation without knowing their role, so
-   charging every depth rather than one parity's is the conservative choice
-   the existing loop already makes). The cap is structural, not
-   statistical: questions at child depth `d` are about nodes at depth
-   `d − 1`, of which at most `256^(d−1)` exist, so the parking capacity
-   itself may be `min(K(d) + FAN + 1, 256^(d−1))` without weakening the
-   never-full argument. That cap is what keeps the floor cheap at the top of
-   the tree. The exposition's "a few megabytes" for the reference case (two
-   divergent sets of 100,000 messages, zero budget) is, under the uniform
-   model: depth 1, one reply of ≈ 256 children × ≈ 200 grandchildren
-   × 25 B ≈ 1.3 MB; depth 2, at most 256 replies of ≈ 200 reactions
-   × ≈ 1.5 grandchildren × 25 B ≈ 8 KB each ≈ 2 MB; depth 3 and below,
-   258 replies of a few reactions each, tens of kilobytes. About 3.4 MB in
-   all. A derivation, not a measurement; `just window-tradeoff` will report
-   the real figure once the term is in. Derive the new slot constants by
-   `size_of` as the existing ones are. Regenerate `window/tradeoff.md` with
-   `just window-tradeoff`; re-baseline `tests/window/{census,corners,knee,
-   operator,tradeoff_probe}.rs` with the parent-commit measurement recorded
-   first so the attribution is clean. Update `sizing.rs` and the
-   `Peer::sync_memory_budget` accounting paragraph.
-6. **Tests and pins.** The step-0 high-water test now also reads
-   `ProxyResponses` occupancy and asserts it never reaches capacity. The
-   `ProxyLocalQuestions` occupancy derivation (the harvested
-   `min(capacity, S)` supremum) re-derives at the new capacity. The
-   adapter's `fan_occupancy` suite, which pins the per-reply decode fan, is
-   untouched: the decoder still holds one reply's skeleton and one fan of
-   leaves at a time. The prose that says "at most one decoded reply in
-   flight per stage" (`message.rs`'s memory-unit paragraph, `stages.rs`'s
-   module doc, `Work::respond`'s comment) re-denominates to the parking
-   bound; `capacity_stress_covers_every_queue_role` keeps covering the
-   proxy edges at their new widths.
+### Remove the opening-supply shortcut
+
+Delete the early-supply path on both participants. In the walk,
+`initiator_level`'s early-supply merge and the `OpeningHandoff` variants it
+feeds (`Survivors` on the initiator, `Supplies` on the responder) go, so
+the responder's root-level requests are answered by the initiator's stage
+1 with ordinary supply replies at level 2, as any request is answered at
+any level. In the proxy, `opening_supplies.rs`, `adapter::early_supplies`,
+the supply half of `encode::opening` and of `adapter::opening_parts`, the
+`opening_supplies` argument of `internal_replies` and `decode_pump`, and
+`StreamClass::OpeningSupplies` go; the initiator's stream 0 then carries
+nothing. The greeting still carries the listing, so the responder still
+answers at once. This changes the wire (the initiator's stream 0 no
+longer opens, and its replies to the responder's empty root queries carry
+supplies instead of nothing), so the snapshots re-accept in this commit,
+named "remove the opening-supply shortcut". The rationale is recorded in
+the exposition (§2): the batch is nonempty only between tiny replicas.
+
+Commit: "Remove the opening-supply shortcut".
+
+### Queues and publication
+
+1. **Widen `ProxyResponses`.** Move its capacity-1 constructor from
+   `Work::respond` (`proxy/work.rs`) into `proxy/work/queues.rs`. Allocate
+   `C(ℓ) = K(ℓ) + FAN + 1`, or the structural cap derived below. Put the
+   count and the exact take event at the constructor. A queue may fill;
+   no next arriving reply may find it already full. Preserve the relay's
+   role, but make overflow explicit rather than awaiting a slot that a
+   conforming execution cannot need.
+2. **Widen `local_questions` and publish before the write.** Capacity
+   `K(ℓ) + 2·FAN + 1`: the derived bound plus the records of the one
+   outgoing reply the encoder is writing, since `encode::replies` now
+   publishes a reply's records before `write_reply` rather than after.
+   With that capacity the publish never blocks, which removes the reason
+   the publish followed the flush (an encoder blocked with a reply
+   half-written). The decoder takes records with a non-blocking receive;
+   an absent record at a reply's first frame is a violation (the rule for
+   full queues above). Add an occupancy check tied to the decoder's
+   dequeue. Unexpected full-at-publication is a local invariant failure,
+   not evidence of peer misbehavior; `debug_assert`, never a wait.
+3. **Move received scopes to take time.** The decode pump currently yields
+   an incoming reply and then publishes its derived scopes into the
+   window-sized `next_scopes` queue. It will instead park
+   `(Reply, Vec<Scope>)` and never publish to `next_scopes` itself.
+
+   Name the events explicitly: the walk-facing exit of `Work::respond`
+   takes incoming reply `r` out of parking (the consumption event),
+   publishes the scopes for the peer's queries inside `r`, then hands
+   `r` to the walk. The encoder uses these scopes when encoding the
+   walk's outgoing answers to those queries. These received scopes are
+   distinct from the local question records created by queries inside an
+   outgoing reply. For the latter, the new order is: publish its local
+   records, then write and flush the outgoing reply.
+
+   Set `next_scopes` to `FAN + 1`. At the take of incoming reply `r + 1`,
+   the encoder has dequeued the scopes of `r` except possibly one: it
+   takes a scope before encoding its answer and may still be writing the
+   preceding answer. The walk cannot take `r + 2` until the encoder has
+   taken the answers generated from `r + 1`. Thus one possible straggler
+   plus one incoming reply's fan fits. Write this argument at the
+   constructor and test the boundaries under adversarial scheduling,
+   including when the new capacity is smaller than the old window.
+   Restate `yield_reply_scopes!`'s ordering role using these incoming and
+   outgoing event names.
+### Derive the working-state price
+
+Let `n` be the population input to the existing fan-size model and `d` the
+child depth, equal to exposition level `ℓ`. Document how the existing
+model obtains `n` from the greeting counts before evaluating the new
+price; do not silently substitute a per-replica count for a combined one.
+For reply payload at depth `d`, use
+`children_quantile(n, d − 1)` reactions, each priced for its representation
+and up to `children_quantile(n, d) × LISTING_ENTRY_BYTES` of query listing.
+Supply handles must remain covered by that representation charge.
+
+Add the parked reply price beside the local scope price in
+`window::from_budget`. Include the scopes retained with each parked reply,
+widened `local_questions`, fan-plus-one `next_scopes`, and active
+reply/stage/decoder state. Audit simultaneous ownership:
+charge separate allocations separately and shared storage once. The
+existing `supply_fans` charge may cover some of this; verify that coverage
+before relying on it. The byte price must describe all retained working
+state, not just digest payload. Replica content in the backend, including
+uncommitted supplied content, remains outside this budget.
+
+For the fixed parking slack, pre-charge at each depth
+
+```text
+min(FAN + 1, 256^(d−1)) × parked_reply_price(d).
+```
+
+This cap is structural: a level-`d` question concerns a node at depth
+`d − 1`, and there are at most `256^(d−1)` such nodes. The actual parking
+capacity may therefore be
+`min(K(d) + FAN + 1, 256^(d−1))`. Keep the uncapped arithmetic out of any
+integer overflow path. Both parties run the sizing calculation without
+knowing their role; charging all depths rather than one parity is the
+existing conservative convention. Distinguish this charge from actual
+per-party occupancy.
+
+### Numerical illustration
+
+As an illustration of scale, consider fan estimates for a trie population
+of `n = 100,000`: roughly 256 children near the root, roughly 200 children
+beneath each of those, then roughly 1.5 one level further down. Using
+about 25 bytes per listing entry gives:
+
+| Child depth | Capped parking at minimum window | Approximate listing payload |
+| --- | --- | --- |
+| 1 | 1 reply | `256 × 200 × 25 B ≈ 1.3 MB` |
+| 2 | 256 replies | `256 × 200 × 1.5 × 25 B ≈ 1.9 MB` |
+| 3 and deeper | Up to 258 replies per depth | Small fans, adding tens of kilobytes in this illustration |
+
+This is roughly 3–4 MB of payload in a conservative **per-party** charge
+across all depths, not the sum of two replicas' actual allocations. Here
+`n` is explicitly the illustrative trie population; the table does not
+establish which population the sizing routine will use for two given
+greeting counts. Nor does it evaluate the stated tail quantiles or price
+all metadata. Compute that model result in the implementation before
+making a budget claim for a particular pair of replicas.
+
+### Implement and verify the accounting
+
+Derive slot constants by `size_of`, as for existing constants, and include
+heap-backed vectors and scopes separately. Update `sizing.rs` and
+`Peer::sync_memory_budget`'s accounting paragraph with the boundary and
+the statistical qualification: uniform hashing, tail probability `2⁻⁴⁸`
+per estimate, union below `2⁻⁴⁰` per session. Clustered addresses can exceed
+the byte estimate without violating the absolute slot count.
+
+Record the parent commit's sizing output, then regenerate
+`window/tradeoff.md` with `just window-tradeoff` and re-baseline
+`tests/window/{census,corners,knee,operator,tradeoff_probe}.rs`. These report
+the sizing model; they are not measurements of actual allocated memory.
+Keep any allocation measurements separately labeled with workload and
+accounting boundary.
+
+### Tests and documentation
+
+Carry forward step 0's sent-minus-consumed invariant. At every parking
+enqueue, check occupancy **before** insertion is less than capacity;
+allow occupancy to equal capacity afterward. Re-derive
+`ProxyLocalQuestions`' harvested `min(capacity, S)` supremum using its
+new capacity and actual lifetime. Add the scope-queue and
+early-publication checks above; neither follows from widening alone.
+
+The adapter's `fan_occupancy` tests still describe one reply skeleton and
+one fan of leaves held by an active decoder, not all parked state. Keep
+that distinction explicit. `capacity_stress_covers_every_queue_role` must
+cover the proxy edges at their new widths. Update `message.rs`,
+`stages.rs`, and `Work::respond` comments that currently allow only one
+decoded reply per stage; state the derived capacity and arrival invariant.
 
 Commit: "Park decoded replies per level".
 
-## Step 2: demonstrate one pipe, before touching the API
+## Step 2: collapse the transport, and demonstrate the cure
 
-An adequacy demonstration that the parking is the cure, on the current wire
-format, with the current `Link` API untouched.
+One atomic commit covers the code, snapshots, public contract docs,
+working examples, and the demonstration: the wedge tests, the arrival
+invariant, the occupancy fixture, and the stress matrix, all over the
+real pipe. There is no throwaway demonstrator transport (ruled
+2026-09-21); step 0's instrument and step 1's parking on the existing
+bundle carry the confidence until this commit, and the demonstration is
+part of its acceptance. A later prose pass may polish explanations, but
+may not leave broken references or a false transport contract in the
+intermediate tree. Update and test Sush's compatibility branch alongside
+the API change.
 
-1. **A multiplexed test transport.** Under `remote/proxy/tests/`, a harness
-   that drives two proxies over one `tokio::io::duplex` pair per direction:
-   a test-only `Connector`/`Acceptor` whose "streams" are all written to and
-   read from the one pipe, each stream's label and frames written whole
-   under a lock so frames never interleave mid-frame, with the receiver
-   demultiplexing by label and then by the frame's own stream index into
-   per-stream handoffs. This is precisely the instantiation the July
-   deadlock analysis rejected, and it should still fail the link
-   conformance suite's independence probe, which is correct: the pipe does
-   couple streams. The claim is that sessions complete anyway. The archive
-   branch `wave1/integration` holds the single-socket campaign's harness,
-   which may be the cheapest starting point; if neither is cheap, fold this
-   demonstration into step 3's first commit, where the wedge at parking one
-   is the known-bad, and let step 0's measurement carry the confidence
-   until then.
-2. **The known-bad and the cure.** `streaming/tests/wedge.rs` already pins
-   the deterministic tree pair. Run it over the multiplexed transport twice:
-   with `ProxyResponses` forced back to capacity 1 (a test knob, since
-   step 1 made the capacity a constructor argument), `run_to_quiescence`
-   must report `Stalled`; at the step-1 capacity it must complete and match
-   `Tree::join`. Run the capacity stress matrix over the same transport.
-3. **The invariant as a property, and its tightness.** Over the same
-   transport, a proptest across generated tree pairs and the adversarial
-   scheduler asserting that no `ProxyResponses` queue ever reaches its
-   capacity. And one constructed shape that parks exactly
-   `window.capacity(h) + FAN + 1` replies at some height: a full-fan reply
-   whose questions cannot all be recorded because the stage below holds
-   its one question and awaits a reply the scheduler delays, while the
-   peer answers everything. At one slot less it must stall. This is the
-   demonstration that the `+ 1` is real; commit both as named tests.
-4. Any stall at the step-1 capacity is a finding about the count, not about
-   the transport; stop and re-derive before proceeding.
+### The demonstration
 
-Commit: "Demonstrate single-pipe liveness with parked replies".
-
-## Step 3: collapse the transport
-
-One atomic commit for the code (nothing compiles halfway), then a prose
-sweep. This is the public-API change; per the triage plan, Sush's
-compatibility branch is updated and tested alongside it.
+1. **Pin the failure and cure.** Run `streaming/tests/wedge.rs`'s tree pair
+   over one in-memory duplex pipe (one `tokio::io::duplex(capacity)`
+   call, giving endpoints A and B; A writes what B reads and B writes what
+   A reads: one duplex connection with two byte directions, not a pair of
+   connections). With `ProxyResponses` forced to capacity 1,
+   `run_to_quiescence` must report `Stalled`. At the derived capacity it
+   must complete and match `Tree::join`. Commit two named tests and run
+   the capacity stress matrix over the same pipe.
+2. **Pin arrivals and peak occupancy separately.** Generate tree pairs
+   and adversarial schedules, checking that no arriving reply finds its
+   parking queue already at capacity. Construct a run that reaches
+   exactly `K(ℓ) + FAN + 1` parked replies at a level whose structural
+   population cap permits it: fill the record queue, leave the consumer
+   holding one question without taking its reply, and send one further
+   fan before recording can proceed. Temporarily delaying that consumer
+   while replies park demonstrates a reachable occupancy; resume it to
+   completion. This does not claim deadlock at one slot less. The
+   depth-one wedge is the separate negative control.
+3. **Investigate any unexpected stall.** Check the arithmetic and event
+   boundaries, both bookkeeping moves, backend independence, and mux/demux
+   scheduling. Resolve the violated premise before proceeding; do not
+   merely widen the queue.
 
 ### The link, dissolved
 
-Nothing remains for a `Link` to carry. Its `SessionState` held an epoch
-(the stream-label tripwire, gone with the labels) and a poison latch (a
-failed session leaves the byte stream mid-frame, so the next session on it
-must fail fast). Ownership expresses the latch better than a flag:
+`SessionState`'s epoch identified stream labels; those labels disappear.
+Its poison latch prevented reuse of a stream left mid-session. Owned halves
+express that restriction for callers who transfer ownership:
 
-- The session functions take the halves directly, by value, and return
-  them on success:
-  `Rumors::gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error>`,
-  with `R: AsyncRead + Unpin + Send` and `W: AsyncWrite + Unpin + Send`;
-  the continuous `gossip` driver takes them by value and owns them for
-  its life (dropping the driver drops the connection, which is what
-  "cancellation poisons the link" meant); `Bootstrap::join` and
-  `Peer::retire` return the halves inside their success outcomes. A
-  failed session keeps the halves, so a caller who passed them by value
-  cannot reuse a pipe whose position is unknown, and `Error::LinkPoisoned`
-  goes.
-- The by-value signature already admits references: `&mut T` satisfies
-  the same `AsyncRead`/`AsyncWrite` bounds through tokio's blanket impls,
-  so a caller who wants to keep the halves passes `&mut read, &mut write`
-  and gets them back regardless of outcome. Ownership then guards reuse
-  only for callers who opt into it, so the session functions' docs must
-  carry the rule for the other case: after an error, the byte stream's
-  position is unknown, and running another session on it yields a
-  garbled preamble or a read that waits on a peer that has given up,
-  rather than a typed error. Discard the connection. (Ruled 2026-09-20.)
-- Delete `link.rs` and everything under it: `Link`, `SessionState`,
-  `map_transport` (callers wrap the halves themselves), `Connector`,
-  `Acceptor`, `Done`, `link::STREAM_COUNT` (the public constant;
-  `window.rs` takes the decoder count from the codec's `Stream::COUNT`),
-  `link/erased.rs` (the `DynRead`/`DynWrite` erasure in `peer/gossip.rs`
-  is what remains, internal), `link/routed.rs` and `link/routed/*`,
-  `conformance/link.rs` and `conformance/link/*`, and their tests. The
-  `conformance` feature keeps `bookmark` only. `link::memory()` becomes a
-  `tokio::io::duplex` pair the tests build where they need it (a helper in
-  `testing` if the repetition warrants one), not a public constructor.
-- The requirement on the halves, stated on the session functions' docs
-  rather than as a contract module: one reliable, ordered, duplex byte
-  stream; the two directions independent (a side's read progresses while
-  its write is blocked, which the greeting exchange needs); receiver-paced
-  backpressure at any positive capacity; EOF or error on peer departure.
-  The security paragraph (authentication is authorization, integrity,
-  confidentiality, freshness) moves to the crate docs unchanged.
+- `Rumors::gossip_once<R, W>(&self, read: R, write: W)` returns
+  `Result<(Gossiped, R, W), Error>`, with
+  `R: AsyncRead + Unpin + Send` and `W: AsyncWrite + Unpin + Send`.
+  `Bootstrap::join` and `Peer::retire` return the halves in their success
+  outcomes. An error does not return owned halves; cancellation drops
+  values owned by the future. The continuous `gossip` driver owns its
+  arguments for its lifetime. Remove `Error::LinkPoisoned`.
+- The same signatures admit `&mut read` and `&mut write` through tokio's
+  blanket implementations. Such callers retain the underlying halves and
+  regain access when the borrow ends, including after error or
+  cancellation; an error result does not return them. Document that the
+  stream position is then unknown and the connection must be discarded.
+  A later session is not guaranteed a typed poison error. Dropping a
+  driver that owns only references likewise does not itself close the
+  caller's connection.
+- Delete `link.rs` and its machinery: `Link`, `SessionState`,
+  `map_transport`, `Connector`, `Acceptor`, `Done`, `link::STREAM_COUNT`,
+  `link/erased.rs`, `link/routed.rs`, `link/routed/*`,
+  `conformance/link.rs`, `conformance/link/*`, and their tests.
+  `window.rs` takes decoder count from codec `Stream::COUNT`; internal
+  `DynRead`/`DynWrite` erasure remains in `peer/gossip.rs`. Callers wrap
+  halves themselves instead of using `map_transport`. The `conformance`
+  feature retains `bookmark` only. Tests replace `link::memory()` with
+  duplex endpoints, using a testing helper if needed.
+- Put the transport requirement on the session functions: one reliable,
+  ordered duplex byte stream with independent directions, receiver-paced
+  backpressure at any positive capacity, and EOF or error on peer
+  departure. A read must progress while that side's write is blocked,
+  as the greeting exchange requires. Migrate `link.rs`'s security
+  paragraph (authentication is authorization, integrity, confidentiality,
+  freshness) to the crate docs before deleting the source.
 
 ### The proxy
 
-- New module `remote/pipe.rs` (name open): a *mux* task owning the write
-  half, fed by per-height frame channels of capacity 1, taking ready frames
-  round-robin and writing and flushing each; a *demux* task owning the read
-  half, decoding frame heads with `FrameRead`, routing by stream index into
-  per-height capacity-1 handoffs, and stopping on a head that is not a
-  frame (the epilogue marker or a party donation), handing the reader back
-  with that lookahead. The demux thereby absorbs the departure watch and
-  `ControlRead`'s replay role.
-- `StreamSender` and `StreamReceiver` bind to the mux and demux handoffs:
-  no label write, no claim, no `Done`. `AcceptDriver`, `Claims`,
-  `ClaimSlots`, `AcceptError`, `StreamError::{Mislabeled, SupplyClosed}`
-  and the `label` renderer go. `Truncated` stays (pipe EOF before a
-  height's `End::Stream`).
-- `state.rs`'s `Session` holds the mux and demux handles where it held
-  connector, claims, and route; `Physical` loses `accept` and `errors`;
-  `work.rs::execute` selects the protocol against the demux's single
-  failure route.
-- Every peer-controlled wait on the receive path becomes a typed
-  violation, per the rule for full queues above: parking at capacity on
-  arrival, a reply begun beyond the flushed-question count, an opening
-  supply outside the computed batch. The demultiplexer waits only on
-  bounded local work.
+- Add `remote/pipe.rs` (name open), holding two tasks in the session's
+  `Work`. The mux owns the write half and takes `(Stream, Frame)` items
+  from capacity-1 per-height channels, serving question-bearing frames
+  (every frame that is not a supply run) before supply runs, round-robin
+  within each class, and writing and flushing whole frames. The demux
+  owns the read half, reads heads with `FrameRead`, and routes by stream
+  index into capacity-1 handoffs. It stops at the non-frame control head
+  and returns the reader with that lookahead, absorbing the departure
+  watch and `ControlRead`'s replay role. Decoder progress must be
+  independent of the walk even when a handoff temporarily fills.
+- Dissolve `StreamSender` and `StreamReceiver` (`remote/streams.rs`): an
+  encoder sends its frames into its per-height mux channel, and a decoder
+  reads frames from its handoff. Remove label writes, claims, `Done`,
+  `AcceptDriver`, `Claims`, `ClaimSlots`, `AcceptError`, `StreamError`,
+  and the label renderer; the one surviving case, pipe EOF before a
+  logical height's `End::Stream`, becomes a `Truncated` error of the
+  pipe module.
+- In `state.rs`, replace `Session`'s connector, claims, and route with
+  mux/demux handles. `Physical` loses `accept` and `errors`;
+  `work.rs::execute` selects the protocol against the pipe's failure
+  route.
+- Detect parking overflow at the decoded-reply enqueue, where the unit
+  is a reply rather than a frame, and propagate a typed failure through
+  that route. Never block on overflow. Preserve enough diagnostics to
+  distinguish excess peer replies from a broken local invariant.
 
 ### The wire
 
-- Frames are unchanged. Stream labels are gone. Preamble, greeting, frames,
-  each height's `End::Stream`, then the epilogue marker (or the party
-  hand-off) follow in order on the one pipe. Every frame opens with a CBOR
-  array head; the epilogue marker opens with a text head and a party
-  donation with a tag head, so the demux's stop rule is "any head that is
-  not an array head ends the data phase", and it hands the reader back
-  with that head as lookahead.
-- Pre-release, this is a deliberate wire-format change: `tests/gossip_snapshot.rs`,
-  `tests/protocol_overhead.rs`, and the `insta` snapshots re-accept in this
-  commit, named as "single-pipe framing: stream labels removed; control
-  items in-band". Bookmark pins do not move.
-- The capture harness (`crates/rumors-testkit/src/common/gossip_snapshot.rs`)
-  groups items by logical stream today using the parsed label. It groups
-  by the frame's own stream index instead, taken from the observer hooks,
-  so renders stay independent of the mux's interleaving.
+- Keep frames and remove stream labels. In each direction the preamble
+  and greeting precede the data phase; data frames and each logical
+  height's `End::Stream` precede the epilogue marker or party hand-off.
+  A frame starts with a CBOR array head, the epilogue with a text head,
+  and a donation with a tag head. On a non-array head, the demux returns
+  control and its lookahead for the control parser to validate.
+- This is a deliberate pre-release wire-format change. Re-accept
+  `tests/gossip_snapshot.rs`, `tests/protocol_overhead.rs`, and the
+  `insta` snapshots in the atomic commit, identifying "single-pipe
+  framing: stream labels removed; control items in-band". Bookmark pins
+  stay fixed.
+- Change `crates/rumors-testkit/src/common/gossip_snapshot.rs` to group
+  items by the frame's logical stream index from observer hooks rather
+  than parsed labels. Render by logical stream so mux interleaving alone
+  does not churn snapshots.
 
 ### The session drivers and tests
 
-- `SessionTransport` becomes the two erased halves; the session funnels
-  in `peer/gossip.rs` lose their `SessionState::begin`/`finish` calls and
-  return the halves on success instead.
-- `testing::transport` loses the `Connect`/`Accept` fault kinds;
-  `testing::memnet` goes; the testkit's `routed_tcp` and `tcp` helpers
-  become one TCP-pipe helper; `tests/routed_link.rs` goes;
-  `tests/latency_link.rs` goes with the suite it ran, and the latency bench
-  moves to a delayed duplex pair; `tests/hop_trace.rs` re-anchors on the pipe and must reproduce its
-  ledger (`3 + L + 1`); `benches/window_wallclock.rs` runs over the pipe.
-- The observation surface keeps `StreamObserver` keyed by logical stream
-  index and direction; only its prose changes ("data stream" becomes
-  "logical stream").
+- Replace `SessionTransport` with two erased halves. Remove the session
+  funnels' `SessionState::begin`/`finish` calls in `peer/gossip.rs` and
+  return halves on success.
+- Remove `testing::transport`'s `Connect`/`Accept` fault kinds,
+  `testing::memnet`, and `tests/routed_link.rs`. Merge the testkit's
+  `routed_tcp` and `tcp` helpers into one TCP-pipe helper. Remove
+  `tests/latency_link.rs` with its contract suite and move the latency
+  benchmark to a delayed duplex pair. Re-anchor `tests/hop_trace.rs` on
+  the pipe, preserving its existing `3 + L + 1` ledger and its definition
+  of `L`; run `benches/window_wallclock.rs` over the pipe.
+- Retain `StreamObserver` by logical stream index and direction; update
+  its wording from physical data streams to logical streams.
 
 ### Prose
 
-`lib.rs` (the transport paragraphs and the example), `reconciliation.rs`
-("The bytes on the wire" is rewritten around one stream and parking),
-`link.rs`, `sizing.rs`, `tutorial.rs`, `observe.rs`, `AGENTS.md`'s transport
-bullet, `just readme`. Every mention of stream supplies, labels, claims,
-routers, and per-stream flow control is excised or re-denominated, per the
-no-ghost-references rule.
+The atomic commit updates public signatures and failure rules, migrates
+`link.rs`'s surviving documentation, and fixes all imports, links,
+examples, and comments that would otherwise describe deleted behavior.
+This includes the affected parts of `lib.rs`, `reconciliation.rs`,
+`sizing.rs`, `tutorial.rs`, `observe.rs`, the transport bullet in
+`AGENTS.md`, and generated README material via `just readme`.
+A following prose-only commit may improve organization and explanation;
+it starts from accurate, gate-clean documentation.
 
-Commits: "Collapse the transport to one pipe" (code and snapshots), then
-"Re-denominate the transport prose".
+Commits: "Collapse the transport to one pipe", then, if useful,
+"Polish the single-pipe explanation".
 
-## Step 4: the multiplexer's policy, measured
+## Step 3: the multiplexer's residual, measured
 
-Round-robin at frame granularity is live under any policy, so it ships
-first. Then measure the one inherent cost: a supply frame at the maximum
-run budget ahead of a thin deep reply, on the delayed pipe, with the delay
-recorded. If it matters at realistic budgets, prefer question-bearing
-frames over supply frames and document a small socket send buffer for TCP
-deployments. The hop ledger must not move under either policy.
+The multiplexer prefers question-bearing frames from the start (ruled
+2026-09-21); every frame is still served in finite time because a
+session's traffic is finite. Measure the residual: a maximum-size supply
+frame already committed ahead of a thin deep reply on the delayed pipe,
+plus the transport's buffered bytes; evaluate a smaller TCP send buffer
+if the buffered bytes dominate. Priority cannot preempt an in-progress
+frame or bytes already buffered, and the frame bound limits one frame,
+not aggregate queuing delay. The dependency-hop ledger must stay fixed;
+elapsed latency may change.
 
-## Step 5: records
+## Step 4: records
 
-- This note's README records the determination and the owner's rulings.
-- `formal/README.md`'s summary of the mux campaign's product conclusion is
-  revised to state the counting bound and to point here; the Lean elastic
-  model's doc comment, which reads the K-parking result as "no fixed
-  parking bound survives", is restated as "no bound independent of the fan
-  and the window survives". A charter for the counting lemma may be added
-  to `Mux/Charters.lean`; it is secondary and no step above waits on it.
+- Keep this note's README aligned with the implemented result and the
+  recorded owner rulings.
+- Update `formal/README.md`'s mux-campaign conclusion with the counting
+  bound and a link here. Update the elastic model's comment to distinguish
+  a bound chosen independently of the window and fan from the sufficient
+  derived capacity. An optional counting charter in `Mux/Charters.lean`
+  should state the arrival invariant as well as the occupancy upper
+  bound. Formal work is secondary and does not block these steps.
 
 ## Acceptance
 
-- Step 0's high-water test is green at both the budget window and the
-  floor, on the multi-stream transport, before step 1 lands.
-- Step 2's wedge stalls at parking 1 and completes at the derived capacity,
-  committed as two named tests.
-- After step 3, `just gate` is clean; the hop ledger over the pipe equals
-  the pre-collapse ledger; the snapshot diff is labels and in-band control
-  items only, and the commit message says so; the window census is
-  re-baselined with its parent-commit measurement recorded.
-- Sush's compatibility branch builds and its tests pass against the new
+- Step 0's sent-minus-consumed bound passes at both the budget window and
+  floor on the multi-stream transport before step 1 lands; the greeting
+  is covered separately.
+- The opening-shortcut removal re-accepts its snapshots in a commit that
+  names the change, and nothing else moves in them.
+- Step 1's scope-publication, early-publication, and queue-custody checks
+  pass, including a `next_scopes` reduction from a larger old window.
+- The one-pipe wedge stalls at parking 1 and completes at the derived
+  capacity in two named tests. A separate fixture reaches the occupancy
+  bound and then completes; no minimum-capacity claim follows from it.
+- No arriving reply finds its parking queue already at capacity across
+  the stress matrix and generated schedules. Occupancy equal to capacity
+  after insertion is allowed. Unexpected overflow fails without waiting.
+- After step 2, `just gate` is clean, the hop ledger matches its
+  pre-collapse value, and snapshot differences are stream labels and
+  in-band control items only, identified in the commit.
+- The window census is re-baselined against recorded parent-commit output.
+  Records identify the uniform-hashing assumptions, confidence bounds,
+  excluded backend content, fixed floor, and distinction between sizing
+  model output and actual allocation measurements.
+- Sush's compatibility branch builds and its tests pass with the new
   session signatures.
 
 ## Risks, named
 
-- **The count is off by a constant.** The `+ 1` terms were derived by
-  reading, not measured. Step 0 measures them; a high-water above the bound
-  is a finding to resolve before step 1, not a reason to widen.
-- **Absorbed content on failure.** Eager absorption puts supplied subtrees
-  into the backend before the session commits; on failure they are garbage.
-  For `Local` they are dropped `Arc`s; a persistent backend must reclaim
-  them, which is its existing obligation for the `Ready` slots the walk
-  already fills before commit. Ruled acceptable.
-- **Snapshot churn under scheduling changes.** Only if the capture harness
-  renders in pipe order; grouping by stream index (step 3) prevents it.
-- **Byte head-of-line.** Inherent to one socket; step 4 measures it and
-  bounds it by the run budget and the mux policy.
+- **Count or lifetime mismatch.** An unexpected high-water mark may expose
+  a wrong event boundary, height mapping, or sequential-production
+  assumption. Resolve it rather than adding arbitrary slack.
+- **A decoder still waits on the walk.** Correct capacity alone cannot
+  repair this. Check both bookkeeping moves and backend independence when
+  diagnosing a one-pipe stall.
+- **Byte estimates underprice retained state.** The absolute count does
+  not validate the statistical price. Audit scopes and auxiliary queues;
+  clustered addresses can exceed the model even with correct accounting.
+- **Absorbed content on failure.** Uncommitted supplies become garbage.
+  `Local` releases its `Arc`s; a persistent backend must reclaim nodes,
+  as it already must for `Ready` slots filled before commit. This custody
+  is accepted by the owner.
+- **Snapshot churn under scheduling.** Grouping by logical stream index
+  prevents interleaving alone from changing the rendered capture.
+- **Serialization and loss.** Step 3 measures queuing effects. One TCP
+  loss recovery delays every level, including work that could have
+  overlapped recovery on independent QUIC streams.

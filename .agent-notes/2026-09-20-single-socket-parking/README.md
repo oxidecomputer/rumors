@@ -1,51 +1,63 @@
 # Reconciliation over one socket: parked replies
 
 A design, not yet implemented. The streaming reconciliation protocol runs
-today over a bundle of independently flow-controlled streams because its
-deadlock-freedom argument needs them. This note shows that a single ordered
-duplex byte stream suffices, at the same round-trip count and under a fixed
-memory bound, with no flow-control machinery added to the wire and no change
-to the walk or its messages. The change is confined to the receiving side,
-and it is a resizing, not a re-plumbing: the per-level queue of decoded
-replies that holds one reply today is sized from that side's own window
-plus one fan, and a counting fact about the protocol guarantees no reply
-ever arrives to find it full. With the streams gone, the `Link`
-abstraction goes too: a session takes the two halves of a byte stream.
+on a bundle of independently flow-controlled streams so that one tree
+level can progress while another waits. This note derives how much room a
+receiver needs to accept every reply it has invited, independently of the
+walk's consumption order. With that room, and decoding freed from waits on
+the walk, one ordered duplex byte stream suffices under the existing
+walk's progress assumptions. No credits or window advertisements are added,
+and the logical exchange and its dependent network crossings stay the same.
 
-- [`exposition.md`](exposition.md): the argument, built up from the tree
-  and the level-at-a-time protocol through the streaming protocol to the
-  single-socket form. Written for a distributed-systems engineer who has
-  not seen the code. Rewritten whole after each of two fresh-eyes reading
-  rounds.
-- [`appendix-implementation-plan.md`](appendix-implementation-plan.md): the
-  route from the current tree to the single-pipe end state, step by step,
-  for someone who knows the code. Instruments land before cures; the
-  public-API shape is proposed for the owner's ruling.
+The reply count is absolute: a level needs at most its local question
+window plus 256 replies from one branching step and one reply for the
+question already held by its consuming stage. The economical byte sizing
+remains statistical under uniform hashing, as in the current window model;
+it covers session working state and excludes replica content in the
+backend, including content awaiting commit. Reception changes are confined
+to bookkeeping: two queues widen, one publication moves later and another
+earlier, and the shipped protocol's opening-supply shortcut is removed.
 
-Rulings from Finch, 2026-09-20, recorded so the plan need not re-ask them:
-the `+ FAN` slack in the parking bound is acceptable (no reserve-first
-tightening); eager absorption of supplied subtrees into the backend before
-commit is desired, with the backend owning reclamation as it does for
-in-memory handles; the `Link`'s stream bundle collapses outright rather than
-surviving as an optional layer, giving up QUIC's per-stream loss isolation
-(on one TCP connection a lost segment stalls every level for one recovery,
-and work that would have overlapped it waits); the formal counting lemma is
+- [`exposition.md`](exposition.md) builds the argument from the tree and
+  V1's level-at-a-time exchange through V2's streaming walk to one socket,
+  for a distributed-systems specialist who has not seen the code.
+- [`appendix-implementation-plan.md`](appendix-implementation-plan.md)
+  gives the implementation sequence for a reader who knows the code:
+  instrument the count, change reception on the existing transport, then
+  collapse the transport to one pipe with the demonstration in the same
+  commit.
+
+Finch's rulings of 2026-09-20 settle the design choices: retain the
+`K + 256 + 1` capacity rather than change publication order to tighten it;
+absorb supplied subtrees into the backend before commit, with reclamation
+owned by the backend; remove `Link` and its stream bundle outright; and
+take the byte stream's halves by value, returning them on success.
+Callers may pass mutable references, but must discard the connection after
+an error. Removing the bundle gives up QUIC's per-stream loss isolation:
+a lost segment on a single TCP connection delays all levels for recovery,
+including work that could otherwise have overlapped it. Formalization is
 secondary to the code and its tests.
 
-A second version of all three documents, reviewed and then revised by
-GPT-6-Astra through the Codex CLI with no access to the repository,
-sits in [`astra/`](astra/README.md) beside its [review](astra/review.md),
-the [author's factual answers](astra/author-answers.md) it revised
-against, and its [notes](astra/revision-notes.md). The two versions are
-kept side by side for comparison; neither supersedes the other yet.
+Rulings of 2026-09-21 simplify the plan: sent-question records are
+published before the reply is flushed, so an arriving reply without a
+record is a violation with no counter; the opening-supply shortcut is
+removed; no throwaway demonstrator transport is built; `StreamSender` and
+`StreamReceiver` dissolve into channels; and the multiplexer prefers
+question-bearing frames from the start. A "task" throughout means a
+future driven by the session's own `Work`, never a runtime spawn.
 
 Prior notes this one answers: the [streaming wire
-deadlock](../2026-07-17-streaming-wire-deadlock/README.md) (the cycle, and
-the determination to demand independent streams), [eager
-absorption](../2026-07-21-eager-absorption/README.md) (the custody
-assessment this design relies on, whose §7.2 left the count open), and the
-[single-socket campaign](../2026-07-21-single-socket/README.md) (declined
-because it rebuilt sender-side pacing; this design needs none).
+deadlock](../2026-07-17-streaming-wire-deadlock/README.md), which motivated
+independent streams; [eager
+absorption](../2026-07-21-eager-absorption/README.md), whose custody analysis
+left the reply count open; and the [single-socket
+campaign](../2026-07-21-single-socket/README.md), which pursued sender-side
+pacing.
 
-Written by Claude for Finch at `772cce34`; the reasoning was checked against
-the code by reading, and no number in it has been measured yet.
+This version was reviewed and then revised by GPT-6-Astra through the
+Codex CLI, with no access to the repository, from Claude's first draft,
+which is kept in [`first-draft/`](first-draft/README.md) for comparison;
+the review, the factual answers it revised against, and its notes are in
+[`review/`](review/astra-review.md). The design was developed by Claude
+for Finch against `772cce34`, with the code read for its premises; no
+number in this note has been measured yet.
