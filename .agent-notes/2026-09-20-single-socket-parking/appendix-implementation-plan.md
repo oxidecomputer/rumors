@@ -504,13 +504,36 @@ kernel buffer holding megabytes of already-queued image bytes.
 You cannot shrink the buffer below a BDP without losing throughput,
 because the in-flight bytes have to live somewhere. What you want is a
 buffer that is deep enough to hold a BDP in flight but shallow in unsent
-bytes. That is precisely what the `TCP_NOTSENT_LOWAT` socket option does
-(it exists on Linux and macOS; Apple introduced it for this reason): the
-socket reports itself unwritable whenever its *unsent* bytes exceed the
-threshold, regardless of how much is in flight. The application then
+bytes. That is precisely what the `TCP_NOTSENT_LOWAT` socket option does:
+the socket reports itself unwritable whenever its *unsent* bytes exceed
+the threshold, regardless of how much is in flight. The application then
 writes only when the unsent queue has nearly drained, so each of the
 mux's decisions takes effect within about a threshold's worth of
 transmission.
+
+The option is not universal. Linux has had it since 3.12 (2013), and
+macOS and iOS have it (Apple introduced it for exactly this purpose).
+FreeBSD does not define it, and neither does illumos: its `netinet/tcp.h`
+carries no such option, its `tcp(4P)` manual documents none, and it
+exposes no ioctl that reports queued send bytes either (only `FIONREAD`,
+for the receive side), so a multiplexer on illumos cannot even poll the
+unsent depth itself. Windows approaches the same problem from the other
+side: `SIO_IDEAL_SEND_BACKLOG_QUERY` reports the amount of outstanding
+data that would keep the connection full, so an application can size its
+send buffer to that and no larger.
+
+Where the option is absent, bound the unsent portion by bounding the
+whole buffer: set `SO_SNDBUF` explicitly to about the bandwidth-delay
+product plus one frame. In-flight bytes then fill most of the buffer and
+unsent bytes cannot exceed the margin. This requires knowing the BDP,
+which a rack-internal deployment does and a WAN deployment may not, and
+it costs throughput if the BDP is underestimated. On illumos the send
+buffer is a fixed per-connection size, 48 KB by default (`send_buf`),
+unless `SO_SNDBUF` sets it, and `SO_SNDBUF` is capped by the `max_buf`
+tunable (1 MB by default), so a rack deployment there
+sets both deliberately: `max_buf` above the link's BDP, and `SO_SNDBUF`
+to BDP plus a frame. Since the control plane runs on illumos, this is the
+case the deployment docs must cover first.
 
 With the threshold at one frame, the worst case for a thin reply is: the
 mux has just written a supply frame (up to the frame bound, about 1.6 MB
@@ -555,11 +578,13 @@ section locates: a thin reply waits for the frame in progress plus the
 socket's *unsent* bytes, never for the unsent supply backlog above the
 socket. Measure that on the delayed pipe with a maximum-size supply frame
 committed ahead of a thin deep reply, once with the socket's unsent bytes
-unbounded and once with `TCP_NOTSENT_LOWAT` at about one frame, and
-record both. The deployment docs then say two things for TCP: set
-`TCP_NOTSENT_LOWAT` to about one frame, and choose `target_message_size`
-for the head-of-line delay a deployment will accept, since the default is
-sized for memory symmetry rather than for latency. The dependency-hop
+unbounded and once bounded (`TCP_NOTSENT_LOWAT` at about one frame where
+the option exists; `SO_SNDBUF` at about BDP plus one frame where it does
+not, illumos included), and record both. The deployment docs then say two
+things for TCP: bound the socket's unsent bytes by whichever of those two
+means the platform offers, and choose `target_message_size` for the
+head-of-line delay a deployment will accept, since the default is sized
+for memory symmetry rather than for latency. The dependency-hop
 ledger must stay fixed; elapsed latency may change.
 
 ## Step 4: records
