@@ -524,10 +524,11 @@ backlog. The multiplexer serves question-bearing frames first, so a ready
 thin reply waits only for frames already committed ahead of it, never for
 the unsent supply backlog. Priority cannot preempt those frames or the
 transport's buffered bytes. That costs no round trips, since buffering
-adds transmission time and never a crossing, and it costs elapsed time
-only in a session with enough bulk to fill the buffer, at most a few
-times the buffer's drain time; the appendix explains the mechanism and
-the deployment setting that bounds it. On TCP, a lost segment delays all
+adds transmission time and never a crossing; it costs elapsed time only
+on a socket buffered beyond its bandwidth-delay product, for a session
+whose bulk is about that excess, and then at most about two round trips.
+The appendix works the arithmetic and names the deployment setting that
+bounds it. On TCP, a lost segment delays all
 levels for
 recovery. Work that could have advanced on another QUIC stream now waits;
 the owner has accepted that loss of isolation.

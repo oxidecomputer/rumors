@@ -499,32 +499,61 @@ years ago: browsers asked servers to prioritize HTML over images, servers
 did, and it made no difference because the reordering happened above a
 kernel buffer holding megabytes of already-queued image bytes.
 
-### What this costs
+### What this costs, worked through
 
-Nothing in round trips. The dependent-crossing count is a property of
+Nothing in round trips: the dependent-crossing count is a property of
 the protocol's ordering, and buffering adds transmission time, never a
-crossing. The session's round-trip count is therefore optimal whether or
-not the send buffer is tuned, and tuning it is not required for that.
+crossing. The round-trip count is optimal whether or not the send buffer
+is tuned. What buffering can add is elapsed time, and the amount is
+small enough to compute exactly.
 
-What buffering can add is elapsed time, in one situation only. Because a
-supply frame is written only when no level has a thin frame ready,
-supplies accumulate in the kernel's unsent portion only while the
-session is discovering supplies faster than the wire can carry them.
-During that time the wire is saturated with bulk that must be
-transmitted anyway, so a thin reply waiting behind queued supplies costs
-no elapsed time: the wire would have been busy with those supplies
-either way. The wait costs elapsed time only if the descent is still in
-progress once that bulk has drained. The waits its last thin replies
-incurred earlier have shifted the discovery of the last supplies later,
-so those supplies are transmitted after the wire has gone idle instead of
-during the bulk. The cost is at most the sum of those waits (each at most
-the queued bytes divided by bandwidth), less however long the bulk
-outlasted the descent: a few times the buffer's drain time in a session
-with enough bulk to fill the buffer, and nothing in a session with
-little bulk, which never fills it. Bounding the unsent portion to about
-one frame shrinks the worst case to a few frames' transmission. Liveness,
-hop count, and ordering are unaffected either way; this is a tuning note
-for deployments, and step 3 measures it.
+Write `bw` for bandwidth, `δ` for one-way delay, and `P = 2δ·bw` for the
+bandwidth-delay product. The kernel keeps up to `P` bytes in flight;
+whatever room the send buffer has beyond that is its unsent capacity,
+`U = SO_SNDBUF − P`, zero when the buffer is no larger than the BDP.
+Because a supply frame is written only when no level has a thin frame
+ready, the unsent portion holds supplies only while the session is
+discovering them faster than the wire carries them, and while it does,
+every thin reply written waits `w = min(U, bulk still queued) / bw`
+before reaching the wire. Let `r` be the number of descent levels still
+to go on the critical path once supplies start flowing (they start where
+the disputed paths separate, so `r` is one or two) and `B` the bulk in
+bytes.
+
+Without the effect the session takes the discovery time plus
+`max(B/bw, r·δ)`; with it, the discovery time plus `max(B/bw, r·(δ + w))`.
+The cost is the difference, `max(0, r·(δ + w) − max(B/bw, r·δ))`, and it
+is zero unless the delayed descent outlasts the bulk. Three regimes:
+
+- `B ≪ U`: the queue never fills, `w ≈ B/bw` is tiny, cost ≈ 0.
+- `B ≫ r·(δ + w)·bw`: the bulk hides everything, cost = 0.
+- Between them, worst at `B ≈ U`, where the cost is `r·δ + (r − 1)·w`.
+
+A socket tuned to twice its BDP has `U = P`, so `w = 2δ`, one round
+trip, and the worst case with `r = 2` is:
+
+| link | RTT | P | worst case | on a session of |
+|---|---|---|---|---|
+| 100 Gbps, in-rack | 50 µs | 625 KB | +100 µs | about 175 µs |
+| 10 Gbps, metro | 2 ms | 2.5 MB | +4 ms | about 7 ms |
+| 1 Gbps, long haul | 100 ms | 12.5 MB | +200 ms | about 350 ms |
+
+So the worst case is about two round trips, reached only when the bulk
+is about one BDP and two levels of descent remain, fading to zero on
+either side; and it requires a socket buffer *larger* than the BDP. An
+untuned socket on a long-fat path has the opposite problem: Linux's
+default 4 MB ceiling sits below that link's 12.5 MB BDP, so nothing is
+ever unsent, `w = 0`, and the cost is zero (throughput is capped instead,
+the operator's existing concern). An operator who has raised the buffer
+past the BDP can bound the unsent portion in the same breath, which cuts
+`w` from one round trip to about two frames' transmission: 26 ms at
+1 Gbps with the default frame bound, 4 ms with 256 KB frames.
+
+In sum: no round trips; elapsed time only for a session whose bulk sits
+within a few BDPs of the buffer's excess over the BDP, at most about `r`
+round trips, and only on sockets deliberately tuned above the BDP.
+Liveness, hop count, and ordering are unaffected. This is a one-sentence
+deployment note, and step 3 measures it.
 
 ### The fix is to bound the unsent portion, not the buffer
 
