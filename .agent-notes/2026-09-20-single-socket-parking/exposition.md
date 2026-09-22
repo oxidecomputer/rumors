@@ -45,10 +45,10 @@ The costs are these:
 
 Sections 2 and 3 describe the protocol and the progress property it
 already has. Section 4 shows why one socket naively deadlocks, §5 derives
-the count and the receive path it permits, and §6 accounts for memory,
-including what reducing the root level's share would take. Section 7
-contrasts the design with explicit credits, §8 lists the remaining
-costs, and §9 describes the evidence. The
+the count and the receive path it permits, §6 accounts for memory, and
+§7 contrasts the design with explicit credits. Section 8 sketches a
+follow-on that separates bulk from the descent, §9 lists the remaining
+costs, and §10 describes the evidence. The
 [appendix](appendix-implementation-plan.md) is the implementation plan.
 
 ## 2. The conversation
@@ -365,7 +365,7 @@ Per-level encoders feed a *multiplexer* that owns the socket's write
 half. It keeps each level's frames in order, and it serves every frame
 that is not a supply run before any supply run, round-robin within each
 class. Every frame is still served eventually, because a session's
-traffic is finite. The preference exists for latency (§8): the thin
+traffic is finite. The preference exists for latency (§9): the thin
 replies that advance the descent do not queue behind bulk that is not
 yet written. The sender can wait for bandwidth, and encoders can wait for
 the multiplexer, but no receiving stage's consumption order can stop the
@@ -609,42 +609,11 @@ disputed, each with about 115 children, so the level-2 replies list about
 The stream bundle kept most of those replies unproduced at the sender.
 
 Nothing in parking can shrink this, because every one of those replies
-was invited by a single opening reply. Shrinking it takes a protocol
-change that lets the asker invite less at once. This design does not
-make that change, but it would look like this:
-
-- **A deferral reaction.** Alongside match, supply, and query, a reply
-  can react to a differing child with *defer*: "we differ here, and I
-  will ask later". It holds the child's position, so positional pairing
-  is unchanged.
-- **Standalone questions.** Later, the asker sends a question about each
-  deferred child. It carries the child's prefix, since it has no position
-  to pair with, and the asker's listing. Standalone questions at a level
-  queue behind that level's other questions and are answered in order,
-  so pairing stays positional within the level.
-- **The answerer keeps a handle per deferred child,** captured when it
-  compared the parent's children, so a standalone question costs no more
-  backend work than the query it replaces.
-- **The asker invites only what it can hold.** The "+256" term of the
-  count, a whole reply's questions invited at once, becomes a per-level
-  invitation cap `B` that the asker chooses. Level 2's parking falls from
-  "the whole level" to `B` replies.
-
-The costs:
-
-- Each deferred subtree starts at least one crossing later.
-- The wire gains two message kinds.
-- The walk gains a deferred-question queue per level.
-- The progress argument needs re-deriving. Today a parent resolution is
-  published only after the work that fills its slots has been launched;
-  a deferred child's work launches later. So deferred questions must be
-  issued by work that never waits behind the resolution they fill, or
-  the stage could block on its resolution queue while the assembler
-  waits for a deferred child that the stage has yet to ask about.
-
-In effect, deferral turns a question into an explicit, receiver-issued
-credit expressed in the protocol's own vocabulary. That is the subject of
-the next section.
+was invited by a single opening reply. Only a protocol change that lets
+the asker invite fewer questions at once could shrink it, and that
+change costs more than it saves: it would need standalone questions that
+carry their own paths, and a re-derived progress argument. This design
+accepts the level-2 term and prices it.
 
 ## 7. Explicit credits, for contrast
 
@@ -718,7 +687,7 @@ a frame. Parking adds one queue capacity, one occupancy check, and one
 publication move, and its argument is the count in §5.1.
 
 **What neither changes.** Both keep the dependent-crossing count. Both
-suffer the send-buffer residual of §8, since the kernel drains in order
+suffer the send-buffer residual of §9, since the kernel drains in order
 beneath any user-level scheduling, and both couple levels under TCP loss.
 
 **Summary.** Credits buy a deterministic, link-sized memory bound. That
@@ -726,11 +695,181 @@ bound is tighter than parking's for large, heavily divergent replicas,
 and looser for small ones. The price is a flow-control protocol with its
 own liveness argument, and a need to know the link. Parking buys
 simplicity and link-independence, at the price of a statistical,
-workload-sized bound whose level-2 term grows with the set. Deferred
-questions (§6.8) sit between the two: they bound level 2 using the
-protocol's own questions as credit, with no separate control channel.
+workload-sized bound whose level-2 term grows with the set.
 
-## 8. Costs
+## 8. Deferring bulk: a possible follow-on
+
+This section describes a protocol change that is not part of this
+design. It is additive, and this design makes it easier, but it
+interacts with several of this design's choices. They are listed at the
+end.
+
+### 8.1 Where bulk costs time today
+
+A session does two kinds of work on the wire. The *descent* finds out
+what differs: matches, queries, and replies, all small. The *bulk*
+transfers what differs: supplied subtrees, which can be arbitrarily
+large. Only the descent has dependencies: each level waits on the one
+above it, one crossing at a time. Bulk has none, except that the session
+ends only when bulk has arrived. So the fastest possible session takes
+about
+
+```text
+max( the descent's critical path,  all bytes / bandwidth )
+```
+
+Whenever the descent can keep the wire busy, sending bulk later is never
+worse, and often better. That holds as long as the wire, not the
+receiver's storage, is the bottleneck.
+
+Today's protocol cannot defer bulk fully, because a supply is a reaction
+like any other. It sits in its reply in radix order, and its content
+travels inline. That serializes bulk with the descent in three ways:
+
+- **Within a reply.** A reply is complete only when its last frame
+  arrives, and a stage takes whole replies. A supply ahead of a query
+  therefore delays everything beneath that query.
+- **Within a level.** A level's frames are ordered, so a supply delays
+  every later reply at its level, and everything beneath those.
+- **Transitively.** Everything that depends on the delayed replies waits
+  too.
+
+In tree terms: a supply delays everything below it and to its right. The
+multiplexer's rule of this design, which serves supply runs last across
+levels, cannot help within a level. At worst the session takes the
+descent's critical path *plus* the transfer time of the bulk that sits
+ahead of it, rather than the larger of the two. A large one-sided
+subtree near the root that sorts before a deep dispute is enough.
+
+The saving is therefore at most the smaller of the two terms: up to half
+the session. It is largest when bulk transfer time is comparable to the
+descent's latency, and negligible when either term dominates.
+
+### 8.2 Promised supplies
+
+The change: a supply becomes a *promise*, and its content moves to a
+separate *bulk lane*.
+
+- **In the reply,** a large supply is replaced by `Promise(radix)`: a thin
+  reaction that holds the child's position and says "you lack this child;
+  its content follows on the bulk lane". Replies stay thin, so they
+  complete fast, and the descent proceeds past every promise at once.
+  Small supplies can stay inline. A node already knows its leaf count, so
+  the sender can promise only subtrees larger than, say, one supply run,
+  which bounds the inline delay any reaction can add.
+- **On the bulk lane,** each promised subtree travels as a group: a
+  header naming the subtree's prefix, the filtered leaf runs, and an end
+  marker. The receiver needs no pairing rule. Every leaf's path follows
+  from its version, as today, and the header names the promise it
+  fulfills, so groups can arrive in any order.
+- **The multiplexer** sends bulk exactly when no descent frame is ready
+  to send, and never while one is. When it does send bulk, it sends the
+  groups in the order it made the promises, which is the simplest order
+  and the one in which the receiver's assemblers tend to need them. This
+  rule is work-conserving: the wire never idles while bulk is waiting, so
+  bulk fills the gaps the descent's round trips leave. Holding bulk
+  strictly until every dispute resolves would waste those gaps.
+- **The sender** keeps a promise table: for each promise not yet sent,
+  the prefix and a node handle. It filters against the receiver's version
+  when it sends, exactly as today. A sender-local cap bounds the table. At
+  the cap, the sender falls back to inline supplies, so the cap costs
+  latency, never progress.
+- **The receiver** absorbs each bulk group into its backend with a bulk
+  decoder that never waits on the walk, as the level decoders never do.
+  It files the finished subtree's handle in a table keyed by prefix. A
+  promised child's resolution slot is pending rather than ready. The
+  assembler fills it from that table when the bulk has arrived, and
+  otherwise waits for it.
+
+### 8.3 What stays true, and what must be re-argued
+
+**Dependent crossings are unchanged.** Promises ride the descent exactly
+where supplies did. Bulk adds no crossing; it only has to finish before
+the session can.
+
+**Progress needs one new argument.**
+- **The new wait:** an assembler can now wait on bulk, and the stage
+  feeding it can in turn wait on its resolution queue.
+- **Why it ends:** the bulk for a promise depends only on the sender's
+  backend and on the socket draining. The receiver's demux and bulk
+  decoder never wait on the walk. The multiplexer sends bulk whenever no
+  descent frame is ready. If a receiver stage stalls on bulk, the
+  descent traffic that depends on it pauses, and the bulk goes. Descent
+  traffic is finite.
+- **What it takes:** the argument is short, but it is new, and it belongs
+  beside the walk's own argument and in its test suite.
+
+**Memory.** Bulk itself goes straight to the backend and costs the
+session nothing beyond handles.
+- **The receiver:** pending promises live in resolutions and replies the
+  window already prices. The prefix table holds handles for promises the
+  walk has not yet reached; that is bounded by the promises in flight, so
+  by the sender's cap.
+- **The sender:** it gains the promise table, bounded by its cap.
+- **The real cost is concurrency, not bytes.** A resolution waiting on
+  bulk occupies its assembler, and the stage behind it can run only a
+  window's width ahead. So with a narrow window, deferral throttles the
+  descent until bulk catches up. That is benign, because bulk flows
+  exactly when the descent pauses, but it means deferral pays off most
+  with the windows a generous budget grants.
+
+**The receiver's storage is the other bottleneck.** Absorbing bulk is
+usually the receiver's heaviest work. Deferring bulk also defers that
+work, so if absorption rather than the wire limits the session, deferral
+can lengthen it. Work-conserving scheduling mostly avoids this, because
+bulk still flows through every lull. A session whose descent keeps the
+wire saturated, while its receiver absorbs slowly, is the case where
+early bulk would win.
+
+### 8.4 Against the alternatives
+
+- **This design's multiplexer rule** is already the right policy: a
+  supply run goes out only when no other frame is ready, and then in
+  order. It recovers deferral across levels for free. It cannot defer a
+  supply past later frames of its own level or reply, which is where the
+  delay sits: there, in-level order forces bulk ahead of descent traffic
+  that is ready.
+- **The stream bundle** interleaves levels packet by packet, so it
+  suffers the within-level and within-reply delays exactly as this
+  design does. Deferral would help it equally.
+- **Explicit credits** (§7) govern how much each level may send. They
+  say nothing about bulk ordering.
+- **Promised supplies** separate discovery from transfer. The session
+  then approaches the larger of the descent's latency and the transfer
+  time, rather than something up to their sum.
+
+### 8.5 How it interacts with this plan
+
+It builds on this plan without undoing any of it:
+
+- The pipe gains one logical lane, bulk, as the multiplexer's lowest
+  class. The demux gains one route, to the bulk decoder.
+- The level decoders shed their heaviest work, absorbing supplied
+  leaves, to the bulk decoder. That shortens the one wait on the receive
+  path that depends on backend speed: the demux handing a frame to a busy
+  level decoder.
+- Parking's count is unchanged: promises are reactions, and replies are
+  still invited. Its byte price is unchanged too, because parked
+  supplies already held only handles.
+
+Three choices in this plan matter to it:
+
+- **Keep the multiplexer's priority classes general.** A lane-per-class
+  structure extends to bulk; a single hard-coded rule for supply runs
+  would have to be rewritten.
+- **The send-buffer residual matters more.** Bulk written during a lull
+  sits in the kernel's send buffer when descent traffic resumes, so
+  bounding unsent bytes (§9) becomes part of making deferral pay.
+- **The opening shortcut points the other way.** It shipped bulk *early*.
+  Removing it now is consistent with deferring bulk later.
+
+It changes the wire: a new reaction, a new lane, and new frames. So it
+lands as a deliberate protocol change of its own, with snapshots, the
+hop ledger (which must not move), and a wall-clock benchmark that shows
+completion approaching the larger of the two terms rather than their
+sum.
+
+## 9. Costs
 
 **Dependent crossings are unchanged, with one exception.** Count a
 crossing whenever a message needed to advance the descent passes from
@@ -789,7 +928,7 @@ and end-of-stream or an error when the peer departs. Successful sessions
 return the halves. After an error the connection's position is unknown,
 so it must be discarded.
 
-## 9. Evidence
+## 10. Evidence
 
 The argument has four load-bearing claims, and each gets a committed
 check that fails if the claim ever stops holding:

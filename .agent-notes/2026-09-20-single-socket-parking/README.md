@@ -76,13 +76,27 @@ on scale:
    setter's documentation already allows such a floor.
 2. **The session tail.** Nothing records why the model targets 2⁻⁴⁰ per
    session.
-3. **Level 2.** When every root slot differs, parking can hold a whole
-   level: about 25 bytes per message of the larger replica, up to about
-   420 MB. Exposition §6.8 outlines the protocol change that would bound
-   it: deferred questions.
-4. **What else a session could know.** Exact peer tree profiles, or a
+3. **What else a session could know.** Exact peer tree profiles, or a
    difference estimator for the case where every root slot differs,
    would need new greeting fields (exposition §6.7).
+
+## A possible follow-on
+
+**Deferring bulk** (exposition §8). Today a supply travels inline, in
+radix order, so it delays everything below and to its right in the tree.
+The follow-on sends a *promise* in the reply instead, and moves the
+content to a bulk lane. The multiplexer sends the bulk lane only when no
+descent frame is ready, and in promise order when it does. A session then
+approaches the larger of the descent's latency and the transfer time,
+rather than up to their sum. It is additive to this design, which makes
+it easier, and needs its own progress argument and wire change.
+
+## Accepted costs
+
+- When every root slot differs, parking can hold a whole level near the
+  root: about 25 bytes per message of the larger replica, up to about
+  420 MB. Shrinking it would take a protocol change that costs more than
+  it saves.
 
 ## Related notes
 

@@ -371,6 +371,10 @@ tests. Update and test Sush's compatibility branch alongside it.
   frame that is not a supply run before any supply run, round-robin within
   each class, and it writes and flushes whole frames. When every channel
   has closed, it returns the write half for the closing exchange.
+- **Keep the multiplexer's priority classes general:** one lane per
+  class, served in class order, each lane in its own order. A later bulk
+  lane (exposition §8) then slots in as the lowest class, rather than
+  forcing a rewrite of a hard-coded rule for supply runs.
 - **The demultiplexer** owns the read half. It reads each frame with
   `FrameRead` and routes it by stream index to that stream's decoder over
   a capacity-1 channel.
