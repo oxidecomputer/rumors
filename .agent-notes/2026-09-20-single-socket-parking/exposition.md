@@ -836,6 +836,21 @@ So the delay that inline bulk adds has two parts:
   of transfer at 1 Gb/s, lose about 56 ms on average and up to about
   200 ms.
 
+**By message size:**
+
+- **Small messages** are the easy case. A band supply holds about one
+  message, so the number of band supplies is about the number of
+  differences, and the duplex term vanishes. Take 10⁶-message replicas
+  with 200,000 scattered differences of 100 bytes: about 29 MB of bulk,
+  0.23 s at 1 Gb/s, and a duplex term under a millisecond. Supply frames
+  are small, so no thin frame waits long behind one in progress. The
+  descent term remains. It is independent of message size, and largest
+  when the bulk's transfer time is comparable to the remaining descent.
+  In this example, with three crossings of 50 ms left, that is about
+  50 ms on average and 150 ms at worst.
+- **Large messages** bring the duplex term into play when the two
+  directions' bulk is balanced, as above.
+
 Neither part is an assumption about workloads beyond message size.
 Addresses are hashes of versions, so the tree's shape is uniform. The
 larger bound of §8.1 needs orders that hashing makes vanishingly
