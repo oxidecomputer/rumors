@@ -1,564 +1,689 @@
 # Reconciliation over one socket
 
-## 1. The claim
+## 1. Summary
 
 `rumors` reconciles two replicas of a message set by walking a hash tree
-from the root downward and exchanging what differs. The shipped protocol
-streams the walk, allowing several levels to be in flight together. It
-requires seventeen independently flow-controlled streams per direction so
-that one level can keep flowing while another is blocked. QUIC supplies
-that separation; a direct TCP implementation of this contract uses a
-connection per stream, unless it adds its own multiplexed flow control.
+from the root downward and exchanging only what differs. The protocol
+streams that walk: several tree levels are in flight at once, each
+progressing as its own inputs arrive. Today it needs seventeen
+independently flow-controlled streams in each direction, so that one
+level waiting on its consumer never stops another level's traffic. QUIC
+provides such streams natively; over TCP they cost a connection each.
 
-This design replaces the bundle with one ordered duplex byte stream. It
-preserves the logical messages, their order within each level, and the
-number of dependent network crossings. It adds no credits, window
-advertisements, or sender-side inference about what the receiver can
-absorb. The central fact is a count:
+This design runs the same protocol over one ordered duplex byte stream.
+The logical messages, their order within each level, and the number of
+dependent network crossings are unchanged. Nothing is added to the wire:
+no credits, no window advertisements, no sender-side inference about the
+receiver. The design rests on one count:
 
-> At each level, the replies sent toward a receiver but not yet taken by
-> the stage that asked for them have an upper bound determined by that
-> receiver's own configuration.
+> At each level, the number of replies travelling toward a receiver that
+> its consuming stage has not yet taken is bounded by the receiver's own
+> configuration: its question-queue width plus 257.
 
-Reserving that many decoded-reply slots removes the wait on a blocked
-stage that would otherwise stop the socket reader. The receive-side
-changes retain the existing queues, widening two of them, and move two
-pieces of bookkeeping: one later, to the moment its stage takes the
-reply, and one earlier, to before the reply is written. No new dependency
-edge enters the dataflow. Together, these changes free decoding from
-waits on the walk.
+A receiver that reserves that many slots per level can accept every reply
+it has invited without waiting for the stage that will consume it. With that
+room, one piece of bookkeeping moved, and one shortcut removed, decoding
+never waits on the walk. The socket reader therefore never blocks on the
+walk, and the walk's existing progress argument carries over unchanged.
 
-The count is deterministic. The economical byte sizing is statistical
-under uniform hashing, and covers protocol working state, excluding
-replica content stored in the backend even before commit. The result also
-inherits the existing walk's progress property and assumes that backend
-operations, transport, and runnable tasks eventually progress. It removes
-a circular wait caused by multiplexing; serialization and loss still
-affect elapsed time.
+The costs are these:
 
-Sections 2–4 build the protocol from V1 to V2 and state that inherited
-progress property. Section 5 shows why naive multiplexing deadlocks; §6
-derives the count and the receive-side changes; §7 accounts for memory;
-and §8 describes costs and the evidence to seek. The
-[appendix](appendix-implementation-plan.md) gives the implementation plan.
+- **Memory.** Replies that the stream bundle held back at the sender now
+  wait, decoded, at the receiver. The session budget must price them.
+  For two 10⁶-message replicas, the budget needed to keep a 12.5 MB
+  bandwidth-delay link fully busy rises from about 0.75 GiB to about
+  1.0 GiB, and the default budget rises to match.
+- **Serialization.** A small, urgent frame can wait behind a large frame
+  already committed to the socket. This costs elapsed time, never a
+  round trip, and a socket option bounds it.
+- **Loss.** On TCP, one lost segment delays every level.
+
+Sections 2 and 3 describe the protocol and the progress property it
+already has. Section 4 shows why one socket naively deadlocks, §5 derives
+the count and the receive path it permits, §6 accounts for memory, §7
+lists the remaining costs, and §8 describes the evidence. The
+[appendix](appendix-implementation-plan.md) is the implementation plan.
 
 ## 2. The conversation
 
-Every message has an address: the hash of the causal version stamped on it
-when sent. These 32-byte addresses determine a 256-ary radix trie, one
-address byte per level. A node's children, at most 256, are its *fan*.
-Storage compresses single-child runs, so a stored interior node has at
-least two children. The conversation still traverses a compressed run one
-byte at a time: compression changes storage, not the level count. Leaves
-have no children. Each interior node memoizes a *digest* of its subtree,
-a function of the version set alone. Subject to the protocol's assumption
-that distinct sets do not collide in these hashes, equal digests identify
-equal subtrees.
+Every message has an address: the hash of the causal version stamped on
+it when it was sent. The 32-byte addresses determine a 256-ary radix
+trie, one address byte per level. A node's children, at most 256, are its
+*fan*. Storage compresses single-child chains, but the conversation still
+descends one byte per level. Each interior node memoizes a 24-byte
+*digest* of its subtree; the protocol assumes that distinct subtrees have
+distinct digests, so equal digests mean equal subtrees.
 
-Each side starts with a *greeting*, containing its causal version,
-live-message count, and a *listing* of the root's children as pairs of
-radix byte and digest. The version summarizes the replica's entire history
-of sends and redactions, including history it has absorbed. Equal versions
-therefore identify equal histories and equal sets; in that case the
-session ends without a descent.
+Each side opens with a *greeting*: its causal version, its live-message
+count, and a *listing* of the root's children as (radix byte, digest)
+pairs. A version summarizes a replica's entire history of sends and
+redactions, so equal versions mean equal sets, and the session ends
+there.
 
-Otherwise, a *question* about a node lists its children. A *reply* reacts
-to each listed child and supplies children of its own missing from the
-listing:
+Otherwise the sides exchange questions and replies. A *question* about a
+node lists that node's children. A *reply* reacts to each listed child in
+order, and adds any children the replier holds that the listing omits:
 
 - **match**: my digest for this child equals yours;
 - **supply**: you lack this child; here is its subtree, filtered against
   your version so that messages you have seen and deleted stay deleted;
 - **query**: our digests differ; here is my listing of this child's
-  children. If I lack the child, I send an empty listing to request it
-  whole.
+  children. If I lack the child entirely, the listing is empty: send me
+  all of it.
 
-The filter propagates deletions without tombstones; the argument below
-does not depend further on its operation. The distinction between a
-nonempty interior listing and an empty request has explicit endpoints.
-At the leaf level an empty query requests the individual leaf. An empty
-tree's greeting listing requests everything. A singleton is a leaf, with
-its address path; it does not require an empty listing to masquerade as a
-held interior node.
+A query is itself the next question, one level down, so every reply both
+answers one side and asks the other to continue. A question or reply is
+*at level ℓ* when the children it lists or reacts to sit at depth ℓ.
+The initiator's greeting listing is the question at level 1. The sides
+alternate: the responder replies at odd levels, the initiator at even
+levels, and the final exchange supplies individual leaves.
 
-A query is the next question, one level down. Thus a reply both answers
-one side and asks the other to continue. In the interior descent, a
-question or reply is *at* level ℓ when the children it lists or reacts to
-are at address depth ℓ.
-Its subject node is at depth ℓ − 1, and its queries ask at level ℓ + 1.
-The initiator's greeting is the question at level 1. Interior replies
-alternate: the responder sends odd levels and the initiator even levels.
-At the end, the initiator's last replies request individual leaves it
-lacks, and the responder supplies them in the terminal leaf exchange.
+For example, suppose A asks B about a node whose children, in A's
+listing, are `10` and `20`. B holds the same `10`, holds a different
+`20`, and also holds `30`, which A lacks. B's reply is `Match`,
+`Query(B's children of 20)`, `Supply(30, subtree)`. The first two
+reactions refer to A's listing by position; the supply names its radix.
+B's query is now a question to A, one level down.
 
-For example, let A ask B about a node at depth 2. A's level-3 listing has
-children `10` and `20`. B has the same `10`, lacks `20`, and has an extra
-`30`. B's level-3 reply is `Match`, `Query([])`, `Supply(30, subtree)`.
-The first two reactions refer positionally to A's listed children; the
-supply names its radix. B has now become the asker: its empty query about
-`20` is a level-4 question. A's next level-4 reply answers it by supplying
-that subtree. If B instead held a different `20`, its query would list
-`20`'s children for A to compare at level 4.
+Today's protocol adds one shortcut, which this design removes. After the
+greetings cross, the initiator already knows which of its root children
+the responder lacks, and ships them unasked as an *opening batch*, one
+crossing early. Under uniform hashing a replica of N messages leaves a
+given root slot empty with probability about e^(−N/256), so the batch is
+nonempty essentially only between replicas below a few thousand
+messages. It needs its own stream, decoder, and pairing rule, and over
+one socket it creates a second instance of the deadlock in §4. Without
+it, those children travel one crossing later, as ordinary supplies
+answering the responder's empty queries. The greeting's root listing is a
+different thing and stays: it is the level-1 question, it lets the
+responder answer at once, and it needs no stream of its own.
 
-The greeting carries the initiator's root listing so that the responder
-can answer at once. The shipped protocol adds one more shortcut, which
-this design removes: after both greetings the initiator knows which of its
-root children the responder lacks, and ships them unasked, one hop early,
-as an opening batch. Under uniform hashing a responder holding N messages
-leaves a given root slot empty with probability about e^(−N/256), so the
-batch is nonempty only between tiny replicas, and it costs a decoder,
-a stream, and a pairing rule of its own. Without it, those children are
-supplied one hop later, as the answers to the responder's empty queries,
-like every other request.
+Matching digests prune shared subtrees. The walk follows disputed
+prefixes until it reaches the subtrees held by one side only. For
+replicas differing in `D` of `N` messages, the expected depth of that
+frontier is about `log₂₅₆(2·D·N)`: about five when `D = N = 10⁶`.
 
-Matching digests prune shared subtrees. The remaining work follows
-disputed prefixes and inspects their fans until it reaches the *disjoint
-frontier*: on those unresolved branches, the cut below which subtrees are
-held by one side only. Under uniform hashing, addresses spread over the
-256ʲ prefixes at depth *j*. For replicas differing in `D` of `N` messages,
-the estimated expected frontier depth is about `log₂₅₆(2·D·N)`, about five
-when `D = N = 10⁶`. This is an expectation, not a limit on the deepest
-path.
+Two properties of the conversation carry the rest of this note:
 
-Two properties will let us count and store the replies.
+- **Each reply answers exactly one question.** Matches and queries refer
+  to the question's listing by position, and replies carry no path, so
+  the *k*-th reply at a level answers the *k*-th question there. The
+  asker therefore keeps a local *record* of each question it asks until
+  the reply arrives.
+- **Only supplies carry content of unbounded size.** A query lists at most
+  256 children. A supply can carry an arbitrarily large subtree.
 
-**Each reply answers exactly one question.** Matches and queries refer
-positionally to the question's listing; supplies name their radix. Replies
-carry no path. The *k*-th reply at a level answers the *k*-th question
-there, so the asker retains a *local question record*: handles to the
-children whose digests it listed. This record is distinct from the
-transmitted listing. It can hold one fan of handles and remains available
-until the reply can be interpreted.
+## 3. From a level at a time to a streaming walk
 
-**Only supplies carry subtree content of unbounded size.** A query holds
-at most 256 listing entries, although a reply containing a fan of such
-queries can itself be large. Every supply answers a question.
+### 3.1 A level at a time
 
-The logical reply shape is:
+The first version of the protocol sends one complete level per message,
+alternating sides. Exactly one message is in flight, and its receiver is
+waiting for it, so one ordered byte stream per direction suffices. The
+cost is aggregation: a message holds a whole level of disputes, can
+approach the size of the set, and cannot depart until all of it is
+ready. Each message still advances the descent by one level per network
+crossing.
 
-```rust
-enum Reaction<Node> {
-    Match,                    // next listed child: same digest
-    Query(Vec<(u8, Digest)>),  // next listed child: my question about it
-    Supply(u8, Node),         // unlisted child, named by radix
-}
+### 3.2 The streaming walk
 
-struct Reply<Node> {
-    reactions: Vec<Reaction<Node>>,
-}
-```
+The shipped protocol keeps the same exchange but sends one reply per
+question instead of one message per level. Each side runs a *stage* at
+each level where it asks questions. Stage ℓ takes one local question
+record, then takes the matching reply, and processes its reactions in
+order: matches and supplies settle children; each query asks the stage
+to reconcile one child, which produces an outgoing reply at level ℓ + 1
+carrying questions at level ℓ + 2.
 
-## 3. V1: a level at a time
+For each outgoing reply, a stage follows a fixed publication order:
 
-V1 sends one complete level per message, alternating sides. The responder
-builds and sends all level-1 reactions together with their level-2
-questions; the initiator reads the whole message, builds all level-2
-reactions and level-3 questions, and sends them back. The next level waits
-for the whole preceding level.
+1. hand the reply toward the wire;
+2. publish a *resolution* saying which of the child's children are
+   settled and which await deeper work;
+3. record the reply's questions, one by one, in the queue feeding stage
+   ℓ + 2.
 
-During this serialized descent after the greeting, exactly one message is
-in flight and its receiver is waiting for it. One ordered byte stream per
-direction suffices. The cost is aggregation: a message grows with the
-number of disputes at its level, can transiently duplicate much of the
-set, and cannot depart until all its work is ready.
-
-Each alternating message advances the descent one level in one network
-crossing. An exchange of two messages advances two levels. V1 therefore
-already has one dependent crossing per level, plus the opening and closing
-costs; its barrier affects elapsed time, not that crossing count.
-
-## 4. V2: every level at once
-
-V2 preserves the exchange rules and logical reactions, but sends one reply
-per question instead of one message per level. Subject to local queue
-capacity, a reply can proceed as soon as its own input is ready, while
-other replies at the preceding level are still being computed or sent.
-Transmission and computation overlap across levels. The dependent-crossing
-count stays the same; the gains are removal of the whole-level barrier
-and a bound on the work retained in flight.
-
-### 4.1 Stages
-
-Each side runs a *stage* at each level where it asks questions. Stage ℓ
-dequeues one local question record and then takes its matching level-ℓ
-reply. It processes that reply's reactions in order: matches settle
-children, supplies provide children, and each query asks it to reconcile
-one child by comparing the peer's listing with its own children there.
-
-For each queried child, the stage performs a complete publication sequence:
-
-1. Send the outgoing reply at level ℓ + 1, including any questions at
-   level ℓ + 2.
-2. Publish a *resolution* for that queried child: which of its children
-   are settled, and which await deeper work.
-3. Record the local question records for that outgoing reply, one at a
-   time, in the queue for stage ℓ + 2.
-
-It records all questions from this outgoing reply before sending another,
-even when several queries came in the same incoming reply. This is the
-sequential rule that bounds how far sent questions can outrun their local
-records. An *assembler* rebuilds subtrees from the resolutions in order,
-filling pending slots with results returned by deeper assemblers before
-returning the assembled subtree upward.
-
-The responder also has an *opening*: it answers the greeting's one level-1
-question and records its level-2 questions. The initiator's first stage is
-stage 1.
+It records all of one reply's questions before handing on another reply.
+An *assembler* per level rebuilds subtrees from resolutions, filling each
+pending slot with the result a deeper assembler returns.
 
 ```text
 initiator                                         responder
           <----------- both greetings ----------->
-
 stage 1 <------------------- reply at 1 ----------- opening
-   |                                                 records questions at 2
-   | sends replies at 2; records questions at 3
+   | sends replies at 2; records questions at 3     records questions at 2
    +------------------------- replies at 2 ------> stage 2
                                                     | sends replies at 3;
                                                     | records questions at 4
-stage 3 <------------------- replies at 3 -----------+
+stage 3 <------------------- replies at 3 ----------+
    ...                                               ...
 ```
 
-The alternating stages form the wire-facing chain. Local question queues
-skip from stage ℓ to stage ℓ + 2 on the same side; resolutions feed local
-assemblers, and assembled results return upward. These additional edges
-matter to progress. On the wire, each reply occupies one or more frames,
-each tagged with its level and bounded by the frame limit exchanged in
-the greetings.
+On the wire, each reply occupies one or more *frames*, one reaction per
+frame, each tagged with its level. A supply's leaves travel in runs sized
+by a byte budget both sides agree on in the greeting (about 1.8 MB by
+default, the size of a maximally disputed reply); every other frame
+carries at most one 256-entry listing, about 7 KB.
 
-### 4.2 The window
+### 3.3 The window
 
-The local question queue at level ℓ holds the records needed to interpret
-replies there. Its capacity, the *window* `K(ℓ)`, limits concurrent
-disputes. A wider window can keep a link with high bandwidth and long
-latency busy; a narrower one retains less state.
+The question queue at level ℓ holds the records needed to interpret
+replies there. Its capacity, the *window* `K(ℓ)`, limits how many
+disputes a level can have in flight: wider keeps a long, fast link busy;
+narrower retains less state. The session derives the window from a byte
+budget (512 MiB by default today), the set sizes in the greetings, and a
+uniform-hashing model of how many disputes each level can hold, `S(ℓ)`.
+It chooses the widest affordable `K` and gives each level
+`K(ℓ) = max(1, min(K, S(ℓ)))`. Section 6 describes that pricing.
 
-The session derives its window from a byte budget (512 MiB by default),
-the set sizes in the greetings, and a uniform-hashing model of how many
-disputes can plausibly occupy each level. It chooses the widest affordable
-width `K` and caps each level by its estimated population `S(ℓ)`, keeping
-at least one slot: `K(ℓ) = max(1, min(K, S(ℓ)))`. If actual disputes exceed
-that population estimate they wait for slots. This limits their number
-without relying on the estimate for correctness. Estimating the bytes
-held by each slot is a separate matter, revisited in §7.
+### 3.4 The progress property
 
-### 4.3 The walk's progress contract
+The streaming walk is already deadlock-free, under one premise about its
+channels. Every wait in the walk is for the next item of one specific
+queue, and every queue's producer produces its items in order. The
+publication order above makes one slot per question and resolution queue
+enough: a stage blocked recording a question has already handed its
+reply toward the wire, and a stage blocked publishing a resolution sits
+behind an older resolution whose dependent work is already under way.
+The assembler return queues hold one full fan. The argument is written at
+the head of the walk's module (`streaming/materialized.rs`), and a Lean
+development checks a model of it.
 
-The single-socket argument uses the following property of the shipped
-walk as an inherited prerequisite; it does not prove the complete
-walk-and-assembler algorithm here:
+The premise is **independence**: a full queue stalls only its own
+producer, never delivery on another queue. In one process that holds by
+construction. On the wire, today's transport provides it: seventeen
+independently flow-controlled streams per direction, one per level each
+side replies at, plus the terminal leaf stream and the opening batch's
+stream. Order within a stream is guaranteed; order across streams is
+not.
 
-> With independent, reliable, ordered reply queues and no external failure,
-> the walk completes a finite reconciliation under the progress assumptions
-> below. Local question and resolution queues need at least one slot;
-> assembler return queues have one fan of slots.
+This design keeps the walk and its argument, and replaces that transport
+with one socket. What must be shown is that sharing the socket cannot
+make one level's blocked consumer stop another level's delivery.
 
-The relevant local queues are:
+## 4. One socket, and the deadlock
 
-| Queue | Producer → consumer | Progress capacity |
+A socket delivers bytes in the order the sender wrote them, which need
+not be the order in which the receiver's stages consume them. If the
+reader delivering the head frame must wait until that frame's stage
+accepts it, the reader cannot reach a later frame that would let the
+stage accept it.
+
+A committed test fixture produces the smallest such shape, at the root.
+Both replicas hold root child 0, with digests that differ all the way
+down to one leaf. The initiator also holds six root children, 1 through
+6, that the responder lacks. Take every queue at one slot, including the
+queue of decoded replies waiting for their stage:
+
+1. The responder's opening reply at level 1 asks seven level-2 questions:
+   a query listing its children of 0, and six empty queries for 1–6.
+2. The initiator's stage 1 answers them in order at level 2: a thin reply
+   that queries deeper under 0, then six supplies, S1–S6, which reach the
+   socket in that order.
+3. The responder's stage 2 takes the thin reply. It sends a level-3
+   reply, publishes the resolution for 0 (pending deeper work), and
+   records its level-4 question. The assembler takes that resolution and
+   waits for the deeper result.
+4. Stage 2 takes S1 and publishes its resolution, filling the one-slot
+   resolution queue, since the assembler is still waiting on 0. It takes
+   S2 and blocks publishing the next resolution.
+5. S3 fills the decoded-reply queue; the decoder holds S4, waiting; the
+   socket reader has handed S5 to the decoder's input and holds S6,
+   waiting.
+6. Behind S6 on the socket is the initiator's level-4 reply, the one the
+   level-4 question from step 3 asked for. Stage 4 needs it to finish
+   0's subtree; only then can the assembler accept S1's resolution, free
+   stage 2, and let the supplies drain. The socket reader waits on
+   exactly the progress it is preventing.
+
+The same shape can occur at any depth, and the opening batch creates it
+directly, since its bulk is written before the thin reply the responder
+needs first.
+
+There are three ways out:
+
+- **Explicit credits:** the receiver tells the sender how much each level
+  can accept. This is a multiplexed flow-control protocol of its own, as
+  in HTTP/2 or QUIC.
+- **Inferred credits:** the sender infers consumption from the peer's
+  later questions. This adds bookkeeping and learns of progress a
+  crossing late.
+- **Receive-side buffering:** the receiver drains every reply whether or
+  not its stage is ready. This removes the cycle, and the next section
+  shows that the buffer it needs is bounded.
+
+## 5. Replies are invited
+
+### 5.1 The count
+
+A reply exists only because its receiver asked the question it answers.
+So count questions from the asker's side. Say a question at level ℓ is
+*outstanding* from the moment the stage that asks it hands its carrying
+reply toward the wire until the stage that consumes it takes the matching
+reply. Taking the reply is the event that counts; dequeuing the local
+record comes one step earlier, and finishing the reply's processing
+comes later.
+
+For ℓ ≥ 3 the asking stage is stage ℓ − 2; for ℓ = 2 it is the
+responder's opening. By §3.2, the asking stage hands on one reply,
+carrying at most 256 questions, then records all of them before handing
+on another. The consuming stage holds at most one dequeued record while
+it waits for that record's reply. Every outstanding question is therefore
+in exactly one of three places:
+
+```text
+  K(ℓ)   recorded in the question queue, not yet dequeued
++    1   dequeued by stage ℓ, its reply not yet taken
++  256   handed toward the wire in the asking stage's current reply,
+         not yet recorded
+```
+
+At most `K(ℓ) + 257` questions at level ℓ are outstanding. A level-ℓ
+question concerns a node at depth ℓ − 1, of which there are at most
+`256^(ℓ−1)`, so level 1 has one outstanding question (the greeting) and
+level 2 at most 256.
+
+A conforming peer answers only questions it has received, once each. So
+every reply in transit, being decoded, or waiting for its stage answers a
+distinct outstanding question, and the same bound applies to replies.
+This is a count of replies, not bytes: a supply can carry a large
+subtree, and §6 deals with size.
+
+The count is a property of the asking side's walk alone. It needs neither
+the peer's window nor any statistical assumption about either tree, and
+it depends on nothing in the transport.
+
+### 5.2 Parking
+
+Call the queue of decoded replies between a level's decoder and its stage
+the level's *parking*. Give it capacity
+
+  `C(ℓ) = min(K(ℓ) + 257, 256^(ℓ−1))`.
+
+Parking can fill, but no conforming arrival can find it already full:
+that arrival would be one outstanding reply more than the count allows.
+So the decoder checks occupancy before it parks a reply. A full parking
+queue means the peer answered a question never asked, or a local premise
+of the count has failed. Either way the session fails with an error that
+says so; it never waits. The capacity is also as small as it can be: a
+committed test drives one level to exactly `K(ℓ) + 257` parked replies,
+so any smaller capacity would fail a conforming session.
+
+### 5.3 A receive path that never waits on the walk
+
+Room is not enough if decoding waits on the walk for anything else. With
+the stream bundle replaced by one socket, the receive path is a *demux*
+that reads frames in socket order and hands each to its level's decoder,
+and one decoder per level that rebuilds replies and parks them. Here is
+every wait on that path:
+
+| Waiter | Waits for | Why the wait ends without the walk |
 | --- | --- | --- |
-| Question records at ℓ | Stage ℓ − 2 → stage ℓ; greeting and opening at levels 1 and 2 | At least 1 |
-| Resolutions | Stage → its assembler | At least 1 |
-| Assembled subtrees | Deeper assembler → parent assembler | One fan |
+| Demux | the socket | The peer writes independently. |
+| Demux | its level's decoder to accept a frame (one-slot handoff) | The decoder is only finishing its current frame. |
+| Decoder | the local record of the question its next reply answers | See below. |
+| Decoder | the storage backend, absorbing supplied leaves | The backend progresses independently of the walk. |
+| Decoder | room in parking | Never under conformance (§5.2); the decoder checks and fails instead of waiting. |
 
-The publication order in §4.1 is part of this prerequisite. A question is
-sent before its local record is made available to its consuming stage;
-a resolution is published before the local questions whose deeper results
-will fill it. Assemblers consume resolutions and return results in the
-corresponding order. Terminal work supplies individual leaves and has no
-dependency on a deeper stage. These are the ordering constraints used by
-the existing progress argument. They do not imply that every empty-queue
-read is already owed an item: an idle stage can simply be waiting for work
-that has not yet been generated.
+The local record deserves a word. The encoder publishes a reply's
+question records just after handing the reply's last frame to the
+multiplexer, and before that frame reaches the wire. A decoder waits for a
+record only when the record queue is empty. If an answer to one of those
+questions has arrived, the encoder is already past the reply's last
+frame, and with the queue empty its publication cannot wait. So the
+decoder waits only for its own side's encoder to be scheduled. The order
+is the walk's own rule, wire before internal publication, applied
+unchanged.
 
-Throughout, liveness assumes a conforming peer, finite inputs, eventual
-completion of backend operations independently of the walk, fair scheduling
-of runnable tasks, and eventual delivery or an error from the transport.
-Terminal stages can still wait for input, storage, or transmission under
-these assumptions.
+One piece of bookkeeping does move. A reply the walk receives can carry
+questions of the peer's, and the encoder that sends the walk's answers
+needs, for each answer, the record of the question it answers. Today the
+decoder publishes those records into a window-sized queue right after
+handing the reply on; with replies parked, that queue could fill while
+the decoder has replies still to park. So publication moves to the take:
+when the stage takes a reply, the reply's answer records are derived
+from it and published, and only then is the reply handed to the stage.
+The queue needs `256 + 1` slots. When the stage takes a reply, the
+encoder has consumed the records for every earlier reply's answers except
+possibly the last, whose answer may still sit in the one-slot channel
+between the walk and the encoder. The walk takes its next reply only
+after handing on all of the current one's answers.
 
-The wire requirement is precise: a blocked reply queue at one level must
-not prevent a different level's ready reply from arriving. Today's `Link`
-provides seventeen independently flow-controlled streams per direction:
-the responder's levels 1, 3, …, 31 plus its terminal leaf stream, and the
-initiator's levels 2, 4, …, 30 plus its terminal leaf stream and the
-stream for the opening batch this design removes. Each stream is ordered
-on its own; cross-level order is unrestricted. Section 6 will
-show that the proposed receiver removes the additional circular wait
-introduced by sharing a socket, so this inherited progress result still
-applies.
+The other bookkeeping edges keep their existing arguments. On this path,
+nothing the walk controls can stop the socket reader.
 
-## 5. One socket, and the deadlock
+### 5.4 The sending side
 
-Why not put all those frames on one socket and sort them by level at the
-receiver? The socket delivers the sender's write order, which can differ
-from the stages' consumption order. If delivering the head reply waits for
-its stage, the reader cannot reach a later reply that would unblock that
-stage. The following shape, found by property testing, makes the cycle
-concrete with one-slot question, resolution, and decoded-reply queues.
+Per-level encoders feed a *multiplexer* that owns the socket's write
+half. It keeps each level's frames in order, and it serves every frame
+that is not a supply run before any supply run, round-robin within each
+class. Every frame is still served eventually, because a session's
+traffic is finite. The preference exists for latency (§7): the thin
+replies that advance the descent do not queue behind bulk that is not
+yet written. The sender can wait for bandwidth, and encoders can wait for
+the multiplexer, but no receiving stage's consumption order can stop the
+socket from draining, so the cycle of §4 cannot form, and the walk's
+progress property applies over one socket.
 
-1. The responder's stage 2 sends a reply at level 3 containing seven
-   level-4 questions: one nonempty query about the lowest-radix child it
-   disputes and six empty queries about children it lacks.
-2. The initiator's stage 3 answers in that order at level 4: a thin reply
-   containing further queries, followed by six subtree supplies, S1–S6.
-3. The responder's stage 4 takes the thin reply, sends replies at level 5,
-   publishes the resolution that awaits deeper results, and records
-   questions at level 6. Its assembler takes that resolution and waits.
-   Stage 4 then processes S1 and fills the one-slot resolution queue.
-   It takes S2 and blocks trying to publish S2's resolution.
-4. S3 fills the one-slot decoded-reply queue. The decoder holds S4,
-   waiting to enqueue it. The frame handoff can accept one further frame;
-   the demultiplexer then blocks on another supply frame. S5 and S6 have
-   not drained, and the level-6 replies needed to finish the disputed work
-   follow those supplies, so the receiver cannot reach them.
-5. Stage 6 must take those replies and process them; its assembler must
-   then return the results that fill stage 4's assembler's pending slots.
-   Only then can that assembler accept S1's resolution and free stage 4
-   to drain the parked supplies. The socket reader is waiting on exactly
-   the progress it is preventing.
+## 6. Memory
 
-The shipped protocol's opening batch would make a second such cycle, with
-its bulk written before the thin reply the receiver needs first; removing
-the batch (§2) removes the cycle.
+### 6.1 What a parked reply holds
 
-Three remedies have been considered:
+Parked replies are decoded, but they do not hold content. Supplied leaves
+are absorbed into the storage backend as they arrive, and a parked supply
+holds only a handle to the absorbed subtree. The session budget covers
+working state, not replica content. Content absorbed by a session that
+later fails is uncommitted; the backend reclaims it as it reclaims any
+uncommitted node.
 
-- **Explicit credits:** tell the sender how much each receiving level can
-  accept. This is a multiplexed flow-control protocol of its own, as in
-  HTTP/2 or QUIC; the current design demands it from the transport.
-- **Inferred credits:** infer consumption from the peer's later questions.
-  This adds sender-side bookkeeping and learns progress only after a
-  network crossing.
-- **Unbounded receive buffering:** drain every reply regardless of whether
-  its stage is ready. This removes the circular wait but appeared to
-  forfeit V2's memory advantage.
+A parked reply to a question about a node P at depth ℓ − 1 holds its
+reactions, one per child of P either side holds, and the listings in its
+queries: at most 256 entries per query, 25 bytes each in memory. Parking
+also keeps the one record of the question the reply answers, and not the
+records for the reply's own questions, which are derived when the stage
+takes it (§5.3).
 
-The third remedy was rejected before the count was done. The missing
-quantity was how far the wire could run ahead of the local question queue.
+### 6.2 How the window prices memory
 
-## 6. Replies are invited
+The window model knows the two set sizes, `A` and `B`, and uses
+`n = max(A, B)`. For each depth it uses two kinds of bound:
 
-### 6.1 The count
+- **Deterministic:** a node has at most 256 children, and at most
+  `occupied(n, j) = min(256ʲ, n)` prefixes at depth j are occupied.
+- **Statistical, under uniform hashing:** `C(j)` children and `L(j)`
+  leaves under any single depth-j node, and `S(d)` scopes in dispute at
+  depth d. Each is a quantile at tail 2⁻⁴⁸ that holds for every node at
+  its depth simultaneously. A union bound over all of them keeps the
+  session's failure probability below 2⁻⁴⁰. Because the greeting carries
+  only set sizes, `S(d)` prices the two sets as if they were entirely
+  different.
 
-Count one side's outstanding questions at level ℓ. A question counts as
-*sent* when the reply carrying it has been flushed to the wire. It remains
-outstanding until its stage takes the matching reply out of the decoded
-reply queue; that is the *consumption* event, before processing finishes.
-Dequeuing the local question record alone does not consume the reply.
+The charge assumes every window slot is full at once and every slot's
+contents are at their quantile. It is a high-probability worst case, not
+an expectation. The window is the largest `K` whose charge fits the
+budget. Crossing the tail does not threaten correctness or progress; it
+means a session uses more memory than its estimate.
 
-For ℓ ≥ 3 the producer is stage ℓ − 2; for ℓ = 2 it is the responder's
-opening. By §4.1, the producer sends at most one fan of questions in a
-reply, then records all of them before sending another reply. The
-consumer holds at most one dequeued question while awaiting its reply.
-Every sent, unconsumed question is therefore in one of three places:
+### 6.3 The price of parking
 
-```text
-  K(ℓ)   recorded in the local queue, not yet dequeued
-+    1   dequeued by stage ℓ, matching reply not yet taken
-+  256   sent in the producer's current reply, not yet recorded
-```
+At level d, parking holds at most `slots(d) = min(K(d) + 257, 256^(d−1))`
+replies. One reply to a question about P holds at most `2·C(d−1)`
+reactions and at most `min(C(d−1)·C(d), L(d−1))` listing entries. The
+second term holds because every listed grandchild prefix contains at
+least one of the replier's leaves under P. Let ρ be the bytes per parked
+reaction and ε the bytes per listing entry.
 
-Thus at most `K(ℓ) + 257` are outstanding. Once a reply is taken, any
-record retained while processing it no longer contributes to this count;
-it still contributes to working memory. At level 1 there is a simpler
-base case: the greeting is one question, and the responder's opening
-answers it with one reply, so at most one is outstanding toward the
-initiator.
+The charge for level d is the least of three bounds:
 
-A conforming peer answers each question exactly once. Every reply still
-in transit, being decoded, or parked corresponds to one of these
-outstanding questions. The same bound therefore applies to reply objects.
-It does not bound wire bytes: one supply can carry a large subtree, and
-frames and control items are different units.
+1. **Per reply:** `slots(d) · (2·C(d−1)·ρ + min(C(d−1)·C(d), L(d−1))·ε)`.
+2. **Per level (deterministic):** parked replies at one level concern
+   distinct nodes, whose subtrees are disjoint. Across the level, their
+   reactions number at most `2·occupied(n, d)` and their entries at most
+   `occupied(n, d + 1)`.
+3. **Per set (statistical):** the same disjointness, sharpened. The peer's
+   leaves under any fixed set of m distinct depth-j nodes are
+   Binomial(n, m/256ʲ). Take the union over every such set, all
+   C(256ʲ, m) of them, where log₂ C(256ʲ, m) ≤ m·(8j + 2 − ⌊log₂ m⌋). The
+   binomial quantile at tail 2^−(48 + that) then bounds the leaves under
+   whichever m nodes the protocol happens to hold. With m = 1 this is
+   exactly `L(j)`. Applied with m = `slots(d)` and j = d − 1, it bounds
+   the level's entries, and twice it bounds the reactions.
 
-This count depends on the receiver's own window and the fixed fan limit.
-It needs neither the peer's window nor a probabilistic assumption about
-either tree.
+These bounds reuse the model's existing statistics and add one per depth
+per replica to the union, which stays below 2⁻⁴⁰.
 
-### 6.2 Parking
+### 6.4 The budget that imposes no latency
 
-Call the queue of decoded replies between a level's decoder and stage its
-*parking queue*. Give it capacity `C(ℓ) = K(ℓ) + 257` (or the structural
-cap in §7). A newly arriving reply must find room: if `C(ℓ)` replies were
-already parked, that reply would be a further outstanding reply, exceeding
-the count. The queue may reach capacity after an enqueue. The invariant
-is that **no arriving reply finds its level's queue already at capacity**.
-This is the sense in which parking is “never full” for the receiver.
-
-Room alone is insufficient if decoding waits elsewhere on the walk. The
-receiver already absorbs supplied leaves incrementally into the storage
-backend, retaining subtree handles rather than content bytes. Two pieces
-of bookkeeping still couple the decoder to the walk, and each moves:
-
-- **Received scopes move later.** A decoder currently publishes *scopes*,
-  the bookkeeping used to answer the peer's questions inside an incoming
-  reply, into a bounded queue. Instead it parks those scopes with the
-  reply, and publication moves to the moment the stage takes that reply.
-  The scope queue holds one fan plus one; the sequential stage/encoder
-  ordering bounds its occupancy, as detailed in the appendix.
-- **Sent-question records move earlier.** The encoder currently publishes
-  the record a decoder needs to interpret a reply only after that reply's
-  last frame has flushed, because publishing earlier could block the
-  encoder with a reply half-written. Sized from the count, plus one fan
-  for the reply being written, that queue never blocks, so the record is
-  published before the reply is written. A reply can then never arrive
-  before its record exists, and a decoder that finds none has received a
-  reply to a question never sent: a violation, detected without waiting.
-
-The shipped protocol's opening batch, decoded by a pump the walk drives,
-would be a third coupling; this design removes the batch (§2). These
-changes preserve the walk's reply–resolution–question order; they change
-where the proxy keeps its bookkeeping.
-
-A demultiplexer can now read frames in socket order and feed each level's
-decoder without waiting for that level's stage. Decoding may take time,
-particularly in the backend, but under §4.3's assumptions it completes
-independently of the walk. A full parking queue has no further legal
-arrival to block.
-
-On the sending side, per-level encoders feed a multiplexer that preserves
-each level's frame order and serves question-bearing frames before supply
-frames, round-robin within each class. Every frame is served in finite
-time because a session's traffic is finite, which is all the argument
-needs; the priority keeps the descent's thin replies from queuing behind
-bulk (§8). The sender can wait for bandwidth, decoding, or backend
-service, but no receiving stage's consumption order can stop drainage and
-create the cycle of §5. The inherited progress property therefore
-applies. The window mechanism remains; its byte price and hence its
-granted capacity change in §7.
-
-A fixed parking depth chosen independently of the window lacks this
-general guarantee: a larger window can admit more replies than it can
-hold, though that does not force every such run to deadlock. The derived
-capacity is sufficient. It is also attainable as a peak occupancy on a
-suitable tree and schedule, but that does not establish that one slot less
-would deadlock. If an arrival does find the derived queue full, the
-implementation must fail rather than wait: either the peer violated the
-reply rules or a local premise of the bound is broken.
-
-## 7. Memory: the window, revisited
-
-“Decoded” matters. Parking supply bytes would retain arbitrarily large
-subtrees. Incremental absorption instead leaves handles in the reply.
-Replica content in the backend, including content absorbed before commit,
-is outside the session's working-memory budget. It still occupies storage
-(and RAM for an in-memory backend). A failed session discards its
-uncommitted content; a persistent backend reclaims it as it does other
-uncommitted nodes.
-
-A parked reply has at most one reaction per child. A supply adds a handle;
-a match adds no payload beyond its reaction slot; a query adds up to 256
-listing entries. Digests are 24 bytes and a radix/digest entry is about
-25 bytes. The structural maximum for query-listing payload is therefore
-`256 × 256 × 25 B ≈ 1.6 MB` per reply, before reaction slots, vector
-metadata, scopes, and allocation overhead. Under uniform hashing a full
-fan of full fans is plausible near the top of a large tree; clustered
-addresses can produce it deeper down too.
-
-Parking retains the remote half of work the window already admitted.
-For each outstanding question the asker holds its local record, while the
-peer's reply is still remote, in transit, or parked. There is at most one
-parked reply per outstanding question. No second admission mechanism is
-needed, and the two parties' windows remain private and may differ.
-
-The budget calculation must now price both halves. It retains the search
-for an affordable window, the population caps, and the greeting's bound on
-version size used in pricing. It adds the estimated reply size to each
-window slot's local-record price and charges fixed slack for the
-additional fan and the consuming stage's one question.
-Questions at level ℓ concern nodes at depth ℓ − 1, of which there can be
-at most `256^(ℓ−1)`. The fixed parking charge per level is thus
+The sizing guide models slowdown relative to a fully used link as
+`max(1, W / K)`, where `W = BDP / (43 + m)` is the link's bandwidth-delay
+product in messages, m the mean encoded message size, and 43 bytes the
+measured per-message protocol overhead. A window of at least
+`K* = min(W, max_d S(d))` therefore imposes no additional latency. The
+second term covers the case where the population, not the link, caps
+useful width. The *threshold budget* is the charge at `K*`:
 
 ```text
-min(257, 256^(ℓ−1)) × estimated_reply_bytes(ℓ).
+B*_before = F + Σ_d min(K*, S(d)) · p_scope(d)
+B*_after  = B*_before + Σ_d park(d, K*)
 ```
 
-The entire parking capacity can likewise be capped at
-`min(K(ℓ) + 257, 256^(ℓ−1))`, making the level-1 capacity exactly one.
-This structural cap is independent of hashing statistics. Even a zero
-requested budget keeps the minimum question slots and fixed working
-state; it does not mean zero allocation. The appendix gives an
-illustrative parking calculation on the scale of a few megabytes.
+Here `F` is the fixed decode charge, `p_scope(d)` the existing price of
+one queued scope, and `park` the least of the three bounds above.
 
-The accounting also includes scopes retained with parked replies, the
-widened local-question bookkeeping queue, the fan-plus-one scope queue,
-and active stage and decoder state. These
-must be charged where they are simultaneously live, counting shared
-allocations once. The appendix makes that custody audit part of the
-implementation; the reply-payload estimate alone is not the full charge.
+The depths fall into three bands:
 
-Two bounds remain distinct. Reply counts and the finite structural maximum
-of their metadata are deterministic. The economical byte estimates use
-the existing uniform-hashing model, with tail probability `2⁻⁴⁸` per
-estimate and a union bound below `2⁻⁴⁰` per session. These are model-based
-qualifications, not protection against deliberately clustered addresses.
-A session can exceed its estimated byte budget without exceeding a single
-queue's slot capacity. Such an overrun does not invalidate the parking
-argument, provided storage operations continue to make progress.
+- **Near the root (d = 1, 2),** populations are tiny and fans full. Level 2
+  is the one term parking adds that does not shrink with the link: its
+  256 replies can together list the whole depth-3 frontier, about 25 bytes
+  per message of the larger replica up to about 10⁷ messages and
+  approaching 420 MB beyond.
+- **The frontier band** runs from depth `log₂₅₆ n + 1` to
+  `log₂₅₆ n² + 1`. There `S(d) ≥ K*`, so every level is saturated: each
+  costs `K*·p_scope(d)` before, plus up to about `n·(2ρ + ε)` for parking
+  after.
+- **The tail** is negligible in both: `S(d)` falls about 256-fold per
+  level past the frontier.
 
-On the old bundle, per-stream receive windows enforced consumption pacing,
-and charging those transport windows to the session budget was unfinished
-work. With parking, transport buffers no longer have to enforce per-level
-consumption pacing. They still hold protocol bytes while transmission,
-decoding, and backend service proceed, and affect elapsed latency.
+For two replicas of n messages each, 100-byte messages, and the in-memory
+backend, the modeled threshold budgets, before → after, are:
 
-## 8. Costs, removals, and evidence
+| n | In-rack (100 Gb/s, 50 µs; W ≈ 4,400) | Metro (10 Gb/s, 2 ms; W ≈ 17,500) | Long haul (1 Gb/s, 100 ms; W ≈ 87,400) |
+| --- | --- | --- | --- |
+| 10⁵ | 32 → 51 MiB | 111 → 143 MiB | 404 → 436 MiB |
+| 10⁶ | 53 → 104 MiB | 189 → 291 MiB | 767 → 1,018 MiB |
+| 10⁷ | 112 → 428 MiB | 429 → 946 MiB | 1.7 → 2.9 GiB |
+| 10⁸ | 124 → 770 MiB | 481 → 1,799 MiB | 1.9 → 5.6 GiB |
 
-**Dependent crossings stay the same.** Count a hop when a message needed
-to advance the descent crosses from one party to the other. V1, V2, and
-the single-socket form all descend one level per dependent crossing, with
-the same opening and closing exchanges. A stage submits its produced
-reply to the encoder and multiplexer; transmission occurs when its frames
-are served. No credit exchange or inference round trip is added. This is
-a dependency count, not a promise of equal wall-clock latency.
+These figures come from a transcription of the model with estimated slot
+sizes (ρ ≈ 32 B, ε ≈ 25 B); the implementation computes them exactly. On
+long, fast links parking adds 8% at 10⁵ messages, 33% at 10⁶, and 72% at
+10⁷. On short links the relative increase is larger, because the level-2
+term does not shrink with the link, but the amounts stay modest up to 10⁶.
 
-**Logical payload is unchanged.** Frame grammar remains, stream labels
-disappear, and preamble and closing control items share the pipe. Snapshot
-changes should be confined to those framing changes.
+The default budget's tuning goal is to keep the reference link, 12.5 MB of
+bandwidth-delay with 100-byte messages, fully busy. This design sets that
+goal at two replicas of 10⁶ messages, and the default rises from 512 MiB
+to the exact threshold rounded up to a power of two, about 1 GiB. A
+committed test holds the default to that goal. Below the default, parking
+narrows the window: at 512 MiB, the window for 10⁶-message replicas falls
+from about 48,600 to about 33,300, and for 10⁷ from about 20,900 to about
+6,500.
 
-**Serialization and loss have costs.** A supply frame already ahead of a
-thin reply delays it, and bytes already buffered in the transport add
-further delay. The greeting's frame limit bounds each frame, not the total
-backlog. The multiplexer serves question-bearing frames first, so a ready
-thin reply waits only for frames already committed ahead of it, never for
-the unsent supply backlog. Priority cannot preempt those frames or the
-transport's buffered bytes. That costs no round trips, since buffering
-adds transmission time and never a crossing; it costs elapsed time only
-on a socket buffered beyond its bandwidth-delay product, for a session
-whose bulk is about that excess, and then at most about two round trips.
-The appendix works the arithmetic and names the deployment setting that
-bounds it. On TCP, a lost segment delays all
-levels for
-recovery. Work that could have advanced on another QUIC stream now waits;
-the owner has accepted that loss of isolation.
+Level 2's volume is a realistic case, not only a worst case. Take two
+10⁷-message replicas that share nearly everything, where one side holds
+200,000 extra messages scattered by hash. About 95% of the 65,536 depth-2
+nodes are disputed, each with about 115 children, so the level-2 replies
+list about 7 million entries, about 190 MB, almost all of it listing
+shared content. On the stream bundle, per-level flow control keeps most of
+those replies unproduced at the sender. On one socket, all of them can
+arrive while the receiver's second stage waits on deeper work.
 
-**The transport contract shrinks.** A session takes the halves of one
-reliable, ordered duplex byte stream whose directions can progress
-independently. `Link` and its stream-supply machinery go. Successful
-sessions return the halves; after an error the connection must be
-discarded because its position is unknown. A QUIC deployment uses one
-bidirectional stream. The appendix specifies ownership and migration.
+### 6.5 What the budget does not count
 
-**Tests check the implementation against the argument.** They are evidence
-of correspondence, not proofs over all executions:
+Replica content, including content absorbed before commit, is outside
+the budget, as are transport buffers. Removing the bundle shrinks the
+latter. To impose no latency, any stream that may carry the bulk alone
+needs about one bandwidth-delay product of receive window. With one TCP
+connection per stream, that is up to seventeen such windows per direction
+(about 210 MB on the long-haul link); QUIC needs its connection-level pool
+sized to eighteen per-stream windows. One socket needs one. So in resident
+terms, parking partly moves memory from kernel buffers the budget never
+saw into process memory it now prices.
 
-1. Before changing reception, instrument sent questions minus consumed
-   replies on the current transport. Check `K(ℓ) + 257` under the capacity
-   stress matrix and adversarial schedules, with the greeting's separate
-   one-reply base case.
-2. Run the same deterministic wedge over one in-memory duplex pipe. It
-   must stall with parking depth one and complete at the derived capacity.
-   The same fixture must fail without the cure.
-3. Check the arrival invariant across generated trees and schedules, and
-   pin a run that reaches exactly `K(ℓ) + 257` parked replies at a level
-   where the structural cap permits it. Reaching capacity demonstrates
-   occupancy tightness; the depth-one wedge separately demonstrates
-   deadlock.
-4. Preserve the dependency-hop ledger and account for every wire snapshot
-   change. Record the revised sizing model separately from measurements
-   of actual allocated memory.
+### 6.6 What a session can know
 
-A Lean development explored the walk's deadlock-freedom argument and the
-unbounded-parking case; its statements are trusted less than the code,
-and nothing in this note rests on it.
+The model prices two replicas as if they shared nothing, because it uses
+only set sizes. By the time the window is sized, a session knows more
+than that. This section sorts that knowledge by kind. None of it is used
+by this design; it marks what a later refinement could use.
+
+**Known exactly.** Each side knows its own tree completely: every fan,
+and the leaf count under every node, which the tree already memoizes.
+From the greetings it also knows the peer's set size, version, largest
+encoded version, and root listing. Comparing the two root listings sorts
+all 256 root slots exactly into three kinds: equal, disputed (both sides
+hold the slot, with different digests), and held by one side only. So the
+level-2 question count is known, not estimated. Only the disputed slots
+can bring back level-2 replies that carry listings; the requested ones
+bring back supplies, which park as handles.
+
+**Known with high probability, from the same comparison.** Let `D` be the
+number of messages held by one side and not the other; deletions count
+too. A root slot differs exactly when at least one of those `D` messages
+falls under it. Under uniform hashing, that is `D` balls thrown into 256
+bins, so the number of differing slots, `k`, bounds `D` from above. All
+`D` balls land within some `k` bins with probability at most
+`C(256, k) · (k/256)^D`. So, at the model's tail of 2⁻⁴⁸:
+
+```text
+D ≤ D_hi(k) = ⌈(48 + log₂ C(256, k)) / log₂(256 / k)⌉,   for k < 256.
+```
+
+| Differing root slots `k` | 1 | 8 | 32 | 83 | 128 | 177 | 224 | 251 | 255 | 256 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `D_hi(k)` | 8 | 20 | 62 | 171 | 300 | 511 | 953 | 2,848 | 9,918 | — |
+
+The bound is tight where it matters. With 10 real differences, about 10
+slots differ and `D_hi ≈ 23`. With 100, about 83 slots differ and
+`D_hi = 171`. With 1,000, about 251 slots differ and `D_hi ≈ 2,850`.
+
+The bound also carries downward. Every question the walk asks concerns a
+node whose contents differ, and every such node contains at least one of
+the `D` messages. Nodes at one depth are disjoint, so no level ever has
+more than `D` questions, and no level ever parks more than `D` replies.
+Listings come only from disputed children, one at most 256 entries long
+for each of those `D`-bounded nodes. With `k` below 256, then, every
+dispute population and every parking term is at most `D_hi(k)` times a
+fan, independent of `n`.
+
+Pricing with `D_hi` would tell the ordinary case, replicas that gossip
+often, apart from the bulk case at the first exchange, with no change to
+the wire. It adds one statistic to the union bound. When all 256 slots
+differ, which is likely once `D` exceeds about 1,400 (probability about
+one in three at 1,400, nine in ten at 2,000), the comparison says only
+that `D` is large, and the size-based model is the right one.
+
+**What versions add.** The ITC versions in the greetings give four
+things:
+
+- **Equality:** equal versions end the session.
+- **Containment:** if one version is below the other, one side has seen
+  every send the other has, so the only difference in that direction is
+  deletions it has made.
+- **The size of the difference as an area:** `Version::lag` and
+  `distance` measure the history one side has and the other lacks, and
+  `min_ticks` gives a lower bound on the events that history contains.
+- **Not an upper bound on events.** The `before` documentation is
+  explicit that no version bounds its event count from above: an
+  increment over an interval can always be refined into concurrent
+  increments over its halves. Converting area into a count of messages
+  would need the smallest id share that has ever ticked. No peer knows
+  that, and the greeting does not carry it.
+
+So versions can predict a lower bound on the work, but cannot bound
+memory.
+
+**Knowable only with new greeting fields.** Two gaps remain:
+
+- **The peer's tree shape.** The model prices the peer's fans
+  statistically (`C`, `L`). A peer could instead send an exact profile of
+  its upper levels, for example the number of depth-3 prefixes under each
+  root child, which would make the level-2 term exact.
+- **The size of the difference once all 256 slots differ.** Here a
+  difference estimator, such as the strata estimator of Eppstein,
+  Goodrich, Uyeda and Varghese (SIGCOMM 2011), fills the gap the root
+  comparison leaves.
+
+Both change the wire, and neither is part of this design.
+
+## 7. Costs
+
+**Dependent crossings are unchanged, with one exception.** Count a
+crossing whenever a message needed to advance the descent passes from
+one party to the other. The streaming walk descends one level per
+dependent crossing over the bundle and over one socket alike, with the
+same opening and closing exchanges. The exception is the removed opening
+batch: the initiator's exclusive root children arrive one crossing later,
+which matters only between small replicas (§2).
+
+**The logical payload is unchanged.** The frame grammar stays; stream
+labels disappear, and the preamble, greeting, and closing items share the
+socket with the frames.
+
+**Serialization costs elapsed time, never crossings.** When a thin reply
+becomes ready, the multiplexer puts it ahead of every unwritten supply
+frame. It can still wait for two things: the frame being written (up to
+one supply run, about 15 ms at 1 Gb/s by default) and unsent bytes
+already in the kernel's send buffer, which drains in order. To keep a link
+busy, a socket holds about one bandwidth-delay product of sent,
+unacknowledged bytes. It can also hold unsent bytes, up to whatever room
+its buffer has beyond that. A socket tuned to twice the bandwidth-delay
+product therefore delays each thin reply on the critical path by up to
+one round trip while bulk is flowing. The session loses time only when
+the delayed descent outlasts the bulk; the worst case is about as many
+round trips as descent levels remain once bulk begins, usually one or
+two. An untuned socket whose buffer is below the bandwidth-delay product
+never holds unsent bytes; its throughput is capped instead.
+
+Bounding the unsent bytes removes the effect. `TCP_NOTSENT_LOWAT` set to
+about one frame does this where the platform provides it (Linux and macOS
+do). Elsewhere, setting `SO_SNDBUF` to about one bandwidth-delay product
+plus one frame bounds the unsent bytes with the whole buffer. The residual
+is then about two frames' transmission time, about 29 ms at 1 Gb/s with
+the default run budget and less with a smaller one. The crate sees only
+the two halves of the connection, so this is deployment guidance, not
+code. Platform support here is taken from documentation and is confirmed
+when that guidance is written.
+
+On the receiving side, a thin frame behind bulk in the receive buffer
+waits until the bulk ahead of it is decoded. That costs time only when
+decoding is slower than the wire, and then the session is bound by
+decoding anyway. The stream bundle had neither effect: the transport
+interleaves streams packet by packet, so a thin reply on its own stream
+waits a packet or two. That is its one latency advantage on a loss-free
+link.
+
+**Loss couples levels.** On TCP, a lost segment delays every level until
+it is recovered, including work that an independent QUIC stream could
+have advanced meanwhile. A QUIC deployment of this design uses one
+bidirectional stream and accepts the same coupling.
+
+**The transport contract shrinks.** A session takes the two halves of one
+reliable, ordered duplex byte stream whose directions progress
+independently, with receiver-paced backpressure at any positive capacity
+and end-of-stream or an error when the peer departs. Successful sessions
+return the halves. After an error the connection's position is unknown,
+so it must be discarded.
+
+## 8. Evidence
+
+The argument has four load-bearing claims, and each gets a committed
+check that fails if the claim ever stops holding:
+
+- **The count.** Test traces of the walk record each outgoing reply's
+  question count and each take. A checker asserts, at every event and in
+  every walk test, that outstanding questions stay within `K(ℓ) + 257`.
+  One fixture drives a level to exactly that number, which shows both
+  that the meter counts and that the capacity is not slack. The premise
+  that a stage records one reply's questions before handing on another is
+  already asserted by the walk's trace checker.
+- **The receive path.** Sessions over one in-memory socket run under a
+  scheduler that reports a stall whenever every task waits. They run at
+  the one-slot window, a one-byte socket buffer, and adversarial poll
+  orders, and must complete. Any new wait of the receive path on the walk
+  shows up as a stall. The fixture of §4 with parking forced to one slot
+  must stall, which shows the harness detects this class of deadlock, and
+  at the derived capacity it must complete and match the in-memory merge.
+- **The bookkeeping capacities.** The answer-record queue has a capacity
+  law pinned from both sides: one slot short of a full fan stalls on a
+  full-fan reply, and `256 + 1` never blocks. Parking's overflow check
+  fires, as an error rather than a hang, when a malformed peer sends an
+  unasked reply.
+- **The prices.** The new statistic is checked numerically against exact
+  binomial tails, as the existing ones are. The window census is
+  re-baselined from recorded output at the parent commit. One measurement
+  of actual peak parked memory for 10⁶- and 10⁷-message replicas is
+  recorded, labeled separately from model output.
+
+These tests show that the implementation corresponds to the argument;
+they do not prove it over all executions.
