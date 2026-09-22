@@ -14,19 +14,31 @@ block another, so the walk's existing deadlock-freedom argument carries
 over.
 
 The price is memory that the bundle kept back at the sender, and the
-note prices it. For two 10⁶-message replicas on a 12.5 MB
-bandwidth-delay link, the budget that imposes no extra latency rises from
-about 0.75 GiB to about 1.0 GiB, and the default budget rises to match.
+note prices it. It also sharpens the pricing in two places where the
+session knows more than the model assumes. Two changes do the sharpening:
+queued work is priced as a set, and the root listings the greetings
+already exchange bound how many messages differ. The net effect depends
+on scale:
+
+- For two entirely different 10⁶-message replicas on a 12.5 MB
+  bandwidth-delay link, the budget that imposes no extra latency falls
+  from about 0.75 GiB to about 0.46 GiB, so the 512 MiB default likely
+  stands.
+- At 10⁷ messages it rises from about 1.7 to about 2.1 GiB.
+- Replicas that differ in a few hundred messages are priced at a few
+  MiB.
 
 - [`exposition.md`](exposition.md) builds the argument from the protocol
   up, for an engineer fluent in distributed systems who has not read the
   code. It covers the conversation, the streaming walk and its progress
   property, the deadlock one socket creates naively, the count and the
-  receive path it permits, memory, costs, and evidence.
+  receive path it permits, memory, a contrast with explicit credits,
+  costs, and evidence.
 - [`appendix-implementation-plan.md`](appendix-implementation-plan.md) is
   the implementation plan, for the implementing agent and its reviewer.
   It meters the count, removes the opening shortcut, parks replies on
-  today's transport, prices parking and resizes the default, collapses
+  today's transport, sharpens and extends the pricing and sizes the
+  default, collapses
   the transport to one pipe with its demonstration, and measures the
   serialization residual. It includes draft user-facing text on what the
   budget estimate means.
@@ -45,8 +57,14 @@ about 0.75 GiB to about 1.0 GiB, and the default budget rises to match.
   waits.
 - Supplied content is absorbed into the backend before commit. The
   backend owns reclaiming it when a session fails.
+- Queued scopes are priced as a set, and pricing uses the difference bound
+  from the root comparison. Queue capacities stay deterministic.
 - The default budget keeps the reference link fully busy for 10⁶-message
-  replicas.
+  replicas, as a committed test checks.
+- Explicit per-level credits are rejected. The exposition compares them:
+  credits give a deterministic, link-sized bound, tighter than parking's
+  for large divergent replicas, at the cost of a flow-control protocol
+  and knowledge of the link.
 - Giving up the bundle gives up QUIC's per-stream loss isolation.
 
 ## Open questions
@@ -54,29 +72,17 @@ about 0.75 GiB to about 1.0 GiB, and the default budget rises to match.
 1. **The progress floor and the budget.** Fixed charges, including
    parking's `+ 257` slack and level 2, are charged against the budget,
    which is today's convention, so they narrow the window. Treating them
-   as a floor that may exceed the budget roughly halves the narrowing at
-   small budgets. The setter's documentation already allows such a floor.
-2. **Re-pricing queued scopes with the set bound.** The per-set statistic
-   applies to the existing scope charge as well, and would widen every
-   window independently of this design.
-3. **Pricing from what the session knows.** The model prices replicas as
-   if they shared nothing. The two root listings, already exchanged in
-   the greetings, say exactly which of the 256 root slots differ.
-   - Below saturation, the number of differing slots bounds the number of
-     differing messages at the model's tail, and every dispute and
-     parking term with it (exposition §6.6). This tells the ordinary case
-     apart from the bulk case with no wire change.
-   - Versions give equality, containment, and a lower bound on the work,
-     but not an upper bound.
-   - Exact peer tree profiles, or a difference estimator for the saturated
-     case, would need new greeting fields.
-4. **The session tail.** Nothing records why the model targets 2⁻⁴⁰ per
-   session. Loosening it widens today's window somewhat, but barely moves
-   parking's price.
-5. **Level 2.** Near the root, parking can hold a whole level: about 25
-   bytes per message of the larger replica, up to about 420 MB. Only a
-   protocol change, such as the responder asking its opening questions in
-   batches, would reduce that.
+   as a floor that may exceed the budget helps small budgets. The
+   setter's documentation already allows such a floor.
+2. **The session tail.** Nothing records why the model targets 2⁻⁴⁰ per
+   session.
+3. **Level 2.** When every root slot differs, parking can hold a whole
+   level: about 25 bytes per message of the larger replica, up to about
+   420 MB. Exposition §6.8 outlines the protocol change that would bound
+   it: deferred questions.
+4. **What else a session could know.** Exact peer tree profiles, or a
+   difference estimator for the case where every root slot differs,
+   would need new greeting fields (exposition §6.7).
 
 ## Related notes
 

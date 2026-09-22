@@ -29,10 +29,15 @@ walk, and the walk's existing progress argument carries over unchanged.
 The costs are these:
 
 - **Memory.** Replies that the stream bundle held back at the sender now
-  wait, decoded, at the receiver. The session budget must price them.
-  For two 10⁶-message replicas, the budget needed to keep a 12.5 MB
-  bandwidth-delay link fully busy rises from about 0.75 GiB to about
-  1.0 GiB, and the default budget rises to match.
+  wait, decoded, at the receiver, and the session budget must price them.
+  The design also sharpens the pricing in two places, and the net effect
+  depends on scale:
+  - For two entirely different 10⁶-message replicas, the budget that keeps
+    a 12.5 MB bandwidth-delay link fully busy falls from about 0.75 GiB to
+    about 0.46 GiB.
+  - At 10⁷ messages it rises from about 1.7 to about 2.1 GiB.
+  - Replicas that differ in a few hundred messages are priced at a few
+    MiB.
 - **Serialization.** A small, urgent frame can wait behind a large frame
   already committed to the socket. This costs elapsed time, never a
   round trip, and a socket option bounds it.
@@ -40,8 +45,10 @@ The costs are these:
 
 Sections 2 and 3 describe the protocol and the progress property it
 already has. Section 4 shows why one socket naively deadlocks, §5 derives
-the count and the receive path it permits, §6 accounts for memory, §7
-lists the remaining costs, and §8 describes the evidence. The
+the count and the receive path it permits, and §6 accounts for memory,
+including what reducing the root level's share would take. Section 7
+contrasts the design with explicit credits, §8 lists the remaining
+costs, and §9 describes the evidence. The
 [appendix](appendix-implementation-plan.md) is the implementation plan.
 
 ## 2. The conversation
@@ -358,7 +365,7 @@ Per-level encoders feed a *multiplexer* that owns the socket's write
 half. It keeps each level's frames in order, and it serves every frame
 that is not a supply run before any supply run, round-robin within each
 class. Every frame is still served eventually, because a session's
-traffic is finite. The preference exists for latency (§7): the thin
+traffic is finite. The preference exists for latency (§8): the thin
 replies that advance the descent do not queue behind bulk that is not
 yet written. The sender can wait for bandwidth, and encoders can wait for
 the multiplexer, but no receiving stage's consumption order can stop the
@@ -393,16 +400,15 @@ The window model knows the two set sizes, `A` and `B`, and uses
 - **Statistical, under uniform hashing:** `C(j)` children and `L(j)`
   leaves under any single depth-j node, and `S(d)` scopes in dispute at
   depth d. Each is a quantile at tail 2⁻⁴⁸ that holds for every node at
-  its depth simultaneously. A union bound over all of them keeps the
-  session's failure probability below 2⁻⁴⁰. Because the greeting carries
-  only set sizes, `S(d)` prices the two sets as if they were entirely
-  different.
+  its depth simultaneously, and a union bound over all of them keeps the
+  session's failure probability below 2⁻⁴⁰. Knowing only set sizes,
+  `S(d)` prices the two sets as if they were entirely different.
 
 The charge assumes every window slot is full at once and every slot's
-contents are at their quantile. It is a high-probability worst case, not
-an expectation. The window is the largest `K` whose charge fits the
-budget. Crossing the tail does not threaten correctness or progress; it
-means a session uses more memory than its estimate.
+contents are at their quantile: a high-probability worst case, not an
+expectation. The window is the largest `K` whose charge fits the budget.
+Crossing the tail threatens neither correctness nor progress; a session
+that crosses it uses more memory than estimated.
 
 ### 6.3 The price of parking
 
@@ -417,7 +423,7 @@ The charge for level d is the least of three bounds:
 
 1. **Per reply:** `slots(d) · (2·C(d−1)·ρ + min(C(d−1)·C(d), L(d−1))·ε)`.
 2. **Per level (deterministic):** parked replies at one level concern
-   distinct nodes, whose subtrees are disjoint. Across the level, their
+   distinct nodes, whose subtrees are disjoint. Across the level their
    reactions number at most `2·occupied(n, d)` and their entries at most
    `occupied(n, d + 1)`.
 3. **Per set (statistical):** the same disjointness, sharpened. The peer's
@@ -425,14 +431,67 @@ The charge for level d is the least of three bounds:
    Binomial(n, m/256ʲ). Take the union over every such set, all
    C(256ʲ, m) of them, where log₂ C(256ʲ, m) ≤ m·(8j + 2 − ⌊log₂ m⌋). The
    binomial quantile at tail 2^−(48 + that) then bounds the leaves under
-   whichever m nodes the protocol happens to hold. With m = 1 this is
-   exactly `L(j)`. Applied with m = `slots(d)` and j = d − 1, it bounds
-   the level's entries, and twice it bounds the reactions.
+   whichever m nodes the protocol happens to hold. With m = 1 it is
+   exactly `L(j)`. With m = `slots(d)` and j = d − 1, it bounds the
+   level's entries, and twice it bounds the reactions.
 
-These bounds reuse the model's existing statistics and add one per depth
-per replica to the union, which stays below 2⁻⁴⁰.
+### 6.4 Two refinements the design adopts
 
-### 6.4 The budget that imposes no latency
+Pricing parking honestly makes the model's pessimism expensive, so the
+design also sharpens two places where the model knows less than it
+could.
+
+**Queued scopes, priced as a set.** Today every queued question is
+charged for `C(d−1)` child references, the most any single node plausibly
+has. The queued questions at one depth concern distinct nodes, so the
+per-set bound applies to them exactly as it does to parking: `m` queued
+questions retain at most `min(m·C(d−1), set bound, occupied(n, d))`
+references. This change is independent of the socket; it widens every
+window the model grants.
+
+**Pricing from the root comparison.** Each greeting carries its sender's
+root listing, so both sides know, before the window is sized, exactly
+which of the 256 root slots differ. Let `D` be the number of messages
+held by one side and not the other, deletions included. A root slot
+differs exactly when at least one of those `D` messages falls under it.
+Under uniform hashing that is `D` balls in 256 bins, and all of them land
+within some `k` bins with probability at most `C(256, k) · (k/256)^D`.
+So, at the model's tail of 2⁻⁴⁸:
+
+```text
+D ≤ D_hi(k) = ⌈(48 + log₂ C(256, k)) / log₂(256 / k)⌉,   for k < 256.
+```
+
+| Differing root slots `k` | 1 | 8 | 32 | 83 | 128 | 177 | 224 | 251 | 255 | 256 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `D_hi(k)` | 8 | 20 | 62 | 171 | 300 | 511 | 953 | 2,848 | 9,918 | — |
+
+The bound is tight where it matters: 10 real differences give about 10
+differing slots and `D_hi ≈ 23`; 100 give about 83 and `D_hi = 171`.
+
+It then applies at every depth. A question concerns a node whose
+contents differ, and every such node contains at least one of the `D`
+messages. Nodes at one depth are disjoint, so:
+
+- no level has more than `D` questions: `S(d) ≤ D_hi`;
+- no level parks more than `D` replies;
+- no level carries listings for more than `D` children, so at most
+  `D_hi · C(d)` entries.
+
+At level 2 the count is exact: `k` questions, of which only the disputed
+slots can return listings.
+
+Two limits apply:
+
+- **Saturation.** When all 256 slots differ, which is likely once `D`
+  exceeds about 1,400 (probability about one in three at 1,400, nine in
+  ten at 2,000), the comparison says only that `D` is large, and the
+  size-based model prices the session.
+- **Pricing only.** The bound enters pricing, never a queue's capacity.
+  Capacities stay the deterministic count of §5, so a session in the
+  2⁻⁴⁸ tail uses more memory than estimated but never fails.
+
+### 6.5 The budget that imposes no latency
 
 The sizing guide models slowdown relative to a fully used link as
 `max(1, W / K)`, where `W = BDP / (43 + m)` is the link's bandwidth-delay
@@ -440,65 +499,56 @@ product in messages, m the mean encoded message size, and 43 bytes the
 measured per-message protocol overhead. A window of at least
 `K* = min(W, max_d S(d))` therefore imposes no additional latency. The
 second term covers the case where the population, not the link, caps
-useful width. The *threshold budget* is the charge at `K*`:
-
-```text
-B*_before = F + Σ_d min(K*, S(d)) · p_scope(d)
-B*_after  = B*_before + Σ_d park(d, K*)
-```
-
-Here `F` is the fixed decode charge, `p_scope(d)` the existing price of
-one queued scope, and `park` the least of the three bounds above.
+useful width. The *threshold budget* is the charge at `K*`: today's scope
+charge before, and the refined scope charge plus parking after.
 
 The depths fall into three bands:
 
 - **Near the root (d = 1, 2),** populations are tiny and fans full. Level 2
-  is the one term parking adds that does not shrink with the link: its
-  256 replies can together list the whole depth-3 frontier, about 25 bytes
-  per message of the larger replica up to about 10⁷ messages and
-  approaching 420 MB beyond.
+  is the one term that does not shrink with the link: when every root
+  slot differs, its replies can together list the whole depth-3
+  frontier, about 25 bytes per message of the larger replica up to about
+  10⁷ messages and approaching 420 MB beyond (§6.8).
 - **The frontier band** runs from depth `log₂₅₆ n + 1` to
-  `log₂₅₆ n² + 1`. There `S(d) ≥ K*`, so every level is saturated: each
-  costs `K*·p_scope(d)` before, plus up to about `n·(2ρ + ε)` for parking
-  after.
-- **The tail** is negligible in both: `S(d)` falls about 256-fold per
-  level past the frontier.
+  `log₂₅₆ n² + 1`. There `S(d) ≥ K*`, so every level is saturated.
+- **The tail** is negligible: `S(d)` falls about 256-fold per level past
+  the frontier.
 
-For two replicas of n messages each, 100-byte messages, and the in-memory
-backend, the modeled threshold budgets, before → after, are:
+For two entirely different replicas of n messages each, 100-byte
+messages, and the in-memory backend, the modeled threshold budgets,
+before → after, are:
 
 | n | In-rack (100 Gb/s, 50 µs; W ≈ 4,400) | Metro (10 Gb/s, 2 ms; W ≈ 17,500) | Long haul (1 Gb/s, 100 ms; W ≈ 87,400) |
 | --- | --- | --- | --- |
-| 10⁵ | 32 → 51 MiB | 111 → 143 MiB | 404 → 436 MiB |
-| 10⁶ | 53 → 104 MiB | 189 → 291 MiB | 767 → 1,018 MiB |
-| 10⁷ | 112 → 428 MiB | 429 → 946 MiB | 1.7 → 2.9 GiB |
-| 10⁸ | 124 → 770 MiB | 481 → 1,799 MiB | 1.9 → 5.6 GiB |
+| 10⁵ | 32 → 33 MiB | 111 → 64 MiB | 404 → 78 MiB |
+| 10⁶ | 53 → 75 MiB | 189 → 172 MiB | 767 → 467 MiB |
+| 10⁷ | 112 → 394 MiB | 429 → 797 MiB | 1.7 → 2.1 GiB |
+| 10⁸ | 124 → 750 MiB | 481 → 1,713 MiB | 1.9 → 5.1 GiB |
 
 These figures come from a transcription of the model with estimated slot
-sizes (ρ ≈ 32 B, ε ≈ 25 B); the implementation computes them exactly. On
-long, fast links parking adds 8% at 10⁵ messages, 33% at 10⁶, and 72% at
-10⁷. On short links the relative increase is larger, because the level-2
-term does not shrink with the link, but the amounts stay modest up to 10⁶.
+sizes (ρ ≈ 32 B, ε ≈ 25 B); the implementation computes them exactly.
+
+- **Up to about 10⁶ messages,** the set-priced scopes save more than
+  parking costs on long links.
+- **From 10⁷ on,** level 2 dominates and the threshold rises.
+
+At a fixed budget of 512 MiB, the window for 10⁶-message replicas widens
+from about 48,600 to about 107,000, while for 10⁷ it narrows from about
+20,900 to about 8,100.
 
 The default budget's tuning goal is to keep the reference link, 12.5 MB of
-bandwidth-delay with 100-byte messages, fully busy. This design sets that
-goal at two replicas of 10⁶ messages, and the default rises from 512 MiB
-to the exact threshold rounded up to a power of two, about 1 GiB. A
-committed test holds the default to that goal. Below the default, parking
-narrows the window: at 512 MiB, the window for 10⁶-message replicas falls
-from about 48,600 to about 33,300, and for 10⁷ from about 20,900 to about
-6,500.
+bandwidth-delay with 100-byte messages, fully busy for two replicas of
+10⁶ messages. The default becomes the exact threshold there, rounded up
+to a power of two, and a committed test holds it to that goal. The model
+puts the threshold at about 467 MiB, so the default likely stays at
+512 MiB.
 
-Level 2's volume is a realistic case, not only a worst case. Take two
-10⁷-message replicas that share nearly everything, where one side holds
-200,000 extra messages scattered by hash. About 95% of the 65,536 depth-2
-nodes are disputed, each with about 115 children, so the level-2 replies
-list about 7 million entries, about 190 MB, almost all of it listing
-shared content. On the stream bundle, per-level flow control keeps most of
-those replies unproduced at the sender. On one socket, all of them can
-arrive while the receiver's second stage waits on deeper work.
+Those are the fully divergent cases. Replicas that gossip regularly
+differ in few messages, and the root comparison prices them accordingly.
+For two 10⁶-message replicas differing in 10, 100, and 1,000 messages,
+the long-haul threshold is about 1 MiB, 6 MiB, and 43 MiB.
 
-### 6.5 What the budget does not count
+### 6.6 What the budget does not count
 
 Replica content, including content absorbed before commit, is outside
 the budget, as are transport buffers. Removing the bundle shrinks the
@@ -510,61 +560,9 @@ sized to eighteen per-stream windows. One socket needs one. So in resident
 terms, parking partly moves memory from kernel buffers the budget never
 saw into process memory it now prices.
 
-### 6.6 What a session can know
+### 6.7 What else a session could know
 
-The model prices two replicas as if they shared nothing, because it uses
-only set sizes. By the time the window is sized, a session knows more
-than that. This section sorts that knowledge by kind. None of it is used
-by this design; it marks what a later refinement could use.
-
-**Known exactly.** Each side knows its own tree completely: every fan,
-and the leaf count under every node, which the tree already memoizes.
-From the greetings it also knows the peer's set size, version, largest
-encoded version, and root listing. Comparing the two root listings sorts
-all 256 root slots exactly into three kinds: equal, disputed (both sides
-hold the slot, with different digests), and held by one side only. So the
-level-2 question count is known, not estimated. Only the disputed slots
-can bring back level-2 replies that carry listings; the requested ones
-bring back supplies, which park as handles.
-
-**Known with high probability, from the same comparison.** Let `D` be the
-number of messages held by one side and not the other; deletions count
-too. A root slot differs exactly when at least one of those `D` messages
-falls under it. Under uniform hashing, that is `D` balls thrown into 256
-bins, so the number of differing slots, `k`, bounds `D` from above. All
-`D` balls land within some `k` bins with probability at most
-`C(256, k) · (k/256)^D`. So, at the model's tail of 2⁻⁴⁸:
-
-```text
-D ≤ D_hi(k) = ⌈(48 + log₂ C(256, k)) / log₂(256 / k)⌉,   for k < 256.
-```
-
-| Differing root slots `k` | 1 | 8 | 32 | 83 | 128 | 177 | 224 | 251 | 255 | 256 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `D_hi(k)` | 8 | 20 | 62 | 171 | 300 | 511 | 953 | 2,848 | 9,918 | — |
-
-The bound is tight where it matters. With 10 real differences, about 10
-slots differ and `D_hi ≈ 23`. With 100, about 83 slots differ and
-`D_hi = 171`. With 1,000, about 251 slots differ and `D_hi ≈ 2,850`.
-
-The bound also carries downward. Every question the walk asks concerns a
-node whose contents differ, and every such node contains at least one of
-the `D` messages. Nodes at one depth are disjoint, so no level ever has
-more than `D` questions, and no level ever parks more than `D` replies.
-Listings come only from disputed children, one at most 256 entries long
-for each of those `D`-bounded nodes. With `k` below 256, then, every
-dispute population and every parking term is at most `D_hi(k)` times a
-fan, independent of `n`.
-
-Pricing with `D_hi` would tell the ordinary case, replicas that gossip
-often, apart from the bulk case at the first exchange, with no change to
-the wire. It adds one statistic to the union bound. When all 256 slots
-differ, which is likely once `D` exceeds about 1,400 (probability about
-one in three at 1,400, nine in ten at 2,000), the comparison says only
-that `D` is large, and the size-based model is the right one.
-
-**What versions add.** The ITC versions in the greetings give four
-things:
+The ITC versions in the greetings add four things:
 
 - **Equality:** equal versions end the session.
 - **Containment:** if one version is below the other, one side has seen
@@ -572,31 +570,167 @@ things:
   deletions it has made.
 - **The size of the difference as an area:** `Version::lag` and
   `distance` measure the history one side has and the other lacks, and
-  `min_ticks` gives a lower bound on the events that history contains.
+  `min_ticks` gives a lower bound on the events it contains.
 - **Not an upper bound on events.** The `before` documentation is
   explicit that no version bounds its event count from above: an
   increment over an interval can always be refined into concurrent
   increments over its halves. Converting area into a count of messages
-  would need the smallest id share that has ever ticked. No peer knows
-  that, and the greeting does not carry it.
+  would need the smallest id share that has ever ticked, which no peer
+  knows and no greeting carries.
 
 So versions can predict a lower bound on the work, but cannot bound
 memory.
 
-**Knowable only with new greeting fields.** Two gaps remain:
+Two further gaps would need new greeting fields:
 
 - **The peer's tree shape.** The model prices the peer's fans
-  statistically (`C`, `L`). A peer could instead send an exact profile of
-  its upper levels, for example the number of depth-3 prefixes under each
-  root child, which would make the level-2 term exact.
-- **The size of the difference once all 256 slots differ.** Here a
+  statistically. A peer could send an exact profile of its upper levels,
+  for example the number of depth-3 prefixes under each root child, which
+  would make the level-2 term exact.
+- **The size of the difference once all 256 root slots differ.** A
   difference estimator, such as the strata estimator of Eppstein,
-  Goodrich, Uyeda and Varghese (SIGCOMM 2011), fills the gap the root
-  comparison leaves.
+  Goodrich, Uyeda and Varghese (SIGCOMM 2011), bounds it where the root
+  comparison cannot.
 
-Both change the wire, and neither is part of this design.
+### 6.8 Level 2, and what shrinking it would take
 
-## 7. Costs
+When every root slot differs, level 2 is the one place where parking can
+hold a whole level. The responder's opening reply asks about every
+differing root child at once. The initiator's stage 1 answers all of
+those questions without waiting for anything further. Each answer, about
+one root child, lists the children of every disputed node beneath it at
+depth 2.
+
+This is a realistic case, not only a worst case. Take two 10⁷-message
+replicas that share nearly everything, where one side holds 200,000 extra
+messages scattered by hash. About 95% of the 65,536 depth-2 nodes are
+disputed, each with about 115 children, so the level-2 replies list about
+7 million entries: about 190 MB, almost all of it listing shared content.
+The stream bundle kept most of those replies unproduced at the sender.
+
+Nothing in parking can shrink this, because every one of those replies
+was invited by a single opening reply. Shrinking it takes a protocol
+change that lets the asker invite less at once. This design does not
+make that change, but it would look like this:
+
+- **A deferral reaction.** Alongside match, supply, and query, a reply
+  can react to a differing child with *defer*: "we differ here, and I
+  will ask later". It holds the child's position, so positional pairing
+  is unchanged.
+- **Standalone questions.** Later, the asker sends a question about each
+  deferred child. It carries the child's prefix, since it has no position
+  to pair with, and the asker's listing. Standalone questions at a level
+  queue behind that level's other questions and are answered in order,
+  so pairing stays positional within the level.
+- **The answerer keeps a handle per deferred child,** captured when it
+  compared the parent's children, so a standalone question costs no more
+  backend work than the query it replaces.
+- **The asker invites only what it can hold.** The "+256" term of the
+  count, a whole reply's questions invited at once, becomes a per-level
+  invitation cap `B` that the asker chooses. Level 2's parking falls from
+  "the whole level" to `B` replies.
+
+The costs:
+
+- Each deferred subtree starts at least one crossing later.
+- The wire gains two message kinds.
+- The walk gains a deferred-question queue per level.
+- The progress argument needs re-deriving. Today a parent resolution is
+  published only after the work that fills its slots has been launched;
+  a deferred child's work launches later. So deferred questions must be
+  issued by work that never waits behind the resolution they fill, or
+  the stage could block on its resolution queue while the assembler
+  waits for a deferred child that the stage has yet to ask about.
+
+In effect, deferral turns a question into an explicit, receiver-issued
+credit expressed in the protocol's own vocabulary. That is the subject of
+the next section.
+
+## 7. Explicit credits, for contrast
+
+The alternative this design rejects is per-level flow control over the
+one socket, as HTTP/2 and QUIC implement it. This section describes that
+design concretely enough to compare.
+
+**How it would work.**
+- Each side grants its peer a *credit* per level: a number of bytes the
+  peer may send on that level before waiting.
+- The sender's multiplexer writes a level's frame only when that level
+  has credit for it. An encoder whose level is out of credit blocks, and
+  so does the walk stage feeding it, which leaves unsent replies
+  unproduced at the sender, as the bundle does.
+- The receiver returns credit in a new control frame as its stage
+  consumes. It must return credit at the *take*, not at decoding, or
+  decoded replies accumulate exactly as they do in parking.
+- Credit frames must never wait behind data. They travel outside flow
+  control and ahead of every data frame.
+- Every level's credit must admit at least one whole frame, or frames
+  must be splittable across credit grants.
+
+**Memory.** The receiver's buffering is exactly the sum of the credits
+it grants: deterministic, independent of set size, hashing, and the
+model's quantiles. The level-2 problem disappears, since the initiator
+cannot send more level-2 bytes than the responder has granted.
+
+**Latency.** Credit is consumed as data arrives and returned a crossing
+after the consuming stage takes it. A level whose credit is smaller than
+the bandwidth-delay product stalls once per round trip while it carries
+bulk. So to impose no latency, every level that may carry bulk alone
+needs credit of at least one bandwidth-delay product. Sharing a
+connection-wide pool does not reduce this. A pool smaller than the sum of
+the per-level credits couples the levels again, which is the deadlock
+this design exists to avoid. The transport contract's pooled-flow-control
+rule already says as much for QUIC.
+
+So credits that impose no latency cost up to seventeen bandwidth-delay
+products per direction: about 212 MB on the long-haul link. That is
+fixed, whatever the set size. Parking needs no knowledge of the link:
+the receiver accepts everything it invited, and the budget alone sets
+how much it invites.
+
+On the long-haul link, for entirely different replicas, the latency-free
+budgets compare as follows. Both use the refined scope charge. The
+credit column adds 17 bandwidth-delay products; smaller credits would
+trade memory for per-round-trip stalls.
+
+| n | Parking | Explicit credits |
+| --- | --- | --- |
+| 10⁵ | 78 MiB | 249 MiB |
+| 10⁶ | 467 MiB | 418 MiB |
+| 10⁷ | 2.1 GiB | 1.1 GiB |
+| 10⁸ | 5.1 GiB | 1.7 GiB |
+
+For ordinary sessions, with few differences, parking is priced at a few
+MiB (§6.5). A credit design's buffers could be sized down in the same
+way, from the same root comparison.
+
+**Complexity.** Credits are a flow-control protocol inside the crate:
+- per-level accounting on both sides;
+- a new control frame, with its own priority rule;
+- a rule tying credit to frame sizes;
+- a new violation (a peer exceeding its credit);
+- a sizing policy, which in practice means estimating the bandwidth-delay
+  product at run time, as HTTP/2 implementations do.
+
+The deadlock argument inherits the walk's, plus a proof that the credit
+loop is live: credit frames always flow, and every level's credit admits
+a frame. Parking adds one queue capacity, one occupancy check, and one
+publication move, and its argument is the count in §5.1.
+
+**What neither changes.** Both keep the dependent-crossing count. Both
+suffer the send-buffer residual of §8, since the kernel drains in order
+beneath any user-level scheduling, and both couple levels under TCP loss.
+
+**Summary.** Credits buy a deterministic, link-sized memory bound. That
+bound is tighter than parking's for large, heavily divergent replicas,
+and looser for small ones. The price is a flow-control protocol with its
+own liveness argument, and a need to know the link. Parking buys
+simplicity and link-independence, at the price of a statistical,
+workload-sized bound whose level-2 term grows with the set. Deferred
+questions (§6.8) sit between the two: they bound level 2 using the
+protocol's own questions as credit, with no separate control channel.
+
+## 8. Costs
 
 **Dependent crossings are unchanged, with one exception.** Count a
 crossing whenever a message needed to advance the descent passes from
@@ -655,7 +789,7 @@ and end-of-stream or an error when the peer departs. Successful sessions
 return the halves. After an error the connection's position is unknown,
 so it must be discarded.
 
-## 8. Evidence
+## 9. Evidence
 
 The argument has four load-bearing claims, and each gets a committed
 check that fails if the claim ever stops holding:
@@ -679,11 +813,15 @@ check that fails if the claim ever stops holding:
   full-fan reply, and `256 + 1` never blocks. Parking's overflow check
   fires, as an error rather than a hang, when a malformed peer sends an
   unasked reply.
-- **The prices.** The new statistic is checked numerically against exact
-  binomial tails, as the existing ones are. The window census is
-  re-baselined from recorded output at the parent commit. One measurement
-  of actual peak parked memory for 10⁶- and 10⁷-message replicas is
-  recorded, labeled separately from model output.
+- **The prices.**
+  - The set statistic and the `D_hi` table are checked against exact
+    binomial and occupancy tails, as the existing quantiles are.
+  - A test holds the default budget to its tuning goal.
+  - The window census is re-baselined from recorded output at the parent
+    commit.
+  - One measurement of actual peak parked memory, for 10⁶- and
+    10⁷-message replicas with scattered differences, is recorded
+    separately from model output.
 
 These tests show that the implementation corresponds to the argument;
 they do not prove it over all executions.

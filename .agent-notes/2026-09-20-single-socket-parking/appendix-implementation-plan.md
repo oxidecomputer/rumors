@@ -189,11 +189,18 @@ transport, so every existing suite is the regression net.
 
 Commit: "Park decoded replies per level".
 
-## Step 3: price parking, and size the default
+## Step 3: price parking, sharpen the model, and size the default
 
-**Goal.** Make the budget describe what parking can hold, and keep the
-default budget from constraining the reference link for 10⁶-message
-replicas.
+**Goal.** Make the budget describe what parking can hold. Stop the model
+pricing queued work at its per-node worst case, or as if the replicas
+shared nothing, where the session knows better. And keep the default
+budget from constraining the reference link for 10⁶-message replicas.
+
+Land this step as two commits:
+1. The set statistic, the re-priced queued scopes, and the root
+   comparison. These are independent of the socket and widen every
+   window.
+2. The parking charge and the default, with the census and calibration.
 
 - **Constants.** In `window.rs`, derive the parked-reaction and
   listing-entry byte constants with `size_of`, as the existing constants
@@ -210,15 +217,41 @@ replicas.
 - **The charge.** In `from_budget`'s `charge(K)`, add the parking term for
   every depth: the least of the per-reply, per-level, and per-set bounds
   (exposition §6.3), with `slots(d) = min(K(d) + FAN + 1, 256^(d−1))`.
-  Update `UNION_TAIL_BITS`'s accounting comment for the added statistics
-  (224 < 2⁸).
+- **Queued scopes, priced as a set** (exposition §6.4). The existing scope
+  charge at depth d becomes
+  `min(m·C(d−1), set_leaves_quantile(n, m, d−1), occupied(n, d))`
+  references plus `m` fixed scope parts, where `m = min(K, S(d))`. The
+  queued questions at one depth concern distinct nodes, which is the
+  premise the set bound needs. State that premise at the charge.
+- **Pricing from the root comparison** (exposition §6.4).
+  - At window resolution, count the root slots whose listings differ
+    between the two greetings: a radix present on one side only, or
+    digests that differ. Both the walk and the proxy resolve the window
+    where both listings are in hand; pass the count into
+    `WindowConfig::resolve`.
+  - Add `D_hi` as a constant table over `k` in 0..256, with `k = 256`
+    meaning no bound. A test re-derives every entry exactly with integer
+    arithmetic, checking `C(256, k)·k^D ≤ 256^D / 2⁴⁸`.
+  - When `k < 256`, cap the pricing inputs:
+    - `S(2) ≤ k`, and `S(d) ≤ D_hi` for deeper d;
+    - parking slots at `k` for level 2 and `D_hi` deeper;
+    - parked listing entries at `D_hi · C(d)` per level.
+  - Queue capacities never use `D_hi`. They stay the deterministic count
+    of exposition §5, so a session in the statistical tail spends more
+    memory but never fails. Write this at the capacity constructor, since
+    it is the easiest rule to erode.
+- Update `UNION_TAIL_BITS`'s accounting comment for the added statistics:
+  one set statistic per depth per replica, plus the root comparison,
+  which stays under 2⁸.
 - **The default.**
   - Compute the threshold budget at the reference point: A = B = 10⁶,
     `SPEC_BDP_BYTES`, 100-byte messages. It is the least budget for which
     `from_budget` grants `min(W, max_d S(d))` with
     `W = ⌈SPEC_BDP_BYTES / DISPUTE_WIRE_BYTES⌉`.
   - Set `DEFAULT_SYNC_MEMORY_BUDGET` to that threshold rounded up to a
-    power of two. The model estimates 1 GiB, but the exact prices decide.
+    power of two. With the refinements above, the model puts the threshold
+    near 467 MiB, so the default likely stays at 512 MiB. The exact prices
+    decide.
   - Commit a test that the default grants the reference window, so a
     later pricing change that would make the default constrain there
     fails.
@@ -240,7 +273,8 @@ replicas.
   accounting and the sizing guide using the draft text below. At this
   commit the transport is still the bundle, so describe it as it is.
 
-Commit: "Price parked replies; size the default for 10⁶-message replicas".
+Commits: "Price queued work as sets, and from the root comparison", then
+"Price parked replies; size the default for 10⁶-message replicas".
 
 ### Draft user-facing text
 
@@ -258,9 +292,10 @@ section:
 > 2⁻⁴⁰ per session.
 >
 > Most sessions use far less. Buffers fill only while one part of the
-> comparison waits on another. The model also prices two replicas as if
-> they shared nothing, but replicas that mostly agree dispute only the
-> parts of the set where they differ. Measure your workload if you need
+> comparison waits on another. The first exchange between two replicas
+> also shows roughly how much they differ, and the estimate shrinks
+> accordingly: replicas that gossip regularly are sized for their
+> differences, not their total size. Measure your workload if you need
 > a typical figure.
 >
 > A session can exceed its estimate if message addresses cluster far
@@ -477,7 +512,9 @@ Commit: "Measure and document the single-socket residual".
   - the `ProxyNextScopes` capacity law holds from both sides;
   - a surplus reply fails with `ParkingOverflow`.
 - After step 3:
-  - the new statistic matches exact tails;
+  - the set statistic matches exact binomial tails, and the `D_hi` table
+    matches its exact re-derivation;
+  - no queue capacity depends on `D_hi`;
   - the default grants the reference window at 10⁶ messages, pinned by a
     test;
   - the census is re-baselined against recorded parent output;
