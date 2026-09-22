@@ -479,7 +479,7 @@ Commit: "Collapse the transport to one pipe".
 
 ## Step 5: measure the single-socket residual
 
-**Goal.** Put a number on the serialization cost from exposition §7, and
+**Goal.** Put a number on the serialization cost from exposition §9, and
 publish the deployment guidance that bounds it.
 
 - On the delayed pipe, measure a thin deep reply ready just after a
