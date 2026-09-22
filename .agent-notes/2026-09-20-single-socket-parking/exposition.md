@@ -46,9 +46,10 @@ The costs are these:
 Sections 2 and 3 describe the protocol and the progress property it
 already has. Section 4 shows why one socket naively deadlocks, §5 derives
 the count and the receive path it permits, §6 accounts for memory, and
-§7 contrasts the design with explicit credits. Section 8 sketches a
-follow-on that separates bulk from the descent, §9 lists the remaining
-costs, and §10 describes the evidence. The
+§7 contrasts the design with explicit credits. Section 8 examines a
+follow-on that separates bulk from the descent and finds it not worth
+building. Section 9 lists the remaining costs, and §10 describes the
+evidence. The
 [appendix](appendix-implementation-plan.md) is the implementation plan.
 
 ## 2. The conversation
@@ -61,9 +62,9 @@ descends one byte per level. Each interior node memoizes a 24-byte
 *digest* of its subtree; the protocol assumes that distinct subtrees have
 distinct digests, so equal digests mean equal subtrees.
 
-Each side opens with a *greeting*: its causal version, its live-message
-count, and a *listing* of the root's children as (radix byte, digest)
-pairs. A version summarizes a replica's entire history of sends and
+Each side opens with a *greeting*: its causal version (an interval tree
+clock, ITC), its live-message count, and a *listing* of the root's
+children as (radix byte, digest) pairs. A version summarizes a replica's entire history of sends and
 redactions, so equal versions mean equal sets, and the session ends
 there.
 
@@ -95,8 +96,8 @@ B's query is now a question to A, one level down.
 Today's protocol adds one shortcut, which this design removes. After the
 greetings cross, the initiator already knows which of its root children
 the responder lacks, and ships them unasked as an *opening batch*, one
-crossing early. Under uniform hashing a replica of N messages leaves a
-given root slot empty with probability about e^(−N/256), so the batch is
+crossing early. Under uniform hashing a replica of n messages leaves a
+given root slot empty with probability about e^(−n/256), so the batch is
 nonempty essentially only between replicas below a few thousand
 messages. It needs its own stream, decoder, and pairing rule, and over
 one socket it creates a second instance of the deadlock in §4. Without
@@ -106,9 +107,9 @@ different thing and stays: it is the level-1 question, it lets the
 responder answer at once, and it needs no stream of its own.
 
 Matching digests prune shared subtrees. The walk follows disputed
-prefixes until it reaches the subtrees held by one side only. For
-replicas differing in `D` of `N` messages, the expected depth of that
-frontier is about `log₂₅₆(2·D·N)`: about five when `D = N = 10⁶`.
+prefixes until it reaches subtrees held by one side only. For replicas
+of about n messages that differ in `D`, the deepest disputes sit near
+depth `log₂₅₆(D·n)`: about five when `D = n = 10⁶`.
 
 Two properties of the conversation carry the rest of this note:
 
@@ -124,20 +125,22 @@ Two properties of the conversation carry the rest of this note:
 
 ### 3.1 A level at a time
 
-The first version of the protocol sends one complete level per message,
-alternating sides. Exactly one message is in flight, and its receiver is
+A protocol could send one complete level per message, alternating
+sides. Exactly one message is in flight, and its receiver is
 waiting for it, so one ordered byte stream per direction suffices. The
 cost is aggregation: a message holds a whole level of disputes, can
 approach the size of the set, and cannot depart until all of it is
 ready. Each message still advances the descent by one level per network
-crossing.
+crossing. The streaming walk below keeps that crossing count and removes
+the aggregation.
 
 ### 3.2 The streaming walk
 
-The shipped protocol keeps the same exchange but sends one reply per
-question instead of one message per level. Each side runs a *stage* at
-each level where it asks questions. Stage ℓ takes one local question
-record, then takes the matching reply, and processes its reactions in
+The protocol keeps that exchange but sends one reply per question
+instead of one message per level. Each side runs a *stage* at each level
+where it asks questions. The node a question is about is its *scope*.
+Stage ℓ takes one local question record, then takes the matching reply
+(an event this note calls the *take*), and processes its reactions in
 order: matches and supplies settle children; each query asks the stage
 to reconcile one child, which produces an outgoing reply at level ℓ + 1
 carrying questions at level ℓ + 2.
@@ -169,8 +172,10 @@ stage 3 <------------------- replies at 3 ----------+
 On the wire, each reply occupies one or more *frames*, one reaction per
 frame, each tagged with its level. A supply's leaves travel in runs sized
 by a byte budget both sides agree on in the greeting (about 1.8 MB by
-default, the size of a maximally disputed reply); every other frame
-carries at most one 256-entry listing, about 7 KB.
+default, the size of a maximally disputed reply). Every other frame, a
+match, a query, or a reply's end, carries at most one 256-entry listing,
+about 7 KB. This note calls those frames *thin*, and a reply made only of
+them a thin reply.
 
 ### 3.3 The window
 
@@ -198,10 +203,11 @@ development checks a model of it.
 
 The premise is **independence**: a full queue stalls only its own
 producer, never delivery on another queue. In one process that holds by
-construction. On the wire, today's transport provides it: seventeen
-independently flow-controlled streams per direction, one per level each
-side replies at, plus the terminal leaf stream and the opening batch's
-stream. Order within a stream is guaranteed; order across streams is
+construction. On the wire, today's transport provides it with seventeen
+independently flow-controlled streams per direction. The responder's
+seventeen are its sixteen odd levels plus the leaves it supplies at the
+end. The initiator's are its fifteen even levels, its final leaf
+requests, and the opening batch. Order within a stream is guaranteed; order across streams is
 not.
 
 This design keeps the walk and its argument, and replaces that transport
@@ -217,7 +223,9 @@ accepts it, the reader cannot reach a later frame that would let the
 stage accept it.
 
 A committed test fixture produces the smallest such shape, at the root.
-Both replicas hold root child 0, with digests that differ all the way
+Its trees also carry root children that only the responder holds, which
+play no part in the cycle and are left out here. Both replicas hold root
+child 0, with digests that differ all the way
 down to one leaf. The initiator also holds six root children, 1 through
 6, that the responder lacks. Take every queue at one slot, including the
 queue of decoded replies waiting for their stage:
@@ -243,9 +251,9 @@ queue of decoded replies waiting for their stage:
    stage 2, and let the supplies drain. The socket reader waits on
    exactly the progress it is preventing.
 
-The same shape can occur at any depth, and the opening batch creates it
-directly, since its bulk is written before the thin reply the responder
-needs first.
+The same shape can occur at any depth. The opening batch creates it
+directly: its bulk is written before any level-2 reply, including the
+thin one the responder's descent needs first.
 
 There are three ways out:
 
@@ -290,7 +298,8 @@ question concerns a node at depth ℓ − 1, of which there are at most
 `256^(ℓ−1)`, so level 1 has one outstanding question (the greeting) and
 level 2 at most 256.
 
-A conforming peer answers only questions it has received, once each. So
+A *conforming* peer, one that follows the protocol, answers only
+questions it has received, once each. So
 every reply in transit, being decoded, or waiting for its stage answers a
 distinct outstanding question, and the same bound applies to replies.
 This is a count of replies, not bytes: a supply can carry a large
@@ -303,9 +312,13 @@ it depends on nothing in the transport.
 ### 5.2 Parking
 
 Call the queue of decoded replies between a level's decoder and its stage
-the level's *parking*. Give it capacity
+the level's *parking*. Its capacity is computed from the level's actual
+question-queue capacity `K(ℓ)`, whatever that is:
 
-  `C(ℓ) = min(K(ℓ) + 257, 256^(ℓ−1))`.
+  `cap(ℓ) = min(K(ℓ) + 257, 256^(ℓ−1))`.
+
+Correctness rests only on that link: however the window chooses `K(ℓ)`,
+parking has room for everything the count allows.
 
 Parking can fill, but no conforming arrival can find it already full:
 that arrival would be one outstanding reply more than the count allows.
@@ -313,8 +326,9 @@ So the decoder checks occupancy before it parks a reply. A full parking
 queue means the peer answered a question never asked, or a local premise
 of the count has failed. Either way the session fails with an error that
 says so; it never waits. The capacity is also as small as it can be: a
-committed test drives one level to exactly `K(ℓ) + 257` parked replies,
-so any smaller capacity would fail a conforming session.
+committed test holds a level's consuming stage until exactly
+`K(ℓ) + 257` replies are parked, so any smaller capacity would fail a
+conforming session.
 
 ### 5.3 A receive path that never waits on the walk
 
@@ -329,12 +343,13 @@ every wait on that path:
 | Demux | the socket | The peer writes independently. |
 | Demux | its level's decoder to accept a frame (one-slot handoff) | The decoder is only finishing its current frame. |
 | Decoder | the local record of the question its next reply answers | See below. |
-| Decoder | the storage backend, absorbing supplied leaves | The backend progresses independently of the walk. |
+| Decoder | the storage backend, absorbing supplied leaves | The backend contract requires it (below). |
 | Decoder | room in parking | Never under conformance (§5.2); the decoder checks and fails instead of waiting. |
 
 The local record deserves a word. The encoder publishes a reply's
 question records just after handing the reply's last frame to the
-multiplexer, and before that frame reaches the wire. A decoder waits for a
+multiplexer's channel, without waiting for the multiplexer to write it,
+so before that frame reaches the wire. A decoder waits for a
 record only when the record queue is empty. If an answer to one of those
 questions has arrived, the encoder is already past the reply's last
 frame, and with the queue empty its publication cannot wait. So the
@@ -350,14 +365,29 @@ handing the reply on; with replies parked, that queue could fill while
 the decoder has replies still to park. So publication moves to the take:
 when the stage takes a reply, the reply's answer records are derived
 from it and published, and only then is the reply handed to the stage.
-The queue needs `256 + 1` slots. When the stage takes a reply, the
-encoder has consumed the records for every earlier reply's answers except
-possibly the last, whose answer may still sit in the one-slot channel
-between the walk and the encoder. The walk takes its next reply only
-after handing on all of the current one's answers.
+The queue needs `256 + 1` slots. The encoder takes an answer's record
+from this queue *before* it takes the answer itself. The walk takes its
+next reply only after handing on all of the current one's answers, and
+the channel between the walk and the encoder holds one answer. So when
+the stage takes a reply, every earlier answer's record has been consumed
+except possibly one: the record for the answer still sitting in that
+channel. One record left over plus up to 256 new ones fits in 257 slots.
+At 256 slots the take could wait briefly for the encoder, and below 256
+it can deadlock.
+
+The storage backend is the one shared resource. The walk uses it too, so
+decoding waits on the walk if a walk task can hold something a decoder
+needs, such as a lock, a transaction, or a slot in a bounded pool,
+while that task is blocked on a queue. The backend contract must
+therefore require that backend operations complete without waiting on
+any other session work. The in-memory backend meets this by
+construction: its nodes are immutable and shared, and it takes no locks.
+A persistent backend must meet it explicitly.
 
 The other bookkeeping edges keep their existing arguments. On this path,
 nothing the walk controls can stop the socket reader.
+
+
 
 ### 5.4 The sending side
 
@@ -398,8 +428,8 @@ The window model knows the two set sizes, `A` and `B`, and uses
 - **Deterministic:** a node has at most 256 children, and at most
   `occupied(n, j) = min(256ʲ, n)` prefixes at depth j are occupied.
 - **Statistical, under uniform hashing:** `C(j)` children and `L(j)`
-  leaves under any single depth-j node, and `S(d)` scopes in dispute at
-  depth d. Each is a quantile at tail 2⁻⁴⁸ that holds for every node at
+  leaves under any single depth-j node, and `S(d)` scopes (questions)
+  that can be in dispute at depth d. Each is a quantile at tail 2⁻⁴⁸ that holds for every node at
   its depth simultaneously, and a union bound over all of them keeps the
   session's failure probability below 2⁻⁴⁰. Knowing only set sizes,
   `S(d)` prices the two sets as if they were entirely different.
@@ -419,21 +449,24 @@ second term holds because every listed grandchild prefix contains at
 least one of the replier's leaves under P. Let ρ be the bytes per parked
 reaction and ε the bytes per listing entry.
 
-The charge for level d is the least of three bounds:
+For each depth d, the charge is the least of three bounds:
 
 1. **Per reply:** `slots(d) · (2·C(d−1)·ρ + min(C(d−1)·C(d), L(d−1))·ε)`.
 2. **Per level (deterministic):** parked replies at one level concern
-   distinct nodes, whose subtrees are disjoint. Across the level their
+   distinct nodes, whose subtrees are disjoint. Across the level, their
    reactions number at most `2·occupied(n, d)` and their entries at most
    `occupied(n, d + 1)`.
-3. **Per set (statistical):** the same disjointness, sharpened. The peer's
-   leaves under any fixed set of m distinct depth-j nodes are
-   Binomial(n, m/256ʲ). Take the union over every such set, all
-   C(256ʲ, m) of them, where log₂ C(256ʲ, m) ≤ m·(8j + 2 − ⌊log₂ m⌋). The
-   binomial quantile at tail 2^−(48 + that) then bounds the leaves under
-   whichever m nodes the protocol happens to hold. With m = 1 it is
-   exactly `L(j)`. With m = `slots(d)` and j = d − 1, it bounds the
-   level's entries, and twice it bounds the reactions.
+3. **Per set (statistical):** the same disjointness, sharpened.
+   - The peer's leaves under any fixed set of q distinct depth-j nodes are
+     Binomial(n, q/256ʲ).
+   - Taking the union over every such set costs `log₂ binom(256ʲ, q)`
+     bits, and `log₂ binom(N, q) ≤ q·log₂(eN/q)` gives at most
+     `q·(8j + 2 − ⌊log₂ q⌋)`.
+   - The binomial quantile at tail 2^−(48 + that) then bounds the leaves
+     under whichever q nodes the protocol happens to hold. With q = 1 it
+     is exactly `L(j)`.
+   - Applied with q = `slots(d)` and j = d − 1, it bounds the level's
+     entries, and twice it bounds the reactions.
 
 ### 6.4 Two refinements the design adopts
 
@@ -444,8 +477,8 @@ could.
 **Queued scopes, priced as a set.** Today every queued question is
 charged for `C(d−1)` child references, the most any single node plausibly
 has. The queued questions at one depth concern distinct nodes, so the
-per-set bound applies to them exactly as it does to parking: `m` queued
-questions retain at most `min(m·C(d−1), set bound, occupied(n, d))`
+per-set bound applies to them exactly as it does to parking: q queued
+questions retain at most `min(q·C(d−1), set bound, occupied(n, d))`
 references. This change is independent of the socket; it widens every
 window the model grants.
 
@@ -455,19 +488,20 @@ which of the 256 root slots differ. Let `D` be the number of messages
 held by one side and not the other, deletions included. A root slot
 differs exactly when at least one of those `D` messages falls under it.
 Under uniform hashing that is `D` balls in 256 bins, and all of them land
-within some `k` bins with probability at most `C(256, k) · (k/256)^D`.
-So, at the model's tail of 2⁻⁴⁸:
+within some `k` bins with probability at most `binom(256, k) · (k/256)^D`.
+So, at the model's tail of 2⁻⁴⁸, `D` is at most
 
 ```text
-D ≤ D_hi(k) = ⌈(48 + log₂ C(256, k)) / log₂(256 / k)⌉,   for k < 256.
+D_hi(k) = the least D with binom(256, k) · (k/256)^D ≤ 2⁻⁴⁸,   for k < 256,
+        ≈ ⌈(48 + log₂ binom(256, k)) / log₂(256 / k)⌉.
 ```
 
 | Differing root slots `k` | 1 | 8 | 32 | 83 | 128 | 177 | 224 | 251 | 255 | 256 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `D_hi(k)` | 8 | 20 | 62 | 171 | 300 | 511 | 953 | 2,848 | 9,918 | — |
+| `D_hi(k)` | 7 | 20 | 62 | 171 | 300 | 511 | 953 | 2,848 | 9,918 | — |
 
 The bound is tight where it matters: 10 real differences give about 10
-differing slots and `D_hi ≈ 23`; 100 give about 83 and `D_hi = 171`.
+differing slots and `D_hi = 23`; 100 give about 83 and `D_hi = 171`.
 
 It then applies at every depth. A question concerns a node whose
 contents differ, and every such node contains at least one of the `D`
@@ -481,38 +515,44 @@ messages. Nodes at one depth are disjoint, so:
 At level 2 the count is exact: `k` questions, of which only the disputed
 slots can return listings.
 
-Two limits apply:
-
-- **Saturation.** When all 256 slots differ, which is likely once `D`
-  exceeds about 1,400 (probability about one in three at 1,400, nine in
-  ten at 2,000), the comparison says only that `D` is large, and the
-  size-based model prices the session.
-- **Pricing only.** The bound enters pricing, never a queue's capacity.
-  Capacities stay the deterministic count of §5, so a session in the
-  2⁻⁴⁸ tail uses more memory than estimated but never fails.
+The capped populations feed the window's capacities as well as its
+price, and that is safe. Parking's capacity is computed from each level's
+actual question-queue capacity (§5.2), so a session whose `D` lands in
+the 2⁻⁴⁸ tail gets narrower queues than it could use. That costs
+pipelining and some memory beyond the estimate, but never correctness.
+When all 256 slots differ, which is likely once `D` exceeds about 1,400
+(probability about one in three at 1,400, nine in ten at 2,000), the
+comparison says only that `D` is large, and the size-based model prices
+the session.
 
 ### 6.5 The budget that imposes no latency
 
 The sizing guide models slowdown relative to a fully used link as
 `max(1, W / K)`, where `W = BDP / (43 + m)` is the link's bandwidth-delay
 product in messages, m the mean encoded message size, and 43 bytes the
-measured per-message protocol overhead. A window of at least
+calibrated per-message protocol overhead (the constant the sizing guide
+uses; a measurement between fully divergent 10⁵-message sets gives about
+42). A window of at least
 `K* = min(W, max_d S(d))` therefore imposes no additional latency. The
 second term covers the case where the population, not the link, caps
 useful width. The *threshold budget* is the charge at `K*`: today's scope
-charge before, and the refined scope charge plus parking after.
+charge before, and the refined scope charge plus parking after. The
+figures below, like every modeled figure in this note, come from
+[`sizing-model.py`](sizing-model.py), a transcription of the window
+model with this note's additions.
 
 The depths fall into three bands:
 
 - **Near the root (d = 1, 2),** populations are tiny and fans full. Level 2
-  is the one term that does not shrink with the link: when every root
-  slot differs, its replies can together list the whole depth-3
-  frontier, about 25 bytes per message of the larger replica up to about
-  10⁷ messages and approaching 420 MB beyond (§6.8).
-- **The frontier band** runs from depth `log₂₅₆ n + 1` to
+  is the one term that shrinks with neither the link nor the budget: its
+  parking holds up to 256 replies at any window. When every root slot
+  differs, those replies can list every occupied depth-3 prefix, about
+  25 bytes per message of the larger replica up to about 10⁷ messages,
+  and approaching 420 MB beyond (§6.8).
+- **The saturated band** runs from depth `log₂₅₆ n + 1` to
   `log₂₅₆ n² + 1`. There `S(d) ≥ K*`, so every level is saturated.
 - **The tail** is negligible: `S(d)` falls about 256-fold per level past
-  the frontier.
+  the saturated band.
 
 For two entirely different replicas of n messages each, 100-byte
 messages, and the in-memory backend, the modeled threshold budgets,
@@ -525,8 +565,11 @@ before → after, are:
 | 10⁷ | 112 → 394 MiB | 429 → 797 MiB | 1.7 → 2.1 GiB |
 | 10⁸ | 124 → 750 MiB | 481 → 1,713 MiB | 1.9 → 5.1 GiB |
 
-These figures come from a transcription of the model with estimated slot
-sizes (ρ ≈ 32 B, ε ≈ 25 B); the implementation computes them exactly.
+The slot sizes are estimates (ρ ≈ 32 B, ε ≈ 25 B); the implementation
+computes the figures exactly. When fixed charges alone exceed a budget,
+as level 2 does for large replicas at small budgets, the window falls to
+one slot per level and the estimate exceeds the budget. That is the
+setter's documented progress floor.
 
 - **Up to about 10⁶ messages,** the set-priced scopes save more than
   parking costs on long links.
@@ -555,8 +598,9 @@ the budget, as are transport buffers. Removing the bundle shrinks the
 latter. To impose no latency, any stream that may carry the bulk alone
 needs about one bandwidth-delay product of receive window. With one TCP
 connection per stream, that is up to seventeen such windows per direction
-(about 210 MB on the long-haul link); QUIC needs its connection-level pool
-sized to eighteen per-stream windows. One socket needs one. So in resident
+(about 212 MB on the long-haul link). QUIC needs its connection-level pool
+sized to eighteen per-stream windows: the seventeen data streams and the
+control stream. One socket needs one. So in resident
 terms, parking partly moves memory from kernel buffers the budget never
 saw into process memory it now prices.
 
@@ -605,7 +649,7 @@ This is a realistic case, not only a worst case. Take two 10⁷-message
 replicas that share nearly everything, where one side holds 200,000 extra
 messages scattered by hash. About 95% of the 65,536 depth-2 nodes are
 disputed, each with about 115 children, so the level-2 replies list about
-7 million entries: about 190 MB, almost all of it listing shared content.
+7 million entries: about 180 MB, almost all of it listing shared content.
 The stream bundle kept most of those replies unproduced at the sender.
 
 Nothing in parking can shrink this, because every one of those replies
@@ -618,397 +662,232 @@ accepts the level-2 term and prices it.
 ## 7. Explicit credits, for contrast
 
 The alternative this design rejects is per-level flow control over the
-one socket, as HTTP/2 and QUIC implement it. This section describes that
-design concretely enough to compare.
+one socket, as HTTP/2 and QUIC implement it.
 
-**How it would work.**
+### 7.1 How it would work
+
 - Each side grants its peer a *credit* per level: a number of bytes the
   peer may send on that level before waiting.
-- The sender's multiplexer writes a level's frame only when that level
-  has credit for it. An encoder whose level is out of credit blocks, and
-  so does the walk stage feeding it, which leaves unsent replies
-  unproduced at the sender, as the bundle does.
+- The sender's multiplexer writes a level's frame only when that level has
+  credit for it. An encoder whose level is out of credit blocks, and so
+  does the walk stage feeding it, which leaves unsent replies unproduced
+  at the sender, as the bundle does.
 - The receiver returns credit in a new control frame as its stage
-  consumes. It must return credit at the *take*, not at decoding, or
-  decoded replies accumulate exactly as they do in parking.
-- Credit frames must never wait behind data. They travel outside flow
-  control and ahead of every data frame.
-- Every level's credit must admit at least one whole frame, or frames
-  must be splittable across credit grants.
+  consumes. It must return credit at the take, not at decoding, or decoded
+  replies accumulate exactly as they do in parking.
+- Credit frames never wait behind data: they travel outside flow control
+  and ahead of every data frame.
+- Every level's credit admits at least one whole frame, or frames split
+  across credit grants.
+- The sum of the per-level credits is the connection's buffering. A
+  shared pool smaller than that sum couples the levels again, which is the
+  deadlock this design exists to avoid, as the transport contract's
+  pooled-flow-control rule already says for QUIC.
 
-**Memory.** The receiver's buffering is exactly the sum of the credits
-it grants: deterministic, independent of set size, hashing, and the
-model's quantiles. The level-2 problem disappears, since the initiator
-cannot send more level-2 bytes than the responder has granted.
+### 7.2 What it costs and buys
 
-**Latency.** Credit is consumed as data arrives and returned a crossing
-after the consuming stage takes it. A level whose credit is smaller than
-the bandwidth-delay product stalls once per round trip while it carries
-bulk. So to impose no latency, every level that may carry bulk alone
-needs credit of at least one bandwidth-delay product. Sharing a
-connection-wide pool does not reduce this. A pool smaller than the sum of
-the per-level credits couples the levels again, which is the deadlock
-this design exists to avoid. The transport contract's pooled-flow-control
-rule already says as much for QUIC.
+**Memory.** The receiver's buffering is exactly the credit it grants:
+deterministic, and independent of hashing and the model's quantiles. The
+level-2 problem disappears, since the initiator cannot send more level-2
+bytes than the responder has granted.
 
-So credits that impose no latency cost up to seventeen bandwidth-delay
-products per direction: about 212 MB on the long-haul link. That is
-fixed, whatever the set size. Parking needs no knowledge of the link:
-the receiver accepts everything it invited, and the budget alone sets
-how much it invites.
+**Latency.** Credit returns a crossing after the take. A level whose
+credit is smaller than the bandwidth-delay product stalls once per round
+trip while it carries bulk. How much credit a session needs to impose no
+latency depends on where bulk flows. §8.2 shows that under uniform
+hashing it flows in a band about two levels thick, predictable from the
+set sizes. That leaves two ways to size credit:
+
+- **Every level a full bandwidth-delay product.** This is safe whatever
+  the tree's shape. It costs 17 × 12.5 MB ≈ 212 MB per direction on the
+  long-haul link.
+- **The band's levels a full bandwidth-delay product, and every other
+  level one frame.** This costs about 2 × 12.5 MB + 15 × 1.8 MB ≈ 52 MB.
+  If bulk falls outside the predicted band, the affected level stalls a
+  round trip per credit window: slower, never stuck.
 
 On the long-haul link, for entirely different replicas, the latency-free
-budgets compare as follows. Both use the refined scope charge. The
-credit column adds 17 bandwidth-delay products; smaller credits would
-trade memory for per-round-trip stalls.
+budgets compare as follows (all with the refined scope charge):
 
-| n | Parking | Explicit credits |
-| --- | --- | --- |
-| 10⁵ | 78 MiB | 249 MiB |
-| 10⁶ | 467 MiB | 418 MiB |
-| 10⁷ | 2.1 GiB | 1.1 GiB |
-| 10⁸ | 5.1 GiB | 1.7 GiB |
+| n | Parking | Credits, every level | Credits, band-targeted |
+| --- | --- | --- | --- |
+| 10⁵ | 78 MiB | 249 MiB | 96 MiB |
+| 10⁶ | 467 MiB | 418 MiB | 265 MiB |
+| 10⁷ | 2.1 GiB | 1.1 GiB | 0.96 GiB |
+| 10⁸ | 5.1 GiB | 1.7 GiB | 1.6 GiB |
 
-For ordinary sessions, with few differences, parking is priced at a few
-MiB (§6.5). A credit design's buffers could be sized down in the same
-way, from the same root comparison.
+So on memory, band-targeted credits beat parking from about 10⁶ messages
+up, by roughly 2× at 10⁶ and 3× at 10⁸. Parking's level-2 term, which
+grows with the set, is what they avoid. Below 10⁶ the two are close. For
+ordinary sessions, with few differences, both can be sized small from the
+same root comparison.
 
 **Complexity.** Credits are a flow-control protocol inside the crate:
 - per-level accounting on both sides;
-- a new control frame, with its own priority rule;
+- a new control frame with its own priority rule;
 - a rule tying credit to frame sizes;
-- a new violation (a peer exceeding its credit);
-- a sizing policy, which in practice means estimating the bandwidth-delay
-  product at run time, as HTTP/2 implementations do.
+- a new violation, a peer exceeding its credit;
+- a sizing policy that needs the bandwidth-delay product, estimated at
+  run time as HTTP/2 implementations do, plus the band prediction for the
+  cheaper variant.
 
 The deadlock argument inherits the walk's, plus a proof that the credit
 loop is live: credit frames always flow, and every level's credit admits
 a frame. Parking adds one queue capacity, one occupancy check, and one
-publication move, and its argument is the count in §5.1.
+publication move. Its argument is the count in §5.1, and it needs to know
+nothing about the link.
 
 **What neither changes.** Both keep the dependent-crossing count. Both
-suffer the send-buffer residual of §9, since the kernel drains in order
-beneath any user-level scheduling, and both couple levels under TCP loss.
+suffer the send-buffer residual of §9, since the kernel sends bytes in
+the order they were written, beneath any scheduling the crate does, and
+both couple levels under TCP loss.
 
-**Summary.** Credits buy a deterministic, link-sized memory bound. That
-bound is tighter than parking's for large, heavily divergent replicas,
-and looser for small ones. The price is a flow-control protocol with its
-own liveness argument, and a need to know the link. Parking buys
-simplicity and link-independence, at the price of a statistical,
-workload-sized bound whose level-2 term grows with the set.
+### 7.3 The trade
 
-## 8. Deferring bulk: a possible follow-on
+Credits buy a deterministic bound. Sized to the band, that bound is
+several times tighter than parking's for large, heavily divergent
+replicas. The price is a flow-control protocol with its own liveness
+argument, and a need to know the link and predict the band. Parking buys
+simplicity and link-independence. Its price is a statistical,
+workload-sized bound whose level-2 term grows with the set: at the
+default budget, about 0.46 GiB against 0.26 GiB for band-targeted credits
+at 10⁶ messages. This design takes parking's side of that trade; the
+memory figures above are the cost of doing so.
 
-This section describes a protocol change that is not part of this
-design. It is additive, and this design makes it easier, but it
-interacts with several of this design's choices. They are listed at the
-end.
+## 8. Deferring bulk: a follow-on, not recommended
 
-### 8.1 Where bulk costs time today
+### 8.1 Where bulk costs time
 
-A session does two kinds of work on the wire. The *descent* finds out
-what differs: matches, queries, and replies, all small. The *bulk*
-transfers what differs: supplied subtrees, which can be arbitrarily
-large. Only the descent has dependencies: each level waits on the one
-above it, one crossing at a time. Bulk has none, except that the session
-ends only when bulk has arrived. So the fastest possible session takes
-about
+The *descent* finds out what differs: matches, queries, and replies, all
+thin. The *bulk*, the supplied subtrees, transfers it. Only the descent
+has dependencies, so the fastest possible session takes about
+`max(critical path of the descent, all bytes / bandwidth)`. Any protocol
+that sends bulk only when no descent frame is ready approaches that.
 
-```text
-max( the descent's critical path,  all bytes / bandwidth )
-```
+Today a supply is an ordinary reaction, carried inline in radix order.
+It delays the rest of its reply, because stages take whole replies, and
+every later reply at its level, because a level's frames are ordered. In
+tree terms, it delays everything below it and to its right. This
+design's multiplexer already sends supply runs only when no other frame
+is ready, but it cannot reorder frames within a level. For arbitrary
+trees, the worst case approaches the *sum* of the two terms.
 
-Whenever the descent can keep the wire busy, sending bulk later is never
-worse, and often better. That holds as long as the wire, not the
-receiver's storage, is the bottleneck.
+A follow-on could remove that. Large supplies would become thin
+*promises* in their replies, and their content would travel on a bulk
+lane the multiplexer sends only when no descent frame is ready. This
+section shows why that is not worth building.
 
-Today's protocol cannot defer bulk fully, because a supply is a reaction
-like any other. It sits in its reply in radix order, and its content
-travels inline. That serializes bulk with the descent in three ways:
+### 8.2 How much delay inline bulk adds, under uniform hashing
 
-- **Within a reply.** A reply is complete only when its last frame
-  arrives, and a stage takes whole replies. A supply ahead of a query
-  therefore delays everything beneath that query.
-- **Within a level.** A level's frames are ordered, so a supply delays
-  every later reply at its level, and everything beneath those.
-- **Transitively.** Everything that depends on the delayed replies waits
-  too.
+**Bulk sits in one band.** A differing message is supplied at the first
+depth where the other side holds nothing under its prefix. A depth-j
+prefix is occupied with probability `1 − e^(−n/256ʲ)`. Each level divides
+the exponent by 256, so that probability falls from nearly 1 to nearly 0
+within one level: at n = 10⁶ it is about 1 at depth 2, 0.058 at depth 3,
+and 0.0002 at depth 4. About 94% of supplies fall at depth 3 and nearly
+all the rest at depth 4. Above the band, supplies are exponentially rare,
+so the descent reaches the band undisturbed.
 
-In tree terms: a supply delays everything below it and to its right. The
-multiplexer's rule of this design, which serves supply runs last across
-levels, cannot help within a level. At worst the session takes the
-descent's critical path *plus* the transfer time of the bulk that sits
-ahead of it, rather than the larger of the two. A large one-sided
-subtree near the root that sorts before a deep dispute is enough.
+**Waiting behind bulk is not lost time.** Say the descent reaches the band
+at time `t`, and the critical path's next frame waits behind `x` bytes of
+band supplies. Many interleaved supplies can make that wait long. But the
+wire is carrying bytes the session must carry anyway. If `r` crossings of
+one-way delay `δ` remain after the wait, the critical path finishes at
+about `t + x / bandwidth + r·δ`, with `x ≤ B`. The best possible finish
+is `t + max(B / bandwidth, r·δ)`, so the excess is at most `r·δ`.
 
-For arbitrary trees, the saving could therefore approach the smaller of
-the two terms: up to half the session. Uniform hashing makes it far
-smaller.
+For example: the band holds 100 MB on a 1 Gb/s link (0.8 s), the critical
+query waits behind 90 MB (0.72 s), and two 50 ms crossings remain. It
+finishes at 0.82 s against a best of 0.8 s. Even with all 100 MB ahead of
+it, 0.1 s is lost: the two crossings, not the 0.8 s.
 
-### 8.2 How much delay, under uniform hashing
-
-**Bulk sits in one band.** A differing message is supplied as part of
-the subtree at the first depth where the other side holds nothing under
-its prefix. If the other side holds n messages, a depth-j prefix is
-occupied with probability `1 − e^(−n/256ʲ)`, and each level divides the
-exponent by 256, so that probability falls from nearly 1 to nearly 0
-within one level. At n = 10⁶ it is about 1 at depth 2, 0.058 at depth 3,
-and 0.0002 at depth 4. So about 94% of supplies fall at depth 3 and
-nearly all the rest at depth 4. Supplies concentrate in a band one or two
-levels thick, near `log₂₅₆ n`, and above it they are exponentially rare.
-
-**Waiting behind bulk is not the same as losing time.** Say the descent
-reaches the band at time `t`, and the critical path's next frame then
-waits behind `x` bytes of band supplies. That wait can be long: many
-supplies interleaved with the level's replies can put most of the bulk
-ahead of it. But while the frame waits, the wire is carrying those
-supplies, and the session could not finish without carrying them anyway.
-If the critical path needs `r` more crossings of one-way delay `δ` after
-the wait, it finishes at about
-
-```text
-t + x / bandwidth + r·δ,   with x ≤ B,
-```
-
-against a best possible finish of `t + max(B / bandwidth, r·δ)`. The
-excess is at most `r·δ`. What is lost is only the descent that remains
-after the wait, which a better order would have overlapped with the rest
-of the transfer.
-
-For example, suppose the band holds 10,000 supplies totaling 100 MB on a
-1 Gb/s link (0.8 s), the critical query waits behind 90 MB of them
-(0.72 s), and it then needs two crossings of 50 ms. It finishes at
-0.82 s against a best of 0.8 s: 20 ms lost. With all 100 MB ahead of it,
-0.1 s is lost: the two crossings, not the 0.8 s.
-
-**More interruptions in one direction do not add up.** Every wait is
-spent carrying bulk, so the waits in one direction together cannot exceed
-that direction's own transfer time, however many supplies there are and
-however often they interleave. The same holds if reading or absorbing
-bulk, rather than the wire, limits its rate: the wait is spent on work
-the session also cannot skip.
+Waits in one direction cannot add up to more than that direction's
+transfer time, however many supplies there are. The same holds when
+reading or absorbing bulk, rather than the wire, limits the rate. Since
+the deepest disputes sit near `log₂₅₆(D·n)` and the band near `log₂₅₆ n`,
+`r ≈ log₂₅₆ D + 1`: two crossings for a few hundred differences, about
+three at a million.
 
 **The two directions can serialize.** At the band, one side's replies
 carry both its supplies and its *requests*: empty queries that the other
 side answers with supplies of its own, one level down. A request queued
-behind bulk delays the start of the reverse direction's bulk, so a wire
-that could have been busy sits idle. If every request came after every
-supply, the two directions would run one after the other, losing up to
-the smaller direction's whole transfer time.
+behind bulk delays the start of the reverse bulk, and the reverse wire
+idles. Reactions go in the radix order of hashed prefixes, so requests
+spread evenly through the forward bulk, and the reverse bulk starts about
+one crossing late and keeps pace. It idles only where that interleaving
+runs dry.
 
-Hashing prevents that in all but unlucky orders. Reactions go in the
-radix order of hashed prefixes, so a request is as likely to fall
-anywhere in the forward stream as a supply is. Requests therefore spread
-evenly through the forward bulk, and the reverse bulk starts about one crossing late and
-keeps pace, idling only where the interleaving runs dry.
+A simulation in `sizing-model.py` measures the idle time as a share of
+the larger direction's transfer time, for `N_b` band supplies. Each cell
+gives the mean, with the worst run in parentheses:
 
-A simulation measures the reverse wire's idle time, as a share of the
-larger direction's transfer time. It uses `N` band supplies in random
-order with small, varied sizes, each request triggering one reverse
-supply. Each cell gives the mean, with the worst run in parentheses:
-
-| Band supplies `N` | Reverse bulk half the forward | Balanced | Reverse bulk twice the forward |
+| `N_b` | Reverse bulk half the forward | Balanced | Reverse bulk twice the forward |
 | --- | --- | --- | --- |
 | 100 | 1.3% (15%) | 7.2% (25%) | 0.6% (5%) |
 | 1,000 | 0.1% (1%) | 2.4% (8%) | 0.1% (0.6%) |
 | 10,000 | 0.01% (0.1%) | 0.7% (2.2%) | 0.01% (0.04%) |
 
-Balanced bulk behaves like a queue whose arrivals match its service
-rate, so its idle time falls like `0.7 / √N`. Unbalanced bulk hides the
-smaller direction almost entirely. These are typical-case figures from
-simulation, not tail bounds.
+Balanced bulk behaves like a queue whose arrivals match its service rate,
+so the reverse wire idles for about the largest deficit of a random walk:
+`0.7 · √N_b · m / bandwidth` for supplies of about m bytes. Unbalanced
+bulk hides the smaller direction almost entirely. These are typical-case
+figures, not tail bounds.
 
-**The remaining descent is short.** Bulk is exponentially rare above the
-band, so the descent reaches it undisturbed. The deepest disputes sit
-near `log₂₅₆(D·n)` and the band near `log₂₅₆ n`, so `r ≈ log₂₅₆ D + 1`:
-two levels for up to a few hundred differences, about three at a
-million.
+**Message size decides the duplex term.** A band supply holds about
+`1 + D_supplier / n_other` messages. When the replicas are of comparable
+size and differ in fewer messages than they hold, that is about one
+message. Large supplies arise only when one side holds far more differing
+messages than the other holds at all, as in a bootstrap. Then the bulk is
+unbalanced and the duplex term vanishes. So, under uniform hashing:
 
-So the delay that inline bulk adds has two parts:
+- **Small messages:** the duplex term vanishes. 200,000 differences of
+  100 bytes between 10⁶-message replicas, 0.23 s of bulk at 1 Gb/s, lose
+  well under a millisecond to it.
+- **Large messages:** the duplex term appears only when the bulk is
+  balanced. 100 balanced 1 MB messages lose about 56 ms of 0.8 s on
+  average, and up to about 200 ms.
 
-- **The descent:** at most `r·δ`, a few one-way delays and about one
-  round trip, whatever the set size, the volume of bulk, or the number of
-  supplies.
-- **The duplex coupling:** negligible when the directions' bulk is
-  unbalanced or made of many supplies. It grows to a few percent of the
-  transfer time when the bulk is balanced and made of few supplies. That
-  is the case of large messages: 100 balanced 1 MB messages, about 0.8 s
-  of transfer at 1 Gb/s, lose about 56 ms on average and up to about
-  200 ms.
+**The payoff.** Inline bulk costs at most the crossings left below the
+band, about one round trip, plus the duplex term for balanced bulk of
+large messages. That is the same order as the send-buffer residual (§9),
+which a socket option bounds. It holds for any workload: addresses are
+hashes of versions, so the tree's shape is uniform whatever the messages
+are.
 
-**Why message size is what matters.** A supplied subtree is a prefix
-the other side holds nothing under, so everything beneath it is the
-supplier's differing messages. The band sits where the other side's
-occupancy, `n_other / 256ʲ`, crosses about 1, so a band supply holds
-about `1 + D_supplier / n_other` messages. In other words, the bottom of
-a large tree is a fine interleaving of both parties' messages: a
-k-message subtree belonging to one party alone is exponentially unlikely
-in k.
+### 8.3 What the follow-on would take
 
-- **Comparable replicas:** when the replicas are of comparable size and
-  differ in fewer messages than they hold, a supply is about one message.
-- **Lopsided replicas:** supplies hold many messages only when one side
-  holds far more differing messages than the other holds messages at
-  all, as in a bootstrap. Then the other side has little to send back,
-  the bulk is unbalanced, and the duplex term vanishes.
+- **A promise reaction.** A supply larger than about one run becomes a
+  thin `Promise(radix)`. Small supplies stay inline; a node already knows
+  its leaf count.
+- **A bulk lane.** Each promised subtree travels as a group: a header
+  naming its prefix, its filtered leaf runs, and an end marker. Every
+  leaf's path follows from its version, so groups need no pairing and can
+  arrive in any order.
+- **A scheduling rule.** Send bulk exactly when no descent frame is ready,
+  in promise order.
+- **Tables on both sides.** The sender keeps a table of unsent promises,
+  capped; at the cap it falls back to inline supplies, so the cap costs
+  latency, never progress. The receiver absorbs each group with a decoder
+  that never waits on the walk, and files the finished subtree by prefix.
+  A promised child's resolution slot is pending until its group arrives.
+- **A new progress argument.** Assemblers can now wait on bulk, and the
+  stages feeding them on their resolution queues. Bulk depends only on
+  the sender's backend and on the socket draining, and it flows whenever
+  the descent pauses. The argument is short, but it is new.
+- **A concurrency cost.** A resolution waiting on bulk holds its level
+  back to one window's width.
 
-So under uniform hashing, large supplies and balanced bulk exclude each
-other. Where the duplex term can arise, a supply is about one message,
-and the message size is the supply size. The reverse wire's idle time
-is then about the largest deficit of a random walk over `N` supplies of
-about `m` bytes, `0.7 · √N · m / bandwidth`. That grows with message
-size, and only with the square root of the count.
+It would build on this plan without undoing any of it. The pipe would
+gain a lane and a route, and the level decoders would shed their heaviest
+work. Parking's count and price would not change. Removing the opening
+shortcut, which shipped bulk *early*, points the same way.
 
-**By message size:**
-
-- **Small messages** are the easy case. A band supply holds about one
-  message, so the number of band supplies is about the number of
-  differences, and the duplex term vanishes. Take 10⁶-message replicas
-  with 200,000 scattered differences of 100 bytes: about 29 MB of bulk,
-  0.23 s at 1 Gb/s, and a duplex term under a millisecond. Supply frames
-  are small, so no thin frame waits long behind one in progress. The
-  descent term remains. It is independent of message size, and largest
-  when the bulk's transfer time is comparable to the remaining descent.
-  In this example, with three crossings of 50 ms left, that is about
-  50 ms on average and 150 ms at worst.
-- **Large messages** bring the duplex term into play when the two
-  directions' bulk is balanced, as above.
-
-Neither part is an assumption about workloads beyond message size.
-Addresses are hashes of versions, so the tree's shape is uniform. The
-larger bound of §8.1 needs orders that hashing makes vanishingly
-unlikely.
-
-### 8.3 Promised supplies
-
-The change: a supply becomes a *promise*, and its content moves to a
-separate *bulk lane*.
-
-- **In the reply,** a large supply is replaced by `Promise(radix)`: a thin
-  reaction that holds the child's position and says "you lack this child;
-  its content follows on the bulk lane". Replies stay thin, so they
-  complete fast, and the descent proceeds past every promise at once.
-  Small supplies can stay inline. A node already knows its leaf count, so
-  the sender can promise only subtrees larger than, say, one supply run,
-  which bounds the inline delay any reaction can add.
-- **On the bulk lane,** each promised subtree travels as a group: a
-  header naming the subtree's prefix, the filtered leaf runs, and an end
-  marker. The receiver needs no pairing rule. Every leaf's path follows
-  from its version, as today, and the header names the promise it
-  fulfills, so groups can arrive in any order.
-- **The multiplexer** sends bulk exactly when no descent frame is ready
-  to send, and never while one is. When it does send bulk, it sends the
-  groups in the order it made the promises, which is the simplest order
-  and the one in which the receiver's assemblers tend to need them. This
-  rule is work-conserving: the wire never idles while bulk is waiting, so
-  bulk fills the gaps the descent's round trips leave. Holding bulk
-  strictly until every dispute resolves would waste those gaps.
-- **The sender** keeps a promise table: for each promise not yet sent,
-  the prefix and a node handle. It filters against the receiver's version
-  when it sends, exactly as today. A sender-local cap bounds the table. At
-  the cap, the sender falls back to inline supplies, so the cap costs
-  latency, never progress.
-- **The receiver** absorbs each bulk group into its backend with a bulk
-  decoder that never waits on the walk, as the level decoders never do.
-  It files the finished subtree's handle in a table keyed by prefix. A
-  promised child's resolution slot is pending rather than ready. The
-  assembler fills it from that table when the bulk has arrived, and
-  otherwise waits for it.
-
-### 8.4 What stays true, and what must be re-argued
-
-**Dependent crossings are unchanged.** Promises ride the descent exactly
-where supplies did. Bulk adds no crossing; it only has to finish before
-the session can.
-
-**Progress needs one new argument.**
-- **The new wait:** an assembler can now wait on bulk, and the stage
-  feeding it can in turn wait on its resolution queue.
-- **Why it ends:** the bulk for a promise depends only on the sender's
-  backend and on the socket draining. The receiver's demux and bulk
-  decoder never wait on the walk. The multiplexer sends bulk whenever no
-  descent frame is ready. If a receiver stage stalls on bulk, the
-  descent traffic that depends on it pauses, and the bulk goes. Descent
-  traffic is finite.
-- **What it takes:** the argument is short, but it is new, and it belongs
-  beside the walk's own argument and in its test suite.
-
-**Memory.** Bulk itself goes straight to the backend and costs the
-session nothing beyond handles.
-- **The receiver:** pending promises live in resolutions and replies the
-  window already prices. The prefix table holds handles for promises the
-  walk has not yet reached; that is bounded by the promises in flight, so
-  by the sender's cap.
-- **The sender:** it gains the promise table, bounded by its cap.
-- **The real cost is concurrency, not bytes.** A resolution waiting on
-  bulk occupies its assembler, and the stage behind it can run only a
-  window's width ahead. So with a narrow window, deferral throttles the
-  descent until bulk catches up. That is benign, because bulk flows
-  exactly when the descent pauses, but it means deferral pays off most
-  with the windows a generous budget grants.
-
-**The receiver's storage is the other bottleneck.** Absorbing bulk is
-usually the receiver's heaviest work. Deferring bulk also defers that
-work, so if absorption rather than the wire limits the session, deferral
-can lengthen it. Work-conserving scheduling mostly avoids this, because
-bulk still flows through every lull. A session whose descent keeps the
-wire saturated, while its receiver absorbs slowly, is the case where
-early bulk would win.
-
-### 8.5 Against the alternatives
-
-- **This design's multiplexer rule** is already the right policy: a
-  supply run goes out only when no other frame is ready, and then in
-  order. It recovers deferral across levels for free. It cannot defer a
-  supply past later frames of its own level or reply, which is where the
-  delay sits: there, in-level order forces bulk ahead of descent traffic
-  that is ready.
-- **The stream bundle** interleaves levels packet by packet, so it
-  suffers the within-level and within-reply delays exactly as this
-  design does. Deferral would help it equally.
-- **Explicit credits** (§7) govern how much each level may send. They
-  say nothing about bulk ordering.
-- **Promised supplies** separate discovery from transfer, so the session
-  approaches the larger of the descent's latency and the transfer time,
-  with both directions' bulk starting at once. Under uniform hashing,
-  today's protocol is within about a round trip of that, plus a duplex
-  term that matters only for balanced bulk made of few large messages
-  (§8.2).
-
-### 8.6 How it interacts with this plan
-
-It builds on this plan without undoing any of it:
-
-- The pipe gains one logical lane, bulk, as the multiplexer's lowest
-  class. The demux gains one route, to the bulk decoder.
-- The level decoders shed their heaviest work, absorbing supplied
-  leaves, to the bulk decoder. That shortens the one wait on the receive
-  path that depends on backend speed: the demux handing a frame to a busy
-  level decoder.
-- Parking's count is unchanged: promises are reactions, and replies are
-  still invited. Its byte price is unchanged too, because parked
-  supplies already held only handles.
-
-Three choices in this plan matter to it:
-
-- **Keep the multiplexer's priority classes general.** A lane-per-class
-  structure extends to bulk; a single hard-coded rule for supply runs
-  would have to be rewritten.
-- **The send-buffer residual matters more.** Bulk written during a lull
-  sits in the kernel's send buffer when descent traffic resumes, so
-  bounding unsent bytes (§9) becomes part of making deferral pay.
-- **The opening shortcut points the other way.** It shipped bulk *early*.
-  Removing it now is consistent with deferring bulk later.
-
-It changes the wire: a new reaction, a new lane, and new frames, and it
-needs a progress argument of its own. Against a payoff of about one round
-trip per session, plus a duplex term that matters only for large
-messages, that is hard to justify for small messages. This
-note records it so the question does not have to be re-derived. The
-measurement in the plan's last step (the appendix) shows whether real
-sessions stay within the bound. Only a measured penalty well beyond a
-round trip, most likely with large messages, would make the follow-on
-worth building.
+Against a payoff of about one round trip, a new reaction, lane, and
+progress argument are not worth building. The plan's measurement step
+(step 5 of the appendix) checks real sessions against the bound; only a
+measured penalty well beyond a round trip would reopen the question. The
+plan still asks for general multiplexer priority classes, which cost
+nothing and keep the option open.
 
 ## 9. Costs
 
@@ -1028,16 +907,20 @@ socket with the frames.
 becomes ready, the multiplexer puts it ahead of every unwritten supply
 frame. It can still wait for two things: the frame being written (up to
 one supply run, about 15 ms at 1 Gb/s by default) and unsent bytes
-already in the kernel's send buffer, which drains in order. To keep a link
-busy, a socket holds about one bandwidth-delay product of sent,
-unacknowledged bytes. It can also hold unsent bytes, up to whatever room
-its buffer has beyond that. A socket tuned to twice the bandwidth-delay
-product therefore delays each thin reply on the critical path by up to
-one round trip while bulk is flowing. The session loses time only when
-the delayed descent outlasts the bulk; the worst case is about as many
-round trips as descent levels remain once bulk begins, usually one or
-two. An untuned socket whose buffer is below the bandwidth-delay product
-never holds unsent bytes; its throughput is capped instead.
+already in the kernel's send buffer, which drains in order. This note
+calls that remaining delay, which no user-level priority can remove, the
+*send-buffer residual*.
+
+To keep a link busy, a socket holds about one bandwidth-delay product of
+sent, unacknowledged bytes. It can also hold unsent bytes, up to whatever
+room its buffer has beyond that. A socket tuned to twice the
+bandwidth-delay product therefore delays each thin reply on the critical
+path by up to one round trip while bulk is flowing. The session loses
+time only when the delayed descent outlasts the bulk. At worst it loses
+one round trip for each crossing that remains once bulk begins, and
+§8.2 shows that two or three remain. An untuned socket whose buffer is
+below the bandwidth-delay product never holds unsent bytes; its
+throughput is capped instead.
 
 Bounding the unsent bytes removes the effect. `TCP_NOTSENT_LOWAT` set to
 about one frame does this where the platform provides it (Linux and macOS
@@ -1046,8 +929,7 @@ plus one frame bounds the unsent bytes with the whole buffer. The residual
 is then about two frames' transmission time, about 29 ms at 1 Gb/s with
 the default run budget and less with a smaller one. The crate sees only
 the two halves of the connection, so this is deployment guidance, not
-code. Platform support here is taken from documentation and is confirmed
-when that guidance is written.
+code.
 
 On the receiving side, a thin frame behind bulk in the receive buffer
 waits until the bulk ahead of it is decoded. That costs time only when
@@ -1072,13 +954,16 @@ so it must be discarded.
 ## 10. Evidence
 
 The argument has four load-bearing claims, and each gets a committed
-check that fails if the claim ever stops holding:
+check that fails if the claim ever stops holding. A fifth premise, backend
+independence, is a documented contract clause rather than a test:
 
 - **The count.** Test traces of the walk record each outgoing reply's
   question count and each take. A checker asserts, at every event and in
   every walk test, that outstanding questions stay within `K(ℓ) + 257`.
-  One fixture drives a level to exactly that number, which shows both
-  that the meter counts and that the capacity is not slack. The premise
+  One fixture drives a level to exactly that number, which shows that the
+  meter counts. A second holds a level's consuming stage until exactly
+  that many replies are parked, which shows that parking's capacity is
+  not slack. The premise
   that a stage records one reply's questions before handing on another is
   already asserted by the walk's trace checker.
 - **The receive path.** Sessions over one in-memory socket run under a
@@ -1089,13 +974,15 @@ check that fails if the claim ever stops holding:
   must stall, which shows the harness detects this class of deadlock, and
   at the derived capacity it must complete and match the in-memory merge.
 - **The bookkeeping capacities.** The answer-record queue has a capacity
-  law pinned from both sides: one slot short of a full fan stalls on a
-  full-fan reply, and `256 + 1` never blocks. Parking's overflow check
+  law at three points: one slot short of a full fan stalls on a full-fan
+  reply, a full fan completes, and `256 + 1` never blocks. Parking's overflow check
   fires, as an error rather than a hang, when a malformed peer sends an
   unasked reply.
 - **The prices.**
   - The set statistic and the `D_hi` table are checked against exact
     binomial and occupancy tails, as the existing quantiles are.
+  - `sizing-model.py` reproduces every modeled figure in this note, and
+    the implementation's exact figures replace them.
   - A test holds the default budget to its tuning goal.
   - The window census is re-baselined from recorded output at the parent
     commit.

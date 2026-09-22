@@ -37,11 +37,14 @@ on scale:
 - [`appendix-implementation-plan.md`](appendix-implementation-plan.md) is
   the implementation plan, for the implementing agent and its reviewer.
   It meters the count, removes the opening shortcut, parks replies on
-  today's transport, sharpens and extends the pricing and sizes the
-  default, collapses
-  the transport to one pipe with its demonstration, and measures the
-  serialization residual. It includes draft user-facing text on what the
-  budget estimate means.
+  today's transport, sharpens and extends the pricing, sizes the default,
+  collapses the transport to one pipe with its demonstration, and
+  measures the serialization delay that priority cannot remove. It
+  includes draft user-facing text on what the budget estimate means.
+- [`sizing-model.py`](sizing-model.py) reproduces every modeled figure in
+  the note: a transcription of the window model with the note's
+  additions, and the duplex simulation. Run it with
+  `python3 sizing-model.py`.
 
 ## Design decisions
 
@@ -61,28 +64,32 @@ on scale:
   from the root comparison. Queue capacities stay deterministic.
 - The default budget keeps the reference link fully busy for 10⁶-message
   replicas, as a committed test checks.
-- Explicit per-level credits are rejected. The exposition compares them:
-  credits give a deterministic, link-sized bound, tighter than parking's
-  for large divergent replicas, at the cost of a flow-control protocol
-  and knowledge of the link.
+- Explicit per-level credits are rejected, for simplicity and
+  link-independence rather than memory. Sized to the levels where bulk
+  flows, credits need less memory than parking from about 10⁶ messages
+  up: about 0.26 GiB against 0.46 GiB at 10⁶, and 1.6 GiB against 5.1
+  GiB at 10⁸, on the long-haul link. The price is a flow-control
+  protocol with its own liveness argument, and sizing that needs the
+  link's bandwidth-delay product (exposition §7).
+- Fixed charges, including parking's `+ 257` slack and the level-2 term,
+  are charged against the budget, as today's fixed charges are, so they
+  narrow the window. The level-2 term does not shrink with the window.
+  When fixed charges alone exceed a budget, the window falls to one slot
+  per level and the estimate exceeds the budget: the setter's documented
+  progress floor.
 - Giving up the bundle gives up QUIC's per-stream loss isolation.
 
 ## Open questions
 
-1. **The progress floor and the budget.** Fixed charges, including
-   parking's `+ 257` slack and level 2, are charged against the budget,
-   which is today's convention, so they narrow the window. Treating them
-   as a floor that may exceed the budget helps small budgets. The
-   setter's documentation already allows such a floor.
-2. **The session tail.** Nothing records why the model targets 2⁻⁴⁰ per
+1. **The session tail.** Nothing records why the model targets 2⁻⁴⁰ per
    session.
-3. **What else a session could know.** Exact peer tree profiles, or a
+2. **What else a session could know.** Exact peer tree profiles, or a
    difference estimator for the case where every root slot differs,
    would need new greeting fields (exposition §6.7).
 
 ## A possible follow-on
 
-**Deferring bulk** (exposition §8). A supply travels inline, in radix
+**Deferring bulk** (exposition §8), examined and not recommended. A supply travels inline, in radix
 order, so it delays everything below and to its right in the tree. A
 follow-on could send a *promise* in the reply instead, and move the
 content to a bulk lane that the multiplexer sends only when no descent
@@ -109,6 +116,7 @@ shows larger penalties.
 - [The streaming wire deadlock](../2026-07-17-streaming-wire-deadlock/README.md),
   which motivated independent streams.
 - [Eager absorption](../2026-07-21-eager-absorption/README.md), whose
-  custody analysis this design relies on for supplied content.
+  analysis of who owns supplied content before commit this design relies
+  on.
 - [The single-socket campaign](../2026-07-21-single-socket/README.md),
-  which pursued sender-side pacing instead.
+  which pursued inferred credits instead (exposition §4).
