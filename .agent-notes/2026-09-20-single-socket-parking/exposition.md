@@ -741,11 +741,53 @@ descent's critical path *plus* the transfer time of the bulk that sits
 ahead of it, rather than the larger of the two. A large one-sided
 subtree near the root that sorts before a deep dispute is enough.
 
-The saving is therefore at most the smaller of the two terms: up to half
-the session. It is largest when bulk transfer time is comparable to the
-descent's latency, and negligible when either term dominates.
+For arbitrary trees, the saving could therefore approach the smaller of
+the two terms: up to half the session. Uniform hashing makes it far
+smaller.
 
-### 8.2 Promised supplies
+### 8.2 How much delay, under uniform hashing
+
+**Bulk sits in one band.** A differing message is supplied as part of
+the subtree at the first depth where the other side holds nothing under
+its prefix. If the other side holds n messages, a depth-j prefix is
+occupied with probability `1 − e^(−n/256ʲ)`, and each level divides the
+exponent by 256, so that probability falls from nearly 1 to nearly 0
+within one level. At n = 10⁶ it is about 1 at depth 2, 0.058 at depth 3,
+and 0.0002 at depth 4. So about 94% of supplies fall at depth 3 and
+nearly all the rest at depth 4. Supplies concentrate in a band one or two
+levels thick, near `log₂₅₆ n`, and above it they are exponentially rare.
+
+**The critical path meets the band at most once or twice.** The critical
+path passes through each level once. This design's multiplexer already
+keeps bulk at one level from delaying frames at another, so the critical
+path can wait only behind bulk in the band. Say it waits behind `x` bytes
+there, then needs `r` more crossings of one-way delay `δ` to finish. It
+completes at about
+
+```text
+max( B / bandwidth,  x / bandwidth + r·δ ),   with x ≤ B,
+```
+
+against an ideal of `max(B / bandwidth, P)`, where `P` is the whole
+descent. When bulk dominates, the excess is at most `r·δ`, however large
+the bulk. When the descent dominates, it is at most `x / bandwidth`,
+which is less than the bulk's own transfer time. Either way, each
+interruption costs at most `min(B / bandwidth, r·δ)`, and there are one
+or two.
+
+**The remaining descent is short.** The deepest disputes sit near
+`log₂₅₆(D·n)`, and the band near `log₂₅₆ n`, so `r ≈ log₂₅₆ D + 1`. That
+is two levels for up to a few hundred differences, and about three at a
+million.
+
+So the delay that inline bulk adds is at most a few one-way delays, about
+one round trip, whatever the set size or the volume of bulk. That is the
+same order as the send-buffer residual (§9), and it is not an assumption
+about workloads. Addresses are hashes of versions, and large messages
+change the bytes, not the tree's shape. The larger bound of §8.1 applies
+only to trees that uniform hashing does not produce.
+
+### 8.3 Promised supplies
 
 The change: a supply becomes a *promise*, and its content moves to a
 separate *bulk lane*.
@@ -781,7 +823,7 @@ separate *bulk lane*.
   assembler fills it from that table when the bulk has arrived, and
   otherwise waits for it.
 
-### 8.3 What stays true, and what must be re-argued
+### 8.4 What stays true, and what must be re-argued
 
 **Dependent crossings are unchanged.** Promises ride the descent exactly
 where supplies did. Bulk adds no crossing; it only has to finish before
@@ -821,7 +863,7 @@ bulk still flows through every lull. A session whose descent keeps the
 wire saturated, while its receiver absorbs slowly, is the case where
 early bulk would win.
 
-### 8.4 Against the alternatives
+### 8.5 Against the alternatives
 
 - **This design's multiplexer rule** is already the right policy: a
   supply run goes out only when no other frame is ready, and then in
@@ -834,11 +876,12 @@ early bulk would win.
   design does. Deferral would help it equally.
 - **Explicit credits** (§7) govern how much each level may send. They
   say nothing about bulk ordering.
-- **Promised supplies** separate discovery from transfer. The session
-  then approaches the larger of the descent's latency and the transfer
-  time, rather than something up to their sum.
+- **Promised supplies** separate discovery from transfer, so the session
+  approaches the larger of the descent's latency and the transfer time.
+  Under uniform hashing, today's protocol is already within about a round
+  trip of that (§8.2).
 
-### 8.5 How it interacts with this plan
+### 8.6 How it interacts with this plan
 
 It builds on this plan without undoing any of it:
 
@@ -863,11 +906,13 @@ Three choices in this plan matter to it:
 - **The opening shortcut points the other way.** It shipped bulk *early*.
   Removing it now is consistent with deferring bulk later.
 
-It changes the wire: a new reaction, a new lane, and new frames. So it
-lands as a deliberate protocol change of its own, with snapshots, the
-hop ledger (which must not move), and a wall-clock benchmark that shows
-completion approaching the larger of the two terms rather than their
-sum.
+It changes the wire: a new reaction, a new lane, and new frames, and it
+needs a progress argument of its own. Against a payoff of about one round
+trip per session under uniform hashing, that is hard to justify. This
+note records it so the question does not have to be re-derived. The
+measurement in the plan's last step (the appendix) shows whether real
+sessions stay within the bound. Only a measured penalty well beyond a
+round trip would make the follow-on worth building.
 
 ## 9. Costs
 

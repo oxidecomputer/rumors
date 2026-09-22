@@ -82,14 +82,19 @@ on scale:
 
 ## A possible follow-on
 
-**Deferring bulk** (exposition §8). Today a supply travels inline, in
-radix order, so it delays everything below and to its right in the tree.
-The follow-on sends a *promise* in the reply instead, and moves the
-content to a bulk lane. The multiplexer sends the bulk lane only when no
-descent frame is ready, and in promise order when it does. A session then
-approaches the larger of the descent's latency and the transfer time,
-rather than up to their sum. It is additive to this design, which makes
-it easier, and needs its own progress argument and wire change.
+**Deferring bulk** (exposition §8). A supply travels inline, in radix
+order, so it delays everything below and to its right in the tree. A
+follow-on could send a *promise* in the reply instead, and move the
+content to a bulk lane that the multiplexer sends only when no descent
+frame is ready.
+
+Under uniform hashing the payoff is small. Supplies concentrate in a
+band one or two levels thick, so the critical path meets bulk at most
+once or twice, and only the descent remaining below the band (about
+`log₂₅₆ D + 1` levels) can be delayed. The penalty is therefore at most
+about one round trip, the same order as the send-buffer residual. The
+follow-on is recorded, not recommended, unless measurement shows larger
+penalties.
 
 ## Accepted costs
 

@@ -487,6 +487,11 @@ publish the deployment guidance that bounds it.
   unbounded and one bounded (`TCP_NOTSENT_LOWAT` at about one frame where
   the platform has it; `SO_SNDBUF` at about one bandwidth-delay product
   plus one frame otherwise). Record both.
+- Measure the in-level bulk penalty on the delayed pipe, for a
+  representative divergent session: completion time against
+  `max(descent critical path, total bytes / bandwidth)`. Exposition §8.2
+  bounds the excess by a few one-way delays; record the measured excess
+  beside that bound.
 - The hop ledger must stay fixed; elapsed time may move.
 - Write the deployment guidance into the crate docs, after confirming
   platform support against current documentation. For TCP:
