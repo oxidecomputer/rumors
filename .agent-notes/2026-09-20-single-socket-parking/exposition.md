@@ -757,33 +757,51 @@ and 0.0002 at depth 4. So about 94% of supplies fall at depth 3 and
 nearly all the rest at depth 4. Supplies concentrate in a band one or two
 levels thick, near `log₂₅₆ n`, and above it they are exponentially rare.
 
-**The critical path meets the band at most once or twice.** The critical
-path passes through each level once. This design's multiplexer already
-keeps bulk at one level from delaying frames at another, so the critical
-path can wait only behind bulk in the band. Say it waits behind `x` bytes
-there, then needs `r` more crossings of one-way delay `δ` to finish. It
-completes at about
+**Waiting behind bulk is not the same as losing time.** Say the descent
+reaches the band at time `t`, and the critical path's next frame then
+waits behind `x` bytes of band supplies. That wait can be long: many
+supplies interleaved with the level's replies can put most of the bulk
+ahead of it. But while the frame waits, the wire is carrying those
+supplies, and the session could not finish without carrying them anyway.
+If the critical path needs `r` more crossings of one-way delay `δ` after
+the wait, it finishes at about
 
 ```text
-max( B / bandwidth,  x / bandwidth + r·δ ),   with x ≤ B,
+t + x / bandwidth + r·δ,   with x ≤ B,
 ```
 
-against an ideal of `max(B / bandwidth, P)`, where `P` is the whole
-descent. When bulk dominates, the excess is at most `r·δ`, however large
-the bulk. When the descent dominates, it is at most `x / bandwidth`,
-which is less than the bulk's own transfer time. Either way, each
-interruption costs at most `min(B / bandwidth, r·δ)`, and there are one
-or two.
+against a best possible finish of `t + max(B / bandwidth, r·δ)`. The
+excess is at most `r·δ`. What is lost is only the descent that remains
+after the wait, which a better order would have overlapped with the rest
+of the transfer.
 
-**The remaining descent is short.** The deepest disputes sit near
-`log₂₅₆(D·n)`, and the band near `log₂₅₆ n`, so `r ≈ log₂₅₆ D + 1`. That
-is two levels for up to a few hundred differences, and about three at a
+For example, suppose the band holds 10,000 supplies totaling 100 MB on a
+1 Gb/s link (0.8 s), the critical query waits behind 90 MB of them
+(0.72 s), and it then needs two crossings of 50 ms. It finishes at
+0.82 s against a best of 0.8 s: 20 ms lost. With all 100 MB ahead of it,
+0.1 s is lost: the two crossings, not the 0.8 s.
+
+**More interruptions do not add up.** Every wait is spent carrying bulk,
+so the waits together cannot exceed the bulk's own transfer time,
+however many supplies, and however often they interleave. The two
+directions' bulk sits at adjacent levels: one side supplies at the band
+level, and the other side's supplies answer the requests in it, one
+level down. The critical path can therefore wait in both directions. The
+second backlog drains in parallel with the first, so this costs at most
+one more crossing: an excess of `(r + 1)·δ` in all. The same holds if
+reading or absorbing bulk, rather than the wire, limits its rate: the
+wait is then spent on that work, which the session also cannot skip.
+
+**The remaining descent is short.** Bulk is exponentially rare above the
+band, so the descent reaches it undisturbed. The deepest disputes sit
+near `log₂₅₆(D·n)` and the band near `log₂₅₆ n`, so `r ≈ log₂₅₆ D + 1`:
+two levels for up to a few hundred differences, about three at a
 million.
 
 So the delay that inline bulk adds is at most a few one-way delays, about
-one round trip, whatever the set size or the volume of bulk. That is the
-same order as the send-buffer residual (§9), and it is not an assumption
-about workloads. Addresses are hashes of versions, and large messages
+one round trip, whatever the set size, the volume of bulk, or the number
+of supplies. That is the same order as the send-buffer residual (§9),
+and it is not an assumption about workloads. Addresses are hashes of versions, and large messages
 change the bytes, not the tree's shape. The larger bound of §8.1 applies
 only to trees that uniform hashing does not produce.
 
