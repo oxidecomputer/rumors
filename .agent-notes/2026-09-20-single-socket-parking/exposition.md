@@ -836,6 +836,29 @@ So the delay that inline bulk adds has two parts:
   of transfer at 1 Gb/s, lose about 56 ms on average and up to about
   200 ms.
 
+**Why message size is what matters.** A supplied subtree is a prefix
+the other side holds nothing under, so everything beneath it is the
+supplier's differing messages. The band sits where the other side's
+occupancy, `n_other / 256ʲ`, crosses about 1, so a band supply holds
+about `1 + D_supplier / n_other` messages. In other words, the bottom of
+a large tree is a fine interleaving of both parties' messages: a
+k-message subtree belonging to one party alone is exponentially unlikely
+in k.
+
+- **Comparable replicas:** when the replicas are of comparable size and
+  differ in fewer messages than they hold, a supply is about one message.
+- **Lopsided replicas:** supplies hold many messages only when one side
+  holds far more differing messages than the other holds messages at
+  all, as in a bootstrap. Then the other side has little to send back,
+  the bulk is unbalanced, and the duplex term vanishes.
+
+So under uniform hashing, large supplies and balanced bulk exclude each
+other. Where the duplex term can arise, a supply is about one message,
+and the message size is the supply size. The reverse wire's idle time
+is then about the largest deficit of a random walk over `N` supplies of
+about `m` bytes, `0.7 · √N · m / bandwidth`. That grows with message
+size, and only with the square root of the count.
+
 **By message size:**
 
 - **Small messages** are the easy case. A band supply holds about one
