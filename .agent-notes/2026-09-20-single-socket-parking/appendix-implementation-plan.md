@@ -490,8 +490,10 @@ publish the deployment guidance that bounds it.
 - Measure the in-level bulk penalty on the delayed pipe, for a
   representative divergent session: completion time against
   `max(descent critical path, total bytes / bandwidth)`. Exposition §8.2
-  bounds the excess by a few one-way delays; record the measured excess
-  beside that bound.
+  bounds the descent's share by a few one-way delays and simulates the
+  duplex share. Include a balanced workload of few, large messages, where
+  the duplex share is largest, and record the measured excess beside both
+  figures.
 - The hop ledger must stay fixed; elapsed time may move.
 - Write the deployment guidance into the crate docs, after confirming
   platform support against current documentation. For TCP:

@@ -781,16 +781,42 @@ For example, suppose the band holds 10,000 supplies totaling 100 MB on a
 0.82 s against a best of 0.8 s: 20 ms lost. With all 100 MB ahead of it,
 0.1 s is lost: the two crossings, not the 0.8 s.
 
-**More interruptions do not add up.** Every wait is spent carrying bulk,
-so the waits together cannot exceed the bulk's own transfer time,
-however many supplies, and however often they interleave. The two
-directions' bulk sits at adjacent levels: one side supplies at the band
-level, and the other side's supplies answer the requests in it, one
-level down. The critical path can therefore wait in both directions. The
-second backlog drains in parallel with the first, so this costs at most
-one more crossing: an excess of `(r + 1)·δ` in all. The same holds if
-reading or absorbing bulk, rather than the wire, limits its rate: the
-wait is then spent on that work, which the session also cannot skip.
+**More interruptions in one direction do not add up.** Every wait is
+spent carrying bulk, so the waits in one direction together cannot exceed
+that direction's own transfer time, however many supplies there are and
+however often they interleave. The same holds if reading or absorbing
+bulk, rather than the wire, limits its rate: the wait is spent on work
+the session also cannot skip.
+
+**The two directions can serialize.** At the band, one side's replies
+carry both its supplies and its *requests*: empty queries that the other
+side answers with supplies of its own, one level down. A request queued
+behind bulk delays the start of the reverse direction's bulk, so a wire
+that could have been busy sits idle. If every request came after every
+supply, the two directions would run one after the other, losing up to
+the smaller direction's whole transfer time.
+
+Hashing prevents that in all but unlucky orders. Reactions go in the
+radix order of hashed prefixes, so a request is as likely to fall
+anywhere in the forward stream as a supply is. Requests therefore spread
+evenly through the forward bulk, and the reverse bulk starts about one crossing late and
+keeps pace, idling only where the interleaving runs dry.
+
+A simulation measures the reverse wire's idle time, as a share of the
+larger direction's transfer time. It uses `N` band supplies in random
+order with small, varied sizes, each request triggering one reverse
+supply. Each cell gives the mean, with the worst run in parentheses:
+
+| Band supplies `N` | Reverse bulk half the forward | Balanced | Reverse bulk twice the forward |
+| --- | --- | --- | --- |
+| 100 | 1.3% (15%) | 7.2% (25%) | 0.6% (5%) |
+| 1,000 | 0.1% (1%) | 2.4% (8%) | 0.1% (0.6%) |
+| 10,000 | 0.01% (0.1%) | 0.7% (2.2%) | 0.01% (0.04%) |
+
+Balanced bulk behaves like a queue whose arrivals match its service
+rate, so its idle time falls like `0.7 / √N`. Unbalanced bulk hides the
+smaller direction almost entirely. These are typical-case figures from
+simulation, not tail bounds.
 
 **The remaining descent is short.** Bulk is exponentially rare above the
 band, so the descent reaches it undisturbed. The deepest disputes sit
@@ -798,12 +824,22 @@ near `log₂₅₆(D·n)` and the band near `log₂₅₆ n`, so `r ≈ log₂�
 two levels for up to a few hundred differences, about three at a
 million.
 
-So the delay that inline bulk adds is at most a few one-way delays, about
-one round trip, whatever the set size, the volume of bulk, or the number
-of supplies. That is the same order as the send-buffer residual (§9),
-and it is not an assumption about workloads. Addresses are hashes of versions, and large messages
-change the bytes, not the tree's shape. The larger bound of §8.1 applies
-only to trees that uniform hashing does not produce.
+So the delay that inline bulk adds has two parts:
+
+- **The descent:** at most `r·δ`, a few one-way delays and about one
+  round trip, whatever the set size, the volume of bulk, or the number of
+  supplies.
+- **The duplex coupling:** negligible when the directions' bulk is
+  unbalanced or made of many supplies. It grows to a few percent of the
+  transfer time when the bulk is balanced and made of few supplies. That
+  is the case of large messages: 100 balanced 1 MB messages, about 0.8 s
+  of transfer at 1 Gb/s, lose about 56 ms on average and up to about
+  200 ms.
+
+Neither part is an assumption about workloads beyond message size.
+Addresses are hashes of versions, so the tree's shape is uniform. The
+larger bound of §8.1 needs orders that hashing makes vanishingly
+unlikely.
 
 ### 8.3 Promised supplies
 
@@ -895,9 +931,11 @@ early bulk would win.
 - **Explicit credits** (§7) govern how much each level may send. They
   say nothing about bulk ordering.
 - **Promised supplies** separate discovery from transfer, so the session
-  approaches the larger of the descent's latency and the transfer time.
-  Under uniform hashing, today's protocol is already within about a round
-  trip of that (§8.2).
+  approaches the larger of the descent's latency and the transfer time,
+  with both directions' bulk starting at once. Under uniform hashing,
+  today's protocol is within about a round trip of that, plus a duplex
+  term that matters only for balanced bulk made of few large messages
+  (§8.2).
 
 ### 8.6 How it interacts with this plan
 
@@ -926,11 +964,13 @@ Three choices in this plan matter to it:
 
 It changes the wire: a new reaction, a new lane, and new frames, and it
 needs a progress argument of its own. Against a payoff of about one round
-trip per session under uniform hashing, that is hard to justify. This
+trip per session, plus a duplex term that matters only for large
+messages, that is hard to justify for small messages. This
 note records it so the question does not have to be re-derived. The
 measurement in the plan's last step (the appendix) shows whether real
 sessions stay within the bound. Only a measured penalty well beyond a
-round trip would make the follow-on worth building.
+round trip, most likely with large messages, would make the follow-on
+worth building.
 
 ## 9. Costs
 

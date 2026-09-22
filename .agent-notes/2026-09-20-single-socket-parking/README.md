@@ -89,12 +89,13 @@ content to a bulk lane that the multiplexer sends only when no descent
 frame is ready.
 
 Under uniform hashing the payoff is small. Supplies concentrate in a
-band one or two levels thick, so the critical path meets bulk at most
-once or twice, and only the descent remaining below the band (about
-`log₂₅₆ D + 1` levels) can be delayed. The penalty is therefore at most
-about one round trip, the same order as the send-buffer residual. The
-follow-on is recorded, not recommended, unless measurement shows larger
-penalties.
+band one or two levels thick, so the descent loses at most the crossings
+remaining below the band: about one round trip. Queuing requests behind
+bulk can also delay the start of the reverse direction's bulk. Hashing
+spreads requests evenly, so that costs a few percent of the transfer time
+only when both directions' bulk is balanced and made of few, large
+messages. The follow-on is recorded, not recommended, unless measurement
+shows larger penalties.
 
 ## Accepted costs
 
