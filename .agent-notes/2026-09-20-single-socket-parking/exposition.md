@@ -857,6 +857,16 @@ the peer's questions feed it. That last claim is unmeasured.
   with an authenticated peer that follows the protocol, that is a
   throughput choice, not an attack.
 
+**It does not move the default.** The default buys a window wide enough
+for the reference link, and at that width the charge is the price of
+width itself. At 10⁶ messages, queued scopes cost 215 MiB and per-slot
+parking 252 MiB. Priced against an equally wide peer, the exchange
+removes only 24 MiB of the parking, so the threshold falls from 467 to
+443 MiB, and both round to a 512 MiB default. It would halve a default
+aimed at larger replicas: from 4 GiB to 2 GiB for a 10⁷-message target,
+and from 8 GiB to 4 GiB for 10⁸. Its gains are in the fixed charge, and
+so at small budgets.
+
 **Assessment.** This is worth pursuing after this design lands. It is
 the other half of the root comparison: that bound shrinks the price when
 the replicas differ little, and this one when the peers' windows are
