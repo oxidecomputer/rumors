@@ -146,17 +146,19 @@ def d_hi(k):
     return d
 
 
-def charges(n_a, n_b, exchange=True, k=256):
+def charges(n_a, n_b, exchange=True, k=256, peer_k=None, node_bytes=8):
     """Return (max population, charge before, scope-only charge, charge after).
 
     Each charge is a function of the window K:
     - "before" is today's scope charge;
     - "scope-only" is the set-priced scope charge (exposition 6.5);
     - "after" adds parking (6.3).
-    With `exchange`, both peers hold the same shared window K (6.6). The
-    queries in replies parked at level d are the peer's questions still
-    outstanding at level d + 1, so their listings number at most
-    (K(d + 1) + 257) * min(256, C(d)).
+    With `exchange`, parked listings are priced against the peer's window
+    (6.6): the queries in replies parked at level d are the peer's
+    questions still outstanding at level d + 1, so their listings number at
+    most (K_peer(d + 1) + 257) * min(256, C(d)). `peer_k` is the peer's
+    window bound; None prices against a peer holding the same K.
+    `node_bytes` is the backend's price for one node handle.
     `k < 256` applies the dropped root-comparison bound (6.8).
     """
     n, pair, bound = max(n_a, n_b), n_a * n_b, d_hi(k)
@@ -173,7 +175,7 @@ def charges(n_a, n_b, exchange=True, k=256):
         if q == 0:
             return 0
         refs = min(q * children_quantile(n, d - 1), set_leaves_quantile(n, q, d - 1), occupied(n, d))
-        return refs * REFERENCE_BYTES + q * SCOPE_FIXED_BYTES
+        return refs * (REFERENCE_BYTES - 8 + node_bytes) + q * SCOPE_FIXED_BYTES
 
     def park(d, K):
         slots = min(width(K, d) + FAN + 1, pow256(d - 1))
@@ -186,7 +188,8 @@ def charges(n_a, n_b, exchange=True, k=256):
         if bound is not None:
             entries = min(entries, bound * c1)
         if exchange and d < KEY:
-            entries = min(entries, (width(K, d + 1) + FAN + 1) * min(FAN, c1))
+            peer = K if peer_k is None else peer_k
+            entries = min(entries, (width(peer, d + 1) + FAN + 1) * min(FAN, c1))
         return reactions * REACTION_BYTES + entries * ENTRY_BYTES
 
     leaf = lambda K: min(pop[KEY], K) * LEAF_REQUEST_BYTES
@@ -195,6 +198,29 @@ def charges(n_a, n_b, exchange=True, k=256):
     after = lambda K: scopes(K) + sum(park(d, K) for d in range(1, KEY + 1))
     after.level2 = lambda K: park(2, K)
     return max(pop), before, scopes, after
+
+
+def design_window(n, budget, k=256):
+    """The design's window for one side, both peers holding `budget` or more.
+
+    `K_max` is the widest window the smaller budget affords at a node price
+    of zero, so no peer on any backend holds a wider one. The side's own
+    window is the widest the budget affords at its real node price, with
+    parked listings priced against a peer holding `K_max` (exposition 6.6).
+    """
+    top, _, _, zero = charges(n, n, k=k, node_bytes=0)
+    k_max = granted(zero, top, budget)
+    _, _, _, own = charges(n, n, k=k, peer_k=k_max)
+    return min(granted(own, top, budget), k_max)
+
+
+def design_threshold(n, target, k=256):
+    """The least budget whose design window reaches `target`, in bytes."""
+    lo, hi = 1, 1 << 40
+    while hi - lo > 1 << 16:
+        mid = (lo + hi) // 2
+        lo, hi = (lo, mid) if design_window(n, mid, k) >= target else (mid, hi)
+    return hi
 
 
 def granted(charge, top, budget):
@@ -232,14 +258,19 @@ def level_walk(n=10**7, extra=200_000):
     print(f"  level 2: 256 replies of {queries:.0f} queries and {entries:,.0f} entries"
           f" ({entries * ENTRY_BYTES / 1e3:.0f} KB); all {256 * entries / 1e6:.1f}M entries,"
           f" {256 * entries * ENTRY_BYTES / 1e6:.0f} MB")
-    print(f"  level 3: {65536 * differs(2):,.0f} questions; replies of"
+    level3 = 65536 * differs(2)
+    print(f"  level 3: {level3:,.0f} questions; replies of"
           f" {children(n / 256 ** 2):.0f} reactions, {children(n / 256 ** 2) * differs(3):.1f} queries")
-    top, _, _, after = charges(n, n)
-    window = granted(after, top, 512 * MIB)
-    ahead = window / queries
-    print(f"  shared window at the default budget: {window:,}, so about {ahead:.0f} level-2 replies"
-          f" can run ahead ({ahead * entries * ENTRY_BYTES / 1e6:.0f} MB); level-2 parking is priced at"
-          f" {after.level2(window) / MIB:.0f} MiB")
+    top, _, _, zero = charges(n, n, node_bytes=0)
+    k_max = granted(zero, top, 512 * MIB)
+    window = design_window(n, 512 * MIB)
+    _, _, _, own = charges(n, n, peer_k=k_max)
+    ahead = k_max / queries
+    print(f"  default budget: window {window:,}, peer bound K_max {k_max:,}; at most about {ahead:.0f}"
+          f" level-2 replies run ahead ({ahead * entries * ENTRY_BYTES / 1e6:.0f} MB); level-2 parking"
+          f" priced at {own.level2(window) / MIB:.0f} MiB")
+    print(f"  budget for a window holding all {level3:,.0f} level-3 questions:"
+          f" {design_threshold(n, int(level3)) / GIB:.2f} GiB")
     for size in (10**6, 10**7, 10**8):
         prefixes = 2 ** 24 * (1 - math.exp(-size / 2 ** 24))
         print(f"  level-2 volume at n={size:.0e}: {prefixes / size:.2f} n prefixes,"
@@ -248,35 +279,51 @@ def level_walk(n=10**7, extra=200_000):
 
 def exchange_effect():
     """Exposition 6.6: what exchanging budgets buys over a private window."""
-    print("\n[6.6] Exchange: private window -> shared window (entirely different replicas, one budget)")
+    print("\n[6.6] Exchange: private window -> design window (entirely different replicas, one budget)")
     for n in SIZES:
         top, _, _, private = charges(n, n, exchange=False)
-        _, _, _, shared = charges(n, n)
-        row = [f"{b} MiB {granted(private, top, b * MIB)} -> {granted(shared, top, b * MIB)}"
+        _, _, _, floor = charges(n, n, peer_k=1)
+        row = [f"{b} MiB {granted(private, top, b * MIB)} -> {design_window(n, b * MIB)}"
                for b in (16, 64, 512)]
         K = min(top, LONG_HAUL_W)
         print(f"  n={n:.0e}: " + " | ".join(row)
-              + f" | floor {private(1)/MIB:.1f} -> {shared(1)/MIB:.1f} MiB"
-              + f" | long-haul threshold {private(K)/MIB:.0f} -> {shared(K)/MIB:.0f} MiB")
+              + f" | floor {private(1)/MIB:.1f} -> {floor(1)/MIB:.1f} MiB"
+              + f" | long-haul threshold {private(K)/MIB:.0f} -> {design_threshold(n, K)/MIB:.0f} MiB")
+    print("[6.6] Mismatched budgets: private (narrow, wide) -> design (both)")
+    for n, small, big in ((10**6, 64, 512), (10**7, 64, 512), (10**7, 128, 2048)):
+        top, _, _, private = charges(n, n, exchange=False)
+        print(f"  n={n:.0e} {small} and {big} MiB: {granted(private, top, small * MIB)} and"
+              f" {granted(private, top, big * MIB)} -> {design_window(n, small * MIB)}")
+    print("[6.6] Cost of pricing against K_max rather than one's own window")
+    for n in (10**6, 10**7):
+        for b in (64, 128, 512):
+            top, _, _, same = charges(n, n)
+            k_same, k_design = granted(same, top, b * MIB), design_window(n, b * MIB)
+            print(f"  n={n:.0e} {b} MiB: {k_same} -> {k_design} ({100 * (k_design / k_same - 1):+.1f}%)")
 
 
 def thresholds():
     """Exposition 6.7: threshold budgets and windows, today -> the design."""
     print("\n[6.7] Threshold budgets (MiB), today -> the design:")
     for n in SIZES:
-        top, before, _, after = charges(n, n)
-        cells = [f"{name}: {before(min(top, bdp // MESSAGE_WIRE_BYTES))/MIB:.0f} ->"
-                 f" {after(min(top, bdp // MESSAGE_WIRE_BYTES))/MIB:.0f}" for name, bdp in LINKS]
+        top, before, _, _ = charges(n, n)
+        cells = []
+        for name, bdp in LINKS:
+            K = min(top, bdp // MESSAGE_WIRE_BYTES)
+            cells.append(f"{name}: {before(K)/MIB:.0f} -> {design_threshold(n, K)/MIB:.0f}")
         print(f"  n={n:.0e}  " + " | ".join(cells))
-    print("[6.7] Windows granted, today -> the design:")
+    print("[6.7] Windows granted, today | private | design:")
     for n in SIZES:
-        top, before, _, after = charges(n, n)
+        top, before, _, _ = charges(n, n)
+        _, _, _, private = charges(n, n, exchange=False)
         print(f"  n={n:.0e}: " + " | ".join(
-            f"{b} MiB {granted(before, top, b * MIB)} -> {granted(after, top, b * MIB)}" for b in (16, 64, 512)))
-    top, _, scopes, after = charges(10**6, 10**6)
+            f"{b} MiB {granted(before, top, b * MIB)} | {granted(private, top, b * MIB)}"
+            f" | {design_window(n, b * MIB)}" for b in (64, 128, 512)))
+    top, _, scopes, _ = charges(10**6, 10**6)
     K = min(top, LONG_HAUL_W)
-    print(f"[6.7] Reference point: threshold {after(K)/MIB:.0f} MiB = scopes {scopes(K)/MIB:.0f}"
-          f" + parking {(after(K) - scopes(K))/MIB:.0f}")
+    t = design_threshold(10**6, K)
+    print(f"[6.7] Reference point: design threshold {t/MIB:.0f} MiB (queued scopes {scopes(K)/MIB:.0f} MiB"
+          f" of it); design window at 512 MiB {design_window(10**6, 512 * MIB):,}")
 
 
 def root_comparison():
@@ -284,28 +331,27 @@ def root_comparison():
     print("\n[6.8] D_hi(k):", {k: d_hi(k) for k in (1, 8, 32, 83, 128, 177, 224, 251, 255)})
     for D in (1400, 2000):
         print(f"  P(all 256 root slots differ) at D={D}: {(1 - math.exp(-D / 256)) ** 256:.2f}")
-    print("[6.8] Window: private -> private + root comparison -> shared -> shared + root comparison")
+    print("[6.8] Window: private -> private + root comparison -> design -> design + root comparison")
     for n in (10**6, 10**7, 10**8):
         for D in (100, 1000):
             k = round(256 * (1 - math.exp(-D / 256)))
             top, _, _, private = charges(n, n, exchange=False)
             top_k, _, _, private_k = charges(n, n, exchange=False, k=k)
-            _, _, _, shared = charges(n, n)
-            _, _, _, shared_k = charges(n, n, k=k)
             cells = [f"{b} MiB {granted(private, top, b * MIB)} -> {granted(private_k, top_k, b * MIB)}"
-                     f" -> {granted(shared, top, b * MIB)} -> {granted(shared_k, top_k, b * MIB)}"
-                     for b in (4, 16, 64)]
+                     f" -> {design_window(n, b * MIB)} -> {design_window(n, b * MIB, k)}"
+                     for b in (16, 64)]
             print(f"  n={n:.0e} D={D} (k={k}): " + " | ".join(cells))
 
 
 def credits():
     """Exposition 9.2: latency-free budgets, parking against credits."""
-    print("\n[9.2] Long haul, latency-free budgets (MiB): parking | credits, 17 x BDP | credits, band-targeted")
+    print("\n[9.2] Long haul, latency-free budgets (MiB): parking (design) | credits, 17 x BDP"
+          " | credits, band-targeted")
     band_credits = 2 * 12_500_000 + 15 * FRAME_BYTES
     for n in SIZES:
-        top, _, scopes, after = charges(n, n)
+        top, _, scopes, _ = charges(n, n)
         K = min(top, LONG_HAUL_W)
-        print(f"  n={n:.0e}: {after(K)/MIB:.0f} | {(scopes(K)+17*12_500_000)/MIB:.0f}"
+        print(f"  n={n:.0e}: {design_threshold(n, K)/MIB:.0f} | {(scopes(K)+17*12_500_000)/MIB:.0f}"
               f" | {(scopes(K)+band_credits)/MIB:.0f}")
 
 
@@ -318,10 +364,10 @@ def band_figures(n=10**6):
 
 
 def exact_deep_fans():
-    """Exposition 10.1: fans of exactly 1 past the leaf depth, against the quantiles."""
+    """Exposition 10.1: fans of exactly 1 past the leaf depth, under the design."""
     global children_quantile, leaves_quantile
     base_c, base_l = children_quantile, leaves_quantile
-    print("\n[10.1] Exact deep fans past the leaf depth h: floor, threshold, and windows")
+    print("\n[10.1] Exact deep fans past the leaf depth h: floor, threshold, and window at 64 MiB")
     for n in (10**5, 10**6, 10**7):
         h = math.floor(math.log(n * n / 2, 256)) + 2
         rows = []
@@ -329,12 +375,12 @@ def exact_deep_fans():
             if exact:
                 children_quantile = lambda nn, j: 1 if j >= h else base_c(nn, j)
                 leaves_quantile = lambda nn, j: 1 if j >= h else base_l(nn, j)
-            top, _, _, after = charges(n, n)
-            rows.append((after(1), after(min(top, LONG_HAUL_W)), granted(after, top, 64 * MIB)))
+            top, _, _, floor = charges(n, n, peer_k=1)
+            rows.append((floor(1), design_threshold(n, min(top, LONG_HAUL_W)), design_window(n, 64 * MIB)))
             children_quantile, leaves_quantile = base_c, base_l
         (f0, t0, w0), (f1, t1, w1) = rows
         print(f"  n={n:.0e} h={h}: floor {f0/MIB:.1f} -> {f1/MIB:.1f} MiB ({1 - f1/f0:.1%} removed),"
-              f" threshold {t0/MIB:.0f} -> {t1/MIB:.0f} MiB, window at 64 MiB {w0} -> {w1}")
+              f" threshold {t0/MIB:.0f} -> {t1/MIB:.0f} MiB, window {w0} -> {w1}")
 
 
 def duplex():

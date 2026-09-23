@@ -198,9 +198,9 @@ derives the window from a byte budget (512 MiB by default), the set
 sizes in the greetings, and a uniform-hashing model of how many disputes
 each level can hold, `S(ℓ)`. It chooses the widest affordable `K` and
 gives each level `K(ℓ) = max(1, min(K, S(ℓ)))`. Today each side derives
-its window from its own budget alone. In this design the greetings carry
-both budgets, and both sides derive the same window from the smaller one
-(§6.6). Section 6 describes the pricing.
+its window from its own budget alone. In this design each greeting
+carries its sender's budget, and both sides derive their windows from
+the smaller one (§6.6). Section 6 describes the pricing.
 
 ### 3.4 The progress property
 
@@ -332,10 +332,11 @@ Correctness rests only on that link between the two capacities: however
 the window chooses `K(ℓ)`, parking has room for everything the count
 allows.
 
-The two sides compute the same window (§6.6), but safety does not depend
-on that. Two versions that size differently, or a test that fixes one
-side's window, can leave the windows different, and that is safe because
-a reply travels only in answer to its receiver's own question. The replies
+The two sides' windows come from the same budget (§6.6), but safety does
+not depend on their being equal. Different backends, two versions that
+size differently, or a test that fixes one side's window can all leave
+the windows different, and that is safe because a reply travels only in
+answer to its receiver's own question. The replies
 in flight toward a side are bounded by that side's window, and its
 parking is sized from the same number. Suppose one peer has a far wider
 window. It asks more questions at once, so more replies flow toward it,
@@ -590,13 +591,13 @@ can run ahead. The initiator's stage 1 records each reply's 244 level-3
 questions before handing on the next reply, so its own level-3 window
 limits how far level 2 runs ahead of the responder. Under the private
 price the responder cannot know that window and must price all 256
-replies. Under the design's price both sides hold the same window
-(§6.6), so the responder prices only what that window lets through. At
-the default budget with 10⁷ messages the shared window is about 14,500,
-so about 60 level-2 replies can run ahead, roughly 42 MB, and the
-design's price for level-2 parking is 92 MiB. Only a window that holds
-all 62,000 level-3 questions, which needs a budget of about 1.8 GiB
-here, lets the whole 180 MB arrive at once.
+replies. Under the design's price it knows a bound on that window,
+`K_max` (§6.6), and prices only what the bound lets through. At the
+default budget with 10⁷ messages, `K_max` is about 15,300, so at most
+about 63 level-2 replies can run ahead, roughly 44 MB, and the design's
+price for level-2 parking is 97 MiB. Only a window that holds all 62,000
+level-3 questions, which needs a budget of about 1.8 GiB here, lets the
+whole 180 MB arrive at once.
 
 ### 6.5 Queued scopes, priced as a set
 
@@ -613,90 +614,100 @@ independent of the socket, and it widens every window the model grants.
 
 ### 6.6 One shared window, from exchanged budgets
 
-The greetings let the two sides agree on one window. The client's
-greeting carries its memory budget. The server greets second, so it
-already has that budget. It computes the widest window that fits the
-*smaller* of the two budgets, priced against a peer holding the same
-window, and its greeting carries that window. The client then takes the
-widest window, no wider than the server's, that its own budget affords
-when priced against the server's window. Both sides therefore hold at
-most the server's window, and each prices its parking against a peer
-window it knows. The server computes the window, rather than both sides
-computing it, because the window also depends on each side's storage
-backend, through the price of a node, and the two sides may use
-different backends. This subsection calls the result the *shared
-window*, and explains why it prices parking far more tightly, what it
-costs a well-provisioned peer, and why the design takes that trade.
+Each greeting carries its sender's memory budget. The greetings still
+cross at the same time, as they do today, so neither side waits for the
+other's, and two sessions opened at once still collapse into one. From
+the two budgets each side computes `K_max`: the widest window the
+*smaller* budget could afford if nodes cost nothing to hold, priced
+against a peer holding the same window. No peer on any backend can hold
+a wider window, because a real backend's nodes cost more than nothing.
+Each side then takes its own window: the widest the smaller budget
+affords at its own backend's node price, with its parking priced
+against a peer holding `K_max`. This subsection calls the result the
+*shared window*. It explains why the shared window prices parking far
+more tightly, what it costs a well-provisioned peer, and why the design
+takes that trade.
 
 **The bound it gives.** Every query in a reply parked at a receiver is a
 question its peer is still waiting on. The peer handed the query on
 inside that reply, and the question stays outstanding until the receiver
 answers it, which the receiver does only after taking the reply from
 parking. By the peer's own count (§5.1), the queries in the receiver's
-parked level-d replies therefore number at most `K(d + 1) + 257`, where
-`K` is the peer's window, at most the server's. Queries are the only reactions that carry
-listings, and listings hold most parked bytes, since matches and
+parked level-d replies therefore number at most `K_peer(d + 1) + 257`,
+and `K_peer` is at most `K_max`. Queries are the only reactions that
+carry listings, and listings hold most parked bytes, since matches and
 supplied handles are small. So the shared window bounds the listing
 volume parked at every level:
 
 ```text
-parked entries(d) ≤ (K(d + 1) + 257) · min(256, C(d))
+parked entries(d) ≤ (K_max(d + 1) + 257) · min(256, C(d))
 ```
 
 At level 2 this turns the initiator's pacing of §6.4 into a price: the
 level-2 term now shrinks with the window, and so with the budget.
 
 **What it buys.** The table compares the private price with the design's
-price, for peers on the same budget and the same backend, which then
-hold the same window. Each window cell gives the window
-granted at that budget; the floor charge is the charge at a one-slot
-window; the threshold is the budget that keeps the long-haul link of
-§6.7 fully busy.
+price, for peers on the same budget. Each window cell gives the window
+granted at that budget. The floor charge is the charge with both sides
+at a one-slot window. The threshold is the budget that keeps the
+long-haul link of §6.7 fully busy.
 
 | n | Window at 16 MiB | Window at 64 MiB | Window at 512 MiB | Floor charge | Long-haul threshold |
 | --- | --- | --- | --- | --- | --- |
-| 10⁵ | 650 → 853 | 17,133 → 26,522 | unchanged | 7.7 → 5.6 MiB | 78 → 76 MiB |
-| 10⁶ | 1 → 382 | 3,012 → 4,736 | 107,053 → 123,098 | 29.9 → 6.5 MiB | 467 → 443 MiB |
-| 10⁷ | 1 → 119 | 1 → 1,382 | 8,066 → 14,514 | 247 → 9.4 MiB | 2.1 → 2.0 GiB |
-| 10⁸ | 1 → 95 | 1 → 1,125 | 1,171 → 11,588 | 418 → 10 MiB | 5.1 → 2.9 GiB |
+| 10⁵ | 650 → 814 | 17,133 → 26,522 | unchanged | 7.7 → 5.6 MiB | 78 → 76 MiB |
+| 10⁶ | 1 → 366 | 3,012 → 4,655 | 107,053 → 123,098 | 29.9 → 6.5 MiB | 467 → 443 MiB |
+| 10⁷ | 1 → 118 | 1 → 1,357 | 8,066 → 14,284 | 247 → 9.4 MiB | 2.1 → 2.0 GiB |
+| 10⁸ | 1 → 94 | 1 → 1,107 | 1,171 → 11,417 | 418 → 10 MiB | 5.1 → 3.0 GiB |
 
 The floor charge collapses, because the level-2 term stops growing with
 the set. Without the exchange, a single socket leaves large replicas at
 moderate budgets with a one-slot window: at 10⁷ messages and 64 MiB,
 one slot, where today's code grants 2,399 (§6.7). With it they get
-1,382. For peers on equal budgets the exchange never narrows a window.
+1,357. In every case the model computes, the design's window is at least
+the private one.
 
-**What it costs.** When the budgets differ, the smaller one sets the
-window for both sides, so a well-provisioned peer can be narrowed:
+Pricing against `K_max` rather than against its own window costs a side
+a little width, because `K_max` assumes the cheapest possible node. For
+the in-memory backend the loss is under 2%: at 10⁷ messages, 1,382 →
+1,357 at 64 MiB and 14,514 → 14,284 at 512 MiB. A backend with dearer
+nodes gives up more. The alternative, having one side compute the window
+and announce it, would let each side price against the exact peer
+window, but it would make one greeting wait for the other: half a round
+trip on every session, and an end to the greetings' symmetry.
+
+**What it costs a well-provisioned peer.** When the budgets differ, the
+smaller one sets the window for both sides, so a well-provisioned peer
+can be narrowed:
 
 | n | Budgets | Private price (narrow side, wide side) | Design's price (both sides) |
 | --- | --- | --- | --- |
-| 10⁶ | 64 MiB and 512 MiB | 3,012 and 107,053 | 4,736 |
-| 10⁷ | 64 MiB and 512 MiB | 1 and 8,066 | 1,382 |
-| 10⁷ | 128 MiB and 2 GiB | 1 and 63,173 | 3,219 |
+| 10⁶ | 64 MiB and 512 MiB | 3,012 and 107,053 | 4,655 |
+| 10⁷ | 64 MiB and 512 MiB | 1 and 8,066 | 1,357 |
+| 10⁷ | 128 MiB and 2 GiB | 1 and 63,173 | 3,165 |
 
 **Why the trade is a win.** A session's levels alternate between the two
 sides, so its descent moves only as fast as its narrowest level. In the
 10⁷ rows the narrow side, pricing privately, runs its levels at one
 slot, and the wide side's thousands of slots idle behind it. Under the
-shared window both sides run at 1,382 or 3,219, so the session is far
+shared window both sides run at 1,357 or 3,165, so the session is far
 faster, and the wide side has given up width it could not use. The rule
-also has two further merits. It is the only consistent rule that is
-simple: without it, each side's window would depend on the other's,
-which depends on its own, and both sides would have to agree on a fixed
-point. With it, one side computes one number. And it protects the constrained peer, whose parking is priced
-against a peer that cannot outrun it: a static credit, declared once in
-the greeting, with no control frames and no knowledge of the link.
+has two further merits. It is simple and consistent: without it, each
+side's window would depend on the other's, which depends on its own, and
+both sides would have to agree on a fixed point. With it, each side
+computes one bound from two budgets. And it protects the constrained
+peer, whose parking is priced against a peer that cannot outrun it: a
+static credit, declared once in the greeting, with no control frames and
+no knowledge of the link.
 
 The rule has three smaller costs. An operator's budget now caps a
 session rather than sizing it alone, since a session with a
 smaller-budget peer runs at that peer's width; the budget's
-documentation says so. The two sides must agree on how the window maps
-to each level's capacity, `K(ℓ) = max(1, min(K, S(ℓ)))`, which depends
-only on the set sizes. Two versions that compute `S` differently could
-still misprice memory, though never break a session, because parking's
-capacity is always computed from a side's own question queue (§5.2).
-And the greetings gain fields, which is a wire change.
+documentation says so. The two sides must agree on `K_max`, which
+depends on the budgets, the set sizes, and the model, but not on either
+backend. Two versions that compute it differently could misprice memory,
+though never break a session, because parking's capacity is always
+computed from a side's own question queue (§5.2). And the greeting gains
+a field, which is a wire change.
 
 ### 6.7 The budget that imposes no latency
 
@@ -725,20 +736,20 @@ W ≈ 17,500), and long haul (1 Gb/s, 100 ms; W ≈ 87,400):
 | n | In-rack | Metro | Long haul |
 | --- | --- | --- | --- |
 | 10⁵ | 32 → 32 MiB | 111 → 62 MiB | 404 → 76 MiB |
-| 10⁶ | 53 → 60 MiB | 189 → 166 MiB | 767 → 443 MiB |
-| 10⁷ | 112 → 167 MiB | 429 → 605 MiB | 1.7 → 2.0 GiB |
-| 10⁸ | 124 → 203 MiB | 481 → 760 MiB | 1.9 → 2.9 GiB |
+| 10⁶ | 53 → 61 MiB | 189 → 166 MiB | 767 → 443 MiB |
+| 10⁷ | 112 → 169 MiB | 429 → 614 MiB | 1.7 → 2.0 GiB |
+| 10⁸ | 124 → 206 MiB | 481 → 771 MiB | 1.9 → 3.0 GiB |
 
 Windows granted at a fixed budget, under today's price, the private
 price, and the design's price:
 
 | n | Budget | Today | Private | Design |
 | --- | --- | --- | --- | --- |
-| 10⁶ | 64 MiB | 5,475 | 3,012 | 4,736 |
+| 10⁶ | 64 MiB | 5,475 | 3,012 | 4,655 |
 | 10⁶ | 512 MiB | 48,588 | 107,053 | 123,098 |
-| 10⁷ | 64 MiB | 2,399 | 1 | 1,382 |
-| 10⁷ | 128 MiB | 5,041 | 1 | 3,219 |
-| 10⁷ | 512 MiB | 20,890 | 8,066 | 14,514 |
+| 10⁷ | 64 MiB | 2,399 | 1 | 1,357 |
+| 10⁷ | 128 MiB | 5,041 | 1 | 3,165 |
+| 10⁷ | 512 MiB | 20,890 | 8,066 | 14,284 |
 
 Up to about 10⁶ messages the design needs less budget than today to keep
 a link busy, because set pricing saves more than parking costs. At the
@@ -746,7 +757,7 @@ a link busy, because set pricing saves more than parking costs. At the
 link fully busy (a window of 123,000 against the 87,400 it needs), and
 today's code does not (48,600). Its window is narrower than today's only
 below about 130 MiB. From 10⁷ messages on, the design needs more budget
-than today: about 17% more on the long-haul link at 10⁷ and 50% more
+than today: about 19% more on the long-haul link at 10⁷ and 50% more
 at 10⁸, and 40 to 65% more on the shorter links. The difference is the replies that today's
 code holds without pricing them. Part of it is accounting rather than
 memory: today's code also relies on up to seventeen per-stream transport
@@ -827,12 +838,12 @@ comparison.
 
 | n | D | 16 MiB | 64 MiB |
 | --- | --- | --- | --- |
-| 10⁶ | 100 | 1 → 171 → 382 → 171 | 3,012 → 171 → 4,736 → 171 |
-| 10⁶ | 1,000 | 1 → 117 → 382 → 393 | 3,012 → 2,848 → 4,736 → 2,848 |
-| 10⁷ | 100 | 1 → 171 → 119 → 171 | 1 → 171 → 1,382 → 171 |
-| 10⁷ | 1,000 | 1 → 1 → 119 → 120 | 1 → 1,051 → 1,382 → 1,386 |
-| 10⁸ | 100 | 1 → 171 → 95 → 171 | 1 → 171 → 1,125 → 171 |
-| 10⁸ | 1,000 | 1 → 1 → 95 → 95 | 1 → 780 → 1,125 → 1,128 |
+| 10⁶ | 100 | 1 → 171 → 366 → 171 | 3,012 → 171 → 4,655 → 171 |
+| 10⁶ | 1,000 | 1 → 117 → 366 → 377 | 3,012 → 2,848 → 4,655 → 2,848 |
+| 10⁷ | 100 | 1 → 171 → 118 → 171 | 1 → 171 → 1,357 → 171 |
+| 10⁷ | 1,000 | 1 → 1 → 118 → 118 | 1 → 1,051 → 1,357 → 1,360 |
+| 10⁸ | 100 | 1 → 171 → 94 → 171 | 1 → 171 → 1,107 → 171 |
+| 10⁸ | 1,000 | 1 → 1 → 94 → 94 | 1 → 780 → 1,107 → 1,110 |
 
 Against the private price the bound was decisive, lifting one-slot
 windows to about `D`. Against the design's price, it changes the window
@@ -1001,8 +1012,9 @@ reply.
 
 The prices are checked against exact computation. The set statistic is
 checked against exact binomial tails, as the existing quantiles are.
-Both sides of a session are checked to compute the same shared window,
-whatever order the budgets arrive in. And the bound the shared window
+Every side's window is checked never to exceed `K_max`, whatever the
+budgets, set sizes, and backend node prices, and two sessions opened at
+once are checked still to collapse into one. And the bound the shared window
 relies on, that a level's parked queries number at most
 `K(d + 1) + 257`, is asserted in every session test. `sizing-model.py` reproduces every
 modeled figure in this note, and the implementation's exact figures
@@ -1069,7 +1081,7 @@ charge, since credits would replace parking but not the queued scopes.
 | 10⁵ | 76 MiB | 249 MiB | 96 MiB |
 | 10⁶ | 443 MiB | 418 MiB | 265 MiB |
 | 10⁷ | 2.0 GiB | 1.1 GiB | 0.96 GiB |
-| 10⁸ | 2.9 GiB | 1.7 GiB | 1.6 GiB |
+| 10⁸ | 3.0 GiB | 1.7 GiB | 1.6 GiB |
 
 On memory, band-targeted credits beat parking from about 10⁶ messages
 up, by roughly 1.7× at 10⁶ and 2× at 10⁷ and 10⁸. Credits hold only a

@@ -278,41 +278,45 @@ deliberate pre-release wire change to the greeting, landed on today's
 transport so that every existing suite is the regression net.
 
 - **The greeting.** The greeting (`message.rs`, and its codec in
-  `remote/codec/greeting.rs`) gains two fields: every greeting carries its
-  sender's budget, and the server's also carries the window it computed.
-  The decoder rejects a missing or malformed field, and the greeting
-  malformation suites gain a case for each.
-- **The window.** `WindowConfig::resolve` takes the peer's greeting
-  fields as well as the set sizes.
-  - The server computes `K_s`: the widest window that fits
-    `min(own budget, client's budget)`, pricing parking against a peer
-    that holds the same window. That is, the parking term's listing
-    entries at level d are capped at `(K(d + 1) + FAN + 1) · min(FAN, C(d))`,
-    where `K(d + 1)` is the candidate window itself.
-  - The client takes the widest window no wider than `K_s` whose charge,
-    with parking priced against a peer holding `K_s`, fits its own
-    budget.
-  - Both then map the window to per-level capacities the same way,
+  `remote/codec/greeting.rs`) gains one field: its sender's budget. The
+  greetings still cross concurrently, as `accept` in
+  `remote/proxy/start.rs` sends and receives them today; nothing may make
+  one greeting wait for the other. The decoder rejects a missing or
+  malformed budget, and the greeting malformation suites gain a case for
+  it.
+- **The window.** `WindowConfig::resolve` takes the peer's budget as
+  well as the set sizes.
+  - Compute `K_max`: the widest window that fits
+    `min(own budget, peer's budget)` at a node price of zero, pricing
+    parking against a peer holding the same window. That is, the parking
+    term's listing entries at level d are capped at
+    `(K(d + 1) + FAN + 1) · min(FAN, C(d))`, where `K(d + 1)` is the
+    candidate window itself.
+  - Take the side's own window: the widest, no wider than `K_max`, that
+    fits the smaller budget at the backend's real `node_bytes`, with the
+    parking cap using `K_max(d + 1)` in place of `K(d + 1)`.
+  - Map the window to per-level capacities as today,
     `K(ℓ) = max(1, min(K, S(ℓ)))`. Resolve the window once per side, and
     use it for both the walk and the proxy.
-  - Write at `resolve` why the server computes and the client only caps:
-    the two sides may price nodes differently, so each must price
-    against a peer window it knows.
+  - Write at `resolve` why the bound uses a zero node price: the two
+    sides may use different backends, and no backend's node costs less
+    than nothing, so no peer's window exceeds `K_max`.
 - **Test-only fixed windows** (`WindowConfig::Fixed`) ignore the
   exchange and keep their capacities. The mismatched-window sessions of
   step 2 use fixed windows on both sides, so they keep exercising the
   safety argument of exposition §5.2 after this step.
 - **Tests.**
-  - A property test over budgets, set sizes, and roles: the client's
-    window never exceeds the server's, and when both sides use the same
-    backend they hold the same window.
+  - A property test over budgets, set sizes, and backend node prices:
+    every side's window is at most `K_max`, and the computation is
+    symmetric in the two budgets.
+  - Two peers that trigger a session at the same moment still collapse
+    into one session, with each greeting carrying its budget.
   - In test builds, at every park, count the query reactions across
     that level's parked replies, and assert that they number at most
-    the peer's `K(d + 1) + FAN + 1`. This is the
-    deterministic fact the exchange prices, checked in every session
-    test.
-  - Sessions between peers on different budgets complete, and both sides
-    hold the smaller budget's window.
+    `K_max(d + 1) + FAN + 1`. This is the deterministic fact the
+    exchange prices, checked in every session test.
+  - Sessions between peers on different budgets complete, and both
+    sides' windows come from the smaller budget.
 - **The default.** Re-run step 3's default computation with the design's
   price. The model puts the threshold near 443 MiB, so the default stays
   at 512 MiB, and step 3's test must still pass.
@@ -324,8 +328,8 @@ transport so that every existing suite is the regression net.
   workload and the accounting boundary.
 - **Wire snapshots.** Re-accept `tests/gossip_snapshot.rs`,
   `tests/protocol_overhead.rs`, and the `insta` snapshots in this
-  commit, naming "the greeting carries the sync memory budget and the
-  server's window". Bookmark pins do not move.
+  commit, naming "the greeting carries the sync memory budget". Bookmark
+  pins do not move.
 - **User-facing prose.** Update `Peer::sync_memory_budget`'s memory
   accounting and the sizing guide from the draft text below. The budget
   now caps a session: a session runs at the window the smaller of the two
@@ -603,10 +607,10 @@ Commit: "Measure and document the single-socket residual".
     messages;
   - the census is re-baselined against recorded parent output.
 - After step 4:
-  - the client's window never exceeds the server's, and peers on one
-    backend hold the same window;
-  - parked queries never exceed the peer's `K(d + 1) + FAN + 1` in any
-    session test;
+  - every side's window is at most `K_max`, and simultaneous sessions
+    still collapse into one;
+  - parked queries never exceed `K_max(d + 1) + FAN + 1` in any session
+    test;
   - the default test still passes, and the census is re-baselined;
   - the calibration measurement is recorded;
   - Sush's compatibility branch builds and passes its tests.

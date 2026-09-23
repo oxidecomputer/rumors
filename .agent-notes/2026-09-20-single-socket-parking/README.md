@@ -58,9 +58,10 @@ messages it rises from about 1.7 to about 2.0 GiB.
 - Supplied content is absorbed into the backend before commit, and the
   backend owns reclaiming it when a session fails.
 - Queued scopes are priced as a set.
-- The greetings carry each side's budget, and the server's also carries
-  the window it computes from the smaller budget. Both sides hold at
-  most that window and price parking against it (exposition §6.6). A
+- Each greeting carries its sender's budget, and the greetings still
+  cross concurrently. Both sides bound every peer's window by `K_max`,
+  the widest window the smaller budget affords at a node price of zero,
+  and price parking against that bound (exposition §6.6). A
   well-provisioned peer can be narrowed by a constrained one, but a
   session only moves as fast as its narrower side, so the session gains.
 - A bound on the number of differing messages, drawn from comparing the
@@ -73,7 +74,7 @@ messages it rises from about 1.7 to about 2.0 GiB.
   dependence on the link, and not for memory. Sized to the levels where
   bulk flows, credits need less memory than parking from about 10⁶
   messages up, about 0.26 GiB against 0.43 GiB at 10⁶ and 1.6 GiB
-  against 2.9 GiB at 10⁸ on the long-haul link. Their price is a
+  against 3.0 GiB at 10⁸ on the long-haul link. Their price is a
   flow-control protocol with its own liveness argument, and sizing that
   needs the link's bandwidth-delay product (exposition §9).
 - Fixed charges, including parking's `+ 257` slack, count against the
@@ -109,7 +110,7 @@ When every root slot differs, parking can hold a whole level near the
 root: every occupied depth-3 prefix, at 25 bytes each. That is about
 24 MB at 10⁶ messages, 188 MB at 10⁷, and at most about 420 MB
 (exposition §6.4). The shared window bounds how much of it can arrive
-at once, and so its price: 92 MiB at the default budget with 10⁷
+at once, and so its price: 97 MiB at the default budget with 10⁷
 messages.
 
 ## Related notes
