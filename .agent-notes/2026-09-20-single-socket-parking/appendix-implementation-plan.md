@@ -197,6 +197,12 @@ transport, so every existing suite is the regression net.
      using step 0's shape. Assert the occupancy, then release the stage
      and complete the session. This is what shows the capacity cannot
      shrink; step 0's fixture shows only that the meter counts.
+   - **Mismatched windows.** Run sessions between a peer at
+     `Window::FLOOR` and a peer with a wide budget window, with each in
+     each role. Assert that they complete and match the in-memory merge,
+     and that neither side's parking check fires. The windows are never
+     exchanged, so this pins that each side's parking depends only on its
+     own window (exposition §5.2).
    - The malformed-peer suite gains a surplus reply, which must end in
      `ParkingOverflow`, not a hang.
    - `capacity_stress_covers_every_queue_role` covers the proxy edges at
@@ -492,6 +498,8 @@ These tests are committed in the same change:
      session must complete. This is the regime where any new wait of the
      receive path on the walk surfaces as a stall.
    - Also run the capacity stress matrix over the pipe.
+   - Run the mismatched-window sessions from step 2 over the pipe, at a
+     one-byte duplex buffer.
 3. **Unexpected stalls.** If any stall appears, find the violated premise
    (the count's event boundaries, a new receive-path wait, backend
    independence, or multiplexer scheduling) and resolve it. Never widen a

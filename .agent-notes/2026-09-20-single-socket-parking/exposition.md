@@ -320,6 +320,26 @@ question-queue capacity `K(ℓ)`, whatever that is:
 Correctness rests only on that link: however the window chooses `K(ℓ)`,
 parking has room for everything the count allows.
 
+**The two sides' windows may differ.** Each side sizes its window from
+its own budget, and the greeting never exchanges it. That is safe because
+a reply travels only in answer to its receiver's own question. The
+replies in flight toward a side are bounded by that side's window, and
+its parking is sized from the same number. The peer's window never
+enters.
+
+Suppose one peer has a far wider window. It asks more questions at once,
+so more answers flow toward it, and they park in its own parking, sized
+by its own window. On the narrow side:
+- The wide peer's questions arrive only inside replies to the narrow
+  side's questions, at most 256 per reply, so the narrow side's count and
+  price already cover them.
+- The narrow side's outgoing answers never park at the narrow side; they
+  drain toward the peer's socket reader, which never waits.
+
+A mismatch changes only how much each side asks at once: throughput,
+never progress. In this protocol, asking a question grants credit for
+exactly one reply, and each receiver issues its own.
+
 Parking can fill, but no conforming arrival can find it already full:
 that arrival would be one outstanding reply more than the count allows.
 So the decoder checks occupancy before it parks a reply. A full parking
