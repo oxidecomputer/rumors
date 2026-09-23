@@ -651,9 +651,10 @@ saw into process memory it now prices.
 The ITC versions in the greetings add four things:
 
 - **Equality:** equal versions end the session.
-- **Containment:** if one version is below the other, one side has seen
-  every send the other has, so the only difference in that direction is
-  deletions it has made.
+- **Containment:** a version records sends and redactions alike, so if
+  A's version is below B's, B has seen every event A has. A then holds
+  nothing B has not seen: anything A holds that B lacks, B has deleted,
+  and the supply filter drops it. Bulk flows only from B to A.
 - **The size of the difference as an area:** `Version::lag` and
   `distance` measure the history one side has and the other lacks, and
   `min_ticks` gives a lower bound on the events it contains.
