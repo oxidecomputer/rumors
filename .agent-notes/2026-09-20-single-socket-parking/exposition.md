@@ -688,7 +688,11 @@ which all of its leaves are separated, easily memoized in the tree.
   levels 2 through 5, above any leaf depth, where fans are genuinely wide
   and the quantiles are already close to the truth. Modeled with
   `sizing-model.py`, exact deep fans change thresholds and windows by
-  about 1% or less at 10⁵ to 10⁷ messages.
+  about 1% or less at 10⁵ to 10⁷ messages. The gain also shrinks with
+  size. The deep tail it removes costs roughly the same few MB at any n,
+  because each level divides the chance of a shared prefix by 256, while
+  every other charge grows with n. The removed share of the floor charge
+  falls from about 3% at 10⁵ messages to 0.1% at 10⁷.
 
 Richer profiles, such as the number of depth-3 prefixes under each root
 child, fail for the same reason: they sharpen fans, and fans are not
