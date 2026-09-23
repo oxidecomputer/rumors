@@ -1,311 +1,302 @@
 # Appendix: implementation plan
 
-This plan is for the agent implementing the design, and for its
-reviewer. The [exposition](exposition.md) holds the argument; this
-document holds the route. Each step states its goal, the change, and the
-evidence it commits. If a step's mechanism turns out to contradict its
-goal, follow the goal and report the discrepancy. The inventory of names
-below was taken at `98de1ce4`: confirm each with a search rather than
-trusting the list. The goal is that nothing afterward refers to deleted
-code.
+This plan is for the agent implementing the design and for the reviewer
+of its work. The [exposition](exposition.md) holds the argument, and
+each step cites the sections it implements. Every step states its goal,
+the change, and the evidence it commits. Where a step's mechanism
+contradicts its goal, follow the goal and report the discrepancy.
+
+The names below were inventoried at commit `98de1ce4`. Confirm each with
+a search before relying on it. When the plan is complete, nothing in the
+tree refers to deleted code.
 
 ## Conventions
 
 - **Paths.** A path beginning `src/`, `tests/`, `benches/`, or `crates/`
   is relative to the repository root. Any other path is relative to
   `src/tree/mirror/streaming/`.
-- *The walk* is `materialized/`. *The proxy* is `remote/proxy/`, with its
-  codec in `remote/codec/` and its reply adapter in `remote/adapter/`.
-  `FAN = 256`.
+- **Names.** *The walk* is `materialized/`. *The proxy* is
+  `remote/proxy/`, with its codec in `remote/codec/` and its reply
+  adapter in `remote/adapter/`. `FAN = 256`.
 - **Heights.** Code counts typed height from the leaves (0) to the root
-  (32). A level-ℓ question lists children at typed height `h = 32 − ℓ`.
-  The walk creates the question queue for those questions with
-  `window.capacity(h)`, and `proxy::Work::respond::<H>` delivers the
-  replies they pair with, where `H::HEIGHT = h`. Every capacity below uses
-  that same label, so one height names one logical queue everywhere.
+  (32), so a level-ℓ question lists children at typed height
+  `h = 32 − ℓ`. The walk creates the question queue for those questions
+  with `window.capacity(h)`, and `proxy::Work::respond::<H>` delivers
+  the replies they pair with, where `H::HEIGHT = h`. Every capacity
+  below uses the same label, so one height names one logical queue
+  everywhere.
 - **Tasks.** A *task* is a future registered with the session's `Work`
   (`Work::spawn`) and driven by its terminal `complete`, never a runtime
-  spawn. The crate is runtime-independent.
-- **Verification discipline.**
-  - Iterate with `just check` and `just test <filter>`.
-  - Run `just gate` once, clean, before each commit.
-  - Run long builds and the gate in the background, redirected to a file,
-    and poll that file.
-  - Do not iterate on wall-time measurements.
-  - Commit every proptest seed file that appears.
+  spawn, because the crate is runtime-independent.
+- **Verification.** Iterate with `just check` and `just test <filter>`,
+  and run `just gate` once, clean, before each commit. Run long builds
+  and the gate in the background, redirected to a file, and poll that
+  file. Do not iterate on wall-time measurements. Commit every proptest
+  seed file that appears.
 
 ## Invariants every step preserves
 
-- **The walk.** Apart from the opening-shortcut removal in step 1, its
-  exchange rules, its publication orders (`yield_resolve_query!`), its
-  queues and their capacities, and its assembler chain are unchanged
-  throughout. So are the frame grammar
-  (`remote/codec/signal.rs`), supply runs and `RunBudget`, the causal filter,
-  and the in-process tests that connect two walks through
-  `mirror_connected`.
+- **The walk.** Apart from the opening-shortcut removal in step 1, the
+  walk's exchange rules, its publication orders (`yield_resolve_query!`),
+  its queues and their capacities, and its assembler chain stay
+  unchanged. So do the frame grammar (`remote/codec/signal.rs`), supply
+  runs and `RunBudget`, the causal filter, and the in-process tests that
+  connect two walks through `mirror_connected`.
 - **Local question records** keep their publication order: the encoder
-  publishes a reply's records after handing on its last frame. Today that
-  means after the flush; over the pipe (step 4) it means after the last
-  frame enters the multiplexer's channel, without waiting for the write. `ProxyLocalQuestions` keeps capacity `K`, and the
-  decoder keeps its blocking receive. Exposition §5.3 explains why this
-  wait is local. Do not move the publication earlier.
-- **The receive path waits only** where the exposition's §5.3 table says.
-  Any new wait on the receive path needs the same kind of argument, and
-  it needs it before it lands.
+  publishes a reply's records after handing on its last frame. Today
+  that means after the flush; over the pipe (step 4) it means after the
+  last frame enters the multiplexer's channel, without waiting for the
+  write. `ProxyLocalQuestions` keeps capacity `K`, and the decoder keeps
+  its blocking receive. Exposition §5.3 explains why this wait is local.
+  Do not move the publication earlier.
+- **The receive path waits only where exposition §5.3's table says.**
+  Any new wait needs the same kind of argument, written before the wait
+  lands.
 
 ## Step 0: meter the count
 
-**Goal.** Commit an enforced check of the in-flight count before any
-change depends on it.
+**Goal.** Commit an enforced check of the in-flight count (exposition
+§5.1) before any change depends on it.
 
 - In the walk's test trace (`materialized/progress.rs`,
-  `materialized/progress/trace.rs`), record two new events:
-  - with each wire event, the number of questions the outgoing reply
-    carries (`yield_resolve_query!` already has them in hand);
-  - a take event wherever a stage takes a reply (`requests.next()` in
-    every stage loop, the terminal included), labeled with its height.
+  `materialized/progress/trace.rs`), record two new events. With each
+  wire event, record the number of questions the outgoing reply carries;
+  `yield_resolve_query!` already has them in hand. Wherever a stage
+  takes a reply (`requests.next()` in every stage loop, the terminal's
+  included), record a take event labeled with its height.
 - Add `Trace::assert_outstanding_within(&Window)`. At every event it
   asserts `asked(h) − taken(h) ≤ window.capacity(h) + FAN + 1`, and at
-  most one outstanding question at the root level. Call it wherever
-  `assert_valid` runs on a session trace (`tests.rs`), with that
-  session's window. This covers the capacity stress matrix and the
-  scheduled proptests.
-- **The liveness floor.** Commit a fixture that reaches equality, at
-  level 3 or deeper under `Window::FLOOR`. The shape:
-  - a first reply fills the question queue and gives the consuming stage
-    one question to hold;
-  - the consuming stage is delayed through the channel schedule;
-  - the asking stage then hands on a reply carrying 256 questions, and
-    stays blocked recording them.
-
+  most one outstanding question at the root level. Call it, with the
+  session's window, wherever `assert_valid` runs on a session trace
+  (`tests.rs`). That covers the capacity stress matrix and the scheduled
+  proptests.
+- Commit a liveness-floor fixture that reaches equality at level 3 or
+  deeper under `Window::FLOOR`. A first reply fills the question queue
+  and gives the consuming stage one question to hold. The channel
+  schedule then delays the consuming stage, and the asking stage hands
+  on a reply carrying 256 questions and stays blocked recording them.
   Assert that the high-water mark is exactly `1 + FAN + 1`, then let the
-  session complete. This proves that the meter counts and that the
-  capacity cannot shrink.
-- The premise "a stage records one reply's questions before handing on
-  another" is already enforced by `assert_valid`'s wire-contiguity clause.
-  Name that dependency in the new checker's doc comment.
+  session complete. The fixture shows that the meter counts and that the
+  bound is reached.
+- `assert_valid`'s wire-contiguity clause already enforces the count's
+  premise, that a stage records one reply's questions before handing on
+  another. Name that dependency in the new checker's doc comment.
 
 Commit: "Meter the walk's outstanding questions".
 
 ## Step 1: remove the opening-supply shortcut
 
-**Goal.** Delete a special case that only helps between small replicas,
-and that would deadlock over one socket.
+**Goal.** Delete a special case that helps only between small replicas
+and would deadlock over one socket (exposition §2 and §4).
 
-- **The walk:**
-  - remove the early-supply merge in `initiator_level`;
-  - remove the early-supply arm of `responder_level`;
-  - remove `OpeningHandoff` (both variants) and the `opening` parameter of
-    `internal_level` / `internal_walk`.
-
-  The responder's root-level empty queries are then answered by the
-  initiator's stage 1 with ordinary supplies.
-- **The proxy:**
-  - delete `remote/proxy/work/opening_supplies.rs` and `adapter::early_supplies`;
-  - delete the supply half of `encode::opening` and of
-    `adapter::opening_parts`;
-  - delete the `opening_supplies` parameters of `internal_replies` and
-    `decode_pump`;
-  - delete `StreamClass::OpeningSupplies`.
-
-  The initiator's stream 0 then carries nothing.
-- The greeting keeps its root listing, the level-1 question. Only the
-  unasked supplies go.
-- **Tests.**
-  - Remove tests of the deleted paths, including `remote/adapter/tests/opening.rs`
-    as far as it covers them.
-  - Re-run `src/tree/mirror/streaming/tests/wedge.rs`. Its fixture is the exposition's §4 shape: a disputed root
-    child plus a *wall* of six root children only the initiator holds.
+- In the walk, remove the early-supply merge in `initiator_level`, the
+  early-supply arm of `responder_level`, `OpeningHandoff` (both
+  variants), and the `opening` parameter of `internal_level` and
+  `internal_walk`. The initiator's stage 1 then answers the responder's
+  root-level empty queries with ordinary supplies.
+- In the proxy, delete `remote/proxy/work/opening_supplies.rs`,
+  `adapter::early_supplies`, the supply half of `encode::opening` and of
+  `adapter::opening_parts`, the `opening_supplies` parameters of
+  `internal_replies` and `decode_pump`, and
+  `StreamClass::OpeningSupplies`. The initiator's stream 0 then carries
+  nothing.
+- The greeting keeps its root listing, which is the level-1 question.
+  Only the unasked supplies go.
+- Tests:
+  - Remove tests of the deleted paths, including
+    `remote/adapter/tests/opening.rs` as far as it covers them.
+  - Re-run `src/tree/mirror/streaming/tests/wedge.rs`. Its fixture is the
+    exposition's §4 cycle: a disputed root child plus a *wall* of six
+    root children only the initiator holds.
     `session_realizes_the_wedge_shape` should still decode the session's
     dispute *skeleton* (the tree of disputed and requested scopes) as the
-    wedge, now with the wall crossing as level-2 supplies. If the
+    wedge, with the wall now crossing as level-2 supplies. If the
     skeleton decoder special-cases the opening batch, simplify it.
   - `tests/hop_trace.rs` pins exact hop counts per session shape.
     `trace_bulk_initiator_session` exists to pin the shortcut: it asserts
-    the initiator's first write on stream 0 lands at hop 2, and a total
-    of 5 hops. Rewrite its expectations for the shortcut's absence, and
-    state the change in the commit message. The other pinned counts
+    that the initiator's first write on stream 0 lands at hop 2, and a
+    total of 5 hops. Rewrite its expectations for the shortcut's absence,
+    and state the change in the commit message. The other pinned counts
     (insertion 7, redaction 7, converged 3) must not move.
 - This is a deliberate pre-release wire change. Re-accept the wire
-  snapshots (`tests/gossip_snapshot.rs`, `tests/protocol_overhead.rs`, the
-  `insta` snapshots) in this commit, and name the change in the message.
-  Bookmark pins do not move.
+  snapshots (`tests/gossip_snapshot.rs`, `tests/protocol_overhead.rs`,
+  and the `insta` snapshots) in this commit, and name the change in the
+  message. Bookmark pins do not move.
 - Update the prose that describes the shortcut: `remote.rs`,
   `encode::opening`, `remote/proxy/work/stages.rs`, the walk's opening
-  docs, and the
-  greeting docs in `message.rs`.
+  docs, and the greeting docs in `message.rs`.
 
 Commit: "Remove the opening-supply shortcut".
 
 ## Step 2: park decoded replies
 
-**Goal.** Give each level room for every invited reply, and move the
-answer-record publication to the take. Both changes land on today's
-transport, so every existing suite is the regression net.
+**Goal.** Give each level room for every invited reply (exposition
+§5.2), and move answer-record publication to the take (§5.3). Both
+changes land on today's transport, so every existing suite serves as the
+regression suite.
 
-1. **Parking capacity.**
-   - Move the decoded-reply channel constructor out of `Work::respond`
-     (`remote/proxy/work.rs`) into `remote/proxy/work/queues.rs`.
-   - Give it capacity `cap(h) = min(window.capacity(h) + FAN + 1, 256^(31−h))`,
-     computed without overflow. Level 1, `h = 31`, gets 1.
-   - Compute it from the same `window.capacity(h)` value the walk's
-     question queue at that height uses. That link, not the value, is
-     what correctness rests on.
-   - Write the count's argument (exposition §5.1) at the constructor.
-2. **Overflow check.**
-   - Before each park, in the relay, compare the queue's occupancy with
-     `cap(h)`, the derived value, not the channel's configured capacity.
-   - If the queue is at `cap(h)`, fail with a new proxy error, for example
-     `ParkingOverflow { height, capacity }`, attributed to the remote
-     speaker. Its message says the peer answered a question never asked,
-     or a local premise of the bound failed.
-   - Otherwise send as usual.
-   - Production channels have capacity `cap(h)`, so the send never waits.
-     Tests that shrink the channel with `with_kind_capacity` get a
-     blocking queue, which the step 4 negative control relies on.
-   - Occupancy is `max_capacity − capacity`. Expose it on the production
-     and instrumented senders.
-3. **Park the reply with the record it answers.**
-   - The decoder still validates each query's positional derivation while
-     decoding. It no longer returns the derived records, so
-     `Decoded::questions` goes, and `yield_reply_scopes!` leaves the
-     decode pumps.
-   - It parks `(Reply, Scope)`, where the `Scope` is the record of the
-     question the reply answers.
+1. **Parking capacity.** Move the decoded-reply channel constructor out
+   of `Work::respond` (`remote/proxy/work.rs`) into
+   `remote/proxy/work/queues.rs`. Give the channel capacity
+   `cap(h) = min(window.capacity(h) + FAN + 1, 256^(31−h))`, computed
+   without overflow; level 1 (`h = 31`) gets 1. Compute it from the same
+   `window.capacity(h)` value that the walk's question queue at that
+   height uses, because correctness rests on that link rather than on
+   the value. Write the count's argument (exposition §5.1) at the
+   constructor.
+2. **Overflow check.** Before each park, the relay compares the queue's
+   occupancy with the derived `cap(h)`, not with the channel's configured
+   capacity. At `cap(h)` it fails with a new proxy error, for example
+   `ParkingOverflow { height, capacity }`, attributed to the remote
+   speaker, whose message says that the peer answered a question never
+   asked or that a local premise of the bound failed. Otherwise it sends
+   as usual. Production channels have capacity `cap(h)`, so the send
+   never waits; tests that shrink the channel with `with_kind_capacity`
+   get a blocking queue, which the step 4 negative control relies on.
+   Occupancy is `max_capacity − capacity`; expose it on the production
+   and instrumented senders.
+3. **Park the reply with the record it answers.** The decoder still
+   validates each query's positional derivation while decoding, but no
+   longer returns the derived records, so `Decoded::questions` goes and
+   `yield_reply_scopes!` leaves the decode pumps. The decoder parks
+   `(Reply, Scope)`, where the `Scope` is the record of the question the
+   reply answers.
 4. **Publish answer records at the take.**
-   - The stream `respond` returns now owns the `ProxyNextScopes` sender.
-   - When the stage takes `(reply, scope)`, the stream replays
+   - The stream that `respond` returns now owns the `ProxyNextScopes`
+     sender. When the stage takes `(reply, scope)`, the stream replays
      `ReplyLevel::derive` over the reply's reactions against `scope` (a
-     match or query advances the position; a supply does not). It
-     publishes each derived record, then yields the reply.
-   - A derivation failure here is a local invariant failure, since decode
-     already accepted the same sequence. Surface it as an internal error,
-     never a panic.
+     match or query advances the position; a supply does not), publishes
+     each derived record, and then yields the reply.
+   - A derivation failure here is a local invariant failure, since
+     decoding already accepted the same sequence. Surface it as an
+     internal error, never a panic.
    - The responder's terminal level derives nothing.
-   - `ProxyNextScopes` gets capacity `FAN + 1`. Write the argument from
-     exposition §5.3 at its constructor.
+   - Give `ProxyNextScopes` capacity `FAN + 1`, and write the argument
+     from exposition §5.3 at its constructor.
    - Restate `yield_reply_scopes!`'s ordering role, or remove the macro
      if the take is its only remaining use.
 5. **Tests.**
-   - Capacity law for `ProxyNextScopes` at three points:
-     - at `FAN − 1`, a full-fan reply stalls (`run_to_quiescence` reports
-       `Stalled`);
-     - at `FAN`, it completes, possibly after waits;
-     - at `FAN + 1`, `blocked_send_polls` is zero across the proxy suites.
-   - **Parking's tightness.** Hold a level's consuming stage through the
-     channel schedule until exactly `K(ℓ) + FAN + 1` replies are parked,
-     using step 0's shape. Assert the occupancy, then release the stage
-     and complete the session. This is what shows the capacity cannot
-     shrink; step 0's fixture shows only that the meter counts.
-   - **Mismatched windows.** Run sessions between a peer at
+   - Test the `ProxyNextScopes` capacity at three points. At `FAN − 1`,
+     a full-fan reply stalls (`run_to_quiescence` reports `Stalled`). At
+     `FAN`, it completes, possibly after waits. At `FAN + 1`,
+     `blocked_send_polls` is zero across the proxy suites.
+   - *Parking's tightness.* Using step 0's shape, hold a level's
+     consuming stage through the channel schedule until exactly
+     `K(ℓ) + FAN + 1` replies are parked. Assert the occupancy, then
+     release the stage and complete the session. This test shows that
+     the capacity cannot shrink; step 0's fixture shows only that the
+     meter counts.
+   - *Mismatched windows.* Run sessions between a peer at
      `Window::FLOOR` and a peer with a wide budget window, with each in
      each role. Assert that they complete and match the in-memory merge,
-     and that neither side's parking check fires. The windows are never
-     exchanged, so this pins that each side's parking depends only on its
-     own window (exposition §5.2).
+     and that neither side's parking check fires. Windows are never
+     exchanged, so these sessions check that each side's parking depends
+     only on its own window (exposition §5.2).
    - The malformed-peer suite gains a surplus reply, which must end in
-     `ParkingOverflow`, not a hang.
+     `ParkingOverflow` and not hang.
    - `capacity_stress_covers_every_queue_role` covers the proxy edges at
      their new widths.
    - Update the proxy trace checks (`assert_question_causality` and its
      neighbors) for publication at the take.
    - Keep `fan_occupancy`'s claim scoped to one active decoder.
 6. **The backend contract.** Add a clause to `Backend`'s documentation:
-   operations complete without waiting on any other session work, since
-   decoders and the walk share the backend (exposition §5.3). Note at
-   `Local` that it meets the clause by construction: immutable shared
-   nodes and no locks.
-7. **Prose.** Update the comments that allow one decoded reply per stage:
-   `Work::respond`, the `remote/proxy/work/stages.rs` module doc, `remote/proxy/work/queues.rs`, and
-   `message.rs`.
+   operations complete without waiting on any other session work,
+   because decoders and the walk share the backend (exposition §5.3).
+   Note at `Local` that it meets the clause by construction, with
+   immutable shared nodes and no locks.
+7. **Prose.** Update the comments that allow one decoded reply per
+   stage: `Work::respond`, the `remote/proxy/work/stages.rs` module doc,
+   `remote/proxy/work/queues.rs`, and `message.rs`.
 
 Commit: "Park decoded replies per level".
 
 ## Step 3: price parking, sharpen the model, and size the default
 
-**Goal.** Make the budget describe what parking can hold. Stop the model
-pricing queued work at its per-node worst case, or as if the replicas
-shared nothing, where the session knows better. And keep the default
-budget from constraining the reference link for 10⁶-message replicas.
+**Goal.** Make the budget account for what parking can hold (exposition
+§6.3). Where the session knows better, stop the model from pricing
+queued work at its per-node worst case (§6.5) or as if the replicas
+shared nothing (§6.6). Keep the default budget from constraining the
+reference link for 10⁶-message replicas (§6.7).
 
-Land this step as two commits:
-1. The set statistic, the re-priced queued scopes, and the root
-   comparison. These are independent of the socket and widen every
-   window.
-2. The parking charge and the default, with the census and calibration.
+Land this step as two commits. The first holds the set statistic, the
+re-priced queued scopes, and the root comparison, which are independent
+of the socket and widen every window. The second holds the parking
+charge and the default, with the census and the calibration.
 
 - **Constants.** In `window.rs`, derive the parked-reaction and
   listing-entry byte constants with `size_of`, as the existing constants
   are derived.
-- **The set statistic.**
-  - Add `set_leaves_quantile(n, q, j)`: the bound on leaves under any q
-    distinct depth-j nodes, at union tail bits
-    `UNION_TAIL_BITS + q·(8j + 2 − ⌊log₂ q⌋)`. Use the existing
-    `small_mean_quantile` / `bernstein` pair with `num = n·q`.
-  - Special cases: `q = 1` must equal `leaves_quantile`, and
-    `q ≥ 256ʲ` returns `n`.
-  - Check its integer form numerically against exact binomial tails over
-    the same parameter sweep the existing quantiles use.
-- **The charge.** In `from_budget`'s `charge(K)`, add the parking term for
-  every depth: the least of the per-reply, per-level, and per-set bounds
-  (exposition §6.3), with `slots(d) = min(K(d) + FAN + 1, 256^(d−1))`.
-- **Queued scopes, priced as a set** (exposition §6.4). The existing scope
-  charge at depth d becomes
+- **The set statistic.** Add `set_leaves_quantile(n, q, j)`, the bound
+  on leaves under any q distinct depth-j nodes, at union tail bits
+  `UNION_TAIL_BITS + q·(8j + 2 − ⌊log₂ q⌋)`. Build it from the existing
+  `small_mean_quantile` / `bernstein` pair with `num = n·q`. At `q = 1`
+  it must equal `leaves_quantile`, and at `q ≥ 256ʲ` it returns `n`.
+  Check its integer form numerically against exact binomial tails over
+  the same parameter sweep the existing quantiles use.
+- **The charge.** In `from_budget`'s `charge(K)`, add the parking term
+  for every depth: the least of the per-reply, per-level, and per-set
+  bounds (exposition §6.3), with
+  `slots(d) = min(K(d) + FAN + 1, 256^(d−1))`.
+- **Queued scopes, priced as a set** (exposition §6.5). The existing
+  scope charge at depth d becomes
   `min(q·C(d−1), set_leaves_quantile(n, q, d−1), occupied(n, d))`
   references plus `q` fixed scope parts, where `q = min(K, S(d))`. The
-  queued questions at one depth concern distinct nodes, which is the
-  premise the set bound needs. State that premise at the charge.
-- **Pricing from the root comparison** (exposition §6.4).
+  set bound needs its premise that the queued questions at one depth
+  concern distinct nodes; state it at the charge.
+- **Pricing from the root comparison** (exposition §6.6).
   - At window resolution, count the root slots whose listings differ
     between the two greetings: a radix present on one side only, or
     digests that differ. Both the walk and the proxy resolve the window
     where both listings are in hand; pass the count into
     `WindowConfig::resolve`.
-  - Add `D_hi` as a constant table over `k` in 0..256, with `k = 256`
-    meaning no bound. A test re-derives every entry exactly with integer
-    arithmetic: the least `D` with `binom(256, k)·k^D·2⁴⁸ ≤ 256^D`.
-  - When `k < 256`, cap the population table itself: `S(2) ≤ k`, and
-    `S(d) ≤ D_hi` for deeper d. Both the charge and the capacities
-    `K(d) = max(1, min(K, S(d)))` then use it. Also cap parking slots at
-    `k` for level 2 and `D_hi` deeper, and parked listing entries at
-    `D_hi · C(d)` per level.
-  - This is safe because parking's capacity is derived from each level's
-    actual question-queue capacity (step 2), whatever that is. A session
-    in the statistical tail gets narrower queues and spends more memory
-    than estimated, but never fails. Write this at the parking
-    constructor, since it is the link most easily eroded.
-- Update `UNION_TAIL_BITS`'s accounting comment for the added statistics:
-  one set statistic per depth per replica, plus the root comparison,
-  which stays under 2⁸.
+  - Add `D_hi` as a constant table over `k` in 0..256, where `k = 256`
+    means no bound. A test re-derives every entry exactly with integer
+    arithmetic, as the least `D` with `binom(256, k)·k^D·2⁴⁸ ≤ 256^D`.
+  - When `k < 256`, cap the population table itself, with `S(2) ≤ k`
+    and `S(d) ≤ D_hi` for deeper d, so that both the charge and the
+    capacities `K(d) = max(1, min(K, S(d)))` use the caps. Cap parking
+    slots at `k` for level 2 and at `D_hi` deeper, and parked listing
+    entries at `D_hi · C(d)` per level.
+  - The caps are safe because parking's capacity is derived from each
+    level's actual question-queue capacity (step 2), whatever that is. A
+    session in the statistical tail gets narrower queues and uses more
+    memory than estimated, but never fails. Write this at the parking
+    constructor, since it is the link a later change could most easily
+    break.
+- Update `UNION_TAIL_BITS`'s accounting comment for the added
+  statistics: one set statistic per depth per replica, plus the root
+  comparison. The total count of statistics must stay under 2⁸, so that
+  their union keeps the session's tail below 2⁻⁴⁰.
 - **The default.**
   - Compute the threshold budget at the reference point: A = B = 10⁶,
-    `SPEC_BDP_BYTES`, 100-byte messages. It is the least budget for which
-    `from_budget` grants `min(W, max_d S(d))` with
+    `SPEC_BDP_BYTES`, and 100-byte messages. It is the least budget for
+    which `from_budget` grants `min(W, max_d S(d))`, with
     `W = ⌈SPEC_BDP_BYTES / DISPUTE_WIRE_BYTES⌉`.
   - Set `DEFAULT_SYNC_MEMORY_BUDGET` to that threshold rounded up to a
-    power of two. With the refinements above, the model puts the threshold
-    near 467 MiB, so the default likely stays at 512 MiB. The exact prices
-    decide.
-  - Commit a test that the default grants the reference window, so a
-    later pricing change that would make the default constrain there
-    fails.
-- **The reference set size.**
-  - Move `REFERENCE_SESSION_MESSAGES` to 10⁶, and regenerate
-    `window/tradeoff.md` with `just window-tradeoff`.
-  - Re-derive `REFERENCE_SCOPE_BYTES`.
-  - Update the prose figures in `src/sizing.rs` (the window, the crossover
-    arithmetic, the slowdown quotes). Any figure that is a measurement,
-    such as the 41.73-byte overhead, is either re-measured at the new size
-    or stated with the size it was measured at.
+    power of two. With the refinements above, the model puts the
+    threshold near 467 MiB, so the default likely stays at 512 MiB; the
+    exact prices decide.
+  - Commit a test that the default grants the reference window, so that
+    any later pricing change that would make the default constrain the
+    reference link fails it.
+- **The reference set size.** Move `REFERENCE_SESSION_MESSAGES` to 10⁶,
+  regenerate `window/tradeoff.md` with `just window-tradeoff`, and
+  re-derive `REFERENCE_SCOPE_BYTES`. Update the prose figures in
+  `src/sizing.rs`: the window, the crossover arithmetic, and the
+  slowdown quotes. Re-measure any figure that is a measurement, such as
+  the 41.73-byte overhead, at the new size, or state the size it was
+  measured at.
 - **The census.** Record the parent commit's sizing output, then
-  re-baseline `tests/window/{census,corners,knee,operator,sweep,tradeoff_probe,pipelining}.rs`
-  as they apply. These report the sizing model, not allocations.
+  re-baseline
+  `tests/window/{census,corners,knee,operator,sweep,tradeoff_probe,pipelining}.rs`
+  as they apply. These tests report the sizing model, not allocations.
 - **Calibration.** Measure actual peak parked bytes for 10⁶- and
   10⁷-message replicas with scattered differences. Record the results
-  separately from model output, with workload and accounting boundary.
+  separately from model output, with the workload and the accounting
+  boundary.
 - **User-facing prose.** Update `Peer::sync_memory_budget`'s memory
-  accounting and the sizing guide using the draft text below. At this
-  commit the transport is still the bundle, so describe it as it is.
+  accounting and the sizing guide from the draft text below. The
+  transport at this commit is still the bundle, so describe it as it is.
 
 Commits: "Price queued work as sets, and from the root comparison", then
 "Price parked replies; size the default for 10⁶-message replicas".
@@ -321,21 +312,21 @@ section:
 > Rumors chooses how much work to keep in flight so that, under a
 > conservative model of how messages spread across its hash tree, the
 > session's working memory stays within the budget. The model prices
-> every buffer as full at once and every buffer's contents at a size
+> every buffer as full at once, and every buffer's contents at a size
 > that uniformly spread message addresses exceed with probability below
 > 2⁻⁴⁰ per session.
 >
 > Most sessions use far less. Buffers fill only while one part of the
 > comparison waits on another. The first exchange between two replicas
 > also shows roughly how much they differ, and the estimate shrinks
-> accordingly: replicas that gossip regularly are sized for their
-> differences, not their total size. Measure your workload if you need
-> a typical figure.
+> accordingly, so replicas that gossip regularly are sized for their
+> differences rather than their total size. Measure your workload if you
+> need a typical figure.
 >
 > A session can exceed its estimate if message addresses cluster far
 > more than hashing makes likely. Addresses are hashes of message
-> versions, so this does not happen by chance in practice. Exceeding the
-> estimate uses more memory; it never affects correctness or progress.
+> versions, so in practice this does not happen by chance. Exceeding the
+> estimate uses more memory and never affects correctness or progress.
 >
 > Even a zero budget keeps the minimum buffering needed for progress,
 > which may exceed the target. The budget does not cover the replica
@@ -347,12 +338,13 @@ matter":
 
 > # What the budget estimate means
 >
-> The window is sized from a worst case that is extremely unlikely to
-> occur, not from typical use. For each tree level, the estimate assumes
-> the level has as much work in flight as it is allowed, and that each
-> piece of that work is as large as the tree's shape plausibly permits.
-> Here "plausibly" means that uniformly hashed addresses exceed the
-> assumed size with probability below 2⁻⁴⁰ per session.
+> The window is sized from a worst case that is very unlikely to occur,
+> rather than from typical use. For each tree level, the estimate
+> assumes that the level has as much work in flight as it is allowed,
+> and that each piece of that work is as large as the tree's shape
+> plausibly permits. Here "plausibly" means that uniformly hashed
+> addresses exceed the assumed size with probability below 2⁻⁴⁰ per
+> session.
 >
 > In ordinary operation the in-flight work is far smaller. Replicas that
 > gossip regularly differ in a small fraction of their messages, and the
@@ -368,10 +360,11 @@ matter":
 ## Step 4: collapse the transport to one pipe
 
 **Goal.** Sessions run over one duplex byte stream, the stream-bundle
-machinery is gone, and the committed demonstration shows that the cure
-works and that the harness would catch its regression. This is one
-atomic commit: code, wire snapshots, public contract docs, examples, and
-tests. Update and test Sush's compatibility branch alongside it.
+machinery is gone, and the committed demonstration shows both that the
+design prevents the deadlock and that the harness would catch its
+return (exposition §4, §5.3, §5.4, §7.5). This is one atomic commit:
+code, wire snapshots, public contract docs, examples, and tests. Update
+and test Sush's compatibility branch alongside it.
 
 ### The public API
 
@@ -383,63 +376,62 @@ tests. Update and test Sush's compatibility branch alongside it.
 - `Rumors::gossip` takes the halves the same way and owns them for the
   driver's lifetime. To reuse the connection after the policy ends, a
   caller passes `&mut read, &mut write`.
-- Tokio's blanket implementations admit `&mut` halves everywhere. Document
-  that after an error, or after cancelling an active session, the
-  connection's position is unknown and the connection must be discarded,
-  and that a later session on it gets no typed warning.
+- Tokio's blanket implementations admit `&mut` halves everywhere.
+  Document that after an error, or after cancelling an active session,
+  the connection's position is unknown and the connection must be
+  discarded, and that a later session on it gets no typed warning.
 - Remove `Error::LinkPoisoned`.
 - State the transport requirement on these functions and in the crate
   docs: one reliable, ordered duplex byte stream; directions that
-  progress independently (a read proceeds while the same side's write is
-  blocked); receiver-paced backpressure at any positive capacity; and
-  end-of-stream or an error when the peer departs.
-- Move `src/link.rs`'s section on securing the transport (authentication is
-  authorization, integrity, confidentiality, freshness) and its session
-  promises into the crate docs.
+  progress independently, so that a read proceeds while the same side's
+  write is blocked; receiver-paced backpressure at any positive
+  capacity; and end-of-stream or an error when the peer departs.
+- Move `src/link.rs`'s section on securing the transport (authentication
+  is authorization, integrity, confidentiality, freshness) and its
+  session promises into the crate docs.
 
 ### The pipe
 
 - **Add `remote/pipe.rs`,** holding two tasks in the session's `Work`.
 - **The multiplexer** owns the write half. It takes `(Stream, Frame)`
   items from one capacity-1 channel per logical stream. It serves every
-  frame that is not a supply run before any supply run, round-robin within
-  each class, and it writes and flushes whole frames. When every channel
-  has closed, it returns the write half for the closing exchange.
+  frame that is not a supply run before any supply run, round-robin
+  within each class, and it writes and flushes whole frames. When every
+  channel has closed, it returns the write half for the closing
+  exchange.
 - **Keep the multiplexer's priority classes general:** one lane per
   class, served in class order, each lane in its own order. A later bulk
-  lane (exposition §8) then slots in as the lowest class, rather than
-  forcing a rewrite of a hard-coded rule for supply runs.
+  lane (exposition §10.3) can then join as the lowest class without a
+  rewrite of a rule hard-coded for supply runs.
 - **The demultiplexer** owns the read half. It reads each frame with
-  `FrameRead` and routes it by stream index to that stream's decoder over
-  a capacity-1 channel.
+  `FrameRead` and routes it by stream index to that stream's decoder
+  over a capacity-1 channel.
   - It reads a head's first byte with a single, cancellation-safe read.
     A frame opens with a CBOR array head. The session's closing items
     open differently: the *completion marker* each side sends when its
     reconciliation is done opens with a text head, and a *donation* (the
-    identity a retiring or bootstrapping peer hands over) with a tag
-    head.
-  - On the first non-array head, it stops and returns the read half with
-    that byte as lookahead. The closing exchange reads from there.
+    identity a retiring or bootstrapping peer hands over) opens with a
+    tag head.
+  - On the first head that is not an array head, it stops and returns
+    the read half with that byte as lookahead, and the closing exchange
+    reads from there.
   - End-of-stream during the data phase is a truncation error of the
     pipe. It replaces the *departure watch*, the task that today reads
-    the control stream during reconciliation to notice the peer
-    leaving.
+    the control stream during reconciliation to notice the peer leaving.
 - **Delete `remote/streams.rs`.** `StreamSender` and `StreamReceiver`
   become the channel ends above. `decode_reply` already accepts any
   `Stream<Item = Frame>`. A decoder that received no question skips its
-  end-of-stream check, as today.
-  - Remove the labels and their renderer, the claims, the accept driver,
-    `Done`, `ClaimSlots`, `AcceptError`, `StreamError`, and the error
-    route.
-  - Their one surviving case, end-of-stream before a logical stream's
-    `End::Stream`, becomes the pipe's truncation error.
-- **`remote/proxy/state.rs` and `remote/proxy/work.rs`.**
-  - `Session` holds the pipe's channel ends instead of the connector,
-    claims, and routes.
-  - `Physical` loses `accept`, `errors`, and the departure watch.
-  - `execute` selects the protocol against the pipe's failure.
-  - `ControlRead` either becomes the lookahead-carrying read half or
-    dissolves; it must not outlive its purpose.
+  end-of-stream check, as it does today. Remove the labels and their
+  renderer, the claims, the accept driver, `Done`, `ClaimSlots`,
+  `AcceptError`, `StreamError`, and the error route. Their one surviving
+  case, end-of-stream before a logical stream's `End::Stream`, becomes
+  the pipe's truncation error.
+- **`remote/proxy/state.rs` and `remote/proxy/work.rs`.** `Session`
+  holds the pipe's channel ends instead of the connector, claims, and
+  routes. `Physical` loses `accept`, `errors`, and the departure watch.
+  `execute` selects the protocol against the pipe's failure.
+  `ControlRead` either becomes the lookahead-carrying read half or
+  dissolves; it must not outlive its purpose.
 
 ### What is deleted
 
@@ -453,10 +445,12 @@ tests. Update and test Sush's compatibility branch alongside it.
   kinds.
 - `tests/routed_link.rs`, and `tests/latency_link.rs` with its contract
   suite.
-- In the testkit, `routed_tcp`: merge it with `tcp` into one helper that
-  splits a `TcpStream`.
-- `window.rs` takes its decoder count from the codec's `Stream::COUNT`.
-- `MemoryLink` in doc examples becomes a `tokio::io::duplex` pair, split.
+- In the testkit, `routed_tcp`, which merges with `tcp` into one helper
+  that splits a `TcpStream`.
+
+Two dependents change with the deletions: `window.rs` takes its decoder
+count from the codec's `Stream::COUNT`, and `MemoryLink` in doc examples
+becomes a split `tokio::io::duplex` pair.
 
 ### The wire
 
@@ -467,16 +461,17 @@ tests. Update and test Sush's compatibility branch alongside it.
   snapshots in this commit, naming "single-pipe framing: stream labels
   removed; control items share the pipe". Bookmark pins do not move.
 - `crates/rumors-testkit/src/common/gossip_snapshot.rs` groups items by
-  logical stream index from the observer hooks rather than parsed labels,
-  and renders by logical stream, so that multiplexer interleaving alone
-  never churns a snapshot.
-- `StreamObserver` keeps its logical-stream index and direction. Its
-  prose says logical streams, not transport streams.
+  logical stream index from the observer hooks rather than from parsed
+  labels, and renders by logical stream, so that multiplexer
+  interleaving alone never changes a snapshot.
+- `StreamObserver` keeps its logical-stream index and direction, and its
+  prose speaks of logical streams rather than transport streams.
 
 ### Drivers and remaining tests
 
 - Replace `SessionTransport` with two erased halves.
-- Remove the session funnels' `SessionState` calls in `src/peer/gossip.rs`.
+- Remove the session funnels' `SessionState` calls in
+  `src/peer/gossip.rs`.
 - Re-anchor `tests/hop_trace.rs` on observer hooks over a delayed pipe.
   Every hop count it pins after step 1 must hold unchanged.
 - Run `benches/window_wallclock.rs` over the pipe, and move the latency
@@ -484,36 +479,34 @@ tests. Update and test Sush's compatibility branch alongside it.
 
 ### The demonstration
 
-These tests are committed in the same change:
+Commit these tests in the same change.
 
 1. **The negative control.** Run the exposition's §4 fixture
-   (`src/tree/mirror/streaming/tests/wedge.rs`'s tree
-   pair) over one `tokio::io::duplex` pair with `ProxyResponses` forced to
-   one slot by `with_kind_capacity`. Under `run_to_quiescence` it must
+   (the tree pair in `src/tree/mirror/streaming/tests/wedge.rs`) over
+   one `tokio::io::duplex` pair, with `ProxyResponses` forced to one
+   slot by `with_kind_capacity`. Under `run_to_quiescence` it must
    report `Stalled`. At the derived capacity it must complete and match
    `Tree::join`. Commit these as two named tests.
-2. **The positive regime.**
-   - Run the scheduled session suites over the pipe at `Window::FLOOR`
-     with a one-byte duplex buffer, under `run_to_quiescence`. Every
-     session must complete. This is the regime where any new wait of the
-     receive path on the walk surfaces as a stall.
-   - Also run the capacity stress matrix over the pipe.
-   - Run the mismatched-window sessions from step 2 over the pipe, at a
-     one-byte duplex buffer.
-3. **Unexpected stalls.** If any stall appears, find the violated premise
-   (the count's event boundaries, a new receive-path wait, backend
-   independence, or multiplexer scheduling) and resolve it. Never widen a
-   queue to make a stall go away.
+2. **The positive regime.** Run the scheduled session suites over the
+   pipe at `Window::FLOOR`, with a one-byte duplex buffer, under
+   `run_to_quiescence`, and require every session to complete. In this
+   regime any new wait of the receive path on the walk shows up as a
+   stall. Also run the capacity stress matrix over the pipe, and the
+   mismatched-window sessions from step 2 at a one-byte duplex buffer.
+3. **Unexpected stalls.** If any stall appears, find the violated
+   premise (the count's event boundaries, a new receive-path wait,
+   backend independence, or multiplexer scheduling) and resolve it.
+   Never widen a queue to make a stall go away.
 
 ### Prose
 
-- The commit updates every public signature and failure rule, migrates
-  `src/link.rs`'s surviving documentation, and fixes every import, link,
-  example, and comment that would describe deleted behavior. That
-  includes `src/lib.rs`, `src/reconciliation.rs`, `src/sizing.rs`, `src/tutorial.rs`,
-  `src/observe.rs`, and the streaming module docs.
-- The sizing prose drops the bundle's transport-buffer caveats that no
-  longer apply.
+- Update every public signature and failure rule, migrate `src/link.rs`'s
+  surviving documentation, and fix every import, link, example, and
+  comment that would describe deleted behavior. That includes
+  `src/lib.rs`, `src/reconciliation.rs`, `src/sizing.rs`,
+  `src/tutorial.rs`, `src/observe.rs`, and the streaming module docs.
+- Drop the sizing prose's caveats about the bundle's transport buffers
+  that no longer apply.
 - Update `AGENTS.md`'s transport bullet, and regenerate the READMEs with
   `just readme`.
 
@@ -521,31 +514,30 @@ Commit: "Collapse the transport to one pipe".
 
 ## Step 5: measure the single-socket residual
 
-**Goal.** Put a number on the serialization cost from exposition §9, and
+**Goal.** Put a number on the serialization cost of exposition §7.3, and
 publish the deployment guidance that bounds it.
 
-- On the delayed pipe, measure a thin deep reply ready just after a
-  maximum-size supply frame. Take one run with the socket's unsent bytes
-  unbounded and one bounded (`TCP_NOTSENT_LOWAT` at about one frame where
-  the platform has it; `SO_SNDBUF` at about one bandwidth-delay product
-  plus one frame otherwise). Record both.
-- Measure the in-level bulk penalty on the delayed pipe, for a
+- On the delayed pipe, measure a thin deep reply that becomes ready just
+  after a maximum-size supply frame. Take one run with the socket's
+  unsent bytes unbounded and one with them bounded (`TCP_NOTSENT_LOWAT`
+  at about one frame where the platform has it, `SO_SNDBUF` at about one
+  bandwidth-delay product plus one frame otherwise), and record both.
+- Measure the in-level bulk penalty on the delayed pipe for a
   representative divergent session: completion time against
-  `max(descent critical path, total bytes / bandwidth)`. Exposition §8.2
-  bounds the descent's share by a few one-way delays and simulates the
-  duplex share. Include a balanced workload of few, large messages, where
-  the duplex share is largest, and record the measured excess beside both
-  figures.
+  `max(descent critical path, total bytes / bandwidth)`. Exposition
+  §10.3 bounds the descent's share by a few one-way delays and simulates
+  the duplex share. Include a balanced workload of few, large messages,
+  where the duplex share is largest, and record the measured excess
+  beside both figures.
 - The hop ledger must stay fixed; elapsed time may move.
 - Write the deployment guidance into the crate docs. The note's platform
   facts (which systems provide `TCP_NOTSENT_LOWAT`, and illumos's buffer
-  tunables) come from documentation and are unverified; confirm them
-  first. For TCP:
-  - bound the socket's unsent bytes by whichever means the platform
-    offers;
-  - choose `target_message_size` for the head-of-line delay the
-    deployment accepts, since the default run budget is sized for memory
-    symmetry with the largest query reply, not for latency.
+  tunables) come from documentation and are unverified, so confirm them
+  first. For TCP, the guidance is to bound the socket's unsent bytes by
+  whichever means the platform offers, and to choose
+  `target_message_size` for the head-of-line delay the deployment
+  accepts, since the default run budget is sized for memory symmetry
+  with the largest query reply rather than for latency.
 
 Commit: "Measure and document the single-socket residual".
 
@@ -554,38 +546,37 @@ Commit: "Measure and document the single-socket residual".
 - Update this note's README to describe the implemented result.
 - Add one line to the conclusion of `formal/README.md`'s second
   campaign, which asked whether one bounded channel could replace the
-  stream bundle: the
-  counting bound and a link to this note. Formal work is optional and
-  blocks nothing.
+  stream bundle: the counting bound, and a link to this note. Formal
+  work is optional and blocks nothing.
 
 ## Acceptance
 
 - Step 0's outstanding-question check runs in every walk suite, and its
   fixture reaches `K + FAN + 1` exactly.
-- The shortcut's removal changes the wire snapshots and
-  `trace_bulk_initiator_session` only as its commit names. Every other
-  pinned hop count stays fixed.
-- After step 2:
-  - no parking overflow occurs in any conforming suite;
-  - the `ProxyNextScopes` capacity law holds from both sides;
-  - a surplus reply fails with `ParkingOverflow`.
+- Removing the shortcut changes the wire snapshots and
+  `trace_bulk_initiator_session` only as its commit names, and every
+  other pinned hop count stays fixed.
+- After step 2, no parking overflow occurs in any conforming suite, the
+  `ProxyNextScopes` capacity law holds at its three points, and a surplus
+  reply fails with `ParkingOverflow`.
 - After step 3:
   - the set statistic matches exact binomial tails, and the `D_hi` table
     matches its exact re-derivation;
   - parking's capacity is derived from each level's actual
     question-queue capacity;
-  - the default grants the reference window at 10⁶ messages, pinned by a
-    test;
+  - a test pins that the default grants the reference window at 10⁶
+    messages;
   - the census is re-baselined against recorded parent output;
   - the calibration measurement is recorded.
 - After step 4:
   - `just gate` is clean;
   - the negative control stalls and the derived capacity completes;
-  - the pipe regime completes throughout;
+  - every session in the pipe regime completes;
   - every pinned hop count matches its value before the collapse;
-  - snapshot differences are labels and in-band control items only;
+  - snapshot differences are confined to labels and in-band control
+    items;
   - Sush's compatibility branch builds and passes its tests.
-- Step 5's measurements are recorded, and the deployment note is
+- Step 5's measurements are recorded, and the deployment guidance is
   published.
 
 ## Risks
@@ -593,13 +584,14 @@ Commit: "Measure and document the single-socket residual".
 - **The count or its event boundaries are wrong.** An unexpected
   high-water mark means a wrong event, height label, or production
   premise. Resolve it; never add slack.
-- **A receive-path wait on the walk slips in.** Capacity cannot repair
-  that. The pipe regime in step 4 is the detector; its negative control
-  shows the detector works.
-- **The byte model underprices.** The count is exact, but its byte price
-  is statistical. Clustered addresses can exceed it without affecting
-  correctness; the calibration measurement anchors the model.
-- **Absorbed content of a failed session.** It is uncommitted.
-  In-memory backends release it; a persistent backend must reclaim it, as
-  it already reclaims any uncommitted node.
+- **A receive-path wait on the walk slips in.** No capacity can repair
+  that. The pipe regime in step 4 detects it, and its negative control
+  shows that the detector works.
+- **The byte model underprices.** The count is exact, but its price in
+  bytes is statistical. Clustered addresses can exceed the price without
+  affecting correctness, and the calibration measurement anchors the
+  model.
+- **A failed session leaves absorbed content.** That content is
+  uncommitted. In-memory backends release it, and a persistent backend
+  must reclaim it, as it already reclaims any uncommitted node.
 - **Loss coupling on TCP** is accepted: one recovery delays every level.
