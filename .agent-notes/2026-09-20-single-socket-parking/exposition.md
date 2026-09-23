@@ -535,6 +535,28 @@ messages. Nodes at one depth are disjoint, so:
 At level 2 the count is exact: `k` questions, of which only the disputed
 slots can return listings.
 
+**Where it pays.** At the default budget, nothing changes: the
+size-only window already exceeds any `D` below saturation. The bound
+matters at budgets of tens of MiB with replicas of 10⁶ messages or more.
+There the size-only model prices full divergence, and its fixed charges
+alone drive the window to one slot. One slot sends each level one
+parent's questions per round trip, so 100 scattered differences take on
+the order of 100 round trips. Priced from the root comparison, the same
+session gets a window covering every dispute:
+
+| Replicas | Differences | Budget | Window, size-only → root comparison |
+| --- | --- | --- | --- |
+| 10⁶ | 100 | 16 MiB | 1 → 171 |
+| 10⁶ | 1,000 | 16 MiB | 1 → 117 |
+| 10⁷ | 100 | 64 MiB | 1 → 171 |
+| 10⁷ | 1,000 | 64 MiB | 1 → 1,051 |
+
+That is the steady state of a node that gossips with many peers under a
+divided memory budget: large replicas, small per-session budgets, and few
+differences between sessions. Above about 1,400 differences the bound
+saturates, and such a session is priced as fully divergent again; only a
+difference estimator in the greeting (§6.7) would cover it.
+
 The capped populations feed the window's capacities as well as its
 price, and that is safe. Parking's capacity is computed from each level's
 actual question-queue capacity (§5.2), so a session whose `D` lands in
