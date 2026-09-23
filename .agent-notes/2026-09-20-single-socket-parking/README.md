@@ -109,8 +109,8 @@ shows larger penalties.
 ## Accepted costs
 
 - When every root slot differs, parking can hold a whole level near the
-  root: about 25 bytes per message of the larger replica, up to about
-  420 MB. Shrinking it would take a protocol change that costs more than
+  root: every occupied depth-3 prefix, at 25 bytes each. That is about
+  24 MB at 10⁶ messages and 188 MB at 10⁷, and at most about 420 MB. Shrinking it would take a protocol change that costs more than
   it saves.
 
 ## Related notes

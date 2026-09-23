@@ -156,13 +156,42 @@ def granted(charge, top, budget):
     return lo
 
 
+def level_walk(n=10**7, extra=200_000):
+    """The worked example of exposition section 6.8, level by level."""
+    children = lambda leaves: 256 * (1 - math.exp(-leaves / 256))
+    differs = lambda depth: 1 - math.exp(-extra / 256 ** depth)
+    print(f"\nLevel walk, n={n:.0e}, {extra} extra messages on one side:")
+    for j in range(4):
+        print(f"  depth {j}: {n / 256 ** j:,.1f} leaves, {children(n / 256 ** j):.0f} children"
+              + (f", differs with probability {differs(j):.3f}" if j else ""))
+    level1 = 256 * children(n / 256)
+    print(f"  level 1: one reply, {level1:,.0f} entries, {level1 * ENTRY_BYTES / 1e6:.1f} MB")
+    queries = 256 * differs(2)
+    entries = queries * children(n / 256 ** 2)
+    print(f"  level 2: 256 replies of {queries:.0f} queries and {entries:,.0f} entries"
+          f" ({entries * ENTRY_BYTES / 1e3:.0f} KB); all {256 * entries / 1e6:.1f}M entries,"
+          f" {256 * entries * ENTRY_BYTES / 1e6:.0f} MB")
+    print(f"  level 3: {65536 * differs(2):,.0f} questions; replies of"
+          f" {children(n / 256 ** 2):.0f} reactions, {children(n / 256 ** 2) * differs(3):.1f} queries")
+    top, _, _, after = charges(n, n)
+    window = granted(after, top, 512 * 2 ** 20)
+    ahead = window / queries
+    print(f"  sender pacing at the default budget: level-3 window {window:,},"
+          f" so about {ahead:.0f} level-2 replies ahead ({ahead * entries * ENTRY_BYTES / 1e6:.0f} MB)")
+    for size in (10**6, 10**7, 10**8):
+        prefixes = 2 ** 24 * (1 - math.exp(-size / 2 ** 24))
+        print(f"  level-2 volume at n={size:.0e}: {prefixes / size:.2f} n prefixes,"
+              f" {prefixes * ENTRY_BYTES / 1e6:.0f} MB")
+
+
 MIB, GIB = 2 ** 20, 2 ** 30
 LINKS = [("in-rack", 625_000), ("metro", 2_500_000), ("long haul", 12_500_000)]
 MESSAGE_WIRE_BYTES = 43 + 100
 
 
 def main():
-    print("D_hi(k):", {k: d_hi(k) for k in (1, 8, 32, 83, 128, 177, 224, 251, 255)})
+    level_walk()
+    print("\nD_hi(k):", {k: d_hi(k) for k in (1, 8, 32, 83, 128, 177, 224, 251, 255)})
 
     print("\nThreshold budgets (MiB), entirely different replicas, before -> after:")
     for n in (10**5, 10**6, 10**7, 10**8):

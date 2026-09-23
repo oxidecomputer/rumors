@@ -588,9 +588,9 @@ The depths fall into three bands:
 - **Near the root (d = 1, 2),** populations are tiny and fans full. Level 2
   is the one term that shrinks with neither the link nor the budget: its
   parking holds up to 256 replies at any window. When every root slot
-  differs, those replies can list every occupied depth-3 prefix, about
-  25 bytes per message of the larger replica up to about 10⁷ messages,
-  and approaching 420 MB beyond (§6.8).
+  differs, those replies can list every occupied depth-3 prefix at 25
+  bytes each: about 24 MB at 10⁶ messages, 188 MB at 10⁷, and at most
+  about 420 MB (§6.8).
 - **The saturated band** runs from depth `log₂₅₆ n + 1` to
   `log₂₅₆ n² + 1`. There `S(d) ≥ K*`, so every level is saturated.
 - **The tail** is negligible: `S(d)` falls about 256-fold per level past
@@ -704,28 +704,88 @@ corrects that below saturation (§6.4). Above it, a difference estimator
 would, such as the strata estimator of Eppstein, Goodrich, Uyeda and
 Varghese (SIGCOMM 2011), carried in the greeting.
 
-### 6.8 Level 2, and what shrinking it would take
+### 6.8 Level 2, level by level
 
-When every root slot differs, level 2 is the one place where parking can
-hold a whole level. The responder's opening reply asks about every
-differing root child at once. The initiator's stage 1 answers all of
-those questions without waiting for anything further. Each answer, about
-one root child, lists the children of every disputed node beneath it at
-depth 2.
+Level 2 is the one level where parking can hold every reply the level
+has. This section walks through the first levels of one session to show
+why, deriving each figure.
 
-This is a realistic case, not only a worst case. Take two 10⁷-message
-replicas that share nearly everything, where one side holds 200,000 extra
-messages scattered by hash. About 95% of the 65,536 depth-2 nodes are
-disputed, each with about 115 children, so the level-2 replies list about
-7 million entries: about 180 MB, almost all of it listing shared content.
-The stream bundle kept most of those replies unproduced at the sender.
+The session: two replicas of n = 10⁷ messages that share nearly
+everything, where one side also holds D = 200,000 messages scattered by
+hash. Two facts drive every level:
 
-Nothing in parking can shrink this, because every one of those replies
-was invited by a single opening reply. Only a protocol change that lets
-the asker invite fewer questions at once could shrink it, and that
-change costs more than it saves: it would need standalone questions that
-carry their own paths, and a re-derived progress argument. This design
-accepts the level-2 term and prices it.
+- **Size.** A node at depth j holds about `n / 256ʲ` leaves: 39,000 at
+  depth 1, 153 at depth 2, and 0.6 at depth 3. Spread over 256 child
+  slots, that gives about `256 · (1 − e^(−leaves/256))` occupied
+  children: 256 for a depth-1 node, 256 for depth 2, and 115 for depth 3.
+- **Difference.** A node differs between the replicas when at least one
+  of the D extra messages falls under it, which happens with probability
+  `1 − e^(−D/256ʲ)`: 1 at depth 1, 0.95 at depth 2, and 0.012 at depth 3.
+
+**Level 1.** The one question is the initiator's greeting listing. The
+one reply is the responder's opening. All 256 root children differ, so
+it holds 256 queries, each listing that child's 256 children: 65,536
+entries, about 1.6 MB. One reply parks at most.
+
+**Level 2.** The opening reply asks 256 questions, one per root child,
+all at once. They are the count's "+256" term (§5.1): handed toward the
+wire together, before any is recorded, so no window limits them. And
+they are the whole level, because only 256 depth-1 nodes exist. The
+initiator's stage 1 answers each:
+- Each reply reacts to one root child's 256 children. 95% of them
+  differ, so it holds about 244 queries.
+- Each query lists about 115 depth-3 children.
+- That is about 28,000 entries per reply, about 700 KB.
+- All 256 replies together hold 7.2 million entries, about 180 MB.
+
+**Level 3.** The initiator asks about 62,000 level-3 questions inside
+those replies. Their replies come back and park at the initiator. Here
+the receiver's own window governs: at most `K(3) + 257` are outstanding.
+Each reply reacts to one depth-2 node's 115 children, of which only 1.2%
+differ. So a reply is mostly matches, with one or two short queries:
+about 3.7 KB. A receiver that chose a wide level-3 window pays for it
+slot by slot, as its budget priced. One that chose a narrow window parks
+at most 258 replies.
+
+**Deeper levels** follow level 3. The receiver's own window bounds them,
+and replies shrink as fewer nodes differ.
+
+So level 2 is special for one reason: it is the only level whose entire
+question population fits in the "+256" term. Level 1 has one question.
+From level 3 on, a level has up to 65,536 questions or more, and the
+receiver's window caps how many are outstanding.
+
+**The sender paces level 2 too, but the receiver cannot count on it.**
+The initiator's stage 1 records each reply's 244 level-3 questions before
+handing on the next reply. So its own level-3 window limits how far
+level 2 runs ahead:
+- At the default budget with 10⁷ messages, that window is about 8,100, so
+  about 33 level-2 replies can run ahead: roughly 23 MB.
+- Only an initiator whose window holds all 62,000 level-3 questions,
+  which takes a budget of about 2 GiB here, sends the whole 180 MB at
+  once.
+
+The responder still prices all 256 replies. Windows are never exchanged,
+and the two sides' windows may differ (§5.2).
+
+**How it scales.** When nearly every depth-2 node differs, the level-2
+replies list about every occupied depth-3 prefix,
+`2²⁴ · (1 − e^(−n/2²⁴))` of them, at 25 bytes each:
+
+| n | Occupied depth-3 prefixes | Level-2 volume |
+| --- | --- | --- |
+| 10⁶ | 0.97·n | 24 MB |
+| 10⁷ | 0.75·n | 188 MB |
+| 10⁸ | nearly all 2²⁴ | 418 MB |
+
+At 10⁷ the example's 95% dispute rate gives the 180 MB above.
+
+Nothing in parking can shrink this: a single opening reply invited every
+one of those replies. Only a protocol change that lets the asker invite
+fewer questions at once could shrink it, and that change costs more than
+it saves. It would need standalone questions that carry their own paths,
+and a re-derived progress argument. This design accepts the level-2 term
+and prices it.
 
 ## 7. Explicit credits, for contrast
 
