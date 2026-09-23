@@ -112,8 +112,14 @@ def d_hi(k):
     return d
 
 
-def charges(n_a, n_b, k=256):
-    """Return (max population, charge before, charge after) for two replicas."""
+def charges(n_a, n_b, k=256, peer_window=None):
+    """Return (max population, charge before, scope-only charge, charge after).
+
+    `peer_window(level)` is the peer's question-queue capacity at a level,
+    when the greeting carries it. The queries in replies parked at level d
+    are peer questions still outstanding at level d + 1, so they number at
+    most `peer_window(d + 1) + 257`, and so do their listings' owners.
+    """
     n, pair, bound = max(n_a, n_b), n_a * n_b, d_hi(k)
     pop = [population(n, pair, d) for d in range(KEY + 1)]
     if bound is not None:
@@ -139,6 +145,8 @@ def charges(n_a, n_b, k=256):
         entries = min(slots * c0 * c1, occupied(n, d + 1), agg)
         if bound is not None:
             entries = min(entries, bound * c1)
+        if peer_window is not None and d < KEY:
+            entries = min(entries, (peer_window(d + 1) + FAN + 1) * min(FAN, c1))
         return reactions * REACTION_BYTES + entries * ENTRY_BYTES
 
     leaf = lambda K: min(pop[KEY], K) * LEAF_REQUEST_BYTES
@@ -146,6 +154,22 @@ def charges(n_a, n_b, k=256):
     scopes = lambda K: SUPPLY_FANS + sum(scope_after(d, K) for d in range(1, KEY + 1)) + leaf(K)
     after = lambda K: scopes(K) + sum(park(d, K) for d in range(1, KEY + 1))
     return max(pop), before, scopes, after
+
+
+def shared_window(n, budget):
+    """Both peers on one budget, each pricing parking by the other's window.
+
+    Solves for the largest common K whose charge, priced against a peer
+    holding the same K at every level, fits the budget.
+    """
+    pair = n * n
+    pop = [population(n, pair, d) for d in range(KEY + 1)]
+    lo, hi = 1, max(max(pop), 1)
+    while lo < hi:
+        mid = lo + (hi - lo + 1) // 2
+        _, _, _, after = charges(n, n, peer_window=lambda l: max(1, min(mid, pop[l])))
+        lo, hi = (mid, hi) if after(mid) <= budget else (lo, mid - 1)
+    return lo, pop
 
 
 def granted(charge, top, budget):
@@ -220,6 +244,20 @@ def main():
         top, _, scopes, after = charges(n, n)
         K = min(top, 87412)
         print(f"  n={n:.0e}: {after(K)/MIB:.0f} | {(scopes(K)+17*12_500_000)/MIB:.0f} | {(scopes(K)+band_credits)/MIB:.0f}")
+
+    print("\nExchanged windows, both peers on one budget: window today -> priced by the peer's")
+    for n in (10**5, 10**6, 10**7, 10**8):
+        top, _, _, after = charges(n, n)
+        row = []
+        for budget in (16 * MIB, 64 * MIB, 512 * MIB):
+            row.append(f"{budget // MIB} MiB {granted(after, top, budget)} -> {shared_window(n, budget)[0]}")
+        pop = [population(n, n * n, d) for d in range(KEY + 1)]
+        _, _, _, floor = charges(n, n, peer_window=lambda l: 1)
+        K = min(top, 87412)
+        _, _, _, wide = charges(n, n, peer_window=lambda l: max(1, min(K, pop[l])))
+        print(f"  n={n:.0e}: " + " | ".join(row)
+              + f" | floor {after(1)/MIB:.1f} -> {floor(1)/MIB:.1f} MiB"
+              + f" | long-haul threshold {after(K)/MIB:.0f} -> {wide(K)/MIB:.0f} MiB")
 
     print("\nDuplex coupling: reverse-wire idle time, % of the larger transfer (mean, worst)")
     for N in (100, 1000, 10000):

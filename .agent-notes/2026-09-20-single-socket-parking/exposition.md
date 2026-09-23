@@ -787,6 +787,83 @@ it saves. It would need standalone questions that carry their own paths,
 and a re-derived progress argument. This design accepts the level-2 term
 and prices it.
 
+### 6.9 Exchanging windows: a possible follow-on
+
+Today the greeting does not carry a side's window, and §5.2 shows it
+does not need to for correctness. Carrying it would sharpen the price,
+by more than level 2 alone suggests.
+
+**The fact it would use.** Every query in a reply parked at a receiver
+is a question its peer is still waiting on. The peer handed it on inside
+that reply, and it stays outstanding until the receiver answers it, which
+the receiver does only after taking the reply from parking. So by the
+peer's own count, the queries in the receiver's parked level-d replies
+number at most `K_peer(d + 1) + 257`. Queries are the only reactions that
+carry listings, and listings are where parked bytes live; matches and
+supplied handles are small. So a known peer window bounds the listing
+volume parked at every level:
+
+```text
+parked entries(d) ≤ (K_peer(d + 1) + 257) · min(256, C(d))
+```
+
+At level 2 this is the sender pacing of §6.8, made into a price.
+
+**What it buys.** For entirely different replicas, with both peers on one
+budget and each pricing parking by the other's window, `sizing-model.py`
+gives:
+
+| n | Window at 16 MiB | Window at 64 MiB | Window at 512 MiB | Floor charge | Long-haul threshold |
+| --- | --- | --- | --- | --- | --- |
+| 10⁵ | 650 → 853 | 17,133 → 26,522 | unchanged | 7.7 → 5.6 MiB | 78 → 76 MiB |
+| 10⁶ | 1 → 382 | 3,012 → 4,736 | 107,053 → 123,098 | 29.9 → 6.5 MiB | 467 → 443 MiB |
+| 10⁷ | 1 → 119 | 1 → 1,382 | 8,066 → 14,514 | 247 → 9.4 MiB | 2.1 → 2.0 GiB |
+| 10⁸ | 1 → 95 | 1 → 1,125 | 1,171 → 11,588 | 418 → 10 MiB | 5.1 → 2.9 GiB |
+
+- **The floor charge collapses.** The level-2 term stops growing with the
+  set and becomes proportional to the peer's window. That is what rescues
+  small budgets from the one-slot window.
+- **It covers the case the root comparison cannot.** The root comparison
+  helps only while fewer than about 1,400 messages differ (§6.4). This
+  helps at any divergence, as long as the peer's window is narrow too.
+- **The latency-free threshold barely moves until 10⁸.** A wide window
+  on both sides already pays for its width; the gain there is mostly the
+  level-2 term.
+
+**A narrow side needs protection from a wide peer.** The bound helps
+only when the peer's window is narrow. Facing a peer at the 512 MiB
+default, a 16 MiB side is still priced at one slot, because the wide peer
+can have that many more questions outstanding. A simple rule closes this:
+both sides use the smaller of the two windows. That turns the windows
+into a *static credit*. It is declared once in the greeting, never
+updated, and needs no control frames and no knowledge of the link. The
+narrow side then gets the table's shared window (for example 1 → 119 at
+10⁷ messages and 16 MiB), and the wide side gives up width it could
+likely not use anyway: each level's concurrency is already gated by what
+the peer's questions feed it. That last claim is unmeasured.
+
+**What it costs.**
+- **The greeting carries each side's budget,** not its window. The client
+  sends its greeting before it knows the server's set size, so it cannot
+  yet compute its window. With both budgets and both set sizes in hand,
+  each side computes the same shared window: the largest width that fits
+  the smaller budget, priced against a peer of the same width.
+- **The sizing function becomes shared between the two sides.** Two
+  versions that size differently would disagree about each other's
+  windows. That misprices memory but never breaks a session, because
+  parking's capacity still comes from each side's own queue (§5.2).
+- **A side's window depends on its peer's configuration,** so a peer
+  with a small budget narrows the session. Under the model of record,
+  with an authenticated peer that follows the protocol, that is a
+  throughput choice, not an attack.
+
+**Assessment.** This is worth pursuing after this design lands. It is
+the other half of the root comparison: that bound shrinks the price when
+the replicas differ little, and this one when the peers' windows are
+narrow, which is the case for a node splitting its memory across many
+peers. It changes the greeting, so it is a wire change with its own
+snapshots, but it adds no messages and nothing to the progress argument.
+
 ## 7. Explicit credits, for contrast
 
 The alternative this design rejects is per-level flow control over the

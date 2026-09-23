@@ -89,7 +89,16 @@ on scale:
    profiles, including an exchanged leaf depth, would not: they sharpen
    fans, which are already priced close to the truth (exposition §6.7).
 
-## A possible follow-on
+## Possible follow-ons
+
+**Exchanging windows** (exposition §6.9), worth pursuing. Every query in
+a parked reply is a question the peer is still waiting on. So if each
+greeting carries its side's budget, and both sides use the smaller of the
+two windows, the peer's window bounds the listings parked at every level.
+The floor charge at 10⁷ messages falls from about 247 MiB to about 9 MiB.
+A 16 MiB session between 10⁷-message replicas then gets a window of
+about 119 instead of 1, at any divergence. It is a greeting change, with
+no new messages and no change to the progress argument.
 
 **Deferring bulk** (exposition §8), examined and not recommended. A supply travels inline, in radix
 order, so it delays everything below and to its right in the tree. A
