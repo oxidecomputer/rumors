@@ -668,16 +668,37 @@ The ITC versions in the greetings add four things:
 So versions can predict a lower bound on the work, but cannot bound
 memory.
 
-Two further gaps would need new greeting fields:
+Two kinds of greeting field could add more, and they are worth very
+different amounts.
 
-- **The peer's tree shape.** The model prices the peer's fans
-  statistically. A peer could send an exact profile of its upper levels,
-  for example the number of depth-3 prefixes under each root child, which
-  would make the level-2 term exact.
-- **The size of the difference once all 256 root slots differ.** A
-  difference estimator, such as the strata estimator of Eppstein,
-  Goodrich, Uyeda and Varghese (SIGCOMM 2011), bounds it where the root
-  comparison cannot.
+**The peer's tree shape buys almost nothing.** An exchanged profile of
+the peer's tree would replace the model's statistical fans with exact
+ones. The cheapest such field is each tree's *leaf depth*: the depth by
+which all of its leaves are separated, easily memoized in the tree.
+- **It does not bound the descent.** A dispute at depth d needs a message
+  on each side sharing a d-byte prefix, and one tree's own depth says
+  nothing about prefixes shared *across* trees. Two replicas holding one
+  message each, sharing 31 bytes, have minimal leaf depths but descend to
+  depth 31. Under uniform hashing the deepest disputes sit near
+  `log₂₅₆(n_A·n_B)`, near but not below each tree's own depth of about
+  `log₂₅₆(n²/2)`.
+- **What it does give is small.** Past the larger leaf depth, every
+  node on both sides holds exactly one leaf, so fans there are exactly
+  1 where the model prices about 4 or 5. But memory cost concentrates at
+  levels 2 through 5, above any leaf depth, where fans are genuinely wide
+  and the quantiles are already close to the truth. Modeled with
+  `sizing-model.py`, exact deep fans change thresholds and windows by
+  about 1% or less at 10⁵ to 10⁷ messages.
+
+Richer profiles, such as the number of depth-3 prefixes under each root
+child, fail for the same reason: they sharpen fans, and fans are not
+where the pessimism is.
+
+**The size of the difference is where the pessimism is.** The model
+prices two replicas as if they shared nothing. The root comparison
+corrects that below saturation (§6.4). Above it, a difference estimator
+would, such as the strata estimator of Eppstein, Goodrich, Uyeda and
+Varghese (SIGCOMM 2011), carried in the greeting.
 
 ### 6.8 Level 2, and what shrinking it would take
 

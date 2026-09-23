@@ -83,9 +83,11 @@ on scale:
 
 1. **The session tail.** Nothing records why the model targets 2⁻⁴⁰ per
    session.
-2. **What else a session could know.** Exact peer tree profiles, or a
-   difference estimator for the case where every root slot differs,
-   would need new greeting fields (exposition §6.7).
+2. **A difference estimator.** Above about 1,400 differences the root
+   comparison saturates, and sessions are priced as fully divergent. A
+   difference estimator in the greeting would cover them. Exact tree
+   profiles, including an exchanged leaf depth, would not: they sharpen
+   fans, which are already priced close to the truth (exposition §6.7).
 
 ## A possible follow-on
 
