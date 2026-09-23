@@ -44,7 +44,7 @@ tree refers to deleted code.
   connect two walks through `mirror_connected`.
 - **Local question records** keep their publication order: the encoder
   publishes a reply's records after handing on its last frame. Today
-  that means after the flush; over the pipe (step 4) it means after the
+  that means after the flush; over the pipe (step 5) it means after the
   last frame enters the multiplexer's channel, without waiting for the
   write. `ProxyLocalQuestions` keeps capacity `K`, and the decoder keeps
   its blocking receive. Exposition §5.3 explains why this wait is local.
@@ -152,7 +152,7 @@ regression suite.
    asked or that a local premise of the bound failed. Otherwise it sends
    as usual. Production channels have capacity `cap(h)`, so the send
    never waits; tests that shrink the channel with `with_kind_capacity`
-   get a blocking queue, which the step 4 negative control relies on.
+   get a blocking queue, which the step 5 negative control relies on.
    Occupancy is `max_capacity − capacity`; expose it on the production
    and instrumented senders.
 3. **Park the reply with the record it answers.** The decoder still
@@ -187,11 +187,13 @@ regression suite.
      the capacity cannot shrink; step 0's fixture shows only that the
      meter counts.
    - *Mismatched windows.* Run sessions between a peer at
-     `Window::FLOOR` and a peer with a wide budget window, with each in
-     each role. Assert that they complete and match the in-memory merge,
-     and that neither side's parking check fires. Windows are never
-     exchanged, so these sessions check that each side's parking depends
-     only on its own window (exposition §5.2).
+     `Window::FLOOR` and a peer at a wide fixed window
+     (`WindowConfig::Fixed`), with each in each role. Assert that they
+     complete and match the in-memory merge, and that neither side's
+     parking check fires. These sessions check that each side's parking
+     depends only on its own window (exposition §5.2). Fixed windows
+     keep them meaningful after step 4, which shares budget-sized
+     windows.
    - The malformed-peer suite gains a surplus reply, which must end in
      `ParkingOverflow` and not hang.
    - `capacity_stress_covers_every_queue_role` covers the proxy edges at
@@ -210,18 +212,15 @@ regression suite.
 
 Commit: "Park decoded replies per level".
 
-## Step 3: price parking, sharpen the model, and size the default
+## Step 3: price parking and queued scopes
 
 **Goal.** Make the budget account for what parking can hold (exposition
-§6.3). Where the session knows better, stop the model from pricing
-queued work at its per-node worst case (§6.5) or as if the replicas
-shared nothing (§6.6). Keep the default budget from constraining the
-reference link for 10⁶-message replicas (§6.7).
+§6.3), and stop the model pricing queued work at its per-node worst case
+(§6.5). This is the private price of §6.2: each side still prices alone.
 
-Land this step as two commits. The first holds the set statistic, the
-re-priced queued scopes, and the root comparison, which are independent
-of the socket and widen every window. The second holds the parking
-charge and the default, with the census and the calibration.
+Land this step as two commits. The first adds the set statistic and
+re-prices queued scopes, which is independent of the socket and widens
+every window. The second adds the parking charge.
 
 - **Constants.** In `window.rs`, derive the parked-reaction and
   listing-entry byte constants with `size_of`, as the existing constants
@@ -233,52 +232,29 @@ charge and the default, with the census and the calibration.
   it must equal `leaves_quantile`, and at `q ≥ 256ʲ` it returns `n`.
   Check its integer form numerically against exact binomial tails over
   the same parameter sweep the existing quantiles use.
-- **The charge.** In `from_budget`'s `charge(K)`, add the parking term
-  for every depth: the least of the per-reply, per-level, and per-set
-  bounds (exposition §6.3), with
-  `slots(d) = min(K(d) + FAN + 1, 256^(d−1))`.
 - **Queued scopes, priced as a set** (exposition §6.5). The existing
   scope charge at depth d becomes
   `min(q·C(d−1), set_leaves_quantile(n, q, d−1), occupied(n, d))`
   references plus `q` fixed scope parts, where `q = min(K, S(d))`. The
   set bound needs its premise that the queued questions at one depth
   concern distinct nodes; state it at the charge.
-- **Pricing from the root comparison** (exposition §6.6).
-  - At window resolution, count the root slots whose listings differ
-    between the two greetings: a radix present on one side only, or
-    digests that differ. Both the walk and the proxy resolve the window
-    where both listings are in hand; pass the count into
-    `WindowConfig::resolve`.
-  - Add `D_hi` as a constant table over `k` in 0..256, where `k = 256`
-    means no bound. A test re-derives every entry exactly with integer
-    arithmetic, as the least `D` with `binom(256, k)·k^D·2⁴⁸ ≤ 256^D`.
-  - When `k < 256`, cap the population table itself, with `S(2) ≤ k`
-    and `S(d) ≤ D_hi` for deeper d, so that both the charge and the
-    capacities `K(d) = max(1, min(K, S(d)))` use the caps. Cap parking
-    slots at `k` for level 2 and at `D_hi` deeper, and parked listing
-    entries at `D_hi · C(d)` per level.
-  - The caps are safe because parking's capacity is derived from each
-    level's actual question-queue capacity (step 2), whatever that is. A
-    session in the statistical tail gets narrower queues and uses more
-    memory than estimated, but never fails. Write this at the parking
-    constructor, since it is the link a later change could most easily
-    break.
+- **The parking charge.** In `from_budget`'s `charge(K)`, add the
+  parking term for every depth: the least of the per-reply, per-level,
+  and per-set bounds (exposition §6.3), with
+  `slots(d) = min(K(d) + FAN + 1, 256^(d−1))`.
 - Update `UNION_TAIL_BITS`'s accounting comment for the added
-  statistics: one set statistic per depth per replica, plus the root
-  comparison. The total count of statistics must stay under 2⁸, so that
-  their union keeps the session's tail below 2⁻⁴⁰.
-- **The default.**
-  - Compute the threshold budget at the reference point: A = B = 10⁶,
-    `SPEC_BDP_BYTES`, and 100-byte messages. It is the least budget for
-    which `from_budget` grants `min(W, max_d S(d))`, with
-    `W = ⌈SPEC_BDP_BYTES / DISPUTE_WIRE_BYTES⌉`.
-  - Set `DEFAULT_SYNC_MEMORY_BUDGET` to that threshold rounded up to a
-    power of two. With the refinements above, the model puts the
-    threshold near 467 MiB, so the default likely stays at 512 MiB; the
-    exact prices decide.
-  - Commit a test that the default grants the reference window, so that
-    any later pricing change that would make the default constrain the
-    reference link fails it.
+  statistics, one per depth per replica. The total count of statistics
+  must stay under 2⁸, so that their union keeps the session's tail below
+  2⁻⁴⁰.
+- **The default.** Compute the threshold budget at the reference point:
+  A = B = 10⁶, `SPEC_BDP_BYTES`, and 100-byte messages. It is the least
+  budget for which `from_budget` grants `min(W, max_d S(d))`, with
+  `W = ⌈SPEC_BDP_BYTES / DISPUTE_WIRE_BYTES⌉`. The model puts it near
+  467 MiB here, so `DEFAULT_SYNC_MEMORY_BUDGET` stays at 512 MiB; the
+  exact prices decide, rounding up to a power of two. Commit a test that
+  the default grants the reference window, so that any later pricing
+  change that would make the default constrain the reference link fails
+  it.
 - **The reference set size.** Move `REFERENCE_SESSION_MESSAGES` to 10⁶,
   regenerate `window/tradeoff.md` with `just window-tradeoff`, and
   re-derive `REFERENCE_SCOPE_BYTES`. Update the prose figures in
@@ -290,16 +266,74 @@ charge and the default, with the census and the calibration.
   re-baseline
   `tests/window/{census,corners,knee,operator,sweep,tradeoff_probe,pipelining}.rs`
   as they apply. These tests report the sizing model, not allocations.
-- **Calibration.** Measure actual peak parked bytes for 10⁶- and
-  10⁷-message replicas with scattered differences. Record the results
-  separately from model output, with the workload and the accounting
-  boundary.
-- **User-facing prose.** Update `Peer::sync_memory_budget`'s memory
-  accounting and the sizing guide from the draft text below. The
-  transport at this commit is still the bundle, so describe it as it is.
 
-Commits: "Price queued work as sets, and from the root comparison", then
-"Price parked replies; size the default for 10⁶-message replicas".
+Commits: "Price queued work as sets", then "Price parked replies".
+
+## Step 4: exchange budgets, and share one window
+
+**Goal.** Price parking against the peer's window, so that the level-2
+term and the other fixed charges shrink with the budget, and give both
+sides one window set by the smaller budget (exposition §6.6). This is a
+deliberate pre-release wire change to the greeting, landed on today's
+transport so that every existing suite is the regression net.
+
+- **The greeting.** The greeting (`message.rs`, and its codec in
+  `remote/codec/greeting.rs`) gains two fields: every greeting carries its
+  sender's budget, and the server's also carries the window it computed.
+  The decoder rejects a missing or malformed field, and the greeting
+  malformation suites gain a case for each.
+- **The window.** `WindowConfig::resolve` takes the peer's greeting
+  fields as well as the set sizes.
+  - The server computes `K_s`: the widest window that fits
+    `min(own budget, client's budget)`, pricing parking against a peer
+    that holds the same window. That is, the parking term's listing
+    entries at level d are capped at `(K(d + 1) + FAN + 1) · min(FAN, C(d))`,
+    where `K(d + 1)` is the candidate window itself.
+  - The client takes the widest window no wider than `K_s` whose charge,
+    with parking priced against a peer holding `K_s`, fits its own
+    budget.
+  - Both then map the window to per-level capacities the same way,
+    `K(ℓ) = max(1, min(K, S(ℓ)))`. Resolve the window once per side, and
+    use it for both the walk and the proxy.
+  - Write at `resolve` why the server computes and the client only caps:
+    the two sides may price nodes differently, so each must price
+    against a peer window it knows.
+- **Test-only fixed windows** (`WindowConfig::Fixed`) ignore the
+  exchange and keep their capacities. The mismatched-window sessions of
+  step 2 use fixed windows on both sides, so they keep exercising the
+  safety argument of exposition §5.2 after this step.
+- **Tests.**
+  - A property test over budgets, set sizes, and roles: the client's
+    window never exceeds the server's, and when both sides use the same
+    backend they hold the same window.
+  - In test builds, at every park, count the query reactions across
+    that level's parked replies, and assert that they number at most
+    the peer's `K(d + 1) + FAN + 1`. This is the
+    deterministic fact the exchange prices, checked in every session
+    test.
+  - Sessions between peers on different budgets complete, and both sides
+    hold the smaller budget's window.
+- **The default.** Re-run step 3's default computation with the design's
+  price. The model puts the threshold near 443 MiB, so the default stays
+  at 512 MiB, and step 3's test must still pass.
+- **The census.** Re-baseline the census tests of step 3 against this
+  step's parent commit, and regenerate `window/tradeoff.md`.
+- **Calibration.** Measure actual peak parked bytes for 10⁶- and
+  10⁷-message replicas with scattered differences, under the design's
+  price. Record the results separately from model output, with the
+  workload and the accounting boundary.
+- **Wire snapshots.** Re-accept `tests/gossip_snapshot.rs`,
+  `tests/protocol_overhead.rs`, and the `insta` snapshots in this
+  commit, naming "the greeting carries the sync memory budget and the
+  server's window". Bookmark pins do not move.
+- **User-facing prose.** Update `Peer::sync_memory_budget`'s memory
+  accounting and the sizing guide from the draft text below. The budget
+  now caps a session: a session runs at the window the smaller of the two
+  peers' budgets affords. The transport at this commit is still the
+  bundle, so describe it as it is. The public API does not change, but
+  the behavior does, so build and test Sush's compatibility branch.
+
+Commit: "Exchange budgets in the greeting, and share one window".
 
 ### Draft user-facing text
 
@@ -317,11 +351,12 @@ section:
 > 2⁻⁴⁰ per session.
 >
 > Most sessions use far less. Buffers fill only while one part of the
-> comparison waits on another. The first exchange between two replicas
-> also shows roughly how much they differ, and the estimate shrinks
-> accordingly, so replicas that gossip regularly are sized for their
-> differences rather than their total size. Measure your workload if you
-> need a typical figure.
+> comparison waits on another, and replicas that gossip regularly differ
+> in few messages. Measure your workload if you need a typical figure.
+>
+> Both peers of a session announce their budgets, and the session runs
+> within the smaller of the two. A peer with a large budget therefore
+> spends less when it synchronizes with a peer that has a small one.
 >
 > A session can exceed its estimate if message addresses cluster far
 > more than hashing makes likely. Addresses are hashes of message
@@ -357,7 +392,7 @@ matter":
 > at worst. If memory is scarce, a smaller budget remains correct; it
 > only limits how much work overlaps each round trip.
 
-## Step 4: collapse the transport to one pipe
+## Step 5: collapse the transport to one pipe
 
 **Goal.** Sessions run over one duplex byte stream, the stream-bundle
 machinery is gone, and the committed demonstration shows both that the
@@ -401,7 +436,7 @@ and test Sush's compatibility branch alongside it.
   exchange.
 - **Keep the multiplexer's priority classes general:** one lane per
   class, served in class order, each lane in its own order. A later bulk
-  lane (exposition §10.3) can then join as the lowest class without a
+  lane (exposition §10.2) can then join as the lowest class without a
   rewrite of a rule hard-coded for supply runs.
 - **The demultiplexer** owns the read half. It reads each frame with
   `FrameRead` and routes it by stream index to that stream's decoder
@@ -492,7 +527,8 @@ Commit these tests in the same change.
    `run_to_quiescence`, and require every session to complete. In this
    regime any new wait of the receive path on the walk shows up as a
    stall. Also run the capacity stress matrix over the pipe, and the
-   mismatched-window sessions from step 2 at a one-byte duplex buffer.
+   mismatched-window sessions from step 2 and the different-budget
+   sessions from step 4, at a one-byte duplex buffer.
 3. **Unexpected stalls.** If any stall appears, find the violated
    premise (the count's event boundaries, a new receive-path wait,
    backend independence, or multiplexer scheduling) and resolve it.
@@ -512,7 +548,7 @@ Commit these tests in the same change.
 
 Commit: "Collapse the transport to one pipe".
 
-## Step 5: measure the single-socket residual
+## Step 6: measure the single-socket residual
 
 **Goal.** Put a number on the serialization cost of exposition §7.3, and
 publish the deployment guidance that bounds it.
@@ -525,7 +561,7 @@ publish the deployment guidance that bounds it.
 - Measure the in-level bulk penalty on the delayed pipe for a
   representative divergent session: completion time against
   `max(descent critical path, total bytes / bandwidth)`. Exposition
-  §10.3 bounds the descent's share by a few one-way delays and simulates
+  §10.2 bounds the descent's share by a few one-way delays and simulates
   the duplex share. Include a balanced workload of few, large messages,
   where the duplex share is largest, and record the measured excess
   beside both figures.
@@ -541,7 +577,7 @@ publish the deployment guidance that bounds it.
 
 Commit: "Measure and document the single-socket residual".
 
-## Step 6: records
+## Step 7: records
 
 - Update this note's README to describe the implemented result.
 - Add one line to the conclusion of `formal/README.md`'s second
@@ -560,15 +596,21 @@ Commit: "Measure and document the single-socket residual".
   `ProxyNextScopes` capacity law holds at its three points, and a surplus
   reply fails with `ParkingOverflow`.
 - After step 3:
-  - the set statistic matches exact binomial tails, and the `D_hi` table
-    matches its exact re-derivation;
+  - the set statistic matches exact binomial tails;
   - parking's capacity is derived from each level's actual
     question-queue capacity;
   - a test pins that the default grants the reference window at 10⁶
     messages;
-  - the census is re-baselined against recorded parent output;
-  - the calibration measurement is recorded.
+  - the census is re-baselined against recorded parent output.
 - After step 4:
+  - the client's window never exceeds the server's, and peers on one
+    backend hold the same window;
+  - parked queries never exceed the peer's `K(d + 1) + FAN + 1` in any
+    session test;
+  - the default test still passes, and the census is re-baselined;
+  - the calibration measurement is recorded;
+  - Sush's compatibility branch builds and passes its tests.
+- After step 5:
   - `just gate` is clean;
   - the negative control stalls and the derived capacity completes;
   - every session in the pipe regime completes;
@@ -576,7 +618,7 @@ Commit: "Measure and document the single-socket residual".
   - snapshot differences are confined to labels and in-band control
     items;
   - Sush's compatibility branch builds and passes its tests.
-- Step 5's measurements are recorded, and the deployment guidance is
+- Step 6's measurements are recorded, and the deployment guidance is
   published.
 
 ## Risks
@@ -585,7 +627,7 @@ Commit: "Measure and document the single-socket residual".
   high-water mark means a wrong event, height label, or production
   premise. Resolve it; never add slack.
 - **A receive-path wait on the walk slips in.** No capacity can repair
-  that. The pipe regime in step 4 detects it, and its negative control
+  that. The pipe regime in step 5 detects it, and its negative control
   shows that the detector works.
 - **The byte model underprices.** The count is exact, but its price in
   bytes is statistical. Clustered addresses can exceed the price without

@@ -6,8 +6,8 @@ have not been measured.
 The streaming reconciliation protocol runs over a bundle of
 independently flow-controlled streams, so that one tree level waiting on
 its consumer never stops another level's traffic. This note shows that
-one ordered duplex byte stream suffices, with no credits or window
-advertisements. A receiver invites every reply it gets by asking a
+one ordered duplex byte stream suffices, with no credits and no new
+messages. A receiver invites every reply it gets by asking a
 question, so the number of replies it can have in flight at a level is
 bounded by its own configuration: `K(ℓ) + 257`. A receiver that reserves
 that room, and whose decoding never waits on the walk, never lets one
@@ -15,15 +15,14 @@ level block another, so the walk's existing deadlock-freedom argument
 carries over.
 
 The price is memory that the bundle kept back at the sender, and the
-note prices it. It also sharpens the pricing in two places where the
-session knows more than the model assumes: queued work is priced as a
-set, and the root listings the greetings already exchange bound how many
-messages differ. The net effect depends on scale. For two entirely
-different 10⁶-message replicas on a 12.5 MB bandwidth-delay link, the
-budget that imposes no extra latency falls from about 0.75 GiB to about
-0.46 GiB, so the 512 MiB default likely stands. At 10⁷ messages it rises
-from about 1.7 to about 2.1 GiB. Replicas that differ in a few hundred
-messages are priced at a few MiB.
+note prices it. Two changes recover much of it: queued work is priced as
+a set, and the greetings carry each side's memory budget, so that both
+sides share one window set by the smaller budget and price parking
+against it. The net effect depends on scale. For two entirely different
+10⁶-message replicas on a 12.5 MB bandwidth-delay link, the budget that
+imposes no extra latency falls from about 0.75 GiB to about 0.43 GiB,
+so the 512 MiB default stands, and now keeps that link busy. At 10⁷
+messages it rises from about 1.7 to about 2.0 GiB.
 
 ## Documents
 
@@ -36,9 +35,9 @@ messages are priced at a few MiB.
 - [`appendix-implementation-plan.md`](appendix-implementation-plan.md)
   is the implementation plan, for the implementing agent and its
   reviewer. Its steps meter the count, remove the opening shortcut, park
-  replies on today's transport, price parking and size the default,
-  collapse the transport to one pipe with its demonstration, and measure
-  the serialization delay that priority cannot remove. It includes draft
+  replies on today's transport, price parking, exchange budgets in the
+  greeting, collapse the transport to one pipe with its demonstration,
+  and measure the serialization delay that priority cannot remove. It includes draft
   user-facing text on what the budget estimate means.
 - [`sizing-model.py`](sizing-model.py) reproduces every modeled figure in
   the note. It transcribes the window model with the note's additions,
@@ -58,20 +57,27 @@ messages are priced at a few MiB.
   waiting.
 - Supplied content is absorbed into the backend before commit, and the
   backend owns reclaiming it when a session fails.
-- Queued scopes are priced as a set, and pricing uses the difference
-  bound from the root comparison. Queue capacities stay deterministic.
+- Queued scopes are priced as a set.
+- The greetings carry each side's budget, and the server's also carries
+  the window it computes from the smaller budget. Both sides hold at
+  most that window and price parking against it (exposition §6.6). A
+  well-provisioned peer can be narrowed by a constrained one, but a
+  session only moves as fast as its narrower side, so the session gains.
+- A bound on the number of differing messages, drawn from comparing the
+  two root listings, was considered and dropped: the shared window
+  already gives sessions with few differences all the width they can use
+  (exposition §6.8).
 - The default budget keeps the reference link fully busy for
   10⁶-message replicas, and a committed test checks that it does.
 - Explicit per-level credits are rejected for their complexity and their
   dependence on the link, and not for memory. Sized to the levels where
   bulk flows, credits need less memory than parking from about 10⁶
-  messages up, about 0.26 GiB against 0.46 GiB at 10⁶ and
-  1.6 GiB against 5.1 GiB at 10⁸ on the long-haul link. Their price is a
+  messages up, about 0.26 GiB against 0.43 GiB at 10⁶ and 1.6 GiB
+  against 2.9 GiB at 10⁸ on the long-haul link. Their price is a
   flow-control protocol with its own liveness argument, and sizing that
   needs the link's bandwidth-delay product (exposition §9).
-- Fixed charges, including parking's `+ 257` slack and the level-2 term,
-  count against the budget as the model's existing fixed charges do, so
-  they narrow the window. The level-2 term does not shrink with the
+- Fixed charges, including parking's `+ 257` slack, count against the
+  budget as the model's existing fixed charges do, so they narrow the
   window. When fixed charges alone exceed a budget, the window falls to
   one slot per level and the estimate exceeds the budget. That is the
   minimum for progress that the budget's documentation already states.
@@ -81,25 +87,10 @@ messages are priced at a few MiB.
 
 1. **The session tail.** Nothing records why the model targets a failure
    probability of 2⁻⁴⁰ per session.
-2. **A difference estimator.** Above about 1,400 differences the root
-   comparison saturates, and sessions are priced as fully divergent. A
-   difference estimator in the greeting would cover them. Exact tree
-   profiles, including an exchanged leaf depth, would not: they sharpen
-   fans, which are already priced close to the truth (exposition §10.2).
 
-## Possible follow-ons
+## A follow-on, not recommended
 
-Exchanging windows (exposition §10.1) is worth pursuing. Every query in
-a parked reply is a question the peer is still waiting on. If each
-greeting carries its side's budget, and both sides use the smaller of
-the two windows, the peer's window bounds the listings parked at every
-level. The floor charge at 10⁷ messages then falls from about 247 MiB to
-about 9 MiB, and a 16 MiB session between 10⁷-message replicas gets a
-window of about 119 instead of 1, at any divergence. The change is
-confined to the greeting: it adds no messages and leaves the progress
-argument unchanged.
-
-Deferring bulk (exposition §10.3) is not recommended. A supply travels
+Deferring bulk (exposition §10.2) is not recommended. A supply travels
 inline, in radix order, so it delays everything below and to its right
 in the tree. A follow-on could instead send a *promise* in the reply and
 move the content to a bulk lane that the multiplexer sends only when no
@@ -117,8 +108,9 @@ unbuilt unless measurement shows larger penalties.
 When every root slot differs, parking can hold a whole level near the
 root: every occupied depth-3 prefix, at 25 bytes each. That is about
 24 MB at 10⁶ messages, 188 MB at 10⁷, and at most about 420 MB
-(exposition §6.4). Shrinking it would take a protocol change that costs
-more than it saves.
+(exposition §6.4). The shared window bounds how much of it can arrive
+at once, and so its price: 92 MiB at the default budget with 10⁷
+messages.
 
 ## Related notes
 

@@ -3,8 +3,10 @@
 
 The script transcribes the window model in
 `src/tree/mirror/streaming/window.rs` (the integer quantiles `C`, `L`, `S`,
-`occupied`, and the charge) and extends it with the note's parking price,
-set statistic, root-comparison bound, and exchanged-window price. It also
+`occupied`, and the charge) and extends it with the note's design: the parking price, the set
+statistic, and the shared window that exchanged budgets give both peers.
+It also computes the root-comparison bound the design considered and
+dropped (exposition section 6.8). It also
 runs the duplex simulation of exposition section 10.3. Slot sizes are
 estimates for the in-memory backend; the implementation derives them with
 `size_of`. Run it with `python3 sizing-model.py`.
@@ -129,7 +131,10 @@ def set_leaves_quantile(n, q, j):
 
 
 def d_hi(k):
-    """Smallest D with binom(256, k) * (k/256)^D <= 2^-48, exactly; None at 256."""
+    """Smallest D with binom(256, k) * (k/256)^D <= 2^-48, exactly; None at 256.
+
+    The root comparison's bound on differing messages (exposition 6.8).
+    """
     if k == 0:
         return 0
     if k >= 256:
@@ -141,24 +146,24 @@ def d_hi(k):
     return d
 
 
-def charges(n_a, n_b, k=256, peer_window=None):
+def charges(n_a, n_b, exchange=True, k=256):
     """Return (max population, charge before, scope-only charge, charge after).
 
-    Each charge is a function of the window K. "Before" is the existing
-    scope charge; "scope-only" is the set-priced scope charge (exposition
-    section 6.5); "after" adds parking (section 6.3). `k` is the number of
-    differing root slots, and k < 256 caps populations by `D_hi(k)`
-    (section 6.6).
-
-    `peer_window(level)` is the peer's question-queue capacity at a level,
-    when the greeting carries it. The queries in replies parked at level d
-    are peer questions still outstanding at level d + 1, so they number at
-    most `peer_window(d + 1) + 257`, and so do their listings' owners.
+    Each charge is a function of the window K:
+    - "before" is today's scope charge;
+    - "scope-only" is the set-priced scope charge (exposition 6.5);
+    - "after" adds parking (6.3).
+    With `exchange`, both peers hold the same shared window K (6.6). The
+    queries in replies parked at level d are the peer's questions still
+    outstanding at level d + 1, so their listings number at most
+    (K(d + 1) + 257) * min(256, C(d)).
+    `k < 256` applies the dropped root-comparison bound (6.8).
     """
     n, pair, bound = max(n_a, n_b), n_a * n_b, d_hi(k)
     pop = [population(n, pair, d) for d in range(KEY + 1)]
     if bound is not None:
         pop = [p if d < 2 else min(p, k if d == 2 else bound) for d, p in enumerate(pop)]
+    width = lambda K, d: max(1, min(K, pop[d]))
 
     def scope_before(d, K):
         return min(pop[d], K) * (children_quantile(n, d - 1) * REFERENCE_BYTES + SCOPE_FIXED_BYTES)
@@ -171,7 +176,7 @@ def charges(n_a, n_b, k=256, peer_window=None):
         return refs * REFERENCE_BYTES + q * SCOPE_FIXED_BYTES
 
     def park(d, K):
-        slots = min(max(1, min(K, pop[d])) + FAN + 1, pow256(d - 1))
+        slots = min(width(K, d) + FAN + 1, pow256(d - 1))
         if bound is not None and d >= 2:
             slots = min(slots, k if d == 2 else bound)
         agg = set_leaves_quantile(n, slots, d - 1)
@@ -180,31 +185,16 @@ def charges(n_a, n_b, k=256, peer_window=None):
         entries = min(slots * c0 * c1, occupied(n, d + 1), agg)
         if bound is not None:
             entries = min(entries, bound * c1)
-        if peer_window is not None and d < KEY:
-            entries = min(entries, (peer_window(d + 1) + FAN + 1) * min(FAN, c1))
+        if exchange and d < KEY:
+            entries = min(entries, (width(K, d + 1) + FAN + 1) * min(FAN, c1))
         return reactions * REACTION_BYTES + entries * ENTRY_BYTES
 
     leaf = lambda K: min(pop[KEY], K) * LEAF_REQUEST_BYTES
     before = lambda K: SUPPLY_FANS + sum(scope_before(d, K) for d in range(1, KEY + 1)) + leaf(K)
     scopes = lambda K: SUPPLY_FANS + sum(scope_after(d, K) for d in range(1, KEY + 1)) + leaf(K)
     after = lambda K: scopes(K) + sum(park(d, K) for d in range(1, KEY + 1))
+    after.level2 = lambda K: park(2, K)
     return max(pop), before, scopes, after
-
-
-def shared_window(n, budget):
-    """Both peers on one budget, each pricing parking by the other's window.
-
-    Solves for the largest common K whose charge, priced against a peer
-    holding the same K at every level, fits the budget.
-    """
-    pair = n * n
-    pop = [population(n, pair, d) for d in range(KEY + 1)]
-    lo, hi = 1, max(max(pop), 1)
-    while lo < hi:
-        mid = lo + (hi - lo + 1) // 2
-        _, _, _, after = charges(n, n, peer_window=lambda l: max(1, min(mid, pop[l])))
-        lo, hi = (mid, hi) if after(mid) <= budget else (lo, mid - 1)
-    return lo, pop
 
 
 def granted(charge, top, budget):
@@ -216,11 +206,22 @@ def granted(charge, top, budget):
     return lo
 
 
+MIB, GIB = 2 ** 20, 2 ** 30
+# Reference links by bandwidth-delay product in bytes: in-rack (100 Gb/s,
+# 50 us), metro (10 Gb/s, 2 ms), long haul (1 Gb/s, 100 ms). A 100-byte
+# message costs 43 bytes of protocol overhead on the wire, so the long-haul
+# link holds W = 12,500,000 // 143 = 87,412 messages.
+LINKS = [("in-rack", 625_000), ("metro", 2_500_000), ("long haul", 12_500_000)]
+MESSAGE_WIRE_BYTES = 43 + 100
+LONG_HAUL_W = 12_500_000 // MESSAGE_WIRE_BYTES
+SIZES = (10**5, 10**6, 10**7, 10**8)
+
+
 def level_walk(n=10**7, extra=200_000):
-    """The worked example of exposition section 6.4, level by level."""
+    """Exposition 6.4: the worked example, level by level."""
     children = lambda leaves: 256 * (1 - math.exp(-leaves / 256))
     differs = lambda depth: 1 - math.exp(-extra / 256 ** depth)
-    print(f"\nLevel walk, n={n:.0e}, {extra} extra messages on one side:")
+    print(f"\n[6.4] Level walk, n={n:.0e}, {extra} extra messages on one side:")
     for j in range(4):
         print(f"  depth {j}: {n / 256 ** j:,.1f} leaves, {children(n / 256 ** j):.0f} children"
               + (f", differs with probability {differs(j):.3f}" if j else ""))
@@ -234,60 +235,93 @@ def level_walk(n=10**7, extra=200_000):
     print(f"  level 3: {65536 * differs(2):,.0f} questions; replies of"
           f" {children(n / 256 ** 2):.0f} reactions, {children(n / 256 ** 2) * differs(3):.1f} queries")
     top, _, _, after = charges(n, n)
-    window = granted(after, top, 512 * 2 ** 20)
+    window = granted(after, top, 512 * MIB)
     ahead = window / queries
-    print(f"  sender pacing at the default budget: level-3 window {window:,},"
-          f" so about {ahead:.0f} level-2 replies ahead ({ahead * entries * ENTRY_BYTES / 1e6:.0f} MB)")
+    print(f"  shared window at the default budget: {window:,}, so about {ahead:.0f} level-2 replies"
+          f" can run ahead ({ahead * entries * ENTRY_BYTES / 1e6:.0f} MB); level-2 parking is priced at"
+          f" {after.level2(window) / MIB:.0f} MiB")
     for size in (10**6, 10**7, 10**8):
         prefixes = 2 ** 24 * (1 - math.exp(-size / 2 ** 24))
         print(f"  level-2 volume at n={size:.0e}: {prefixes / size:.2f} n prefixes,"
               f" {prefixes * ENTRY_BYTES / 1e6:.0f} MB")
 
 
-def root_comparison_windows():
-    """Section 6.6: windows with and without pricing from the root comparison."""
-    print("\nRoot comparison: window, size-only -> priced from the root comparison")
-    for n, D, budget in ((10**6, 100, 16), (10**6, 1000, 16), (10**7, 100, 64), (10**7, 1000, 64)):
-        k = round(256 * (1 - math.exp(-D / 256)))
-        top, _, _, after = charges(n, n)
-        top_k, _, _, after_k = charges(n, n, k)
-        print(f"  n={n:.0e} D={D} {budget} MiB: {granted(after, top, budget * MIB)}"
-              f" -> {granted(after_k, top_k, budget * MIB)}")
+def exchange_effect():
+    """Exposition 6.6: what exchanging budgets buys over a private window."""
+    print("\n[6.6] Exchange: private window -> shared window (entirely different replicas, one budget)")
+    for n in SIZES:
+        top, _, _, private = charges(n, n, exchange=False)
+        _, _, _, shared = charges(n, n)
+        row = [f"{b} MiB {granted(private, top, b * MIB)} -> {granted(shared, top, b * MIB)}"
+               for b in (16, 64, 512)]
+        K = min(top, LONG_HAUL_W)
+        print(f"  n={n:.0e}: " + " | ".join(row)
+              + f" | floor {private(1)/MIB:.1f} -> {shared(1)/MIB:.1f} MiB"
+              + f" | long-haul threshold {private(K)/MIB:.0f} -> {shared(K)/MIB:.0f} MiB")
+
+
+def thresholds():
+    """Exposition 6.7: threshold budgets and windows, today -> the design."""
+    print("\n[6.7] Threshold budgets (MiB), today -> the design:")
+    for n in SIZES:
+        top, before, _, after = charges(n, n)
+        cells = [f"{name}: {before(min(top, bdp // MESSAGE_WIRE_BYTES))/MIB:.0f} ->"
+                 f" {after(min(top, bdp // MESSAGE_WIRE_BYTES))/MIB:.0f}" for name, bdp in LINKS]
+        print(f"  n={n:.0e}  " + " | ".join(cells))
+    print("[6.7] Windows granted, today -> the design:")
+    for n in SIZES:
+        top, before, _, after = charges(n, n)
+        print(f"  n={n:.0e}: " + " | ".join(
+            f"{b} MiB {granted(before, top, b * MIB)} -> {granted(after, top, b * MIB)}" for b in (16, 64, 512)))
+    top, _, scopes, after = charges(10**6, 10**6)
+    K = min(top, LONG_HAUL_W)
+    print(f"[6.7] Reference point: threshold {after(K)/MIB:.0f} MiB = scopes {scopes(K)/MIB:.0f}"
+          f" + parking {(after(K) - scopes(K))/MIB:.0f}")
+
+
+def root_comparison():
+    """Exposition 6.8: the root-comparison bound, and why the design drops it."""
+    print("\n[6.8] D_hi(k):", {k: d_hi(k) for k in (1, 8, 32, 83, 128, 177, 224, 251, 255)})
     for D in (1400, 2000):
         print(f"  P(all 256 root slots differ) at D={D}: {(1 - math.exp(-D / 256)) ** 256:.2f}")
+    print("[6.8] Window: private -> private + root comparison -> shared -> shared + root comparison")
+    for n in (10**6, 10**7, 10**8):
+        for D in (100, 1000):
+            k = round(256 * (1 - math.exp(-D / 256)))
+            top, _, _, private = charges(n, n, exchange=False)
+            top_k, _, _, private_k = charges(n, n, exchange=False, k=k)
+            _, _, _, shared = charges(n, n)
+            _, _, _, shared_k = charges(n, n, k=k)
+            cells = [f"{b} MiB {granted(private, top, b * MIB)} -> {granted(private_k, top_k, b * MIB)}"
+                     f" -> {granted(shared, top, b * MIB)} -> {granted(shared_k, top_k, b * MIB)}"
+                     for b in (4, 16, 64)]
+            print(f"  n={n:.0e} D={D} (k={k}): " + " | ".join(cells))
+
+
+def credits():
+    """Exposition 9.2: latency-free budgets, parking against credits."""
+    print("\n[9.2] Long haul, latency-free budgets (MiB): parking | credits, 17 x BDP | credits, band-targeted")
+    band_credits = 2 * 12_500_000 + 15 * FRAME_BYTES
+    for n in SIZES:
+        top, _, scopes, after = charges(n, n)
+        K = min(top, LONG_HAUL_W)
+        print(f"  n={n:.0e}: {after(K)/MIB:.0f} | {(scopes(K)+17*12_500_000)/MIB:.0f}"
+              f" | {(scopes(K)+band_credits)/MIB:.0f}")
 
 
 def band_figures(n=10**6):
-    """Section 7.2: where supplies fall, by the other side's prefix occupancy."""
+    """Exposition 7.2: where supplies fall, by the other side's prefix occupancy."""
     occupied_at = lambda j: 1 - math.exp(-n / 256 ** j)
-    print(f"\nBand at n={n:.0e}: occupancy by depth "
+    print(f"\n[7.2] Band at n={n:.0e}: occupancy by depth "
           + ", ".join(f"{j}: {occupied_at(j):.4f}" for j in (2, 3, 4))
           + f"; supplies at depth 3: {1 - occupied_at(3):.0%}")
 
 
-def duplex_figures():
-    """Section 10.3: the duplex term 0.7 * sqrt(N_b) * m / bandwidth."""
-    wire = 125e6  # 1 Gb/s in bytes per second
-    for N, m in ((100, 1e6), (200_000, 143)):
-        print(f"  duplex term, {N} supplies of {m:.0f} B: {0.7 * math.sqrt(N) * m / wire * 1e3:.2f} ms"
-              f" of {N * m / wire:.2f} s")
-
-
-def exchange_split(n=10**6):
-    """Section 10.1: the charge at the reference point, split by kind."""
-    top, _, scopes, after = charges(n, n)
-    K = min(top, 87412)
-    pop = [population(n, n * n, d) for d in range(KEY + 1)]
-    _, _, _, exchanged = charges(n, n, peer_window=lambda l: max(1, min(K, pop[l])))
-    print(f"\nReference point n={n:.0e}: scopes {scopes(K)/MIB:.0f} MiB, parking"
-          f" {(after(K)-scopes(K))/MIB:.0f} MiB, removed by the exchange {(after(K)-exchanged(K))/MIB:.0f} MiB")
-
-
 def exact_deep_fans():
-    """Section 10.2: fans of exactly 1 past the leaf depth, against the quantiles."""
+    """Exposition 10.1: fans of exactly 1 past the leaf depth, against the quantiles."""
     global children_quantile, leaves_quantile
     base_c, base_l = children_quantile, leaves_quantile
-    print("\nExact deep fans past the leaf depth h: floor, threshold, and windows")
+    print("\n[10.1] Exact deep fans past the leaf depth h: floor, threshold, and windows")
     for n in (10**5, 10**6, 10**7):
         h = math.floor(math.log(n * n / 2, 256)) + 2
         rows = []
@@ -296,76 +330,16 @@ def exact_deep_fans():
                 children_quantile = lambda nn, j: 1 if j >= h else base_c(nn, j)
                 leaves_quantile = lambda nn, j: 1 if j >= h else base_l(nn, j)
             top, _, _, after = charges(n, n)
-            K = min(top, 87412)
-            rows.append((after(1), after(K), granted(after, top, 64 * MIB)))
+            rows.append((after(1), after(min(top, LONG_HAUL_W)), granted(after, top, 64 * MIB)))
             children_quantile, leaves_quantile = base_c, base_l
         (f0, t0, w0), (f1, t1, w1) = rows
         print(f"  n={n:.0e} h={h}: floor {f0/MIB:.1f} -> {f1/MIB:.1f} MiB ({1 - f1/f0:.1%} removed),"
               f" threshold {t0/MIB:.0f} -> {t1/MIB:.0f} MiB, window at 64 MiB {w0} -> {w1}")
 
 
-MIB, GIB = 2 ** 20, 2 ** 30
-# Reference links by bandwidth-delay product in bytes: in-rack (100 Gb/s,
-# 50 us), metro (10 Gb/s, 2 ms), long haul (1 Gb/s, 100 ms). A 100-byte
-# message costs 43 bytes of protocol overhead on the wire, so the long-haul
-# link holds W = 12,500,000 // 143 = 87,412 messages, the constant below.
-LINKS = [("in-rack", 625_000), ("metro", 2_500_000), ("long haul", 12_500_000)]
-MESSAGE_WIRE_BYTES = 43 + 100
-
-
-def main():
-    """Print each group of figures the note cites."""
-    level_walk()
-    print("\nD_hi(k):", {k: d_hi(k) for k in (1, 8, 32, 83, 128, 177, 224, 251, 255)})
-
-    print("\nThreshold budgets (MiB), entirely different replicas, before -> after:")
-    for n in (10**5, 10**6, 10**7, 10**8):
-        top, before, _, after = charges(n, n)
-        cells = []
-        for name, bdp in LINKS:
-            K = min(top, bdp // MESSAGE_WIRE_BYTES)
-            cells.append(f"{name}: {before(K)/MIB:.0f} -> {after(K)/MIB:.0f}")
-        print(f"  n={n:.0e}  " + " | ".join(cells))
-
-    print("\nOrdinary sessions, n=1e6, long haul:")
-    for D in (10, 100, 1000):
-        k = round(256 * (1 - math.exp(-D / 256)))
-        top, _, _, after = charges(10**6, 10**6, k)
-        print(f"  D={D}: k={k}, D_hi={d_hi(k)}, threshold {after(min(top, 87412))/MIB:.1f} MiB")
-
-    print("\nWindows granted:")
-    for n in (10**5, 10**6, 10**7):
-        top, before, _, after = charges(n, n)
-        for budget in (64 * MIB, 512 * MIB):
-            print(f"  n={n:.0e} {budget//MIB} MiB: {granted(before, top, budget)} -> {granted(after, top, budget)}")
-
-    print("\nLong haul, latency-free budgets (MiB): parking | credits, 17 x BDP | credits, band-targeted")
-    band_credits = 2 * 12_500_000 + 15 * FRAME_BYTES
-    for n in (10**5, 10**6, 10**7, 10**8):
-        top, _, scopes, after = charges(n, n)
-        K = min(top, 87412)
-        print(f"  n={n:.0e}: {after(K)/MIB:.0f} | {(scopes(K)+17*12_500_000)/MIB:.0f} | {(scopes(K)+band_credits)/MIB:.0f}")
-
-    print("\nExchanged windows, both peers on one budget: window today -> priced by the peer's")
-    for n in (10**5, 10**6, 10**7, 10**8):
-        top, _, _, after = charges(n, n)
-        row = []
-        for budget in (16 * MIB, 64 * MIB, 512 * MIB):
-            row.append(f"{budget // MIB} MiB {granted(after, top, budget)} -> {shared_window(n, budget)[0]}")
-        pop = [population(n, n * n, d) for d in range(KEY + 1)]
-        _, _, _, floor = charges(n, n, peer_window=lambda l: 1)
-        K = min(top, 87412)
-        _, _, _, wide = charges(n, n, peer_window=lambda l: max(1, min(K, pop[l])))
-        print(f"  n={n:.0e}: " + " | ".join(row)
-              + f" | floor {after(1)/MIB:.1f} -> {floor(1)/MIB:.1f} MiB"
-              + f" | long-haul threshold {after(K)/MIB:.0f} -> {wide(K)/MIB:.0f} MiB")
-
-    root_comparison_windows()
-    band_figures()
-    exchange_split()
-    exact_deep_fans()
-
-    print("\nDuplex coupling: reverse-wire idle time, % of the larger transfer (mean, worst)")
+def duplex():
+    """Exposition 10.2: reverse-wire idle time, and the duplex term."""
+    print("\n[10.2] Duplex coupling: reverse-wire idle time, % of the larger transfer (mean, worst)")
     for N in (100, 1000, 10000):
         row = []
         for ratio in (0.5, 1.0, 2.0):
@@ -386,7 +360,22 @@ def main():
                 runs.append((max(clock, free) - max(forward, reverse)) / max(forward, reverse))
             row.append(f"{100*statistics.mean(runs):.2f}% ({100*max(runs):.2f}%)")
         print(f"  N={N}: " + " | ".join(row))
-    duplex_figures()
+    wire = 125e6  # 1 Gb/s in bytes per second
+    for N, m in ((100, 1e6), (200_000, 143)):
+        print(f"  duplex term, {N} supplies of {m:.0f} B: {0.7 * math.sqrt(N) * m / wire * 1e3:.2f} ms"
+              f" of {N * m / wire:.2f} s")
+
+
+def main():
+    """Print each group of figures the note cites, tagged by exposition section."""
+    level_walk()
+    exchange_effect()
+    thresholds()
+    root_comparison()
+    band_figures()
+    credits()
+    exact_deep_fans()
+    duplex()
 
 
 if __name__ == "__main__":
