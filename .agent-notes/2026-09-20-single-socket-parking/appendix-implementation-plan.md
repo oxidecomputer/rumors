@@ -570,11 +570,15 @@ publish the deployment guidance that bounds it.
   where the duplex share is largest, and record the measured excess
   beside both figures.
 - The hop ledger must stay fixed; elapsed time may move.
-- Write the deployment guidance into the crate docs. The note's platform
-  facts (which systems provide `TCP_NOTSENT_LOWAT`, and illumos's buffer
-  tunables) come from documentation and are unverified, so confirm them
-  first. For TCP, the guidance is to bound the socket's unsent bytes by
-  whichever means the platform offers, and to choose
+- Write the deployment guidance into the crate docs. Which systems
+  provide `TCP_NOTSENT_LOWAT` is verified from their TCP headers (Linux
+  and macOS yes; illumos and FreeBSD no), as is illumos's rule that a
+  send buffer above 64 KiB must be set before `listen` or `connect`;
+  illumos's default buffer sizes and tunables are still unverified, so
+  confirm them on the illumos box first. For TCP, the guidance is to
+  bound the socket's unsent bytes by whichever means the platform offers
+  (`TCP_NOTSENT_LOWAT` where it exists, `SO_SNDBUF` sized to the link
+  elsewhere), and to choose
   `target_message_size` for the head-of-line delay the deployment
   accepts, since the default run budget is sized for memory symmetry
   with the largest query reply rather than for latency.

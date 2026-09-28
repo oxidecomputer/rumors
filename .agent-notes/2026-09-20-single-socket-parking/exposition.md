@@ -945,11 +945,16 @@ bandwidth-delay product never holds unsent bytes; its throughput is
 capped instead.
 
 Bounding the unsent bytes removes the effect. Where the platform
-provides `TCP_NOTSENT_LOWAT`, setting it to about one frame does this;
-Linux and macOS provide it, according to their documentation, which this
-note has not verified. Elsewhere, setting `SO_SNDBUF` to about one
+provides `TCP_NOTSENT_LOWAT`, setting it to about one frame does this.
+Linux and macOS provide it (verified in their TCP headers); illumos and
+FreeBSD do not (verified likewise, in the illumos-gate and FreeBSD
+source trees). There, `SO_SNDBUF` is the only lever. It bounds unsent
+and unacknowledged bytes together, so setting it to about one
 bandwidth-delay product plus one frame bounds the unsent bytes with the
-whole buffer. The residual is then about two frames' transmission time:
+whole buffer, at the price of choosing the buffer for the link's round
+trip rather than letting the kernel tune it; on illumos a buffer above
+64 KiB must be set before `listen` or `connect`, because the window
+scale is negotiated when the connection is established. The residual is then about two frames' transmission time:
 about 29 ms at 1 Gb/s with the default run budget, and less with a
 smaller one. The crate sees only the two halves of the connection, so
 these settings are deployment guidance for the application.
