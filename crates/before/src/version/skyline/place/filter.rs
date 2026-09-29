@@ -78,10 +78,10 @@ use super::super::sweep::Directions;
 ///
 /// Cursor paths and spilled accumulators use additional storage in proportion
 /// to the topology and numeric payloads that fund them. Limiting the fixed
-/// records separately prevents many tiny bounds from multiplying their
-/// resident encoding into a much larger transient roster. Eight is one third
-/// of the crate's enforced 24 B/B transient ceiling, leaving most of the budget
-/// for those input-proportionate allocations and allocator rounding.
+/// records separately prevents many small bounds from expanding into a much
+/// larger temporary table. Reserving eight bytes per input byte leaves most of
+/// the crate's 20 B/B transient ceiling for topology, numeric payloads, and
+/// allocator rounding.
 const SIDE_BYTES_PER_INPUT_BYTE: usize = 8;
 
 /// How many side records fit within one walk's input-funded budget.

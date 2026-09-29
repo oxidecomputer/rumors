@@ -19,7 +19,9 @@ claim audit.
 
 The present heap judgment is:
 
-- ordinary cells: `(peak transient bytes - 8,192) / encoded input bytes <= 24`;
+- ordinary cells: `(peak transient bytes - 8,192) / denominator <= 20`, where
+  the denominator is encoded input bytes by default and total I/O where
+  required output can dominate;
 - a few operations use explicit, documented constant units or tighter
   operation-specific ceilings;
 - a separate four-point trend rejects scaling exponents above 1.15;
@@ -28,9 +30,9 @@ The present heap judgment is:
 
 The next investigation must decide whether the 8 KiB flat allowance is honest
 fixed scaffolding or conceals meaningful small-input amplification, and state
-the universal claim precisely. Do not preserve the number 24 merely because it
-is already pinned. Check operation-specific denominators and ceilings as part
-of the same argument, without adding another instrument.
+the universal claim precisely. The proportional ceiling is 20 B/B. Check
+operation-specific denominators and ceilings as part of the same argument,
+without adding another instrument.
 
 After that, retain this priority order:
 
