@@ -11,7 +11,7 @@ edition = "2021"
 # harness): the pins assert outcomes, not instruction counts, and each
 # needs a full 4 GiB 32-bit address space rather than a pooled slot's
 # small ceiling.
-wasmtime = { version = "47", default-features = false, features = [
+wasmtime = { version = "48.0.3", default-features = false, features = [
     "cranelift",
     "runtime",
 ] }

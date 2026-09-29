@@ -367,6 +367,7 @@ supply-chain:
     cargo audit --file crates/before/fuzzfit/Cargo.lock
     cargo audit --file crates/before-fuelscape/Cargo.lock
     cargo audit --file crates/before/surfacecheck/Cargo.lock
+    cargo audit --file crates/before/wasm32-pins/Cargo.lock
     cargo deny --workspace check bans
 
 # The fuzz targets live in a detached workspace (crates/before/fuzz), so no
