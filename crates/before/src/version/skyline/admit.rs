@@ -52,7 +52,7 @@ use suanpan::Accumulator;
 
 use num_bigint::BigUint;
 
-use crate::codec::{accumulator, gamma, BitCursor, BitsBuf, BitsView};
+use crate::codec::{accumulator, gamma, BitCursor, BitStack, BitsView};
 use crate::error::Decode;
 
 use super::overlay::{LeafCursor, PlateauCursor, Side, Step};
@@ -76,10 +76,10 @@ struct CheckedCursor<'a, C> {
     cursor: &'a mut C,
     /// Root-to-leaf branch directions, root first (`false`: inside the left
     /// child, its right sibling still pending in the stream).
-    path: BitsBuf,
+    path: BitStack,
     /// Per open ancestor: whether its completed left child was a leaf (a
     /// placeholder `false` until that child completes).
-    left_was_leaf: BitsBuf,
+    left_was_leaf: BitStack,
     /// The count of `false` bits in `path`: zero exactly when the current
     /// leaf's plateau ends at the unit interval's right edge — the tree is
     /// whole and the stream's bits end here.
@@ -102,8 +102,8 @@ where
     fn open(cursor: &'a mut C) -> Result<(Self, BigUint), Decode> {
         let mut this = CheckedCursor {
             cursor,
-            path: BitsBuf::new(),
-            left_was_leaf: BitsBuf::new(),
+            path: BitStack::new(),
+            left_was_leaf: BitStack::new(),
             open_lefts: 0,
             last_delta_zero: false,
         };

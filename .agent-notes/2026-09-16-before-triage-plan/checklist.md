@@ -267,10 +267,15 @@ into otherwise small feature increments.
       Sources: stack-segment findings across `board-*`, `recursion-1`, and
       `envelopes-a-2`.
 
-- [ ] Audit every remaining counter hook for a distinct, live observation.
-      Remove production hooks whose only consumer is decorative.
+- [x] Audit every remaining counter hook for a distinct, live observation and
+      assign each one a keep, consolidate, or retire disposition.
       Sources: `meter-core-*`, `inventory-*`, `module-graph-*`;
       resource-instrumentation findings.
+
+- [ ] Remove dead stack accounting and allocation-experiment branches; narrow
+      or retire traffic counters that do not protect a semantic or resource
+      contract. Preserve scan and arithmetic-work counters, and retain the
+      densification observation until equivalent coverage exists.
 
 - [x] Make the board's headline bounds match what it proves. Reconcile the
       flat heap allowance and row-specific denominators with any universal

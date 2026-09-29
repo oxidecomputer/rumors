@@ -15,6 +15,7 @@ mod tests;
 /// The newest bit lives at the low end of the top register; a filled register
 /// spills whole into the word vector and refills on the pop that crosses back.
 /// Every operation is O(1) with no bit-addressing arithmetic.
+#[derive(Default)]
 pub(crate) struct BitStack {
     /// Completed 64-bit groups below the top register, oldest first.
     words: Vec<u64>,
@@ -26,12 +27,9 @@ pub(crate) struct BitStack {
 }
 
 impl BitStack {
+    /// An empty stack.
     pub(crate) fn new() -> Self {
-        BitStack {
-            words: Vec::new(),
-            top: 0,
-            top_len: 0,
-        }
+        BitStack::default()
     }
 
     /// The stack's height in bits.

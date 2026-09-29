@@ -127,14 +127,6 @@ impl BitsBuf {
         self.live += 1;
     }
 
-    /// Pop the newest bit.
-    pub(crate) fn pop(&mut self) -> Option<bool> {
-        let pos = self.live.checked_sub(1)?;
-        let bit = self.get(pos);
-        self.truncate(pos);
-        Some(bit)
-    }
-
     /// Append the low `len <= 64` bits of `value`, most-significant first.
     pub(crate) fn push_bits(&mut self, value: u64, len: u32) {
         debug_assert!(len <= 64, "an append stages at most one machine word");
@@ -178,6 +170,7 @@ impl BitsBuf {
     ///
     /// Panics if `len` exceeds the current length: truncation only ever
     /// shortens.
+    #[cfg(test)]
     pub(crate) fn truncate(&mut self, len: u64) {
         assert!(
             len <= self.live,

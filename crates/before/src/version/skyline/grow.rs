@@ -93,7 +93,7 @@ use core::ops::Range;
 
 use num_bigint::{BigInt, BigUint, Sign};
 
-use crate::codec::{self, gamma, BitCursor, BitsBuf, BitsView};
+use crate::codec::{self, gamma, BitCursor, BitStack, BitsBuf, BitsView};
 
 use super::build::{PayloadBuilder, SkylineBuilder};
 use super::walk::LeafWalk;
@@ -503,7 +503,7 @@ pub(super) fn emit(
     let mut out = SkylineBuilder::with_capacity(event_bits.len() + id_bits.len() + 64);
     // One bit per chosen-path level: `true` = the branch descended left, so its
     // right sibling subtree is pending after the inflation point.
-    let mut pending = BitsBuf::new();
+    let mut pending = BitStack::new();
     // `u64`, the walk surface's depth denomination: each level holds one
     // pending bit in real memory.
     let mut depth = 0u64;

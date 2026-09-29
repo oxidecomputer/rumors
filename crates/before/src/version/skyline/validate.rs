@@ -25,7 +25,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::codec::{accumulator, gamma, BitCursor, BitsBuf, BitsView, DsiCursor};
+use crate::codec::{accumulator, gamma, BitCursor, BitStack, BitsView, DsiCursor};
 use crate::error::Decode;
 
 /// Strictly validate one whole skyline stream.
@@ -77,7 +77,7 @@ where
     // Two bits per open ancestor, pushed [left-complete, left-was-leaf] and
     // popped in reverse order below. A bit stack, so depth costs bits,
     // not frames.
-    let mut open: BitsBuf = BitsBuf::new();
+    let mut open = BitStack::new();
     // The running leaf height. Only its sign is ever read, and only after a
     // subtracting delta: an adding delta cannot take a valid height negative,
     // and the first leaf's absolute payload is a natural.

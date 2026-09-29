@@ -1,6 +1,6 @@
 use crate::error::Decode;
 
-use super::{BitCursor, BitsBuf, BitsView};
+use super::{BitCursor, BitStack, BitsView};
 
 /// The unvisited part of an unfinished party node.
 #[derive(Clone, Copy)]
@@ -20,7 +20,7 @@ enum IdFrame {
 /// four states keeps that auxiliary stack proportional to the bytes that force
 /// it, rather than storing a Rust enum beside every two input bits.
 #[derive(Default)]
-struct IdFrames(BitsBuf);
+struct IdFrames(BitStack);
 
 impl IdFrames {
     /// Push one unfinished-node state.
@@ -35,7 +35,8 @@ impl IdFrames {
                 left_terminal: true,
             } => 0b11,
         };
-        self.0.push_bits(state, 2);
+        self.0.push(state & 0b10 != 0);
+        self.0.push(state & 0b01 != 0);
     }
 
     /// Pop the newest unfinished-node state.

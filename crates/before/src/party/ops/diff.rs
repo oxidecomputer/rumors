@@ -44,7 +44,7 @@
 //! the shape on which a structural walk's recursion depth tracks the full tree
 //! depth — cost bits, not stack frames or grown segments.
 
-use crate::codec::{BitsBuf, BitsView};
+use crate::codec::{BitStack, BitsBuf, BitsView};
 use crate::idbits::IdReader;
 use crate::version::skyline::overlay::{self, PlateauCursor};
 
@@ -250,11 +250,11 @@ struct IdLeafCursor<'a> {
     pos: u64,
     /// Root-to-item branch directions: `false` inside a left child slot, `true`
     /// inside a right.
-    path: BitsBuf,
+    path: BitStack,
     /// One bit per open left-branch level, innermost last: whether that
     /// ancestor's right child is present in the stream (`false` = the right
     /// slot is a synthetic unowned plateau).
-    pending_right: BitsBuf,
+    pending_right: BitStack,
     /// Count of left-branch levels in `path`: zero exactly at the final item
     /// (the all-right path), so [`done`](Self::done) is `O(1)`.
     ///
@@ -278,8 +278,8 @@ impl<'a> IdLeafCursor<'a> {
         let mut this = IdLeafCursor {
             bits: BitsView::empty(),
             pos: 0,
-            path: BitsBuf::new(),
-            pending_right: BitsBuf::new(),
+            path: BitStack::new(),
+            pending_right: BitStack::new(),
             open_lefts: 0,
             item: Item::Plateau { owned: false },
         };

@@ -1,4 +1,4 @@
-use crate::codec::BitsBuf;
+use crate::codec::{BitStack, BitsBuf};
 use crate::idbits::{IdNode, IdReader};
 
 use super::build::{Built, IdBuilder};
@@ -133,7 +133,7 @@ impl IdReader<'_> {
 /// retracts a fixed-width suffix of the output
 /// ([`IdBuilder::collapse_terminal_pair`]).
 struct Frames {
-    bits: BitsBuf,
+    bits: BitStack,
 }
 
 /// One popped [`Frames`] entry; see the stack's two shapes.
@@ -149,7 +149,7 @@ enum Frame {
 impl Frames {
     fn new() -> Frames {
         Frames {
-            bits: BitsBuf::new(),
+            bits: BitStack::new(),
         }
     }
 
