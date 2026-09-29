@@ -144,8 +144,8 @@ const FORKS_SHARES: u32 = 8;
 const TICKS_COUNT: u32 = 1_000_000_000;
 
 /// The cost shared by operations that compute or verify an exact rank.
-const RANK_CONTRACT: &str = "`O(M(n))` time and `O(n)` space for `n` encoded \
-    input bytes; `M(n)` is the cost of multiplying `n`-bit integers";
+const RANK_CONTRACT: &str = "`O(M(n))` time and `O(n)` space for `n` input \
+    bytes; `M(n)` is the cost of multiplying `n`-bit integers";
 
 /// How a panel initially compensates its measured growth.
 #[derive(Clone, Copy)]
@@ -792,7 +792,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party::is_disjoint"],
         size_measure: M_BINARY,
         variant: "",
-        contract: "`O(|self| + |other|)`, no allocation",
+        contract: "`O(|self| + |other|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
@@ -806,7 +806,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party::covers"],
         size_measure: M_BINARY,
         variant: "",
-        contract: "`O(|self| + |other|)`, no allocation",
+        contract: "`O(|self| + |other|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
@@ -1189,7 +1189,7 @@ pub const ROSTER: &[OpSpec] = &[
              derived by Version::rank in preparation; fuel includes writing the text \
              output)",
         variant: "",
-        contract: "`O(n)` in the encoded size of the `Version` from which the rank was derived",
+        contract: "`O(n)` in the size of the `Version` from which the rank was derived",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);

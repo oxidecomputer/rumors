@@ -233,7 +233,7 @@ pub fn lag(a: BitsView<'_>, b: BitsView<'_>) -> Rank {
 ///
 /// # Complexity
 ///
-/// For `n` total encoded input bytes, the walk takes `O(M(n))` time and `O(n)`
+/// For `n` total input bytes, the walk takes `O(M(n))` time and `O(n)`
 /// transient space, where `M(n)` is the cost of multiplying `n`-bit integers.
 /// A rank tie must settle the exact difference to zero, so retaining only its
 /// sign cannot improve the worst-case bound.

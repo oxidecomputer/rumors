@@ -165,9 +165,9 @@ use crate::error::{Decode, ParseRank};
 /// # Serialization and causal ordering
 ///
 /// Like [`Clock`], [`Party`], [`Version`], and [`Span`], [`Rank`] and its
-/// companion view [`Ranked`] have a canonical representation as encoded bytes.
-/// This representation has a very deliberate property: *lexicographic ordering
-/// on encoded [`Rank`]/[`Ranked`] exactly matches comparison by [`Ord`]*.
+/// companion view [`Ranked`] have a canonical byte encoding. This encoding has
+/// a deliberate property: *lexicographic ordering on encoded
+/// [`Rank`]/[`Ranked`] exactly matches comparison by [`Ord`]*.
 ///
 /// ```
 /// use before::{Party, Version};
@@ -192,11 +192,11 @@ use crate::error::{Decode, ParseRank};
 ///
 /// # Complexity
 ///
-/// Write `‖r‖` for a rank's binary width and `|v|` for a version's encoded
-/// size. If `r = v.rank()`, then `‖r‖ = O(|v|)`; the rank may be exponentially
-/// smaller. Its in-memory and encoded sizes are both `O(‖r‖)`. A bound stated
-/// in `‖r‖` therefore gives the same upper bound in `|v|` for a rank derived
-/// from a version.
+/// Write `‖r‖` for a rank's binary width and `|v|` for a version's size. If
+/// `r = v.rank()`, then `‖r‖ = O(|v|)`; the rank may be exponentially smaller.
+/// Its memory use and serialized size are both `O(‖r‖)`. A bound stated in
+/// `‖r‖` therefore gives the same upper bound in `|v|` for a rank derived from
+/// a version.
 ///
 /// In brief: comparison, equality, hashing, and cloning are linear in the
 /// in-memory size. Addition and subtraction are `O(‖a‖ + ‖b‖)`.
@@ -368,7 +368,7 @@ impl Rank {
     /// safe to use generically as one part of *any* composite key, not merely
     /// when composed with [`Version`] as it is in [`Ranked`].
     ///
-    /// # Encoded size
+    /// # Serialized size
     ///
     /// The representation uses at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits: one
     /// bit per integral bit and nine bits per eight fractional bits.
@@ -551,11 +551,11 @@ impl Rank {
 
     /// The rank's value content in bits: `bits(num) + exp`.
     ///
-    /// The meter denominator for `Rank` operands, which have no byte encoding:
-    /// the numerator's bit width plus the
-    /// exponent bounds the information the value carries, and every public
-    /// construction path emits ranks whose content is linear in the encoded bits
-    /// it read, so a cost linear in this quantity is linear in wire terms too.
+    /// The meter denominator for `Rank` operands, whose value is not stored as
+    /// bytes: the numerator's bit width plus the exponent bounds the
+    /// information the value carries. Every public construction path emits
+    /// ranks whose content is linear in its input, so a cost linear in this
+    /// quantity is linear in input bytes too.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn content_bits(&self) -> u64 {
         self.num.bits() + self.exp
@@ -1093,7 +1093,7 @@ impl Default for Rank {
 /// # Complexity
 ///
 /// Writing the canonical value is linear in its binary width, `O(‖r‖)`. When
-/// `r = v.rank()`, `‖r‖ = O(|v|)`, where `|v|` is the encoded size of `v`, so
+/// `r = v.rank()`, `‖r‖ = O(|v|)`, where `|v|` is the size of `v`, so
 /// rendering is `O(|v|)`. Explicit padding adds time proportional to the
 /// padding written. Precision limits work to the retained prefix. Formatting
 /// uses constant auxiliary space.
@@ -1101,7 +1101,7 @@ impl Default for Rank {
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n)` in total input bytes; `O(n)` in the encoded size of the `Version` from which the rank was derived"
+    doc = "`O(n)` in total input bytes; `O(n)` in the size of the `Version` from which the rank was derived"
 )]
 ///
 /// # Example

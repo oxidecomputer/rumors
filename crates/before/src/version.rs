@@ -309,7 +309,7 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -382,7 +382,7 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_distance.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -429,7 +429,7 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_lag.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -771,8 +771,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_shape.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)` to drain")]
     ///
-    /// Draining the iterator is linear in the version's encoded size:
-    /// each plateau costs `O(1)` plus its own rise's encoded width, and
+    /// Draining the iterator is linear in the version's size:
+    /// each plateau costs `O(1)` plus its own rise's bit width, and
     /// the walk itself performs no arithmetic.
     ///
     /// Arithmetic *you* do with the [`Ticks`] is priced separately. [`Ticks`]
@@ -1098,7 +1098,7 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -1123,7 +1123,7 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example

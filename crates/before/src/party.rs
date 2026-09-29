@@ -383,10 +383,9 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_is_disjoint.html")))]
-    #[cfg_attr(
-        not(doc),
-        doc = "`O(n)` in total input bytes; `O(|self| + |other|)`, no allocation"
-    )]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    ///
+    /// Auxiliary space is `O(n)`.
     ///
     /// # Example
     ///
@@ -411,10 +410,9 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_covers.html")))]
-    #[cfg_attr(
-        not(doc),
-        doc = "`O(n)` in total input bytes; `O(|self| + |other|)`, no allocation"
-    )]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    ///
+    /// Auxiliary space is `O(n)`.
     ///
     /// # Example
     ///
@@ -486,8 +484,8 @@ impl Party {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_shape.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)` to drain")]
     ///
-    /// Draining the iterator is linear in the party's encoded size: each
-    /// region costs `O(1)`, and nothing allocates.
+    /// Draining the iterator takes time and auxiliary space linear in the
+    /// party's size.
     ///
     /// # Example
     ///

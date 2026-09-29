@@ -2,9 +2,9 @@
 //!
 //! A [`Query`] is a causal interval minus a same-polarity antichain of holes.
 //! Evaluation compiles those bounds into [`Demand`]s for the skyline filter.
-//! Large antichains are divided into batches sized from the encoded operands.
-//! Each batch shares one probe traversal while the number of live cursors
-//! remains proportional to those operands.
+//! Large antichains are divided into batches sized from their inputs. Each
+//! batch shares one probe traversal while the number of live cursors remains
+//! proportional to those inputs.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -116,7 +116,7 @@ impl<'a, P: Polarity> Query<'a, P> {
             .map(|hole| (hole.at.view().live(), P::hole_demand(hole.strict)))
     }
 
-    /// Encoded bytes retained by the query's bounds.
+    /// Bytes retained by the query's bounds.
     fn bound_bytes(&self) -> usize {
         self.floor
             .iter()
@@ -131,9 +131,9 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// # Complexity
     ///
     /// With `k` stored bounds, evaluation takes `O(k·n)` time and `O(n)`
-    /// auxiliary space for `n` total encoded operand bytes. More precisely, if
-    /// `i` is the number of intervals in the streams' common tree overlay and
-    /// `p` is the encoded size of `version`'s payloads, time is
+    /// auxiliary space for `n` total operand bytes. More precisely, if `i` is
+    /// the number of intervals in the streams' common tree overlay and `p` is
+    /// the total size of `version`'s payloads in bytes, time is
     /// `O(n + k·(i + p))`. The charts below show fixed-bound shapes, where
     /// this reduces to `O(n)`:
     ///
@@ -193,9 +193,9 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// # Complexity
     ///
     /// With `k` stored bounds, evaluation takes `O(k·n)` time and `O(n)`
-    /// auxiliary space for `n` total encoded operand bytes. More precisely, if
-    /// `i` is the number of intervals in the streams' common tree overlay and
-    /// `p` is the encoded size of the span endpoints' payloads, time is
+    /// auxiliary space for `n` total operand bytes. More precisely, if `i` is
+    /// the number of intervals in the streams' common tree overlay and `p` is
+    /// the total size of the span endpoints' payloads in bytes, time is
     /// `O(n + k·(i + p))`. The charts below show fixed-bound shapes, where
     /// this reduces to `O(n)`:
     ///

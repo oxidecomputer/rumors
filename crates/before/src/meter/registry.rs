@@ -997,14 +997,14 @@ const POPULATION_BUNDLE_CELLS: usize = 24;
 /// Board rows reached by scatter, including correlated query witnesses.
 const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
-/// The default denominator: encoded input bytes.
-const ENCODED: &str = "encoded input bytes";
+/// The default denominator: input bytes.
+const INPUT_BYTES: &str = "input bytes";
 
 /// The date the registry's rulings were ratified as the rows of record.
 const REGISTRY_RATIFIED: &str = "2026-07-29";
 
 /// The fold populations' shared denominator note.
-const FOLD_DENOM: &str = "encoded operand bytes, judged under the declared O(D log k) fold model";
+const FOLD_DENOM: &str = "input bytes, judged under the declared O(D log k) fold model";
 
 /// The adversarial crosses' shared no-band reason.
 const CROSS_UNBANDED: &str =
@@ -1156,7 +1156,7 @@ impl FamilyId {
                              committed two-point flatness claim",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: Some(
                     "4d + 4 bits for 2d + 1 nodes at depth d; the meter suite pins the \
                      size closed form",
@@ -1172,7 +1172,7 @@ impl FamilyId {
                     reason: "magnitude-over-depth shape; absolute envelope rows carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::Hugeleaf => FamilySpec {
@@ -1185,7 +1185,7 @@ impl FamilyId {
                     reason: "single-node magnitude maximizer; absolute envelope rows carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::Cliff => FamilySpec {
@@ -1199,7 +1199,7 @@ impl FamilyId {
                     "skyline_cmp_cliff_cost_is_flat_per_unit",
                     "skyline_join_cliff_cost_is_flat_per_unit",
                 ]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::IdPair => FamilySpec {
@@ -1213,7 +1213,7 @@ impl FamilyId {
                              comparison kernels",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::CombScatter => FamilySpec {
@@ -1242,7 +1242,7 @@ impl FamilyId {
                              tripwire column and its envelope rows carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: Some(
                     "rank telescopes to (2^d − 1)/2^d; the meter suite pins the closed \
                      form against the fold",
@@ -1305,7 +1305,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::NestedWide => FamilySpec {
@@ -1318,7 +1318,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MirrorWide => FamilySpec {
@@ -1331,7 +1331,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MirrorNarrow => FamilySpec {
@@ -1344,7 +1344,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::Staircase => FamilySpec {
@@ -1357,7 +1357,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::RevealComb => FamilySpec {
@@ -1367,7 +1367,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["skyline_min_ticks_reveal_comb_is_flat_per_unit"]),
-                denominator: "encoded input bytes; encoded I/O on the output-dominated \
+                denominator: "input bytes; total I/O on the output-dominated \
                               projection rows",
                 closed_form: None,
             },
@@ -1378,7 +1378,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["reveal_comb_hifloor_control_is_flat_per_unit"]),
-                denominator: "encoded input bytes; encoded I/O on the output-dominated \
+                denominator: "input bytes; total I/O on the output-dominated \
                               projection rows",
                 closed_form: None,
             },
@@ -1389,7 +1389,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["skyline_min_ticks_pure_comb_is_flat_per_unit"]),
-                denominator: "encoded input bytes; encoded I/O on the output-dominated \
+                denominator: "input bytes; total I/O on the output-dominated \
                               projection rows",
                 closed_form: None,
             },
@@ -1404,7 +1404,7 @@ impl FamilyId {
                              (ascend-plateau) carries the committed flatness band",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::AscendPlateau => FamilySpec {
@@ -1414,7 +1414,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["ascend_cliff_plateau_control_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::DominatedUndercut => FamilySpec {
@@ -1424,7 +1424,7 @@ impl FamilyId {
                     cells: CROSS_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["tick_dominated_undercut_arm_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: Some(
                     "k(2b + 26) + 2 construction bits, one dominated-undercut decision \
                      per site; the meter suite pins the size closed form and the band \
@@ -1438,7 +1438,7 @@ impl FamilyId {
                     cells: VERSION_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["skyline_distance_jump_pair_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::FreezePos => FamilySpec {
@@ -1452,7 +1452,7 @@ impl FamilyId {
                     "skyline_min_ticks_freeze_position_is_flat_per_unit",
                     "skyline_distance_freeze_position_is_flat_per_unit",
                 ]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: Some(
                     "rank exponent 2s − 1 (one trailing zero strips): the remainder-\
                      alignment derivation on the family's board base constant",
@@ -1469,7 +1469,7 @@ impl FamilyId {
                     "skyline_min_ticks_promotion_rearm_is_flat_per_unit",
                     "skyline_distance_promotion_rearm_is_flat_per_unit",
                 ]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: Some(
                     "rank exponent 36s: the remainder-alignment derivation on the \
                      family's board base constant",
@@ -1482,7 +1482,7 @@ impl FamilyId {
                     cells: VERSION_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["skyline_rank_weight_comb_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::FreezeParade => FamilySpec {
@@ -1492,7 +1492,7 @@ impl FamilyId {
                     cells: VERSION_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["skyline_rank_freeze_parade_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::DenseSuffix => FamilySpec {
@@ -1505,7 +1505,7 @@ impl FamilyId {
                     "skyline_rank_dense_suffix_is_flat_per_unit",
                     "skyline_distance_dense_suffix_is_flat_per_unit",
                 ]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::WideArming => FamilySpec {
@@ -1515,7 +1515,7 @@ impl FamilyId {
                     cells: VERSION_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["rank_wide_arming_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: Some(
                     "rank exponent 32s (remainder 0 at every knob): the derivation on \
                      the family's board base constant",
@@ -1528,7 +1528,7 @@ impl FamilyId {
                     cells: VERSION_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["rank_plateau_puncture_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: Some(
                     "the exact rank embeds the integer product 2·x·y + 1 of the committed \
                      factors (plateau_puncture_factors); the query fold's suite pins the \
@@ -1545,7 +1545,7 @@ impl FamilyId {
                     "skyline_rank_lone_freeze_late_is_flat_per_unit",
                     "skyline_rank_lone_freeze_tail_is_flat_per_unit",
                 ]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::ConcurrentPair => FamilySpec {
@@ -1559,7 +1559,7 @@ impl FamilyId {
                              carry it",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::ToothTail => FamilySpec {
@@ -1569,7 +1569,7 @@ impl FamilyId {
                     cells: VERSION_BUNDLE_CELLS,
                 },
                 bands: Bands::Priced(&["skyline_cmp_tooth_tail_is_flat_per_unit"]),
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::Benign => FamilySpec {
@@ -1583,7 +1583,7 @@ impl FamilyId {
                              adversarial constructions",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: "encoded input bytes (the organic control)",
+                denominator: "input bytes (the organic control)",
                 closed_form: None,
             },
             FamilyId::WideToothComb => FamilySpec {
@@ -1597,7 +1597,7 @@ impl FamilyId {
                     decided: REGISTRY_RATIFIED,
                 },
                 bands: Bands::Priced(&["skyline_rank_wide_tooth_freeze_band"]),
-                denominator: "encoded input bytes, through the internal skyline rank entry",
+                denominator: "input bytes, through the internal skyline rank entry",
                 closed_form: None,
             },
             FamilyId::JumpComb => FamilySpec {
@@ -1611,7 +1611,7 @@ impl FamilyId {
                     decided: REGISTRY_RATIFIED,
                 },
                 bands: Bands::Priced(&["skyline_rank_jump_eviction_is_flat_per_unit"]),
-                denominator: "encoded input bytes, through the internal skyline rank entry",
+                denominator: "input bytes, through the internal skyline rank entry",
                 closed_form: None,
             },
             FamilyId::CliffFan => FamilySpec {
@@ -1628,7 +1628,7 @@ impl FamilyId {
                              tier2 suites, not two-point bands in tests/meter.rs",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::CancellingChain => FamilySpec {
@@ -1645,7 +1645,7 @@ impl FamilyId {
                              tier2 suites, not two-point bands in tests/meter.rs",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::AltSpine => FamilySpec {
@@ -1661,7 +1661,7 @@ impl FamilyId {
                     reason: "its pins are absolute envelope rows, not two-point bands",
                     decided: REGISTRY_RATIFIED,
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MemoChain => FamilySpec {
@@ -1674,7 +1674,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: "2026-09-17",
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MemoComb => FamilySpec {
@@ -1687,7 +1687,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: "2026-09-17",
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MemoFanout => FamilySpec {
@@ -1700,7 +1700,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: "2026-09-17",
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MemoOscillating => FamilySpec {
@@ -1713,7 +1713,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: "2026-09-17",
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MemoChurn => FamilySpec {
@@ -1726,7 +1726,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: "2026-09-17",
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::DescendingRaises => FamilySpec {
@@ -1739,7 +1739,7 @@ impl FamilyId {
                     reason: CROSS_UNBANDED,
                     decided: "2026-09-17",
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MaskDrift => FamilySpec {
@@ -1769,7 +1769,7 @@ impl FamilyId {
                     decided: REGISTRY_RATIFIED,
                 },
                 bands: Bands::Priced(&["meet_all_shade_is_flat_per_unit"]),
-                denominator: "encoded operand bytes of the population",
+                denominator: "input bytes of the population",
                 closed_form: None,
             },
             FamilyId::ArmingTrain => FamilySpec {
@@ -1787,7 +1787,7 @@ impl FamilyId {
                     "arming_trains_is_flat_per_unit",
                     "pair_plateau_train_is_flat_per_unit",
                 ]),
-                denominator: "encoded input bytes; three fixed-width points (level ratio, \
+                denominator: "input bytes; three fixed-width points (level ratio, \
                               not a two-scale fit)",
                 closed_form: None,
             },
@@ -1811,7 +1811,7 @@ impl FamilyId {
                              scans engaging; no two-point flatness claim is committed",
                     decided: "2026-08-10",
                 },
-                denominator: ENCODED,
+                denominator: INPUT_BYTES,
                 closed_form: None,
             },
             FamilyId::MaskedHole => FamilySpec {
@@ -1844,7 +1844,7 @@ impl FamilyId {
                     "rank_hoisted_window_is_flat_per_unit",
                     "rank_hoisted_window_densify_span_band",
                 ]),
-                denominator: "encoded input bytes for the walk columns; the densify column \
+                denominator: "input bytes for the walk columns; the densify column \
                               is judged absolute across the tail doubling (span-priced \
                               work is position-free by construction)",
                 closed_form: Some(
@@ -1875,7 +1875,7 @@ impl FamilyId {
                     "skyline_min_ticks_descending_boundary_clearance_band",
                     "skyline_min_ticks_stopping_boundary_is_flat_per_unit",
                 ]),
-                denominator: "encoded input bytes; each control-paired leg is judged as \
+                denominator: "input bytes; each control-paired leg is judged as \
                               the run difference against its wire-near-identical control",
                 closed_form: Some(
                     "min_ticks is each shape's stored-base sum, closed-form in the knobs \
@@ -1893,7 +1893,7 @@ impl FamilyId {
                     decided: "2026-08-11",
                 },
                 bands: Bands::Priced(&["skyline_min_ticks_latent_ladder_is_flat_per_unit"]),
-                denominator: "encoded input bytes; the decision leg is judged as the \
+                denominator: "input bytes; the decision leg is judged as the \
                               k-marginal at fixed width across a width doubling",
                 closed_form: Some(
                     "min_ticks(LL(w, k)) = (k + 1)·5·2^(32(w−1)) + 1 − k(k + 1)/2 (the \

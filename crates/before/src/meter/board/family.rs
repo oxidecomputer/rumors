@@ -17,19 +17,19 @@ use super::operand::value_content_bytes;
 
 // ─── family sizes at scale 1.0 ──────────────────────────────────────────────
 
-/// Dense event spine depth at scale 1.0 (encoded size ~4 KiB).
+/// Dense event spine depth at scale 1.0 (size ~4 KiB).
 const DENSE_BASE_DEPTH: usize = 8_000;
 
 /// Bigroot root magnitude in bits at scale 1.0.
 const BIGROOT_BASE_MAGNITUDE_BITS: usize = 8_000;
 
-/// Bigroot spine depth at scale 1.0 (encoded size ~3 KiB with the magnitude).
+/// Bigroot spine depth at scale 1.0 (size ~3 KiB with the magnitude).
 const BIGROOT_BASE_DEPTH: usize = 2_000;
 
-/// Hugeleaf magnitude in bits at scale 1.0 (encoded size ~4 KiB).
+/// Hugeleaf magnitude in bits at scale 1.0 (size ~4 KiB).
 const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 32_000;
 
-/// Id spine depth at scale 1.0 (encoded pair ~6 KiB).
+/// Id spine depth at scale 1.0 (pair size ~6 KiB).
 const ID_BASE_DEPTH: usize = 12_000;
 
 /// Boundary-comb tooth magnitude (bits) and tooth count at scale 1.0 (encoded
@@ -37,7 +37,7 @@ const ID_BASE_DEPTH: usize = 12_000;
 /// convention.
 ///
 /// Scaling `k` with `n` is the separating choice: it keeps the comb's absolute
-/// value content growing quadratically in the encoded input, so a sweep that
+/// value content growing quadratically in the input, so a sweep that
 /// materializes running leaf values in a plain big integer reads a superlinear
 /// exponent here instead of hiding a `k`-sized constant under a fixed
 /// magnitude.
@@ -54,7 +54,7 @@ const CROSS_BASE_TEETH: usize = 128;
 /// Comb-scatter tooth magnitude in bits (fixed across scales).
 const CROSS_TOOTH_MAGNITUDE_BITS: usize = 1_000;
 
-/// Harmonic spine depth at scale 1.0 (encoded size ~6 KiB, matching the
+/// Harmonic spine depth at scale 1.0 (size ~6 KiB, matching the
 /// dense spine's depth).
 const HARMONIC_BASE_DEPTH: usize = 8_000;
 
@@ -62,7 +62,7 @@ const HARMONIC_BASE_DEPTH: usize = 8_000;
 /// each (~10 KiB of encoded single-tick versions).
 const SCATTER_BASE_CLOCKS: usize = 1_024;
 
-/// Nested-full-sibling depth at scale 1.0 (encoded pair ~1.5 KiB).
+/// Nested-full-sibling depth at scale 1.0 (pair size ~1.5 KiB).
 ///
 /// Deep enough that a per-level re-scan genre reads its exponent across the
 /// level doubling, small enough that the quadratic pin stays inside the board's
@@ -71,7 +71,7 @@ const NESTED_BASE_DEPTH: usize = 1_500;
 
 /// Nested-wide depth and root-magnitude bits at scale 1.0 (equal, so the
 /// doubling scales width and depth together — the cross's cost genre is their
-/// product; encoded pair ~1.5 KiB).
+/// product; pair size ~1.5 KiB).
 ///
 /// Small enough that even a width × depth kernel stays inside the
 /// acceptance-scale runtime budget; the red reading rides the exponent leg, not
@@ -79,11 +79,11 @@ const NESTED_BASE_DEPTH: usize = 1_500;
 const NESTED_WIDE_BASE: usize = 1_000;
 
 /// Mirror-wide depth and tail-magnitude bits at scale 1.0 (equal, as above;
-/// encoded pair ~1 KiB). The memo arm's chains grow steeper than the right-full
+/// pair size ~1 KiB). The memo arm's chains grow steeper than the right-full
 /// arm's, so the base sits lower.
 const MIRROR_WIDE_BASE: usize = 500;
 
-/// Mirror-narrow depth at scale 1.0 (encoded pair ~1.5 KiB): the nested-full
+/// Mirror-narrow depth at scale 1.0 (pair size ~1.5 KiB): the nested-full
 /// base, mirrored — the memo machinery at the same depth the right-full cells
 /// walk.
 const MIRROR_NARROW_BASE_DEPTH: usize = 1_500;
@@ -109,13 +109,13 @@ const MEMO_FANOUT_BASE_WIDTH: usize = 2_048;
 /// Magnitude width of each oscillating memo difference at scale 1.0.
 const MEMO_OSCILLATING_BASE_WIDTH: usize = 512;
 
-/// Staircase depth at scale 1.0 (encoded pair ~2 KiB): deep enough that
+/// Staircase depth at scale 1.0 (pair size ~2 KiB): deep enough that
 /// per-level minimum bookkeeping would read its exponent across the doubling,
 /// all values word-scale.
 const STAIRCASE_BASE_DEPTH: usize = 1_500;
 
 /// Reveal-comb site count and plateau-magnitude bits at scale 1.0
-/// (equal; encoded pair ~1 KiB).
+/// (equal; pair size ~1 KiB).
 ///
 /// One parameter drives both, so the doubling scales the site count and the
 /// circulated width together — the cycle's cost genre is their product. The
@@ -124,7 +124,7 @@ const STAIRCASE_BASE_DEPTH: usize = 1_500;
 const REVEAL_COMB_BASE: usize = 500;
 
 /// Pure-comb level count and leaf-magnitude bits at scale 1.0 (equal,
-/// as above; encoded pair ~1 KiB).
+/// as above; pair size ~1 KiB).
 ///
 /// The range-minimum stack's own cycle runs at ~2 wide folds per level — a
 /// tenth of the reveal comb's constant — so the base sits higher for comparable
@@ -133,7 +133,7 @@ const PURE_COMB_BASE: usize = 1_000;
 
 /// Ascending-cliff spine length and leaf-magnitude bits at scale 1.0 (equal, so
 /// the doubling scales the hop count and the residue width together — the
-/// cascade's cost genre is their product; encoded pair ~1 KiB).
+/// cascade's cost genre is their product; pair size ~1 KiB).
 ///
 /// The cascade runs at ~4 touches per input byte on the cured fold direction —
 /// the leveled control's constant — so the base sits at the pure-comb level for
@@ -152,11 +152,11 @@ const PURE_COMB_BASE: usize = 1_000;
 const ASCEND_CLIFF_BASE: usize = 992;
 
 /// Dominated-undercut site count and wide-width bits at scale 1.0 (equal;
-/// encoded pair ~13 KiB).
+/// pair size ~13 KiB).
 ///
 /// One knob drives both, so the doubling scales the emission count and the
 /// per-site climb width together — every site's climb is its own input-funded
-/// wide code, so the encoded pair grows with their product.
+/// wide code, so the pair size grows with their product.
 ///
 /// The base is a multiple of 32 deliberately: the family's dominant rank
 /// summand rides the `5 · 2^s` climb, and `rank_sum` lands its small summands
@@ -175,14 +175,14 @@ const DOMINATED_UNDERCUT_BASE: usize = 160;
 /// exponent and numerator width.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
-/// Two-operand jump-comb teeth at scale 1.0 (encoded pair ~35 KiB, the teeth
+/// Two-operand jump-comb teeth at scale 1.0 (pair size ~35 KiB, the teeth
 /// operand's per-level wide codes dominating).
 ///
 /// One knob drives the tooth count and, through [`JUMP_PAIR_DIGIT_DIVISOR`],
 /// the isolated-position digit count, at the fixed tooth magnitude
 /// [`JUMP_PAIR_MAGNITUDE_BITS`]: an absolute-position freeze accounting pays
 /// teeth × digits × magnitude here, so the doubling scales the crest count and
-/// the position density together while the encoded pair grows linearly — the
+/// the position density together while the pair size grows linearly — the
 /// separating choice that makes any such accounting read on the exponent leg
 /// rather than hide in a constant.
 const JUMP_PAIR_BASE_TEETH: usize = 256;
@@ -1101,13 +1101,13 @@ impl FamilyData {
         data
     }
 
-    /// The primary version, decoded fresh, with its encoded byte length.
+    /// The primary version, decoded fresh, with its byte length.
     pub(super) fn version(&self) -> Option<(Version, usize)> {
         let bytes = self.version.as_ref()?;
         Some((decode_version(bytes), bytes.len()))
     }
 
-    /// Both versions decoded fresh, with their combined encoded byte length.
+    /// Both versions decoded fresh, with their combined byte length.
     pub(super) fn version_pair(&self) -> Option<(Version, Version, usize)> {
         let (v, n) = self.version()?;
         let bytes2 = self.version2.as_ref()?;
@@ -1121,7 +1121,7 @@ impl FamilyData {
     }
 
     /// The designated cross decoded fresh (event version, id party), with
-    /// combined encoded byte length.
+    /// combined byte length.
     pub(super) fn cross(&self) -> Option<(Version, Party, usize)> {
         let (v, p) = self.cross.as_ref()?;
         Some((decode_version(v), decode_party(p), v.len() + p.len()))

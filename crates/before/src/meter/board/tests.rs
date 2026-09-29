@@ -324,8 +324,8 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
 ///
 /// The value-content fit reads the same measurements linear. This is the
 /// tripwire the comb-scatter exponent re-denomination rests on: the comparison
-/// sweep's accumulator work per tooth is flat across a tooth-count doubling (the
-/// linear witness), the encoded denominator grows under x1.5 because the
+/// sweep's accumulator work per tooth is flat across a tooth-count doubling
+/// (the linear witness), the byte denominator grows under x1.5 because the
 /// fixed 1000-bit magnitude dominates it (the intercept premise), and the two
 /// fits disagree by an exponent class on identical readings.
 #[cfg(feature = "touch-meter")]
@@ -352,7 +352,7 @@ fn flat_denominator_encoded_fit_manufactures_an_exponent() {
     let content_growth = content2 as f64 / content1 as f64;
     assert!(
         encoded_growth < 1.5,
-        "the encoded denominator must be intercept-dominated: grew x{encoded_growth:.2}"
+        "the byte denominator must be intercept-dominated: grew x{encoded_growth:.2}"
     );
     assert!(
         (1.9..=2.1).contains(&content_growth),

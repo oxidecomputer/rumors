@@ -43,7 +43,7 @@
 //! shape: a shared descent spine planting isolated position bits, then an
 //! `m`-level comb where one operand's wide teeth cross the other's near-flat
 //! band — every crest of `|D|` would pay a drift-width × position-density
-//! product, superlinear in the encoded pair while each operand alone stays
+//! product, superlinear in the pair size while each operand alone stays
 //! flat.) The integral therefore works in *anchored segments*: no correction,
 //! at any point of the sweep or its close, multiplies by an absolute position.
 //!

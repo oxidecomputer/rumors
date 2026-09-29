@@ -706,10 +706,10 @@ impl Clock {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_shape.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)` to drain")]
     ///
-    /// Draining the iterator is linear in the clock's encoded size: each
-    /// fragment costs `O(1)` plus its own rise's encoded width, and the
-    /// walk itself performs no arithmetic. [`Version::shape`]'s caveat on
-    /// the cost of folding rises applies here too.
+    /// Draining the iterator is linear in the clock's size: each fragment costs
+    /// `O(1)` plus its own rise's bit width, and the walk itself performs no
+    /// arithmetic. [`Version::shape`]'s caveat on the cost of folding rises
+    /// applies here too.
     ///
     /// # Example
     ///

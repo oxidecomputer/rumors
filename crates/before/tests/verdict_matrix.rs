@@ -81,7 +81,7 @@ fn benign_pair() -> (Version, Version) {
 /// yields the first operands of the family's registered shapes in spec
 /// order — capped at two versions and two masks, the pool-budget rule the
 /// module doc derives — at the smallest committed-valid knobs, so every
-/// operand stays tens to hundreds of encoded bytes while keeping its
+/// operand stays tens to hundreds of bytes while keeping its
 /// family's distinguishing structure.
 fn matrix_operands(family: FamilyId) -> MatrixOperands {
     let (versions, masks): (Vec<Version>, Vec<Party>) = match family {

@@ -5,8 +5,7 @@
 //! ids to event counts, and a [`Party`] is a 0/1-valued function over the
 //! same interval (which ids it owns). This module is the vocabulary for
 //! walking those functions directly — for renderers, analysis tooling,
-//! and debuggers that want to draw or inspect a value rather than compare
-//! it — without needing to parse the encoded form:
+//! and debuggers that want to draw or inspect a value rather than compare it:
 //!
 //! - [`Version::shape`] yields one [`Plateau`] per maximal constant run
 //!   of the version: the height change entering the run ([`Rise`]), and
@@ -19,10 +18,8 @@
 //!   coarsest common refinement of their shapes' intervals, for
 //!   consumers that compare or aggregate several versions pointwise.
 //!
-//! Every walk borrows its value and streams in place: nothing is
-//! materialized up front, draining is linear in the value's encoded
-//! size, and an item allocates only when its rise magnitude exceeds two
-//! machine words.
+//! Every walk borrows its value and streams in place: nothing is materialized
+//! up front, and draining is linear in the value's size.
 //!
 //! # Intervals and heights
 //!
@@ -36,7 +33,7 @@
 //! Version heights travel as *rises* — the signed change entering each
 //! plateau — rather than absolute values: heights are event counts with
 //! no ceiling, so a delta stream is what keeps the walk linear in the
-//! value's encoded size rather than in the magnitudes it reaches. The
+//! value's size rather than in the magnitudes it reaches. The
 //! walk starts at height 0 on the interval's left edge, so the first
 //! plateau's rise is its absolute height and a running sum reconstructs
 //! every later one; the running height is never negative.

@@ -13,14 +13,15 @@ commit as usual.
 
 ## Active outcome
 
-Reconcile the amplification board's heap headline with what its judgment
-actually proves, then finish the remaining public time and auxiliary-space
-claim audit.
+Close the public-contract mismatches and verification gaps identified by the
+current audit. Correct the Party predicate and shape-traversal allocation
+claims first, then reconcile the amplification board's heap headline and
+direct public-operation coverage.
 
 The present heap judgment is:
 
 - ordinary cells: `(peak transient bytes - 8,192) / denominator <= 20`, where
-  the denominator is encoded input bytes by default and total I/O where
+  the denominator is input bytes by default and total I/O where
   required output can dominate;
 - a few operations use explicit, documented constant units or tighter
   operation-specific ceilings;

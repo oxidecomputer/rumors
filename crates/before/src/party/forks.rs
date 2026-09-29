@@ -369,7 +369,7 @@ impl Iterator for Split {
 ///
 /// Construction costs `O(log k)` for the count representation. Each `next`
 /// costs `O(|p| + log k)` and dropping the iterator costs `O(1)`, with `|p|`
-/// the borrowed party's encoded size.
+/// the borrowed party's size.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Forks<'a> {
     /// The borrowed party, containing the residual and every untaken share.
@@ -403,9 +403,9 @@ impl Iterator for Forks<'_> {
         }
         let splits = self.split.current_splits();
         let share = self.split.current_share(splits);
-        // The share and residual reach the same split depth, so the share's
-        // encoded size is a useful capacity hint when a wide count created
-        // most of that path.
+        // The share and residual reach the same split depth, so the share's bit
+        // length is a useful capacity hint when a wide count created most of
+        // that path.
         let remainder = self
             .rest
             .view()

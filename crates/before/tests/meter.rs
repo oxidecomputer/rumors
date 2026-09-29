@@ -1994,7 +1994,7 @@ mod skyline_flatness {
     }
 
     /// Blocks of the min_ticks comb bands' small runs (the large runs
-    /// double both comb parameters, doubling the encoded operand).
+    /// double both comb parameters, doubling the operand's size).
     const MIN_TICKS_COMB_SMALL: usize = 1_000;
 
     /// Absolute touch ceilings at two scales for min_ticks on the
@@ -2519,7 +2519,7 @@ mod skyline_flatness {
     }
 
     /// Blocks of the freeze-position band's small run (the large run
-    /// doubles the block count, doubling the encoded operand).
+    /// doubles the block count, doubling the operand's size).
     const RANK_FREEZE_POSITION_SMALL: usize = 1_000;
 
     /// Absolute touch ceilings at two scales for rank on the
@@ -2956,7 +2956,7 @@ mod skyline_flatness {
 
     /// One public distance-and-lag run over the two-operand promotion
     /// re-arm analogue `(PR(p), PRM(p))`: both counters over the three
-    /// query bodies together, with the pair's encoded bytes as the
+    /// query bodies together, with the pair's input bytes as the
     /// per-byte denominator.
     ///
     /// The mate is `PR(p)`'s unit-climb twin (same topology, every base
@@ -3043,7 +3043,7 @@ mod skyline_flatness {
 
     /// One public-distance run over the two-operand jump comb
     /// `JP(k, m, d)`: both counters over the distance body alone, with
-    /// the operands' encoded bytes and stored delta codes as the per-unit
+    /// the operands' input bytes and stored delta codes as the per-unit
     /// denominators.
     ///
     /// Enforces the touch liveness floor (every stored delta lands in
@@ -3117,7 +3117,7 @@ mod skyline_flatness {
     /// the doubling; the composed form this family was built to expose
     /// reads superlinear, several times over these ceilings.
     const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (212_660, 425_320);
-    /// The jump-pair distance is linear in the encoded pair: per-byte
+    /// The jump-pair distance is linear in the pair size: per-byte
     /// touch work stays flat (×1.25) across a (teeth, digits)
     /// doubling, under absolute two-scale ceilings.
     ///
@@ -3196,7 +3196,7 @@ mod skyline_flatness {
     }
 
     /// One fused three-stream comparison run over the mask-drift triple
-    /// at `scale` teeth: per-delta touches and encoded bytes, with
+    /// at `scale` teeth: per-delta touches and input bytes, with
     /// the one-touch-per-delta liveness floor enforced before returning.
     fn masked_cmp_run(scale: usize) -> Run {
         let (comb, mask, plateau) = Shape::MaskDriftTriple.build_triple(512, scale);
@@ -3691,7 +3691,7 @@ mod skyline_flatness {
 
     /// One public distance-and-lag run over `(DS(p, p), DSM(p, p))`:
     /// both counters over the three query bodies together, with the
-    /// pair's encoded bytes as the per-byte denominator.
+    /// pair's input bytes as the per-byte denominator.
     ///
     /// The mate is `DS(p, p)`'s unit-block twin, so the co-sweep's
     /// freezes and promotions fire at boundaries where the mate's
@@ -3802,7 +3802,7 @@ mod eq_early_exit {
     const EQ_EXIT_TOOTH_BITS: usize = 1_024;
 
     /// One `eq` run over the first-interval-refuted pair: the comb's
-    /// encoded bytes (the refuted tail the exit must not read) and the
+    /// input bytes (the refuted tail the exit must not read) and the
     /// touch and scan counters over the sweep body alone.
     struct Run {
         bytes: u64,
@@ -4305,7 +4305,7 @@ mod answer_embedded_product {
         digits
     }
 
-    /// One public `Version::rank` run over `PP(s, s)`: encoded bytes and
+    /// One public `Version::rank` run over `PP(s, s)`: input bytes and
     /// the touch and densify counters over the rank body alone.
     ///
     /// Carries the `min_ticks` closed form (`s · x + 1` over the
@@ -4840,7 +4840,7 @@ mod id_walk_scan_cost {
     use before::meter;
     use before::meter::registry::Shape;
 
-    /// One walk run: encoded operand bytes and the bits scanned by the
+    /// One walk run: input bytes and the bits scanned by the
     /// walk body alone.
     struct Run {
         bytes: u64,
@@ -4852,7 +4852,7 @@ mod id_walk_scan_cost {
     ///
     /// Every stored tag of both operands is read exactly once through
     /// the metered primitives — [`SCAN_EXACT_BITS_SMALL`] on 62,502
-    /// encoded bytes at the half depth, [`SCAN_EXACT_BITS_LARGE`] on
+    /// input bytes at the half depth, [`SCAN_EXACT_BITS_LARGE`] on
     /// 125,002 at the full depth, identical for the covers and disjoint
     /// walks (the same full lockstep walk). Pinned with equality, not a
     /// ceiling: a uniform tap undercount halves the reading yet clears
@@ -6311,7 +6311,7 @@ fn scatter_population() -> (Vec<Version>, Vec<before::Party>) {
 /// envelope.
 ///
 /// The balanced reduction keeps every join's operands comparably sized,
-/// so the fold is near-linear in the population's encoded bytes where the
+/// so the fold is near-linear in the population's input bytes where the
 /// left fold re-scanned its whole accumulator per input.
 #[test]
 fn fold_version_scatter_envelope() {
@@ -6334,7 +6334,7 @@ fn fold_version_scatter_envelope() {
 ///
 /// The id-side fold's work is pure stream scanning, and the balanced
 /// reduction keeps the scanned bits near-linear in the population's
-/// encoded bytes where the left fold re-walked its whole accumulated
+/// input bytes where the left fold re-walked its whole accumulated
 /// region per input.
 #[test]
 fn fold_party_scatter_envelope() {
@@ -6592,7 +6592,7 @@ mod fold_stagger {
     /// operand-size doublings at fixed arity.
     ///
     /// At a fixed level count the fold is linear in the population's
-    /// encoded bytes, however large each swollen intermediate grows.
+    /// input bytes, however large each swollen intermediate grows.
     #[test]
     fn fold_version_stagger_size_axis_is_flat_per_unit() {
         let n = STAGGER_SMALL;

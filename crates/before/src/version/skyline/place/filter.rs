@@ -38,7 +38,7 @@
 //! Within a batch, every topology bit is read once and every leaf payload is
 //! decoded once. Let `k` be the number of bounds, `i` the number of intervals
 //! in the streams' common overlay, `p` the encoded payload bytes in the probe
-//! stream or streams, and `n` all encoded input bytes. Topology work is
+//! stream or streams, and `n` all input bytes. Topology work is
 //! `O(n + k·i)`; numeric work is `O(n + k·p)` because a probe delta may feed
 //! every live exact difference. The total is therefore `O(n + k·(i + p))`, or
 //! `O(k·n)` using bytes alone.
@@ -74,7 +74,7 @@ use crate::codec::{accumulator, BitsView};
 use super::super::overlay::{advance_set, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::super::sweep::Directions;
 
-/// Heap reserved for live side records per encoded input byte.
+/// Heap reserved for live side records per input byte.
 ///
 /// Cursor paths and spilled accumulators use additional storage in proportion
 /// to the topology and numeric payloads that fund them. Limiting the fixed

@@ -13,7 +13,7 @@
 //!
 //! - peak transient heap bytes;
 //! - stack segments allocated by recursive work;
-//! - encoded bits scanned or written; and
+//! - bits scanned or written; and
 //! - accumulator digits touched.
 //!
 //! The last two counters are feature-gated because they instrument hot
@@ -37,9 +37,9 @@
 //!
 //! # Cost models
 //!
-//! Most cells divide cost by encoded input bytes. An operation whose required
-//! output can dominate its input instead uses total encoded input and output;
-//! the measurement reads the actual result size.
+//! Most cells divide cost by input bytes. An operation whose required output
+//! can dominate its input instead uses total input and output bytes; the
+//! measurement reads the actual result size.
 //!
 //! Each measured quantity defaults to a linear model in those bytes. A cell may
 //! state a more precise expected bound by supplying the units used for its

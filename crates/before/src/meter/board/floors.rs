@@ -7,10 +7,9 @@
 //! doc's Liveness floors section carries the criterion and what a trip means.
 //! The conventions, per currency:
 //!
-//! - **Scan** is the universal leg: an operation that must examine its
-//!   encoded operands scans at least
-//!   [`SCAN_FLOOR_BITS_PER_INPUT_BYTE`] bit per encoded byte (an eighth of
-//!   the stored bits); operations that may legitimately exit at the first
+//! - **Scan** is the universal leg: an operation that must examine its operands
+//!   scans at least [`SCAN_FLOOR_BITS_PER_INPUT_BYTE`] bit per input byte (an
+//!   eighth of the stored bits); operations that may legitimately exit at the first
 //!   divergence still read the root codes, floored at
 //!   [`SCAN_TOUCH_FLOOR_BITS`]. Which of the two binds is derived per
 //!   cell from the operands wherever the contract admits an early exit:
@@ -90,9 +89,9 @@ use super::ceilings::{
 use super::currency::{Floors, Liveness};
 use super::operand::{stored_nonzero_deltas, wide_code_words};
 
-/// Scan floor: the operation must examine its encoded operands in full.
+/// Scan floor: the operation must examine its operands in full.
 pub(super) const WHY_SCAN_EXAMINES: &str =
-    "must examine its encoded operands: at least one scanned bit per encoded byte";
+    "must examine its operands: at least one scanned bit per input byte";
 /// Scan floor: early exit is legitimate, but the root codes are still read.
 const WHY_SCAN_TOUCH: &str =
     "may answer at the first divergence: still reads the operands' root codes";
@@ -415,10 +414,10 @@ pub(super) fn touch_fold_first_merges(versions: &[Version]) -> Liveness {
     }
 }
 
-/// A full-examination scan floor over `encoded_bytes` of operand.
-pub(super) fn scan_examines(encoded_bytes: usize) -> Liveness {
+/// A full-examination scan floor over `input_bytes` of operand.
+pub(super) fn scan_examines(input_bytes: usize) -> Liveness {
     Liveness::Floor {
-        min: (encoded_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
+        min: (input_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
         why: WHY_SCAN_EXAMINES,
     }
 }
@@ -499,11 +498,11 @@ pub(super) fn seg_ceiling_only() -> Liveness {
 ///
 /// The touch declaration is the caller's: each walk row answers the accumulator
 /// question for its own kernel.
-pub(super) fn walk_floors(encoded_bytes: usize, touch: Liveness) -> Floors {
+pub(super) fn walk_floors(input_bytes: usize, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
         segments: seg_ceiling_only(),
-        scan: scan_examines(encoded_bytes),
+        scan: scan_examines(input_bytes),
         touch,
     }
 }
@@ -523,7 +522,7 @@ const NA_TOUCH_CONCURRENT_OPERANDS: &str = "the operands are concurrent, so the 
 /// bind; an equal pair is answered by canonical byte identity before any sweep,
 /// so neither does; a concurrent pair may be decided at one witness divergence
 /// per direction, so only the root-codes scan floor does.
-pub(super) fn comparison_floors(v: &Version, w: &Version, encoded_bytes: usize) -> Floors {
+pub(super) fn comparison_floors(v: &Version, w: &Version, input_bytes: usize) -> Floors {
     if v == w {
         return Floors {
             heap: na(NA_HEAP_IN_PLACE),
@@ -533,7 +532,7 @@ pub(super) fn comparison_floors(v: &Version, w: &Version, encoded_bytes: usize) 
         };
     }
     if v.partial_cmp(w).is_some() {
-        walk_floors(encoded_bytes, touch_pair_fold(v, w))
+        walk_floors(input_bytes, touch_pair_fold(v, w))
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
@@ -571,7 +570,7 @@ const NA_TOUCH_ONE_WITNESS: &str = "the query admits the probe: one witness even
 ///   bind.
 /// - **An equal pair** is answerable by canonical byte identity without any
 ///   metered stream work, as on the comparison rows, so neither floor binds.
-pub(super) fn membership_floors(v: &Version, w: &Version, encoded_bytes: usize) -> Floors {
+pub(super) fn membership_floors(v: &Version, w: &Version, input_bytes: usize) -> Floors {
     if v == w {
         return Floors {
             heap: na(NA_HEAP_IN_PLACE),
@@ -581,7 +580,7 @@ pub(super) fn membership_floors(v: &Version, w: &Version, encoded_bytes: usize) 
         };
     }
     if v.partial_cmp(w) == Some(Ordering::Greater) {
-        walk_floors(encoded_bytes, touch_pair_fold(v, w))
+        walk_floors(input_bytes, touch_pair_fold(v, w))
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
@@ -606,10 +605,10 @@ pub(super) fn masked_cmp_floors(
     verdict: &Option<Ordering>,
     v: &Version,
     w: &Version,
-    encoded_bytes: usize,
+    input_bytes: usize,
 ) -> Floors {
     if verdict.is_some() {
-        walk_floors(encoded_bytes, touch_pair_fold(v, w))
+        walk_floors(input_bytes, touch_pair_fold(v, w))
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
@@ -623,16 +622,16 @@ pub(super) fn masked_cmp_floors(
 /// The tick-cross rows' floors: full-examination scan, delta-fold touches,
 /// and in-place heap.
 ///
-/// The paired fill walk examines every bit of both encoded operands (a
+/// The paired fill walk examines every bit of both operands (a
 /// full-examination scan floor, 8 bits per byte — the measured tick-walk
 /// constants sit 2–5× above it). Each nonzero stored delta must also reach the
 /// accumulator, which supplies the touch floor.
-pub(super) fn tick_walk_floors(version: &Version, encoded_bytes: usize) -> Floors {
+pub(super) fn tick_walk_floors(version: &Version, input_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
         segments: seg_ceiling_only(),
         scan: Liveness::Floor {
-            min: (encoded_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
+            min: (input_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
             why: WHY_SCAN_TICK_WALK,
         },
         touch: touch_delta_fold(stored_nonzero_deltas(version)),

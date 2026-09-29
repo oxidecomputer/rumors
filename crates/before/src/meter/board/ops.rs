@@ -411,7 +411,7 @@ pub(super) struct Op {
 }
 
 /// The operation table: every priced method or trait-family row with a
-/// meaningful encoded operand. The `coverage` module accounts for the rest.
+/// meaningful operand. The `coverage` module accounts for the rest.
 #[allow(clippy::too_many_lines)]
 pub(super) fn ops() -> Vec<Op> {
     let operations = vec![
@@ -570,8 +570,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // The composite emission over the pair's hull (built at
                 // prepare, outside measurement): one byte copy per
                 // endpoint — the codec emission genre, denominated by
-                // the span's own encoded size, which is exactly the
-                // output.
+                // the span's own size, which is exactly the output.
                 let (v, w, _) = f.version_pair()?;
                 let span = v.span(&w);
                 let n = span.encode().len();

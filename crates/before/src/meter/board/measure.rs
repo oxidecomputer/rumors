@@ -35,14 +35,14 @@ pub(super) struct Model {
 
 /// One measured run of a cell body: every meter and its denominators.
 pub(super) struct Sample {
-    /// The default proportional units: encoded input bytes, or `n_io` for an
+    /// The default proportional units: input bytes, or `n_io` for an
     /// I/O-denominated cell. Segments use one absolute unit instead.
     pub(super) denom_bytes: usize,
     /// The default growth units.
     ///
     /// `denom_bytes` everywhere except the flat-denominator shape's
     /// input-denominated cells, where it is the bundle's value content: the
-    /// encoded denominator is intercept-dominated there, and a two-point
+    /// byte denominator is intercept-dominated there, and a two-point
     /// power-law fit against an intercept-dominated denominator manufactures
     /// exponents out of exactly linear marginal work. A resource model may
     /// replace this axis for one currency.

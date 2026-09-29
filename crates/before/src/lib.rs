@@ -344,8 +344,8 @@
 //! Every operation in the crate is documented with its
 //! [Big-O](https://en.wikipedia.org/wiki/Big_O_notation) time complexity,
 //! noting space complexity where this is non-trivial. Unless otherwise
-//! documented, the *size* of an argument `|x|` means that argument's *size in
-//! encoded bytes*.
+//! documented, the *size* of an argument `|x|` means that argument's size in
+//! bytes.
 //!
 //! The operations in this crate have been very carefully hardened against
 //! pathological input shapes. Any asymptotic claim is a hard guarantee that the

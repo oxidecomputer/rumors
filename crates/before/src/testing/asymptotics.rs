@@ -59,9 +59,9 @@ fn stagger_parties(n: usize) -> Vec<crate::Party> {
         .collect()
 }
 
-/// One entry point run's encoded scan bits, with the population's total
-/// encoded bytes printed beside it so a re-pin can restate each floor's
-/// linear reference without editing the harness.
+/// One entry point run's scanned bits, with the population's total input bytes
+/// printed beside it so a re-pin can restate each floor's linear reference
+/// without editing the harness.
 #[cfg(feature = "scan-meter")]
 fn door_scan_bits<R>(name: &str, n: usize, input_bytes: usize, run: impl FnOnce() -> R) -> u64 {
     crate::meter::reset_scan_bits();
@@ -198,7 +198,7 @@ fn assert_log_factor_alive(operation: &str, lo: u64, hi: u64, min_growth: f64) {
 ///
 /// Deterministic counter, dev profile. The linear reference is the population's
 /// own byte growth across the n = 256 -> 1,024 quadrupling at `FOLD_DOOR_TEETH`
-/// blocks (the harness prints each run's total encoded bytes beside its scan
+/// blocks (the harness prints each run's total input bytes beside its scan
 /// bits; leaf paths deepen with the slot count, so bytes grow slightly faster
 /// than arity) — a scan-linear fold reads that ratio, and the entry point reads
 /// above it, the log factor's marginal. The floor sits midway between the two

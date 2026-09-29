@@ -28,7 +28,7 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// inert but remains in the representation; this merge compares bounds and
     /// does not solve query emptiness.
     ///
-    /// With `k` left holes, `m` right holes, and `n` total encoded bytes, the
+    /// With `k` left holes, `m` right holes, and `n` total input bytes, the
     /// worst-case time is `O(n(k + m + 1))`; output space is `O(n)`.
     fn and(self, other: Query<'a, P>) -> Query<'a, P> {
         let floor = match (self.floor, other.floor) {
@@ -155,7 +155,7 @@ macro_rules! conjoin {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = "With `k` left holes, `m` right holes, and `n` total encoded bytes, worst-case time is `O(n(k + m + 1))`."]
+        #[doc = "With `k` left holes, `m` right holes, and `n` total input bytes, worst-case time is `O(n(k + m + 1))`."]
         #[doc = "Output space is `O(n)`. Fixed hole counts are linear in `n`."]
         #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_bounded_holes.html")))]
         #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` for this fixed one-hole shape")]

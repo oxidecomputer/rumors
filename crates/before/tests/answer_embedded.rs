@@ -94,8 +94,8 @@ fn wl(n: usize, w: usize) -> Version {
     v
 }
 
-/// One grid cell: scan and touch counts for both measure folds, plus the
-/// encoded size.
+/// One grid cell: scan and touch counts for both measure folds, plus the size
+/// in bytes.
 fn measure(v: &Version) -> ((u64, u64), (u64, u64), usize) {
     let mt = counters(|| {
         let _ = v.min_ticks();

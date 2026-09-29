@@ -2,13 +2,13 @@
 //!
 //! # Denomination
 //!
-//! Encoded input bytes are the default cost axis. When producing the result is
-//! itself required work and its encoding can dominate the input, the cell uses
-//! actual input-plus-output bytes instead. In-memory numeric operands use their
-//! value width, which their public construction paths bound by encoded input.
+//! Input bytes are the default cost axis. When producing the result is itself
+//! required work and its size can dominate the input, the cell uses actual
+//! input-plus-output bytes instead. Numeric operands use their value width,
+//! which their public construction paths bound by input size.
 //!
-//! A shape whose encoding has a large fixed intercept may provide a separate
-//! content axis for the growth fit. Constants remain charged to encoded bytes,
+//! A shape with a large fixed-size intercept may provide a separate content
+//! axis for the growth fit. Constants remain charged to input bytes,
 //! so this prevents a misleading exponent without relaxing the byte ceiling.
 //!
 //! # Resource models

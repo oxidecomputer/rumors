@@ -94,7 +94,7 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -145,7 +145,7 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -174,7 +174,7 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -205,7 +205,7 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -229,7 +229,7 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -264,7 +264,7 @@ impl<'a> Ranked<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_decode.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+        doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
     )]
     ///
     /// # Example
@@ -379,8 +379,8 @@ impl core::hash::Hash for Ranked<'_> {
 ///
 /// # Complexity
 ///
-/// With `n = |self| + |other|`, where each size is its version's encoded byte
-/// length, comparison uses `O(M(n))` time and `O(n)` transient space, where
+/// With `n = |self| + |other|`, where each size is its version's size in bytes,
+/// comparison uses `O(M(n))` time and `O(n)` transient space, where
 /// `M(n)` is the cost of multiplying `n`-bit integers. Exact rank ties require
 /// resolving the complete rank difference, so they have the same worst-case
 /// arithmetic as computing a rank.
@@ -388,7 +388,7 @@ impl core::hash::Hash for Ranked<'_> {
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_cmp.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(M(n))` time and `O(n)` space for `n` encoded input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
+    doc = "`O(M(n))` time and `O(n)` space for `n` input bytes; `M(n)` is the cost of multiplying `n`-bit integers"
 )]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {

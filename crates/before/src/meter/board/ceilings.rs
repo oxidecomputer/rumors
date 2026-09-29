@@ -15,7 +15,7 @@ pub const MAX_SCALING_EXPONENT: f64 = 1.15;
 /// Green requires peak transient heap, after subtracting the flat allowance,
 /// at most this many bytes per denominator byte.
 ///
-/// Most operations use their encoded input size; operations whose required
+/// Most operations use their input size; operations whose required
 /// output can be larger use total input and output instead. This limit is 20
 /// B/B, rounded up from the largest release-board measurement governed by it.
 /// The exponent check separately detects scaling regressions.
@@ -31,10 +31,10 @@ pub const HEAP_FLAT_ALLOWANCE_BYTES: usize = 8_192;
 /// per-byte.
 pub const MAX_GROWN_STACK_SEGMENTS: u64 = 1;
 
-/// Green requires at most this many encoded bits scanned per denominator
+/// Green requires at most this many bits scanned per denominator
 /// byte (asserted only when the `scan-meter` feature is lit).
 ///
-/// One complete walk reads about eight bits per encoded byte. The higher limit
+/// One complete walk reads about eight bits per input byte. The higher limit
 /// admits operations that make several bounded passes while rejecting repeated
 /// scans whose count grows with the input.
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
@@ -43,15 +43,15 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// byte (asserted only when the `touch-meter` feature is lit).
 ///
 /// Validation, comparison, emission, and query folds normally touch a small
-/// number of digits per encoded delta. Balanced reductions may revisit digits
+/// number of digits per input delta. Balanced reductions may revisit digits
 /// at each reduction level, so their rows use level-adjusted units while
 /// retaining this proportional limit. The value is the largest release-board
 /// measurement plus 25%, rounded up. Crossing it requires rechecking the
 /// implementation and the limit against the board's worst-case map.
 pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 22.0;
 
-/// Scan liveness floor: an operation that must examine its encoded operands
-/// scans at least this many bits per encoded input byte.
+/// Scan liveness floor: an operation that must examine its operands scans at
+/// least this many bits per input byte.
 ///
 /// One bit per byte is well below a complete walk's eight bits per byte, but
 /// above the zero reading produced by a disconnected counter.
@@ -75,7 +75,7 @@ pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 
 /// The fixed count the `version_ticks` cell registers per measurement.
 ///
-/// Holding the count fixed makes encoded input size the cell's only scaling
+/// Holding the count fixed makes input size the cell's only scaling
 /// variable. A count of 512 is large enough that an implementation which loops
 /// over ticks cannot hide that work in a fixed cost.
 pub const TICKS_BOARD_COUNT: u64 = 512;
@@ -107,7 +107,7 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 3.0;
 
 /// Heap ceiling for deserializing an owned serde buffer or a borsh stream, in
-/// bytes per encoded input byte.
+/// bytes per input byte.
 ///
 /// Serde transfers its input allocation into the decoded value. Borsh grows
 /// one output buffer while reading. Both validate with compact parser state, so

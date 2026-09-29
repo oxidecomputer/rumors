@@ -163,6 +163,19 @@ triage's dispositions and branches are leads only.
       to the owner.
       Sources: all remaining entries in `claims.md` and `dependence.md`.
 
+- [ ] Correct the false cost claims: Party predicates and shape
+      traversal may allocate, `Ticks::Sum` must price empty summands, and rank
+      encoding must not promise an optimization it does not implement. Replace
+      the crate's universal linear-time, input-only scratch-space, and
+      unsupported quantitative headlines with the precise guarantees the
+      methods establish.
+      Source: independent public-contract audit, 2026-09-29.
+
+- [ ] Give balanced Version and Span folds one consistent intermediate-size
+      argument for the current encoding, then state and verify the resulting
+      aggregate time and space bounds.
+      Source: independent public-contract audit, 2026-09-29.
+
 ## 06. Production structure and local simplification
 
 - [ ] Simplify Party indexing, splitting, sum, difference, and fold paths while
@@ -227,11 +240,18 @@ into otherwise small feature increments.
       work.
       Source: owner resource-surface audit, 2026-09-17.
 
-- [x] Make the global heap judgment total over allocation-bearing public
-      methods and trait families. Directly cover causal-query construction,
-      arbitrary-width numeric operations, and the numeric storage inside shape
-      items; reserve not-applicable dispositions for paths that cannot amplify.
-      Source: owner resource-surface audit, 2026-09-17.
+- [ ] Make the global heap judgment total over allocation-bearing public
+      methods and trait families. Directly cover compound Span construction and
+      projection, `Clock::recv_all`, wide Rank cloning, and the composite serde
+      and borsh adapters; reserve indirect coverage for true forwarding paths.
+      Sources: owner resource-surface audit, 2026-09-17; independent
+      public-contract audit, 2026-09-29.
+
+- [ ] Cover public numeric and formatting time paths that bypass the board's
+      work counters, including Rank parsing and precision, Ticks arithmetic,
+      and independently growing shape-combine arity, using the existing fuel
+      machinery rather than another instrument.
+      Source: independent public-contract audit, 2026-09-29.
 
 - [ ] Audit every counter hook for a distinct, live observation. Remove dead
       currencies and production hooks whose only consumer is decorative.
