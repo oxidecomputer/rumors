@@ -14,10 +14,9 @@
 //! reference cost probe, the meter suite's segment-liveness dive).
 //!
 //! The paper-shaped oracle is clearest written recursively, and the guard is
-//! what lets it meet deep inputs safely. The segment counter below stays
-//! compiled for the meters: it is the deterministic stand-in for
-//! recursion-driven stack consumption, and its zero reading over the library
-//! kernels is the measured fact the boards' segments column pins.
+//! what lets it meet deep inputs safely. The segment counter observes only
+//! these guarded test traversals. It cannot establish that a production
+//! traversal is iterative; deep-input tests exercise that contract directly.
 //!
 //! The headroom probe is amortized: a traversal routes each recursive call
 //! through the `descend!` macro, which probes only once every `STRIDE` levels
@@ -71,9 +70,8 @@ static SEGMENTS_GROWN: AtomicU64 = AtomicU64::new(0);
 /// The number of heap stack segments grown since the last
 /// [`reset_segments_grown`].
 ///
-/// Compiled only for the meter surface: the counter is always written (the bump
-/// is inseparable from the growth arm), but nothing outside the meters ever
-/// reads it.
+/// The writer exists only in test builds, alongside the recursive oracle's
+/// guard. Meter-only builds read zero and gain no stack-safety evidence from it.
 #[cfg(any(test, feature = "meter"))]
 pub(crate) fn segments_grown() -> u64 {
     SEGMENTS_GROWN.load(Ordering::Relaxed)

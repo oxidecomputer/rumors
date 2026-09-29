@@ -317,16 +317,17 @@ impl Extreme {
             b_first,
         } = OpenedPair::open(a_bits, b_bits);
 
-        // The first interval: the winning side's absolute height opens the output.
-        // The inputs' combined length is the capacity *estimate*: the union
-        // topology and the carried-over step codes fit under it, but a switch code
-        // is bounded by the boundary's input codes only up to a constant, so a
-        // pathological switch-heavy pair could outgrow it — costing one
-        // reallocation, never correctness. The envelope rows (`tests/meter.rs`,
-        // `skyline_join_*`/`skyline_meet_*`) pin the measured peak heap,
-        // switch-heavy families included. The sticky-tie seed `Side::A` is
-        // arbitrary: at a tie the two first heights are equal, so either side opens
-        // the output identically.
+        // The first interval's winning height opens the output. The combined
+        // input length is sufficient capacity: output boundaries come from the
+        // union of the inputs' boundaries, and each output delta lies between
+        // the two input deltas at that boundary. Signed gamma length depends
+        // only on magnitude, so the output code is no wider than the wider
+        // input code. The opening height comes from one input, and canonical
+        // collapse only removes topology and a zero delta. Thus the output is
+        // no longer than both inputs together.
+        //
+        // `Side::A` breaks an irrelevant tie: equal first heights encode
+        // identically.
         let mut side = self.pick(diff.sign(), Side::A);
         let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
         let first = match side {

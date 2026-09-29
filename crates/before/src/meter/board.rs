@@ -11,13 +11,12 @@
 //!
 //! A cell runs at increasing input scales and records:
 //!
-//! - peak transient heap bytes;
-//! - stack segments allocated by recursive work;
+//! - peak additional live heap bytes, including retained results;
 //! - bits scanned or written; and
 //! - accumulator digits touched.
 //!
 //! The last two counters are feature-gated because they instrument hot
-//! primitives. They cover work that allocation and stack measurements cannot
+//! primitives. They cover work that allocation measurements cannot
 //! see: streaming traversal and arithmetic over wide running values. Wasmtime
 //! fuel separately checks total execution cost without depending on internal
 //! counters or wall-clock timing.
@@ -26,6 +25,22 @@
 //! sizes and checks the largest per-byte cost. A cell is green only when every
 //! trend and constant stays within its ceiling. The acceptance run uses the
 //! complete measurement ladder; a single-scale run is diagnostic only.
+//! Additional small-input samples check ceilings and liveness without fitting
+//! growth through minimum allocation sizes. Every sample checks its full heap
+//! peak against `1,024 + C * D`: `C` defaults to 20 and `D` is the row's
+//! declared constant units. Query evaluation has a separate coefficient because
+//! it keeps one cursor and comparison state per bound. No bytes are subtracted
+//! from reported readings.
+//!
+//! The heap growth fit has 4 KiB resolution to accommodate allocation
+//! thresholds on the finite ladder. It cannot detect growth entirely below
+//! that level. These empirical checks are regression evidence over the sampled
+//! inputs, not proofs of asymptotic or universal bounds. Deep-tree tests check
+//! stack safety directly.
+//!
+//! Operand preparation and the board's result containers precede the heap
+//! baseline. Measuring the maximum live heap above that baseline includes
+//! operation scratch and newly allocated results; it does not separate them.
 //!
 //! # Counter liveness
 //!
@@ -55,10 +70,9 @@
 //!
 //! # Interpreting results
 //!
-//! Board heap readings share a process and are therefore indicative. The
-//! process-isolated envelopes in `tests/meter.rs` are the exact records. Board
-//! acceptance uses release builds so debug assertions do not add instrumented
-//! work to production measurements.
+//! Heap accounting is process-global, so each shard measures one cell at a
+//! time. Acceptance uses release builds so debug assertions do not add
+//! instrumented work to production measurements.
 
 mod ceilings;
 mod cell;
@@ -80,10 +94,12 @@ mod worst;
 pub use ceilings::{
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, DEFAULT_SCALE,
     DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
-    HEAP_FLAT_ALLOWANCE_BYTES, LADDER_TOP_SCALE, MACHINE_WORD_MAGNITUDE_BITS,
-    MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
+    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, LADDER_TOP_SCALE,
+    MACHINE_WORD_MAGNITUDE_BITS, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
     MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
-    SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TICKS_BOARD_COUNT,
+    QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE, RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE,
+    RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, SCAN_FLOOR_BITS_PER_INPUT_BYTE,
+    SCAN_TOUCH_FLOOR_BITS, SMALL_INPUT_SCALE, TICKS_BOARD_COUNT,
 };
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};

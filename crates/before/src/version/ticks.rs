@@ -25,12 +25,13 @@ use crate::error::TooWide;
 /// # Complexity
 ///
 /// A count's *numeric size* `‖n‖` is its bit width; cloning costs as
-/// comparison and hashing do, and an n-ary [`Sum`]'s `N` is the
-/// summands' total numeric size.
+/// comparison and hashing do. For a [`Sum`] of `k` counts, `N` is their total
+/// numeric size.
 ///
 /// Construction is `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
-/// ‖b‖)`, `Sum` `O(N)`. Decimal rendering is superlinear but subquadratic in
-/// the count's width.
+/// ‖b‖)`, `Sum` `O(k + N)`. The `k` term accounts for visiting zero counts,
+/// whose numeric size is zero. Decimal rendering is superlinear but
+/// subquadratic in the count's width.
 ///
 /// # Example
 ///

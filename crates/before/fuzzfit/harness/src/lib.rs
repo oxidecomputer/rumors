@@ -1,12 +1,10 @@
 //! The fuzz-fit asymptotics harness: fuel-metered fits of `before`'s public
 //! operations over fuzzed shapes.
 //!
-//! The crate's asymptotic claims (every public operation amortized linear in
-//! its denominated size) are guarded elsewhere by chosen adversarial families
-//! and per-currency meters. This instrument closes the two structural blind
-//! spots of chosen families: shapes nobody chose, and work that escapes the
-//! metered currencies. The kernels run compiled to wasm32-unknown-unknown
-//! under wasmtime *fuel* metering — fuel decrements per executed wasm
+//! The board checks resource use on chosen input families with per-currency
+//! meters. This harness also observes work outside those counters and samples
+//! shapes outside the chosen families. The kernels run compiled to
+//! wasm32-unknown-unknown under wasmtime *fuel* metering — fuel decrements per executed wasm
 //! instruction, so a reading is deterministic, host-independent, and
 //! byte-reproducible under any machine load. Wall time and hardware counters
 //! are never read. Constants differ from native codegen; *slopes* are what
@@ -45,6 +43,13 @@
 //! step's denominator from real operand sizes and the expected result bytes)
 //! and in the guest (which supplies fuel). The mirror doubles as a
 //! wasm-vs-native differential oracle: result encodings must byte-match.
+//!
+//! The numeric suite directly calls this same guest over geometric width and
+//! arity sweeps. It checks Rank parsing and formatting, Ticks arithmetic and
+//! decimal rendering, and both size dimensions of shape combination. These
+//! inputs include wide values beyond the operation-program budget. Their fits
+//! detect growth beyond each path's contract on these finite sweeps without
+//! recalibrating the program bands.
 
 pub mod bands;
 pub mod curve;

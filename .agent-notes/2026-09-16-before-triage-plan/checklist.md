@@ -163,15 +163,17 @@ triage's dispositions and branches are leads only.
       to the owner.
       Sources: all remaining entries in `claims.md` and `dependence.md`.
 
-- [ ] Correct the false cost claims: Party predicates and shape
+- [x] Correct method-level false cost claims: Party predicates and shape
       traversal may allocate, `Ticks::Sum` must price empty summands, and rank
-      encoding must not promise an optimization it does not implement. Replace
-      the crate's universal linear-time, input-only scratch-space, and
+      encoding must not promise an optimization it does not implement.
+      Source: independent public-contract audit, 2026-09-29.
+
+- [ ] Replace the crate's universal linear-time, input-only scratch-space, and
       unsupported quantitative headlines with the precise guarantees the
       methods establish.
       Source: independent public-contract audit, 2026-09-29.
 
-- [ ] Give balanced Version and Span folds one consistent intermediate-size
+- [x] Give balanced Version and Span folds one consistent intermediate-size
       argument for the current encoding, then state and verify the resulting
       aggregate time and space bounds.
       Source: independent public-contract audit, 2026-09-29.
@@ -240,26 +242,30 @@ into otherwise small feature increments.
       work.
       Source: owner resource-surface audit, 2026-09-17.
 
-- [ ] Make the global heap judgment total over allocation-bearing public
+- [x] Make the global heap judgment total over allocation-bearing public
       methods and trait families. Directly cover compound Span construction and
       projection, `Clock::recv_all`, wide Rank cloning, and the composite serde
       and borsh adapters; reserve indirect coverage for true forwarding paths.
       Sources: owner resource-surface audit, 2026-09-17; independent
       public-contract audit, 2026-09-29.
 
-- [ ] Cover public numeric and formatting time paths that bypass the board's
+- [x] Cover public numeric and formatting time paths that bypass the board's
       work counters, including Rank parsing and precision, Ticks arithmetic,
       and independently growing shape-combine arity, using the existing fuel
       machinery rather than another instrument.
       Source: independent public-contract audit, 2026-09-29.
 
-- [ ] Audit every counter hook for a distinct, live observation. Remove dead
-      currencies and production hooks whose only consumer is decorative.
-      Sources: `meter-core-*`, `inventory-*`, `module-graph-*`;
-      stack-segment findings across `board-*`, `recursion-1`, and
+- [x] Remove the board's dead stack-growth currency while retaining direct
+      deep-traversal tests.
+      Sources: stack-segment findings across `board-*`, `recursion-1`, and
       `envelopes-a-2`.
 
-- [ ] Make the board's headline bounds match what it proves. Reconcile the
+- [ ] Audit every remaining counter hook for a distinct, live observation.
+      Remove production hooks whose only consumer is decorative.
+      Sources: `meter-core-*`, `inventory-*`, `module-graph-*`;
+      resource-instrumentation findings.
+
+- [x] Make the board's headline bounds match what it proves. Reconcile the
       flat heap allowance and row-specific denominators with any universal
       amplification claim, and ensure plain formatting, parsing, and integer
       work cannot read green merely because scan and touch do not observe it.

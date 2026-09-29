@@ -231,9 +231,9 @@ const M_SLICE: &str =
     "total encoded bytes; arity uniform over 1..=size, split uniform over the compositions";
 /// The `shape_combine` row's arity cap.
 ///
-/// The public combiner's arity is a compile-time constant, so the guest
-/// dispatches one instantiation per arity up to this bound (the guest's
-/// own cap, kept equal by the pipeline smoke test's combine case).
+/// The public combiner's arity is a compile-time constant. The guest admits
+/// every arity through this bound for sampling; larger powers of two support
+/// separate fuel-growth tests.
 const COMBINE_ARITY_CAP: u32 = 16;
 /// The size measure of the capped-arity slice row.
 const M_SLICE_CAPPED: &str = "total encoded bytes; arity uniform over 1..=min(16, size) \

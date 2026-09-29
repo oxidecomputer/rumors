@@ -13,18 +13,18 @@
 //! Contract with the harness:
 //!
 //! - Registers are dense indices into a growable file; a slot holds a
-//!   `Version`, `Party`, `Clock`, `Rank`, `Span`, or an owned causal
+//!   `Version`, `Party`, `Clock`, `Rank`, `Ticks`, `Span`, or an owned causal
 //!   query. Ops that consume an operand
 //!   (`join`, `without`, fold drains) take it out of its slot — the register
 //!   file is linear exactly where the API is linear, so a generator that
 //!   replays a valid program here cannot alias a `Party`.
-//! - Every export returns `0` for success and a negative code for a misuse
-//!   (missing register, wrong type, operation error). The harness treats any
-//!   nonzero return as a harness bug and aborts the case: its generators
-//!   construct programs that are valid by construction.
+//! - Operation exports return `0` for success or a negative error code;
+//!   observation exports return their result. Callers check the expected
+//!   result, including public-operation rejection. Missing registers and wrong
+//!   register types are harness errors.
 //! - Staging (`ff_stage_prepare` plus a host-side memory write,
 //!   `ff_stage_ptr` plus a host-side read) executes no measured code; the
-//!   measured kernels (`*_decode`, `*_encode`)
+//!   measured codec, parsing, and formatting kernels
 //!   then read or write the staged bytes inside the fuel window.
 
 use std::cell::RefCell;
@@ -35,7 +35,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use before::causally::{self, Coverage, Down, Neutral, Query, Up};
 use before::shape::{combine, Rise};
 use before::{
-    Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
+    Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Ticks, Version,
 };
 
 /// One register-file slot: any value the public surface produces.
@@ -44,6 +44,7 @@ enum Val {
     P(Party),
     C(Clock),
     R(Rank),
+    T(Ticks),
     S(Span<'static>),
     Q(StoredQuery),
 }
@@ -173,6 +174,19 @@ fn take_r(src: u32) -> Option<Rank> {
     }
 }
 
+/// Move a `Ticks` count out of `src`.
+fn take_t(src: u32) -> Option<Ticks> {
+    match take(src) {
+        Some(Val::T(t)) => Some(t),
+        other => {
+            if let Some(val) = other {
+                put(src, val);
+            }
+            None
+        }
+    }
+}
+
 /// Run `f` with a borrowed `Version` in `reg`.
 fn with_v<T>(reg: u32, f: impl FnOnce(&Version) -> T) -> Option<T> {
     REGS.with_borrow(|regs| match regs.get(reg as usize) {
@@ -193,6 +207,14 @@ fn with_p<T>(reg: u32, f: impl FnOnce(&Party) -> T) -> Option<T> {
 fn with_r<T>(reg: u32, f: impl FnOnce(&Rank) -> T) -> Option<T> {
     REGS.with_borrow(|regs| match regs.get(reg as usize) {
         Some(Some(Val::R(r))) => Some(f(r)),
+        _ => None,
+    })
+}
+
+/// Run `f` with a borrowed `Ticks` count in `reg`.
+fn with_t<T>(reg: u32, f: impl FnOnce(&Ticks) -> T) -> Option<T> {
+    REGS.with_borrow(|regs| match regs.get(reg as usize) {
+        Some(Some(Val::T(t))) => Some(f(t)),
         _ => None,
     })
 }
@@ -691,16 +713,15 @@ pub extern "C" fn ff_clock_shape(src: u32) -> i64 {
     .unwrap_or(-1)
 }
 
-/// The `ff_shape_combine` arity cap: the public combiner's arity is a
-/// compile-time constant, so the kernel dispatches one instantiation per
-/// arity up to this bound (the fuelscape row's declared cap).
-const COMBINE_ARITY_CAP: u32 = 16;
-
 /// `shape::combine` over the versions in `src..src + n`, drained and
 /// digested; the `i64` channel carries the digest, `-1` a bad register
-/// or an arity past [`COMBINE_ARITY_CAP`].
+/// or unsupported arity.
+///
+/// The const-generic dispatch admits `0..=16` for
+/// fuelscape sampling and powers of two through 256 for arity growth tests.
 #[no_mangle]
 pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
+    /// Drain one const-generic refinement and retain every output in its digest.
     fn digest_cells<const N: usize>(versions: [&Version; N]) -> i64 {
         let mut digest = ShapeDigest::new();
         for cell in combine(versions) {
@@ -711,7 +732,7 @@ pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
         }
         digest.finish()
     }
-    if n > COMBINE_ARITY_CAP {
+    if !matches!(n, 0..=16 | 32 | 64 | 128 | 256) {
         return -1;
     }
     REGS.with_borrow(|regs| {
@@ -730,11 +751,11 @@ pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
                     $($arity => digest_cells::<$arity>(
                         versions.try_into().expect("the register loop gathered exactly n versions"),
                     ),)*
-                    _ => unreachable!("arity is capped above"),
+                    _ => unreachable!("unsupported arities return before dispatch"),
                 }
             };
         }
-        dispatch!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+        dispatch!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 32, 64, 128, 256)
     })
 }
 
@@ -1246,6 +1267,37 @@ pub extern "C" fn ff_clock_from_parts(dst: u32, p: u32, v: u32) -> i32 {
 
 // ─── Rank operations (measured) ──────────────────────────────────────────────
 
+/// Parse staged canonical binary text as a `Rank` into `dst`.
+#[no_mangle]
+pub extern "C" fn ff_rank_parse(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| {
+        let rank = std::str::from_utf8(stage)
+            .ok()
+            .and_then(|text| text.parse::<Rank>().ok());
+        match rank {
+            Some(rank) => {
+                put(dst, Val::R(rank));
+                OK
+            }
+            None => ERR_CODEC,
+        }
+    })
+}
+
+/// Render at most `precision` rank characters, padded to `width`.
+#[no_mangle]
+pub extern "C" fn ff_rank_format(src: u32, precision: u32, width: u32) -> i32 {
+    code(with_r(src, |r| {
+        let text = format!(
+            "{r:width$.precision$}",
+            width = width as usize,
+            precision = precision as usize
+        );
+        STAGE.with_borrow_mut(|stage| *stage = text.into_bytes());
+        OK
+    }))
+}
+
 /// `Rank + &Rank` into `dst` (consumes `a`).
 #[no_mangle]
 pub extern "C" fn ff_rank_add(dst: u32, a: u32, b: u32) -> i32 {
@@ -1322,6 +1374,91 @@ pub extern "C" fn ff_rank_decode(dst: u32) -> i32 {
         }
         Err(_) => ERR_CODEC,
     })
+}
+
+// ─── Unbounded counts ───────────────────────────────────────────────────────
+
+/// Prepare a count from a version's minimum outside the measured operation.
+#[no_mangle]
+pub extern "C" fn ff_ticks_from_version(dst: u32, src: u32) -> i32 {
+    match with_v(src, Version::min_ticks) {
+        Some(ticks) => {
+            put(dst, Val::T(ticks));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
+/// Prepare a machine-sized count outside the measured operation.
+#[no_mangle]
+pub extern "C" fn ff_ticks_from_u32(dst: u32, value: u32) -> i32 {
+    put(dst, Val::T(Ticks::from(value)));
+    OK
+}
+
+/// Add two borrowed counts, retaining the result in `dst`.
+#[no_mangle]
+pub extern "C" fn ff_ticks_add(dst: u32, a: u32, b: u32) -> i32 {
+    match with_t(a, |a| with_t(b, |b| a + b)) {
+        Some(Some(sum)) => {
+            put(dst, Val::T(sum));
+            OK
+        }
+        _ => ERR_REG,
+    }
+}
+
+/// Add the count in `src` to the count in `dst` in place.
+#[no_mangle]
+pub extern "C" fn ff_ticks_add_assign(dst: u32, src: u32) -> i32 {
+    let Some(mut count) = take_t(dst) else {
+        return ERR_REG;
+    };
+    let result = with_t(src, |rhs| count += rhs);
+    put(dst, Val::T(count));
+    code(result.map(|()| OK))
+}
+
+/// Sum the borrowed counts in `src..src + n` into `dst`.
+#[no_mangle]
+pub extern "C" fn ff_ticks_sum(dst: u32, src: u32, n: u32) -> i32 {
+    let sum: Option<Ticks> = REGS.with_borrow(|regs| {
+        (src..src + n)
+            .map(|reg| match regs.get(reg as usize) {
+                Some(Some(Val::T(t))) => Some(t),
+                _ => None,
+            })
+            .sum()
+    });
+    match sum {
+        Some(sum) => {
+            put(dst, Val::T(sum));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
+/// Consume and sum the counts in `src..src + n` into `dst`.
+#[no_mangle]
+pub extern "C" fn ff_ticks_sum_owned(dst: u32, src: u32, n: u32) -> i32 {
+    match (src..src + n).map(take_t).sum::<Option<Ticks>>() {
+        Some(sum) => {
+            put(dst, Val::T(sum));
+            OK
+        }
+        None => ERR_REG,
+    }
+}
+
+/// Render a count as decimal text in the staging buffer.
+#[no_mangle]
+pub extern "C" fn ff_ticks_display(src: u32) -> i32 {
+    code(with_t(src, |ticks| {
+        STAGE.with_borrow_mut(|stage| *stage = ticks.to_string().into_bytes());
+        OK
+    }))
 }
 
 /// `Ranked::encode`: the composite causal-ordering key of the version

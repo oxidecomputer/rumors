@@ -1,13 +1,13 @@
-//! The query filter co-walks one batch of bound streams against one or two
-//! probe streams.
+//! The query filter co-walks every bound stream against one or two probe
+//! streams.
 //!
 //! `causally`'s queries hold a floor, a ceiling, and holes — each one bound
 //! version with a [`Demand`] on its relation to a probe. Composed from the pair
-//! sweep, evaluating a query would decode the probe once per bound. Each batch
-//! instead shares one probe traversal and one running probe height. Each bound
-//! also keeps its absolute height. A pair materializes their difference only
-//! while their numeric widths overlap, and discards it before a later crossing
-//! would copy a much wider shared height. The walk advances by the
+//! sweep, evaluating a query would decode the probe once per bound. The fused
+//! walk instead shares one probe traversal and one running probe height. Each
+//! bound also keeps its absolute height. A pair materializes their difference
+//! only while their numeric widths overlap, and discards it before a later
+//! crossing would copy a much wider shared height. The walk advances by the
 //! overlay-advance law ([`advance_set`]), and the verdict hooks are branch-only.
 //!
 //! # Early exit
@@ -35,23 +35,23 @@
 //!
 //! # Cost
 //!
-//! Within a batch, every topology bit is read once and every leaf payload is
-//! decoded once. Let `k` be the number of bounds, `i` the number of intervals
-//! in the streams' common overlay, `p` the encoded payload bytes in the probe
-//! stream or streams, and `n` all input bytes. Topology work is
+//! Every topology bit is read once and every leaf payload is decoded once. Let
+//! `k` be the number of bounds, `i` the number of intervals in the streams'
+//! common overlay, `p` the payload bytes in the probe stream or streams, and
+//! `n` all input bytes. Topology work is
 //! `O(n + k·i)`; numeric work is `O(n + k·p)` because a probe delta may feed
 //! every live exact difference. The total is therefore `O(n + k·(i + p))`, or
 //! `O(k·n)` using bytes alone.
 //!
-//! Auxiliary state is `O(n)`: the batch limit bounds the `O(k)` fixed-size
-//! records, each absolute height is stored once, and a private difference
-//! exists only while its two absolute heights have comparable widths. Its copy
-//! is therefore funded by the bound's maximum width over its input stream. A
-//! later crossing that separates the widths discards the difference before
-//! folding the crossing, so a wide probe value is copied across the batch only
-//! when the bounds carry corresponding width. If a wide absolute height's
-//! redundant representation prevents a domination decision, it is normalized
-//! in shared state rather than copied into every comparison.
+//! Auxiliary state is `O(n + k)`: the walk keeps one fixed-size record and one
+//! absolute height per bound. A private difference exists only while its two
+//! absolute heights have comparable widths, so its copy is funded by the
+//! bound's maximum width over its input stream. A later crossing that separates
+//! the widths discards the difference before folding the crossing, so a wide
+//! probe value is copied across the bounds only when they carry corresponding
+//! width. If a wide absolute height's redundant representation prevents a
+//! domination decision, it is normalized in shared state rather than copied
+//! into every comparison.
 //!
 //! A difference may be rebuilt after the widths converge again. Reaching that
 //! state requires a width-changing input crossing or normalization of a
@@ -73,21 +73,6 @@ use crate::codec::{accumulator, BitsView};
 
 use super::super::overlay::{advance_set, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::super::sweep::Directions;
-
-/// Heap reserved for live side records per input byte.
-///
-/// Cursor paths and spilled accumulators use additional storage in proportion
-/// to the topology and numeric payloads that fund them. Limiting the fixed
-/// records separately prevents many small bounds from expanding into a much
-/// larger temporary table. Reserving eight bytes per input byte leaves most of
-/// the crate's 20 B/B transient ceiling for topology, numeric payloads, and
-/// allocator rounding.
-const SIDE_BYTES_PER_INPUT_BYTE: usize = 8;
-
-/// How many side records fit within one walk's input-funded budget.
-fn side_capacity<State>(input_bytes: usize) -> usize {
-    (input_bytes.saturating_mul(SIDE_BYTES_PER_INPUT_BYTE) / std::mem::size_of::<State>()).max(1)
-}
 
 /// What a query demands of the relation between the probe and one bound stream,
 /// in the probe-first orientation (`le` is `probe <= bound`).
@@ -283,11 +268,6 @@ struct BoundSide<'a> {
     demand: Demand,
 }
 
-/// The maximum bounds in one membership walk over `input_bytes` of operands.
-pub(crate) fn membership_capacity(input_bytes: usize) -> usize {
-    side_capacity::<Option<BoundSide<'static>>>(input_bytes)
-}
-
 /// Whether the probe stream's version satisfies every demand, each stream
 /// decoded once — `causally`'s membership predicate at the stream layer.
 ///
@@ -461,11 +441,6 @@ struct SpanSide<'a> {
     lo: GatedComparison,
     /// The pair against the segment's maximum endpoint.
     hi: GatedComparison,
-}
-
-/// The maximum bounds in one coverage walk over `input_bytes` of operands.
-pub(crate) fn coverage_capacity(input_bytes: usize) -> usize {
-    side_capacity::<Option<SpanSide<'static>>>(input_bytes)
 }
 
 /// How much of the segment `[lo, hi]` a query's demands admit, every stream

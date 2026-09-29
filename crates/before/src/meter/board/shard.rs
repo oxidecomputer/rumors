@@ -70,9 +70,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::sync::{Mutex, OnceLock};
 
-use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE};
+use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE, SMALL_INPUT_SCALE};
 use super::currency::{ByCurrency, Liveness};
-use super::judge::{evaluate, evaluate_acceptance, CellResult};
+use super::judge::{evaluate, evaluate_acceptance, evaluate_small, CellResult};
 use super::measure::{HeapMeter, Model, Sample};
 use super::ops::ops;
 use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
@@ -82,7 +82,7 @@ use crate::meter::registry::{Coverage, FamilyId};
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
 /// so a stale child binary can never be merged as current.
-const PROTOCOL: &str = "amp-board-shard v4";
+const PROTOCOL: &str = "amp-board-shard v5";
 
 /// Runs every shard child at one scale and returns their raw stdout captures in
 /// shard-index order.
@@ -354,21 +354,18 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
     let mut model = || parse_model(field(fields, line), line);
     let models = ByCurrency {
         heap: model(),
-        segments: model(),
         scan: model(),
         touch: model(),
     };
     let mut reading = || opt_number(field(fields, line), line);
     let readings = ByCurrency {
         heap: reading(),
-        segments: reading(),
         scan: reading(),
         touch: reading(),
     };
     let mut floor = || parse_liveness(field(fields, line), line);
     let floors = ByCurrency {
         heap: floor(),
-        segments: floor(),
         scan: floor(),
         touch: floor(),
     };
@@ -556,12 +553,11 @@ pub fn run(
     render_results(&merge(scale, shards, &spawn(scale)?), out)
 }
 
-/// Sweep every cell's whole measurement ladder and render both matrices to
-/// `out`: the board's acceptance judgment.
+/// Check the growth ladder and small inputs, rendering all three matrices.
 ///
-/// The ladder is the two sizes at each of the ladder's two sampling scales,
-/// swept across `shards` child processes per sweep; each cell's exponents
-/// are judged as one trend over the four measured points.
+/// Two sizes at each of the growth ladder's two scales supply one four-point
+/// trend. An additional pair at [`SMALL_INPUT_SCALE`] checks ceilings and
+/// liveness independently of that fit. Every sweep uses `shards` processes.
 ///
 /// This is the acceptance judgment — the board's one verdict of record
 /// (`just amp-board-acceptance`): every constant, declared-model band, and
@@ -576,11 +572,11 @@ pub fn run(
 ///
 /// # Panics
 ///
-/// As [`run`], plus if the two sweeps disagree on the cell grid. Each
+/// As [`run`], plus if the sweeps disagree on the cell grid. Each
 /// sweep's merge already refuses a grid that falls short of the registry's
 /// declared reach ([`merge_samples`]'s completeness refusal, which is what
 /// holds applicability scale-independent in practice), so the cross-check
-/// here binds only the row-order seam between the two merges.
+/// here also checks their row order.
 pub fn run_acceptance(
     shards: usize,
     spawn: ShardSpawner<'_>,
@@ -588,6 +584,8 @@ pub fn run_acceptance(
 ) -> io::Result<Summary> {
     let lo = merge_samples(DEFAULT_SCALE, shards, &spawn(DEFAULT_SCALE)?);
     let hi = merge_samples(LADDER_TOP_SCALE, shards, &spawn(LADDER_TOP_SCALE)?);
+    let small = merge_samples(SMALL_INPUT_SCALE, shards, &spawn(SMALL_INPUT_SCALE)?);
+    assert_eq!(lo.len(), small.len(), "small-input grid matches the ladder");
     assert_eq!(
         lo.len(),
         hi.len(),
@@ -595,15 +593,26 @@ pub fn run_acceptance(
     );
     let mut lo_cells = Vec::with_capacity(lo.len());
     let mut hi_cells = Vec::with_capacity(hi.len());
-    for ((op_lo, family_lo, l1, l2), (op_hi, family_hi, h1, h2)) in lo.into_iter().zip(hi) {
+    let mut small_cells = Vec::with_capacity(small.len());
+    for (
+        ((op_lo, family_lo, l1, l2), (op_hi, family_hi, h1, h2)),
+        (op_small, family_small, s1, s2),
+    ) in lo.into_iter().zip(hi).zip(small)
+    {
         assert_eq!(
             (op_lo, family_lo),
             (op_hi, family_hi),
             "amp-board acceptance: the ladder's two sweeps measured different cell grids"
         );
+        assert_eq!(
+            (op_lo, family_lo),
+            (op_small, family_small),
+            "small-input grid matches the ladder"
+        );
         let (cell_lo, cell_hi) = evaluate_acceptance(op_lo, family_lo, (l1, l2), (h1, h2));
         lo_cells.push(cell_lo);
         hi_cells.push(cell_hi);
+        small_cells.push(evaluate_small(op_small, family_small, s1, s2));
     }
     // Each matrix prints its own per-scale summary line; the returned
     // summary is the joint verdict over distinct cells.
@@ -611,11 +620,16 @@ pub fn run_acceptance(
     render_results(&lo_cells, out)?;
     writeln!(out, "=== ladder top: sampling scale {LADDER_TOP_SCALE} ===")?;
     render_results(&hi_cells, out)?;
-    // Distinct red cells across the two matrices: an exponent-leg red binds
-    // both windows, so the union, not the sum, is the honest count.
+    writeln!(
+        out,
+        "=== small inputs: sampling scale {SMALL_INPUT_SCALE}, ceilings and floors ==="
+    )?;
+    render_results(&small_cells, out)?;
+    // Count each cell once even if it fails at several sample sizes.
     let red: BTreeSet<(&'static str, &'static str)> = lo_cells
         .iter()
         .chain(hi_cells.iter())
+        .chain(small_cells.iter())
         .filter(|cell| !cell.red.is_empty())
         .map(|cell| (cell.op, cell.family))
         .collect();

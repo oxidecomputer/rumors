@@ -8,7 +8,7 @@
 use std::io::{self, Write};
 
 use super::ceilings::{
-    HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,
+    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE,
     MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE,
     MIN_EXPONENT_DENOM_GROWTH,
 };
@@ -40,8 +40,8 @@ fn floor_value(liveness: Liveness) -> String {
 /// A red cell's mechanism tag: the judgment kinds present on its red list, in a
 /// fixed order.
 ///
-/// An `exponent` red is a scaling-class finding; a `constant` red (flat or
-/// declared-model ceilings, the segments count) is a proportionality finding at
+/// An `exponent` red is a scaling-class finding; a `constant` red is a
+/// proportionality finding at
 /// exponent ~1; a `floor` red is a liveness vacuity (a meter not watching the
 /// work) or a stale declared model.
 fn mechanism(red: &[&'static str]) -> String {
@@ -49,9 +49,7 @@ fn mechanism(red: &[&'static str]) -> String {
     if red.iter().any(|label| label.contains("exponent")) {
         kinds.push("exponent");
     }
-    if red.iter().any(|label| {
-        label.contains("constant") || label.contains("count") || label.contains("ceiling")
-    }) {
+    if red.iter().any(|label| label.ends_with("constant")) {
         kinds.push("constant");
     }
     if red.iter().any(|label| label.contains("floor")) {
@@ -78,11 +76,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         }
     };
     let custom_constant_units = |currency: Currency| {
-        let ordinary = if currency == Currency::Segments {
-            1
-        } else {
-            r.s2.denom_bytes
-        };
+        let ordinary = r.s2.denom_bytes;
         r.s2.models
             .get(currency)
             .is_some_and(|model| model.constant_units != ordinary)
@@ -112,19 +106,6 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
             exp_text(&r.scores.touch)
         ),
         _ => "touch[      off      ]".to_string(),
-    };
-    let segments = if custom_constant_units(Currency::Segments) {
-        format!(
-            "seg[e{} {:>4.1}/u]",
-            exp_text(&r.scores.segments),
-            r.scores.segments.per_unit.unwrap_or(0.0),
-        )
-    } else {
-        format!(
-            "seg[e{} {:>4}]",
-            exp_text(&r.scores.segments),
-            r.s2.readings.segments.unwrap_or(0),
-        )
     };
     // A red cell's mechanism tag: which judgment kinds put it on the red list,
     // mirroring the tags a red-buffer triage entry commits.
@@ -157,16 +138,8 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
                     r.s1.models.get(currency).as_ref().expect(
                         "a cell's resource-model applicability is independent of sample size",
                     );
-                let first_default_constant = if currency == Currency::Segments {
-                    1
-                } else {
-                    r.s1.denom_bytes
-                };
-                let second_default_constant = if currency == Currency::Segments {
-                    1
-                } else {
-                    r.s2.denom_bytes
-                };
+                let first_default_constant = r.s1.denom_bytes;
+                let second_default_constant = r.s2.denom_bytes;
                 let custom_trend = first.trend_units != r.s1.exp_denom_bytes
                     || second.trend_units != r.s2.exp_denom_bytes;
                 let custom_constant = first.constant_units != first_default_constant
@@ -209,7 +182,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     writeln!(
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
-         heap[e{he} {hc:>10.1}{heap_unit}]  {segments}  {scan}  {touch}  \
+         heap[e{he} {hc:>10.1}{heap_unit}]  {scan}  {touch}  \
          flr[h {fh:>6} s {fs:>6} t {ft:>6}]{expd}{model}{reasons}",
         op = r.op,
         family = r.family,
@@ -253,8 +226,8 @@ pub(super) fn measure_cell(
     let c1 = (op.prepare)(small)?;
     let c2 =
         (op.prepare)(large).expect("a cell's applicability depends on the family, never the size");
-    let s1 = measure(heap, op.name, c1, small.content_bytes);
-    let s2 = measure(heap, op.name, c2, large.content_bytes);
+    let s1 = measure(heap, c1, small.content_bytes);
+    let s2 = measure(heap, c2, large.content_bytes);
     Some(evaluate(op.name, small.name, s1, s2))
 }
 
@@ -266,25 +239,22 @@ pub(super) fn measure_cell(
 pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io::Result<Summary> {
     writeln!(
         out,
-        "amplification board: transient cost vs each cell's resource model (encoded input \
-         bytes by default; total I/O where required output can dominate), each cell at its \
-         window's two sizes"
+        "amplification board: peak additional heap and work vs each cell's model \
+         (input bytes by default; total I/O for output-dominated operations; value width \
+         for numbers). Per-unit readings show the larger cost density of the two samples."
     )?;
     writeln!(
         out,
         "green iff every meter's exponent <= {MAX_SCALING_EXPONENT}, constants within: \
-         heap <= {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B over {HEAP_FLAT_ALLOWANCE_BYTES} B flat, \
-         segments <= {MAX_GROWN_STACK_SEGMENTS}, \
+         heap <= {HEAP_INTERCEPT_BYTES} + {MAX_HEAP_BYTES_PER_INPUT_BYTE} * units bytes, \
          scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B, \
          touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B; \
-         and every committed liveness floor met (flr[...]: a counter below its floor is red: \
-         the meter is not watching that work; segments is ceiling-only by policy, its honest \
-         floor is zero). exponent legs are fitted only where the denominator scales \
-         (>= x{MIN_EXPONENT_DENOM_GROWTH}); a two-point heap fit uses only readings above \
-         the flat allowance, while the acceptance trend clamps smaller readings to the \
-         allowance and keeps all four points so one allocation tier cannot define it; an \
-         unjudged exponent renders -.-- and the cell rides its constants and floors. every \
-         judged quantity is deterministic"
+         and every liveness floor met. All ceilings and floors apply at both sample sizes. \
+         Growth fits require denominator span >= x{MIN_EXPONENT_DENOM_GROWTH}; heap readings \
+         are clamped to {HEAP_TREND_RESOLUTION_BYTES} B only for that fit. Growth below that \
+         resolution is unobserved by the fit. Small-input samples check only ceilings and \
+         floors. An unjudged exponent renders -.--. These finite checks are regression \
+         evidence, not universal resource guarantees."
     )?;
     writeln!(out)?;
     writeln!(out, "liveness declarations on this board:")?;

@@ -795,9 +795,9 @@ bench-alloc-ab target arm="shipped" *filter:
     @case "{{ arm }}" in (shipped|projection_growth|projection_shrink) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
     RUSTFLAGS='{{ if arm == "shipped" { "" } else { '--cfg before_alloc_ab="' + arm + '"' } }}' cargo bench -p before --bench {{ target }} -- --save-baseline {{ target }}-{{ arm }} {{ filter }}
 
-# Each board cell judges deterministic work counters (touches, scans,
-# segments, heap) against a pinned proportionality envelope: green means
-# work scaled with the input, red is an amplification finding. The board
+# Each board cell judges deterministic work counters (touches, scans, heap)
+# against its declared bounds: green means the samples fit, red is a resource
+# regression to investigate. The board
 # reads no clock, so its output is byte-identical under any machine load.
 # Optional scale multiplies the input sizes, e.g. `just amp-board 4`.
 #
@@ -831,8 +831,8 @@ amp-board *args:
 
 # The board's one verdict of record: one invocation measures each cell's
 # whole ladder — two sizes at each of the two sampling scales
-# (board::DEFAULT_SCALE and board::LADDER_TOP_SCALE, the segment-onset
-# witness) — judges every constant and floor per size, fits each
+# (board::DEFAULT_SCALE and board::LADDER_TOP_SCALE), plus a small-input
+# pair for ceilings and liveness — judges every constant and floor per size, fits each
 # exponent as one trend across the ladder, and exits nonzero on any red
 # cell. A red is an untriaged contradiction, resolved only by a cure or
 # an owner-declared model at the cell, so the gate's board stream fails

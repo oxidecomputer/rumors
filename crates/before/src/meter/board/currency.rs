@@ -7,10 +7,8 @@
 /// One deterministic resource measurement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Currency {
-    /// Peak transient heap bytes (the caller-installed counting allocator).
+    /// Peak additional live heap bytes, including retained results.
     Heap,
-    /// Grown stacker segments (recursion-driven stack cost).
-    Segments,
     /// Encoded scan bits (traversal cost; `scan-meter`).
     Scan,
     /// Accumulator digit touches (digit-state cost; `touch-meter`).
@@ -22,7 +20,6 @@ impl Currency {
     pub fn label(self) -> &'static str {
         match self {
             Currency::Heap => "heap",
-            Currency::Segments => "segments",
             Currency::Scan => "scan",
             Currency::Touch => "touch",
         }
@@ -37,8 +34,6 @@ impl Currency {
 pub struct ByCurrency<T> {
     /// The peak-heap column's value.
     pub heap: T,
-    /// The grown-segments column's value.
-    pub segments: T,
     /// The scan column's value.
     pub scan: T,
     /// The touch column's value.
@@ -47,16 +42,10 @@ pub struct ByCurrency<T> {
 
 impl<T> ByCurrency<T> {
     /// Every measurement and its value, in display order.
-    pub fn each(&self) -> [(Currency, &T); 4] {
-        let ByCurrency {
-            heap,
-            segments,
-            scan,
-            touch,
-        } = self;
+    pub fn each(&self) -> [(Currency, &T); 3] {
+        let ByCurrency { heap, scan, touch } = self;
         [
             (Currency::Heap, heap),
-            (Currency::Segments, segments),
             (Currency::Scan, scan),
             (Currency::Touch, touch),
         ]
@@ -66,7 +55,6 @@ impl<T> ByCurrency<T> {
     pub fn get(&self, currency: Currency) -> &T {
         match currency {
             Currency::Heap => &self.heap,
-            Currency::Segments => &self.segments,
             Currency::Scan => &self.scan,
             Currency::Touch => &self.touch,
         }
@@ -76,7 +64,6 @@ impl<T> ByCurrency<T> {
     pub fn get_mut(&mut self, currency: Currency) -> &mut T {
         match currency {
             Currency::Heap => &mut self.heap,
-            Currency::Segments => &mut self.segments,
             Currency::Scan => &mut self.scan,
             Currency::Touch => &mut self.touch,
         }

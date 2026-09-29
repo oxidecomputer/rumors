@@ -131,55 +131,50 @@ fn new_is_join_identity() {
 }
 
 proptest! {
-    /// The join is representationally subadditive: `encode(a | b).len() <=
-    /// encode(a).len() + encode(b).len()`.
+    /// The join's stored size does not exceed the operands' combined stored
+    /// size.
     ///
-    /// The join's event tree branches only where an input branches and its
-    /// bases come from pointwise combination, so joining can restructure but
-    /// never invent structure beyond both inputs together. Callers that track
-    /// version-size maxima rely on this to charge a join of two bounded
-    /// versions the sum of their bounds. Probed here over churned
+    /// Every output boundary belongs to an input, and its delta lies between
+    /// the two input deltas there. Its code is therefore no wider than the
+    /// wider input code; the opening height comes from one input and collapse
+    /// only removes data. Probed here over churned
     /// (fork/send/sync/retire) populations — the causally related pairs live
     /// replicas hold, including the normalization corners churn produces.
     #[test]
-    fn join_encoding_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn join_stored_size_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
         let a = from_oracle_version(&vs[i % n]);
         let b = from_oracle_version(&vs[j % n]);
-        let join = a.clone() | b.clone();
+        let join = &a | &b;
         prop_assert!(
-            join.encode().len() <= a.encode().len() + b.encode().len(),
-            "join encoding outgrew its inputs: {} > {} + {}",
-            join.encode().len(), a.encode().len(), b.encode().len(),
+            join.as_bytes().len() <= a.as_bytes().len() + b.as_bytes().len(),
+            "join stored size outgrew its inputs: {} > {} + {}",
+            join.as_bytes().len(), a.as_bytes().len(), b.as_bytes().len(),
         );
     }
 }
 
 proptest! {
-    /// The meet is representationally subadditive: `encode(a & b).len() <=
-    /// encode(a).len() + encode(b).len()`.
+    /// The meet's stored size does not exceed the operands' combined stored
+    /// size.
     ///
-    /// Dual to [`join_encoding_is_subadditive`]: the meet's event tree branches
-    /// only where an input branches and its bases come from pointwise
-    /// combination, so meeting can restructure but never invent structure
-    /// beyond both inputs together. Callers that track version-size maxima rely
-    /// on this to charge a meet of two bounded versions (an assembled floor)
-    /// the sum of their bounds. Probed over the same churned populations as the
-    /// join lemma.
+    /// Dual to [`join_stored_size_is_subadditive`]: the same boundary-delta
+    /// argument applies to pointwise minimum. Probed over the same churned
+    /// populations as the join lemma.
     #[test]
-    fn meet_encoding_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn meet_stored_size_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
         let a = from_oracle_version(&vs[i % n]);
         let b = from_oracle_version(&vs[j % n]);
-        let meet = a.clone() & b.clone();
+        let meet = &a & &b;
         prop_assert!(
-            meet.encode().len() <= a.encode().len() + b.encode().len(),
-            "meet encoding outgrew its inputs: {} > {} + {}",
-            meet.encode().len(), a.encode().len(), b.encode().len(),
+            meet.as_bytes().len() <= a.as_bytes().len() + b.as_bytes().len(),
+            "meet stored size outgrew its inputs: {} > {} + {}",
+            meet.as_bytes().len(), a.as_bytes().len(), b.as_bytes().len(),
         );
     }
 }
@@ -444,7 +439,7 @@ proptest! {
 }
 
 proptest! {
-    /// The join-size lemma of [`join_encoding_is_subadditive`], on arbitrary,
+    /// The join-size lemma of [`join_stored_size_is_subadditive`], on arbitrary,
     /// typically *unrelated* normal-form pairs.
     ///
     /// The churned generator only produces causally related versions from one
@@ -453,41 +448,41 @@ proptest! {
     /// where subadditivity would break if normalization could ever inflate a
     /// combined tree past its inputs.
     #[test]
-    fn join_encoding_is_subadditive_arbitrary(
+    fn join_stored_size_is_subadditive_arbitrary(
         oa in arb_oracle_version(),
         ob in arb_oracle_version(),
     ) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
-        let join = a.clone() | b.clone();
+        let join = &a | &b;
         prop_assert!(
-            join.encode().len() <= a.encode().len() + b.encode().len(),
-            "join encoding outgrew its inputs: {} > {} + {}",
-            join.encode().len(), a.encode().len(), b.encode().len(),
+            join.as_bytes().len() <= a.as_bytes().len() + b.as_bytes().len(),
+            "join stored size outgrew its inputs: {} > {} + {}",
+            join.as_bytes().len(), a.as_bytes().len(), b.as_bytes().len(),
         );
     }
 }
 
 proptest! {
-    /// The meet-size lemma of [`meet_encoding_is_subadditive`], on arbitrary,
+    /// The meet-size lemma of [`meet_stored_size_is_subadditive`], on arbitrary,
     /// typically *unrelated* normal-form pairs.
     ///
-    /// Dual to [`join_encoding_is_subadditive_arbitrary`], and for the same
+    /// Dual to [`join_stored_size_is_subadditive_arbitrary`], and for the same
     /// reason: independent shapes and large-base leaves are the corner where a
     /// meet must restructure most, so this is where subadditivity would break
     /// if normalization could ever inflate a combined tree past its inputs.
     #[test]
-    fn meet_encoding_is_subadditive_arbitrary(
+    fn meet_stored_size_is_subadditive_arbitrary(
         oa in arb_oracle_version(),
         ob in arb_oracle_version(),
     ) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
-        let meet = a.clone() & b.clone();
+        let meet = &a & &b;
         prop_assert!(
-            meet.encode().len() <= a.encode().len() + b.encode().len(),
-            "meet encoding outgrew its inputs: {} > {} + {}",
-            meet.encode().len(), a.encode().len(), b.encode().len(),
+            meet.as_bytes().len() <= a.as_bytes().len() + b.as_bytes().len(),
+            "meet stored size outgrew its inputs: {} > {} + {}",
+            meet.as_bytes().len(), a.as_bytes().len(), b.as_bytes().len(),
         );
     }
 }
@@ -1096,6 +1091,46 @@ fn rank_encoding_known_values() {
     }
 }
 
+/// Streaming rank encoding matches the canonical bytes across buffer flushes
+/// and partial writes.
+///
+/// The fractional and integral cases both exceed the encoder's fixed staging
+/// buffer. The writer accepts only one byte per call, so `encode_to` must
+/// correctly resume every partial write as well as every internal flush.
+#[test]
+fn rank_encode_to_streams_the_canonical_encoding() {
+    use std::io::{self, Write};
+
+    /// A writer that accepts at most one byte per call.
+    #[derive(Default)]
+    struct OneByteWriter(Vec<u8>);
+
+    impl Write for OneByteWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let Some(&byte) = bytes.first() else {
+                return Ok(0);
+            };
+            self.0.push(byte);
+            Ok(1)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let ranks = [
+        super::Rank::from_raw(BigUint::ONE, 4_096),
+        super::Rank::from_raw((BigUint::ONE << 4_096usize) - 1u8, 0),
+    ];
+    for rank in ranks {
+        let expected = rank.encode();
+        let mut writer = OneByteWriter::default();
+        rank.encode_to(&mut writer).unwrap();
+        assert_eq!(writer.0, expected);
+    }
+}
+
 /// The exhaustive small-scope sweep over **every** byte string of zero, one,
 /// and two bytes.
 ///
@@ -1592,10 +1627,9 @@ proptest! {
 
 // The fused Ranked comparison against the materialized rank-then-bytes order
 // (both argument orders) is the `laws::VERSION_PAIR::
-// ranked_orders_by_rank_then_bytes` law, and the fused rank-only encode
-// against `Rank::encode` over the materialized rank is a clause of
-// `laws::VERSION_SOLO::ranked_carries_own_rank` — both driven on all three
-// law populations, a strict superset of the arbitrary pairs alone.
+// ranked_orders_by_rank_then_bytes` law. Rank-only encoding equivalence is a
+// clause of `laws::VERSION_SOLO::ranked_carries_own_rank`. Both run over all
+// three law populations, a strict superset of the arbitrary pairs alone.
 
 /// Adds one unit plateau per level, leaning the previous tree left or right.
 ///
@@ -1625,8 +1659,7 @@ fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
 /// by `2⁻⁸⁰³` alone: every level above still cancels, and the verdict's sign
 /// rests entirely on the deepest contribution. Each verdict is checked against
 /// the materialized rank-then-bytes order in both argument orders, and the
-/// fused rank-only encode against the materialized encode on the same deep
-/// shapes.
+/// rank-only encoding against `Rank::encode` on the same deep shapes.
 #[test]
 fn ranked_fused_walk_survives_deep_cancellation() {
     let half = half();

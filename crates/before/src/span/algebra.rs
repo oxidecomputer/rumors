@@ -32,6 +32,11 @@
 //! has no `*=`: an assigning operator returns nothing, so a disjoint pair would
 //! leave the miss nowhere to land.
 //!
+//! Every endpoint combine is a [`Version`] join or meet, whose result is no
+//! larger than its operands together. The balanced folds therefore hold at most
+//! the original input size across each level: `O(D log k)` total work and
+//! `O(D)` live endpoint storage for `D` input bytes and `k` inputs.
+//!
 //! The total operators take any span-convertible operand (`impl Into<Span>`) on
 //! the non-receiver side — a [`Version`] is taken as its coincident point span —
 //! in the binary, assigning, variadic, and collection forms alike, and

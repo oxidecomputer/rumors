@@ -82,7 +82,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
     ("Clock::send", &["clock_tick"]),
     ("Clock::recv", &["clock_recv"]),
-    ("Clock::recv_all", &["version_join_all"]),
+    ("Clock::recv_all", &["clock_recv_all"]),
     ("Clock::absorb", &["version_join"]),
     ("Clock::absorb_all", &["version_join_all"]),
     (
@@ -147,6 +147,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
     ("From into Query (atoms, spans, versions, borrowed queries)", &["query_clone_many"]),
     ("Span::place", &["span_place"]),
+    ("Span::new", &["span_new"]),
     ("Span::dominance", &["span_dominance"]),
     ("Span::precedence", &["span_precedence"]),
     // The span-shaped argument arm pays two causal comparisons instead of
@@ -171,6 +172,11 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Span::intersect_all", &["span_intersect_all"]),
     ("Span::join_all", &["span_join_all"]),
     ("Span::meet_all", &["span_meet_all"]),
+    ("OwnSpan::to_span", &["own_span_to_span"]),
+    (
+        "From<OwnSpan> for Span (explicit materialization)",
+        &["own_span_to_span"],
+    ),
     (
         "shape::combine",
         &["shape_combine_pair", "shape_combine_many"],
@@ -248,10 +254,26 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "party_serde_deserialize",
             #[cfg(feature = "serde")]
             "version_serde_deserialize",
+            #[cfg(feature = "serde")]
+            "clock_serde_deserialize",
+            #[cfg(feature = "serde")]
+            "rank_serde_deserialize",
+            #[cfg(feature = "serde")]
+            "ranked_serde_deserialize",
+            #[cfg(feature = "serde")]
+            "span_serde_deserialize",
             #[cfg(feature = "borsh")]
             "party_borsh_deserialize",
             #[cfg(feature = "borsh")]
             "version_borsh_deserialize",
+            #[cfg(feature = "borsh")]
+            "clock_borsh_deserialize",
+            #[cfg(feature = "borsh")]
+            "rank_borsh_deserialize",
+            #[cfg(feature = "borsh")]
+            "ranked_borsh_deserialize",
+            #[cfg(feature = "borsh")]
+            "span_borsh_deserialize",
             "version_encode",
             "version_decode",
             "party_encode",
@@ -270,6 +292,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr",
         &[
             "rank_add",
+            "rank_clone",
             "rank_checked_sub",
             "rank_cmp",
             "rank_sum",
@@ -415,11 +438,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          coverage rows price the sweeps",
     ),
     (
-        "Span::new",
-        "stores two borrows plus one validating causal comparison, the \
-         identical comparison the causally_contains row prices",
-    ),
-    (
         "Span::at",
         "one refcount-bump buffer-sharing clone at most (a lent version is \
          stored as two borrows): no walk, no comparison",
@@ -481,11 +499,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          cell, one when the start refutes",
     ),
     (
-        "OwnSpan::to_span",
-        "two of the materializations the OwnVersion to_version row cells, one \
-         per endpoint",
-    ),
-    (
         "&Span / &Party (Div — the lazy span projection view)",
         "O(1) view construction (two borrows); the verdict and materialization \
          costs sit on the OwnSpan entries above",
@@ -495,11 +508,6 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "the named spelling of the span projection (`/`): O(1) view \
          construction (two borrows); the verdict and materialization costs \
          sit on the OwnSpan entries above",
-    ),
-    (
-        "From<OwnSpan> for Span (explicit materialization)",
-        "delegation to OwnSpan::to_span: two of the materializations the \
-         OwnVersion to_version row cells",
     ),
     (
         "&Version / &Party (Div — the lazy projection view)",

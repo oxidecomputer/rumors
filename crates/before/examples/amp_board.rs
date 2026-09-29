@@ -14,12 +14,12 @@
 //! multiplies every input family's base size and renders a single-scale
 //! debugging view whose verdicts never bind. The literal `acceptance`
 //! (`just amp-board-acceptance`) runs the board's one verdict of record:
-//! each cell's whole measurement ladder (two sizes at each of the two
+//! each cell's growth ladder (two sizes at each of the two
 //! sampling scales, `board::DEFAULT_SCALE` and `board::LADDER_TOP_SCALE`)
 //! in one judgment, the exponents fitted as one trend over the four
-//! measured points (the board module doc's exponent-policy section), and
-//! the exit code carries the verdict — any red cell anywhere on the
-//! ladder exits nonzero, so every gate leg that runs the board of record
+//! measured points, plus a small-input pair checked against ceilings and
+//! liveness floors. The exit code carries the verdict — any red cell at the
+//! measured sizes exits nonzero, so every gate leg that runs the board of record
 //! consumes it. The default sizes keep the whole board at seconds of
 //! runtime. The counter features are `required-features`: a build
 //! without them would render scan and touch unjudged while still

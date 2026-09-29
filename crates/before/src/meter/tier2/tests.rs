@@ -377,6 +377,13 @@ fn check_subadditive(
     a: &Version,
     b: &Version,
 ) {
+    let output = emit(a, b);
+    let output_bits = output.view().live().len();
+    let input_bits = a.view().live().len() + b.view().live().len();
+    assert!(
+        output_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS <= input_bits,
+        "{name}: live output uses {output_bits} bits, but its inputs provide only {input_bits} bits"
+    );
     let sa = tier2_size(crate::codec::built_view(&encoded_bits_of(
         &to_oracle_version(a),
     )));
@@ -384,7 +391,7 @@ fn check_subadditive(
         &to_oracle_version(b),
     )));
     let so = tier2_size(crate::codec::built_view(&encoded_bits_of(
-        &to_oracle_version(&emit(a, b)),
+        &to_oracle_version(&output),
     )));
     assert!(
         so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS <= sa.total_bits + sb.total_bits,

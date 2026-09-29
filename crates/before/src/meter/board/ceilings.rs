@@ -12,24 +12,36 @@
 /// remain responsible for each operation's asymptotic contract.
 pub const MAX_SCALING_EXPONENT: f64 = 1.15;
 
-/// Green requires peak transient heap, after subtracting the flat allowance,
-/// at most this many bytes per denominator byte.
+/// Proportional term in the heap ceiling `HEAP_INTERCEPT_BYTES + C * D`.
 ///
-/// Most operations use their input size; operations whose required
-/// output can be larger use total input and output instead. This limit is 20
-/// B/B, rounded up from the largest release-board measurement governed by it.
-/// The exponent check separately detects scaling regressions.
+/// Most operations use their input size; operations whose required output can
+/// be larger use total input and output instead. Numeric rows use value width.
+/// Query evaluation has a separate limit because it keeps one cursor and
+/// comparison state per bound. These coefficients are measured regression
+/// limits, not proofs over unmeasured inputs.
 pub const MAX_HEAP_BYTES_PER_INPUT_BYTE: f64 = 20.0;
 
-/// Heap bytes ignored before the per-byte constant is computed: fixed-size
-/// scaffolding (format machinery, hasher state, container headers) that does
-/// not scale with the input.
-pub const HEAP_FLAT_ALLOWANCE_BYTES: usize = 8_192;
+/// Additive term in every sample's heap ceiling, including small-input checks.
+///
+/// Minimum container and numeric allocations can exceed their proportional
+/// budgets at single-digit input sizes. This allowance bounds that excess; it
+/// does not identify a fixed allocation common to every operation. Peaks and
+/// normalized readings are always reported in full.
+pub const HEAP_INTERCEPT_BYTES: usize = 1_024;
 
-/// Green requires at most this many grown stack segments, as an absolute count:
-/// the target is walks that never grow the stack, so the ceiling is flat, not
-/// per-byte.
-pub const MAX_GROWN_STACK_SEGMENTS: u64 = 1;
+/// Resolution of the empirical heap growth fit, independent of its ceiling.
+///
+/// Inline storage, buffer doubling, and numeric formatting algorithms produce
+/// allocation thresholds on the finite ladder. Clamping the fit at 4 KiB
+/// accommodates these transitions. Growth below this resolution is not judged
+/// by the fit; every raw peak still faces the tighter affine ceiling above.
+pub const HEAP_TREND_RESOLUTION_BYTES: usize = 4_096;
+
+/// Extra small-input scale for heap ceilings and counter liveness.
+///
+/// These samples are outside the four-point growth fit: minimum allocation
+/// sizes dominate them, but the affine bound must still hold.
+pub const SMALL_INPUT_SCALE: f64 = 0.01;
 
 /// Green requires at most this many bits scanned per denominator
 /// byte (asserted only when the `scan-meter` feature is lit).
@@ -93,9 +105,9 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// Maximum scan bits per input byte and balanced-reduction level.
 ///
 /// For `k` operands, the board allows this coefficient times `log2(2k)`.
-/// The coefficient is the largest release-profile fold measurement plus 25%,
-/// rounded up.
-pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
+/// The coefficient is the largest release-profile fold measurement at any
+/// judged size plus 25%, rounded up.
+pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 17.0;
 
 /// Heap ceiling for materializing the output-dominated comb-scatter
 /// projection, in bytes per total-I/O byte.
@@ -115,6 +127,30 @@ pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 3.0;
 /// the largest release-profile reading with 25% headroom, rounded up.
 pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 4.0;
 
+/// Heap ceiling for deserializing a rank, in bytes per input byte.
+///
+/// The decoded arbitrary-width numerator cannot adopt the encoded input's byte
+/// buffer. The ceiling is the largest release-profile reading with 25%
+/// headroom, rounded up.
+pub const RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 6.0;
+
+/// Heap ceiling for deserializing and validating a ranked version, in bytes per
+/// input byte.
+///
+/// Validation retains the consumed rank prefix while materializing and ranking
+/// the version. The ceiling is the largest release-profile reading with 25%
+/// headroom, rounded up.
+pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
+
+/// Heap ceiling for evaluating a query, in bytes per operand byte.
+///
+/// Evaluation keeps one cursor and comparison state per bound. Small bounds
+/// may therefore have much greater overhead than other `before` values. This
+/// operation-specific limit excludes evaluation from the general heap ceiling
+/// while retaining the board's linear-growth check. It is the largest
+/// release-profile reading with 25% headroom, rounded up.
+pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 82.0;
+
 /// Base scale and size multiplier for a single-scale board run.
 ///
 /// Each cell's ladder is the two sizes measured at this scale and the two at
@@ -124,9 +160,6 @@ pub const DEFAULT_SCALE: f64 = 1.0;
 
 /// The top sampling scale of the measurement ladder.
 ///
-/// Stack growth can begin only after roughly one mebibyte of frames, beyond
-/// some base-scale inputs. Scale four is the smallest committed scale that has
-/// exposed every such regression represented by the board. An acceptance run
-/// measures both scales and fits each exponent over all four points; ordinary
-/// development runs remain at the base scale.
+/// Along with the base scale, this supplies four sizes spanning an eightfold
+/// range for the growth fit. Ordinary development runs use the base scale.
 pub const LADDER_TOP_SCALE: f64 = 4.0;

@@ -64,9 +64,6 @@
 //!   including encoded output and arbitrary-width numeric values. Elsewhere
 //!   allocation is not semantically forced (and the heap meter reads the
 //!   process allocator, which no re-routing inside the crate can bypass).
-//! - **Segments** is ceiling-only by policy: the target is walks that never
-//!   grow the stack, so its honest floor is zero and a zero floor asserts
-//!   nothing.
 //!
 //! The rejection rows floor scan alone: their committed shapes place the defect
 //! at the stream's end, and a self-delimiting stream's terminal defect (or an
@@ -284,7 +281,6 @@ pub(super) const NA_TOUCH_REJECTION: &str =
 pub(super) fn rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
-        segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (fed_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
             why,
@@ -299,7 +295,6 @@ pub(super) fn rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
 pub(super) fn id_rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
-        segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (fed_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
             why,
@@ -323,7 +318,6 @@ const WHY_SCAN_OVERLAP_CLOCK: &str = "the pair's one overlapping region sits at 
 pub(super) fn clock_overlap_floors(id_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
-        segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (id_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
             why: WHY_SCAN_OVERLAP_CLOCK,
@@ -463,7 +457,6 @@ pub(super) fn sync_floors(v: &Version, w: &Version) -> Floors {
     };
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        segments: seg_ceiling_only(),
         scan,
         touch: touch_pair_fold(v, w),
     }
@@ -482,17 +475,6 @@ pub(super) fn na(reason: &'static str) -> Liveness {
     Liveness::NotApplicable { reason }
 }
 
-/// Segments NA: the policy declaration every cell carries on the segments
-/// currency.
-const NA_SEG_CEILING_ONLY: &str = "ceiling-only by policy: the target is walks that never grow \
-     the stack, so the honest floor is zero and a zero floor asserts nothing";
-
-/// The segments currency's declaration: ceiling-only by policy, on every
-/// cell.
-pub(super) fn seg_ceiling_only() -> Liveness {
-    na(NA_SEG_CEILING_ONLY)
-}
-
 /// The floors of the many rows that must walk their operands but are forced
 /// into neither allocation nor accumulator work: scan and touch are explicit.
 ///
@@ -501,7 +483,6 @@ pub(super) fn seg_ceiling_only() -> Liveness {
 pub(super) fn walk_floors(input_bytes: usize, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        segments: seg_ceiling_only(),
         scan: scan_examines(input_bytes),
         touch,
     }
@@ -526,7 +507,6 @@ pub(super) fn comparison_floors(v: &Version, w: &Version, input_bytes: usize) ->
     if v == w {
         return Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            segments: seg_ceiling_only(),
             scan: na(NA_SCAN_EQ_BYTES),
             touch: na(NA_TOUCH_EQUAL_PAIR),
         };
@@ -536,7 +516,6 @@ pub(super) fn comparison_floors(v: &Version, w: &Version, input_bytes: usize) ->
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            segments: seg_ceiling_only(),
             scan: scan_touch(),
             touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
         }
@@ -574,7 +553,6 @@ pub(super) fn membership_floors(v: &Version, w: &Version, input_bytes: usize) ->
     if v == w {
         return Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            segments: seg_ceiling_only(),
             scan: na(NA_SCAN_EQ_BYTES),
             touch: na(NA_TOUCH_EQUAL_PAIR),
         };
@@ -584,7 +562,6 @@ pub(super) fn membership_floors(v: &Version, w: &Version, input_bytes: usize) ->
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            segments: seg_ceiling_only(),
             scan: scan_touch(),
             touch: na(NA_TOUCH_ONE_WITNESS),
         }
@@ -612,7 +589,6 @@ pub(super) fn masked_cmp_floors(
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
-            segments: seg_ceiling_only(),
             scan: scan_touch(),
             touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
         }
@@ -629,7 +605,6 @@ pub(super) fn masked_cmp_floors(
 pub(super) fn tick_walk_floors(version: &Version, input_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (input_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
             why: WHY_SCAN_TICK_WALK,

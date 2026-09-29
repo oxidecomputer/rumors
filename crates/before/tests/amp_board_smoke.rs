@@ -70,6 +70,31 @@ fn in_process_spawn(
     }
 }
 
+/// Retaining an allocation-free operation's result adds no measured heap.
+/// Check both samples of every Version equality row in the existing sweep;
+/// boxing the result would make these otherwise allocation-free rows nonzero.
+#[test]
+fn retaining_results_does_not_allocate_measured_heap() {
+    let _guard = measurement_guard();
+    let captures =
+        in_process_spawn(1, &heap_meter())(SMOKE_SCALE).expect("the in-process sweep succeeds");
+    let text = std::str::from_utf8(&captures[0]).expect("the shard protocol is UTF-8");
+    let mut checked = 0;
+    for line in text.lines() {
+        let fields = line.split('\t').collect::<Vec<_>>();
+        if fields.get(1) != Some(&"version_eq") {
+            continue;
+        }
+        // Each sample carries two denominators, three models, three readings,
+        // and three floors. Heap is the first reading in the internal protocol.
+        for sample in fields[3..].chunks_exact(11) {
+            assert_eq!(sample[5], "0", "{} equality allocates no heap", fields[2]);
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "the sweep must exercise Version equality");
+}
+
 /// The board's per-family cell expectations, derived from the registry:
 /// each board family's declared bundle reach, keyed by its name of
 /// record.

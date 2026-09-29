@@ -465,6 +465,9 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
+    /// The result's stored representation is no larger than the two operands'
+    /// representations together.
+    ///
     /// # Example
     ///
     /// ```
@@ -529,6 +532,9 @@ impl Version {
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    ///
+    /// The result's stored representation is no larger than the two operands'
+    /// representations together.
     ///
     /// # Example
     ///
@@ -1090,8 +1096,8 @@ impl Version {
 
     /// Encodes this [`Version`]'s [`Rank`] to bytes.
     ///
-    /// Equivalent to `self.rank().encode()`, but more efficient. Exactly
-    /// equivalent to `self.ranked().encode_rank()`, but more succinct.
+    /// This produces the same bytes as `self.rank().encode()` and
+    /// `self.ranked().encode_rank()`.
     ///
     /// # Complexity
     ///
@@ -1114,9 +1120,10 @@ impl Version {
 
     /// Encodes this [`Version`]'s [`Rank`] to an arbitrary writer.
     ///
-    /// Equivalent to `self.rank().encode_to(writer)`, but more efficient.
-    /// Exactly equivalent to `self.ranked().encode_rank_to(writer)`, but more
-    /// succinct.
+    /// This writes the same bytes as `self.rank().encode_to(writer)` and
+    /// `self.ranked().encode_rank_to(writer)`.
+    /// The encoded output is written incrementally rather than buffered in
+    /// full.
     ///
     /// # Complexity
     ///

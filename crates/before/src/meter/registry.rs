@@ -976,23 +976,23 @@ pub enum Bands {
 }
 
 /// Optional deserialization rows reached by each available encoded value.
-const DESERIALIZATION_CELLS: usize =
+const DESERIALIZATION_FORMATS: usize =
     cfg!(feature = "serde") as usize + cfg!(feature = "borsh") as usize;
 
 /// Board rows reached by a family with version operands.
-const VERSION_BUNDLE_CELLS: usize = 73 + DESERIALIZATION_CELLS;
+const VERSION_BUNDLE_CELLS: usize = 76 + 5 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with party operands.
-const PARTY_BUNDLE_CELLS: usize = 36 + DESERIALIZATION_CELLS;
+const PARTY_BUNDLE_CELLS: usize = 37 + 2 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with version, party, and clock operands.
-const CROSS_BUNDLE_CELLS: usize = 92 + 2 * DESERIALIZATION_CELLS;
+const CROSS_BUNDLE_CELLS: usize = 95 + 6 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 108 + 2 * DESERIALIZATION_CELLS;
+const FULL_BUNDLE_CELLS: usize = 112 + 6 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a population family.
-const POPULATION_BUNDLE_CELLS: usize = 24;
+const POPULATION_BUNDLE_CELLS: usize = 25;
 
 /// Board rows reached by scatter, including correlated query witnesses.
 const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;

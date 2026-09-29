@@ -42,7 +42,7 @@ use crate::error::Decode;
 /// If you want to group by rank-*class* instead, with all rank-equal keys
 /// collapsing to one, key by [`Rank::encode`] plus a tiebreak of your own
 /// choosing; [`encode_rank`](Self::encode_rank) emits exactly the corresponding
-/// [`Rank`]'s encoded bytes without materializing the intermediate [`Rank`].
+/// [`Rank`]'s encoded bytes.
 ///
 /// # Cost shape
 ///
@@ -169,6 +169,9 @@ impl<'a> Ranked<'a> {
 
     /// Encodes the composite key to an arbitrary writer.
     ///
+    /// The rank prefix and version suffix are written incrementally rather than
+    /// buffered as one composite key.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
@@ -188,7 +191,8 @@ impl<'a> Ranked<'a> {
     /// assert_eq!(buf, Ranked::from(&v).encode());
     /// ```
     pub fn encode_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&self.encode())
+        self.encode_rank_to(writer)?;
+        self.version.encode_to(writer)
     }
 
     /// Encodes the rank's canonical order-preserving bytes alone, without the
@@ -197,7 +201,7 @@ impl<'a> Ranked<'a> {
     /// In other words, for some version `v`, these are all equivalent:
     ///
     /// - `v.ranked().encode_rank()`
-    /// - `v.rank().encode()` (this one is less efficient)
+    /// - `v.rank().encode()`
     /// - `v.encode_rank()`
     ///
     /// # Complexity
@@ -217,12 +221,13 @@ impl<'a> Ranked<'a> {
     /// assert_eq!(Ranked::from(&v).encode_rank(), v.rank().encode());
     /// ```
     pub fn encode_rank(&self) -> Vec<u8> {
-        let rank = self.version.rank();
-        let (num, exp) = rank.raw_parts();
-        Rank::encode_parts(num, exp)
+        self.version.rank().encode()
     }
 
     /// Encodes the rank's canonical bytes to an arbitrary writer.
+    ///
+    /// The encoded output is written incrementally rather than buffered in
+    /// full.
     ///
     /// # Complexity
     ///
@@ -243,7 +248,7 @@ impl<'a> Ranked<'a> {
     /// assert_eq!(buf, Ranked::from(&v).encode_rank());
     /// ```
     pub fn encode_rank_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&self.encode_rank())
+        self.version.rank().encode_to(writer)
     }
 
     /// Decodes one owned view from a reader.
@@ -296,13 +301,13 @@ impl<'a> Ranked<'a> {
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Ranked<'static>, Decode> {
         // The rank stream is self-delimiting: consume exactly its bytes.
         let mut consumed = 0usize;
-        let rank = Rank::decode_stream(|| {
+        Rank::decode_stream(|| {
             let byte = buf.get(consumed).copied().ok_or(Decode::Truncated)?;
             consumed += 1;
             Ok(byte)
         })?;
         let version = Version::decode_bytes(buf.slice(consumed..))?;
-        if version.rank() != rank {
+        if !version.rank().encoding_matches(&buf[..consumed]) {
             return Err(Decode::NotCanonical);
         }
         Ok(Ranked::from(version))

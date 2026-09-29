@@ -244,14 +244,16 @@ impl BorshSerialize for Ranked<'_> {
 /// belong to the next borsh field.
 impl BorshDeserialize for Ranked<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let rank = decode_rank_stream(|| {
+        let mut rank_bytes = Vec::new();
+        decode_rank_stream(|| {
             let mut byte = [0];
             reader.read_exact(&mut byte).map_err(Decode::Io)?;
+            rank_bytes.push(byte[0]);
             Ok(byte[0])
         })
         .map_err(decode_error)?;
         let version = Version::deserialize_reader(reader)?;
-        if version.rank() != rank {
+        if !version.rank().encoding_matches(&rank_bytes) {
             return Err(decode_error(Decode::NotCanonical));
         }
         Ok(Ranked::from(version))

@@ -217,7 +217,7 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// preserves the remainder and the exponent leg compares like against like.
 const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 
-/// Promotion re-arm blocks at scale 1.0 (encoded version ~128 KiB, the per-block
+/// Promotion re-arm blocks at scale 1.0 (stored version ~128 KiB, the per-block
 /// wide arming codes dominating).
 ///
 /// Half the promotion re-arm band's small run, so the board's default pair

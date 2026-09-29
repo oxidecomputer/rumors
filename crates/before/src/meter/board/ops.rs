@@ -21,11 +21,14 @@ use crate::causally::{self, Down, Query, Up};
 use crate::error::Decode;
 use crate::{shape, Clock, Party, Rank, Ranked, Span, Ticks, Version};
 
-#[cfg(any(feature = "serde", feature = "borsh"))]
-use super::ceilings::DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE;
 use super::ceilings::{
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
-    TICKS_BOARD_COUNT,
+    MACHINE_WORD_MAGNITUDE_BITS, QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE, TICKS_BOARD_COUNT,
+};
+#[cfg(any(feature = "serde", feature = "borsh"))]
+use super::ceilings::{
+    DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE,
+    RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE,
 };
 use super::cell::{Cell, ModelSpec};
 use super::currency::{Currency, Floors, Liveness};
@@ -36,11 +39,11 @@ use super::family::{decode_party, decode_version, FamilyData};
 use super::floors::{
     clock_overlap_floors, comparison_floors, heap_materializes, id_rejection_floors,
     masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines, scan_touch,
-    seg_ceiling_only, sync_floors, tick_walk_floors, touch_delta_fold, touch_fold_first_merges,
-    touch_pair_fold, touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE,
-    NA_HEAP_QUERY_CLONE, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM,
-    NA_SCAN_QUERY_CLONE, NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION,
-    NA_TOUCH_GROW, NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
+    sync_floors, tick_walk_floors, touch_delta_fold, touch_fold_first_merges, touch_pair_fold,
+    touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE, NA_HEAP_QUERY_CLONE,
+    NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_QUERY_CLONE,
+    NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW,
+    NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
     NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_SCAN_EXAMINES,
     WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
 };
@@ -64,6 +67,9 @@ const NA_SCAN_TICK_COUNT: &str = "tick counts have no encoded stream to walk";
 /// Why formatting a tick count has no representation-independent heap floor.
 const NA_HEAP_TICK_FORMAT: &str =
     "decimal digits may be streamed directly: heap allocation is not required";
+
+/// Why cloning a rank has no representation-independent heap floor.
+const NA_HEAP_RANK_CLONE: &str = "small numerators may remain inline: cloning need not allocate";
 
 /// Why constructing one query hole has no representation-independent heap floor.
 const NA_HEAP_QUERY_CONSTRUCTION: &str =
@@ -100,7 +106,6 @@ fn drain_shape(items: impl IntoIterator) {
 fn shape_floors(input_bytes: usize, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_SHAPE_WALK),
-        segments: seg_ceiling_only(),
         scan: scan_examines(input_bytes),
         touch,
     }
@@ -250,11 +255,18 @@ fn span_bytes(span: &Span<'_>) -> usize {
     span.lo().as_bytes().len() + span.hi().as_bytes().len()
 }
 
+/// Read the materialized span's stored bytes from a projection result.
+fn projected_span_output_bytes(result: &dyn std::any::Any) -> usize {
+    let (projected, _, _) = result
+        .downcast_ref::<(Span<'static>, Span<'static>, Party)>()
+        .expect("the span projection cell retains its output and operands");
+    span_bytes(projected)
+}
+
 /// Resource floors for span algebra, whose endpoint kernels may exit early.
 fn span_algebra_floors() -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        segments: seg_ceiling_only(),
         scan: scan_touch(),
         touch: na(NA_TOUCH_NOT_FORCED),
     }
@@ -423,7 +435,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let v = decode_version(&bytes);
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                     touch: touch_wide_stream(&v),
                 };
@@ -438,7 +449,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -462,7 +472,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_EQ_BYTES),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -529,6 +538,19 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "span_new",
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let lo = &v & &w;
+                let hi = &v | &w;
+                let n = lo.as_bytes().len() + hi.as_bytes().len();
+                let floors = comparison_floors(&lo, &hi, n);
+                Some(Cell::new(n, floors, move || {
+                    Span::new(lo, hi).expect("a meet precedes the corresponding join")
+                }))
+            },
+        },
+        Op {
             name: "span_union",
             prepare: |f| {
                 let (left, right, n) = span_pair(f)?;
@@ -576,7 +598,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = span.encode().len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -604,7 +625,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (lo, hi) = span.into_parts();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&lo, &hi),
                 };
@@ -688,11 +708,19 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || (v.rank(), v)))
+            },
+        },
+        Op {
+            name: "rank_clone",
+            prepare: |f| {
+                let (rank, _) = f.rank_pair.clone()?;
+                let n = rank_content_bytes(&rank);
+                let floors = rank_floors(na(NA_HEAP_RANK_CLONE));
+                Some(Cell::new(n, floors, move || (rank.clone(), rank)))
             },
         },
         Op {
@@ -732,7 +760,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "rank_sum",
             prepare: |f| {
                 // Sum the family-derived rank with one small integer per
-                // encoded byte of its measure operand, so both the wide value
+                // stored byte of its measure operand, so both the wide value
                 // and the list length grow with the family. The denominator
                 // is the summands' total value content.
                 let (a, _) = f.rank_pair.clone()?;
@@ -751,7 +779,6 @@ pub(super) fn ops() -> Vec<Op> {
                         .sum::<usize>();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
                     touch: Liveness::Floor {
                         min: ones.len() as u64 + 1,
@@ -791,7 +818,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
                     touch: na(NA_TOUCH_RANK_ARITHMETIC),
                 };
@@ -821,7 +847,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let numerator_bytes = rank_numerator_bytes(&a);
                 let floors = Floors {
                     heap: heap_materializes(numerator_bytes),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_RANK_BYTES),
                     touch: na(NA_TOUCH_RANK_ARITHMETIC),
                 };
@@ -883,7 +908,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = tick_count_bytes(&count);
                 Some(Cell::new(
                     n,
-                    tick_count_floors(heap_materializes(tick_count_value_bytes(&count))),
+                    tick_count_floors(tick_count_heap_floor(tick_count_value_bytes(&count))),
                     move || (count.clone(), count),
                 ))
             },
@@ -897,7 +922,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let output_bytes = tick_count_value_bytes(&a).max(tick_count_value_bytes(&b));
                 Some(Cell::new(
                     n,
-                    tick_count_floors(heap_materializes(output_bytes)),
+                    tick_count_floors(tick_count_heap_floor(output_bytes)),
                     move || (&a + &b, a, b),
                 ))
             },
@@ -910,7 +935,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let output_bytes = counts.iter().map(tick_count_value_bytes).max()?;
                 Some(Cell::new(
                     n,
-                    tick_count_floors(heap_materializes(output_bytes)),
+                    tick_count_floors(tick_count_heap_floor(output_bytes)),
                     move || {
                         let sum: Ticks = counts.iter().sum();
                         (sum, counts)
@@ -939,7 +964,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&v, &w),
                 };
@@ -952,7 +976,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&v, &w),
                 };
@@ -969,7 +992,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&v, &w),
                 };
@@ -982,7 +1004,7 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "ranked_encode",
             prepare: |f| {
-                // The composite key emission: the fused rank fold's
+                // The composite key emission: the rank fold's
                 // floors plus the mandatory output (rank stream, then
                 // one copy of the version's encoded bytes).
                 // Input-denominated: the provenance pin bounds the
@@ -1004,7 +1026,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
@@ -1014,7 +1035,7 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "ranked_encode_rank",
             prepare: |f| {
-                // The fused rank-to-bytes emission: the rank fold's
+                // The rank-to-bytes emission: the rank fold's
                 // floors plus the mandatory output. Input-denominated:
                 // the provenance pin bounds the output within the
                 // encoded input (asserted here, so the bound is
@@ -1032,7 +1053,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
@@ -1056,7 +1076,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = Ranked::from(&v).encode();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
@@ -1074,7 +1093,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
@@ -1230,6 +1248,47 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "own_span_to_span",
+            prepare: |f| {
+                let (span, party, input_bytes, output_dominated) =
+                    if let Some((version, party, n)) = f.cross() {
+                        (Span::at(version), party, n, f.output_dominated)
+                    } else if f.version.is_some() {
+                        let (v, w, n) = f.version_pair()?;
+                        let span = v.span(&w);
+                        let party = Party::seed().fork();
+                        let input_bytes = n + party.as_bytes().len();
+                        (span, party, input_bytes, false)
+                    } else {
+                        let (party, _, n) = f.party_pair()?;
+                        let mut version = Version::new();
+                        version.tick(&party);
+                        let span = Span::at(version);
+                        let input_bytes = n + span.lo().as_bytes().len();
+                        (span, party, input_bytes, false)
+                    };
+                let cell = Cell::io(
+                    input_bytes,
+                    walk_floors(input_bytes, na(NA_TOUCH_PROJECTION)),
+                    projected_span_output_bytes,
+                    move || {
+                        let projected = (&span / &party).to_span();
+                        (projected, span, party)
+                    },
+                );
+                Some(
+                    if output_dominated && matches!(f.kind, FamilyId::CombScatter) {
+                        cell.with_model(
+                            Currency::Heap,
+                            ModelSpec::ceiling(COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE),
+                        )
+                    } else {
+                        cell
+                    },
+                )
+            },
+        },
+        Op {
             name: "own_version_cmp",
             prepare: |f| {
                 // The fused three-stream comparison `(v / p) ⋚ w`: lazy at
@@ -1306,7 +1365,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -1382,7 +1440,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (version, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_QUERY_CONSTRUCTION),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_QUERY_CLONE),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -1484,17 +1541,19 @@ pub(super) fn ops() -> Vec<Op> {
                 let (lo, hi) = v.span(&w).into_parts();
                 let probe = decode_version(&v.encode());
                 let n = lo.encode().len() + hi.encode().len() + probe.encode().len();
-                Some(Cell::new(
-                    n,
-                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
-                    move || {
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         let verdict = {
                             let query = causally::after(&lo) & causally::before(&hi);
                             query.contains(&probe)
                         };
                         (verdict, lo, hi, probe)
-                    },
-                ))
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
             },
         },
         Op {
@@ -1512,17 +1571,19 @@ pub(super) fn ops() -> Vec<Op> {
                     + w.encode().len()
                     + span.lo().encode().len()
                     + span.hi().encode().len();
-                Some(Cell::new(
-                    n,
-                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
-                    move || {
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         let verdict = {
                             let query = causally::delta(&v, &w);
                             query.coverage(span.reborrow())
                         };
                         (verdict, span, v, w)
-                    },
-                ))
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
             },
         },
         Op {
@@ -1537,6 +1598,10 @@ pub(super) fn ops() -> Vec<Op> {
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.contains(&probe), query, probe)
                     })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    )
                     .with_model(Currency::Touch, ModelSpec::work(work)),
                 )
             },
@@ -1556,6 +1621,10 @@ pub(super) fn ops() -> Vec<Op> {
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.coverage(span.reborrow()), query, span)
                     })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    )
                     .with_model(Currency::Touch, ModelSpec::work(work)),
                 )
             },
@@ -1578,6 +1647,10 @@ pub(super) fn ops() -> Vec<Op> {
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.contains(&probe), query, probe)
                     })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    )
                     .with_model(Currency::Touch, ModelSpec::work(work)),
                 )
             },
@@ -1600,6 +1673,10 @@ pub(super) fn ops() -> Vec<Op> {
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.contains(&probe), query, probe)
                     })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    )
                     .with_model(Currency::Touch, ModelSpec::work(work)),
                 )
             },
@@ -1625,6 +1702,10 @@ pub(super) fn ops() -> Vec<Op> {
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.coverage(span.reborrow()), query, span)
                     })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    )
                     .with_model(Currency::Touch, ModelSpec::work(work)),
                 )
             },
@@ -1650,6 +1731,10 @@ pub(super) fn ops() -> Vec<Op> {
                     Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
                         (query.coverage(span.reborrow()), query, span)
                     })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    )
                     .with_model(Currency::Touch, ModelSpec::work(work)),
                 )
             },
@@ -1688,7 +1773,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let right = Query::<Down>::from_inclusive_holes(right_holes);
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_touch(),
                     touch: na(NA_TOUCH_PLACEMENT),
                 };
@@ -1711,7 +1795,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let query = Query::<Down>::from_inclusive_holes(holes);
                 let floors = Floors {
                     heap: na(NA_HEAP_QUERY_CLONE),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_QUERY_CLONE),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -1726,7 +1809,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = a.len() + b.len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1742,7 +1824,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1754,7 +1835,7 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
-                // Fork builds both halves, so the child's own encoded bytes
+                // Fork builds both halves, so the child's own stored bytes
                 // floor the heap (probed on a fresh decode, outside
                 // measurement); the generic in-place NA would misstate
                 // what fork does.
@@ -1772,7 +1853,6 @@ pub(super) fn ops() -> Vec<Op> {
                             why: WHY_HEAP_FORK_HALF,
                         }
                     },
-                    segments: seg_ceiling_only(),
                     scan: if a.is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -1803,7 +1883,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(child_bytes),
-                    segments: seg_ceiling_only(),
                     scan: if party.is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -1828,6 +1907,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let party_bytes = party.as_bytes().len();
                 let count_bytes = fork_count_bytes(child_count);
                 let input_bytes = party_bytes + count_bytes;
+                // The caller chooses whether to collect the iterator. Reserve
+                // the board's retained-result slots outside measurement.
+                let mut children = Vec::with_capacity(child_count);
                 // A borrowing drain may scan the stored party once per child;
                 // count bookkeeping is bounded by the count's own width. This
                 // is the public `k (D + log k)` bound expressed in byte units.
@@ -1839,7 +1921,6 @@ pub(super) fn ops() -> Vec<Op> {
                     // collapses shorten them, at least one encoded byte per
                     // share must be materialized.
                     heap: heap_materializes(arity),
-                    segments: seg_ceiling_only(),
                     scan: scan_touch(),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1858,7 +1939,7 @@ pub(super) fn ops() -> Vec<Op> {
                                     .sum::<usize>()
                         },
                         move || {
-                            let children: Vec<Party> = party.forks(child_count).collect();
+                            children.extend(party.forks(child_count));
                             (party, children)
                         },
                     )
@@ -1877,7 +1958,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(output_bytes),
-                    segments: seg_ceiling_only(),
                     scan: if party.is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -1906,7 +1986,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (mut a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1927,7 +2006,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let rest: Vec<Party> = parties.collect();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1948,7 +2026,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_touch(),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1961,7 +2038,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1975,7 +2051,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(_, b)| b.len())?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -1991,7 +2066,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -2021,7 +2095,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = clock.encode();
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                     touch: touch_wide_stream(clock.version()),
                 };
@@ -2036,7 +2109,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -2077,7 +2149,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (mut clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_FORK_SHARES),
-                    segments: seg_ceiling_only(),
                     scan: if clock.party().is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -2108,7 +2179,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(child_bytes),
-                    segments: seg_ceiling_only(),
                     scan: if clock.party().is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -2133,6 +2203,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let party_bytes = party.as_bytes().len();
                 let count_bytes = fork_count_bytes(child_count);
                 let input_bytes = party_bytes + 1 + count_bytes;
+                // The collection is instrument storage, not an allocation
+                // made by Clock::forks. Retain the yielded clocks in slots
+                // reserved before the heap baseline.
+                let mut children = Vec::with_capacity(child_count);
                 // Clock delegates partitioning to Party. Its shared empty
                 // Version is neither scanned nor copied, so the scan model is
                 // the same `k (D + log k)` bound over party and count bytes.
@@ -2142,7 +2216,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let mut clock = Clock::from_parts(party, Version::new());
                 let floors = Floors {
                     heap: heap_materializes(arity),
-                    segments: seg_ceiling_only(),
                     scan: scan_touch(),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -2161,7 +2234,7 @@ pub(super) fn ops() -> Vec<Op> {
                                     .sum::<usize>()
                         },
                         move || {
-                            let children: Vec<Clock> = clock.forks(child_count).collect();
+                            children.extend(clock.forks(child_count));
                             (clock, children)
                         },
                     )
@@ -2183,7 +2256,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(output_party_bytes),
-                    segments: seg_ceiling_only(),
                     scan: if clock.party().is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -2262,7 +2334,6 @@ pub(super) fn ops() -> Vec<Op> {
                     // reducing them, so the heap meter must observe arity even
                     // when the canonical result becomes small.
                     heap: heap_materializes(arity),
-                    segments: seg_ceiling_only(),
                     // Every input version participates in the version fold;
                     // party joins may splice exclusive subtrees without
                     // reading their interiors.
@@ -2321,6 +2392,36 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "clock_recv_all",
+            prepare: |f| {
+                let (version_bytes, party_bytes) = f.population.as_ref()?;
+                let versions: Vec<Version> = version_bytes
+                    .iter()
+                    .map(|bytes| decode_version(bytes))
+                    .collect();
+                let arity = versions.len() as u64;
+                let touch = touch_fold_first_merges(&versions);
+                let mut versions = versions.into_iter();
+                let receiver_version = versions.next()?;
+                let messages: Vec<Version> = versions.collect();
+                let party = decode_party(party_bytes.first()?);
+                let input_bytes = receiver_version.as_bytes().len()
+                    + messages
+                        .iter()
+                        .map(|version| version.as_bytes().len())
+                        .sum::<usize>()
+                    + party.as_bytes().len();
+                let mut clock = Clock::from_parts(party, receiver_version);
+                Some(fold_model(
+                    Cell::new(input_bytes, walk_floors(input_bytes, touch), move || {
+                        clock.recv_all(&messages);
+                        (clock, messages)
+                    }),
+                    arity,
+                ))
+            },
+        },
+        Op {
             name: "clock_own_version_to_version",
             prepare: |f| {
                 // The clock spelling of the explicit materialization:
@@ -2369,7 +2470,6 @@ pub(super) fn ops() -> Vec<Op> {
                     n,
                     Floors {
                         heap: na(NA_HEAP_IN_PLACE),
-                        segments: seg_ceiling_only(),
                         scan,
                         touch: na(NA_TOUCH_PROJECTION),
                     },
@@ -2383,7 +2483,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
@@ -2714,7 +2813,6 @@ fn rank_pair_bytes(a: &Rank, b: &Rank) -> usize {
 fn rank_floors(heap: Liveness) -> Floors {
     Floors {
         heap,
-        segments: seg_ceiling_only(),
         scan: na(NA_SCAN_NO_STREAM),
         touch: na(NA_TOUCH_RANK_ARITHMETIC),
     }
@@ -2762,9 +2860,17 @@ fn tick_count_value_bytes(count: &Ticks) -> usize {
 fn tick_count_floors(heap: Liveness) -> Floors {
     Floors {
         heap,
-        segments: seg_ceiling_only(),
         scan: na(NA_SCAN_TICK_COUNT),
         touch: na(NA_TOUCH_TICK_COUNT),
+    }
+}
+
+/// Heap floor for a tick-count result of `output_bytes` significant bytes.
+fn tick_count_heap_floor(output_bytes: usize) -> Liveness {
+    if output_bytes <= (MACHINE_WORD_MAGNITUDE_BITS / 8) as usize {
+        na("word-sized tick counts may use inline storage")
+    } else {
+        heap_materializes(output_bytes)
     }
 }
 
@@ -2828,9 +2934,9 @@ fn serde_from_owned_bytes<T: DeserializeOwned>(bytes: Vec<u8>) -> T {
         .unwrap_or_else(|error| panic!("board-generated serde bytes must decode: {error}"))
 }
 
-/// Direct serde deserialization rows for the two encoded tree grammars.
+/// Direct serde deserialization rows for each distinct allocation lifetime.
 #[cfg(feature = "serde")]
-fn serde_decode_ops() -> [Op; 2] {
+fn serde_decode_ops() -> [Op; 6] {
     const OWNED_INPUT: &str = "serde transfers the caller's byte allocation into the decoded \
         value; only validation state may allocate";
     [
@@ -2841,7 +2947,6 @@ fn serde_decode_ops() -> [Op; 2] {
                 let n = bytes.len();
                 let floors = Floors {
                     heap: na(OWNED_INPUT),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -2862,7 +2967,6 @@ fn serde_decode_ops() -> [Op; 2] {
                 let version = decode_version(&bytes);
                 let floors = Floors {
                     heap: na(OWNED_INPUT),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_wide_stream(&version),
                 };
@@ -2875,12 +2979,92 @@ fn serde_decode_ops() -> [Op; 2] {
                 )
             },
         },
+        Op {
+            name: "clock_serde_deserialize",
+            prepare: |f| {
+                let (clock, _) = f.clock()?;
+                let bytes = clock.encode();
+                let n = bytes.len();
+                let floors = Floors {
+                    heap: na(OWNED_INPUT),
+                    scan: scan_examines(n),
+                    touch: touch_wide_stream(clock.version()),
+                };
+                Some(
+                    Cell::new(n, floors, move || serde_from_owned_bytes::<Clock>(bytes))
+                        .with_model(
+                            Currency::Heap,
+                            ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                        ),
+                )
+            },
+        },
+        Op {
+            name: "rank_serde_deserialize",
+            prepare: |f| {
+                let (rank, _) = f.rank_pair.clone()?;
+                let bytes = rank.encode();
+                let n = bytes.len();
+                let floors = rank_floors(heap_materializes(rank_numerator_bytes(&rank)));
+                Some(
+                    Cell::new(n, floors, move || serde_from_owned_bytes::<Rank>(bytes)).with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
+            name: "ranked_serde_deserialize",
+            prepare: |f| {
+                let (version, _) = f.version()?;
+                let bytes = Ranked::from(&version).encode();
+                let floors = Floors {
+                    heap: na(OWNED_INPUT),
+                    scan: scan_examines(bytes.len()),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&version)),
+                };
+                Some(
+                    Cell::new(bytes.len(), floors, move || {
+                        serde_from_owned_bytes::<Ranked<'static>>(bytes)
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
+            name: "span_serde_deserialize",
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let bytes = span.encode();
+                let n = bytes.len();
+                let (lo, hi) = span.into_parts();
+                let floors = Floors {
+                    heap: na(OWNED_INPUT),
+                    scan: scan_examines(n),
+                    touch: touch_pair_fold(&lo, &hi),
+                };
+                Some(
+                    Cell::new(n, floors, move || {
+                        serde_from_owned_bytes::<Span<'static>>(bytes)
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
     ]
 }
 
-/// Direct borsh deserialization rows for the two encoded tree grammars.
+/// Direct borsh deserialization rows for each distinct allocation lifetime.
 #[cfg(feature = "borsh")]
-fn borsh_decode_ops() -> [Op; 2] {
+fn borsh_decode_ops() -> [Op; 6] {
     [
         Op {
             name: "party_borsh_deserialize",
@@ -2889,7 +3073,6 @@ fn borsh_decode_ops() -> [Op; 2] {
                 let n = bytes.len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
@@ -2913,7 +3096,6 @@ fn borsh_decode_ops() -> [Op; 2] {
                 let version = decode_version(&bytes);
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_wide_stream(&version),
                 };
@@ -2921,6 +3103,95 @@ fn borsh_decode_ops() -> [Op; 2] {
                     Cell::new(n, floors, move || {
                         Version::try_from_slice(&bytes)
                             .expect("board-generated borsh version bytes are canonical")
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
+            name: "clock_borsh_deserialize",
+            prepare: |f| {
+                let (clock, _) = f.clock()?;
+                let bytes = clock.encode();
+                let n = bytes.len();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    scan: scan_examines(n),
+                    touch: touch_wide_stream(clock.version()),
+                };
+                Some(
+                    Cell::new(n, floors, move || {
+                        Clock::try_from_slice(&bytes)
+                            .expect("board-generated borsh clock bytes are canonical")
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
+            name: "rank_borsh_deserialize",
+            prepare: |f| {
+                let (rank, _) = f.rank_pair.clone()?;
+                let bytes = rank.encode();
+                let n = bytes.len();
+                let floors = rank_floors(heap_materializes(rank_numerator_bytes(&rank)));
+                Some(
+                    Cell::new(n, floors, move || {
+                        Rank::try_from_slice(&bytes)
+                            .expect("board-generated borsh rank bytes are canonical")
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
+            name: "ranked_borsh_deserialize",
+            prepare: |f| {
+                let (version, n) = f.version()?;
+                let bytes = Ranked::from(&version).encode();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    scan: scan_examines(bytes.len()),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&version)),
+                };
+                Some(
+                    Cell::new(bytes.len(), floors, move || {
+                        Ranked::try_from_slice(&bytes)
+                            .expect("board-generated borsh ranked bytes are canonical")
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
+            name: "span_borsh_deserialize",
+            prepare: |f| {
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let bytes = span.encode();
+                let n = bytes.len();
+                let (lo, hi) = span.into_parts();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    scan: scan_examines(n),
+                    touch: touch_pair_fold(&lo, &hi),
+                };
+                Some(
+                    Cell::new(n, floors, move || {
+                        Span::try_from_slice(&bytes)
+                            .expect("board-generated borsh span bytes are canonical")
                     })
                     .with_model(
                         Currency::Heap,

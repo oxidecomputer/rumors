@@ -110,9 +110,9 @@ impl ModelSpec {
 /// One prepared cell run: the operand bytes it charges against, the
 /// denomination rule, and the body to measure.
 ///
-/// `prepare` builds (and decodes) operands outside measurement; the body's
-/// result is boxed and kept alive until the meters are read, so peak heap
-/// includes the fully materialized output.
+/// `prepare` builds operands outside measurement. The body lends its result to
+/// the observer before dropping it, so peak heap includes the materialized
+/// output without allocating a result container for the instrument itself.
 pub(super) struct Cell {
     /// The operand bytes.
     pub(super) input_bytes: usize,
@@ -122,9 +122,10 @@ pub(super) struct Cell {
     pub(super) floors: Floors,
     /// Resource models that differ from the board's global linear defaults.
     pub(super) models: ByCurrency<Option<ModelSpec>>,
-    /// The measured body; its result stays alive until the meters are read.
+    /// Run once, then observe the live result. Borrowing the closure keeps its
+    /// allocation alive throughout the measurement baseline and peak.
     #[allow(clippy::type_complexity)]
-    pub(super) body: Box<dyn FnOnce() -> Box<dyn Any>>,
+    pub(super) body: Box<dyn FnMut(&mut dyn FnMut(&dyn Any))>,
 }
 
 /// A cell's denomination rule (the module doc above lists which rows get
@@ -139,7 +140,7 @@ pub(super) enum Denom {
 
 /// The I/O-denomination data for a mandatory-output cell.
 pub(super) struct IoSpec {
-    /// Read the actual output's byte size from the boxed result.
+    /// Read the actual output's byte size while its result remains alive.
     pub(super) output_bytes: fn(&dyn Any) -> usize,
 }
 
@@ -151,17 +152,21 @@ impl Cell {
         floors: Floors,
         body: impl FnOnce() -> R + 'static,
     ) -> Cell {
+        let mut body = Some(body);
         Cell {
             input_bytes,
             denom: Denom::Input,
             floors,
             models: ByCurrency {
                 heap: None,
-                segments: None,
                 scan: None,
                 touch: None,
             },
-            body: Box::new(move || Box::new(body())),
+            body: Box::new(move |observe| {
+                let run = body.take().expect("a prepared cell runs once");
+                let result = run();
+                observe(std::hint::black_box(&result));
+            }),
         }
     }
 
@@ -171,7 +176,7 @@ impl Cell {
         self
     }
 
-    /// Package an I/O-denominated encoded-output body: the output side of `n_io`
+    /// Package an I/O-denominated body: the output side of `n_io`
     /// is read back from the actual result.
     pub(super) fn io<R: Any>(
         input_bytes: usize,
@@ -179,17 +184,8 @@ impl Cell {
         output_bytes: fn(&dyn Any) -> usize,
         body: impl FnOnce() -> R + 'static,
     ) -> Cell {
-        Cell {
-            input_bytes,
-            denom: Denom::Io(IoSpec { output_bytes }),
-            floors,
-            models: ByCurrency {
-                heap: None,
-                segments: None,
-                scan: None,
-                touch: None,
-            },
-            body: Box::new(move || Box::new(body())),
-        }
+        let mut cell = Self::new(input_bytes, floors, body);
+        cell.denom = Denom::Io(IoSpec { output_bytes });
+        cell
     }
 }

@@ -397,12 +397,15 @@ impl Rank {
     /// [`Ranked`]: crate::Ranked
     /// [`Version`]: crate::Version
     pub fn encode(&self) -> Vec<u8> {
-        Self::encode_parts(&self.num, self.exp)
+        let mut bytes = Vec::new();
+        Self::encode_parts_to(&self.num, self.exp, &mut bytes)
+            .expect("writing to a Vec cannot fail");
+        bytes
     }
 
     /// Encodes this rank to an arbitrary writer: exactly
-    /// [`encode`](Rank::encode)'s canonical bytes, without handing the caller
-    /// the intermediate `Vec`.
+    /// [`encode`](Rank::encode)'s canonical bytes, without an up-front
+    /// whole allocation.
     ///
     /// # Errors
     ///
@@ -429,7 +432,7 @@ impl Rank {
     /// assert_eq!(buf, rank.encode());
     /// ```
     pub fn encode_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(&Self::encode_parts(&self.num, self.exp))
+        Self::encode_parts_to(&self.num, self.exp, writer)
     }
 
     /// Decodes one rank from a reader.
@@ -563,14 +566,13 @@ impl Rank {
 
     /// The stored parts `(numerator, exponent)`.
     ///
-    /// The fused encode's hand-off from a rank fold's output to the canonical
-    /// emission ([`Self::encode_parts`]), and the raw normalized form the reference
-    /// computations and differential oracles re-derive order and arithmetic
-    /// from.
+    /// The raw normalized form that reference computations and differential
+    /// oracles use to re-derive order and arithmetic.
     ///
     /// It is **VERY IMPORTANT** that these not be exposed together, with the
     /// `from_raw` constructor, as this creates an affordance for constructing
     /// exponential serialization-size bombs.
+    #[cfg(any(test, feature = "meter"))]
     pub(crate) fn raw_parts(&self) -> (&BigUint, u64) {
         (&self.num, self.exp)
     }
@@ -635,37 +637,31 @@ impl Rank {
         Rank::from_raw(num, exp)
     }
 
-    /// Emit the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ`.
-    ///
-    /// The ranked view calls this after its fused rank fold, avoiding another
-    /// walk merely to construct a `Rank`.
-    pub(crate) fn encode_parts(num: &BigUint, exp: u64) -> Vec<u8> {
-        // The integral part, biased so zero has a (smallest) codeword:
-        // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1. The shift is total at any
-        // exponent — right shift clamps past the value's width — so
-        // a fraction-heavy rank whose `exp` outruns a 32-bit `usize` (from
-        // ~604 MB of decoded input) floors to zero here exactly as any other
-        // sub-unit value does.
-        let biased = (num.clone() >> exp) + 1u32;
+    /// Write the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ`.
+    fn encode_parts_to<W: Write>(num: &BigUint, exp: u64, writer: &mut W) -> io::Result<()> {
+        // The header encodes the integer part: m = ⌊r⌋ + 1,
+        // w = bits(m), ρ = bits(w) − 1. A shift past the numerator's width
+        // yields zero, meaning only that r < 1; the fraction loop below still
+        // writes the remaining value exactly.
+        let biased = (num >> exp) + 1u32;
         let w = biased.bits();
         let rho = u64::from(63 - w.leading_zeros());
         let groups = exp.div_ceil(FRACTION_GROUP_BITS);
-        let mut sink =
-            BitSink::with_capacity_bits(2 * rho + w + groups * (FRACTION_GROUP_BITS + 1) + 1);
+        let mut sink = BitWriter::new(writer);
         // The header: ρ ones, the terminating zero, then w's bits below its
         // leading bit — the Elias delta length header with the run's bit
         // sense inverted, so longer (larger) integral parts sort after
         // shorter ones instead of before.
         for _ in 0..rho {
-            sink.push(true);
+            sink.push(true)?;
         }
-        sink.push(false);
+        sink.push(false)?;
         for i in (0..rho).rev() {
-            sink.push(w >> i & 1 == 1);
+            sink.push(w >> i & 1 == 1)?;
         }
         // The integral mantissa: m's bits below its leading bit.
         for i in (0..w - 1).rev() {
-            sink.push(biased.bit(i));
+            sink.push(biased.bit(i))?;
         }
         // The fraction: the binary expansion (expansion bit `j`, counting
         // from the binary point, is the numerator's bit `exp − j`) in
@@ -675,13 +671,24 @@ impl Rank {
         // bit inside the last group, which keeps the padding recoverable
         // and the group order numeric (the module doc's argument).
         for g in 0..groups {
-            sink.push(true);
+            sink.push(true)?;
             for j in g * FRACTION_GROUP_BITS + 1..=(g + 1) * FRACTION_GROUP_BITS {
-                sink.push(j <= exp && num.bit(exp - j));
+                sink.push(j <= exp && num.bit(exp - j))?;
             }
         }
-        sink.push(false);
-        sink.into_bytes()
+        sink.push(false)?;
+        sink.finish()
+    }
+
+    /// Whether `expected` is this rank's canonical encoding.
+    ///
+    /// Comparison streams the encoding into a constant-space sink rather than
+    /// materializing another copy.
+    pub(crate) fn encoding_matches(&self, expected: &[u8]) -> bool {
+        let mut writer = MatchingWriter::new(expected);
+        self.encode_to(&mut writer)
+            .expect("the in-memory comparison writer cannot fail");
+        writer.matches()
     }
 }
 
@@ -838,13 +845,6 @@ impl BitSink {
         }
     }
 
-    fn with_capacity_bits(bits: u64) -> BitSink {
-        BitSink {
-            bytes: Vec::with_capacity(usize::try_from(bits.div_ceil(8)).expect("output fits")),
-            used: 0,
-        }
-    }
-
     fn push(&mut self, bit: bool) {
         if self.used == 0 {
             self.bytes.push(0);
@@ -853,10 +853,6 @@ impl BitSink {
             *self.bytes.last_mut().expect("just ensured nonempty") |= 1 << (7 - self.used);
         }
         self.used = (self.used + 1) % 8;
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.bytes
     }
 
     /// The pushed bits as a magnitude, MSB-first.
@@ -870,6 +866,114 @@ impl BitSink {
     fn into_num(self) -> BigUint {
         let pad = if self.used == 0 { 0 } else { 8 - self.used };
         BigUint::from_bytes_be(&self.bytes) >> u32::from(pad)
+    }
+}
+
+/// Bytes staged before rank encoding writes to its destination.
+const ENCODE_BUFFER_BYTES: usize = 256;
+
+/// An MSB-first bit writer with fixed-size staging storage.
+///
+/// Staging bounds auxiliary space independently of the encoded rank while
+/// avoiding one write call per output byte.
+struct BitWriter<'a, W> {
+    writer: &'a mut W,
+    bytes: [u8; ENCODE_BUFFER_BYTES],
+    len: usize,
+    current: u8,
+    used: u8,
+}
+
+impl<'a, W: Write> BitWriter<'a, W> {
+    /// Construct an empty writer.
+    fn new(writer: &'a mut W) -> Self {
+        BitWriter {
+            writer,
+            bytes: [0; ENCODE_BUFFER_BYTES],
+            len: 0,
+            current: 0,
+            used: 0,
+        }
+    }
+
+    /// Append one bit, flushing full staging buffers as needed.
+    fn push(&mut self, bit: bool) -> io::Result<()> {
+        if bit {
+            self.current |= 1 << (7 - self.used);
+        }
+        self.used += 1;
+        if self.used == 8 {
+            self.push_byte()?;
+        }
+        Ok(())
+    }
+
+    /// Stage the completed current byte.
+    fn push_byte(&mut self) -> io::Result<()> {
+        if self.len == self.bytes.len() {
+            self.flush()?;
+        }
+        self.bytes[self.len] = self.current;
+        self.len += 1;
+        self.current = 0;
+        self.used = 0;
+        Ok(())
+    }
+
+    /// Write staged bytes without flushing the caller's writer.
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.write_all(&self.bytes[..self.len])?;
+        self.len = 0;
+        Ok(())
+    }
+
+    /// Pad the final byte with zeros and write all remaining bytes.
+    fn finish(mut self) -> io::Result<()> {
+        if self.used != 0 {
+            self.push_byte()?;
+        }
+        self.flush()
+    }
+}
+
+/// A writer that compares bytes with one expected slice.
+struct MatchingWriter<'a> {
+    expected: &'a [u8],
+    written: usize,
+    equal: bool,
+}
+
+impl<'a> MatchingWriter<'a> {
+    /// Begin comparison at the start of `expected`.
+    fn new(expected: &'a [u8]) -> Self {
+        MatchingWriter {
+            expected,
+            written: 0,
+            equal: true,
+        }
+    }
+
+    /// Whether every written byte matched and the lengths are equal.
+    fn matches(&self) -> bool {
+        self.equal && self.written == self.expected.len()
+    }
+}
+
+impl Write for MatchingWriter<'_> {
+    /// Compare one emitted chunk and accept it in full.
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let end = self.written.saturating_add(bytes.len());
+        self.equal &= self
+            .expected
+            .get(self.written..end)
+            .is_some_and(|expected| expected == bytes);
+        self.written = end;
+        Ok(bytes.len())
+    }
+
+    /// No buffering is owned at this layer.
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

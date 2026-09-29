@@ -3,35 +3,19 @@
 //! floors, per currency.
 
 use super::ceilings::{
-    HEAP_FLAT_ALLOWANCE_BYTES, MAX_GROWN_STACK_SEGMENTS, MAX_HEAP_BYTES_PER_INPUT_BYTE,
+    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE,
     MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE,
     MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::currency::{ByCurrency, Currency, Liveness};
 use super::measure::Sample;
 
-/// The fitted scaling exponent over every point a run measured for a cell:
-/// the log-log least-squares slope of counter reading against denominator
-/// bytes.
+/// Log-log least-squares slope of readings against model units.
 ///
-/// This is the board's one exponent estimator — **an exponent is a trend
-/// over all measured points, never a per-window ratio** (owner-ratified
-/// measurement policy). Through two points the slope is exactly their log
-/// ratio; the acceptance judgment fits one trend across the cell's whole
-/// measurement ladder — two *sampling scales* × two *sizes* per scale, four
-/// points (the ladder's two axes, named so throughout this module) — so a
-/// single generator lump at one point cannot define the estimate, while a
-/// genuine super-linearity bends every point and still reads red. Densifying
-/// the ladder (measuring more points) is not part of this policy: it remains
-/// a case-by-case adjudication tool for a future disputed cell,
-/// owner-invoked.
-///
-/// Readings are clamped through `max(m, 1)` so a zero at some points keeps
-/// the fit defined; all-zero readings and degenerate spans (no denominator
-/// variance) score 0. A sparse, lumpy counter therefore errs red, never
-/// green: its clamped zeros steepen the fit toward the exponent ceiling (a
-/// conservative false red to triage), and a vacuously quiet counter is the
-/// liveness floors' business, not the trend's.
+/// Acceptance uses all four ladder points in one fit. Zero readings become one
+/// to keep logarithms defined; all-zero readings and constant denominators
+/// yield zero. A finite fit can reveal scaling regressions but cannot establish
+/// an asymptotic bound or the liveness of a quiet counter.
 pub(super) fn trend(points: &[(usize, u64)]) -> f64 {
     if points.iter().all(|&(_, m)| m == 0) {
         return 0.0;
@@ -55,11 +39,6 @@ pub(super) fn trend(points: &[(usize, u64)]) -> f64 {
 /// mechanism.
 pub(super) const HEAP_FLOOR_TRIP: &str =
     "heap floor: counter reads below floor: the meter is not watching this work";
-/// The segments column's floor-trip message (unreachable while segments is
-/// ceiling-only by policy; the judgment loop still carries it so a future
-/// segments floor binds without a code change).
-pub(super) const SEG_FLOOR_TRIP: &str =
-    "segments floor: counter reads below floor: the meter is not watching this work";
 /// The scan column's floor-trip message.
 pub(super) const SCAN_FLOOR_TRIP: &str =
     "scan floor: counter reads below floor: the meter is not watching this work";
@@ -87,15 +66,8 @@ struct Fit {
     judged: bool,
 }
 
-/// Fit one currency's exponent trend over a run's measured samples, in
-/// measurement order, applying the judgment guards:
-///
-/// - the denominator span must scale ([`MIN_EXPONENT_DENOM_GROWTH`] from the
-///   first used point to the last), or the fit divides by a vanishing log;
-/// - a two-point heap trend uses only points above the flat allowance, because
-///   crossing that boundary can manufacture a slope; the four-point acceptance
-///   trend instead clamps smaller readings to the allowance and keeps the whole
-///   ladder, so one allocation tier cannot define the fit.
+/// Fit a scaling trend where the denominator spans enough sizes to distinguish
+/// growth. Heap uses its declared resolution; other readings are unchanged.
 fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
     let points: Option<Vec<(usize, u64)>> = samples
         .iter()
@@ -105,7 +77,12 @@ fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
                     .models
                     .get(c)
                     .map_or(s.exp_denom_bytes, |model| model.trend_units);
-                (units, m)
+                let reading = if c == Currency::Heap {
+                    m.max(HEAP_TREND_RESOLUTION_BYTES as u64)
+                } else {
+                    m
+                };
+                (units, reading)
             })
         })
         .collect();
@@ -120,34 +97,6 @@ fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
         let last = points.last().map_or(0, |&(n, _)| n);
         last as f64 >= first as f64 * MIN_EXPONENT_DENOM_GROWTH
     };
-    if c == Currency::Heap {
-        if points.len() > 2 {
-            let clamped: Vec<(usize, u64)> = points
-                .iter()
-                .map(|&(n, m)| (n, m.max(HEAP_FLAT_ALLOWANCE_BYTES as u64)))
-                .collect();
-            return Fit {
-                exp: Some(trend(&clamped)),
-                judged: spans(&clamped),
-            };
-        }
-        let cleared: Vec<(usize, u64)> = points
-            .iter()
-            .copied()
-            .filter(|&(_, m)| m > HEAP_FLAT_ALLOWANCE_BYTES as u64)
-            .collect();
-        return if cleared.len() >= 2 && spans(&cleared) {
-            Fit {
-                exp: Some(trend(&cleared)),
-                judged: true,
-            }
-        } else {
-            Fit {
-                exp: Some(trend(&points)),
-                judged: false,
-            }
-        };
-    }
     Fit {
         exp: Some(trend(&points)),
         judged: spans(&points),
@@ -205,22 +154,19 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
     validate_models(samples);
     ByCurrency {
         heap: fit_currency(Currency::Heap, samples),
-        segments: fit_currency(Currency::Segments, samples),
         scan: fit_currency(Currency::Scan, samples),
         touch: fit_currency(Currency::Touch, samples),
     }
 }
 
-/// One judged column's derived scores: the fitted exponent trend and the
-/// window's larger size's per-unit constant (`None` where the counter is
-/// off).
+/// A column's growth fit and largest raw per-unit cost across its two samples.
 #[derive(Clone, Copy)]
 pub(super) struct Score {
     /// The fitted growth exponent, or `None` when the meter is absent.
     pub(super) exp: Option<f64>,
     /// Whether the exponent leg is judged ([`fit_currency`]'s guards).
     pub(super) exp_judged: bool,
-    /// The larger sample's reading per constant unit.
+    /// The larger raw cost per constant unit across the two samples.
     pub(super) per_unit: Option<f64>,
 }
 
@@ -249,8 +195,8 @@ pub(super) struct CellResult {
 /// point the run measured, which for a single-scale run is exactly this
 /// window and for the acceptance judgment spans the whole ladder.
 ///
-/// By default, exponents and constants use the cell's byte denominators;
-/// segments use an absolute count. A resource model replaces either unit axis
+/// By default, exponents and constants use the cell's byte denominators.
+/// A resource model replaces either unit axis
 /// for one currency. The loops run over the currency axis itself
 /// ([`ByCurrency::each`]), so adding a currency fails to compile until every
 /// cell judges it.
@@ -263,28 +209,17 @@ fn judge_window(
 ) -> CellResult {
     let score = |c: Currency| -> Score {
         let fit = *fits.get(c);
-        let (Some(_), Some(m2)) = (*s1.readings.get(c), *s2.readings.get(c)) else {
+        let (Some(m1), Some(m2)) = (*s1.readings.get(c), *s2.readings.get(c)) else {
             return Score {
                 exp: None,
                 exp_judged: false,
                 per_unit: None,
             };
         };
-        let ordinary_units = if c == Currency::Segments {
-            1
-        } else {
-            s2.denom_bytes
-        };
-        let units = s2
-            .models
-            .get(c)
-            .map_or(ordinary_units, |model| model.constant_units);
-        let numerator = if c == Currency::Heap {
-            m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64)
-        } else {
-            m2
-        };
-        let per_unit = numerator as f64 / units as f64;
+        let per_unit = [(m1, &s1), (m2, &s2)]
+            .map(|(reading, sample)| reading as f64 / constant_units(sample, c) as f64)
+            .into_iter()
+            .fold(0.0, f64::max);
         Score {
             exp: fit.exp,
             exp_judged: fit.judged,
@@ -293,7 +228,6 @@ fn judge_window(
     };
     let scores = ByCurrency {
         heap: score(Currency::Heap),
-        segments: score(Currency::Segments),
         scan: score(Currency::Scan),
         touch: score(Currency::Touch),
     };
@@ -305,11 +239,6 @@ fn judge_window(
                 MAX_HEAP_BYTES_PER_INPUT_BYTE,
                 "heap exponent",
                 "heap constant",
-            ),
-            Currency::Segments => (
-                MAX_GROWN_STACK_SEGMENTS as f64,
-                "segments exponent",
-                "segments count",
             ),
             Currency::Scan => (
                 MAX_SCAN_BITS_PER_INPUT_BYTE,
@@ -330,7 +259,16 @@ fn judge_window(
         if s.exp_judged && s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
             red.push(exp_label);
         }
-        if s.per_unit.is_some_and(|v| v > ceiling) {
+        let intercept = if c == Currency::Heap {
+            HEAP_INTERCEPT_BYTES as f64
+        } else {
+            0.0
+        };
+        if [&s1, &s2].iter().any(|sample| {
+            sample.readings.get(c).is_some_and(|reading| {
+                reading as f64 > intercept + ceiling * constant_units(sample, c) as f64
+            })
+        }) {
             red.push(const_label);
         }
     }
@@ -340,7 +278,6 @@ fn judge_window(
     for (c, _) in scores.each() {
         let trip = match c {
             Currency::Heap => HEAP_FLOOR_TRIP,
-            Currency::Segments => SEG_FLOOR_TRIP,
             Currency::Scan => SCAN_FLOOR_TRIP,
             Currency::Touch => TOUCH_FLOOR_TRIP,
         };
@@ -361,6 +298,29 @@ fn judge_window(
         scores,
         red,
     }
+}
+
+/// Resolve one sample's units for its proportional ceiling and displayed cost.
+fn constant_units(sample: &Sample, currency: Currency) -> usize {
+    sample
+        .models
+        .get(currency)
+        .map_or(sample.denom_bytes, |model| model.constant_units)
+}
+
+/// Check small inputs against ceilings and liveness without fitting growth
+/// across allocation minima and inline-storage thresholds.
+pub(super) fn evaluate_small(
+    op: &'static str,
+    family: &'static str,
+    s1: Sample,
+    s2: Sample,
+) -> CellResult {
+    let mut fits = fit_exponents(&[&s1, &s2]);
+    fits.heap.judged = false;
+    fits.scan.judged = false;
+    fits.touch.judged = false;
+    judge_window(op, family, s1, s2, fits)
 }
 
 /// Score one window at a single sampling scale: the exponent legs are the

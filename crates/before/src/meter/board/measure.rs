@@ -1,10 +1,11 @@
 //! The measurement engine: run one prepared cell under every meter and capture
 //! its counter readings and settled denominators as a [`Sample`].
 
+#[cfg(feature = "scan-meter")]
 use crate::meter;
 
 use super::cell::{Cell, Denom, ModelSpec, Units};
-use super::currency::{ByCurrency, Currency, Floors};
+use super::currency::{ByCurrency, Floors};
 
 /// The peak-heap meter the board reads, supplied by the binary that runs it.
 ///
@@ -36,7 +37,7 @@ pub(super) struct Model {
 /// One measured run of a cell body: every meter and its denominators.
 pub(super) struct Sample {
     /// The default proportional units: input bytes, or `n_io` for an
-    /// I/O-denominated cell. Segments use one absolute unit instead.
+    /// I/O-denominated cell.
     pub(super) denom_bytes: usize,
     /// The default growth units.
     ///
@@ -62,45 +63,42 @@ pub(super) struct Sample {
 ///
 /// The denominators are settled after the meters are read and before the result
 /// is dropped: an I/O-denominated cell's output side comes from the actual
-/// result rather than a prediction.
-pub(super) fn measure(
-    heap: &HeapMeter,
-    _op: &'static str,
-    cell: Cell,
-    content: Option<usize>,
-) -> Sample {
-    meter::reset_stack_segments();
+/// result rather than a prediction. The peak includes result allocations as
+/// well as scratch; releasing an input during the operation can reduce the
+/// extra live heap relative to its starting baseline.
+pub(super) fn measure(heap: &HeapMeter, mut cell: Cell, content: Option<usize>) -> Sample {
     reset_scan();
     reset_touch();
     (heap.reset_peak)();
     let baseline = (heap.current)();
-    let result = (cell.body)();
-    let peak_heap = (heap.peak)().saturating_sub(baseline);
-    let segments = meter::stack_segments();
-    let scan = read_scan();
-    let touch = read_touch();
-    let (denom_bytes, exp_denom_bytes) = match cell.denom {
-        // The flat-denominator shape's content denominator carries the exponent
-        // legs of its input-denominated cells alone: an I/O-denominated cell's
-        // output side already scales.
-        Denom::Input => {
-            let exp = content.unwrap_or(cell.input_bytes);
-            (cell.input_bytes, exp)
-        }
-        Denom::Io(spec) => {
-            let output_bytes = (spec.output_bytes)(result.as_ref());
-            let n_io = cell.input_bytes + output_bytes;
-            (n_io, n_io)
-        }
-    };
-    drop(result);
-    let resolve = |currency: Currency, spec: Option<ModelSpec>| -> Option<Model> {
-        let spec = spec?;
-        let ordinary_constant = if currency == Currency::Segments {
-            1
-        } else {
-            denom_bytes
+    let mut observation = None;
+    (cell.body)(&mut |result| {
+        let readings = ByCurrency {
+            heap: Some((heap.peak)().saturating_sub(baseline) as u64),
+            scan: read_scan(),
+            touch: read_touch(),
         };
+        let (denom_bytes, exp_denom_bytes) = match &cell.denom {
+            // The flat-denominator shape's content denominator carries the exponent
+            // legs of its input-denominated cells alone: an I/O-denominated cell's
+            // output side already scales.
+            Denom::Input => {
+                let exp = content.unwrap_or(cell.input_bytes);
+                (cell.input_bytes, exp)
+            }
+            Denom::Io(spec) => {
+                let output_bytes = (spec.output_bytes)(result);
+                let n_io = cell.input_bytes + output_bytes;
+                (n_io, n_io)
+            }
+        };
+        observation = Some((readings, denom_bytes, exp_denom_bytes));
+    });
+    let (readings, denom_bytes, exp_denom_bytes) =
+        observation.expect("a cell observes its result once");
+    let resolve = |spec: Option<ModelSpec>| -> Option<Model> {
+        let spec = spec?;
+        let ordinary_constant = denom_bytes;
         let units = |units: Units, ordinary: usize| -> usize {
             let resolved = match units {
                 Units::Default => ordinary,
@@ -125,22 +123,16 @@ pub(super) fn measure(
         })
     };
     let models = ByCurrency {
-        heap: resolve(Currency::Heap, cell.models.heap),
-        segments: resolve(Currency::Segments, cell.models.segments),
-        scan: resolve(Currency::Scan, cell.models.scan),
-        touch: resolve(Currency::Touch, cell.models.touch),
+        heap: resolve(cell.models.heap),
+        scan: resolve(cell.models.scan),
+        touch: resolve(cell.models.touch),
     };
     Sample {
         denom_bytes,
         exp_denom_bytes,
         floors: cell.floors,
         models,
-        readings: ByCurrency {
-            heap: Some(peak_heap as u64),
-            segments: Some(segments),
-            scan,
-            touch,
-        },
+        readings,
     }
 }
 

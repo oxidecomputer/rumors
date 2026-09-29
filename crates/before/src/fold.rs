@@ -1,10 +1,14 @@
-//! Balanced reductions over encoded trees.
+//! Balanced reductions over stored trees.
 //!
-//! Each stack entry combines the same number of inputs. A new input repeatedly
-//! merges with an equal-sized entry, so every input participates in `O(log k)`
-//! combines with similarly sized values. This avoids repeatedly scanning a
-//! growing accumulator. Infallible combiners must be associative and
-//! commutative; fallible combiners stop at the first incompatible pair.
+//! Each stack entry represents the same number of inputs as any entry at its
+//! level; their byte sizes need not match. A new input repeatedly merges with
+//! an entry at the same level, so every input participates in `O(log k)`
+//! combines. When a combiner's result is no larger than its operands together,
+//! every level contains at most the original `D` bytes. A linear combiner then
+//! takes `O(D log k)` time and the live groups occupy `O(D)` space. This avoids
+//! repeatedly scanning one growing accumulator. Infallible combiners must be
+//! associative and commutative; fallible combiners stop at the first
+//! incompatible pair.
 
 /// Reduce `iter` with a fallible combiner.
 ///

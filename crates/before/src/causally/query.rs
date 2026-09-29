@@ -2,9 +2,7 @@
 //!
 //! A [`Query`] is a causal interval minus a same-polarity antichain of holes.
 //! Evaluation compiles those bounds into [`Demand`]s for the skyline filter.
-//! Large antichains are divided into batches sized from their inputs. Each
-//! batch shares one probe traversal while the number of live cursors remains
-//! proportional to those inputs.
+//! One fused walk shares the probe traversal across every bound.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -92,16 +90,13 @@ impl<'a, P: Polarity> Query<'a, P> {
         }
     }
 
-    /// One batch of bounds in deterministic read order.
-    fn demands<'b>(
-        &'b self,
-        holes: &'b [Hole<'a>],
-    ) -> impl Iterator<Item = (BitsView<'b>, Demand)> {
+    /// Every bound in deterministic read order.
+    fn demands(&self) -> impl Iterator<Item = (BitsView<'_>, Demand)> {
         self.floor
             .as_deref()
             .map(|p| (p.view().live(), Demand::After))
             .into_iter()
-            .chain(Self::hole_demands(holes))
+            .chain(Self::hole_demands(&self.holes))
             .chain(
                 self.ceiling
                     .as_deref()
@@ -116,26 +111,14 @@ impl<'a, P: Polarity> Query<'a, P> {
             .map(|hole| (hole.at.view().live(), P::hole_demand(hole.strict)))
     }
 
-    /// Bytes retained by the query's bounds.
-    fn bound_bytes(&self) -> usize {
-        self.floor
-            .iter()
-            .chain(self.ceiling.iter())
-            .map(|bound| bound.as_bytes().len())
-            .chain(self.holes.iter().map(|hole| hole.at.as_bytes().len()))
-            .fold(0, usize::saturating_add)
-    }
-
     /// Whether the query admits `version`.
     ///
     /// # Complexity
     ///
-    /// With `k` stored bounds, evaluation takes `O(k·n)` time and `O(n)`
-    /// auxiliary space for `n` total operand bytes. More precisely, if `i` is
-    /// the number of intervals in the streams' common tree overlay and `p` is
-    /// the total size of `version`'s payloads in bytes, time is
-    /// `O(n + k·(i + p))`. The charts below show fixed-bound shapes, where
-    /// this reduces to `O(n)`:
+    /// With `k` stored bounds and `n` total operand bytes, evaluation takes
+    /// `O(k·n)` time and `O(n + k)` auxiliary space. Memory includes a fixed
+    /// cost per bound, so many small bounds can have substantial overhead. The
+    /// charts below show fixed-bound shapes, where time reduces to `O(n)`:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor.html")))]
     #[cfg_attr(
@@ -173,16 +156,7 @@ impl<'a, P: Polarity> Query<'a, P> {
         doc = "floor + ceiling + hole: `O(n)` in total input bytes; `O(|self| + |version|)`"
     )]
     pub fn contains(&self, version: &Version) -> bool {
-        let input_bytes = self.bound_bytes().saturating_add(version.as_bytes().len());
-        let capacity = filter::membership_capacity(input_bytes);
-        let fixed = usize::from(self.floor.is_some()) + usize::from(self.ceiling.is_some());
-        let first = self.holes.len().min(capacity.saturating_sub(fixed));
-        if !filter::admits(version.view().live(), self.demands(&self.holes[..first])) {
-            return false;
-        }
-        self.holes[first..]
-            .chunks(capacity)
-            .all(|holes| filter::admits(version.view().live(), Self::hole_demands(holes)))
+        filter::admits(version.view().live(), self.demands())
     }
 
     /// How much of `span` this query admits.
@@ -192,12 +166,10 @@ impl<'a, P: Polarity> Query<'a, P> {
     ///
     /// # Complexity
     ///
-    /// With `k` stored bounds, evaluation takes `O(k·n)` time and `O(n)`
-    /// auxiliary space for `n` total operand bytes. More precisely, if `i` is
-    /// the number of intervals in the streams' common tree overlay and `p` is
-    /// the total size of the span endpoints' payloads in bytes, time is
-    /// `O(n + k·(i + p))`. The charts below show fixed-bound shapes, where
-    /// this reduces to `O(n)`:
+    /// With `k` stored bounds and `n` total operand bytes, evaluation takes
+    /// `O(k·n)` time and `O(n + k)` auxiliary space. Memory includes a fixed
+    /// cost per bound, so many small bounds can have substantial overhead. The
+    /// charts below show fixed-bound shapes, where time reduces to `O(n)`:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor.html")))]
     #[cfg_attr(
@@ -244,52 +216,23 @@ impl<'a, P: Polarity> Query<'a, P> {
                 Coverage::Empty
             };
         }
-        let input_bytes = self
-            .bound_bytes()
-            .saturating_add(lo.as_bytes().len())
-            .saturating_add(hi.as_bytes().len());
-        let capacity = filter::coverage_capacity(input_bytes);
-        let fixed = usize::from(self.floor.is_some()) + usize::from(self.ceiling.is_some());
-        let first = self.holes.len().min(capacity.saturating_sub(fixed));
-        let mut verdict = filter::coverage(
-            lo.view().live(),
-            hi.view().live(),
-            self.demands(&self.holes[..first]),
-        );
-        if verdict == Coverage::Empty {
-            return Coverage::Empty;
-        }
-        for holes in self.holes[first..].chunks(capacity) {
-            let next = filter::coverage(
-                lo.view().live(),
-                hi.view().live(),
-                Self::hole_demands(holes),
-            );
-            if next == Coverage::Empty {
-                return Coverage::Empty;
-            }
-            if next == Coverage::Partial {
-                verdict = Coverage::Partial;
-            }
-        }
-        match verdict {
+        match filter::coverage(lo.view().live(), hi.view().live(), self.demands()) {
             Coverage::Full => Coverage::Full,
-            Coverage::Partial => self.refine_partial(lo, hi, input_bytes),
-            Coverage::Empty => unreachable!("empty batches return immediately"),
+            Coverage::Empty => Coverage::Empty,
+            Coverage::Partial => self.refine_partial(lo, hi),
         }
     }
 
     /// The clamp refinement behind [`coverage`](Self::coverage)'s `Partial`
-    /// arm: the exact emptiness decision the first endpoint walk cannot reach.
+    /// arm: the exact emptiness decision the fused endpoint walk cannot reach.
     ///
     /// The admitted portion of the segment is the *clamped* segment `[lo ∨
     /// floor, hi ∧ ceiling]` minus the holes. A crossed clamp is empty
     /// outright. A down-set covering the clamped top covers the whole clamped
     /// segment, *because* every hole shares one polarity: the joint-covering
     /// case that would escape this endpoint test needs both polarities at once,
-    /// which the type refuses. Each batch shares one endpoint traversal among
-    /// its holes instead of decoding the endpoint once per hole.
-    fn refine_partial(&self, lo: &Version, hi: &Version, input_bytes: usize) -> Coverage {
+    /// which the type refuses.
+    fn refine_partial(&self, lo: &Version, hi: &Version) -> Coverage {
         let clamped_lo: Cow<'_, Version> = match self.floor.as_deref() {
             Some(floor) => Cow::Owned(lo | floor),
             None => Cow::Borrowed(lo),
@@ -306,13 +249,11 @@ impl<'a, P: Polarity> Query<'a, P> {
         }
 
         let endpoint = P::covering_endpoint(&clamped_lo, &clamped_hi);
-        let capacity = filter::membership_capacity(input_bytes);
-        for holes in self.holes.chunks(capacity) {
-            if !filter::admits(endpoint.view().live(), Self::hole_demands(holes)) {
-                return Coverage::Empty;
-            }
+        if filter::admits(endpoint.view().live(), Self::hole_demands(&self.holes)) {
+            Coverage::Partial
+        } else {
+            Coverage::Empty
         }
-        Coverage::Partial
     }
 
     /// Converts every borrowed bound into a buffer-sharing owned version.
