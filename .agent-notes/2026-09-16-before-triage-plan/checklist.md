@@ -168,10 +168,17 @@ triage's dispositions and branches are leads only.
       encoding must not promise an optimization it does not implement.
       Source: independent public-contract audit, 2026-09-29.
 
-- [ ] Replace the crate's universal linear-time, input-only scratch-space, and
-      unsupported quantitative headlines with the precise guarantees the
-      methods establish.
-      Source: independent public-contract audit, 2026-09-29.
+- [x] Exercise the crate's 100× representation example directly against the
+      recursive oracle, including the least favorable evident family under a
+      `2^64` event-count cap.
+      Source: owner review, 2026-09-29.
+
+- [x] Triage the crate-wide time, transient-space, and quantitative headlines:
+      defer their final wording to the owner, with the contract exceptions,
+      measurement limits, and source data recorded in the crate-page claims
+      note.
+      Sources: independent public-contract audit, owner review, and
+      representation-space measurement, 2026-09-29.
 
 - [x] Give balanced Version and Span folds one consistent intermediate-size
       argument for the current encoding, then state and verify the resulting

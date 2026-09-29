@@ -1,8 +1,8 @@
 //! [`before`](crate) implements [*Interval Tree Clocks* (Almeida, Baquero &
 //! Fonte, 2008)](https://gsd.di.uminho.pt/members/cbm/ps/itc2008.pdf) (ITCs)
-//! using a compact representation which is approximately 100× more
+//! using a compact representation which can be approximately 100× more
 //! space-efficient than a naïve transcription of the original paper, while
-//! maintaining asymptotically linear and practically quick performance even
+//! maintaining asymptotically optimal and practically quick performance even
 //! over the most adversarially pessimal inputs.
 //!
 //! A causal clock answers the question wall-clock time cannot: given two

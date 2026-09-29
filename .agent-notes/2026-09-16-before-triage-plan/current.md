@@ -1,39 +1,22 @@
 # Current triage state
 
-Work proceeds directly on `main`. The reviewed Before history, including the
-public Query property and fused-query resource repair, is pushed at
-`ab52f1d2`. The redundant remote `codex/before-triage` branch still exists; its
-deletion was not authorized by the execution policy and it has no role in the
-remaining work.
+Work proceeds directly on `main`. The reviewed resource-contract work is pushed
+at `317f0f89`.
 
-The last gate was clean across all legs. It ran immediately before the final
-integration; the subsequent rebase added only upstream workflow dependency
-updates and produced no conflict. Run `just gate` again before the next code
-commit as usual.
+The latest increment adds one isolated allocator test comparing complete
+production and recursive-oracle representations. It establishes the 100×
+example on a balanced 512-party history and exercises the least favorable
+evident family under a `2^64` event-count cap. The findings are recorded in
+`../2026-09-29-before-crate-page-claims/README.md`. In `src/lib.rs`, only the
+owner's current headline edit is included; final time, transient-space, and
+quantitative wording is explicitly deferred to the owner's later rewrite. The
+full gate is clean.
 
 ## Active outcome
 
-Close the public-contract mismatches and verification gaps identified by the
-current audit. Correct the Party predicate and shape-traversal allocation
-claims first, then reconcile the amplification board's heap headline and
-direct public-operation coverage.
-
-The present heap judgment is:
-
-- ordinary cells: `(peak transient bytes - 8,192) / denominator <= 20`, where
-  the denominator is input bytes by default and total I/O where
-  required output can dominate;
-- a few operations use explicit, documented constant units or tighter
-  operation-specific ceilings;
-- a separate four-point trend rejects scaling exponents above 1.15;
-- the release acceptance run currently reports 3,154 green cells and no red
-  cells.
-
-The next investigation must decide whether the 8 KiB flat allowance is honest
-fixed scaffolding or conceals meaningful small-input amplification, and state
-the universal claim precisely. The proportional ceiling is 20 B/B. Check
-operation-specific denominators and ceilings as part of the same argument,
-without adding another instrument.
+Audit the remaining production counter hooks for a distinct live observation,
+then begin consolidating duplicated resource instruments around the board. Do
+not add another harness for claims the board can express.
 
 After that, retain this priority order:
 
