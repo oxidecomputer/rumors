@@ -208,7 +208,7 @@
 //! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(other's held digits), independent of the shift |
 //! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(the narrower accumulator's held digits) |
 //! | [`sign`](Accumulator::sign), [`is_negative`](Accumulator::is_negative), [`sign_dominates_word`](Accumulator::sign_dominates_word), [`sign_dominates_at`](Accumulator::sign_dominates_at) | amortized O(1) |
-//! | [`is_literally_zero`](Accumulator::is_literally_zero) (one-sided: `true` means zero, `false` means unknown), [`digit_count`](Accumulator::digit_count) | O(1) |
+//! | [`is_literally_zero`](Accumulator::is_literally_zero) (one-sided: `true` means zero, `false` means unknown), [`digit_count`](Accumulator::digit_count), [`bit_span`](Accumulator::bit_span) | O(1) |
 //! | [`shl`](Accumulator::shl), [`negate`](Accumulator::negate), [`reset`](Accumulator::reset), [`sign_limbs`](Accumulator::sign_limbs), [`with_sign_limbs`](Accumulator::with_sign_limbs) | O(held digits) |
 //! | [`sign_limbs_shl`](Accumulator::sign_limbs_shl), [`with_sign_limbs_shl`](Accumulator::with_sign_limbs_shl) | O(w), w the written span since the last reset |
 //!
@@ -252,7 +252,7 @@
 //! # Metering
 //!
 //! The `touch-meter` feature counts every digit read-modify-write (plus one per
-//! operand limb read by a streamed operation, and one per zero digit a
+//! operand limb read by a wide streamed operation, and one per zero digit a
 //! top-settlement scan steps or skips past — a certificate skip is one touch
 //! however wide the certified run, because the run's digits are neither read
 //! nor written) into the [`touch_meter`] module's process-global counter. The

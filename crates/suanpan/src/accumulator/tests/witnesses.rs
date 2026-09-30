@@ -445,6 +445,32 @@ fn quick_register_engages_and_retires() {
     assert!(acc.quick.is_some(), "a reset re-arms the register");
 }
 
+/// Empty and one-word limb streams preserve the quick register, while a
+/// two-word stream enters the digit engine without changing the exact value.
+#[test]
+fn limb_stream_selects_the_narrowest_representation() {
+    let mut acc = Accumulator::new();
+    acc.add_limbs_shl([], 17);
+    assert!(acc.quick.is_some(), "an empty stream changes no state");
+
+    acc.add_limbs_shl([u64::MAX], 0);
+    assert!(
+        acc.quick.is_some(),
+        "a machine-word stream uses the quick register"
+    );
+    assert_value(&acc, &IBig::from(u64::MAX));
+
+    acc.add_limbs_shl([1, 1], 0);
+    assert!(
+        acc.quick.is_none(),
+        "a two-word stream enters the digit engine"
+    );
+    assert_value(
+        &acc,
+        &(IBig::from(u64::MAX) + IBig::from(1u8) + (IBig::from(1u8) << 64usize)),
+    );
+}
+
 /// A register parked at its ceiling: `±2^96`, built through register
 /// entry points alone (the shifts stay at the ceiling, not past it).
 fn full_register(negative: bool) -> (Accumulator, IBig) {

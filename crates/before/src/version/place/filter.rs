@@ -68,7 +68,7 @@ use core::cmp::Ordering;
 use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::causally::Coverage;
 
 use super::super::order::OrderState;
@@ -178,7 +178,7 @@ impl GatedComparison {
 /// Put an absolute Version height into the accumulator representation.
 fn height(first: &BigUint) -> Accumulator {
     let mut height = Accumulator::new();
-    accumulator::fold(&mut height, first, 0, false);
+    height.add_biguint_shl(first, 0);
     height
 }
 
@@ -189,7 +189,7 @@ fn widths_overlap(a: &Accumulator, b: &Accumulator) -> bool {
 
 /// Replace a redundant absolute-height spelling with its normalized value.
 fn normalize_height(value: &mut Accumulator) {
-    let (sign, magnitude) = accumulator::value(value);
+    let (sign, magnitude) = value.signed_magnitude();
     debug_assert_ne!(sign, Ordering::Less, "Version heights are nonnegative");
     *value = height(&magnitude);
 }
@@ -403,7 +403,7 @@ impl CursorSet for MemberCursors<'_> {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
-                accumulator::fold_signed(&mut self.probe_height, &step);
+                self.probe_height.add_bigint(&step);
                 for side in self.sides.iter_mut().flatten() {
                     side.comparison
                         .fold(Side::A, &self.probe_height, &side.bound, &step);
@@ -415,7 +415,7 @@ impl CursorSet for MemberCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                accumulator::fold_signed(&mut side.bound, &step);
+                side.bound.add_bigint(&step);
                 side.comparison
                     .fold(Side::B, &self.probe_height, &side.bound, &step);
                 flip
@@ -720,7 +720,7 @@ impl CursorSet for SpanCursors<'_> {
         match slot {
             Self::HI => {
                 let (flip, step) = self.hi.step();
-                accumulator::fold_signed(&mut self.hi_height, &step);
+                self.hi_height.add_bigint(&step);
                 for side in self.sides.iter_mut().flatten() {
                     if side.hi.live {
                         side.hi
@@ -732,7 +732,7 @@ impl CursorSet for SpanCursors<'_> {
             }
             Self::LO => {
                 let (flip, step) = self.lo.step();
-                accumulator::fold_signed(&mut self.lo_height, &step);
+                self.lo_height.add_bigint(&step);
                 for side in self.sides.iter_mut().flatten() {
                     if side.lo.live {
                         side.lo
@@ -747,7 +747,7 @@ impl CursorSet for SpanCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                accumulator::fold_signed(&mut side.bound, &step);
+                side.bound.add_bigint(&step);
                 if side.lo.live {
                     side.lo
                         .comparison

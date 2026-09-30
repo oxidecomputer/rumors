@@ -6,7 +6,7 @@ use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 
 /// The oracle's sign as the accumulator reports it.
 fn oracle_sign(oracle: &BigInt) -> Ordering {
@@ -23,14 +23,14 @@ fn oracle_sign(oracle: &BigInt) -> Ordering {
 
 /// Assert the accumulator's full value equals the oracle.
 fn assert_value(acc: &Accumulator, oracle: &BigInt) {
-    let (sign, magnitude) = accumulator::value(acc);
+    let (sign, magnitude) = acc.signed_magnitude();
     assert_eq!(sign, oracle_sign(oracle), "accumulator sign");
     let rebuilt = match sign {
         Ordering::Less => -BigInt::from(magnitude),
         _ => BigInt::from(magnitude),
     };
     assert_eq!(&rebuilt, oracle, "accumulator magnitude");
-    assert_eq!(&accumulator::signed_value(acc), oracle, "signed read");
+    assert_eq!(&acc.to_bigint(), oracle, "signed read");
 }
 
 proptest! {
@@ -46,10 +46,11 @@ proptest! {
         let mut oracle = BigInt::ZERO;
         for (negative, digits) in &ops {
             let value = BigUint::from_slice(digits);
-            accumulator::fold(&mut acc, &value, 0, *negative);
             if *negative {
+                acc.sub_biguint_shl(&value, 0);
                 oracle -= BigInt::from(value);
             } else {
+                acc.add_biguint_shl(&value, 0);
                 oracle += BigInt::from(value);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
@@ -69,10 +70,11 @@ proptest! {
         let mut oracle = BigInt::ZERO;
         for (negative, digits, shift) in &ops {
             let value = BigUint::from_slice(digits);
-            accumulator::fold(&mut acc, &value, *shift, *negative);
             if *negative {
+                acc.sub_biguint_shl(&value, *shift);
                 oracle -= BigInt::from(value << *shift as usize);
             } else {
+                acc.add_biguint_shl(&value, *shift);
                 oracle += BigInt::from(value << *shift as usize);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
@@ -99,10 +101,10 @@ proptest! {
             let sign = if negative { Sign::Minus } else { Sign::Plus };
             let value = BigInt::from_biguint(sign, BigUint::from_slice(&digits));
             if subtract {
-                accumulator::subtract_signed(&mut acc, &value);
+                acc.sub_bigint(&value);
                 oracle -= value;
             } else {
-                accumulator::fold_signed(&mut acc, &value);
+                acc.add_bigint(&value);
                 oracle += value;
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));

@@ -11,7 +11,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::{self, BigIntAccumulator as _};
 
 /// A nonnegative interval width `magnitude * 2^shift`, with a digit-aligned shift.
 pub struct ScaledWidth {
@@ -29,7 +29,7 @@ impl ScaledWidth {
     /// rewrite digits and lower the lowest-written position, making this read
     /// traverse a prefix it could otherwise skip.
     pub fn read(width: &Accumulator) -> Self {
-        let (sign, magnitude, shift) = accumulator::value_shl(width);
+        let (sign, magnitude, shift) = width.scaled_signed_magnitude();
         debug_assert_ne!(sign, Ordering::Less, "interval widths only accumulate");
         Self { magnitude, shift }
     }
@@ -41,7 +41,7 @@ impl ScaledWidth {
 
     /// Add this relative width to another sum, retaining its scale.
     pub fn add_to(&self, total: &mut Accumulator) {
-        accumulator::fold(total, &self.magnitude, self.shift, false);
+        total.add_biguint_shl(&self.magnitude, self.shift);
     }
 
     /// Convert the width to balanced digits before multiplying by a height.
@@ -186,12 +186,11 @@ impl SparseWidth {
                 let mut product = height.clone();
                 product *=
                     u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
-                accumulator::fold(
-                    total,
-                    &product,
-                    32 * index,
-                    (sign == Sign::Minus) != digit.is_negative(),
-                );
+                if (sign == Sign::Minus) != digit.is_negative() {
+                    total.sub_biguint_shl(&product, 32 * index);
+                } else {
+                    total.add_biguint_shl(&product, 32 * index);
+                }
                 continue;
             }
             let floor_index = cluster[0].0;

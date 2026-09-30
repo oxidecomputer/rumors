@@ -10,7 +10,7 @@ use proptest::prelude::*;
 use suanpan::Accumulator;
 
 use super::{Close, RangeMinima};
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 
 /// Expected results when probing the minimum, one above it, and one below it.
 const AROUND_MINIMUM: [Ordering; 3] = [Ordering::Equal, Ordering::Greater, Ordering::Less];
@@ -37,7 +37,7 @@ fn around_minimum(minima: &mut RangeMinima<()>, minimum_offset: &BigInt) -> [Ord
 /// Construct an accumulator for a known signed difference in a fixture.
 fn accumulated(value: &BigInt) -> Accumulator {
     let mut result = Accumulator::new();
-    accumulator::fold_signed(&mut result, value);
+    result.add_bigint(value);
     result
 }
 
@@ -192,7 +192,7 @@ proptest! {
         minima.fold_height(&-BigInt::from(height_drop.clone()));
         minima.emit_offset(&below(offset));
 
-        let moved = accumulator::into_signed_value(minima.follower_take(0));
+        let moved = minima.follower_take(0).into_bigint();
         let expected_drop = height_drop + BigUint::from(offset);
         prop_assert_eq!(moved.sign(), Sign::Minus);
         prop_assert_eq!(moved.magnitude(), &(expected_drop - BigUint::from(initial)));
@@ -351,9 +351,9 @@ proptest! {
         let height = &anchor + height_change;
 
         let mut detached = minima.follower_take(0);
-        prop_assert_eq!(accumulator::signed_value(&detached), &anchor - client_values[0]);
+        prop_assert_eq!(detached.to_bigint(), &anchor - client_values[0]);
         minima.bridge_add_gap(&mut detached);
-        prop_assert_eq!(accumulator::into_signed_value(detached), &height - client_values[0]);
+        prop_assert_eq!(detached.into_bigint(), &height - client_values[0]);
         prop_assert!(minima.deferred_live(), "height conversion cancels the distance");
         minima.follower_set(0, accumulated(&(&anchor - client_values[0])));
 
@@ -389,7 +389,7 @@ proptest! {
         for (slot, client_value) in client_values.into_iter().enumerate() {
             let follower = minima.follower_take(slot);
             prop_assert_eq!(
-                accumulator::into_signed_value(follower),
+                follower.into_bigint(),
                 &expected_minimum - client_value
             );
         }

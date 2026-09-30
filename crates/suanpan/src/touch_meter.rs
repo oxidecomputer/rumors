@@ -5,8 +5,8 @@
 //! code (a sign-fold step counts one touch per digit read plus one per
 //! digit its collapse zeroes; a top-settlement scan counts one per zero
 //! digit it steps past, and one — total — per certified zero run it
-//! skips whole; a limb-stream operation adds one per operand limb read): the
-//! unit every cost on the crate page is denominated in. The quick
+//! skips whole; a wide limb-stream operation adds one per operand limb read):
+//! the unit every cost on the crate page is denominated in. The quick
 //! register meters too, though it holds no digits: a delta, sign query,
 //! negation, or shift the register absorbs counts exactly one touch,
 //! and a register read-out counts the value's digit count. Readings are

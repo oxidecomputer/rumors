@@ -19,7 +19,7 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::meter::registry::Shape;
@@ -103,11 +103,11 @@ fn assert_pointwise(a: &Version, b: &Version, out: &Version, meet: bool) {
     // BigInt differences out − a and out − b: the pointwise claim reads off
     // their signs without materializing any height.
     let mut oa = Accumulator::new();
-    accumulator::fold(&mut oa, &ho, 0, false);
-    accumulator::fold(&mut oa, &ha, 0, true);
+    oa.add_biguint_shl(&ho, 0);
+    oa.sub_biguint_shl(&ha, 0);
     let mut ob = Accumulator::new();
-    accumulator::fold(&mut ob, &ho, 0, false);
-    accumulator::fold(&mut ob, &hb, 0, true);
+    ob.add_biguint_shl(&ho, 0);
+    ob.sub_biguint_shl(&hb, 0);
     let mut intervals = 0u64;
     loop {
         intervals += 1;
@@ -185,9 +185,9 @@ fn assert_pointwise(a: &Version, b: &Version, out: &Version, meet: bool) {
 /// stream sits on the difference's negative side.
 fn fold_step(diff: &mut Accumulator, subtract: bool, step: &HeightChange) {
     if subtract {
-        accumulator::subtract_signed(diff, step);
+        diff.sub_bigint(step);
     } else {
-        accumulator::fold_signed(diff, step);
+        diff.add_bigint(step);
     }
 }
 

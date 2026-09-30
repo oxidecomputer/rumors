@@ -10,7 +10,7 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 
-use super::{from_limbs, Accumulator, TestBig as _};
+use super::{fresh, from_limbs, Accumulator, TestBig as _};
 use crate::touch_meter;
 
 /// The scaled read costs the written span, not the scale: a narrow
@@ -66,23 +66,18 @@ fn scaled_read_costs_the_written_span() {
 /// alternating shifted pair costs its operand, not the zero run under
 /// it — exact totals, identical across a shift doubling.
 ///
-/// A `sub_limb_value_shl`/`add_limb_value_shl` pair of a one-limb operand parked
-/// at digit `shift/32` costs exactly 5 touches: the sub pays one
-/// operand limb read, one deposit, and one settlement step whose
-/// zero-run certificate skip crosses the whole never-written run under
-/// the landing site in a single touch; the add pays one limb read and
-/// one deposit (re-certifying the run it jumps is ledger bookkeeping —
-/// no digit is read or written). Both shifts pin the same total, which
-/// is the crate page's `*_shl` rows ("independent of the shift") made
-/// exact at this schedule; the exactness doubles as the skip's
-/// metering liveness floor — an uncounted skip would read 4 per pair,
-/// a per-digit run walk would read shift/32 + 4.
+/// A one-limb stream uses the word path. Each subtract/add pair parked at digit
+/// `shift/32` therefore costs exactly three touches: two deposits and one
+/// settlement step whose zero-run certificate crosses the never-written run in
+/// a single touch. Both shifts pin the same total, making the documented
+/// shift-independent cost exact for this schedule. A per-digit walk would
+/// instead cost `shift/32 + 2`.
 ///
 /// The second scenario parks a second value on digit 0 first: the
 /// schedule a single global write watermark cannot price (a watermark
 /// pinned to digit 0 says nothing about the run under digit
 /// `shift/32`), pinning that the ledger certifies runs individually.
-/// The word path pays the same shape minus the limb reads: exactly 3 per pair.
+/// The direct word entry point supplies a control with the same exact cost.
 #[test]
 fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
     let one = UBig::from(1u8);
@@ -96,10 +91,9 @@ fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
         }
         assert_eq!(
             touch_meter::touches(),
-            5_000,
-            "1,000 alternating one-limb pairs at shift {shift}: 5 touches per \
-             pair (2 limb reads + 2 deposits + 1 certificate skip), whatever \
-             the shift"
+            3_000,
+            "1,000 alternating one-limb pairs at shift {shift}: 3 touches per \
+             pair (2 deposits + 1 certificate skip), whatever the shift"
         );
         // The oscillation is value-neutral: the held value is still 2^shift.
         let (sign, magnitude) = acc.sign_biguint();
@@ -146,8 +140,8 @@ fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
         }
         assert_eq!(
             touch_meter::touches(),
-            5_000,
-            "the occupied digit 0 changes nothing: 5 touches per pair at \
+            3_000,
+            "the occupied digit 0 changes nothing: 3 touches per pair at \
              shift {shift}"
         );
         let (sign, magnitude) = acc.sign_biguint();
@@ -231,8 +225,10 @@ fn sign_fold_skips_certified_runs() {
 fn accumulator_operand_rows_cost_the_operand() {
     // A two-digit operand: digits 0 and 1 hold 1 each.
     let narrow = || {
-        let mut acc = Accumulator::new();
-        acc.add_limb_value(&from_limbs(&[(1 << 32) | 1]));
+        // Arm the digit engine explicitly: this row measures digit-to-digit
+        // accumulator folds, not the quick-register operand path.
+        let mut acc = fresh(true);
+        acc.apply_limbs(core::iter::once((1 << 32) | 1), false, 0);
         acc
     };
     // Receivers of 64 and 128 held digits: 2^k − 1 fills every digit.
@@ -530,19 +526,18 @@ fn limb_writes_cost_the_operand_at_any_held_width() {
     }
 }
 
-/// The streaming limb entry points cost the limbs the stream yields,
-/// independent of the shift and the held width: exact totals on the
-/// alternating-pair schedule, plus the padded-stream clause.
+/// Limb streams choose the word cost for one limb and charge each limb once
+/// when the operand is wider, independently of the shift and held width.
 ///
-/// A one-limb stream oscillating at digit `shift/32` costs exactly 5
-/// touches per sub/add pair: 2 limb reads + 2 deposits + 1 certificate
-/// skip, pinned identical
-/// across a shift doubling. The second clause pins the contract's
+/// A one-limb stream delegates to the word operation. On this oscillating
+/// schedule, 1,000 sub/add pairs cost exactly 3,000 touches: two deposits and
+/// one certificate skip per pair, pinned identical across a shift doubling.
+/// The second clause pins the contract's
 /// padding sentence exactly: a `[5, 0, 0]` stream costs 4 touches (3
 /// yielded-limb reads + 1 deposit) — high zero limbs are value-neutral
 /// but each yielded limb pays its touch.
 #[test]
-fn limb_stream_writes_cost_the_yielded_limbs() {
+fn limb_streams_select_word_or_wide_cost() {
     for shift in [32_000u64, 64_000] {
         let mut acc = Accumulator::new();
         acc.add_limbs_shl([1u64], shift);
@@ -553,9 +548,9 @@ fn limb_stream_writes_cost_the_yielded_limbs() {
         }
         assert_eq!(
             touch_meter::touches(),
-            5_000,
+            3_000,
             "1,000 alternating one-limb stream pairs at shift {shift}: \
-             5 touches per pair, whatever the shift"
+             3 touches per pair, whatever the shift"
         );
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Greater);

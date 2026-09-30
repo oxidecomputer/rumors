@@ -55,7 +55,7 @@ use std::io::{self, Read, Write};
 use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::error::{Decode, ParseRank};
 
 /// An exact nonnegative measure of causal history.
@@ -510,9 +510,13 @@ impl Rank {
         if let Ok(digits) = usize::try_from(widest / 32 + 2) {
             acc.reserve_digits(digits);
         }
-        accumulator::fold(&mut acc, &self.num, exp - self.exp, false);
-        accumulator::fold(&mut acc, &rhs.num, exp - rhs.exp, subtract_rhs);
-        let (sign, num) = accumulator::value(&acc);
+        acc.add_biguint_shl(&self.num, exp - self.exp);
+        if subtract_rhs {
+            acc.sub_biguint_shl(&rhs.num, exp - rhs.exp);
+        } else {
+            acc.add_biguint_shl(&rhs.num, exp - rhs.exp);
+        }
+        let (sign, num) = acc.signed_magnitude();
         debug_assert_ne!(
             sign,
             Ordering::Less,
@@ -1042,20 +1046,20 @@ impl Rank {
             }
             if !has_value {
                 exp = rank.exp;
-                accumulator::fold(&mut acc, &rank.num, 0, false);
+                acc.add_biguint_shl(&rank.num, 0);
                 has_value = true;
                 continue;
             }
             if rank.exp > exp {
                 let gap = rank.exp - exp;
-                let held_span = accumulator::bit_span(&acc);
+                let held_span = acc.bit_span();
                 let shift = gap.max(held_span).min(u64::MAX - exp);
                 acc.shl(shift);
                 exp += shift;
             }
-            accumulator::fold(&mut acc, &rank.num, exp - rank.exp, false);
+            acc.add_biguint_shl(&rank.num, exp - rank.exp);
         }
-        let (sign, num) = accumulator::value(&acc);
+        let (sign, num) = acc.signed_magnitude();
         debug_assert_ne!(
             sign,
             Ordering::Less,

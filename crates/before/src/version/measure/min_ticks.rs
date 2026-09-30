@@ -15,7 +15,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::{self, BigIntAccumulator as _};
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::{Ticks, Version};
 
@@ -50,7 +50,7 @@ impl Ticks {
             // Both trackers advance to the next leaf height. The first holds
             // the leaf contribution; the second compares that height with the
             // minima of the subtrees that remain open.
-            accumulator::fold_signed(&mut recent_height_change, &height_change);
+            recent_height_change.add_bigint(&height_change);
             subtree_minima.advance_height(&height_change);
 
             // The turn keeps the ancestor at `turn_depth` open. It closes the
@@ -80,7 +80,7 @@ impl Ticks {
         // stated in the module documentation.
         subtree_minima.close_all(&mut answer, &mut height_prefixes);
         height_prefixes.settle(&mut answer);
-        let (sign, magnitude) = accumulator::value(&answer);
+        let (sign, magnitude) = answer.signed_magnitude();
         debug_assert_ne!(
             sign,
             Ordering::Less,

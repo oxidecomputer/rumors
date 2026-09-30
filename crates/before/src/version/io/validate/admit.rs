@@ -23,7 +23,7 @@ use suanpan::Accumulator;
 
 use num_bigint::BigUint;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::bits::stack::BitStack;
 use crate::bits::BitRead;
 use crate::error::Decode;
@@ -257,8 +257,8 @@ where
     // The difference is `height_lo - height_hi`. Dominance holds only while it
     // is nonpositive over every region produced by the combined walk.
     let mut diff = Accumulator::new();
-    accumulator::fold(&mut diff, &lo_first, 0, false);
-    accumulator::fold(&mut diff, &hi_first, 0, true);
+    diff.add_biguint_shl(&lo_first, 0);
+    diff.sub_biguint_shl(&hi_first, 0);
     // Equality rides the same sign reads: the pair is equal exactly when no
     // elementary interval reads a strict `Less` (and none reads `Greater`,
     // which refutes outright) — canonical uniqueness then makes the verdict

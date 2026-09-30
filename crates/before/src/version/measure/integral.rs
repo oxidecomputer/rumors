@@ -103,7 +103,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint};
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::{self, BigIntAccumulator as _};
 
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
@@ -169,7 +169,7 @@ impl Integrator {
     /// Set the opening height before adding any region or boundary changes.
     /// Heights may be signed when integrating a difference of ranks.
     pub fn open(&mut self, opening: &BigInt) {
-        accumulator::fold_signed(&mut self.base, opening);
+        self.base.add_bigint(opening);
     }
 
     /// Add the next region, whose width at the common scale is `2^weight_shift`.
@@ -181,7 +181,7 @@ impl Integrator {
             self.total.add_accum_shl(&self.live, weight_shift);
         }
         if self.tracks_width {
-            accumulator::fold(&mut self.segment_width, &self.one, weight_shift, false);
+            self.segment_width.add_biguint_shl(&self.one, weight_shift);
         }
     }
 
@@ -193,7 +193,7 @@ impl Integrator {
     /// one or two. Reading the difference is affordable here because crossing
     /// zero bounds its new magnitude by the deltas just read.
     pub fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-        let (sign, magnitude) = accumulator::value(diff);
+        let (sign, magnitude) = diff.signed_magnitude();
         if magnitude == BigUint::ZERO {
             return;
         }
@@ -205,7 +205,7 @@ impl Integrator {
             "the orientation correction must be nonnegative"
         );
         let shift = if coefficient.abs() == 2 { 1 } else { 0 };
-        accumulator::fold(&mut self.live, &magnitude, shift, false);
+        self.live.add_biguint_shl(&magnitude, shift);
     }
 
     /// Finish a boundary, bounding the live width by the widest delta read there.
@@ -217,7 +217,7 @@ impl Integrator {
 
     /// Account for the old parked height, then park the recent changes.
     fn freeze(&mut self) {
-        let (drift_sign, drift) = accumulator::value(&self.live);
+        let (drift_sign, drift) = self.live.signed_magnitude();
         if drift == BigUint::ZERO {
             // Buffered changes cancel. Nothing moves, and the current segment
             // remains open because its parked height has not changed.
@@ -237,7 +237,11 @@ impl Integrator {
         {
             self.defer_parked();
         }
-        accumulator::fold(&mut self.parked, &drift, 0, drift_sign == Ordering::Less);
+        if drift_sign == Ordering::Less {
+            self.parked.sub_biguint_shl(&drift, 0);
+        } else {
+            self.parked.add_biguint_shl(&drift, 0);
+        }
         self.live.reset();
 
         // reset() clears the whole allocated span. Segment digits can be high
@@ -253,7 +257,7 @@ impl Integrator {
         }
         self.deferred.add_width(&width);
         if !self.parked.is_literally_zero() {
-            let parked = accumulator::signed_value(&self.parked);
+            let parked = self.parked.to_bigint();
             if parked != BigInt::ZERO {
                 width.add_product(&mut self.total, &parked);
             }
@@ -263,7 +267,7 @@ impl Integrator {
     /// Record the parked height's remaining contribution from this boundary on.
     /// The preceding segment must already have been closed.
     fn defer_parked(&mut self) {
-        let parked = accumulator::signed_value(&self.parked);
+        let parked = self.parked.to_bigint();
         if parked != BigInt::ZERO {
             self.deferred.push(parked);
         }
@@ -275,7 +279,7 @@ impl Integrator {
         if self.parked.is_literally_zero() {
             return;
         }
-        let parked = accumulator::signed_value(&self.parked);
+        let parked = self.parked.to_bigint();
         if parked != BigInt::ZERO {
             let width = ScaledWidth::read(&self.segment_width);
             width.add_product(&mut self.total, &parked);
@@ -297,6 +301,6 @@ impl Integrator {
         if !self.base.is_literally_zero() {
             self.total.add_accum_shl(&self.base, closing_shift);
         }
-        accumulator::value(&self.total)
+        self.total.signed_magnitude()
     }
 }

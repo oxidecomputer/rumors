@@ -37,7 +37,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::party::io::{PartyNode, PartyReader};
 
 use self::frames::{Frame, Frames};
@@ -455,13 +455,13 @@ impl TickWalk<'_> {
         let code = self.cursor.payload();
         let delta = self.next_payload.decode(code);
         self.next_payload = PayloadKind::Delta;
-        accumulator::fold_signed(&mut self.height, &delta);
+        self.height.add_bigint(&delta);
         self.minima.fold_height(&delta);
         if !self.w_anchored {
-            accumulator::fold_signed(&mut self.gap, &delta);
+            self.gap.add_bigint(&delta);
         }
         if let MemoReference::Height(relation) = &mut self.memo_reference {
-            accumulator::fold_signed(relation, &delta);
+            relation.add_bigint(&delta);
         }
         delta
     }
@@ -472,13 +472,13 @@ impl TickWalk<'_> {
     /// folded leaf by leaf: nothing reads the registers between a block's
     /// leaves, so the batched fold is observationally the per-leaf sequence.
     fn fold_block(&mut self, net: &BigInt) {
-        accumulator::fold_signed(&mut self.height, net);
+        self.height.add_bigint(net);
         self.minima.fold_height(net);
         if !self.w_anchored {
-            accumulator::fold_signed(&mut self.gap, net);
+            self.gap.add_bigint(net);
         }
         if let MemoReference::Height(relation) = &mut self.memo_reference {
-            accumulator::fold_signed(relation, net);
+            relation.add_bigint(net);
         }
     }
 
@@ -552,13 +552,13 @@ impl TickWalk<'_> {
         // `relation + above - link` compares the old maximum with `target`.
         // Keeping the link folded in leaves `height - target`, ready to serve
         // as the next reference without materializing either absolute value.
-        accumulator::fold_signed(&mut relation, above);
+        relation.add_bigint(above);
         if let Some(link) = link {
             relation.sub_accum(&link);
             drop(link);
         }
         let sign = relation.sign();
-        accumulator::subtract_signed(&mut relation, above);
+        relation.sub_bigint(above);
         if sign == Ordering::Less {
             // The memoized minimum dominates the old maximum, so the new leaf
             // necessarily differs from the consumed range.
@@ -571,7 +571,7 @@ impl TickWalk<'_> {
                 absolute.add_accum(&self.height);
                 absolute.sub_accum(&relation);
                 self.minima.emit_below_accum(relation);
-                let value = accumulator::into_signed_value(absolute);
+                let value = absolute.into_bigint();
                 debug_assert!(value.sign() != Sign::Minus, "a raised height is a natural");
                 self.output.height(depth + 1, value.magnitude());
                 // Future output deltas are now relative to this minimum.
@@ -644,11 +644,11 @@ impl TickWalk<'_> {
             let mut out_delta = self.minima.follower_take(OUT_FOLLOWER);
             self.minima.bridge_add_gap(&mut out_delta);
             self.w_anchored = false;
-            accumulator::into_signed_value(out_delta)
+            out_delta.into_bigint()
         } else {
             // `gap` is current input height minus previous output height.
             self.gap.sign();
-            accumulator::signed_value(&self.gap)
+            self.gap.to_bigint()
         };
         // The new gap is h − value = 0 exactly.
         self.gap.reset();
@@ -677,7 +677,7 @@ impl TickWalk<'_> {
             // The first output payload stores an absolute height.
             debug_assert!(!self.w_anchored, "the first emission finds no anchor");
             self.height.sign();
-            let value = accumulator::signed_value(&self.height) + &offset;
+            let value = self.height.to_bigint() + &offset;
             debug_assert!(
                 value.sign() != Sign::Minus,
                 "a collapsed height is a natural"
@@ -688,20 +688,20 @@ impl TickWalk<'_> {
                 // Convert the minimum-relative reference, then apply `offset`.
                 let mut out_delta = self.minima.follower_take(OUT_FOLLOWER);
                 self.minima.bridge_add_gap(&mut out_delta);
-                accumulator::fold_signed(&mut out_delta, &offset);
+                out_delta.add_bigint(&offset);
                 self.w_anchored = false;
-                accumulator::into_signed_value(out_delta)
+                out_delta.into_bigint()
             } else {
                 // `gap + offset` is the new value minus previous output.
-                accumulator::fold_signed(&mut self.gap, &offset);
+                self.gap.add_bigint(&offset);
                 self.gap.sign();
-                accumulator::signed_value(&self.gap)
+                self.gap.to_bigint()
             };
             self.output.change(depth, &delta);
         }
         // The new gap is h − (h + offset) = −offset exactly.
         self.gap.reset();
-        accumulator::subtract_signed(&mut self.gap, &offset);
+        self.gap.sub_bigint(&offset);
     }
 
     /// Emit a leaf at the innermost tracked minimum.
@@ -722,13 +722,13 @@ impl TickWalk<'_> {
         let delta = if self.w_anchored {
             // d_out = min - prev_out is already stored in the follower.
             let out_delta = self.minima.follower_take(OUT_FOLLOWER);
-            accumulator::into_signed_value(out_delta)
+            out_delta.into_bigint()
         } else {
             // min - prev_out = (h - prev_out) - (h - min).
             let fresh = Accumulator::new();
             let mut out_delta = core::mem::replace(&mut self.gap, fresh);
             self.minima.bridge_sub_gap(&mut out_delta);
-            accumulator::into_signed_value(out_delta)
+            out_delta.into_bigint()
         };
         // prev_out = min now: the follower restarts at zero.
         let zero = Accumulator::new();
@@ -841,10 +841,10 @@ impl TickWalk<'_> {
                 Some(first_leaf_depth),
             );
             self.next_payload = PayloadKind::Delta;
-            let net = accumulator::signed_value(&net);
+            let net = net.to_bigint();
             self.fold_block(&net);
         }
-        let result = accumulator::into_signed_value(above.into_offset());
+        let result = above.into_offset().into_bigint();
         debug_assert!(result.sign() != Sign::Minus, "the fold floors at zero");
         result
     }

@@ -54,7 +54,7 @@ use suanpan::Accumulator;
 
 use num_bigint::{BigInt, Sign};
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 
 use super::order::OrderState;
 use super::overlay::{advance_diff, OpenedPair, Side};
@@ -65,7 +65,7 @@ use crate::Version;
 impl Side {
     /// The output delta when switching to this side.
     fn switch_delta(self, diff: &Accumulator, old_step: Option<&HeightChange>) -> BigInt {
-        let (diff_sign, magnitude) = accumulator::value(diff);
+        let (diff_sign, magnitude) = diff.signed_magnitude();
         debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches sides");
         let negative = match self {
             Side::A => diff_sign == Ordering::Less,

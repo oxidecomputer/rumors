@@ -19,7 +19,7 @@ use core::cmp::Ordering;
 use num_bigint::BigInt;
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 
 use super::boundary::Boundary;
 
@@ -66,12 +66,12 @@ impl Anchor {
 
     /// Advance the running height, reading only the supplied difference.
     pub(super) fn fold_height(&mut self, delta: &BigInt) {
-        accumulator::fold_signed(&mut self.gap, delta);
+        self.gap.add_bigint(delta);
     }
 
     /// Undo a temporary height offset after a comparison.
     pub(super) fn subtract_offset(&mut self, offset: &BigInt) {
-        accumulator::subtract_signed(&mut self.gap, offset);
+        self.gap.sub_bigint(offset);
     }
 
     /// Move the anchor to `h`, returning its signed distance above the old minimum.
@@ -172,7 +172,7 @@ impl Anchor {
     pub(super) fn undercut_offset(&mut self, offset: &BigInt) -> Accumulator {
         let mut decrease = core::mem::take(&mut self.gap);
         decrease.negate();
-        accumulator::subtract_signed(&mut decrease, offset);
+        decrease.sub_bigint(offset);
         self.lower_by(decrease)
     }
 
@@ -182,7 +182,7 @@ impl Anchor {
     /// has already moved the old gap into the decrease; no wide value is copied.
     pub(super) fn set_gap_below_offset(&mut self, offset: &BigInt) {
         let mut gap = Accumulator::new();
-        accumulator::subtract_signed(&mut gap, offset);
+        gap.sub_bigint(offset);
         self.gap = gap;
     }
 
@@ -267,9 +267,9 @@ impl Anchor {
         candidate: &Accumulator,
     ) -> Ordering {
         self.gap.sub_accum(candidate);
-        accumulator::fold_signed(&mut self.gap, above);
+        self.gap.add_bigint(above);
         let sign = self.gap.sign();
-        accumulator::subtract_signed(&mut self.gap, above);
+        self.gap.sub_bigint(above);
         self.gap.add_accum(candidate);
         sign
     }

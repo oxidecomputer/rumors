@@ -990,8 +990,10 @@ fn u64_entry_points_cover_the_full_range() {
 /// rustdoc carry, pinned so any change to it is deliberate.
 #[test]
 fn redundant_zero_reads_nonzero_until_collapsed() {
-    let mut acc = Accumulator::new();
-    acc.add_limb_value(&(UBig::from(1u8) << 32usize));
+    // Start in the digit engine deliberately: the test needs two cancelling
+    // digits, not a particular public operation's dispatch choice.
+    let mut acc = fresh(true);
+    acc.apply_limbs(core::iter::once(1), false, 32);
     acc.sub_small(1 << 32);
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!((sign, magnitude), (Ordering::Equal, UBig::ZERO));

@@ -14,7 +14,7 @@ use num_bigint::BigInt;
 use suanpan::Accumulator;
 
 use super::width::{ScaledWidth, SparseWidth};
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 
 /// Deferred heights, ordered by the boundary where each began to apply.
 pub struct DeferredIntegral {
@@ -98,7 +98,7 @@ impl Aggregate {
     /// Convert one entry into the representations used throughout the reduction.
     fn new(height: &BigInt, width: &ScaledWidth) -> Self {
         let mut heights = Accumulator::new();
-        accumulator::fold_signed(&mut heights, height);
+        heights.add_bigint(height);
         Self {
             heights,
             widths: SparseWidth::from_scaled(width),
@@ -114,7 +114,7 @@ impl Aggregate {
     fn merge(&mut self, right: Self, total: &mut Accumulator) {
         // Pairs entirely within either half have already contributed. This
         // product accounts exactly for the pairs crossing this split.
-        let heights = accumulator::signed_value(&self.heights);
+        let heights = self.heights.to_bigint();
         if heights != BigInt::ZERO {
             right.widths.add_product(total, &heights);
         }

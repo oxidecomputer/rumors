@@ -78,7 +78,7 @@ from pathlib import Path
 SURFACE = "src/testing/surface.rs"
 DIFF_OPS = "src/testing/diff_ops.rs"
 SURFACE_COVERAGE = "src/testing/surface_coverage.rs"
-LAWS = "src/testing/laws.rs"
+LAWS = "src/testing/laws"
 
 # Asserted absent from the haystack, then required to fail resolution, on
 # every live run: proof the resolver can reject at all.
@@ -828,11 +828,15 @@ def main(argv):
         parser.error("--tests and --root are both required")
 
     root = Path(args.root)
+    laws = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((root / LAWS).glob("*.rs"))
+    )
     problems, cited = run(
         (root / SURFACE).read_text(encoding="utf-8"),
         (root / DIFF_OPS).read_text(encoding="utf-8"),
         (root / SURFACE_COVERAGE).read_text(encoding="utf-8"),
-        (root / LAWS).read_text(encoding="utf-8"),
+        laws,
         json.loads(Path(args.tests).read_text(encoding="utf-8")),
     )
     if problems:

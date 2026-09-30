@@ -15,7 +15,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::bits::stack::BitStack;
 use crate::bits::{BitRead, BitsReader};
 use crate::error::Decode;
@@ -99,12 +99,12 @@ where
         if seen_leaf {
             zero_delta = code == BigUint::ZERO;
             let delta = PayloadKind::Delta.decode(code);
-            accumulator::fold_signed(&mut height, &delta);
+            height.add_bigint(&delta);
             if delta.sign() == Sign::Minus && height.sign() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            accumulator::fold(&mut height, &code, 0, false);
+            height.add_biguint_shl(&code, 0);
             seen_leaf = true;
         }
 

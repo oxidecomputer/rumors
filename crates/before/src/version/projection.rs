@@ -64,7 +64,7 @@ use core::ops::ControlFlow;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::party::io::PartyRegionReader;
 use crate::{OwnVersion, Party};
 
@@ -82,7 +82,7 @@ impl VersionWriter {
         let (mut version, first) = VersionRegionReader::open(source);
         let mut ownership = PartyRegionReader::new(party);
         let mut height = Accumulator::new();
-        accumulator::fold(&mut height, &first, 0, false);
+        height.add_biguint_shl(&first, 0);
         let mut owned = ownership.owned();
 
         // Most projections fit within the combined input size. Larger outputs
@@ -132,7 +132,7 @@ impl VersionWriter {
                 // absolute height.
                 (false, true) => {
                     height.sign();
-                    let height = accumulator::signed_value(&height);
+                    let height = height.to_bigint();
                     debug_assert!(height.sign() != Sign::Minus, "heights are nonnegative");
                     height
                 }
@@ -141,7 +141,7 @@ impl VersionWriter {
                 // just-applied change to recover the preceding height.
                 (true, false) => {
                     height.sign();
-                    let now = accumulator::signed_value(&height);
+                    let now = height.to_bigint();
                     debug_assert!(now.sign() != Sign::Minus, "heights are nonnegative");
                     let before = match version_step {
                         Some(step) => now - step,
@@ -237,12 +237,12 @@ impl<'a> Comparison<'a> {
         // ownership case reads it otherwise, so feeding it would be pure waste.
         let height_a = b_party.map(|_| {
             let mut height_a = Accumulator::new();
-            accumulator::fold(&mut height_a, &a_first, 0, false);
+            height_a.add_biguint_shl(&a_first, 0);
             height_a
         });
         let height_b = a_party.map(|_| {
             let mut height_b = Accumulator::new();
-            accumulator::fold(&mut height_b, &b_first, 0, false);
+            height_b.add_biguint_shl(&b_first, 0);
             height_b
         });
         Comparison {
@@ -425,7 +425,7 @@ impl CursorSet for Comparison<'_> {
                 if let Some(height_a) = &mut self.height_a {
                     // A height integrator accumulates its own side plainly:
                     // the side orientation belongs to `D` alone.
-                    accumulator::fold_signed(height_a, &step);
+                    height_a.add_bigint(&step);
                 }
                 flip
             }
@@ -442,7 +442,7 @@ impl CursorSet for Comparison<'_> {
                 if let Some(height_b) = &mut self.height_b {
                     // A height integrator accumulates its own side plainly:
                     // the side orientation belongs to `D` alone.
-                    accumulator::fold_signed(height_b, &step);
+                    height_b.add_bigint(&step);
                 }
                 flip
             }

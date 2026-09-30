@@ -222,6 +222,11 @@ triage's dispositions and branches are leads only.
       carries a clear contract.
       Sources: `suanpan-*`, `suanpan-tests-*`.
 
+- [x] Make suanpan's limb-stream operations preserve their quick-register path
+      for word-sized values, and reduce Before's integer bridge to coherent
+      accumulator methods. Keep compact parked values local unless moving them
+      can preserve both their storage density and suanpan's wide-value costs.
+
 - [x] Eliminate `dashu` if the remaining rank and accumulator arithmetic can
       be expressed more simply without it. The intended outcome is one
       arbitrary-width representation, with no backend-capacity boundary or

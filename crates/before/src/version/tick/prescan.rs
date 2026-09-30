@@ -38,7 +38,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::party::io::{PartyNode, PartyReader};
 
 use super::super::range_minima::RangeMinima;
@@ -359,7 +359,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         let delta = PayloadKind::Delta.decode(code);
         self.minima.fold_height(&delta);
         if let Some(net) = &mut self.entry_net {
-            accumulator::fold_signed(net, &delta);
+            net.add_bigint(&delta);
         }
         delta
     }
@@ -389,7 +389,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .take()
             .expect("the entry net lives until the first arming");
         if let Some(offset) = offset {
-            accumulator::fold_signed(&mut relation, offset);
+            relation.add_bigint(offset);
         }
         self.pending_relation = Some(relation);
     }
@@ -428,7 +428,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .expect("the descended leaf is pending");
         self.minima.fold_height(&skip.net);
         if let Some(net) = &mut self.entry_net {
-            accumulator::fold_signed(net, &skip.net);
+            net.add_bigint(&skip.net);
         }
         self.emit_offset(&skip.min_from_exit);
     }
@@ -455,7 +455,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         let net = walk.net_remaining(&mut self.cursor);
         self.minima.fold_height(&net);
         if let Some(entry) = &mut self.entry_net {
-            accumulator::fold_signed(entry, &net);
+            entry.add_bigint(&net);
         }
     }
 
@@ -495,10 +495,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 &mut above,
                 Some(first_leaf_depth),
             );
-            let net = accumulator::signed_value(&net);
+            let net = net.to_bigint();
             self.minima.fold_height(&net);
         }
-        let result = accumulator::into_signed_value(above.into_offset());
+        let result = above.into_offset().into_bigint();
         debug_assert!(result.sign() != Sign::Minus, "the fold floors at zero");
         result
     }

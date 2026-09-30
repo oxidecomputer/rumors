@@ -9,7 +9,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::testing::instrument::range_minima as traffic;
 
 use super::RangeMinima;
@@ -39,7 +39,7 @@ impl RangeMinima<()> {
         }
         if self.has_pending() {
             let mut below = Accumulator::new();
-            accumulator::subtract_signed(&mut below, offset);
+            below.sub_bigint(offset);
             self.arm_below(below, &mut (), |_| (), |(), _| ());
             return;
         }

@@ -238,9 +238,11 @@ impl Accumulator {
     /// shift.
     ///
     /// Each limb is deposited directly at its shifted position; no normalized
-    /// integer or shifted copy is materialized. High zero limbs are permitted
-    /// and value-neutral, but each yielded limb costs one touch, so callers
-    /// should stream the minimal form.
+    /// integer or shifted copy is materialized. An empty stream changes
+    /// nothing, and a one-limb stream uses the same quick-register path as
+    /// [`add_u64_shl`](Self::add_u64_shl). High zero limbs are permitted and
+    /// value-neutral, but once a stream is wide each yielded limb costs one
+    /// touch, so callers should stream the minimal form.
     ///
     /// # Complexity
     ///
@@ -252,8 +254,7 @@ impl Accumulator {
     /// Panics if a nonzero digit would land at or beyond `usize::MAX`, where
     /// the digit buffer would need the unrepresentable length `position + 1`.
     pub fn add_limbs_shl<I: IntoIterator<Item = u64>>(&mut self, limbs: I, shift: u64) {
-        self.spill();
-        self.apply_limbs(limbs.into_iter(), false, shift);
+        self.fold_limbs(limbs.into_iter(), false, shift);
     }
 
     /// Subtract a stream of little-endian 64-bit limbs times `2^shift`:
@@ -273,8 +274,7 @@ impl Accumulator {
     /// Panics under the same condition as
     /// [`add_limbs_shl`](Accumulator::add_limbs_shl).
     pub fn sub_limbs_shl<I: IntoIterator<Item = u64>>(&mut self, limbs: I, shift: u64) {
-        self.spill();
-        self.apply_limbs(limbs.into_iter(), true, shift);
+        self.fold_limbs(limbs.into_iter(), true, shift);
     }
 
     /// Add another accumulator's held value into this one: amortized
@@ -791,6 +791,18 @@ impl Accumulator {
         }
     }
 
+    /// The occupied prefix in bits, rounded up to a digit boundary: O(1).
+    ///
+    /// This is `32 * digit_count()`. It bounds the held value's magnitude
+    /// width without normalizing or reading its digits.
+    #[inline]
+    pub fn bit_span(&self) -> u64 {
+        u64::try_from(self.digit_count())
+            .expect("an allocated accumulator's digit count fits u64")
+            .checked_mul(u64::from(DIGIT_BITS))
+            .expect("an allocated accumulator's bit span fits u64")
+    }
+
     /// The held value as a sign and normalized little-endian 64-bit
     /// limbs: O(held digits).
     ///
@@ -1265,7 +1277,31 @@ impl Accumulator {
         }
     }
 
-    /// Apply a little-endian 64-bit limb stream scaled by `2^shift`.
+    /// Add or subtract a little-endian limb stream scaled by `2^shift`.
+    ///
+    /// Peeking through the second limb distinguishes a machine word from a
+    /// genuinely wide operand. The former stays in the quick register when it
+    /// fits; the latter arms the digit engine once, then streams every limb.
+    fn fold_limbs<I: Iterator<Item = u64>>(&mut self, mut limbs: I, negative: bool, shift: u64) {
+        let Some(first) = limbs.next() else {
+            return;
+        };
+        let Some(second) = limbs.next() else {
+            self.add_shifted_word(first, negative, shift);
+            return;
+        };
+
+        self.spill();
+        self.apply_limbs(
+            core::iter::once(first)
+                .chain(core::iter::once(second))
+                .chain(limbs),
+            negative,
+            shift,
+        );
+    }
+
+    /// Apply a wide little-endian limb stream scaled by `2^shift`.
     ///
     /// Digit-aligned: each limb lands as two independent contributions at
     /// its own shifted positions, so a wide operand costs O(its limbs)

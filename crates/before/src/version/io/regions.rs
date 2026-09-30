@@ -17,7 +17,7 @@ use suanpan::Accumulator;
 use num_bigint::{BigInt, BigUint, Sign};
 
 use super::tree::VersionTreeReader;
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::bits::stack::BitStack;
 use crate::Version;
 
@@ -126,7 +126,7 @@ impl<'a> VersionRegionReader<'a> {
     pub fn skip_deeper(&mut self, bound: u64, net: &mut Accumulator) {
         while self.peek_flip() > bound {
             let (_, step) = self.step();
-            accumulator::fold_signed(net, &step);
+            net.add_bigint(&step);
         }
     }
 
@@ -280,7 +280,7 @@ impl Extremum {
     }
 
     fn fold_armed(&mut self, delta: &BigInt) {
-        accumulator::subtract_signed(&mut self.register, delta);
+        self.register.sub_bigint(delta);
         let overtaken = match self.direction {
             Direction::Max => Ordering::Less,
             Direction::Min => Ordering::Greater,
@@ -327,7 +327,7 @@ impl VersionSubtreeReader {
             let code = cursor.payload();
             let delta = kind.decode(code);
             kind = PayloadKind::Delta;
-            accumulator::fold_signed(net, &delta);
+            net.add_bigint(&delta);
             extremum.fold(&delta);
             last = Some((depth, cursor.position() - start));
         }
@@ -344,12 +344,12 @@ impl VersionSubtreeReader {
         loop {
             let code = cursor.payload();
             let delta = PayloadKind::Delta.decode(code);
-            accumulator::fold_signed(&mut net, &delta);
+            net.add_bigint(&delta);
             if self.descend(cursor).is_none() {
                 break;
             }
         }
-        accumulator::signed_value(&net)
+        net.to_bigint()
     }
 
     /// Summarize the remaining leaves by their net change and minimum.
@@ -367,9 +367,9 @@ impl VersionSubtreeReader {
         let mut min = Extremum::min(Accumulator::new());
         let (last_depth, last_code_len) =
             self.fold_remaining(cursor, first, &mut net, &mut min, pending)?;
-        let net = accumulator::signed_value(&net);
+        let net = net.to_bigint();
         let min = min.into_offset();
-        let min_from_exit = accumulator::signed_value(&min);
+        let min_from_exit = min.to_bigint();
         debug_assert_ne!(
             min_from_exit.sign(),
             Sign::Plus,

@@ -12,7 +12,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 
 /// One leaf height expressed relative to the current frozen prefix.
 pub struct LeafHeight {
@@ -61,9 +61,13 @@ impl HeightPrefixes {
     /// The absolute height is `frozen_prefix + live`. The live offset is added
     /// immediately; the prefix coefficient is deferred until settlement.
     pub fn add_leaf(&mut self, live: &Accumulator, total: &mut Accumulator) -> LeafHeight {
-        let (ordering, magnitude) = accumulator::value(live);
+        let (ordering, magnitude) = live.signed_magnitude();
         let negative = ordering == Ordering::Less;
-        accumulator::fold(total, &magnitude, 0, negative);
+        if negative {
+            total.sub_biguint_shl(&magnitude, 0);
+        } else {
+            total.add_biguint_shl(&magnitude, 0);
+        }
         *self
             .coefficients
             .last_mut()
@@ -87,7 +91,7 @@ impl HeightPrefixes {
     /// A zero change adds no component: every existing prefix still denotes
     /// the same value, so another index would carry no information.
     pub fn freeze(&mut self, live: &mut Accumulator) {
-        let component = accumulator::signed_value(live);
+        let component = live.to_bigint();
         if component.sign() != Sign::NoSign {
             self.components.push(component);
             self.coefficients.push(0);
@@ -129,6 +133,10 @@ impl HeightPrefixes {
         }
         let mut product = factor.clone();
         product *= BigUint::from(count);
-        accumulator::fold(total, &product, 0, subtract);
+        if subtract {
+            total.sub_biguint_shl(&product, 0);
+        } else {
+            total.add_biguint_shl(&product, 0);
+        }
     }
 }

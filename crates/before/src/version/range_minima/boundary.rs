@@ -13,7 +13,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 
 /// A strictly positive difference, with a compact word form for small values.
 pub(super) enum Boundary {
@@ -41,7 +41,7 @@ impl Boundary {
     /// digits has constant cost; a wider accumulator is retained directly.
     pub(super) fn from_positive(difference: Accumulator) -> Self {
         if difference.digit_count() <= 2 {
-            let (sign, magnitude) = accumulator::value(&difference);
+            let (sign, magnitude) = difference.signed_magnitude();
             debug_assert_eq!(sign, Ordering::Greater, "boundaries are positive");
             if let Ok(word) = u64::try_from(&magnitude) {
                 return Self::Word(word);

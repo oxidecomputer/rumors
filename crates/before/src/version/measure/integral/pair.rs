@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt, BigUint, Sign};
 
-use crate::accumulator;
+use crate::accumulator::{self, BigIntAccumulator as _};
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::version::overlay::{advance_diff, OpenedPair, Side};
 use crate::{Rank, Version};
@@ -49,7 +49,7 @@ impl Integrator {
         let mut integral = Integrator::new();
 
         if current_orientation != 0 {
-            let (opening_sign, opening) = accumulator::value(&diff);
+            let (opening_sign, opening) = diff.signed_magnitude();
             let negative = match opening_sign {
                 Ordering::Greater => current_orientation < 0,
                 Ordering::Less => current_orientation > 0,

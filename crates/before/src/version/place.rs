@@ -61,7 +61,7 @@ use suanpan::Accumulator;
 
 use num_bigint::BigUint;
 
-use crate::accumulator;
+use crate::accumulator::BigIntAccumulator as _;
 use crate::span::{Dominance, Endpoint, Placement, Precedence};
 
 use super::order::OrderState;
@@ -99,8 +99,8 @@ impl<'a> BoundSide<'a> {
     fn open(bits: &'a Version, probe_first: &BigUint) -> BoundSide<'a> {
         let (cursor, first) = VersionRegionReader::open(bits);
         let mut diff = Accumulator::new();
-        accumulator::fold(&mut diff, probe_first, 0, false);
-        accumulator::fold(&mut diff, &first, 0, true);
+        diff.add_biguint_shl(probe_first, 0);
+        diff.sub_biguint_shl(&first, 0);
         BoundSide {
             cursor,
             diff,
