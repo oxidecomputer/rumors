@@ -311,10 +311,10 @@ fn dominated_undercut_id_decodes_canonically_at_predicted_length() {
 }
 
 /// The stack-segment meter observes deep guarded recursion, resets to zero,
-/// counts deterministically, and reads zero over a deep fill walk.
+/// counts deterministically, and reads zero over a deep tick walk.
 ///
 /// Determinism — the same count for the same descent repeated at the same call
-/// depth — is what makes the meter envelope-able; the deep fill reads zero
+/// depth — is what makes the meter envelope-able; the deep tick reads zero
 /// because its explicit stacks put depth on the heap instead.
 ///
 /// Every library walk is iterative, so the meter's liveness needs its own
@@ -359,7 +359,7 @@ fn stack_segment_meter_counts_deterministically_and_resets() {
         "identical descents at identical call depth grow identical segments: {ISOLATION_NOTE}"
     );
 
-    // The conversion ratchet: the fill walk pairs a deep spine on BOTH
+    // The conversion ratchet: the tick walk pairs a deep spine on BOTH
     // sides — exactly the descent that once grew the stack — and must now
     // read zero, its depth on explicit heap stacks the heap meter prices.
     let v = dense(50_000).version();
@@ -370,7 +370,7 @@ fn stack_segment_meter_counts_deterministically_and_resets() {
     assert_eq!(
         super::stack_segments(),
         0,
-        "the iterative fill walk grows no stack segments: {ISOLATION_NOTE}"
+        "the iterative tick walk grows no stack segments: {ISOLATION_NOTE}"
     );
 }
 

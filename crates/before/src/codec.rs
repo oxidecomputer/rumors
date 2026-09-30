@@ -32,8 +32,9 @@ pub(crate) use build::BitBuilder;
 pub(crate) use cursor::{BitCursor, SliceCursor};
 pub(crate) use dsi::DsiCursor;
 pub(crate) use stack::{BitStack, PopStack};
-pub(crate) use tree::parse_id;
+pub(crate) use tree::parse_party;
 #[cfg(feature = "borsh")]
-pub(crate) use tree::parse_id_core;
+pub(crate) use tree::parse_party_core;
 #[cfg(all(test, feature = "borsh"))]
-pub(crate) use tree::parse_id_from;
+pub(crate) use tree::parse_party_from;
+pub(crate) use tree::skip_subtree;

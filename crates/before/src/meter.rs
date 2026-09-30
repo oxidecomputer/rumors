@@ -570,7 +570,7 @@ fn id_spine(d: usize, divert: bool) -> Encoding {
 /// terminus `(1, 0)` (`10 · 00`; a `(1, 1)` terminus would break normal form),
 /// then the `d` right-child terminals (`00`), innermost first — preorder closes
 /// the spine's right children in reverse. Every level is a right-full shortcut
-/// site over a matching event spine: the deepest stacking of the fill walk's
+/// site over a matching event spine: the deepest stacking of the tick walk's
 /// deferred right-full decisions and per-level raise bookkeeping per input bit.
 ///
 /// # Panics
@@ -3589,7 +3589,7 @@ pub fn reset_span_traffic() {
     crate::version::hull_traffic::reset()
 }
 
-/// The fill walk's priced-offset domination decisions since the last
+/// The tick walk's priced-offset domination decisions since the last
 /// [`reset_emit_traffic`]: how many word-scale emissions each of the
 /// range-minimum stack's no-fold arms answered, and how many fell back to the
 /// fold path.

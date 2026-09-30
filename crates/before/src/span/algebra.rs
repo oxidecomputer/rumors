@@ -1,36 +1,27 @@
-//! The span algebra: four binary operators over owned and borrowed [`Span`]
-//! operands, each with a receiver-seeded variadic form running one balanced
-//! two-sided fold.
+//! Combines spans by containment or by their endpoints' causal order.
 //!
-//! The operators are the joins and meets of the two lattice structures spans
-//! carry (the [`Span`] docs place them side by side). The
-//! pointwise pair wears the version lattice's own symbols — `|` and `&` on
-//! spans are exactly `|` and `&` on versions, lifted endpointwise — while the
-//! containment pair's novel semantics get the novel symbols `+` and `*`.
-//! Every operator folds through its `lo` and `hi` legs; the four operators
-//! are exactly the four assignments of the two lattice directions to the two
-//! legs:
+//! Union (`+`) finds the least span containing both inputs; intersection (`*`)
+//! finds their common versions, if any. Pointwise join (`|`) and meet (`&`)
+//! instead apply the corresponding version operation to each endpoint. Each
+//! operation is determined by how it combines the lower and upper endpoints:
 //!
 //! ```text
-//!                lo leg      hi leg      total?
+//!                lower       upper       total?
 //!   + union       meet        join       yes (containment join)
 //!   * intersect   join        meet       no  (containment meet)
 //!   | join        join        join       yes (pointwise join)
 //!   & meet        meet        meet       yes (pointwise meet)
 //! ```
 //!
-//! Totality arguments, once: union's `lo` only descends below `a.lo` and its
-//! `hi` only ascends above `a.hi`, so the output pair stays ordered; the
-//! pointwise join's `hi` (a join of upper endpoints) bounds both lower
-//! endpoints from above, so it bounds their join, and the pointwise meet
-//! dually. Intersect is the one genuinely partial operator: its `lo` ascends while
-//! its `hi` descends, and the pair crosses exactly when the spans share no
-//! version.
+//! Union preserves endpoint order because it can only lower the lower bound
+//! and raise the upper bound. Pointwise join and meet preserve it because both
+//! version operations are monotone. Intersection can instead raise the lower
+//! bound beyond, or make it concurrent with, the upper bound. It returns
+//! `None` unless the resulting lower endpoint is at most the upper endpoint.
 //!
-//! The three total operations also assign in place (`+=`, `|=`, `&=`), each
-//! cell the value kernel written back to the receiver. Partiality is why `*`
-//! has no `*=`: an assigning operator returns nothing, so a disjoint pair would
-//! leave the miss nowhere to land.
+//! The three total operations also assign in place (`+=`, `|=`, `&=`), writing
+//! the computed span back to the receiver. Intersection has no assignment
+//! operator because assignment cannot return its possibly empty result.
 //!
 //! Every endpoint combine is a [`Version`] join or meet, whose result is no
 //! larger than its operands together. The balanced folds therefore hold at most
@@ -361,16 +352,14 @@ impl<'a> Span<'a> {
         Span::owned(lo, hi)
     }
 
-    /// The operators' shared balanced fold: `{self} ∪ iter` reduced through
-    /// [`crate::fold::balanced_reduce`] with a two-sided accumulator, per-operator
-    /// leg kernels, and the point-combine fast path.
+    /// Combine the receiver and input spans with a balanced fold of their
+    /// lower and upper endpoints.
     ///
-    /// Adjacent clone-identical inputs collapse before the counter reads them
-    /// (all four operators are idempotent — the binary operators' laws — so a run
-    /// of one shared span is one input); the receiver enters as the first input,
-    /// so the fold is never empty. Inputs enter untouched and are cloned only
-    /// at their first combine, and every clone of a stored version is a
-    /// refcount bump, never a byte copy.
+    /// Adjacent spans sharing both endpoint buffers are equivalent under all
+    /// four idempotent operations, so only one from each run enters the fold.
+    /// Inputs are borrowed until combined; intermediate endpoints are owned
+    /// and updated in place. Two point spans can combine their single versions
+    /// directly instead of repeating the operation for both endpoints.
     fn fold_endpoints<'s, I>(&self, iter: I, ops: &SpanFoldOps) -> (Version, Version)
     where
         I: IntoIterator,
@@ -449,9 +438,11 @@ impl<'a> Span<'a> {
     }
 }
 
-/// One n-ary span operator's kernels. Each operator folds through its `lo` and `hi`
-/// legs; the module doc carries the four leg assignments and their totality
-/// arguments.
+/// Endpoint operations for one kind of span fold.
+///
+/// Borrowed inputs produce a new endpoint; an owned intermediate result can
+/// absorb the next input in place. Point spans have a separate combination
+/// that avoids computing the same endpoint twice.
 struct SpanFoldOps {
     /// Combine two borrowed lower endpoints into a fresh owned one.
     lo_refs: fn(&Version, &Version) -> Version,
@@ -461,17 +452,13 @@ struct SpanFoldOps {
     lo_view: fn(&mut Version, &codec::Bits),
     /// Fold one borrowed stream into the owned `hi` leg in place.
     hi_view: fn(&mut Version, &codec::Bits),
-    /// The fused point-combine: both sides read one stream each, so
-    /// one walk answers both legs (each operator's kernel is named at its
-    /// constant).
+    /// Combine two point spans, taking advantage of their equal endpoints.
     points: fn(&Version, &Version) -> (Version, Version),
 }
 
-/// Union's point-combine: two points' union is their hull: one fused pair walk
-/// through [`Version::span_refs`]'s ladder, fast paths and traffic accounting
-/// included.
+/// Enclose two point versions with their meet and join, computing both together.
 fn union_points(a: &Version, b: &Version) -> (Version, Version) {
-    Version::span_refs(a, b)
+    a.hull(b)
 }
 
 /// Intersection's point-combine: two points share a version exactly when they
@@ -484,28 +471,28 @@ fn intersect_points(a: &Version, b: &Version) -> (Version, Version) {
     if codec::canonical_eq(a.view(), b.view()) {
         return (a.clone(), a.clone());
     }
-    (Version::join_refs(a, b), Version::meet_refs(a, b))
+    (a.join(b), a.meet(b))
 }
 
 /// The pointwise join's point-combine: the legs read the same operand pair, so
 /// one join walk feeds both, the result stored twice (clones share the
 /// buffer, keeping the group point-like).
 fn join_points(a: &Version, b: &Version) -> (Version, Version) {
-    let v = Version::join_refs(a, b);
+    let v = a.join(b);
     (v.clone(), v)
 }
 
 /// The pointwise meet's point-combine: dually to [`join_points`], one meet
 /// walk feeds both legs.
 fn meet_points(a: &Version, b: &Version) -> (Version, Version) {
-    let v = Version::meet_refs(a, b);
+    let v = a.meet(b);
     (v.clone(), v)
 }
 
 /// Union: meets meet, joins join.
 const UNION_OPS: SpanFoldOps = SpanFoldOps {
-    lo_refs: Version::meet_refs,
-    hi_refs: Version::join_refs,
+    lo_refs: Version::meet,
+    hi_refs: Version::join,
     lo_view: Version::meet_view,
     hi_view: Version::join_view,
     points: union_points,
@@ -513,8 +500,8 @@ const UNION_OPS: SpanFoldOps = SpanFoldOps {
 
 /// Intersection: meets join, joins meet.
 const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
-    lo_refs: Version::join_refs,
-    hi_refs: Version::meet_refs,
+    lo_refs: Version::join,
+    hi_refs: Version::meet,
     lo_view: Version::join_view,
     hi_view: Version::meet_view,
     points: intersect_points,
@@ -522,8 +509,8 @@ const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
 
 /// Pointwise join: both legs join.
 const JOIN_OPS: SpanFoldOps = SpanFoldOps {
-    lo_refs: Version::join_refs,
-    hi_refs: Version::join_refs,
+    lo_refs: Version::join,
+    hi_refs: Version::join,
     lo_view: Version::join_view,
     hi_view: Version::join_view,
     points: join_points,
@@ -531,8 +518,8 @@ const JOIN_OPS: SpanFoldOps = SpanFoldOps {
 
 /// Pointwise meet: both legs meet.
 const MEET_OPS: SpanFoldOps = SpanFoldOps {
-    lo_refs: Version::meet_refs,
-    hi_refs: Version::meet_refs,
+    lo_refs: Version::meet,
+    hi_refs: Version::meet,
     lo_view: Version::meet_view,
     hi_view: Version::meet_view,
     points: meet_points,
@@ -592,17 +579,16 @@ impl<'i, 's, T: Borrow<Span<'s>>> Group<FoldInput<'_, 'i, T>> {
 /// `a + b`'s kernel: the containment join over borrowed operands.
 fn union_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     if a.is_coincident() && b.is_coincident() {
-        // Two points' union is their hull: one fused pair walk (Version::span's
-        // ladder, fast paths and traffic accounting included) where the per-leg
-        // folds below would walk the same operand pair twice.
+        // Both endpoints come from the same version pair, so compute their
+        // meet and join together.
         return a.lo().span(b.lo());
     }
     let mut lo = a.lo().clone(); // O(1): a stored version's clone shares its buffer
     let mut hi = a.hi().clone();
     lo.meet_view(b.lo().view());
     hi.join_view(b.hi().view());
-    // Ordered by construction: `lo` only descended below `a`'s meet, `hi` only
-    // ascended above `a`'s join, and `a`'s endpoints are ordered.
+    // The lower bound only decreased and the upper bound only increased, so
+    // the result preserves the input span's endpoint order.
     Span::owned(lo, hi)
 }
 
@@ -619,8 +605,8 @@ fn intersect_core(a: &Span<'_>, b: &Span<'_>) -> Option<Span<'static>> {
     let mut hi = a.hi().clone();
     lo.join_view(b.lo().view());
     hi.meet_view(b.hi().view());
-    // The one genuinely partial operator: the joined meets must still sit under the
-    // met joins, and the pair crosses exactly when the segments are disjoint.
+    // Common versions exist exactly when the new lower bound is at most the
+    // new upper bound; incomparable endpoints also mean an empty intersection.
     match lo.partial_cmp(&hi) {
         Some(Ordering::Less | Ordering::Equal) => Some(Span::owned(lo, hi)),
         Some(Ordering::Greater) | None => None,
@@ -633,7 +619,7 @@ fn join_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
         // On points the pointwise operation is exactly the version operator: one walk feeds
         // both endpoints, stored twice (the clones share one buffer, keeping
         // the result coincident).
-        let v = Version::join_refs(a.lo(), b.lo());
+        let v = a.lo().join(b.lo());
         return Span::owned(v.clone(), v);
     }
     let mut lo = a.lo().clone();
@@ -649,7 +635,7 @@ fn join_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
 /// [`join_core`] in every clause.
 fn meet_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     if a.is_coincident() && b.is_coincident() {
-        let v = Version::meet_refs(a.lo(), b.lo());
+        let v = a.lo().meet(b.lo());
         return Span::owned(v.clone(), v);
     }
     let mut lo = a.lo().clone();
@@ -659,15 +645,10 @@ fn meet_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     Span::owned(lo, hi)
 }
 
-/// Generates one *total* span operator's value matrix: two cells (owned and
-/// borrowed receiver), each taking any span-convertible right operand and
-/// making one call into the operator's borrowed-operand kernel.
+/// Implements a total span operator for owned and borrowed receivers.
 ///
-/// The operand lifetimes are independent, and the output is always `'static`
-/// (owned endpoints), so the operators compose freely in fold position. The
-/// assign cells are `span_assign_matrix!`'s. The partial operator uses the
-/// concrete `span_binop_matrix!` instead: it refuses the `Into` widening
-/// (the module doc carries the argument), so it cannot share these cells.
+/// The right operand may be any span-convertible value. The result owns its
+/// endpoints, so the operand lifetimes remain independent.
 macro_rules! span_total_binop_matrix {
     ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident) => {
         $(#[$doc])*
@@ -731,14 +712,10 @@ macro_rules! span_version_lhs_matrix {
     };
 }
 
-/// Generates the *partial* span operator's value matrix over owned and
-/// borrowed operands: four cells (lhs × rhs over `{Span, &Span}`), every cell
-/// one call into the operator's borrowed-operand kernel.
+/// Implements a partial span operator for every owned/borrowed combination.
 ///
-/// Only the intersection uses this concrete matrix: it deliberately takes
-/// true spans, never an `Into` conversion (the module doc carries the
-/// argument), where the total operators use `span_total_binop_matrix!`'s
-/// widened cells.
+/// Unlike total operators, intersection accepts only actual spans. Implicitly
+/// widening a version to a point would make disjointness too easy to overlook.
 macro_rules! span_binop_matrix {
     ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident, $Out:ty) => {
         $(#[$doc])*
@@ -987,12 +964,9 @@ span_binop_matrix! {
     Mul::mul, intersect_core, Option<Span<'static>>
 }
 
-/// Generates one total span operator's assign cell: any span-convertible
-/// right operand, the value kernel written back to the receiver.
+/// Implements an assigning span operator for any span-convertible right side.
 ///
-/// `a ⊕= b` is `a = a ⊕ b` exactly — the same kernel, fast paths and cost
-/// included. The intersection has no assign cell; the module doc carries
-/// the argument.
+/// `a ⊕= b` is exactly `a = a ⊕ b`, using the same kernel.
 macro_rules! span_assign_matrix {
     ($(#[$doc:meta])* $Assign:ident::$assign:ident, $core:ident) => {
         $(#[$doc])*
@@ -1157,9 +1131,8 @@ span_union_fold! {
 /// [`None`] covers both an empty iterator (intersection has no identity: the
 /// version lattice has no top, so no span is covered by every span) and a
 /// nonempty family sharing no version — the two ways there is no product.
-/// Like every intersection form, items are true [`Span`]s only, never
-/// versions: a point item would silently empty the product unless every
-/// input contains it (the module doc carries the argument).
+/// Items are true [`Span`]s rather than implicitly widened versions: a point
+/// item would otherwise empty the product unless every input contained it.
 macro_rules! span_intersect_fold {
     ($(#[$doc:meta])* ($($lt:lifetime),*) $Item:ty) => {
         $(#[$doc])*

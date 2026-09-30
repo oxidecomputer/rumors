@@ -1278,7 +1278,7 @@ fn rightmost_terminal_path(bits: codec::BitsView<'_>) -> Vec<bool> {
         }
         if right {
             if left {
-                pos = crate::idbits::skip_subtree(pos, |at| {
+                pos = crate::codec::skip_subtree(pos, |at| {
                     let children = u64::from(bits.bit(at)) + u64::from(bits.bit(at + 1));
                     (children, at + 2)
                 });

@@ -18,7 +18,6 @@ use crate::{
     codec::{self, BitCursor},
     error::Decode,
     span::Span,
-    version::decode_rank_stream,
     Clock, Party, Rank, Ranked, Version,
 };
 
@@ -56,6 +55,7 @@ struct ReaderCursor<'a, R> {
 }
 
 impl<'a, R: Read> ReaderCursor<'a, R> {
+    /// Begin decoding a field without reading ahead into the next one.
     fn new(reader: &'a mut R) -> Self {
         ReaderCursor {
             reader,
@@ -131,22 +131,23 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
     }
 }
 
-/// Read and validate one byte-aligned canonical id tree, returning its
+/// Read and validate one byte-aligned canonical party tree, returning its
 /// canonical marker-padded bytes.
-fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
+fn deserialize_party<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
     let mut cursor = ReaderCursor::new(reader);
-    codec::parse_id_core(&mut cursor).map_err(decode_error)?;
+    codec::parse_party_core(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
 }
 
-/// Read and validate one byte-aligned canonical skyline event stream,
+/// Read and validate one byte-aligned canonical version skyline,
 /// returning its canonical marker-padded bytes.
-fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
+fn deserialize_version<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
     let mut cursor = ReaderCursor::new(reader);
     crate::version::skyline::validate_from(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
 }
 
+/// Preserve I/O failures and classify invalid encodings as invalid data.
 fn decode_error(error: Decode) -> Error {
     match error {
         Decode::Io(source) => source,
@@ -162,10 +163,10 @@ impl BorshSerialize for Party {
 
 impl BorshDeserialize for Party {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        // The id grammar has no empty production (a starved reader rejects
-        // inside the parse), so the parsed id is a nonzero share — the
-        // standalone-party invariant (paper §3: `i ≠ 0`) holds structurally.
-        let bytes = deserialize_id(reader)?;
+        // Every stored terminal owns its region, and every stored branch has a
+        // child. A complete parsed tree therefore satisfies Party's nonempty
+        // ownership invariant.
+        let bytes = deserialize_party(reader)?;
         Ok(Party::from_frozen(codec::Bits::from_canonical(
             bytes.into(),
         )))
@@ -180,7 +181,7 @@ impl BorshSerialize for Version {
 
 impl BorshDeserialize for Version {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        deserialize_event(reader)
+        deserialize_version(reader)
             .map(|bytes| Version::from_frozen(codec::Bits::from_canonical(bytes.into())))
     }
 }
@@ -215,7 +216,7 @@ impl BorshSerialize for Rank {
 /// bytes after its closing bit belong to the next borsh field.
 impl BorshDeserialize for Rank {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        decode_rank_stream(|| {
+        Rank::decode_stream(|| {
             let mut byte = [0];
             reader.read_exact(&mut byte).map_err(Decode::Io)?;
             Ok(byte[0])
@@ -245,7 +246,7 @@ impl BorshSerialize for Ranked<'_> {
 impl BorshDeserialize for Ranked<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let mut rank_bytes = Vec::new();
-        decode_rank_stream(|| {
+        Rank::decode_stream(|| {
             let mut byte = [0];
             reader.read_exact(&mut byte).map_err(Decode::Io)?;
             rank_bytes.push(byte[0]);

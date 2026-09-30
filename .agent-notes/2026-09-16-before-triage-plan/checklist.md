@@ -187,14 +187,19 @@ triage's dispositions and branches are leads only.
 
 ## 06. Production structure and local simplification
 
-- [ ] Simplify Party indexing, splitting, sum, difference, and fold paths while
-      preserving their direct properties and costs.
+- [x] Simplify Party traversal, fork, join, sync, difference, and fold paths
+      while preserving their direct properties and costs. Align internal names
+      with the public operations, attach behavior to the type that owns it, and
+      isolate substantial cursor, builder, plan, and frame state in focused
+      modules.
       Sources: `party-*`, `performance.md` Party entries,
       `simplification.md` Party entries.
 
-- [ ] Simplify skyline coding, fill, grow, comparison, query, and watermark
-      layers so their invariants live in one place and their control flow is
-      reviewable.
+- [ ] Apply the same structural standard to Version and related public types:
+      align internal and public vocabulary, prefer associated behavior over
+      detached procedures, and give substantial helper state a focused module.
+      Simplify skyline coding, fill, grow, comparison, query, and watermark so
+      their invariants live in one place and their control flow is reviewable.
       Sources: all `skyline-*` partitions; `module-graph-*`.
 
 - [ ] Consolidate codec buffers, cursors, builders, and parse paths; delete
@@ -371,6 +376,9 @@ into otherwise small feature increments.
       phrasing.
       Sources: `documentation.md`, `simplification.md`,
       `prose-hygiene-*`, `module-graph-*`.
+
+- [x] Independently review the simplified Party and Version-tick internals for
+      pedagogical commentary, with particular attention to the lookahead scan.
 
 - [ ] Simplify module boundaries after behavioral work settles, and keep the
       guideposts accurate.

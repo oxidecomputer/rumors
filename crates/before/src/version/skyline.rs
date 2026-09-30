@@ -143,8 +143,8 @@ pub mod emit;
 // surface and the transcoding tests only.
 #[cfg(any(test, feature = "meter"))]
 mod encode;
-pub(crate) mod fill;
-pub(crate) mod grow;
+pub(crate) mod tick;
+
 pub(crate) mod masked;
 // The overlay cursors and the advance law: crate-private walk machinery shared
 // by every merge.
@@ -158,8 +158,7 @@ mod validate;
 // The leaf-walk driver: the descend/backtrack skeleton and shared leaf
 // actions of the single-stream scanning passes.
 mod walk;
-// The range-minimum stack the fill walk and the min-ticks fold share: the
-// range-minimum discipline stated once, each client thin over it.
+// Streaming range minima shared by ticking and `min_ticks`.
 mod watermark;
 // The web's domination-read counters: which emission arm answered, read
 // through `meter::emit_traffic`.

@@ -139,14 +139,6 @@ impl<'a> BitsView<'a> {
         }
     }
 
-    /// The empty view: no bits, no bytes.
-    pub(crate) fn empty() -> Self {
-        BitsView {
-            bytes: &[],
-            live: 0,
-        }
-    }
-
     /// The live bit length.
     pub fn len(&self) -> u64 {
         self.live

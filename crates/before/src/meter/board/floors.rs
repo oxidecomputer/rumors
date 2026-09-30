@@ -150,7 +150,7 @@ pub(super) const NA_HEAP_QUERY_CLONE: &str =
 pub(super) const NA_SCAN_QUERY_CLONE: &str =
     "clones bound handles without reading their encoded version streams";
 /// Scan floor: the tick walk examines its whole input.
-const WHY_SCAN_TICK_WALK: &str = "the paired fill walk examines every topology bit and payload \
+const WHY_SCAN_TICK_WALK: &str = "the paired tick walk examines every topology bit and payload \
      code of both operands at least once: 8 bits per input byte, the walk's irreducible single \
      examination";
 /// Touch floor (deterministic-liveness): the kernel folds every
@@ -598,7 +598,7 @@ pub(super) fn masked_cmp_floors(
 /// The tick-cross rows' floors: full-examination scan, delta-fold touches,
 /// and in-place heap.
 ///
-/// The paired fill walk examines every bit of both operands (a
+/// The paired tick walk examines every bit of both operands (a
 /// full-examination scan floor, 8 bits per byte — the measured tick-walk
 /// constants sit 2–5× above it). Each nonzero stored delta must also reach the
 /// accumulator, which supplies the touch floor.

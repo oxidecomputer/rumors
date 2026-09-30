@@ -21,9 +21,9 @@
 //!   `k >= 0 -> 2k`, `k < 0 -> 2|k| − 1` (`version/skyline.rs`), handed to
 //!   the same `encode_int`.
 //!
-//! `Party` id trees carry 2-bit presence tags per node and no integers
-//! (`idbits`), so the whole integer-code question lives in the version
-//! stream. The borsh leg writes the same stored bytes.
+//! `Party` trees carry 2-bit presence tags per node and no integers, so the
+//! whole integer-code question lives in the version stream. The borsh leg
+//! writes the same stored bytes.
 //!
 //! # Mechanism
 //!

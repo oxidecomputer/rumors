@@ -34,11 +34,11 @@ use crate::testing::exhaustive::{
 };
 use crate::testing::grow_brute_force::best_inflation;
 use crate::testing::{generators, optrace};
-use crate::version::skyline::fill::{fused_fill, tick, FillOutcome};
+use crate::version::skyline::tick::{Decision, TickWalk};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Ticks, Version};
 
-use super::{Cost, EvScan, IdScan, Route};
+use super::{Cost, PartyTags, Route, VersionCursor};
 
 /// Lift a meter-generated encoded event shape into a [`Version`].
 fn version_of(p: &Encoding) -> Version {
@@ -106,10 +106,10 @@ fn assert_grow(v: &Version, p: &Party) -> bool {
 /// this directly and takes its value witnesses from closed forms instead.
 fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsBuf> {
     let enc = encode(v);
-    match fused_fill(crate::codec::built_view(&enc), p) {
+    match TickWalk::decide(crate::codec::built_view(&enc), p) {
         // fill moved the tree: the splice is unreachable for this pair.
-        FillOutcome::Changed(_) => None,
-        FillOutcome::Unchanged(route) => {
+        Decision::Simplified(_) => None,
+        Decision::Raise(route) => {
             let (reference, _) = reference_probe(crate::codec::built_view(&enc), p.as_bits());
             assert_eq!(
                 route.dirs(),
@@ -117,7 +117,7 @@ fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsBuf> {
                 "the fused walk's route must match the recursive reference bit for bit: \
                  {v:?} with {p:?}"
             );
-            let out = tick(crate::codec::built_view(&enc), p);
+            let out = TickWalk::tick(crate::codec::built_view(&enc), p);
             validate(crate::codec::built_view(&out)).expect("a grown stream is canonical");
             Some(out)
         }
@@ -140,7 +140,7 @@ enum RefId {
 /// walk carries, kept as its structural witness.
 fn reference_probe(ev_bits: BitsView<'_>, id_bits: BitsView<'_>) -> (Route, Cost) {
     let mut route = Route::new(id_bits.len());
-    let mut ev = EvScan::new(ev_bits);
+    let mut ev = VersionCursor::new(ev_bits);
     let mut id_pos = 0u64;
     let root = if id_bits.is_empty() {
         RefId::Empty
@@ -159,7 +159,7 @@ fn reference_probe(ev_bits: BitsView<'_>, id_bits: BitsView<'_>) -> (Route, Cost
 #[allow(clippy::too_many_arguments)]
 fn rec(
     route: &mut Route,
-    ev: &mut EvScan<'_>,
+    ev: &mut VersionCursor<'_>,
     id_bits: BitsView<'_>,
     id_pos: &mut u64,
     id: RefId,
@@ -187,7 +187,7 @@ fn rec(
         }
         RefId::At => {
             let key = *id_pos;
-            let (l, r) = IdScan::tag_at(id_bits, *id_pos);
+            let (l, r) = PartyTags::tag_at(id_bits, *id_pos);
             *id_pos += 2;
             if !l && !r {
                 return rec(route, ev, id_bits, id_pos, RefId::Full, ev_zero, depth);
@@ -410,7 +410,7 @@ fn worked_examples_grow_exactly() {
         let v = from_oracle_version(&before);
         let expected = from_oracle_version(&after);
         assert_eq!(
-            tick(crate::codec::built_view(&encode(&v)), &p),
+            TickWalk::tick(crate::codec::built_view(&encode(&v)), &p),
             encode(&expected),
             "grow of {before:?} with {party:?} must yield {after:?}"
         );
@@ -491,7 +491,7 @@ proptest! {
             let (best, _) = best_inflation(&op, &ov).expect("an owning id always inflates");
             let minimal = from_oracle_version(&best.normalized_for_test());
             prop_assert_eq!(
-                tick(crate::codec::built_view(&encode(&v)), &p),
+                TickWalk::tick(crate::codec::built_view(&encode(&v)), &p),
                 encode(&minimal),
                 "grow must register the brute-force minimal inflation: {:?} with {:?}", v, p
             );

@@ -32,7 +32,7 @@ mod tests;
 /// | `a.version()` (`<`, `<=`, `==`) `b.version()`                                                                                       | compare causal histories (the order lives on [`Version`])|
 /// | [`a.version().concurrent(b.version())`](Version::concurrent)                                                                        | the two clocks' histories are incomparable               |
 /// | `clock \| v`, `clock \|= v`                                                                                                         | join a received [`Version`] `v` into this clock          |
-/// | [`tick`](Clock::tick)/[`ticks`](Clock::ticks)/[`fork`](Clock::fork)/[`join`](Clock::join)/[`sync`](Clock::sync)/[`send`](Clock::send)/[`recv`](Clock::recv) | advance, split, and reunite clocks             |
+/// | [`tick`](Clock::tick)/[`ticks`](Clock::ticks)/[`fork`](Clock::fork)/[`join`](Clock::join)/[`sync`](Clock::sync)/[`send`](Clock::send)/[`recv`](Clock::recv) | advance, fork, and reunite clocks             |
 ///
 /// There is deliberately no `Clock | Clock`: merging two whole clocks is the
 /// fallible [`join`](Clock::join), which must verify the parties are disjoint.
@@ -162,7 +162,7 @@ impl Clock {
         Clock::from_parts(child_party, child_version)
     }
 
-    /// Splits `k` balanced child clocks off this [`Clock`] as a lazy iterator.
+    /// Forks `k` balanced child clocks off this [`Clock`] as a lazy iterator.
     ///
     /// Prefer this to iterated [`fork`](Clock::fork), which would generate
     /// linearly growing [`Clock`] sizes, as opposed to the balanced,
@@ -176,7 +176,7 @@ impl Clock {
     /// Suffix integer literals to select an unsigned type, as in `3u64`. The
     /// iterator type is exported as [`iter::Clock`](crate::iter::Clock).
     ///
-    /// For the consuming counterpart that splits into exactly `N` clocks, see
+    /// For the consuming counterpart that forks into exactly `N` clocks, see
     /// [`From<Clock>`](Clock) for `[Clock; N]`.
     ///
     /// # Complexity
@@ -323,10 +323,10 @@ impl Clock {
     /// assert_eq!(a.version(), b.version());
     /// ```
     pub fn sync(&mut self, other: &mut Clock) -> Result<&Version, Overlap> {
-        // One fused walk over the two parties emits both re-split halves
+        // One fused walk over the two parties emits both forked halves
         // directly, and is also the overlap check: on overlap it emits nothing
         // and neither clock moves.
-        let Some((keep, give)) = self.party.sum_split(&other.party) else {
+        let Some((keep, give)) = self.party.sync(&other.party) else {
             return Err(Overlap);
         };
         self.party = keep;
@@ -341,8 +341,8 @@ impl Clock {
     /// Reconciles this [`Clock`] with every *disjoint* clock in `others`,
     /// keeping all alive.
     ///
-    /// Prefer this to iteratatively calling [`sync`](Clock::sync), as this is
-    /// more efficient, and re-splits the inner [`Party`] of each [`Clock`] to
+    /// Prefer this to iteratively calling [`sync`](Clock::sync), as this is
+    /// more efficient, and re-forks the inner [`Party`] of each [`Clock`] to
     /// be maximally balanced, and therefore minimally large.
     ///
     /// # Errors
@@ -780,8 +780,8 @@ impl Clock {
     pub fn encode_to<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         // The clock's bytes are the byte-aligned [`Party`] encoding followed by
         // the byte-aligned [`Version`] encoding. Each part is independently
-        // canonical and the party is self-delimiting (a decoder parses its id
-        // to find the split), so the two concatenate with no bit-level packing.
+        // canonical and the party is self-delimiting, so a decoder can find the
+        // boundary before the version without a separate length field.
         self.party.encode_to(writer)?;
         self.version.encode_to(writer)
     }
@@ -832,22 +832,22 @@ impl Clock {
     /// Validates an owned canonical encoding and shares its storage between
     /// the party and version.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
-        let id_bytes = {
-            let id_end = codec::parse_id(codec::BitsView::whole(&buf), 0)?;
-            let id_bytes = (id_end + 1).div_ceil(8);
-            if id_bytes > buf.len() as u64 {
+        let party_bytes = {
+            let party_end = codec::parse_party(codec::BitsView::whole(&buf), 0)?;
+            let party_bytes = (party_end + 1).div_ceil(8);
+            if party_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
             }
-            let id_bytes =
-                usize::try_from(id_bytes).expect("the id prefix ends within the read buffer");
-            codec::require_marker_padding(&buf[..id_bytes], id_end)?;
-            let tail = &buf[id_bytes..];
+            let party_bytes =
+                usize::try_from(party_bytes).expect("the party prefix ends within the read buffer");
+            codec::require_marker_padding(&buf[..party_bytes], party_end)?;
+            let tail = &buf[party_bytes..];
             let v_end = crate::version::skyline::validate_prefix(codec::BitsView::whole(tail))?;
             codec::require_marker_padding(tail, v_end)?;
-            id_bytes
+            party_bytes
         };
-        let party = Party::from_frozen(codec::Bits::from_canonical(buf.slice(..id_bytes)));
-        let version = Version::from_frozen(codec::Bits::from_canonical(buf.slice(id_bytes..)));
+        let party = Party::from_frozen(codec::Bits::from_canonical(buf.slice(..party_bytes)));
+        let version = Version::from_frozen(codec::Bits::from_canonical(buf.slice(party_bytes..)));
         Ok(Clock::from_parts(party, version))
     }
 

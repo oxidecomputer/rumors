@@ -1,9 +1,8 @@
-//! Minima computed ahead of the fill walk.
+//! Minima computed ahead of the main tick cursor.
 //!
-//! A left-full party branch replaces its left event range with a leaf whose
-//! height depends on the filled minimum of the right range. That minimum lies
-//! ahead of the main walk. A pre-scan therefore computes it, along with every
-//! other left-full minimum inside the same range, before the walk continues.
+//! Simplifying an owned left child may depend on the simplified minimum of its
+//! later right sibling. A pre-scan computes that value, along with nested
+//! lookaheads in the same range, before the main walk continues.
 //!
 //! [`Memo`] passes those results from the pre-scan to the walk in the order the
 //! walk encounters the branches. Each result is a difference from a minimum
@@ -11,13 +10,11 @@
 //! no value storage; nonzero differences use [`StoredAccumulator`], which
 //! keeps a machine-sized value inline and boxes only a wide one.
 //!
-//! The pre-scan discovers branches in preorder but finishes their minima as
-//! ranges close, so results are not written in consumption order. The memo
-//! divides the preorder slots into small blocks. Within a block, its presence
-//! bits locate nonzero values and its value vector stays in slot order. An
-//! out-of-order insertion can move at most one block, giving constant work per
-//! result without a machine-word index for every zero entry. This is important
-//! for nested inputs where thousands of branches share the same minimum.
+//! The pre-scan discovers branches in preorder but finishes them when their
+//! ranges close, so writes may arrive out of order. Small fixed-size blocks
+//! keep values in eventual read order while a bitset represents zero
+//! differences without storage. An insertion moves values within one block at
+//! most, avoiding one machine-word index per memo entry.
 
 use super::StoredAccumulator;
 
@@ -73,16 +70,16 @@ impl Block {
     }
 }
 
-/// Results from one memoizing pre-scan, consumed by the fill walk.
+/// Results from one pre-scan, consumed by the main tick walk.
 pub(super) struct Memo {
     /// Consumption-order slots, grouped to keep zero differences compact.
     blocks: Vec<Block>,
     /// Number of slots in the current scan.
     len: usize,
-    /// Next slot the fill walk will consume.
+    /// Next slot the main walk will consume.
     pub(super) cursor: usize,
-    /// End of the current pre-scan's event range. A site before this position
-    /// already has a memo slot; a site at or after it starts the next scan.
+    /// End of the current pre-scan's version range. A lookahead before this
+    /// position already has a memo slot; one at or after it starts a new scan.
     pub(super) covered_until: u64,
     /// Order-sensitive checksum of the positions recorded by the pre-scan.
     #[cfg(debug_assertions)]
@@ -90,12 +87,6 @@ pub(super) struct Memo {
     /// Order-sensitive checksum of the positions consumed by the walk.
     #[cfg(debug_assertions)]
     pub(super) consumed_check: u64,
-}
-
-/// Fold one position into an order-sensitive checksum (FNV-style).
-#[cfg(debug_assertions)]
-pub(super) fn position_check(check: u64, pos: u64) -> u64 {
-    (check ^ pos).wrapping_mul(0x0100_0000_01b3)
 }
 
 impl Memo {
@@ -113,7 +104,13 @@ impl Memo {
         }
     }
 
-    /// Number of sites recorded by the current scan.
+    /// Fold one position into the debug-only order checksum.
+    #[cfg(debug_assertions)]
+    pub(super) fn check_position(check: u64, pos: u64) -> u64 {
+        (check ^ pos).wrapping_mul(0x0100_0000_01b3)
+    }
+
+    /// Number of lookahead minima reserved by the current scan.
     pub(super) fn len(&self) -> usize {
         self.len
     }
@@ -124,7 +121,7 @@ impl Memo {
         #[cfg(debug_assertions)]
         debug_assert_eq!(
             self.recorded_check, self.consumed_check,
-            "the walk consumed the recorded sites, in order"
+            "the walk consumed the recorded lookaheads in order"
         );
         for block in &mut self.blocks[..self.len.div_ceil(BLOCK_SLOTS)] {
             block.clear();

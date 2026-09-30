@@ -3,10 +3,10 @@
 use proptest::prelude::*;
 
 use super::Party;
-use crate::idbits::IdReader;
 use crate::oracle;
+use crate::party::tree::PartyCursor;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
-use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty};
+use crate::testing::generators::arb_oracle_party_nonempty;
 use crate::testing::optrace::{run, world_strategy};
 
 // ───────────────────────────── the join fold ─────────────────────────────
@@ -88,7 +88,7 @@ proptest! {
 // ───────────────────────────── differential vs oracle ─────────────────────────────
 
 proptest! {
-    /// `fork` yields two disjoint halves, both matching the oracle's split;
+    /// `fork` yields two disjoint halves, both matching the oracle's fork;
     /// `join` of the two recovers the parent.
     #[test]
     fn d_fork_join_roundtrip(ops in world_strategy(), i in 0usize..64) {
@@ -102,7 +102,7 @@ proptest! {
         let oracle_child = oracle_party.fork();
         let child = keep.fork();
 
-        // Both halves match the oracle's split.
+        // Both halves match the oracle's fork.
         prop_assert!(keep == from_oracle_party(&oracle_party));
         prop_assert!(child == from_oracle_party(&oracle_child));
 
@@ -117,16 +117,14 @@ proptest! {
 // populations cannot contain but rejection paths must handle.
 
 proptest! {
-    /// Splitting an arbitrary nonempty party matches the recursive oracle.
+    /// Forking an arbitrary nonempty party matches the recursive oracle.
     #[test]
-    fn split_arbitrary(op in arb_oracle_party_nonempty()) {
+    fn fork_arbitrary(op in arb_oracle_party_nonempty()) {
         let mut oracle_self = op.clone();
-        let oracle_give = oracle_self.fork(); // fork = split; mutates `oracle_self` to the kept half
+        let oracle_give = oracle_self.fork();
 
-        let p = from_oracle_party(&op);
-        let (keep_bits, give_bits) = IdReader::root(p.as_bits()).split();
-        let keep = Party::from_bits(keep_bits);
-        let give = Party::from_bits(give_bits);
+        let mut keep = from_oracle_party(&op);
+        let give = keep.fork();
 
         prop_assert!(keep == from_oracle_party(&oracle_self));
         prop_assert!(give == from_oracle_party(&oracle_give));
@@ -143,17 +141,17 @@ proptest! {
     /// Arbitrary pairs exercise both successful disjoint joins and overlap.
     #[test]
     fn join_arbitrary(
-        oa in arb_oracle_party(),
-        ob in arb_oracle_party(),
+        oa in arb_oracle_party_nonempty(),
+        ob in arb_oracle_party_nonempty(),
     ) {
         let mut a = from_oracle_party(&oa);
         let b = from_oracle_party(&ob);
 
         if oa.is_disjoint(&ob) {
-            let mut oracle_sum = oa.clone();
-            oracle_sum.join(ob.clone()).expect("disjoint, just checked");
+            let mut oracle_joined = oa.clone();
+            oracle_joined.join(ob.clone()).expect("disjoint, just checked");
             prop_assert!(a.join(b).is_ok(), "disjoint parties must join");
-            prop_assert!(a == from_oracle_party(&oracle_sum));
+            prop_assert!(a == from_oracle_party(&oracle_joined));
         } else {
             match a.join(b) {
                 Ok(()) => prop_assert!(false, "overlapping parties must not join"),
@@ -173,52 +171,43 @@ proptest! {
 }
 
 proptest! {
-    /// The fused `sum_split` equals its composition — `sum`, then `split` of
-    /// the union — arm for arm on arbitrary id pairs.
+    /// Party synchronization exactly matches joining and then forking.
     ///
-    /// Byte-identical halves where the pair is disjoint, `None` exactly where
-    /// `sum` refuses (overlap), the empty-operand identities included. This is
-    /// the complete reference for the fused operation. Arbitrary pairs include
-    /// overlap and a union whose two full children collapse.
+    /// This checks both result bytes for disjoint inputs and the rejection of
+    /// overlaps, including unions that collapse to a terminal.
     #[test]
-    fn sum_split_is_sum_then_split(
-        oa in arb_oracle_party(),
-        ob in arb_oracle_party(),
+    fn party_sync_matches_join_then_fork_for_arbitrary_trees(
+        oa in arb_oracle_party_nonempty(),
+        ob in arb_oracle_party_nonempty(),
     ) {
-        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        let fused = IdReader::root(ia.as_bits()).sum_split(IdReader::root(ib.as_bits()));
-        let composed = IdReader::root(ia.as_bits())
-            .sum(IdReader::root(ib.as_bits()))
-            .map(|union| IdReader::root(crate::codec::built_view(&union)).split());
+        let (a, b) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        let fused = a.sync(&b);
+
+        let (mut joined, other) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        let composed = joined.join(other).ok().map(|()| {
+            let give = joined.fork();
+            (joined, give)
+        });
         prop_assert_eq!(fused, composed);
     }
 }
 
-/// `sum_split` handles a union whose full children collapse to the seed.
+/// Synchronization handles the smallest join that collapses to a terminal.
 ///
-/// Summing the two halves of the seed makes both union children full, so the
-/// built union collapses to the seed's terminal and `split` lands in its
-/// terminal arm — the fused walk, which never builds the union, must emit those
-/// exact bytes from its branch arm.
+/// The two seed halves form two full children, whose normal form is the seed's
+/// terminal. The fused operation must therefore match forking that terminal.
 #[test]
-fn sum_split_collapsed_union_matches_terminal_split() {
+fn sync_handles_a_join_that_collapses_to_a_terminal() {
     let mut keep = Party::seed();
     let give = keep.fork();
-    let fused = IdReader::root(keep.as_bits())
-        .sum_split(IdReader::root(give.as_bits()))
-        .expect("the seed's halves are disjoint");
-    let union = IdReader::root(keep.as_bits())
-        .sum(IdReader::root(give.as_bits()))
-        .expect("the seed's halves are disjoint");
-    let composed = IdReader::root(crate::codec::built_view(&union)).split();
-    assert_eq!(fused, composed);
-    assert_eq!(Party::from_bits(fused.0), keep, "the keep half is (1, 0)");
-    assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
+    let fused = keep.sync(&give).expect("the seed's halves are disjoint");
+    assert_eq!(fused.0, keep);
+    assert_eq!(fused.1, give);
 }
 
-// ──────────────────────── constructed id encodings ────────────────────────
+// ──────────────────────── constructed party encodings ────────────────────────
 
-/// Hand-built canonical id encodings for deep tests.
+/// Hand-built canonical party encodings for deep tests.
 ///
 /// Each encoding is emitted in one pass, so its depth does not increase the
 /// number of allocations.
@@ -233,7 +222,7 @@ mod constructed {
         b
     }
 
-    /// An internal node over the present children (normal form is the caller's
+    /// A branch over the present children (normal form is the caller's
     /// obligation: at least one child, never two terminals).
     pub(super) fn node(left: Option<&BitsBuf>, right: Option<&BitsBuf>) -> BitsBuf {
         let mut b = BitsBuf::new();
@@ -287,24 +276,30 @@ mod constructed {
     }
 }
 
-/// Deep constructed parties keep `sum_split` equal to `sum` followed by `split`.
+/// Deep constructed parties keep synchronization equal to join then fork.
 ///
 /// The cases cover deep collapse, whole-branch reuse, overlap detected at depth,
 /// and empty or full operands. Kilolevel inputs also check iterative traversal.
-mod sum_split_constructed {
+mod sync_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node, spine};
     use super::*;
     use crate::codec::BitsBuf;
 
-    /// The fused walk against its composition on one id pair, in both operand
+    /// Adopt a hand-built canonical party tree.
+    fn party(bits: &BitsBuf) -> Party {
+        Party::from_bits(bits.clone())
+    }
+
+    /// The fused walk against its composition on one party pair, in both operand
     /// orders (byte equality, `None` arms included).
     fn assert_matches_composition(a: &BitsBuf, b: &BitsBuf) {
         for (x, y) in [(a, b), (b, a)] {
-            let fused = IdReader::root(crate::codec::built_view(x))
-                .sum_split(IdReader::root(crate::codec::built_view(y)));
-            let composed = IdReader::root(crate::codec::built_view(x))
-                .sum(IdReader::root(crate::codec::built_view(y)))
-                .map(|union| IdReader::root(crate::codec::built_view(&union)).split());
+            let fused = party(x).sync(&party(y));
+            let mut joined = party(x);
+            let composed = joined.join(party(y)).ok().map(|()| {
+                let give = joined.fork();
+                (joined, give)
+            });
             assert_eq!(fused, composed);
         }
     }
@@ -315,7 +310,7 @@ mod sum_split_constructed {
 
     /// Adjacent sibling cells at depth `DEEP`: the lockstep spine runs the
     /// whole way down and the union collapses at the deepest branch (both
-    /// children full), followed by the terminal split far from the root.
+    /// children full), followed by the terminal fork far from the root.
     #[test]
     fn deep_adjacent_cells_collapse_at_the_branch() {
         let a = leftmost(DEEP);
@@ -323,9 +318,8 @@ mod sum_split_constructed {
         assert_matches_composition(&a, &b);
     }
 
-    /// A cell and its exact complement under a shared spine: the walk delegates
-    /// the whole branch pair, and the delegated `sum` cascade-collapses every
-    /// level to the terminal.
+    /// A cell and its exact complement under a shared spine: joining the shared
+    /// suffix collapses every level to one terminal before the final fork.
     #[test]
     fn deep_delegated_merge_cascade_collapses() {
         let a = spine(DEEP, false, leftmost(DEEP));
@@ -343,9 +337,8 @@ mod sum_split_constructed {
         assert_matches_composition(&a, &b);
     }
 
-    /// A both-present operand against a right-only one at a deep branch: the
-    /// kept child splices verbatim past the operand's paid skip, and the merged
-    /// child collapses inside the delegated `sum`.
+    /// A two-child operand against a right-only one at a deep branch: the left
+    /// child is copied unchanged and joining the right child collapses it.
     #[test]
     fn deep_targeted_branch_with_collapsing_merged_child() {
         let quarter_left = node(Some(&full()), None);
@@ -368,34 +361,25 @@ mod sum_split_constructed {
         assert_matches_composition(&x, &y);
     }
 
-    /// The fused walk's scan never exceeds its composition's, and a
-    /// splice-resolved pair reads `O(1)` bits however deep the spliced subtree.
+    /// Synchronization scans no more input than separate join and fork operations.
     ///
-    /// The method doc's cost claim, held by meter on the three constructed
-    /// regimes at two scales each: whole-branch delegation (the composition's
-    /// bytes minus the built union's spine), the pure splice (constant root
-    /// reads, the sublinear case used by the `clock_sync` board floors), and
-    /// the lockstep spine to a targeted branch. A fused
-    /// walk that re-reads a skipped child or scans a spliced subtree moves the
-    /// ratio above one.
+    /// Deep cases cover merging a shared child, copying an exclusively owned
+    /// child, and following a long one-child chain. Copying an exclusive child
+    /// must inspect only the two root tags, regardless of that child's depth.
     #[cfg(feature = "scan-meter")]
     #[test]
-    fn sum_split_scan_never_exceeds_the_composition() {
-        let scan = |f: &dyn Fn()| {
-            crate::codec::scan::reset();
-            f();
-            crate::codec::scan::scan_bits()
-        };
+    fn sync_scan_never_exceeds_join_then_fork() {
         let compare = |name: &str, a: &BitsBuf, b: &BitsBuf| -> u64 {
-            let fused = scan(&|| {
-                IdReader::root(crate::codec::built_view(a))
-                    .sum_split(IdReader::root(crate::codec::built_view(b)));
-            });
-            let composed = scan(&|| {
-                IdReader::root(crate::codec::built_view(a))
-                    .sum(IdReader::root(crate::codec::built_view(b)))
-                    .map(|u| IdReader::root(crate::codec::built_view(&u)).split());
-            });
+            crate::codec::scan::reset();
+            party(a).sync(&party(b));
+            let fused = crate::codec::scan::scan_bits();
+
+            crate::codec::scan::reset();
+            let mut joined = party(a);
+            if joined.join(party(b)).is_ok() {
+                joined.fork();
+            }
+            let composed = crate::codec::scan::scan_bits();
             assert!(
                 0 < fused && fused <= composed,
                 "{name}: fused walk scanned {fused} bits against the \
@@ -427,52 +411,38 @@ mod sum_split_constructed {
         }
     }
 
-    /// The root-owning and empty operands ride the same equalities: the full
-    /// leaf overlaps every nonempty id, an empty side hands the split of the
-    /// other, and two empties split to empties.
+    /// A root-owning party overlaps every nonempty party, including a deeply
+    /// nested cell.
     #[test]
-    fn root_leaf_and_empty_operands_match_composition() {
-        let empty = BitsBuf::new();
+    fn root_owner_overlaps_nested_parties() {
         assert_matches_composition(&full(), &leftmost(3));
-        assert_matches_composition(&full(), &empty);
-        assert_matches_composition(&empty, &empty.clone());
-        assert_matches_composition(&empty, &leftmost(DEEP));
+        assert_matches_composition(&full(), &leftmost(DEEP));
     }
 }
 
-/// Deep constructed id pairs drive `diff`'s covered-block arms — the verbatim
-/// splice and the owned-cover block scan — plus the complement walk, at depths
-/// no committed generator reaches.
+/// Constructed pairs exercise all ways `without` can handle a deep subtree:
+/// copy it unchanged, discard it whole, or descend to build its complement.
 ///
-/// The deep `without` drivers elsewhere all route `self = seed`, which settles
-/// at the root, so of `diff`'s four settle regimes only the complement descent
-/// and the lockstep descent see real depth without these. Each family here is
-/// size-generic over a scale ladder whose top no recursive walk survives: the
-/// deep instances are asserted byte-for-byte against the constructed
-/// expectation (doubling as stack-safety proof for the block scan and the
-/// sweep), and the oracle-reachable scales are additionally held to the
-/// recursive `oracle::Party::without`.
-mod diff_constructed {
+/// Every scale is checked against exact expected bytes. Scales the recursive
+/// oracle can handle are also checked semantically against that oracle.
+mod without_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node};
     use super::*;
     use crate::codec::BitsBuf;
 
-    /// The scale ladder: every family runs at each `k`, byte-checked.
+    /// Depths used by every constructed family.
     const SCALES: [usize; 3] = [256, 4096, 100_000];
 
-    /// Scales the plain-recursive oracle (and the id-side bridge) can walk on
-    /// the test stack; the ladder's top is deliberately beyond it.
+    /// Greatest depth safe for the recursive oracle used as a second check.
     const ORACLE_SCALE_MAX: usize = 4096;
 
-    /// `self \ other` on one constructed pair: byte-equal to `expected`, and
-    /// at oracle-reachable scales (`k <= ORACLE_SCALE_MAX`) also equal to the
-    /// recursive oracle's `without`, compared over lowered oracle trees.
-    fn assert_diff(a: &BitsBuf, b: &BitsBuf, expected: &BitsBuf, k: usize) {
-        let d = IdReader::root(crate::codec::built_view(a))
-            .diff(IdReader::root(crate::codec::built_view(b)));
+    /// Check exact bytes, plus the recursive oracle where its stack permits.
+    fn assert_without(a: &BitsBuf, b: &BitsBuf, expected: &BitsBuf, k: usize) {
+        let d = PartyCursor::root(crate::codec::built_view(a))
+            .without(PartyCursor::root(crate::codec::built_view(b)));
         assert_eq!(
             &d, expected,
-            "diff diverged from the constructed expectation (k={k})"
+            "without diverged from the constructed expectation (k={k})"
         );
         if k <= ORACLE_SCALE_MAX {
             let oa = to_oracle_party(&Party::from_bits(a.clone()));
@@ -487,7 +457,7 @@ mod diff_constructed {
                 assert_eq!(
                     to_oracle_party(&Party::from_bits(d)),
                     oracle_diff,
-                    "diff diverged from the recursive oracle (k={k})"
+                    "without diverged from the recursive oracle (k={k})"
                 );
             }
         }
@@ -497,73 +467,60 @@ mod diff_constructed {
     /// the remainder is `self` itself, byte for byte, at every scale.
     ///
     /// `self` is the leftmost `2^-k` cell and `other` owns only the right
-    /// half, so the root descent settles the whole spine as one covered block
-    /// — a single iterative scan and one verbatim splice, never a
-    /// plateau-by-plateau walk.
+    /// half. The whole spine therefore survives and can be copied without
+    /// rebuilding its regions.
     #[test]
     fn deep_subtree_under_unowned_cover_splices_verbatim() {
         for k in SCALES {
             let a = leftmost(k);
             let b = node(None, Some(&full()));
-            assert_diff(&a, &b, &a, k);
+            assert_without(&a, &b, &a, k);
         }
     }
 
     /// A deep `self` subtree under an owned `other` cover vanishes whole: the
     /// remainder is empty, at every scale.
     ///
-    /// The same spine with the cover's polarity flipped — `other` owns the
-    /// half the spine lives in — so the block scan consumes the subtree and
-    /// nothing of it survives into the output.
+    /// Here `other` owns the half containing the spine, so that subtree can be
+    /// discarded without visiting its individual regions.
     #[test]
     fn deep_subtree_under_owned_cover_vanishes() {
         for k in SCALES {
             let a = leftmost(k);
             let b = node(Some(&full()), None);
-            assert_diff(&a, &b, &BitsBuf::new(), k);
+            assert_without(&a, &b, &BitsBuf::new(), k);
         }
     }
 
     /// The complement dual: carving a deep cell out of the seed emits exactly
     /// the cell's complement, at every scale.
     ///
-    /// A full `self` plateau over a deep `other` subtree is the one covered
-    /// pairing that is *not* a block — the sweep walks the subtree plateau by
-    /// plateau and the output is its complement, owned at every level down
-    /// the spine.
+    /// Because `self` owns the whole interval, the result changes at every
+    /// boundary in `other`. The walk must visit those boundaries and build the
+    /// exact complement.
     #[test]
     fn seed_without_deep_cell_is_its_complement() {
         for k in SCALES {
-            assert_diff(&full(), &leftmost(k), &complement_leftmost(k), k);
+            assert_without(&full(), &leftmost(k), &complement_leftmost(k), k);
         }
     }
 
-    /// A covered block costs its own tags plus its verbatim output and no
-    /// more, and never out-scans the complement walk over the same subtree.
+    /// Copying or discarding a covered subtree scans no more than its input and
+    /// copied output, and no more than constructing its complement.
     ///
-    /// Each block regime's recorded scan sits between reading every operand
-    /// tag once (the floor) and that plus writing the settled output once
-    /// (the ceiling).
-    ///
-    /// The module doc's cost claim, held by meter at two scales. The scan
-    /// currency counts builder writes as well as reads, and emitting plateau
-    /// by plateau costs about triple the verbatim splice's bits per level
-    /// (per-plateau tag reservations and patches against one block write), so
-    /// a diff that re-walks or re-derives a block-settled subtree plateau by
-    /// plateau lands far past the ceiling — a regression no other committed
-    /// reading would notice. The complement walk — the owned-`self` dual
-    /// driving the same spine plateau by plateau — rides as the relative
-    /// yardstick the block regimes must stay under.
+    /// The lower bound reads both operands once. The upper bound adds one write
+    /// of the surviving subtree and a small fixed amount for the root. A walk
+    /// that rebuilt the subtree region by region would exceed this envelope.
     #[cfg(feature = "scan-meter")]
     #[test]
-    fn diff_block_scan_never_exceeds_the_complement_walk() {
+    fn without_covered_subtree_scan_never_exceeds_the_complement_walk() {
         /// Constant scan overhead of a settled block beyond its operand reads
         /// and output write: the root-level tag reservations and patches.
         const BLOCK_SLACK: u64 = 8;
         let scan = |a: &BitsBuf, b: &BitsBuf| -> u64 {
             crate::codec::scan::reset();
-            IdReader::root(crate::codec::built_view(a))
-                .diff(IdReader::root(crate::codec::built_view(b)));
+            PartyCursor::root(crate::codec::built_view(a))
+                .without(PartyCursor::root(crate::codec::built_view(b)));
             crate::codec::scan::scan_bits()
         };
         for k in [256usize, 4096] {
@@ -595,7 +552,7 @@ mod diff_constructed {
 }
 
 proptest! {
-    /// `decode ∘ encode == identity` over arbitrary non-empty normal-form ids,
+    /// `decode ∘ encode == identity` over arbitrary non-empty normal-form parties,
     /// and the decoded value lowers to the same oracle tree.
     ///
     /// (The anonymous tree is excluded: a standalone `Party` must own a region,
@@ -612,7 +569,7 @@ proptest! {
 
 proptest! {
     /// `as_bytes` returns exactly the canonical `encode` bytes
-    /// (marker-padded tail), over arbitrary non-empty ids — the
+    /// (marker-padded tail), over arbitrary non-empty parties — the
     /// `id_node`/`extend` build path.
     #[test]
     fn as_bytes_matches_encode(op in arb_oracle_party_nonempty()) {
@@ -621,7 +578,7 @@ proptest! {
         prop_assert_eq!(p.as_bytes(), encoded.as_slice());
     }
 
-    /// The invariant holds for both halves produced by `fork` (the split path),
+    /// The invariant holds for both halves produced by `fork` (the fork path),
     /// not just for rebuilt parties.
     #[test]
     fn as_bytes_matches_encode_after_fork(op in arb_oracle_party_nonempty()) {
@@ -635,7 +592,7 @@ proptest! {
 
 proptest! {
     /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
-    /// bit-level compare of the live id streams, in both operand orders.
+    /// bit-level compare of the live party streams, in both operand orders.
     ///
     /// Canonical padding makes raw byte equality equivalent to live-bit
     /// equality. Equal parties must also hash equally.
@@ -666,10 +623,10 @@ proptest! {
 // These checks pin the complete size trajectory of repeated forks, catching
 // output growth that would compound across otherwise cheap calls.
 
-/// An iterated fork chain's id sizes are exactly affine.
+/// An iterated fork chain's party sizes are exactly affine.
 ///
 /// Following the forked-off child each round (the mover lineage descends one
-/// level per split), both halves read exactly `2 + 2·k` encoded bits after the
+/// level per fork), both halves read exactly `2 + 2·k` encoded bits after the
 /// k-th fork, for every `k`: one two-bit tree level per fork.
 #[test]
 fn fork_chain_orbit_sizes_are_exactly_affine() {
@@ -677,8 +634,16 @@ fn fork_chain_orbit_sizes_are_exactly_affine() {
     assert_eq!(p.encoded_bits(), 2, "the seed is the 2-bit whole region");
     for k in 1u64..=512 {
         let q = p.fork();
-        assert_eq!(p.encoded_bits(), 2 + 2 * k, "keeper id bits after fork {k}");
-        assert_eq!(q.encoded_bits(), 2 + 2 * k, "mover id bits after fork {k}");
+        assert_eq!(
+            p.encoded_bits(),
+            2 + 2 * k,
+            "keeper party bits after fork {k}"
+        );
+        assert_eq!(
+            q.encoded_bits(),
+            2 + 2 * k,
+            "mover party bits after fork {k}"
+        );
         p = q;
     }
 }
@@ -686,7 +651,7 @@ fn fork_chain_orbit_sizes_are_exactly_affine() {
 /// An iterated fork fan grows exactly affine and unwinds exactly.
 ///
 /// Each round forks a fresh child off the root lineage (the keeper deepens one
-/// level per split), both halves reading exactly `2 + 2·k` encoded bits at the
+/// level per fork), both halves reading exactly `2 + 2·k` encoded bits at the
 /// k-th fork; rejoining the children in reverse order then walks the root back
 /// down the same trajectory, ending byte-identical to the seed.
 #[test]
@@ -698,9 +663,13 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
         assert_eq!(
             root.encoded_bits(),
             2 + 2 * k,
-            "root id bits after fork {k}"
+            "root party bits after fork {k}"
         );
-        assert_eq!(q.encoded_bits(), 2 + 2 * k, "child id bits after fork {k}");
+        assert_eq!(
+            q.encoded_bits(),
+            2 + 2 * k,
+            "child party bits after fork {k}"
+        );
         children.push(q);
     }
     for (i, q) in children.into_iter().rev().enumerate() {
@@ -709,7 +678,7 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
         assert_eq!(
             root.encoded_bits(),
             2 + 2 * (511 - i as u64),
-            "root id bits after unwind join {i}"
+            "root party bits after unwind join {i}"
         );
     }
     assert!(root.is_seed(), "the fully unwound fan is the seed again");

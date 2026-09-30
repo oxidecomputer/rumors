@@ -1,9 +1,8 @@
 //! The leaf-walk driver: the iterative descend-to-leaf/backtrack skeleton
 //! of the *single-stream* leaf passes.
 //!
-//! Its clients are the scanning walks that visit one skyline subtree's leaves
-//! through a caller-owned cursor — the fill walk's and its pre-scan's block
-//! scans and sibling walks.
+//! Its clients are single-stream scans that visit one skyline subtree through
+//! a caller-owned cursor, including the tick walk and its lookahead scans.
 //!
 //! The overlay layer's [`LeafCursor`](super::overlay::LeafCursor) carries its
 //! own copy of the same skeleton for the other client family: the multi-stream
@@ -307,7 +306,7 @@ pub(super) fn skip_region(cursor: &mut DsiCursor<'_>) -> RegionSkip {
 ///
 /// Every payload decodes as a zigzag-coded leaf-to-leaf delta: the walked
 /// range never starts at the stream's absolute first payload (the caller's
-/// contract; the pre-scan's collapse skip runs behind the fill walk's own
+/// contract; the lookahead scan follows the tick walk's own
 /// consuming scan).
 ///
 /// The caller descends the range's first leaf before handing the walk over, so

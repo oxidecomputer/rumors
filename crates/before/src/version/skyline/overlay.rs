@@ -355,7 +355,7 @@ impl PlateauCursor for LeafCursor<'_> {
 /// bits and the same flip bookkeeping, entering every overlay through
 /// [`PlateauCursor`] with a state payload (owned or not, read between
 /// boundaries) instead of a height delta. Absent children in the encoded form
-/// (the 2-bit presence-tag coding [`crate::idbits`]'s module doc specifies) are
+/// (the 2-bit presence-tag coding [`crate::party::tree`]'s module doc specifies) are
 /// unowned regions, so the cursor synthesizes an empty leaf wherever a
 /// present-child flag is clear without consuming stream bits; exhaustion is
 /// therefore tracked by the path's left-branch count (zero means the current

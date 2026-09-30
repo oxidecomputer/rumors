@@ -14,9 +14,11 @@ full gate is clean.
 
 ## Active outcome
 
-Audit the remaining production counter hooks for a distinct live observation,
-then begin consolidating duplicated resource instruments around the board. Do
-not add another harness for claims the board can express.
+Simplify production structure around the public vocabulary. Finish Party first,
+then apply the same standard to Version and related public types: whole-value
+behavior belongs on the public type, partial traversal belongs on cursors, and
+substantial helper state belongs in focused modules. Rewrite touched prose until
+the invariants and control flow are concise and teachable.
 
 After that, retain this priority order:
 

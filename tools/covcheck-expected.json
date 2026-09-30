@@ -15,31 +15,19 @@
     "why": "the builder's tiling is complete at the final plateau; a later leaf is programmer error"
    }
   ],
-  "crates/before/src/version/skyline/fill.rs": [
+  "crates/before/src/version/skyline/tick.rs": [
    {
-    "anchor": "fill is idempotent: a filled tree cannot fill again",
+    "anchor": "simplification is idempotent",
     "disposition": "panic-arm",
-    "why": "the committed fill_is_idempotent differential pins the second walk unchanged"
+    "why": "the committed simplification_is_idempotent differential pins the second walk unchanged"
    },
    {
-    "anchor": "IdNode::Empty => {",
-    "offset": 1,
-    "disposition": "unreachable",
-    "why": "reachable only at an empty root, and no public Party is ever empty: finish_id in party.rs is the single gate every parsed/built Party passes and rejects the anonymous identity (Parse::Anonymous), and Party::without returns None rather than an empty share; below the root the walk descends only into present children. The arm realizes fill(0, e) = e totally."
-   },
-   {
-    "anchor": "IdNode::Empty => {",
-    "offset": 2,
-    "disposition": "unreachable",
-    "why": "the empty-root arm's cost, with the line above"
-   },
-   {
-    "anchor": "a consumed site keeps a relation",
+    "anchor": "a consumed lookahead keeps a reference",
     "disposition": "panic-arm",
-    "why": "every site consume installs a Height or Min relation before the site closes"
+    "why": "every lookahead installs a height or minimum reference before it closes"
    }
   ],
-  "crates/before/src/version/skyline/fill/fuse.rs": [
+  "crates/before/src/version/skyline/tick/output.rs": [
    {
     "anchor": "a verbatim emission is matched or has diverged",
     "disposition": "panic-arm",
@@ -51,54 +39,37 @@
     "why": "continue_verbatim runs only after a divergence built the output"
    },
    {
-    "anchor": "Out::Built(builder) => return Some(builder.finish()),",
+    "anchor": "Output::Built(builder) => return Some(builder.finish()),",
     "offset": 1,
     "disposition": "unreachable",
     "why": "finish sees Unstarted only for a stream with no plateaus, and a canonical skyline stream holds at least one leaf (the codec validation contract); the debug_assert beside the arm pins matched_end == event.len()"
-   },
-   {
-    "anchor": "a present id child is a real node",
-    "disposition": "panic-arm",
-    "why": "the walk descends only into children whose presence bits are set"
    }
   ],
-  "crates/before/src/version/skyline/fill/prescan.rs": [
+  "crates/before/src/version/skyline/tick/prescan.rs": [
    {
-    "anchor": "IdNode::Empty => {",
+    "anchor": "PartyNode::Owned => {",
     "offset": 1,
     "disposition": "unreachable",
-    "why": "the pre-scan enters at a present child (a left-full site's right sibling, peeked present at the fill.rs call site), so only an empty root could read Empty, and the entry is never the root; the arm realizes min(fill(0, e)) = min(e) totally"
+    "why": "the lookahead scan enters at a partially owned right sibling, and descent handles owned children at their parent"
    },
    {
-    "anchor": "IdNode::Empty => {",
+    "anchor": "PartyNode::Owned => {",
     "offset": 2,
     "disposition": "unreachable",
-    "why": "the empty-root arm, with the line above"
+    "why": "the owned-root arm, with the line above"
    },
    {
-    "anchor": "IdNode::Full => {",
-    "offset": 1,
-    "disposition": "unreachable",
-    "why": "every entry hands in a full child's sibling (never full: a (1, 1) node collapses under idbits' normal form) or a child the caller peeked as not-full; the inline comment carries the argument"
-   },
-   {
-    "anchor": "IdNode::Full => {",
-    "offset": 2,
-    "disposition": "unreachable",
-    "why": "the full-arm body, with the line above"
-   },
-   {
-    "anchor": "IdNode::Full => {",
+    "anchor": "PartyNode::Owned => {",
     "offset": 3,
     "disposition": "unreachable",
-    "why": "the full-arm body, with the line above"
+    "why": "the owned-root arm, with the line above"
    }
   ],
-  "crates/before/src/version/skyline/grow.rs": [
+  "crates/before/src/version/skyline/tick/raise.rs": [
    {
-    "anchor": "a full id over an event node collapses under fill",
+    "anchor": "an owned terminal covers one unsimplified leaf",
     "disposition": "panic-arm",
-    "why": "grow inflates only the unchanged branch, where a fully-owned terminal covers a single event leaf: a full id over an event node collapses under fill and trips the changed flag first, so the inflation walk never meets one"
+    "why": "raising runs only after simplification leaves the version unchanged, so an owned terminal must cover one version leaf"
    }
   ],
   "crates/before/src/version/skyline/masked.rs": [
@@ -164,16 +135,16 @@
     "why": "the untaken directions are the assertion's failure arms"
    }
   ],
-  "crates/before/src/version/skyline/fill.rs": [
+  "crates/before/src/version/skyline/tick/frames.rs": [
    {
-    "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
+    "anchor": "self.phase.last() == Some(false) && self.lookahead.last() == Some(false),",
     "disposition": "panic-arm",
     "why": "the untaken directions are the assertion's failure arms"
    }
   ],
-  "crates/before/src/version/skyline/fill/prescan.rs": [
+  "crates/before/src/version/skyline/tick/prescan/frames.rs": [
    {
-    "anchor": "self.phase.last() == Some(false) && self.site.last() == Some(false),",
+    "anchor": "self.phase.last() == Some(false) && self.lookahead.last() == Some(false),",
     "disposition": "panic-arm",
     "why": "the untaken directions are the assertion's failure arms"
    }

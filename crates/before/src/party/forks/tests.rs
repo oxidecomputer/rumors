@@ -1,9 +1,9 @@
-//! Checks for compact balanced splitting at every count width.
+//! Checks for compact balanced forking at every count width.
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use super::{Forks, Party, Split};
+use super::{Forks, Party, Plan};
 use crate::testing::bridge::from_oracle_party;
 use crate::testing::generators::arb_oracle_party_nonempty;
 use crate::Ticks;
@@ -17,45 +17,45 @@ fn arb_wide_count() -> impl Strategy<Value = Ticks> {
     })
 }
 
-/// Split a party through the recursive ceil-left/floor-right definition.
+/// Plan a party through the recursive ceil-left/floor-right definition.
 ///
 /// This deliberately uses only the binary public operation. It is the direct
 /// behavioral reference for the compact count plan and one-pass path builder.
-fn recursive_split(mut party: Party, count: usize) -> Vec<Party> {
+fn recursive_forks(mut party: Party, count: usize) -> Vec<Party> {
     if count == 1 {
         return vec![party];
     }
     let right = party.fork();
     let left_count = count.div_ceil(2);
-    let mut shares = recursive_split(party, left_count);
-    shares.extend(recursive_split(right, count / 2));
+    let mut shares = recursive_forks(party, left_count);
+    shares.extend(recursive_forks(right, count / 2));
     shares
 }
 
 proptest! {
     /// The compact plan preserves the exact shares and preorder of recursive
-    /// balanced splitting for arbitrary party shapes and arities.
+    /// balanced forking for arbitrary party shapes and arities.
     #[test]
-    fn compact_plan_matches_recursive_splitting(
+    fn compact_plan_matches_recursive_forking(
         party in arb_oracle_party_nonempty(),
         count in 1usize..65,
     ) {
         let party = from_oracle_party(&party);
-        let expected = recursive_split(party.dangerously_alias(), count);
-        let actual: Vec<Party> = Split::new(party.0, count.into()).collect();
+        let expected = recursive_forks(party.dangerously_alias(), count);
+        let actual: Vec<Party> = Plan::new(party.0, count.into()).collect();
         prop_assert!(actual == expected);
     }
 
     /// The consuming traversal yields the recursive balanced partition in the
-    /// same preorder, while permitting each intermediate party to be split
+    /// same preorder, while permitting each intermediate party to be forked
     /// only once.
     #[test]
-    fn consuming_traversal_matches_recursive_splitting(
+    fn consuming_traversal_matches_recursive_forking(
         party in arb_oracle_party_nonempty(),
         count in 1usize..65,
     ) {
         let party = from_oracle_party(&party);
-        let expected = recursive_split(party.dangerously_alias(), count);
+        let expected = recursive_forks(party.dangerously_alias(), count);
         let actual: Vec<Party> = party.into_shares(count).collect();
         prop_assert!(actual == expected);
     }
@@ -90,16 +90,16 @@ proptest! {
     }
 }
 
-/// Every seed split has the minimum possible maximum depth.
+/// Every seed fork has the minimum possible maximum depth.
 #[test]
 fn every_small_arity_is_balanced() {
     for count in 1usize..=256 {
-        let shares: Vec<Party> = Split::new(Party::seed().0, count.into()).collect();
+        let shares: Vec<Party> = Plan::new(Party::seed().0, count.into()).collect();
         let maximum_depth = shares
             .iter()
             .map(|party| (party.as_bits().len() - 2) / 2)
             .max()
-            .expect("a nonzero split has a share");
+            .expect("a nonzero fork has a share");
         assert_eq!(
             maximum_depth,
             usize::BITS as u64 - (count - 1).leading_zeros() as u64,
@@ -113,14 +113,14 @@ fn every_small_arity_is_balanced() {
 #[test]
 fn small_size_hints_are_exact() {
     for count in 1usize..=256 {
-        let mut split = Split::new(Party::seed().0, count.into());
+        let mut plan = Plan::new(Party::seed().0, count.into());
         for remaining in (0..=count).rev() {
-            assert_eq!(split.size_hint(), (remaining, Some(remaining)));
+            assert_eq!(plan.size_hint(), (remaining, Some(remaining)));
             if remaining > 0 {
-                assert!(split.next().is_some());
+                assert!(plan.next().is_some());
             }
         }
-        assert!(split.next().is_none());
+        assert!(plan.next().is_none());
     }
 }
 
@@ -129,11 +129,11 @@ fn small_size_hints_are_exact() {
 #[test]
 fn adjacent_wide_count_becomes_exact() {
     let count = Ticks::from(usize::MAX) + Ticks::from(1u8);
-    let mut split = Split::new(Party::seed().0, count);
+    let mut plan = Plan::new(Party::seed().0, count);
 
-    assert_eq!(split.size_hint(), (usize::MAX, None));
-    assert!(split.next().is_some());
-    assert_eq!(split.size_hint(), (usize::MAX, Some(usize::MAX)));
+    assert_eq!(plan.size_hint(), (usize::MAX, None));
+    assert!(plan.next().is_some());
+    assert_eq!(plan.size_hint(), (usize::MAX, Some(usize::MAX)));
 }
 
 /// The first count classified as distant still reports a sound saturated hint
@@ -166,12 +166,12 @@ fn two_to_128_count_stays_iterable() {
 fn distant_size_hint_stays_sound_near_exhaustion() {
     let depth = u64::from(usize::BITS) + 2;
     let count = BigUint::from(1u8) << depth;
-    let mut split = Split::new(Party::seed().0, Ticks(count.clone()));
-    split.index = &count - BigUint::from(usize::MAX);
+    let mut plan = Plan::new(Party::seed().0, Ticks(count.clone()));
+    plan.index = &count - BigUint::from(usize::MAX);
 
-    assert_eq!(split.size_hint(), (usize::MAX, None));
-    split.index += 1u8;
-    assert_eq!(split.size_hint(), (0, None));
-    split.index = count;
-    assert_eq!(split.size_hint(), (0, Some(0)));
+    assert_eq!(plan.size_hint(), (usize::MAX, None));
+    plan.index += 1u8;
+    assert_eq!(plan.size_hint(), (0, None));
+    plan.index = count;
+    assert_eq!(plan.size_hint(), (0, Some(0)));
 }

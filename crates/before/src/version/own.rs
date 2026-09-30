@@ -100,6 +100,69 @@ impl OwnVersion<'_> {
             self.party,
         ))
     }
+
+    /// Compare this projection with a materialized version without building it.
+    fn cmp_version(&self, other: &Version) -> Option<Ordering> {
+        skyline::masked::causal_cmp(
+            self.version.view().live(),
+            Some(self.party.as_bits()),
+            other.view().live(),
+            None,
+        )
+    }
+
+    /// Test equality with a materialized version without building this projection.
+    fn eq_version(&self, other: &Version) -> bool {
+        skyline::masked::eq(
+            self.version.view().live(),
+            Some(self.party.as_bits()),
+            other.view().live(),
+            None,
+        )
+    }
+
+    /// Compare two projected versions without materializing either one.
+    fn cmp_own(&self, other: &OwnVersion<'_>) -> Option<Ordering> {
+        skyline::masked::causal_cmp(
+            self.version.view().live(),
+            Some(self.party.as_bits()),
+            other.version.view().live(),
+            Some(other.party.as_bits()),
+        )
+    }
+
+    /// Test two projected versions for equality without materializing either.
+    fn eq_own(&self, other: &OwnVersion<'_>) -> bool {
+        skyline::masked::eq(
+            self.version.view().live(),
+            Some(self.party.as_bits()),
+            other.version.view().live(),
+            Some(other.party.as_bits()),
+        )
+    }
+}
+
+impl Version {
+    /// Compare this version with a projection, applying the party mask to the
+    /// second operand while reading both version streams.
+    fn cmp_own(&self, other: &OwnVersion<'_>) -> Option<Ordering> {
+        skyline::masked::causal_cmp(
+            self.view().live(),
+            None,
+            other.version.view().live(),
+            Some(other.party.as_bits()),
+        )
+    }
+
+    /// Test equality with a projection without materializing it.
+    fn eq_own(&self, other: &OwnVersion<'_>) -> bool {
+        skyline::masked::eq(
+            self.view().live(),
+            None,
+            other.version.view().live(),
+            Some(other.party.as_bits()),
+        )
+    }
 }
 
 /// Materializes the projection, as [`to_version`](OwnVersion::to_version).
@@ -125,74 +188,6 @@ impl From<OwnVersion<'_>> for Version {
     fn from(view: OwnVersion<'_>) -> Version {
         view.to_version()
     }
-}
-
-/// The fused three-stream comparison: `(v / p) ⋚ w`, no materialization.
-fn view_cmp_version(view: &OwnVersion<'_>, w: &Version) -> Option<Ordering> {
-    skyline::masked::causal_cmp(
-        view.version.view().live(),
-        Some(view.party.as_bits()),
-        w.view().live(),
-        None,
-    )
-}
-
-/// The fused three-stream equality: `(v / p) == w`, no materialization.
-fn view_eq_version(view: &OwnVersion<'_>, w: &Version) -> bool {
-    skyline::masked::eq(
-        view.version.view().live(),
-        Some(view.party.as_bits()),
-        w.view().live(),
-        None,
-    )
-}
-
-/// The mirror three-stream comparison: `w ⋚ (v / p)`, the co-walk driven in
-/// its own orientation — mask on the second side — rather than the first
-/// orientation reversed.
-///
-/// The walk is total over every mask arrangement, and routing each matrix
-/// cell through its natural arrangement is what keeps them all exercised
-/// from the public surface; the two spellings agree by the antisymmetry of
-/// the pointwise order, which the differential family beside [`OwnVersion`]'s
-/// tests pins against the materialized projection.
-fn version_cmp_view(w: &Version, view: &OwnVersion<'_>) -> Option<Ordering> {
-    skyline::masked::causal_cmp(
-        w.view().live(),
-        None,
-        view.version.view().live(),
-        Some(view.party.as_bits()),
-    )
-}
-
-/// The mirror three-stream equality: `w == (v / p)`, mask on the second side.
-fn version_eq_view(w: &Version, view: &OwnVersion<'_>) -> bool {
-    skyline::masked::eq(
-        w.view().live(),
-        None,
-        view.version.view().live(),
-        Some(view.party.as_bits()),
-    )
-}
-
-/// The fused four-stream comparison: `(v₁ / p₁) ⋚ (v₂ / p₂)`.
-fn view_cmp_view(a: &OwnVersion<'_>, b: &OwnVersion<'_>) -> Option<Ordering> {
-    skyline::masked::causal_cmp(
-        a.version.view().live(),
-        Some(a.party.as_bits()),
-        b.version.view().live(),
-        Some(b.party.as_bits()),
-    )
-}
-
-/// The fused four-stream equality: the projected histories agree.
-fn view_eq_view(a: &OwnVersion<'_>, b: &OwnVersion<'_>) -> bool {
-    skyline::masked::eq(
-        a.version.view().live(),
-        Some(a.party.as_bits()),
-        b.version.view().live(),
-        Some(b.party.as_bits()),
-    )
 }
 
 // The view's causal comparison matrix, mirroring `Version`'s: every cell of
@@ -241,7 +236,7 @@ macro_rules! view_cmp_impls {
 }
 
 view_cmp_impls! {
-    OwnVersion<'a>, Version, view_eq_version, view_cmp_version, ('a);
-    Version, OwnVersion<'a>, version_eq_view, version_cmp_view, ('a);
-    OwnVersion<'a>, OwnVersion<'b>, view_eq_view, view_cmp_view, ('a, 'b);
+    OwnVersion<'a>, Version, OwnVersion::eq_version, OwnVersion::cmp_version, ('a);
+    Version, OwnVersion<'a>, Version::eq_own, Version::cmp_own, ('a);
+    OwnVersion<'a>, OwnVersion<'b>, OwnVersion::eq_own, OwnVersion::cmp_own, ('a, 'b);
 }

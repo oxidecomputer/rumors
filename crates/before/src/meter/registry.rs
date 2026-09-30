@@ -799,7 +799,7 @@ pub enum FamilyId {
     /// whose precomputed minima are either distinct or all equal.
     MemoChain,
     /// The memo-comb pair `B(d)` × its party: nested sites that finish their
-    /// minima in a different order from the fill walk's consumption order.
+    /// minima in a different order from the tick walk's consumption order.
     MemoComb,
     /// The memo fan-out `F(k, b)`: `k` sites share one `b`-bit minimum that the
     /// input stores once, exposing any implementation that copies it per site.

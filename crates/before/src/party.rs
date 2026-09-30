@@ -1,7 +1,7 @@
 //! Disjoint parties who can emit events.
 //!
 //! A [`Party`] is a non-empty set of subintervals of `[0, 1)`, stored as a
-//! canonical id-tree: the share of the identifier space its holder may
+//! canonical party tree: the part of the unit interval its holder may
 //! [`tick`](Party::tick) against. [`fork`](Party::fork) splits a share in two;
 //! [`join`](Party::join) reunites disjoint shares and refuses overlapping ones,
 //! because everything ITCs guarantee rests on disjointness (see the [crate
@@ -17,11 +17,12 @@
 
 use crate::codec::{self, BitsView};
 use crate::error::Decode;
-use crate::idbits::IdReader;
+use crate::party::tree::PartyCursor;
 use crate::{Ticks, Version};
 
 mod forks;
 pub(crate) mod ops;
+pub(crate) mod tree;
 
 pub use forks::Forks;
 
@@ -37,7 +38,7 @@ mod tests;
 /// | [`Party::seed()`]                                      | create the initial [`Party`] which owns all of `[0, 1)`                   |
 /// | [`p.tick(v)`](Party::tick)                             | advance the [`Version`] `v` for this [`Party`]                            |
 /// | [`p.ticks(v, n)`](Party::ticks)                        | advance the [`Version`] `v` by `n` events for this [`Party`], in one pass |
-/// | [`p.fork()`](Party::fork)/[`p.forks(n)`](Party::forks) | split off one disjoint child from `p` (or `n` disjoint children)          |
+/// | [`p.fork()`](Party::fork)/[`p.forks(n)`](Party::forks) | fork off one disjoint child from `p` (or `n` disjoint children)           |
 /// | [`p.join(b)`](Party::join)                             | reunite two *disjoint* parties into the one owning both regions; fallible |
 /// | [`p.is_disjoint(&b)`](Party::is_disjoint)              | whether `p` and `q` share no region, hence may safely interact            |
 /// | `p == q`                                               | whether `p` is exactly the same [`Party`] as `q`                          |
@@ -121,7 +122,7 @@ impl Party {
     /// assert!(before::Party::seed().is_seed()); // the whole region, undivided
     /// ```
     pub fn seed() -> Self {
-        // The seed id is exactly the 2-bit terminal tag `00` (the whole
+        // The seed party is exactly the 2-bit terminal tag `00` (the whole
         // interval, owned), marker-padded to the one static byte
         // `0b0010_0000`: construction allocates nothing, and every seed
         // shares the one static buffer. A `static`, not a `const`: a
@@ -137,7 +138,7 @@ impl Party {
 
     /// Whether this party is equal to [`Party::seed`].
     ///
-    /// True only before any [`fork`](Party::fork) has split a region away, and
+    /// True only before any [`fork`](Party::fork) has delegated a region, and
     /// again only once every fork has been [`join`](Party::join)ed back.
     ///
     /// # Complexity
@@ -239,12 +240,12 @@ impl Party {
     /// assert!(!p.is_seed() && !q.is_seed()); // ...and neither is the whole
     /// ```
     pub fn fork(&mut self) -> Party {
-        let (keep, give) = self.view().split();
+        let (keep, give) = Self::fork_tree(self.as_bits());
         *self = Party::from_bits(keep);
         Party::from_bits(give)
     }
 
-    /// Splits `k` balanced shares off this [`Party`] as a lazy iterator.
+    /// Forks `k` balanced shares off this [`Party`] as a lazy iterator.
     ///
     /// Unlike repeatedly calling [`fork`](Party::fork), which deepens its
     /// representation into a biased linear tree (see its warning), every
@@ -258,7 +259,7 @@ impl Party {
     /// Suffix integer literals to select an unsigned type, as in `3u64`. The
     /// iterator type is exported as [`iter::Party`](crate::iter::Party).
     ///
-    /// To split a [`Party`] into exactly `N` shares with no residual, see
+    /// To fork a [`Party`] into exactly `N` shares with no residual, see
     /// [`From<Party>`](Party) for `[Party; N]`.
     ///
     /// # Complexity
@@ -314,7 +315,7 @@ impl Party {
     /// assert!(p.is_seed());
     /// ```
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
-        match self.view().sum(other.view()) {
+        match self.cursor().join(other.cursor()) {
             Some(bits) => {
                 *self = Party::from_bits(bits);
                 Ok(())
@@ -401,7 +402,7 @@ impl Party {
     // operand pair — and the lockstep walk stays the one mechanism the
     // fuel bands price.
     pub fn is_disjoint(&self, other: &Party) -> bool {
-        self.view().is_disjoint(other.view())
+        self.cursor().is_disjoint(other.cursor())
     }
 
     /// Tests whether `self`'s owned region contains all of `other`'s
@@ -430,7 +431,7 @@ impl Party {
     // No clone-identity fast path, as `is_disjoint`: linearity leaves a
     // live clone-shared party pair no production witness.
     pub fn covers(&self, other: &Party) -> bool {
-        self.view().covers(other.view())
+        self.cursor().covers(other.cursor())
     }
 
     /// Carves `other`'s region out of `self`, forcing the parties to become
@@ -462,7 +463,7 @@ impl Party {
     /// assert!(Party::seed().without(&Party::seed()).is_none());
     /// ```
     pub fn without(self, other: &Party) -> Option<Party> {
-        let bits = self.view().diff(other.view());
+        let bits = self.cursor().without(other.cursor());
         if bits.is_empty() {
             None
         } else {
@@ -654,32 +655,15 @@ impl Party {
     /// Validates and adopts an owned canonical encoding.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
         {
-            let end = codec::parse_id(codec::BitsView::whole(&buf), 0)?;
+            let end = codec::parse_party(codec::BitsView::whole(&buf), 0)?;
             codec::require_marker_padding(&buf, end)?;
         }
         Ok(Party(codec::Bits::from_canonical(buf)))
     }
 
-    /// A read-only [`IdReader`] cursor at the root of this party's party bits.
-    pub(crate) fn view(&self) -> IdReader<'_> {
-        IdReader::root(self.0.live())
-    }
-
-    /// Reunites this party with `other` and re-splits the union, in one fused
-    /// walk: the `(keep, give)` halves of [`join`](Party::join) followed by
-    /// [`fork`](Party::fork), or `None` if the parties overlap.
-    ///
-    /// Byte-identical to that composition (`IdReader::sum_split` carries the
-    /// argument; the `sync_is_join_then_fork` law and the `sum_split`
-    /// differentials pin it), without building the joined party. Neither
-    /// operand is moved, accepted or refused.
-    ///
-    /// `O(|self| + |other|)` worst case, and sublinear where the regions do not
-    /// interleave — a subtree owned by one side alone is spliced into its half
-    /// without a walk.
-    pub(crate) fn sum_split(&self, other: &Party) -> Option<(Party, Party)> {
-        let (keep, give) = self.view().sum_split(other.view())?;
-        Some((Party::from_bits(keep), Party::from_bits(give)))
+    /// A read-only [`PartyCursor`] cursor at the root of this party's party bits.
+    pub(crate) fn cursor(&self) -> PartyCursor<'_> {
+        PartyCursor::root(self.0.live())
     }
 
     /// The canonical bytes of this [`Party`], borrowed.
@@ -720,7 +704,7 @@ impl Party {
     /// storage. The single build-side gate every built/parsed `Party` passes
     /// through.
     ///
-    /// Callers guarantee normal *tree* form (a nonempty, normalized id);
+    /// Callers guarantee normal *tree* form (a nonempty, normalized party);
     /// the freeze seals the marker padding so the stored bytes are
     /// canonical — see [`codec::Bits::freeze`] for the seam's contract and
     /// what the padding underpins.
@@ -728,10 +712,10 @@ impl Party {
         Party(codec::Bits::freeze(bits))
     }
 
-    /// Adopt an already-frozen canonical id stream as a `Party`: the
+    /// Adopt an already-frozen canonical party stream as a `Party`: the
     /// decode-side gate, dual to the build-side [`from_bits`](Self::from_bits).
     ///
-    /// Callers guarantee the stream is a nonempty normal-form id in canonical
+    /// Callers guarantee the stream is a nonempty normal-form party in canonical
     /// storage — what a validated decode slice already is — so no
     /// re-canonicalization runs and adoption is `O(1)`.
     pub(crate) fn from_frozen(bits: codec::Bits) -> Self {

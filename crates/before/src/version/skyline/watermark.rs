@@ -133,8 +133,8 @@
 //!
 //! # Use in `before`
 //!
-//! The fill walk needs subtree minima to decide the value of a collapsed or
-//! raised child. It uses `RangeMinima<()>`: the stack supplies comparisons and
+//! Ticking needs subtree minima to decide the value of a collapsed or raised
+//! child. It uses `RangeMinima<()>`: the stack supplies comparisons and
 //! emitted minima. One follower tracks the next output delta relative to the
 //! minimum; another tracks the difference from a memoized range minimum. Both
 //! move automatically when the tracked minimum moves, so the walk need not

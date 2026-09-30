@@ -75,7 +75,7 @@ pub const SCAN_TOUCH_FLOOR_BITS: u64 = 2;
 
 /// Scan liveness floor for the tick-cross rows: all 8 bits of every input byte.
 ///
-/// The paired fill walk examines every topology bit and payload code of both
+/// The paired tick walk examines every topology bit and payload code of both
 /// operands at least once. `WHY_SCAN_TICK_WALK` explains this floor in board
 /// output.
 pub(super) const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;

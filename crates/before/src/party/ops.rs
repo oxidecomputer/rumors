@@ -1,14 +1,13 @@
-//! Operations over the id encoding.
+//! Operations on parties and their encoded trees.
 //!
-//! Each node is a 2-bit presence tag (see [`idbits`](crate::idbits)): a `0` is
-//! the absence of a child, never a node. Consuming cursors keep each traversal
-//! linear and iterative: a pruned subtree is skipped once, and a deep id grows
-//! explicit state rather than the call stack. Canonical form makes emptiness
-//! and fullness constant-time leaf checks.
+//! Whole-party operations are associated with [`Party`](super::Party), which
+//! guarantees a complete canonical tree. Cursors appear only inside walks that
+//! must address a subtree. The operation modules keep those walks iterative
+//! and normalize every tree they build.
 
 mod build;
 mod compare;
-mod diff;
-mod split;
-mod sum;
-mod sum_split;
+mod fork;
+mod join;
+mod sync;
+mod without;

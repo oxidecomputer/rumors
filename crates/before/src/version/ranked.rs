@@ -349,17 +349,18 @@ impl core::fmt::Debug for Ranked<'_> {
     }
 }
 
-/// Compares ranks, then breaks a rank tie with the versions' canonical bytes.
-fn total_cmp(a: &Ranked<'_>, b: &Ranked<'_>) -> Ordering {
-    // Check identity first. Shared buffers answer in constant time, and unequal
-    // buffers stop at their first different byte. Otherwise an equal pair
-    // would traverse both streams to compute a zero rank difference, then
-    // compare the same bytes again as the tiebreak.
-    if crate::codec::canonical_eq(a.version.view(), b.version.view()) {
-        return Ordering::Equal;
+impl Ranked<'_> {
+    /// Compare ranks, breaking a tie with canonical version bytes.
+    fn total_cmp(&self, other: &Ranked<'_>) -> Ordering {
+        // Identity is the common cheap case. Without this check, equal versions
+        // would be traversed once to establish equal rank and again for the
+        // byte tiebreak.
+        if crate::codec::canonical_eq(self.version.view(), other.version.view()) {
+            return Ordering::Equal;
+        }
+        skyline::query::rank_cmp(self.version.view().live(), other.version.view().live())
+            .then_with(|| self.version.as_bytes().cmp(other.version.as_bytes()))
     }
-    skyline::query::rank_cmp(a.version.view().live(), b.version.view().live())
-        .then_with(|| a.version.as_bytes().cmp(b.version.as_bytes()))
 }
 
 /// Compares version identity, matching [`Ord`] and [`Hash`](core::hash::Hash).
@@ -397,13 +398,13 @@ impl core::hash::Hash for Ranked<'_> {
 )]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        total_cmp(self, other)
+        self.total_cmp(other)
     }
 }
 
 /// Returns the total comparison supplied by [`Ord`].
 impl PartialOrd<Ranked<'_>> for Ranked<'_> {
     fn partial_cmp(&self, other: &Ranked<'_>) -> Option<Ordering> {
-        Some(total_cmp(self, other))
+        Some(self.total_cmp(other))
     }
 }

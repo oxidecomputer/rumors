@@ -1,13 +1,13 @@
 //! Lazy balanced partitioning for [`Party::forks`].
 //!
-//! Splitting a region into `n` shares forms a nearly complete binary tree. Let
+//! Forking a region into `n` shares forms a nearly complete binary tree. Let
 //! `d = floor(log₂ n)` and `r = n - 2ᵈ`. Every path of length `d` names one
-//! base share; exactly `r` of those shares split once more. Recursively placing
-//! the larger half on the left makes base path `q` split precisely when the
+//! base share; exactly `r` of those shares fork once more. Recursively placing
+//! the larger half on the left makes base path `q` fork precisely when the
 //! low-`d`-bit reversal of `q` is less than `r`.
 //!
-//! [`Split`] stores that compact plan and the source bytes. It composes every
-//! split for one share into a single descent, without constructing the
+//! [`Plan`] stores that compact plan and the source bytes. It composes every
+//! fork for one share into a single descent, without constructing the
 //! intermediate regions. [`Forks`] then removes that share from the borrowed
 //! party in one rebuilding pass. The removal remembers bits per open ancestor,
 //! not a machine word or tree node, so even an arbitrary-width count cannot
@@ -19,19 +19,19 @@ use num_bigint::BigUint;
 
 use super::Party;
 use crate::codec;
-use crate::idbits::IdReader;
+use crate::party::tree::PartyCursor;
 use crate::Ticks;
 
 /// The current share's directions in the party's spatial tree.
 ///
-/// The balanced split plan describes only choices that divide an owned region.
+/// The balanced fork plan describes only choices that fork an owned region.
 /// The source encoding may also contain unary nodes, which locate that region
-/// in the spatial tree but do not divide it. [`CoordinatePath`] merges the two:
+/// in the spatial tree but do not fork it. [`SharePath`] merges the two:
 /// it yields every unary source direction, consumes one planned choice at each
 /// source branch, and uses any choices remaining below a source terminal to
 /// create deeper levels. The resulting path addresses the exact subtree that
-/// [`IdReader::remove_path`] must remove.
-struct CoordinatePath<'a> {
+/// [`PartyCursor::remove_path`] must remove.
+struct SharePath<'a> {
     /// Source bits whose unary nodes contribute spatial directions.
     bits: codec::BitsView<'a>,
     /// Current source node while the path remains inside the original tree.
@@ -40,27 +40,27 @@ struct CoordinatePath<'a> {
     index: &'a BigUint,
     /// Number of base-path decisions.
     depth: u64,
-    /// Whether this base share is divided once more.
-    splits: bool,
-    /// The final child decision when [`splits`](Self::splits) is set.
+    /// Whether this base share is forked once more.
+    forks_again: bool,
+    /// The final child decision when [`forks_again`](Self::forks_again) is set.
     second: bool,
-    /// Number of ownership-dividing decisions already consumed.
+    /// Number of planned fork directions already consumed.
     decision: u64,
     /// Whether the path has descended below a source terminal.
     below_terminal: bool,
 }
 
-/// Reads ownership decisions from the compact split plan.
-impl CoordinatePath<'_> {
-    /// Take the next ownership-dividing decision from the balanced plan.
+/// Reads directions from the compact fork plan.
+impl SharePath<'_> {
+    /// Take the next direction from the balanced plan.
     ///
     /// The `depth` bits of `index` name the base share from root to leaf. A base
-    /// share selected for one extra division appends `second` as its final
+    /// share selected for one extra fork appends `second` as its final
     /// decision.
     fn next_decision(&mut self) -> Option<bool> {
         let direction = if self.decision < self.depth {
             self.index.bit(self.depth - 1 - self.decision)
-        } else if self.decision == self.depth && self.splits {
+        } else if self.decision == self.depth && self.forks_again {
             self.second
         } else {
             return None;
@@ -71,19 +71,19 @@ impl CoordinatePath<'_> {
 }
 
 /// Expands ownership decisions into one direction per spatial-tree level.
-impl Iterator for CoordinatePath<'_> {
+impl Iterator for SharePath<'_> {
     type Item = bool;
 
     fn next(&mut self) -> Option<bool> {
         // Once every ownership choice is placed, the remaining source subtree
         // belongs wholly to this share. Unary source edges below this point are
         // part of that subtree, not part of the path selecting it.
-        if self.decision == self.depth + u64::from(self.splits) {
+        if self.decision == self.depth + u64::from(self.forks_again) {
             return None;
         }
         if self.below_terminal {
             // The source has no more topology. Each remaining planned choice
-            // conceptually divides the terminal and therefore adds one level.
+            // conceptually forks the terminal and therefore adds one level.
             return self.next_decision();
         }
         crate::codec::scan::record_bits(2);
@@ -94,15 +94,15 @@ impl Iterator for CoordinatePath<'_> {
         }
         let child = self.pos + 2;
         if left && right {
-            // A true branch divides ownership, so place the next planned
+            // A two-child branch forks ownership, so place the next planned
             // choice here. Preorder requires skipping left to locate right.
             let direction = self
                 .next_decision()
-                .expect("an unfinished split path has a decision");
+                .expect("an unfinished fork path has a decision");
             self.pos = if direction {
-                let mut left = IdReader::at(self.bits, child);
+                let mut left = PartyCursor::at(self.bits, child);
                 left.skip();
-                left.pos()
+                left.offset()
             } else {
                 child
             };
@@ -116,7 +116,7 @@ impl Iterator for CoordinatePath<'_> {
     }
 }
 
-/// Remaining shares without an arbitrary-width duplicate of the split count.
+/// Remaining shares without an arbitrary-width duplicate of the fork count.
 enum Remaining {
     /// The exact count.
     Exact(usize),
@@ -166,34 +166,31 @@ impl Remaining {
 }
 
 /// A compact plan that yields one balanced share at a time in preorder.
-struct Split {
+struct Plan {
     /// Original party bytes shared with the borrowed party where possible.
     source: codec::Bits,
     /// Depth of every base path.
     depth: u64,
-    /// Number of base paths that split once more, selected by bit reversal.
+    /// Number of base paths that fork once more, selected by bit reversal.
     extra: BigUint,
     /// Current base path, interpreted as `depth` binary directions.
     index: BigUint,
-    /// Whether the next share is the right child of a split base path.
+    /// Whether the next share is the right child of a fork base path.
     second: bool,
     /// Constant-space state for exhaustion and [`Iterator::size_hint`].
     remaining: Remaining,
 }
 
-/// Builds and advances the compact balanced-split plan.
-impl Split {
+/// Builds and advances the compact balanced-fork plan.
+impl Plan {
     /// Plan a partition of `source` into `k >= 1` shares.
     fn new(source: codec::Bits, k: Ticks) -> Self {
-        debug_assert!(
-            k > Ticks::ZERO,
-            "a balanced split yields at least one share"
-        );
+        debug_assert!(k > Ticks::ZERO, "a balanced fork yields at least one share");
         let remaining = Remaining::new(&k.0);
         let depth = k.0.bits() - 1;
         let mut extra = k.0;
         extra.set_bit(depth, false);
-        Split {
+        Plan {
             source,
             depth,
             extra,
@@ -226,10 +223,10 @@ impl Split {
 
     /// Whether the current base path has two leaf children.
     ///
-    /// At depth `d`, recursive ceil/floor splitting distributes the `r` extra
+    /// At depth `d`, recursive ceil/floor forking distributes the `r` extra
     /// leaves in bit-reversal order. Comparing the reversed path to `r` one bit
     /// at a time avoids materializing either reversed integer.
-    fn current_splits(&self) -> bool {
+    fn current_forks_again(&self) -> bool {
         for bit in 0..self.depth {
             let path = self.index.bit(bit);
             let extra = self.extra.bit(self.depth - 1 - bit);
@@ -240,14 +237,14 @@ impl Split {
         false
     }
 
-    /// Expand the current share's split decisions into a spatial-tree path.
-    fn coordinate_path(&self, splits: bool) -> CoordinatePath<'_> {
-        CoordinatePath {
+    /// Expand the current share's fork decisions into a spatial-tree path.
+    fn coordinate_path(&self, forks_again: bool) -> SharePath<'_> {
+        SharePath {
             bits: self.source.live(),
             pos: 0,
             index: &self.index,
             depth: self.depth,
-            splits,
+            forks_again,
             second: self.second,
             decision: 0,
             below_terminal: false,
@@ -255,18 +252,18 @@ impl Split {
     }
 
     /// Build the current share without advancing the plan.
-    fn current_share(&self, splits: bool) -> Party {
+    fn current_share(&self, forks_again: bool) -> Party {
         let path = (0..self.depth)
             .rev()
             .map(|bit| self.index.bit(bit))
-            .chain(splits.then_some(self.second));
-        Party::from_bits(IdReader::root(self.source.live()).split_path(path))
+            .chain(forks_again.then_some(self.second));
+        Party::from_bits(PartyCursor::root(self.source.live()).select_path(path))
     }
 
     /// Advance past the current share.
-    fn advance(&mut self, splits: bool) {
+    fn advance(&mut self, forks_again: bool) {
         self.remaining.advance();
-        if splits && !self.second {
+        if forks_again && !self.second {
             self.second = true;
         } else {
             self.second = false;
@@ -277,22 +274,22 @@ impl Split {
     /// Advance without constructing a share.
     fn skip_one(&mut self) {
         debug_assert!(!self.is_empty());
-        let splits = self.current_splits();
-        self.advance(splits);
+        let forks_again = self.current_forks_again();
+        self.advance(forks_again);
     }
 }
 
-/// A consuming balanced partition built from ordinary binary splits.
+/// A consuming balanced partition built from ordinary binary forks.
 ///
 /// Each pending entry owns a complete region and the number of final shares it
-/// must produce. Splitting that entry once and assigning `ceil(n/2)` shares to
+/// must produce. Forking that entry once and assigning `ceil(n/2)` shares to
 /// its left half and `floor(n/2)` to its right is the recursive definition of
 /// the balanced partition. The stack visits left before right, so the result
-/// order matches [`Split`]. Unlike `Split`, it never rescans the original party
+/// order matches [`Plan`]. Unlike `Plan`, it never rescans the original party
 /// from its root for another output: every intermediate party is consumed by
-/// at most one binary split.
+/// at most one binary fork.
 struct Shares {
-    /// Regions still to divide, with the next region last.
+    /// Regions still to fork, with the next region last.
     pending: Vec<(Party, usize)>,
 }
 
@@ -327,16 +324,16 @@ impl Party {
 }
 
 /// Produces the plan's balanced shares in preorder.
-impl Iterator for Split {
+impl Iterator for Plan {
     type Item = Party;
 
     fn next(&mut self) -> Option<Party> {
         if self.is_empty() {
             return None;
         }
-        let splits = self.current_splits();
-        let share = self.current_share(splits);
-        self.advance(splits);
+        let forks_again = self.current_forks_again();
+        let share = self.current_share(forks_again);
+        self.advance(forks_again);
         Some(share)
     }
 
@@ -375,7 +372,7 @@ pub struct Forks<'a> {
     /// The borrowed party, containing the residual and every untaken share.
     rest: &'a mut Party,
     /// The compact plan for shares after the residual.
-    split: Split,
+    plan: Plan,
 }
 
 /// Creates a borrowing fork iterator.
@@ -384,12 +381,12 @@ impl<'a> Forks<'a> {
     pub(crate) fn new(party: &'a mut Party, k: Ticks) -> Self {
         // The first of `k + 1` shares belongs to the borrowed party. Skipping
         // it in the plan leaves the party itself unchanged: until a child is
-        // returned, it still owns the entire unsplit region.
+        // returned, it still owns the entire region.
         let mut count = k;
         count.0 += 1u32;
-        let mut split = Split::new(party.0.clone(), count);
-        split.skip_one();
-        Forks { rest: party, split }
+        let mut plan = Plan::new(party.0.clone(), count);
+        plan.skip_one();
+        Forks { rest: party, plan }
     }
 }
 
@@ -398,47 +395,47 @@ impl Iterator for Forks<'_> {
     type Item = Party;
 
     fn next(&mut self) -> Option<Party> {
-        if self.split.is_empty() {
+        if self.plan.is_empty() {
             return None;
         }
-        let splits = self.split.current_splits();
-        let share = self.split.current_share(splits);
-        // The share and residual reach the same split depth, so the share's bit
+        let forks_again = self.plan.current_forks_again();
+        let share = self.plan.current_share(forks_again);
+        // The share and residual reach the same fork depth, so the share's bit
         // length is a useful capacity hint when a wide count created most of
         // that path.
         let remainder = self
             .rest
-            .view()
-            .remove_path(self.split.coordinate_path(splits), share.0.len());
+            .cursor()
+            .remove_path(self.plan.coordinate_path(forks_again), share.0.len());
         assert!(
             !remainder.is_empty(),
             "the reserved residual keeps a fork iterator's party nonempty"
         );
         *self.rest = Party::from_bits(remainder);
-        self.split.advance(splits);
+        self.plan.advance(forks_again);
         Some(share)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.split.size_hint()
+        self.plan.size_hint()
     }
 }
 
 #[cfg(test)]
 mod tests;
 
-/// Splits a [`Party`] into exactly `N` balanced shares, consuming it.
+/// Forks a [`Party`] into exactly `N` balanced shares, consuming it.
 ///
 /// The static counterpart of [`forks`](Party::forks): where `forks` borrows the
 /// party and leaves it holding a residual share, this consumes it entirely into
-/// `N` shares whose id tree has minimal depth `⌈log₂ N⌉`. The shares
+/// `N` shares whose party tree has minimal depth `⌈log₂ N⌉`. The shares
 /// [`join_all`](Party::join_all) back to the original region.
 ///
 /// # The `N >= 1` bound
 ///
 /// A [`Party`] owns a nonempty region and cannot vanish into zero shares, so
 /// `N` must be at least 1. The bound is enforced at compile time, not by a
-/// runtime panic: the zero-length split is rejected when the conversion is
+/// runtime panic: the zero-length fork is rejected when the conversion is
 /// built, while the same spelling at any nonzero arity compiles and runs.
 ///
 /// ```
@@ -472,7 +469,7 @@ impl<const N: usize> From<Party> for [Party; N] {
         // Fires at monomorphization, making `N == 0` a build error. The paired
         // doctests above pin it: the `compile_fail` twin must be rejected while
         // its identical-but-for-arity sibling compiles.
-        const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
+        const { assert!(N >= 1, "a `Party` cannot fork into zero shares") }
         let mut partition = party.into_shares(N);
         // `from_fn` calls indices `0..N` in order, and the consuming traversal
         // yields in preorder, so share `i` lands at index `i` — the same order
@@ -480,9 +477,9 @@ impl<const N: usize> From<Party> for [Party; N] {
         let shares = core::array::from_fn(|_| {
             partition
                 .next()
-                .expect("a split into N shares yields exactly N leaves")
+                .expect("a fork into N shares yields exactly N leaves")
         });
-        assert!(partition.next().is_none(), "the split yielded N shares");
+        assert!(partition.next().is_none(), "the fork yielded N shares");
         shares
     }
 }

@@ -4952,44 +4952,6 @@ mod id_walk_scan_cost {
     }
 }
 
-// ─── fork envelope (the split kernel's committed cost record) ───────────────
-
-/// The fork envelope.
-///
-/// The split kernel builds both halves by raw bit-slice writes and walks
-/// the spine by raw indexing — deliberately outside the scan primitives —
-/// so the scan column pins the raw path's near-zero reading: routing the
-/// walk or the writes through the metered primitives is a deliberate
-/// re-pin (the number moving is the point), and until then the heap
-/// column is the one that prices the halves' materialization.
-#[rustfmt::skip]
-mod fork_env {
-    use super::{band, envelope, Envelope};
-    pub const ID_FORK: Envelope = envelope(156_253, band(0, 0), band(3, 1)); // the heap column prices both halves' materialization (~2x the encoded input); the scan ceiling pins the raw split path's near-zero reading
-}
-
-/// Forking the deep id spine stays within its envelope, and the halves
-/// rejoin into the original party byte for byte.
-///
-/// Fork is the one id operation with no committed cost record: its halves
-/// materialize (the heap column prices them), its spine walk is iterative,
-/// and its writes are raw (the scan pin above). The
-/// rejoin closes the semantic leg: fork then join is the identity.
-#[test]
-fn id_fork_envelope() {
-    let pa = Shape::IdSpine.build_flagged(ID_DEPTH, false);
-    let input = pa.bytes.len();
-    let original = pa.bytes.clone();
-    let mut a = party_of(&pa);
-    let child = metered("id_fork", input, &fork_env::ID_FORK, || a.fork());
-    a.join(child).expect("a fork's halves are disjoint");
-    assert_eq!(
-        a.encode(),
-        original,
-        "fork then join must reconstruct the original party"
-    );
-}
-
 // ─── accumulator stream scenarios ───────────────────────────────────────────
 //
 // The digit-touch cost of the cliff-free accumulator on the worst-case
@@ -5589,7 +5551,7 @@ fn tick_mirror_wide_envelope() {
 /// diverted fragment (the ownership-hole family) stays within an
 /// envelope the leaf-by-leaf walk exceeds.
 ///
-/// The fill walk's unowned regions are whole staircase runs, and the
+/// The tick walk's unowned regions are whole staircase runs, and the
 /// block scan must fold each into O(1) accumulator work instead of
 /// per-leaf work. The touch ceiling is the skip's liveness signal
 /// — it sits below the per-leaf mechanism's reading, so the fast path

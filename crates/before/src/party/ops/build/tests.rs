@@ -1,8 +1,8 @@
-//! Model checks for compact id-builder state.
+//! Model checks for compact party-builder state.
 
 use proptest::prelude::*;
 
-use super::{Open, PosStack};
+use super::{Open, Positions};
 
 proptest! {
     /// Interleaved pushes and pops preserve every open tag position across
@@ -14,7 +14,7 @@ proptest! {
             0..512,
         ),
     ) {
-        let mut stack = PosStack::new();
+        let mut stack = Positions::new();
         let mut expected = Vec::with_capacity(actions.len());
 
         for (pop, delta) in actions {

@@ -14,7 +14,7 @@ use std::ops::BitAnd;
 
 use super::forms::{Ceiling, Floor};
 use super::polarity::{Down, Hole, Neutral, Polarity, Up};
-use super::{Query, Version};
+use super::Query;
 
 impl<'a, P: Polarity> Query<'a, P> {
     /// Intersect with a query of the same polarity and restore normal form.
@@ -33,11 +33,11 @@ impl<'a, P: Polarity> Query<'a, P> {
     fn and(self, other: Query<'a, P>) -> Query<'a, P> {
         let floor = match (self.floor, other.floor) {
             (None, floor) | (floor, None) => floor,
-            (Some(a), Some(b)) => Some(Cow::Owned(Version::join_refs(&a, &b))),
+            (Some(a), Some(b)) => Some(Cow::Owned(a.join(&b))),
         };
         let ceiling = match (self.ceiling, other.ceiling) {
             (None, ceiling) | (ceiling, None) => ceiling,
-            (Some(a), Some(b)) => Some(Cow::Owned(Version::meet_refs(&a, &b))),
+            (Some(a), Some(b)) => Some(Cow::Owned(a.meet(&b))),
         };
         let survives =
             |hole: &Hole<'a>| P::hole_survives(hole, floor.as_deref(), ceiling.as_deref());
@@ -65,7 +65,7 @@ impl<'a, P: Polarity> Query<'a, P> {
 }
 
 /// Elementary conjunction of two floors, staying elementary: the bounds
-/// [`join`](Version::join).
+/// [`join`](crate::Version::join).
 ///
 /// # Complexity
 ///
@@ -79,13 +79,13 @@ impl<'a> BitAnd for Floor<'a> {
 
     fn bitand(self, rhs: Floor<'a>) -> Floor<'a> {
         Floor {
-            at: Cow::Owned(Version::join_refs(&self.at, &rhs.at)),
+            at: Cow::Owned(self.at.join(&rhs.at)),
         }
     }
 }
 
 /// Elementary conjunction of two ceilings, staying elementary: the bounds
-/// [`meet`](Version::meet).
+/// [`meet`](crate::Version::meet).
 ///
 /// # Complexity
 ///
@@ -99,7 +99,7 @@ impl<'a> BitAnd for Ceiling<'a> {
 
     fn bitand(self, rhs: Ceiling<'a>) -> Ceiling<'a> {
         Ceiling {
-            at: Cow::Owned(Version::meet_refs(&self.at, &rhs.at)),
+            at: Cow::Owned(self.at.meet(&rhs.at)),
         }
     }
 }

@@ -28,13 +28,6 @@ pub mod skyline;
 pub(crate) mod skyline;
 
 pub use own::OwnVersion;
-#[cfg(feature = "borsh")]
-/// Decode one self-delimiting rank from a byte source.
-pub(crate) fn decode_rank_stream(
-    next_byte: impl FnMut() -> Result<u8, Decode>,
-) -> Result<Rank, Decode> {
-    Rank::decode_stream(next_byte)
-}
 pub use rank::Rank;
 pub use ranked::Ranked;
 pub use ticks::{Limbs, Ticks};
@@ -195,7 +188,7 @@ impl Version {
     /// assert!(v > Version::new()); // one event: strictly after the empty history
     /// ```
     pub fn tick(&mut self, party: &Party) {
-        *self = Version::from_bits(skyline::fill::tick(self.0.live(), party));
+        *self = Version::from_bits(skyline::tick::TickWalk::tick(self.0.live(), party));
     }
 
     /// Advances this version by `k` events for `party`.
@@ -230,7 +223,7 @@ impl Version {
         if k.0.bits() == 0 {
             return;
         }
-        *self = Version::from_bits(skyline::fill::ticks(self.0.live(), party, &k.0));
+        *self = Version::from_bits(skyline::tick::TickWalk::ticks(self.0.live(), party, &k.0));
     }
 
     /// Tests whether two [`Version`]s are concurrent (incomparable).
@@ -481,7 +474,16 @@ impl Version {
     /// assert!(merged >= va && merged >= vb);
     /// ```
     pub fn join(&self, other: &Version) -> Version {
-        Self::join_refs(self, other)
+        if codec::canonical_eq(&self.0, &other.0) {
+            return self.clone();
+        }
+        if skyline::is_empty_stream(other.0.live()) {
+            return self.clone();
+        }
+        if skyline::is_empty_stream(self.0.live()) {
+            return other.clone();
+        }
+        Version::from_bits(skyline::emit::join(self.0.live(), other.0.live()))
     }
 
     /// The [`join`](Version::join) of `self` and every version in `iter`.
@@ -519,7 +521,7 @@ impl Version {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(iter), Self::join_refs, Self::join_view)
+        Self::balanced_fold(self.with_items(iter), Self::join, Self::join_view)
             .expect("the fold is seeded with the receiver: never empty")
     }
 
@@ -549,7 +551,16 @@ impl Version {
     /// assert!(common <= va && common <= vb);
     /// ```
     pub fn meet(&self, other: &Version) -> Version {
-        Self::meet_refs(self, other)
+        if codec::canonical_eq(&self.0, &other.0) {
+            return self.clone();
+        }
+        if skyline::is_empty_stream(self.0.live()) {
+            return self.clone();
+        }
+        if skyline::is_empty_stream(other.0.live()) {
+            return Version::new();
+        }
+        Version::from_bits(skyline::emit::meet(self.0.live(), other.0.live()))
     }
 
     /// The [`meet`](Version::meet) (greatest lower bound) of this version and
@@ -591,7 +602,7 @@ impl Version {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(iter), Self::meet_refs, Self::meet_view)
+        Self::balanced_fold(self.with_items(iter), Self::meet, Self::meet_view)
             .expect("the fold is seeded with the receiver: never empty")
     }
 
@@ -628,7 +639,7 @@ impl Version {
     /// assert_eq!(&va ^ &vb, span); // the operator spelling agrees
     /// ```
     pub fn span(&self, other: &Version) -> Span<'static> {
-        let (lo, hi) = Self::span_refs(self, other);
+        let (lo, hi) = self.hull(other);
         Span::owned(lo, hi)
     }
 
@@ -695,7 +706,7 @@ impl Version {
             let (lo, hi) = match (a, b) {
                 // A leaf combine: two raw inputs derive their pair hull in one
                 // fused walk.
-                (Hull::Input(a), Hull::Input(b)) => Self::span_refs(a.version(), b.version()),
+                (Hull::Input(a), Hull::Input(b)) => a.version().hull(b.version()),
                 (Hull::Merged { mut lo, mut hi }, Hull::Input(b)) => {
                     let b = b.version();
                     lo.meet_view(b.view());
@@ -820,29 +831,20 @@ impl Version {
         crate::shape::Plateaus::of_version(self)
     }
 
-    /// The balanced reduction under [`join_all`](Self::join_all) and
-    /// [`meet_all`](Self::meet_all) (which seed it with their receiver) and
-    /// the `Sum`/`FromIterator` impls (which feed it the bare iterator).
+    /// Reduce borrowed or owned versions with a balanced join or meet.
     ///
-    /// Folds items that [borrow](Borrow) as [`Version`] through
-    /// [`crate::fold::balanced_reduce`] without cloning them on entry.
+    /// Inputs enter without cloning. [`Group`] distinguishes an untouched
+    /// input from an owned intermediate result: `combine` reads two inputs to
+    /// build their first result, while `fold_view` merges into an existing
+    /// result. Empty input returns `None`; one input returns a shared-buffer
+    /// clone so the result is owned.
     ///
-    /// Each combiner comes in the two forms ownership demands — `refs` combines
-    /// two borrowed inputs into a fresh owned result
-    /// ([`join_refs`](Self::join_refs)/[`meet_refs`](Self::meet_refs)), and
-    /// `view` folds a borrowed stream into an owned group in place
-    /// ([`join_view`](Self::join_view)/[`meet_view`](Self::meet_view)) — and
-    /// [`Group`] carries which form each operand needs. `None` is the empty
-    /// fold, which a receiver-seeded caller never sees; a lone input is cloned,
-    /// the one place an input itself must become an owned result.
-    ///
-    /// Adjacent clone-identical inputs collapse before the counter reads them
-    /// ([`DedupRuns`], citing the idempotence laws): both combiners are
-    /// idempotent, so a run of one shared buffer is one operand.
+    /// [`DedupRuns`] removes adjacent inputs sharing the same buffer. Join and
+    /// meet are idempotent, so retaining one from each run preserves the result.
     fn balanced_fold<I>(
         iter: I,
-        refs: fn(&Version, &Version) -> Version,
-        view: fn(&mut Version, &codec::Bits),
+        combine: fn(&Version, &Version) -> Version,
+        fold_view: fn(&mut Version, &codec::Bits),
     ) -> Option<Version>
     where
         I: IntoIterator,
@@ -851,22 +853,18 @@ impl Version {
         let inputs = DedupRuns::new(iter.into_iter(), Borrow::borrow);
         let group = crate::fold::balanced_reduce(inputs.map(Group::Input), |a, b| {
             Group::Merged(match (a, b) {
-                (Group::Input(a), Group::Input(b)) => refs(a.borrow(), b.borrow()),
+                (Group::Input(a), Group::Input(b)) => combine(a.borrow(), b.borrow()),
                 (Group::Merged(mut a), Group::Input(b)) => {
-                    view(&mut a, b.borrow().view());
+                    fold_view(&mut a, b.borrow().view());
                     a
                 }
                 (Group::Merged(mut a), Group::Merged(b)) => {
-                    view(&mut a, b.view());
+                    fold_view(&mut a, b.view());
                     a
                 }
-                // Unreachable through the counter's weight discipline (a
-                // weight-0 lone input never sits below a merged group in the
-                // closing drain), but the match stays total rather than
-                // asserting: both combiners are commutative, so folding the
-                // borrowed side into the owned side is value-identical.
+                // Commutativity lets either operand supply the owned result.
                 (Group::Input(a), Group::Merged(mut b)) => {
-                    view(&mut b, a.borrow().view());
+                    fold_view(&mut b, a.borrow().view());
                     b
                 }
             })
@@ -877,9 +875,7 @@ impl Version {
         })
     }
 
-    /// This version and then the caller's items: the never-empty input stream
-    /// every receiver-seeded fold ([`join_all`](Self::join_all),
-    /// [`meet_all`](Self::meet_all), [`span_all`](Self::span_all)) reads.
+    /// Prepend this version to the input iterator, ensuring a nonempty fold.
     fn with_items<I>(&self, iter: I) -> impl Iterator<Item = FoldInput<'_, I::Item>>
     where
         I: IntoIterator,
@@ -893,20 +889,13 @@ impl Version {
         &self.0
     }
 
-    /// The view-taking join core: fold an arbitrary skyline stream into this
-    /// version in place.
+    /// Join a canonical stored skyline into this version in place.
     ///
-    /// Every `|`/`|=` cell routes through here, so owned and borrowed operands
-    /// join without transcoding.
-    ///
-    /// Before the merge sweep, two `O(1)` short-circuits settle the cases
-    /// canonical form makes immediate: trivial equality (`a ∨ a = a`, a no-op,
-    /// decided by a byte compare of the two unique streams) and the lattice
-    /// identity `0 ∨ v = v` — an empty incoming leaves the current tree
-    /// untouched, and an empty current adopts the incoming stream wholesale (a
-    /// copy, byte-identical to what the merge would emit). The identity path is
-    /// the common seed pattern: folds seeded with [`Version::new`] (the `|=`
-    /// accumulation shape) hit it on their first join.
+    /// Equal values and an empty incoming version leave the receiver unchanged.
+    /// An empty receiver adopts the incoming buffer by sharing it. Empty-stream
+    /// checks take constant time; equality takes constant time for shared
+    /// buffers and otherwise compares canonical bytes. The remaining case
+    /// emits a merged skyline directly from the two streams.
     pub(crate) fn join_view(&mut self, incoming: &codec::Bits) {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∨ a = a
@@ -924,37 +913,10 @@ impl Version {
         *self = Version::from_bits(skyline::emit::join(self.0.live(), incoming.live()));
     }
 
-    /// The borrowed-operands join: `a ∨ b` as a fresh [`Version`], reading both
-    /// operands in place.
+    /// Meet a canonical stored skyline with this version in place.
     ///
-    /// [`join_view`](Self::join_view) for the case where neither operand is
-    /// owned — the same short-circuits in the same order (keep the two in
-    /// lockstep), with each hand-back arm cloning the operand that is itself
-    /// the answer. The general path emits the merged stream straight from the
-    /// two views, so borrowing costs no clone and no transcoding.
-    pub(crate) fn join_refs(a: &Version, b: &Version) -> Version {
-        if codec::canonical_eq(&a.0, &b.0) {
-            return a.clone(); // a ∨ a = a
-        }
-        if skyline::is_empty_stream(b.0.live()) {
-            return a.clone(); // v ∨ 0 = v
-        }
-        if skyline::is_empty_stream(a.0.live()) {
-            return b.clone(); // 0 ∨ v = v
-        }
-        Version::from_bits(skyline::emit::join(a.0.live(), b.0.live()))
-    }
-
-    /// The view-taking meet core, the dual of [`join_view`](Self::join_view):
-    /// meet an arbitrary skyline stream into this version in place.
-    ///
-    /// The `&`/`&=` matrix routes through here just as the `|`/`|=` matrix
-    /// routes through `join_view`.
-    ///
-    /// The dual short-circuits apply: trivial equality (`a ∧ a = a`), and the
-    /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty current
-    /// is already the answer, and an empty incoming makes the result the empty
-    /// version outright, no merge sweep either way.
+    /// Equal values leave the receiver unchanged. If either input is empty,
+    /// the result is empty; otherwise one pass emits the pointwise minimum.
     pub(crate) fn meet_view(&mut self, incoming: &codec::Bits) {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∧ a == a
@@ -970,72 +932,40 @@ impl Version {
         *self = Version::from_bits(skyline::emit::meet(self.0.live(), incoming.live()));
     }
 
-    /// The borrowed-operands meet: `a ∧ b` as a fresh [`Version`], reading both
-    /// operands in place.
+    /// Return the meet and join of two versions as their enclosing endpoints.
     ///
-    /// [`meet_view`](Self::meet_view) for the case where neither operand is
-    /// owned, exactly as [`join_refs`](Self::join_refs) mirrors
-    /// [`join_view`](Self::join_view): the same short-circuits in the same
-    /// order — keep the two in lockstep.
-    pub(crate) fn meet_refs(a: &Version, b: &Version) -> Version {
-        if codec::canonical_eq(&a.0, &b.0) {
-            return a.clone(); // a ∧ a = a
-        }
-        if skyline::is_empty_stream(a.0.live()) {
-            return a.clone(); // 0 ∧ v = 0: `a` is already the answer
-        }
-        if skyline::is_empty_stream(b.0.live()) {
-            return Version::new(); // v ∧ 0 = 0, whatever `v` was
-        }
-        Version::from_bits(skyline::emit::meet(a.0.live(), b.0.live()))
-    }
-
-    /// The borrowed-operands hull: `(a ∧ b, a ∨ b)` as fresh [`Version`]s,
-    /// emitting only when it must.
+    /// Equality and empty inputs determine both endpoints immediately. If the
+    /// inputs are causally comparable, their meet is the lesser input and their
+    /// join the greater, so a comparison allows both buffers to be shared
+    /// without building either endpoint. Equal endpoints share one buffer too.
     ///
-    /// The first three rungs are [`meet_refs`](Self::meet_refs) and
-    /// [`join_refs`](Self::join_refs)'s in the same order — keep the three in
-    /// lockstep — each settling both endpoints at once, and the equal rung's
-    /// two clones share one buffer (the coincident hull stores its stream
-    /// once).
-    ///
-    /// The span ladder then adds the comparable rung the pair operations don't
-    /// have: a comparable pair's hull IS the pair, reordered (the
-    /// `span_is_the_pair_hull` law in [`laws`](crate::laws) — the meet and join
-    /// of comparable versions are the smaller and the larger), so one
-    /// comparison sweep hands the operands back as the endpoints, `O(1)`
-    /// clones, zero emission.
-    ///
-    /// Only a concurrent pair reaches the fused emission walk
-    /// (`skyline::emit::hull`, one pair walk feeding both output builders where
-    /// composing the two emitters would decode each operand twice); the
-    /// comparison it paid first is the sweep's early-exiting prefix, which
-    /// stops at the second refuting interval.
-    pub(crate) fn span_refs(a: &Version, b: &Version) -> (Version, Version) {
+    /// Concurrent inputs require new endpoints. The comparison stops as soon
+    /// as it sees a region supporting each direction of order; a second,
+    /// complete walk then builds the meet and join together, decoding each
+    /// input once for both outputs.
+    pub(crate) fn hull(&self, other: &Version) -> (Version, Version) {
         use hull_traffic::Rung;
-        if codec::canonical_eq(&a.0, &b.0) {
+        if codec::canonical_eq(&self.0, &other.0) {
             hull_traffic::record(Rung::Equal);
-            return (a.clone(), a.clone()); // a ∧ a = a = a ∨ a
+            return (self.clone(), self.clone());
         }
-        if skyline::is_empty_stream(a.0.live()) {
-            // 0 ∧ v = 0 (`a` is already the meet), 0 ∨ v = v.
+        if skyline::is_empty_stream(self.0.live()) {
+            // The empty version is the meet and the other version is the join.
             hull_traffic::record(Rung::Empty);
-            return (a.clone(), b.clone());
+            return (self.clone(), other.clone());
         }
-        if skyline::is_empty_stream(b.0.live()) {
-            // v ∧ 0 = 0, v ∨ 0 = v.
+        if skyline::is_empty_stream(other.0.live()) {
             hull_traffic::record(Rung::Empty);
-            return (Version::new(), a.clone());
+            return (Version::new(), self.clone());
         }
-        match skyline::sweep::causal_cmp(a.0.live(), b.0.live()) {
-            // The comparable case's answer IS an operand pair.
+        match skyline::sweep::causal_cmp(self.0.live(), other.0.live()) {
             Some(Ordering::Less) => {
                 hull_traffic::record(Rung::Comparable);
-                return (a.clone(), b.clone());
+                return (self.clone(), other.clone());
             }
             Some(Ordering::Greater) => {
                 hull_traffic::record(Rung::Comparable);
-                return (b.clone(), a.clone());
+                return (other.clone(), self.clone());
             }
             Some(Ordering::Equal) => unreachable!(
                 "equal versions have byte-equal canonical streams, settled by the first rung"
@@ -1043,10 +973,9 @@ impl Version {
             None => {}
         }
         hull_traffic::record(Rung::Concurrent);
-        let hull = skyline::emit::hull(a.0.live(), b.0.live());
-        // The fused walk folds the pair relation beside its emissions (an O(1)
-        // flag pair riding sign reads the walk performs anyway), so the
-        // ladder's classification is cross-checked at the only entry point that emits.
+        let hull = skyline::emit::hull(self.0.live(), other.0.live());
+        // The emitting walk also computes causal order from comparisons needed
+        // for its outputs, providing an independent check of the earlier result.
         debug_assert!(
             hull.relation.is_none(),
             "the comparison rung admits only concurrent pairs to the emitting walk"
@@ -1246,9 +1175,7 @@ impl Version {
 
     /// The stored skyline stream, borrowed as live bits.
     ///
-    /// Test- and meter-only: the meter surface's `skyline::encode` and the
-    /// differential bridges read it; production code goes through
-    /// [`Self::as_bytes`] or the crate-internal `view`.
+    /// Internal access for verification and instrumentation.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn as_bits(&self) -> codec::BitsView<'_> {
         self.0.live()
@@ -1430,7 +1357,7 @@ impl Default for Version {
 /// Auxiliary space is `O(|iter|)`.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
-        Version::balanced_fold(iter, Version::join_refs, Version::join_view).unwrap_or_default()
+        Version::balanced_fold(iter, Version::join, Version::join_view).unwrap_or_default()
     }
 }
 
@@ -1447,7 +1374,7 @@ impl Sum<Version> for Version {
 /// Auxiliary space is `O(|iter|)`.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
-        Version::balanced_fold(iter, Version::join_refs, Version::join_view).unwrap_or_default()
+        Version::balanced_fold(iter, Version::join, Version::join_view).unwrap_or_default()
     }
 }
 

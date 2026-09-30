@@ -433,7 +433,6 @@ mod auto_traits;
 mod clock;
 mod codec;
 mod fold;
-mod idbits;
 mod party;
 mod recurse;
 mod span;

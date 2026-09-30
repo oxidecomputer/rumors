@@ -13,7 +13,6 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{step_impl, world_strategy};
-use crate::version::decode_rank_stream;
 use crate::version::skyline::{validate_dominating_from, Admission};
 use crate::{Clock, Party, Rank, Ranked, Version};
 
@@ -394,7 +393,7 @@ fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
         bits: BitsBuf::new(),
         position: 0,
     };
-    codec::parse_id_from(&mut cursor)?;
+    codec::parse_party_from(&mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
@@ -510,7 +509,7 @@ fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
 }
 
 /// Decode one composite key — a self-delimiting rank stream, then an
-/// event tree — with the version leg per-bit through
+/// version skyline — with the version leg per-bit through
 /// [`BitwiseReaderCursor`] and the wire entry point's own cross-check after it.
 ///
 /// The rank stream has exactly one parser, shared with the wire entry point
@@ -518,7 +517,7 @@ fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
 /// the version stream (window, refills, padding) and the composite
 /// cross-check around it.
 fn reference_ranked<R: Read>(reader: &mut R) -> Result<Ranked<'static>, Decode> {
-    let rank = decode_rank_stream(|| {
+    let rank = Rank::decode_stream(|| {
         let mut byte = [0];
         reader.read_exact(&mut byte).map_err(Decode::Io)?;
         Ok(byte[0])

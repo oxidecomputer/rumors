@@ -17,17 +17,17 @@
 //! value-reproducing raise must read a full-width zero) and
 //! `generators::arb_magnitude`'s `2^64`-aligned arm, which keeps generator mass on
 //! offsets whose low limb is zero. The unchanged branch's splice is
-//! additionally held to the oracle's inflation, the brute-force search, and a
-//! reference route probe in `grow/tests.rs`.
+//! additionally held to the oracle's inflation, the brute-force search, and an
+//! independent reference route probe below.
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::codec::gamma;
-use crate::idbits::IdReader;
 use crate::meter::registry::Shape;
 use crate::meter::Encoding;
+use crate::party::tree::PartyCursor;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
 };
@@ -38,9 +38,9 @@ use crate::testing::{generators, optrace};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Ticks, Version};
 
-use super::super::grow::Cost;
-use super::fuse::{Out, RouteProbe};
-use super::{fused_fill, tick, ticks, FillOutcome};
+use super::output::Output;
+use super::raise::{Cost, RaiseProbe};
+use super::{Decision, TickWalk};
 
 /// Lift a meter-generated encoded event shape into a [`Version`].
 fn version_of(p: &Encoding) -> Version {
@@ -89,8 +89,8 @@ fn left_halves(depth: usize, mut tail: crate::oracle::Party) -> Party {
 /// Whether the fused walk's changed flag tripped on one pair.
 fn flag_of(v: &Version, p: &Party) -> bool {
     matches!(
-        fused_fill(crate::codec::built_view(&encode(v)), p),
-        FillOutcome::Changed(_)
+        TickWalk::decide(crate::codec::built_view(&encode(v)), p),
+        Decision::Simplified(_)
     )
 }
 
@@ -107,8 +107,8 @@ fn assert_tick(v: &Version, p: &Party) {
     let enc = encode(v);
     let filled = from_oracle_version(&to_oracle_version(v).fill_for_test(&to_oracle_party(p)));
     let changed = filled != *v;
-    match fused_fill(crate::codec::built_view(&enc), p) {
-        FillOutcome::Changed(bits) => {
+    match TickWalk::decide(crate::codec::built_view(&enc), p) {
+        Decision::Simplified(bits) => {
             assert!(
                 changed,
                 "the changed flag tripped but the oracle's fill is the identity: {v:?} with {p:?}"
@@ -119,14 +119,14 @@ fn assert_tick(v: &Version, p: &Party) {
                 "the changed branch must be the oracle's fill: {v:?} with {p:?}"
             );
         }
-        FillOutcome::Unchanged(_) => {
+        Decision::Raise(_) => {
             assert!(
                 !changed,
                 "the changed flag stayed clear but the oracle's fill moved the tree: {v:?} with {p:?}"
             );
         }
     }
-    let out = tick(crate::codec::built_view(&enc), p);
+    let out = TickWalk::tick(crate::codec::built_view(&enc), p);
     validate(crate::codec::built_view(&out)).expect("a ticked stream is canonical");
     let mut oracle = to_oracle_version(v);
     oracle.tick(&to_oracle_party(p));
@@ -194,7 +194,7 @@ fn event_pool() -> Vec<Version> {
 }
 
 /// The party pool: the seed, deep and diverted unary spines,
-/// scattered ownership, and every owning exhaustive small-scope id (an empty id
+/// scattered ownership, and every owning exhaustive small-scope party (an empty party
 /// never ticks: the public contract requires an owning party).
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
@@ -249,7 +249,7 @@ fn family_pairs_tick_and_flag_identically() {
 }
 
 /// Exhaustive small scope: every normal-form event tree × every owning
-/// normal-form id ticks byte-identically to the recursive oracle's event, with
+/// normal-form party ticks byte-identically to the recursive oracle's event, with
 /// the changed flag agreeing with the oracle's fill.
 #[test]
 fn exhaustive_small_scope_ticks_and_flags_identically() {
@@ -269,9 +269,9 @@ fn exhaustive_small_scope_ticks_and_flags_identically() {
     });
 }
 
-/// Exhaustive small scope for the fused multi-tick: `ticks(n)` for every `n` in
+/// Exhaustive small scope for [`TickWalk::ticks`]: every `n` in
 /// 0..=4 equals the iterated public tick on every normal-form event tree ×
-/// every owning normal-form id.
+/// every owning normal-form party.
 ///
 /// A total check on both branches (the fill-changed collapses and the grow
 /// splices, expansion chains included) at the scope where totality is
@@ -296,7 +296,7 @@ fn exhaustive_small_scope_ticks_n_matches_iterated() {
 
 /// The worked fill examples, pinned end to end through the fused tick.
 ///
-/// The cases: the full-id collapse, both shortcut raises (taken and declined),
+/// The cases: the full-party collapse, both shortcut raises (taken and declined),
 /// and a nested arm — each a changed-flag trip whose tick is the collapse
 /// itself, plus the declined raise whose flag stays clear.
 #[test]
@@ -307,7 +307,7 @@ fn worked_examples_tick_exactly() {
     // (party, before, fill's result): fill moves the tree, so the tick IS
     // fill's result.
     let changed = [
-        // The full id collapses the whole tree to its max (heights 2 and 3; the
+        // The full party collapses the whole tree to its max (heights 2 and 3; the
         // collapse is the higher plateau).
         (
             P::seed(),
@@ -334,7 +334,7 @@ fn worked_examples_tick_exactly() {
             V::node(2u8, V::node(0u8, V::leaf(1u8), V::leaf(0u8)), V::leaf(3u8)),
             V::leaf(5u8),
         ),
-        // A node id whose left child is itself a shortcut site: the inner raise
+        // A node party whose left child is itself a shortcut site: the inner raise
         // lifts the root's minimum, and norm re-lifts it.
         (
             P::node(P::node(P::Leaf(true), P::Leaf(false)), P::Leaf(false)),
@@ -346,13 +346,13 @@ fn worked_examples_tick_exactly() {
         let p = party(party_tree);
         let v = version(before_tree);
         let expected = version(after_tree);
-        match fused_fill(crate::codec::built_view(&encode(&v)), &p) {
-            FillOutcome::Changed(bits) => assert_eq!(
+        match TickWalk::decide(crate::codec::built_view(&encode(&v)), &p) {
+            Decision::Simplified(bits) => assert_eq!(
                 bits,
                 encode(&expected),
                 "fill of {v:?} with {p:?} must yield {expected:?}"
             ),
-            FillOutcome::Unchanged(_) => {
+            Decision::Raise(_) => {
                 panic!("fill of {v:?} with {p:?} moves the tree: the flag must trip")
             }
         }
@@ -446,10 +446,10 @@ fn flag_compares_offsets_at_full_width() {
     assert_tick(&v, &p);
 }
 
-/// [`Out::materialize`] is a no-op once the output is built.
+/// [`Output::materialize`] is a no-op once the output is built.
 ///
 /// This is the idempotent contract its rustdoc states, which the divergence
-/// epilogue's `is_verbatim()` guard in `fill.rs` relies on. Two identical
+/// epilogue's `is_verbatim()` guard relies on. Two identical
 /// verbatim walks over one canonical stream — the whole stream matched, the
 /// one matched prefix whose builder holds a complete tiling and so may
 /// finish — materialize once and twice respectively; the twice-materialized
@@ -470,10 +470,10 @@ fn materialize_is_a_noop_once_built() {
     let event = encode(&v);
     let matched_end = event.len();
 
-    let mut once = Out::Verbatim { matched_end };
+    let mut once = Output::Verbatim { matched_end };
     once.materialize(crate::codec::built_view(&event));
 
-    let mut twice = Out::Verbatim { matched_end };
+    let mut twice = Output::Verbatim { matched_end };
     twice.materialize(crate::codec::built_view(&event));
     assert!(
         !twice.is_verbatim(),
@@ -590,7 +590,7 @@ fn dominated_undercut_family_ticks_identically() {
 }
 
 /// Build an undercut-under-a-live-relation pair: a chain of covered left-full
-/// sites around an id-absent region whose block-minimum emission undercuts the
+/// sites around a party-absent region whose block-minimum emission undercuts the
 /// web while the ledger relation rides its follower slot.
 ///
 /// The walk order, under one outermost site whose fresh pre-scan covers the
@@ -598,14 +598,14 @@ fn dominated_undercut_family_ticks_identically() {
 /// collapse range, so the walk enters the chain verbatim. Each `pre` site's
 /// multi-leaf collapse (peak `z`, over a sibling leaf `y`) diverges the walk,
 /// and its close re-anchors the ledger relation onto the web's follower slot
-/// (`pop_site`). The id-absent region then arms the web at its `climb` leaf
+/// (`pop_lookahead`). The party-absent region then arms the web at its `climb` leaf
 /// and drops back to a minimum sitting `exit_rise` above the region's exit,
 /// so its block-minimum emission undercuts the freshly-armed anchor with the
 /// follower live — through the post-sign domination arm when the climb
 /// dominates at scale, the fold-and-restore path when it is comparable, and
 /// the at-height emission when the exit rise is zero. The `posts` sites then
 /// nest — each inside the previous site's sibling — so consecutive raise
-/// decisions read the relation with no intervening `pop_site`; the terminal
+/// decisions read the relation with no intervening `pop_lookahead`; the terminal
 /// site's decision is directed by `(min_side, margin)`: the minimum side
 /// raises a zero collapse leaf to a sibling minimum sitting `margin` above
 /// it, the declined side emits a collapse leaf sitting `margin` over a zero
@@ -623,7 +623,7 @@ fn live_relation_undercut_pair(
     use crate::oracle::{Party as P, Version as V};
     let full = P::seed;
     let empty = || P::Leaf(false);
-    // (1, 0): an id node over a consumed leaf — the leaf arm.
+    // (1, 0): a party node over a consumed leaf — the leaf arm.
     let over_leaf = || P::node(full(), empty());
 
     let (xl, xr) = if min_side { (0, margin) } else { (margin, 0) };
@@ -660,7 +660,7 @@ fn live_relation_undercut_pair(
 /// the follower live, and the terminal site's raise then reads the minimum
 /// side by the thinnest margin — where a follower displaced by a
 /// wrong-polarity residue fold reads the other side and emits the declined
-/// raise value in place of the oracle's raise. `pop_site` does not intervene
+/// raise value in place of the oracle's raise. `pop_lookahead` does not intervene
 /// between the undercut and that read: only ordinary node closes separate
 /// them, and those never touch a follower's value.
 ///
@@ -749,7 +749,7 @@ proptest! {
 /// a residue whose top digit is 1 or 2 sits inside the redundant-spelling
 /// operand bound, so the read answers undecided and the fold falls through to
 /// the total comparable-scale path; a top digit of 3 or more certifies and
-/// takes the dominated arm. Every leaf of the sibling rides an id node, so
+/// takes the dominated arm. Every leaf of the sibling rides a party node, so
 /// the walk descends and emits per leaf (no block copy), and the trailing
 /// zero leaf keeps the root raise declined.
 fn undecided_residue_pair(m: u64, c: u32, w: u64, eps: u64) -> (Version, Party) {
@@ -847,8 +847,8 @@ fn left_full_raise_decides_at_the_site_not_its_close() {
 /// armed range retires.
 fn latent_ladder_pair(bases: &[BigUint], tip: &BigUint, peak: &BigUint) -> (Version, Party) {
     use crate::oracle::{Party as P, Version as V};
-    // (1, 0): an id node over a consumed leaf — the leaf's emission arms the
-    // web without the id owning or moving anything.
+    // (1, 0): a party node over a consumed leaf — the leaf's emission arms the
+    // web without the party owning or moving anything.
     let owned = || P::node(P::seed(), P::Leaf(false));
     let (mut spine, mut spine_id) = (
         V::node(bases[0].clone(), V::leaf(0u64), V::leaf(tip.clone())),
@@ -864,7 +864,7 @@ fn latent_ladder_pair(bases: &[BigUint], tip: &BigUint, peak: &BigUint) -> (Vers
         V::node(0u64, V::leaf(peak.clone()), V::leaf(0u64))
     };
     let x = V::node(0u64, spine, sibling);
-    // The sibling sits under a full id: its consumption is the right-full
+    // The sibling sits under a full party: its consumption is the right-full
     // raise, whose decision read and declined-raise emission are the walk's
     // latent-live reads of the web.
     let ix = P::node(spine_id, P::seed());
@@ -1064,12 +1064,12 @@ fn left_spike(depth: usize) -> Version {
 ///
 /// The recursive oracle walks on native frames (it is the small-scope
 /// reference, not a deep-input one), so the value witnesses here are closed
-/// forms. The full id collapses the whole spine to one leaf at its maximum
+/// forms. The full party collapses the whole spine to one leaf at its maximum
 /// height — the alternating spine's only nonzero leaf is the `1` at the bottom
 /// pair — and that collapse trips the flag, so it is also the tick; the deep
-/// unary id over the empty version leaves the flag clear (fill of a leaf under
-/// a node id is the leaf) and ticks to the left spike, the expansion chain to
-/// its owned tip; and over the deep spine the same id turns left into the
+/// unary party over the empty version leaves the flag clear (fill of a leaf under
+/// a node party is the leaf) and ticks to the left spike, the expansion chain to
+/// its owned tip; and over the deep spine the same party turns left into the
 /// spine's depth-2 zero leaf (the spine's structure continues right there), so
 /// the flag again stays clear and the grown tree raises exactly the owned
 /// region from 0 to 1 — the pointwise max with the spike, realized through the
@@ -1084,8 +1084,8 @@ fn deep_spines_tick_and_flag_identically() {
     // (fill idempotence, flag-denominated).
     let assert_deep_changed = |v: &Version, p: &Party, expected: &Version| {
         let enc = encode(v);
-        match fused_fill(crate::codec::built_view(&enc), p) {
-            FillOutcome::Changed(bits) => {
+        match TickWalk::decide(crate::codec::built_view(&enc), p) {
+            Decision::Simplified(bits) => {
                 validate(crate::codec::built_view(&bits)).expect("a filled stream is canonical");
                 assert_eq!(bits, encode(expected), "the derived closed form");
                 let again: Version = Version::from_bits(bits.clone());
@@ -1094,10 +1094,10 @@ fn deep_spines_tick_and_flag_identically() {
                     "a filled stream re-ticks through the grow branch"
                 );
             }
-            FillOutcome::Unchanged(_) => panic!("fill moves this pair: the flag must trip"),
+            Decision::Raise(_) => panic!("fill moves this pair: the flag must trip"),
         }
         assert_eq!(
-            tick(crate::codec::built_view(&enc), p),
+            TickWalk::tick(crate::codec::built_view(&enc), p),
             encode(expected),
             "tick takes the fill branch: the collapse"
         );
@@ -1110,7 +1110,7 @@ fn deep_spines_tick_and_flag_identically() {
     let assert_deep_unchanged = |v: &Version, p: &Party, grown: &Version| {
         let enc = encode(v);
         assert!(!flag_of(v, p), "fill is the identity: the flag stays clear");
-        let out = tick(crate::codec::built_view(&enc), p);
+        let out = TickWalk::tick(crate::codec::built_view(&enc), p);
         validate(crate::codec::built_view(&out)).expect("a ticked stream is canonical");
         assert_eq!(out, encode(grown), "the derived grow closed form");
         let mut ticked = v.clone();
@@ -1123,10 +1123,10 @@ fn deep_spines_tick_and_flag_identically() {
     let spike = left_spike(4096);
     let one = uniform(1u8);
 
-    // The full id: the collapse to the maximum leaf.
+    // The full party: the collapse to the maximum leaf.
     assert_deep_changed(&deep_ev, &Party::seed(), &one);
 
-    // The deep unary id over the empty version: identity fill, so tick grows
+    // The deep unary party over the empty version: identity fill, so tick grows
     // the expansion chain to the owned tip.
     assert_deep_unchanged(&Version::new(), &deep_id, &spike);
 
@@ -1144,13 +1144,13 @@ fn tick_splices_fill_and_grow() {
     let v = from_oracle_version(&V::node(2u8, V::leaf(0u8), V::leaf(1u8)));
     let p = from_oracle_party(&P::node(P::Leaf(true), P::Leaf(false)));
     assert_eq!(
-        tick(crate::codec::built_view(&encode(&v)), &p),
+        TickWalk::tick(crate::codec::built_view(&encode(&v)), &p),
         encode(&uniform(3u8))
     );
     // fill is the identity: grow registers the event.
     let v = from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)));
     assert_eq!(
-        tick(crate::codec::built_view(&encode(&v)), &p),
+        TickWalk::tick(crate::codec::built_view(&encode(&v)), &p),
         encode(&from_oracle_version(&V::node(
             0u8,
             V::leaf(2u8),
@@ -1203,11 +1203,11 @@ proptest! {
     ///
     /// Fill's raises telescope the codes their collapsed ranges
     /// already spent, and grow adds one increment or one expansion chain, a
-    /// constant per id bit at the site — but either can re-code up to two
+    /// constant per party bit at the site — but either can re-code up to two
     /// deltas against a wide neighbor (the raise's landing, grow's zero leaf),
     /// each duplicating one input code's width once. Hence the factor of two,
     /// not an additive slack: 255 output bits from a 175-bit event under a
-    /// 6-bit id follows from the arithmetic (the zero leaf lands next to a wide
+    /// 6-bit party follows from the arithmetic (the zero leaf lands next to a wide
     /// value), while a superlinear output would create content no operand
     /// paid for.
     #[test]
@@ -1219,11 +1219,11 @@ proptest! {
         let v = from_oracle_version(&ov);
         if !p.as_bits().is_empty() {
             let ev = encode(&v);
-            let out = tick(crate::codec::built_view(&ev), &p);
+            let out = TickWalk::tick(crate::codec::built_view(&ev), &p);
             let bound = 2 * ev.len() + 4 * p.as_bits().len() + 32;
             prop_assert!(
                 out.len() <= bound,
-                "tick output {} bits exceeds input envelope {} (event {}, id {})",
+                "tick output {} bits exceeds input envelope {} (event {}, party {})",
                 out.len(), bound, ev.len(), p.as_bits().len(),
             );
         }
@@ -1233,12 +1233,12 @@ proptest! {
     /// growth.
     ///
     /// After the first tick (whose one-step factor the pin above prices),
-    /// `bits(tick^k) ≤ bits(tick^1) + 4·bits(id) + 4·⌈log2(k + 1)⌉ + 8` for
+    /// `bits(tick^k) ≤ bits(tick^1) + 4·bits(party) + 4·⌈log2(k + 1)⌉ + 8` for
     /// every k along the orbit.
     ///
     /// The per-step multiplicative bound cannot compound: a width duplication
-    /// needs an unexpanded id-demanded site adjacent to a wide transition, the
-    /// orbit creates expansions at most once per id site (the `4·bits(id)`
+    /// needs an unexpanded party-demanded site adjacent to a wide transition, the
+    /// orbit creates expansions at most once per party site (the `4·bits(party)`
     /// transient), re-fired raises re-code the same position rather than
     /// stacking, and the steady state is increments whose two re-coded delta
     /// codes grow with the count's own gamma width — the `log k` term
@@ -1254,10 +1254,10 @@ proptest! {
         let v = from_oracle_version(&ov);
         if !p.as_bits().is_empty() {
             let mut e = encode(&v);
-            e = tick(crate::codec::built_view(&e), &p);
+            e = TickWalk::tick(crate::codec::built_view(&e), &p);
             let b1 = e.len();
             for k in 2u32..=48 {
-                e = tick(crate::codec::built_view(&e), &p);
+                e = TickWalk::tick(crate::codec::built_view(&e), &p);
                 let logk = u64::from(32 - (k + 1).leading_zeros());
                 let bound = b1
                     + 4 * p.as_bits().len()
@@ -1266,7 +1266,7 @@ proptest! {
                 prop_assert!(
                     e.len() <= bound,
                     "orbit size {} bits at tick {k} exceeds the transient-plus-log \
-                     envelope {bound} (first-tick size {b1}, id {} bits)",
+                     envelope {bound} (first-tick size {b1}, party {} bits)",
                     e.len(), p.as_bits().len(),
                 );
             }
@@ -1288,24 +1288,24 @@ fn tick_deep_orbits_stay_banded() {
     let idb = party_of(&Shape::IdSpine.build_flagged(4, true));
 
     let mut e = encode(&ev);
-    e = tick(crate::codec::built_view(&e), &ida);
+    e = TickWalk::tick(crate::codec::built_view(&e), &ida);
     let b1 = e.len();
     for k in 2u32..=4096 {
-        e = tick(crate::codec::built_view(&e), &ida);
+        e = TickWalk::tick(crate::codec::built_view(&e), &ida);
         let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
         assert!(
             e.len() <= b1 + 4 * logk as u64 + 8,
-            "fixed-id orbit: {} bits at tick {k} (first-tick size {b1})",
+            "fixed-party orbit: {} bits at tick {k} (first-tick size {b1})",
             e.len(),
         );
     }
 
     let mut e = encode(&ev);
-    e = tick(crate::codec::built_view(&e), &ida);
-    e = tick(crate::codec::built_view(&e), &idb);
+    e = TickWalk::tick(crate::codec::built_view(&e), &ida);
+    e = TickWalk::tick(crate::codec::built_view(&e), &idb);
     let b2 = e.len();
     for k in 3u32..=2048 {
-        e = tick(
+        e = TickWalk::tick(
             crate::codec::built_view(&e),
             if k % 2 == 1 { &ida } else { &idb },
         );
@@ -1325,10 +1325,10 @@ fn tick_deep_orbits_stay_banded() {
 // feasible chain of any length still compares feasible and the recorded route
 // always turns into a present child. The ceiling is a parameter of the rise
 // loop exactly so these tests can scale it into constructible range: reaching
-// the production ceiling honestly would take more id levels than any physical
+// the production ceiling honestly would take more party levels than any physical
 // encoding can hold.
 
-/// The party owning exactly the region at the end of `path`: one internal id
+/// The party owning exactly the region at the end of `path`: one internal party
 /// node per direction (the off-path sibling absent), a full terminal below.
 ///
 /// The encoding is depth-first with absent children omitted, so the chain's
@@ -1347,15 +1347,19 @@ fn direction_chain(path: &[bool]) -> Party {
 /// A rise loop that saturated feasible distances *into* the infeasible
 /// sentinel would instead compare the chain equal to its absent sibling,
 /// record the tie to the right, and send the splice emit into the absent
-/// child (a debug panic, an id-cursor desync in release) — the corner the
+/// child (a debug panic, a party-cursor desync in release) — the corner the
 /// strict sub-sentinel ceiling closes by construction.
 fn assert_chain_saturation(path: &[bool], ceiling: u64) {
     let p = direction_chain(path);
     let bits = p.as_bits();
-    let mut probe = RouteProbe::new(bits.len());
-    let mut id = IdReader::root(bits);
-    let cost = probe.expand_subtree(&mut id, ceiling);
-    assert_eq!(id.pos(), bits.len(), "the DP consumes exactly the subtree");
+    let mut probe = RaiseProbe::new(bits.len());
+    let mut party = PartyCursor::root(bits);
+    let cost = probe.expand_subtree(&mut party, ceiling);
+    assert_eq!(
+        party.offset(),
+        bits.len(),
+        "the DP consumes exactly the subtree"
+    );
     assert!(
         cost < Cost::MAX,
         "a feasible chain must never read infeasible (depth {}, ceiling {ceiling})",
@@ -1407,7 +1411,7 @@ proptest! {
     /// ceilings the chains can reach and pass: the DP's cost is the distance
     /// saturated at the ceiling — feasible by construction — and the recorded
     /// route turns into the present child at every level, the invariant whose
-    /// violation would route the splice emit into an absent id child.
+    /// violation would route the splice emit into an absent party child.
     #[test]
     fn expansion_chains_saturate_strictly_feasible(
         path in proptest::collection::vec(any::<bool>(), 1..=64),
@@ -1417,23 +1421,24 @@ proptest! {
     }
 }
 
-// ───────────────────────────── ticks(n) ─────────────────────────────
+// ───────────────────────── ticks(n) ─────────────────────────────
 //
-// The fused multi-tick's differentials: `ticks(n)` must equal `n` sequential
-// public ticks byte for byte on every branch — the claim the grow module doc's
-// compounding argument and the two-walk fill branch both reduce to — with the
-// structural facts the argument rests on (fill idempotence, the grow branch
-// absorbing) pinned directly, wide-n self-consistency pinned by the
-// monoid-action law seamed to a single ground-truth tick, and the k = 1 splice
-// pinned as exactly the tick.
+// `TickWalk::ticks(n)` must equal `n` sequential public ticks byte for byte on
+// both branches. The tests also pin the facts behind that equivalence:
+// simplification is idempotent, raising remains applicable after a tick, wide
+// counts compose, and `ticks(1)` is exactly `tick`.
 
-/// [`ticks`] lifted to the stored-value level, through the same `from_bits`
-/// gate the public entry commits through.
-fn ticks_version(v: &Version, id: &Party, n: &BigUint) -> Version {
-    Version::from_bits(ticks(crate::codec::built_view(&encode(v)), id, n))
+/// [`TickWalk::ticks`] lifted to the stored-value level through the same
+/// `from_bits` gate as the public operation.
+fn ticks_version(v: &Version, party: &Party, n: &BigUint) -> Version {
+    Version::from_bits(TickWalk::ticks(
+        crate::codec::built_view(&encode(v)),
+        party,
+        n,
+    ))
 }
 
-/// Check `ticks(n)` against the iterated public tick for every `n` in
+/// Check [`TickWalk::ticks`] against repeated [`Version::tick`] for every `n` in
 /// an ascending list, reusing the iterated prefix.
 fn check_ticks_equivalence(v: &Version, p: &Party, ns: &[u32]) {
     let mut iterated = v.clone();
@@ -1453,7 +1458,7 @@ fn check_ticks_equivalence(v: &Version, p: &Party, ns: &[u32]) {
 }
 
 proptest! {
-    /// `ticks(n)` is byte-identical to `n` sequential
+    /// `TickWalk::ticks(n)` is byte-identical to `n` sequential
     /// public ticks for `n` in {0, 1, 2, 3, 7, 64}, on arbitrary normal-form
     /// (version, party) pairs — including wide (beyond-u64) leaf magnitudes.
     #[test]
@@ -1468,7 +1473,7 @@ proptest! {
 
     /// The single-tick byte pin: the `k = 1` splice is exactly the tick.
     ///
-    /// `ticks(1)`, the public `tick`, and the recursive oracle's `event` (the
+    /// `TickWalk::ticks(1)`, the public `tick`, and the recursive oracle's `event` (the
     /// semantic definition of record, untouched by the `+k` splice
     /// generalization) produce one identical stream on a substantial generated
     /// corpus — the committed guard that generalizing the splice's increment
@@ -1493,22 +1498,22 @@ proptest! {
         );
     }
 
-    /// Structural fact: fill is idempotent.
+    /// Simplification is idempotent.
     ///
     /// Whenever the fused walk reports a change, a second walk over its output
     /// reports the tree unchanged — so at most the first tick of a run takes
-    /// the fill branch, and `ticks` needs at most two walks.
+    /// the simplification branch, and `ticks` needs at most two walks.
     #[test]
-    fn fill_is_idempotent(
+    fn simplification_is_idempotent(
         ov in generators::arb_oracle_version(),
         op in generators::arb_oracle_party_nonempty(),
     ) {
         let v = from_oracle_version(&ov);
         let p = from_oracle_party(&op);
-        if let FillOutcome::Changed(bits) = fused_fill(crate::codec::built_view(&encode(&v)), &p) {
+        if let Decision::Simplified(bits) = TickWalk::decide(crate::codec::built_view(&encode(&v)), &p) {
             prop_assert!(
-                matches!(fused_fill(crate::codec::built_view(&bits), &p), FillOutcome::Unchanged(_)),
-                "fill moved a tree it had already filled: {:?} with {:?}", v, p
+                matches!(TickWalk::decide(crate::codec::built_view(&bits), &p), Decision::Raise(_)),
+                "simplification changed an already simplified tree: {:?} with {:?}", v, p
             );
         }
     }
@@ -1531,7 +1536,7 @@ proptest! {
         cur.tick(&p);
         for _ in 0..4 {
             prop_assert!(
-                matches!(fused_fill(crate::codec::built_view(&encode(&cur)), &p), FillOutcome::Unchanged(_)),
+                matches!(TickWalk::decide(crate::codec::built_view(&encode(&cur)), &p), Decision::Raise(_)),
                 "a grow re-opened the fill branch: {:?} with {:?}", v, p
             );
             cur.tick(&p);
@@ -1547,7 +1552,7 @@ proptest! {
     /// The conjunction no other family reaches: the depth-capped arbitrary
     /// trees carry wide values only at small depth, and the deterministic
     /// deep shapes carry only small distinct counters — so a guard needing
-    /// deep suspension state (the fill walk's ancestor bit stacks, the
+    /// deep suspension state (the tick walk's ancestor bit stacks, the
     /// pre-scan's memoized latents) *and* word-scale arithmetic at once
     /// would sit outside every sampled universe. Here the wide leaf rides a
     /// real spine, at the tip (inside the deepest suspended range) and at an
@@ -1570,7 +1575,7 @@ proptest! {
 /// The shape corpus at depth: the main differential over the registered deep
 /// shapes crossed with the shape parties, `n` to 1000.
 ///
-/// The parties span single deep owned regions and bushy multi-region ids, and
+/// The parties span single deep owned regions and bushy multi-region parties, and
 /// the count runs large enough that the iterated side pays a thousand walks
 /// while the fused side pays at most two.
 #[test]
@@ -1591,7 +1596,7 @@ fn ticks_matches_iterated_ticks_shapes() {
                     check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
                 }
             }
-            // The expansion-heavy id: a bushy multi-region id beside an owned
+            // The expansion-heavy party: a bushy multi-region party beside an owned
             // terminal (the route weighs two feasible children at every
             // branch).
             let p = bushy_expand_party(ev_scale);
@@ -1612,15 +1617,15 @@ fn ticks_covers_fill_changed_branch() {
     let p = Party::seed(); // the full owner of everything
     assert!(
         matches!(
-            fused_fill(crate::codec::built_view(&encode(&v)), &p),
-            FillOutcome::Changed(_)
+            TickWalk::decide(crate::codec::built_view(&encode(&v)), &p),
+            Decision::Simplified(_)
         ),
         "witness must take the fill branch"
     );
     check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
 }
 
-/// From the identity, `ticks(n)` under the seed party yields uniform height
+/// From the identity, `TickWalk::ticks(n)` under the seed party yields uniform height
 /// `n`.
 #[test]
 fn ticks_from_empty_is_the_counter() {
@@ -1719,7 +1724,7 @@ mod prescan_raise_shapes {
     const T: bool = true;
     const F: bool = false;
 
-    /// Wrap an entry range and its id in the covering left-full site that
+    /// Wrap an entry range and its party in the covering left-full site that
     /// launches the fresh pre-scan: a root site over a fully-owned collapse
     /// leaf, the entry range as its sibling.
     fn covered(er: &BitsBuf, ir: &[bool]) -> (Version, Party) {
@@ -1727,14 +1732,14 @@ mod prescan_raise_shapes {
         nd(&mut ev); // the covering site's node
         lf(&mut ev, 2); // its fully-owned collapse leaf
         ev.extend_from_buf(er);
-        let mut id = BitsBuf::new();
+        let mut party = BitsBuf::new();
         for b in [T, T, F, F] {
-            id.push(b); // the covering site: internal, full left child
+            party.push(b); // the covering site: internal, full left child
         }
         for &b in ir {
-            id.push(b);
+            party.push(b);
         }
-        (version_of(&pk(ev)), party_of(&pk(id)))
+        (version_of(&pk(ev)), party_of(&pk(party)))
     }
 
     /// The chain-raise pair: a `k`-deep chain of suspended left-full sites
@@ -1760,7 +1765,7 @@ mod prescan_raise_shapes {
         for _ in 0..k {
             ir.extend([T, T, F, F]); // each site: internal, full left child
         }
-        ir.extend([T, F, F, F]); // the innermost sibling leaf's id
+        ir.extend([T, F, F, F]); // the innermost sibling leaf's party
         ir.extend([F, F]); // the raising node's right child: full
         covered(&er, &ir)
     }
@@ -1804,7 +1809,7 @@ mod prescan_raise_shapes {
             &[
                 T, T, F, F, // the site: internal, full left child
                 T, T, // the raising node
-                T, F, F, F, // its left leaf's id
+                T, F, F, F, // its left leaf's party
                 F, F, // its right child: full
             ],
         );
@@ -1831,19 +1836,19 @@ mod prescan_raise_shapes {
     /// The descend-entry full arm is excluded at the type boundary: a full
     /// child's sibling can never itself be full.
     ///
-    /// An id handing a full sibling to a full child is `(1, 1)`, which
+    /// A party handing an owned sibling to an owned child is `(1, 1)`, which
     /// normal form collapses and decode rejects — every pre-scan entry is a
     /// full child's sibling or a child its caller peeked as not-full.
     #[test]
     fn full_sibling_of_full_child_is_undecodable() {
-        let mut id = BitsBuf::new();
+        let mut party = BitsBuf::new();
         for b in [T, T, F, F, F, F] {
-            id.push(b);
+            party.push(b);
         }
-        codec::seal_padding(&mut id);
+        codec::seal_padding(&mut party);
         assert!(
-            Party::decode(&id.into_bytes()[..]).is_err(),
-            "id (1, 1) must be rejected as non-normal"
+            Party::decode(&party.into_bytes()[..]).is_err(),
+            "party (1, 1) must be rejected as non-normal"
         );
     }
 }
@@ -1890,11 +1895,11 @@ proptest! {
             tree = V::node(0u8, V::leaf(leaf), tree);
         }
         let v = from_oracle_version(&tree);
-        let mut id = P::Leaf(false);
+        let mut party = P::Leaf(false);
         for _ in 0..k {
-            id = P::node(P::Leaf(true), id);
+            party = P::node(P::Leaf(true), party);
         }
-        let p = from_oracle_party(&id);
+        let p = from_oracle_party(&party);
         assert_tick(&v, &p);
     }
 }

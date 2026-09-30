@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 use std::sync::Arc;
 
-use crate::version::skyline::grow::Cost as RouteCost;
+use crate::version::skyline::tick::raise::Cost as RouteCost;
 use num_bigint::BigUint;
 
 use super::Party;
