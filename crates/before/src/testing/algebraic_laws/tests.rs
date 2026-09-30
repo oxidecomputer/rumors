@@ -1,36 +1,36 @@
 //! The law drivers: one generic proptest per signature group, iterating
-//! [`crate::laws`]' slices so every assertion names the law it checks.
+//! [`crate::testing::laws`]' slices so every assertion names the law it checks.
 //!
 //! Both driver genres — the per-group proptests and the
 //! organic-populations drive list — expand from the law-group roster
 //! (`crate::for_each_law_group!`), so every registered group is driven
 //! here by construction. Each driver's doc comment states the
 //! meta-invariant; the individual laws' statements live with their
-//! predicates in [`crate::laws`]. No assertion's right-hand side mentions
+//! predicates in [`crate::testing::laws`]. No assertion's right-hand side mentions
 //! the oracle: the laws hold by the ITC algebra, so they catch a defect
 //! the impl and the recursive oracle would share.
 
 use proptest::prelude::*;
 
-use crate::laws;
-use crate::oracle;
 use crate::testing::generators::{
     arb_clock_family, arb_fold_arity, arb_oracle_party_nonempty, arb_oracle_version,
     arb_party_family, arb_version_family,
 };
+use crate::testing::laws;
 use crate::testing::optrace::{run, step_impl, world_strategy};
+use crate::testing::oracles::tree;
 use crate::{Clock, Party, Rank, Version};
 
 /// Build a fresh impl `Version` from an oracle source tree. The oracle tree
 /// is only a carrier of canonical bits here.
-fn ver(o: &oracle::Version) -> Version {
+fn ver(o: &tree::Version) -> Version {
     crate::testing::bridge::from_oracle_version(o)
 }
 
 /// Build a fresh impl `Party` from an oracle source tree. `Party` is
 /// `!Clone`, so every use that consumes or borrows a party rebuilds one from
 /// its (cheap, `Clone`) oracle source.
-fn party(o: &oracle::Party) -> Party {
+fn party(o: &tree::Party) -> Party {
     crate::testing::bridge::from_oracle_party(o)
 }
 
@@ -290,7 +290,7 @@ macro_rules! group_drivers {
             /// aliased parties under mass, at every boundary-band arity.
             #[test]
             fn $driver((r, items) in arb_clock_family()) {
-                let clock = |(p, v): &(oracle::Party, oracle::Version)| {
+                let clock = |(p, v): &(tree::Party, tree::Version)| {
                     Clock::from_parts(party(p), ver(v))
                 };
                 let receiver = clock(&r);

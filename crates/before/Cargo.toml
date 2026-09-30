@@ -35,7 +35,7 @@ borsh = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The emit_probe example's external comparison baseline: the production
-# build buffer is the crate-owned BitsBuf, and nothing shipped links bitvec.
+# build buffer is the crate-owned BitsWriter, and nothing shipped links bitvec.
 bitvec = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
@@ -57,20 +57,20 @@ surface-scan = { workspace = true }
 default = []
 serde = ["dep:serde", "dep:serde_bytes"]
 borsh = ["dep:borsh"]
-# Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the
-# benchmark suite can time it against the optimized implementation.
+# Exposes the recursive tree oracle as `before::testing::oracles::tree`, so
+# the benchmark suite can time it against the optimized implementation.
 # Bench/test-only.
 oracle = []
 # Exposes the adversarial input generators and deterministic resource meters
-# (`src/meter.rs`) as `before::meter`, so the metering test binaries can build
+# under `before::testing::meter`, so the metering test binaries can build
 # worst-case inputs and read the counters they envelope, and the public
-# operation surface roster (`src/surface.rs`) as `before::surface`, so external
+# operation surface roster as `before::testing::surface`, so external
 # instrument crates can bind their coverage to the rows the surface-coverage
 # suite enforces totality over, and the instrument-side value observations
 # (`encoded_bits` on `Party`/`Version`/`Clock`), the exact bit-length
 # denomination the meters and boundary pins read. Bench/test-only.
 meter = []
-# Exposes the named algebraic-law predicates (`src/laws.rs`) as `before::laws`,
+# Exposes the named algebraic-law predicates as `before::testing::laws`,
 # so the fuzz workspace can drive the same law collection the in-tree proptests
 # assert. Implies `meter`: the representational laws read the instrument-side
 # observations (`encoded_bits`) that feature exposes. Test/fuzz-only.
@@ -82,7 +82,7 @@ touch-meter = ["meter", "suanpan/touch-meter"]
 # Counts encoded-stream bits scanned and written (id tag reads and skip steps,
 # id-builder bit writes and splice lengths, event topology cursor advances and
 # gamma code-skips, every validator/decoder bit cursor) into a process-global
-# counter read via `before::meter`. Traversal work over the encoded forms is
+# counter read via `before::testing::meter`. Traversal work over the encoded forms is
 # invisible to the heap and segment meters when it allocates nothing,
 # recurses nothing, and does no integer arithmetic — the id-side walks are
 # exactly that — so this is the column that sees it. Additive and off by
@@ -90,12 +90,6 @@ touch-meter = ["meter", "suanpan/touch-meter"]
 # of the bench builds, lit by `--all-features` runs and the metering suites that
 # assert it.
 scan-meter = ["meter"]
-
-[lints.rust]
-# Allocation experiments may compile alternative projection strategies.
-unexpected_cfgs = { level = "deny", check-cfg = [
-    'cfg(before_alloc_ab, values("projection_growth", "projection_shrink"))',
-] }
 
 # The board example judges scan and touch work against pinned floors and
 # ceilings; built without the counter features those columns

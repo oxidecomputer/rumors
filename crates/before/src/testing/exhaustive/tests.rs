@@ -32,11 +32,11 @@ use rayon::prelude::*;
 use super::{
     all_normal_events, all_normal_ids, EV_DEEP_DEPTH, EV_SMALL_DEPTH, ID_DEEP_DEPTH, ID_SMALL_DEPTH,
 };
-use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
 };
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
+use crate::testing::oracles::tree;
 use crate::{Party, Version};
 
 /// `a <= b` under the impl event causal order (concurrency is not-`<=`).
@@ -81,7 +81,7 @@ fn impl_events(depth: usize) -> Vec<Version> {
 /// Every id tree round-trips: the impl is itself normal form (`decode` accepts
 /// only canonical bits), and lowering after `decode∘encode` recovers the same
 /// oracle tree.
-fn check_id_codec(ids: &[oracle::Party], imp: &[Party]) {
+fn check_id_codec(ids: &[tree::Party], imp: &[Party]) {
     (0..ids.len()).into_par_iter().for_each(|i| {
         let oa = &ids[i];
         let p = &imp[i];
@@ -95,7 +95,7 @@ fn check_id_codec(ids: &[oracle::Party], imp: &[Party]) {
 /// [`Party::fork`] on every standalone id matches the oracle's fork on both
 /// halves, structurally: the kept half replaces the receiver, the given half is
 /// returned.
-fn check_id_fork(ids: &[oracle::Party], imp: &[Party]) {
+fn check_id_fork(ids: &[tree::Party], imp: &[Party]) {
     (0..ids.len()).into_par_iter().for_each(|i| {
         let oa = &ids[i];
         let mut oracle_keep = oa.clone();
@@ -117,7 +117,7 @@ fn check_id_fork(ids: &[oracle::Party], imp: &[Party]) {
 /// to cross the deep bound at all (see the parent module doc's leg split) —
 /// yet the deep `corpus²` product is still the dominant phase of
 /// [`exhaustive_deep`], whose doc carries the measured state.
-fn check_id_pair_verdicts(ids: &[oracle::Party], imp: &[Party]) {
+fn check_id_pair_verdicts(ids: &[tree::Party], imp: &[Party]) {
     par_for_pairs(ids.len(), |i, j| {
         let (oa, ob) = (&ids[i], &ids[j]);
         let (ia, ib) = (&imp[i], &imp[j]);
@@ -144,7 +144,7 @@ fn check_id_pair_verdicts(ids: &[oracle::Party], imp: &[Party]) {
 /// operands are duplicated per pair, since `join` mutates and consumes and
 /// `without` consumes), so this check runs at the small bound only — the
 /// parent module doc states the split.
-fn check_id_pair_algebra(ids: &[oracle::Party], imp: &[Party]) {
+fn check_id_pair_algebra(ids: &[tree::Party], imp: &[Party]) {
     par_for_pairs(ids.len(), |i, j| {
         let (oa, ob) = (&ids[i], &ids[j]);
         let (ia, ib) = (&imp[i], &imp[j]);
@@ -207,7 +207,7 @@ fn check_id_pair_algebra(ids: &[oracle::Party], imp: &[Party]) {
 
 /// Every event tree round-trips through the widened codec and lowers back to the same
 /// oracle value.
-fn check_ev_codec(evs: &[oracle::Version], imp: &[Version]) {
+fn check_ev_codec(evs: &[tree::Version], imp: &[Version]) {
     (0..evs.len()).into_par_iter().for_each(|i| {
         let ov = &evs[i];
         let v = &imp[i];
@@ -226,7 +226,7 @@ fn check_ev_codec(evs: &[oracle::Version], imp: &[Version]) {
 ///
 /// Reaching the concurrent (`None`) verdict and the join/meet arm selection on
 /// shapes the op pipeline never builds.
-fn check_ev_pairs(evs: &[oracle::Version], imp: &[Version]) {
+fn check_ev_pairs(evs: &[tree::Version], imp: &[Version]) {
     par_for_pairs(evs.len(), |i, j| {
         let (oa, ob) = (&evs[i], &evs[j]);
         let (ia, ib) = (&imp[i], &imp[j]);
@@ -262,12 +262,7 @@ fn check_ev_pairs(evs: &[oracle::Version], imp: &[Version]) {
 /// directly, not merely to the oracle that realizes the same DP — and the
 /// metamorphic minimality condition (no feasible candidate sits strictly
 /// between `e` and `e'`) is checked on the impl's own causal order.
-fn check_tick(
-    ids: &[oracle::Party],
-    imp_ids: &[Party],
-    evs: &[oracle::Version],
-    imp_evs: &[Version],
-) {
+fn check_tick(ids: &[tree::Party], imp_ids: &[Party], evs: &[tree::Version], imp_evs: &[Version]) {
     (0..ids.len()).into_par_iter().for_each(|i| {
         let op = &ids[i];
         let ip = &imp_ids[i];
@@ -325,12 +320,12 @@ fn corpora_at(
     id_depth: usize,
     ev_depth: usize,
 ) -> (
-    Vec<oracle::Party>,
+    Vec<tree::Party>,
     Vec<Party>,
-    Vec<oracle::Version>,
+    Vec<tree::Version>,
     Vec<Version>,
 ) {
-    let ids: Vec<oracle::Party> = all_normal_ids(id_depth)
+    let ids: Vec<tree::Party> = all_normal_ids(id_depth)
         .into_iter()
         .filter(|t| !t.is_empty())
         .collect();
@@ -536,8 +531,8 @@ fn corpus_counts_are_exact() {
     /// The step-function vector of an oracle event tree over the level-`depth`
     /// dyadic grid: cell `c`'s value is the sum of bases along `c`'s path
     /// (an independent evaluation — no `node`, no normalization, no dedup key).
-    fn ev_vector(t: &oracle::Version, depth: usize) -> Vec<BigUint> {
-        use oracle::Version as V;
+    fn ev_vector(t: &tree::Version, depth: usize) -> Vec<BigUint> {
+        use tree::Version as V;
         (0..(1usize << depth))
             .map(|cell| {
                 let mut node = t;

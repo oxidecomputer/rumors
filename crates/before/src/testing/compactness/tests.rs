@@ -1,11 +1,12 @@
 //! Checks the Tier 2 size envelope and Euler-tour charge bound.
 
-use crate::meter::registry::Shape;
+use crate::testing::meter::registry::Shape;
 use proptest::prelude::*;
 
 use crate::testing::bridge::from_oracle_version;
+use crate::testing::meter;
 use crate::testing::{generators, optrace};
-use crate::{meter, Clock, Version};
+use crate::{Clock, Version};
 
 use super::{arb_comb_params, check_sample, comb};
 

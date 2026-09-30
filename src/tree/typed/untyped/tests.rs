@@ -769,7 +769,7 @@ fn small_tree_hash_matches_byte_literal_preimage() {
 /// one scenario per process (nextest's model).
 #[cfg(feature = "meter")]
 mod memo_fold_cost {
-    use before::meter::{self, registry::Shape};
+    use before::testing::meter::{self, registry::Shape};
 
     use super::super::{Node, fan::Fan};
     use crate::{Version, message::Message};

@@ -6,36 +6,33 @@
 //! the larger half on the left makes base path `q` fork precisely when the
 //! low-`d`-bit reversal of `q` is less than `r`.
 //!
-//! [`Plan`] stores that compact plan and the source bytes. It composes every
-//! fork for one share into a single descent, without constructing the
-//! intermediate regions. [`Forks`] then removes that share from the borrowed
-//! party in one rebuilding pass. The removal remembers bits per open ancestor,
-//! not a machine word or tree node, so even an arbitrary-width count cannot
-//! turn path depth into disproportionate transient memory. The borrowed party
-//! always owns the residual and every untaken share; dropping the iterator
-//! requires no cleanup.
+//! [`Plan`] stores that compact plan and a read-only source snapshot. It
+//! composes every fork for one share into a single descent, without constructing
+//! the intermediate regions. [`Forks`] then removes that share from the
+//! borrowed party in one rebuilding pass. The removal remembers bits per open
+//! ancestor, not a machine word or tree node, so even an arbitrary-width count
+//! cannot turn path depth into disproportionate transient memory. The borrowed
+//! party always owns the residual and every untaken share; dropping the
+//! iterator requires no cleanup.
 
 use num_bigint::BigUint;
 
 use super::Party;
-use crate::codec;
-use crate::party::tree::PartyCursor;
+use crate::party::io::{PartyBranch, PartyNode, PartyReader, PartySnapshot};
 use crate::Ticks;
 
 /// The current share's directions in the party's spatial tree.
 ///
 /// The balanced fork plan describes only choices that fork an owned region.
-/// The source encoding may also contain unary nodes, which locate that region
-/// in the spatial tree but do not fork it. [`SharePath`] merges the two:
-/// it yields every unary source direction, consumes one planned choice at each
-/// source branch, and uses any choices remaining below a source terminal to
-/// create deeper levels. The resulting path addresses the exact subtree that
-/// [`PartyCursor::remove_path`] must remove.
+/// The source party may also contain one-child branches, which locate that
+/// region but do not fork it. [`SharePath`] merges the two: it yields every
+/// one-child direction, consumes one planned choice at each two-child branch,
+/// and uses any choices remaining below an owned region to create deeper
+/// levels. The resulting path addresses the exact subtree that
+/// [`PartyReader::remove_path`] removes.
 struct SharePath<'a> {
-    /// Source bits whose unary nodes contribute spatial directions.
-    bits: codec::BitsView<'a>,
     /// Current source node while the path remains inside the original tree.
-    pos: u64,
+    source: PartyReader<'a>,
     /// Current base-share index, read most-significant decision first.
     index: &'a BigUint,
     /// Number of base-path decisions.
@@ -46,8 +43,8 @@ struct SharePath<'a> {
     second: bool,
     /// Number of planned fork directions already consumed.
     decision: u64,
-    /// Whether the path has descended below a source terminal.
-    below_terminal: bool,
+    /// Whether the path has descended below a source owned region.
+    below_owned_region: bool,
 }
 
 /// Reads directions from the compact fork plan.
@@ -81,38 +78,31 @@ impl Iterator for SharePath<'_> {
         if self.decision == self.depth + u64::from(self.forks_again) {
             return None;
         }
-        if self.below_terminal {
-            // The source has no more topology. Each remaining planned choice
-            // conceptually forks the terminal and therefore adds one level.
+        if self.below_owned_region {
+            // The source has no more branches. Each remaining planned choice
+            // divides the owned region and therefore adds one level.
             return self.next_decision();
         }
-        crate::codec::scan::record_bits(2);
-        let (left, right) = (self.bits.bit(self.pos), self.bits.bit(self.pos + 1));
-        if !left && !right {
-            self.below_terminal = true;
-            return self.next_decision();
+        match self.source.read() {
+            PartyNode::Owned => {
+                self.below_owned_region = true;
+                self.next_decision()
+            }
+            PartyNode::Branch(PartyBranch::Both) => {
+                // A two-child branch forks ownership, so place the next
+                // planned choice here. The right child follows the complete
+                // left subtree in preorder.
+                let direction = self
+                    .next_decision()
+                    .expect("an unfinished fork path has a decision");
+                if direction {
+                    self.source.skip();
+                }
+                Some(direction)
+            }
+            PartyNode::Branch(PartyBranch::Left) => Some(false),
+            PartyNode::Branch(PartyBranch::Right) => Some(true),
         }
-        let child = self.pos + 2;
-        if left && right {
-            // A two-child branch forks ownership, so place the next planned
-            // choice here. Preorder requires skipping left to locate right.
-            let direction = self
-                .next_decision()
-                .expect("an unfinished fork path has a decision");
-            self.pos = if direction {
-                let mut left = PartyCursor::at(self.bits, child);
-                left.skip();
-                left.offset()
-            } else {
-                child
-            };
-            return Some(direction);
-        }
-        // A unary node only locates the owned region. Preserve its direction
-        // without consuming a choice from the balanced plan.
-        let direction = right;
-        self.pos = child;
-        Some(direction)
     }
 }
 
@@ -167,8 +157,8 @@ impl Remaining {
 
 /// A compact plan that yields one balanced share at a time in preorder.
 struct Plan {
-    /// Original party bytes shared with the borrowed party where possible.
-    source: codec::Bits,
+    /// Original party topology retained while the borrowed party changes.
+    source: PartySnapshot,
     /// Depth of every base path.
     depth: u64,
     /// Number of base paths that fork once more, selected by bit reversal.
@@ -184,7 +174,7 @@ struct Plan {
 /// Builds and advances the compact balanced-fork plan.
 impl Plan {
     /// Plan a partition of `source` into `k >= 1` shares.
-    fn new(source: codec::Bits, k: Ticks) -> Self {
+    fn new(source: PartySnapshot, k: Ticks) -> Self {
         debug_assert!(k > Ticks::ZERO, "a balanced fork yields at least one share");
         let remaining = Remaining::new(&k.0);
         let depth = k.0.bits() - 1;
@@ -240,14 +230,13 @@ impl Plan {
     /// Expand the current share's fork decisions into a spatial-tree path.
     fn coordinate_path(&self, forks_again: bool) -> SharePath<'_> {
         SharePath {
-            bits: self.source.live(),
-            pos: 0,
+            source: self.source.reader(),
             index: &self.index,
             depth: self.depth,
             forks_again,
             second: self.second,
             decision: 0,
-            below_terminal: false,
+            below_owned_region: false,
         }
     }
 
@@ -257,7 +246,7 @@ impl Plan {
             .rev()
             .map(|bit| self.index.bit(bit))
             .chain(forks_again.then_some(self.second));
-        Party::from_bits(PartyCursor::root(self.source.live()).select_path(path))
+        self.source.reader().select_path(path)
     }
 
     /// Advance past the current share.
@@ -384,7 +373,7 @@ impl<'a> Forks<'a> {
         // returned, it still owns the entire region.
         let mut count = k;
         count.0 += 1u32;
-        let mut plan = Plan::new(party.0.clone(), count);
+        let mut plan = Plan::new(PartySnapshot::new(party), count);
         plan.skip_one();
         Forks { rest: party, plan }
     }
@@ -400,18 +389,14 @@ impl Iterator for Forks<'_> {
         }
         let forks_again = self.plan.current_forks_again();
         let share = self.plan.current_share(forks_again);
-        // The share and residual reach the same fork depth, so the share's bit
-        // length is a useful capacity hint when a wide count created most of
-        // that path.
+        // The share and residual have similar shape, so the writer uses the
+        // share to reserve a suitably sized result without exposing storage
+        // details to this algorithm.
         let remainder = self
             .rest
-            .cursor()
-            .remove_path(self.plan.coordinate_path(forks_again), share.0.len());
-        assert!(
-            !remainder.is_empty(),
-            "the reserved residual keeps a fork iterator's party nonempty"
-        );
-        *self.rest = Party::from_bits(remainder);
+            .reader()
+            .remove_path(self.plan.coordinate_path(forks_again), &share);
+        *self.rest = remainder;
         self.plan.advance(forks_again);
         Some(share)
     }

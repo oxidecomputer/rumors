@@ -12,7 +12,8 @@ use std::hint::black_box;
 use std::mem::size_of_val;
 use std::sync::Arc;
 
-use before::{oracle, Clock, Ticks};
+use before::testing::oracles::tree as oracle;
+use before::{Clock, Ticks};
 use num_bigint::BigUint;
 use peak_alloc::PeakAlloc;
 

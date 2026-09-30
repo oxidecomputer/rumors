@@ -73,7 +73,7 @@ fn empty_combine_is_the_trivial_cell() {
 /// each: the refinement of one tiling is that tiling.
 #[test]
 fn single_input_combine_is_the_shape() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let version = from_oracle_version(&V::node(
         1u8,
         V::leaf(1u8),
@@ -91,7 +91,7 @@ fn single_input_combine_is_the_shape() {
 /// `None`.
 #[test]
 fn shape_walks_fuse() {
-    use crate::oracle::{Party as P, Version as V};
+    use crate::testing::oracles::tree::{Party as P, Version as V};
     let version = from_oracle_version(&V::node(
         1u8,
         V::leaf(1u8),

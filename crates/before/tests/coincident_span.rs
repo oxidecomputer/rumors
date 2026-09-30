@@ -13,7 +13,8 @@
 #![cfg(feature = "scan-meter")]
 
 use before::causally::before;
-use before::{meter, Clock, Version};
+use before::testing::meter;
+use before::{Clock, Version};
 use before::{Dominance, Endpoint, Placement, Span};
 
 /// Scan bits of one closure run, on a fresh counter.

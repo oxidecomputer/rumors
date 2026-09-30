@@ -1,4 +1,4 @@
-//! Law-driven fuzzing: every named law in `before::laws`, on decoded
+//! Law-driven fuzzing: every named law in `before::testing::laws`, on decoded
 //! hostile-but-canonical values.
 //!
 //! The in-tree proptests drive the law collection over *generated* inputs;
@@ -124,58 +124,58 @@ macro_rules! drive_groups {
         $( drive_groups!(@one $env, $group, $shape); )*
     };
     (@one $env:expr, $group:ident, (version)) => {
-        drive!(before::laws::$group, $env.v[0]);
+        drive!(before::testing::laws::$group, $env.v[0]);
     };
     (@one $env:expr, $group:ident, (version, version)) => {
-        drive!(before::laws::$group, $env.v[0], $env.v[1]);
+        drive!(before::testing::laws::$group, $env.v[0], $env.v[1]);
     };
     (@one $env:expr, $group:ident, (version, version, version)) => {
-        drive!(before::laws::$group, $env.v[0], $env.v[1], $env.v[2]);
+        drive!(before::testing::laws::$group, $env.v[0], $env.v[1], $env.v[2]);
     };
     (@one $env:expr, $group:ident, (party)) => {
-        drive!(before::laws::$group, $env.p[0]);
+        drive!(before::testing::laws::$group, $env.p[0]);
     };
     (@one $env:expr, $group:ident, (party, party)) => {
-        drive!(before::laws::$group, $env.p[0], $env.p[1]);
+        drive!(before::testing::laws::$group, $env.p[0], $env.p[1]);
     };
     (@one $env:expr, $group:ident, (party, party, party)) => {
-        drive!(before::laws::$group, $env.p[0], $env.p[1], $env.p[2]);
+        drive!(before::testing::laws::$group, $env.p[0], $env.p[1], $env.p[2]);
     };
     (@one $env:expr, $group:ident, (version, party)) => {
-        drive!(before::laws::$group, $env.v[0], $env.p[0]);
+        drive!(before::testing::laws::$group, $env.v[0], $env.p[0]);
     };
     (@one $env:expr, $group:ident, (version, version, party)) => {
-        drive!(before::laws::$group, $env.v[0], $env.v[1], $env.p[0]);
+        drive!(before::testing::laws::$group, $env.v[0], $env.v[1], $env.p[0]);
     };
     (@one $env:expr, $group:ident, (version, party, party)) => {
-        drive!(before::laws::$group, $env.v[0], $env.p[0], $env.p[1]);
+        drive!(before::testing::laws::$group, $env.v[0], $env.p[0], $env.p[1]);
     };
     (@one $env:expr, $group:ident, (version, version, party, party)) => {
-        drive!(before::laws::$group, $env.v[0], $env.v[1], $env.p[0], $env.p[1]);
+        drive!(before::testing::laws::$group, $env.v[0], $env.v[1], $env.p[0], $env.p[1]);
     };
     (@one $env:expr, $group:ident, (rank, rank, rank)) => {
-        drive!(before::laws::$group, $env.r[0], $env.r[1], $env.r[2]);
+        drive!(before::testing::laws::$group, $env.r[0], $env.r[1], $env.r[2]);
     };
     (@one $env:expr, $group:ident, (clock)) => {
-        drive!(before::laws::$group, $env.k[0]);
+        drive!(before::testing::laws::$group, $env.k[0]);
     };
     (@one $env:expr, $group:ident, (clock, clock)) => {
-        drive!(before::laws::$group, $env.k[0], $env.k[1]);
+        drive!(before::testing::laws::$group, $env.k[0], $env.k[1]);
     };
     (@one $env:expr, $group:ident, (clock, version)) => {
-        drive!(before::laws::$group, $env.k[0], $env.v[0]);
+        drive!(before::testing::laws::$group, $env.k[0], $env.v[0]);
     };
     (@one $env:expr, $group:ident, (versions)) => {
-        drive!(before::laws::$group, $env.versions);
+        drive!(before::testing::laws::$group, $env.versions);
     };
     (@one $env:expr, $group:ident, (version, versions)) => {
-        drive!(before::laws::$group, $env.v[0], $env.versions);
+        drive!(before::testing::laws::$group, $env.v[0], $env.versions);
     };
     (@one $env:expr, $group:ident, (party, parties)) => {
-        drive!(before::laws::$group, $env.p[0], $env.parties);
+        drive!(before::testing::laws::$group, $env.p[0], $env.parties);
     };
     (@one $env:expr, $group:ident, (clock, clocks)) => {
-        drive!(before::laws::$group, $env.k[0], $env.clocks);
+        drive!(before::testing::laws::$group, $env.k[0], $env.clocks);
     };
 }
 

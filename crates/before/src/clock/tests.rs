@@ -2,7 +2,6 @@
 
 use proptest::prelude::*;
 
-use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
@@ -11,6 +10,7 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
+use crate::testing::oracles::tree;
 use crate::{Clock, Party, Version};
 
 /// `join_all` matches sequential oracle joins for disjoint and overlapping
@@ -42,10 +42,10 @@ fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
 
 /// Return the combined region and history of some oracle clocks.
 fn oracle_clock_union(
-    clocks: impl IntoIterator<Item = (oracle::Party, oracle::Version)>,
-) -> (oracle::Party, oracle::Version) {
+    clocks: impl IntoIterator<Item = (tree::Party, tree::Version)>,
+) -> (tree::Party, tree::Version) {
     clocks.into_iter().fold(
-        (oracle::Party::Leaf(false), oracle::Version::new()),
+        (tree::Party::Leaf(false), tree::Version::new()),
         |(party, version), (other_party, other_version)| {
             (party.union(other_party), version | other_version)
         },
@@ -56,13 +56,13 @@ fn oracle_clock_union(
 fn assert_join_all_matches_recursive_oracle(mut acc: Clock, inputs: Vec<Clock>) {
     let lift = |c: &Clock| {
         let (p, v) = to_oracle_clock(c);
-        oracle::Clock::from_parts(p, v)
+        tree::Clock::from_parts(p, v)
     };
     let initial = lift(&acc);
-    let oracle_inputs: Vec<oracle::Clock> = inputs.iter().map(lift).collect();
+    let oracle_inputs: Vec<tree::Clock> = inputs.iter().map(lift).collect();
     let expected = oracle_clock_union(
         std::iter::once(initial.clone().into_parts())
-            .chain(oracle_inputs.iter().cloned().map(oracle::Clock::into_parts)),
+            .chain(oracle_inputs.iter().cloned().map(tree::Clock::into_parts)),
     );
     let mut oracle_acc = initial;
     let reference = oracle_acc.join_all(oracle_inputs);
@@ -101,7 +101,7 @@ proptest! {
             (Just(pool), proptest::collection::vec(0..len, 0..10))
         }),
     ) {
-        let lower = |(p, v): &(oracle::Party, oracle::Version)| {
+        let lower = |(p, v): &(tree::Party, tree::Version)| {
             Clock::from_parts(from_oracle_party(p), from_oracle_version(v))
         };
         let acc = lower(&oacc);
@@ -144,7 +144,7 @@ proptest! {
     /// byte codec, which the per-trace round-trip below exercises separately.
     #[test]
     fn master_differential(ops in world_strategy()) {
-        let mut ora: Vec<oracle::Clock> = vec![oracle::Clock::seed()];
+        let mut ora: Vec<tree::Clock> = vec![tree::Clock::seed()];
         let mut imp: Vec<Clock> = vec![Clock::seed()];
 
         for op in &ops {
@@ -271,7 +271,7 @@ proptest! {
 
 // The protocol-shape laws (fork preserves the version, peeks are stable, an
 // own-message receive is a bare tick, send/recv advance strictly) live in
-// `crate::laws` and are driven by the algebraic-laws suite; this file keeps the
+// `crate::testing::laws` and are driven by the algebraic-laws suite; this file keeps the
 // oracle differentials.
 
 proptest! {
@@ -467,7 +467,7 @@ proptest! {
 // ───────────────────────── encoded_bits ↔ encode ─────────────────────────
 
 // `encoded_bits` against `encode().len()` is one law per type
-// (version_/party_/clock_encoded_bits_matches_encode_len in `crate::laws`),
+// (version_/party_/clock_encoded_bits_matches_encode_len in `crate::testing::laws`),
 // and the clock length's additivity over its parts is the byte-concatenation
 // law encode_frames_party_then_version — all driven on the three law
 // populations.
@@ -505,7 +505,7 @@ fn deep_tree_stack_safety() {
 
     // Snapshot this deep version before the clock advances further. Used below
     // to drive the skyline join/meet sweep against a *distinct* deep version:
-    // equal operands short-circuit on `codec::canonical_eq`'s byte compare at
+    // equal operands short-circuit on ``==``'s byte compare at
     // the top of join/meet, so only distinct ones reach the full-length sweep.
     let early = clock.version().clone();
 
@@ -534,7 +534,7 @@ fn deep_tree_stack_safety() {
     // predates the `send`/`recv` ticks, so `early < clock.version()`: their
     // meet (GLB) is the older `early`, their join (LUB) the newer current
     // version. The operands are distinct and non-empty, so neither the
-    // `codec::canonical_eq` nor the empty-operand fast path fires — the
+    // ``==`` nor the empty-operand fast path fires — the
     // full-length sweep is genuinely exercised, not skipped.
     let current = clock.version().clone();
     assert!(early.clone() & current.clone() == early);
@@ -756,7 +756,7 @@ proptest! {
 fn worked_example() {
     // Whole-space region check, computed structurally (parties are not `Clone`).
     let region = |clocks: &[&Clock]| {
-        let mut acc = oracle::Party::Leaf(false);
+        let mut acc = tree::Party::Leaf(false);
         for c in clocks {
             acc.join(to_oracle_party(c.party()))
                 .expect("participants own disjoint regions");
@@ -778,7 +778,7 @@ fn worked_example() {
     p2.tick();
 
     // Three participants covering the whole space.
-    assert_eq!(region(&[&p1a, &p1b, &p2]), oracle::Party::seed());
+    assert_eq!(region(&[&p1a, &p1b, &p2]), tree::Party::seed());
 
     // One participant ticks; the other two sync.
     let before = p1a.version().clone();
@@ -799,17 +799,17 @@ fn worked_example() {
         .join(to_oracle_party(p2.party()))
         .expect("disjoint");
     assert_eq!(rejoined, merged_region);
-    assert_eq!(region(&[&p1a, &p1b, &p2]), oracle::Party::seed());
+    assert_eq!(region(&[&p1a, &p1b, &p2]), tree::Party::seed());
 
     // Rejoin all three (recovering id = 1) and tick: the id owns the whole
     // space, so the event tree collapses to a single integer.
     let mut whole = p1a;
     whole.join(p1b).expect("disjoint");
     whole.join(p2).expect("disjoint");
-    assert_eq!(to_oracle_party(whole.party()), oracle::Party::seed());
+    assert_eq!(to_oracle_party(whole.party()), tree::Party::seed());
     whole.tick();
     assert!(
-        matches!(to_oracle_version(whole.version()), oracle::Version::Leaf(_)),
+        matches!(to_oracle_version(whole.version()), tree::Version::Leaf(_)),
         "post-join event should collapse to a single integer, got {:?}",
         whole.version()
     );
@@ -1112,10 +1112,10 @@ fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
             "version bits after round {k}"
         );
     }
-    let expected = from_oracle_version(&crate::oracle::Version::node(
+    let expected = from_oracle_version(&crate::testing::oracles::tree::Version::node(
         0u8,
-        crate::oracle::Version::leaf(0u8),
-        crate::oracle::Version::leaf(512u64),
+        crate::testing::oracles::tree::Version::leaf(0u8),
+        crate::testing::oracles::tree::Version::leaf(512u64),
     ));
     assert_eq!(
         c.version(),

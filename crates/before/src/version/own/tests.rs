@@ -87,7 +87,7 @@ fn assert_mirror_cells(w: &Version, v: &Version, p: &Party) {
 /// deep half a one-sided mask leaves unowned, so the mirror comparison's
 /// co-walk block-skips it on the masked side.
 fn deep_right_spine(depth: u32, top: u64) -> Version {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let mut spine = V::leaf(0u64);
     for level in 1..depth {
         spine = V::node(0u64, V::leaf(u64::from(level) + top), spine);
@@ -107,7 +107,7 @@ fn deep_right_spine(depth: u32, top: u64) -> Version {
 /// classes — the plain version above, below, and concurrent with the view.
 #[test]
 fn mirror_cells_agree_on_deep_unowned_spines() {
-    use crate::oracle::Party as P;
+    use crate::testing::oracles::tree::Party as P;
     let owns_left = from_oracle_party(&P::node(P::seed(), P::Leaf(false)));
     let v = deep_right_spine(24, 40);
     // Above: w carries the projection's owned plateau and more.
@@ -117,7 +117,7 @@ fn mirror_cells_agree_on_deep_unowned_spines() {
     // Concurrent: w is live where the projection is zero and behind where it
     // is live.
     let w = from_oracle_version(&{
-        use crate::oracle::Version as V;
+        use crate::testing::oracles::tree::Version as V;
         V::node(0u64, V::leaf(0u64), V::leaf(7u64))
     });
     assert_mirror_cells(&w, &v, &owns_left);

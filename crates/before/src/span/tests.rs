@@ -553,7 +553,7 @@ fn span_decode_structural_errors_outrank_the_coincident_verdict() {
     // The clean coincident composite accepts (the dedup baseline).
     let coincident = [bytes.clone(), bytes.clone()].concat();
     let span = Span::decode(&coincident[..]).expect("the coincident composite decodes");
-    assert!(span.lo().view().ptr_eq(span.hi().view()));
+    assert!(span.lo().ptr_eq(span.hi()));
 
     // A set padding bit in the byte-equal join's final byte: the padding defect
     // wins over the Equal verdict.
@@ -588,7 +588,7 @@ fn span_decode_structural_errors_outrank_the_coincident_verdict() {
 #[test]
 fn span_decode_verdict_matches_the_composed_form_off_corpus() {
     use crate::error::Decode;
-    use crate::oracle;
+    use crate::testing::oracles::tree;
 
     fn composed(bytes: &[u8], boundary: usize) -> Result<Span<'static>, Decode> {
         let lo = Version::decode(&bytes[..boundary])?;
@@ -620,20 +620,20 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
     // A left-descending spine: every level one internal node whose right child
     // is a leaf.
     let spine = |depth: usize, bump: u64| {
-        let mut t = oracle::Version::leaf(0u64);
+        let mut t = tree::Version::leaf(0u64);
         for i in 0..depth {
             let i = i as u64;
-            t = oracle::Version::node(i % 7 + bump, t, oracle::Version::leaf(i % 3));
+            t = tree::Version::node(i % 7 + bump, t, tree::Version::leaf(i % 3));
         }
         t
     };
     // A complete tree: `2^depth` leaves with mixed heights.
-    fn fan(depth: usize, salt: u64) -> oracle::Version {
-        fn go(d: usize, ix: u64, salt: u64) -> oracle::Version {
+    fn fan(depth: usize, salt: u64) -> tree::Version {
+        fn go(d: usize, ix: u64, salt: u64) -> tree::Version {
             if d == 0 {
-                oracle::Version::leaf(ix.wrapping_mul(2654435761).wrapping_add(salt) % 5)
+                tree::Version::leaf(ix.wrapping_mul(2654435761).wrapping_add(salt) % 5)
             } else {
-                oracle::Version::node(ix % 2, go(d - 1, ix * 2, salt), go(d - 1, ix * 2 + 1, salt))
+                tree::Version::node(ix % 2, go(d - 1, ix * 2, salt), go(d - 1, ix * 2 + 1, salt))
             }
         }
         go(depth, 1, salt)
@@ -641,19 +641,19 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
     // Nested `u64::MAX` bases: absolute heights above `2^64`, so the payload
     // gamma codes outgrow the decoder's word window.
     let giant = |extra: u64| {
-        oracle::Version::node(
+        tree::Version::node(
             u64::MAX,
-            oracle::Version::node(
+            tree::Version::node(
                 u64::MAX,
-                oracle::Version::leaf(extra),
-                oracle::Version::leaf(0u64),
+                tree::Version::leaf(extra),
+                tree::Version::leaf(0u64),
             ),
-            oracle::Version::leaf(1u64),
+            tree::Version::leaf(1u64),
         )
     };
     // One height at a chosen bit edge beside a zero leaf.
     let bit_edge =
-        |h: u64| oracle::Version::node(0u64, oracle::Version::leaf(h), oracle::Version::leaf(0u64));
+        |h: u64| tree::Version::node(0u64, tree::Version::leaf(h), tree::Version::leaf(0u64));
 
     let shapes = [
         spine(300, 0),
@@ -668,7 +668,7 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
         bit_edge(1u64 << 63),
         bit_edge((1u64 << 62) + 1),
         bit_edge(u64::MAX),
-        oracle::Version::leaf(0u64),
+        tree::Version::leaf(0u64),
     ];
     let versions: Vec<Version> = shapes.iter().map(from_oracle_version).collect();
     for a in &versions {
@@ -746,7 +746,7 @@ fn decoded_coincident_span_shares_one_buffer() {
     let v = clock.version().clone();
     let computed = v.span(&v);
     assert!(
-        computed.lo().view().ptr_eq(computed.hi().view()),
+        computed.lo().ptr_eq(computed.hi()),
         "a computed coincident hull stores one buffer twice"
     );
 
@@ -755,7 +755,7 @@ fn decoded_coincident_span_shares_one_buffer() {
     assert_eq!(decoded, computed, "the wire round-trips the span");
     assert_eq!(decoded.encode(), bytes, "re-encoding is byte-identical");
     assert!(
-        decoded.lo().view().ptr_eq(decoded.hi().view()),
+        decoded.lo().ptr_eq(decoded.hi()),
         "the decode-fused equality must dedup the coincident span's storage: \
          wire-loaded spans hit the ptr_eq ladder exactly like computed ones"
     );
@@ -774,7 +774,7 @@ fn decoded_strict_span_keeps_distinct_endpoints() {
     let span = Span::new(&lo, &hi).expect("ordered");
     let decoded = Span::decode(&span.encode()[..]).expect("a canonical composite decodes");
     assert!(
-        !decoded.lo().view().ptr_eq(decoded.hi().view()),
+        !decoded.lo().ptr_eq(decoded.hi()),
         "distinct endpoints must not read as clones"
     );
     assert_eq!(decoded.lo(), &lo);

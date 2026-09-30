@@ -7,7 +7,7 @@
 //! which is the roster's own naming (`Party::seed` for a root re-export,
 //! `causally::Range::since` inside a public module). The `paths` table's
 //! definition paths are deliberately not used for reachable naming: they
-//! name private modules (`party::Party`, `version::skyline`) and include
+//! name private modules (`party::Party`, `version::io`) and include
 //! items the public tree never reaches.
 //!
 //! Three categories come back, each held total by its own committed
@@ -20,7 +20,7 @@
 //!   `type: impl Trait for For` spelling, reconciled against the pinned
 //!   [`crate::census::TRAIT_IMPLS`]. Compiler-synthesized auto-trait
 //!   impls are excluded here because `before` pins those guarantees
-//!   directly (`src/auto_traits.rs` asserts `Send + Sync + Unpin` on
+//!   directly (`src/testing/auto_traits.rs` asserts `Send + Sync + Unpin` on
 //!   every public API type at compile time); blanket impls are excluded
 //!   because they are foreign library plumbing (`From<T> for T`,
 //!   `Borrow`, `Any`, …), not API decisions made in this crate;
@@ -48,7 +48,8 @@ pub(crate) struct Surface {
     /// Trait impls: `Type: impl trait::Path<Args> for ForType`.
     pub impls: BTreeSet<String>,
     /// Associated consts and types, module consts, statics, and macros,
-    /// named by reachable path alone (`Rank::ZERO`, `laws::VERSION_SOLO`).
+    /// named by reachable path alone (`Rank::ZERO`,
+    /// `testing::laws::VERSION_SOLO`).
     pub items: BTreeSet<String>,
 }
 
@@ -266,7 +267,7 @@ fn walk_type(
 ///
 /// Compiler-synthesized auto-trait impls are excluded — `before` pins
 /// `Send`/`Sync`/`Unpin` on every public API type at compile time in
-/// `src/auto_traits.rs`, which is where that guarantee is reviewed —
+/// `src/testing/auto_traits.rs`, which is where that guarantee is reviewed —
 /// and blanket impls are excluded as foreign library plumbing, not API
 /// decisions of this crate. Everything else, derives included, is a
 /// row: deriving a trait is exactly the kind of API event the census

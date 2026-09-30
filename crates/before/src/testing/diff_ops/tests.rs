@@ -7,10 +7,10 @@ use std::path::PathBuf;
 use proptest::prelude::*;
 
 use super::{registered_names, BespokeCategory, DiffOp, DIFF_BESPOKE, REGISTERED_GROUPS};
-use crate::oracle;
-use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, world_strategy};
+use crate::testing::oracles::tree;
+use crate::testing::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
 use crate::Ticks;
 
 /// Asserts every descriptor in a slice and identifies a failing descriptor.
@@ -303,7 +303,7 @@ macro_rules! group_drivers {
             /// where the history is live.
             #[test]
             fn $driver(p in arb_oracle_party_nonempty(), a in arb_oracle_version()) {
-                let c = oracle::Clock::from_parts(p, a);
+                let c = tree::Clock::from_parts(p, a);
                 assert_diff_ops!(super::$group, &c);
             }
         }
@@ -327,15 +327,15 @@ for_each_diff_group!(group_drivers);
 /// Inputs selected from one organically generated clock population.
 struct Organic<'a> {
     /// Three versions from the trace, causally related.
-    v: [&'a oracle::Version; 3],
+    v: [&'a tree::Version; 3],
     /// Two live ids from the same trace — distinct picks are disjoint by
     /// single-seed linearity, but the pairing indices are independent, so
     /// the two may be the same clock's id (overlapping with itself).
-    p: [&'a oracle::Party; 2],
+    p: [&'a tree::Party; 2],
     /// A tick count from [`DRIVEN_TICK_COUNTS`].
     n: Ticks,
     /// A reachable clock from the same trace.
-    c: &'a oracle::Clock,
+    c: &'a tree::Clock,
 }
 
 /// Applies every descriptor group to compatible inputs from [`Organic`].
@@ -477,7 +477,7 @@ diff_ops! {
     fn fs_meet_transcribed_as_join {
         prod: a.clone() & b.clone(),
         tree: a.clone() & b.clone(),
-        fs(_g): crate::testing::semantic_oracle::join(a, b),
+        fs(_g): crate::testing::oracles::function::join(a, b),
     }
 }
 
@@ -486,9 +486,9 @@ diff_ops! {
 // require a redundant alias for each signature to appease the lint.
 #[allow(clippy::type_complexity)]
 fn check_version_pair(
-    group: &[DiffOp<fn(&oracle::Version, &oracle::Version) -> bool>],
-    a: &oracle::Version,
-    b: &oracle::Version,
+    group: &[DiffOp<fn(&tree::Version, &tree::Version) -> bool>],
+    a: &tree::Version,
+    b: &tree::Version,
 ) -> Result<(), TestCaseError> {
     assert_diff_ops!(group, a, b);
     Ok(())
@@ -499,9 +499,9 @@ fn check_version_pair(
 // require a redundant alias for each signature to appease the lint.
 #[allow(clippy::type_complexity)]
 fn check_party_pair(
-    group: &[DiffOp<fn(&oracle::Party, &oracle::Party) -> bool>],
-    a: &oracle::Party,
-    b: &oracle::Party,
+    group: &[DiffOp<fn(&tree::Party, &tree::Party) -> bool>],
+    a: &tree::Party,
+    b: &tree::Party,
 ) -> Result<(), TestCaseError> {
     assert_diff_ops!(group, a, b);
     Ok(())
@@ -515,7 +515,7 @@ fn check_party_pair(
 /// everything nor rejects everything.
 #[test]
 fn descriptor_checks_reject_a_mistranscribed_operation() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
 
     // The join and the meet of an ordered pair differ, so the swapped
     // operator changes the answer.
@@ -534,7 +534,7 @@ fn descriptor_checks_reject_a_mistranscribed_operation() {
     // Two disjoint halves: each survives the other's removal, and the two
     // remainders are different regions, so the operand swap changes the
     // answer.
-    let mut keep = oracle::Party::seed();
+    let mut keep = tree::Party::seed();
     let give = keep.fork();
     assert!(
         check_party_pair(KNOWN_BAD_PARTY_PAIR, &keep, &give).is_err(),
@@ -557,7 +557,7 @@ fn descriptor_checks_reject_a_mistranscribed_operation() {
 /// that the comparison does not reject indiscriminately.
 #[test]
 fn filesystem_checks_reject_a_mistranscribed_operation() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
 
     // The join and the meet of an ordered pair differ, so the swapped
     // combinator changes the fs answer while both walk legs agree.

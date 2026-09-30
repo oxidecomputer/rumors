@@ -2,9 +2,8 @@
 
 use core::cmp::Ordering;
 
+use crate::version::io::writer::VersionWriter;
 use crate::{Party, Version};
-
-use super::skyline;
 
 #[cfg(test)]
 mod tests;
@@ -65,9 +64,9 @@ impl OwnVersion<'_> {
     /// Materializes the projected [`Version`].
     ///
     /// This is the one path to the projection as an object, and the one
-    /// projection cost not linearly bounded by the operands: the size of its
-    /// output can grow as the operands' product. Prefer the view's own
-    /// comparisons wherever the projection is only being compared.
+    /// projection cost not linearly bounded by the operands: the result can
+    /// grow as the product of their sizes. Prefer the view's own comparisons
+    /// when the projection need only be compared.
     ///
     /// # Complexity
     ///
@@ -84,60 +83,45 @@ impl OwnVersion<'_> {
     /// let mut a = Clock::seed();
     /// a.tick();
     /// let owned: Version = a.own_version().to_version();
-    /// assert_eq!(owned, *a.version()); // the seed owns its whole history
+    /// assert_eq!(owned, *a.version());
     /// ```
     pub fn to_version(&self) -> Version {
-        // The whole-interval party is the projection identity — the
-        // `seed_projection_is_identity` law in [`laws`](crate::laws) —
-        // so the materialization is the version itself, handed back as
-        // an `O(1)` buffer-sharing clone (the seed test is one byte
-        // against the static seed stream).
+        // Projecting through the whole interval is the identity. The clone
+        // shares immutable storage, so this common case is constant-time.
         if self.party.is_seed() {
-            return self.version.clone();
+            self.version.clone()
+        } else {
+            VersionWriter::project(self)
         }
-        Version::from_bits(skyline::query::project(
-            self.version.view().live(),
-            self.party,
-        ))
     }
 
     /// Compare this projection with a materialized version without building it.
     fn cmp_version(&self, other: &Version) -> Option<Ordering> {
-        skyline::masked::causal_cmp(
-            self.version.view().live(),
-            Some(self.party.as_bits()),
-            other.view().live(),
-            None,
-        )
+        super::projection::Comparison::order(self.version, Some(self.party), other, None)
     }
 
     /// Test equality with a materialized version without building this projection.
     fn eq_version(&self, other: &Version) -> bool {
-        skyline::masked::eq(
-            self.version.view().live(),
-            Some(self.party.as_bits()),
-            other.view().live(),
-            None,
-        )
+        super::projection::Comparison::equal(self.version, Some(self.party), other, None)
     }
 
     /// Compare two projected versions without materializing either one.
     fn cmp_own(&self, other: &OwnVersion<'_>) -> Option<Ordering> {
-        skyline::masked::causal_cmp(
-            self.version.view().live(),
-            Some(self.party.as_bits()),
-            other.version.view().live(),
-            Some(other.party.as_bits()),
+        super::projection::Comparison::order(
+            self.version,
+            Some(self.party),
+            other.version,
+            Some(other.party),
         )
     }
 
     /// Test two projected versions for equality without materializing either.
     fn eq_own(&self, other: &OwnVersion<'_>) -> bool {
-        skyline::masked::eq(
-            self.version.view().live(),
-            Some(self.party.as_bits()),
-            other.version.view().live(),
-            Some(other.party.as_bits()),
+        super::projection::Comparison::equal(
+            self.version,
+            Some(self.party),
+            other.version,
+            Some(other.party),
         )
     }
 }
@@ -146,22 +130,12 @@ impl Version {
     /// Compare this version with a projection, applying the party mask to the
     /// second operand while reading both version streams.
     fn cmp_own(&self, other: &OwnVersion<'_>) -> Option<Ordering> {
-        skyline::masked::causal_cmp(
-            self.view().live(),
-            None,
-            other.version.view().live(),
-            Some(other.party.as_bits()),
-        )
+        super::projection::Comparison::order(self, None, other.version, Some(other.party))
     }
 
     /// Test equality with a projection without materializing it.
     fn eq_own(&self, other: &OwnVersion<'_>) -> bool {
-        skyline::masked::eq(
-            self.view().live(),
-            None,
-            other.version.view().live(),
-            Some(other.party.as_bits()),
-        )
+        super::projection::Comparison::equal(self, None, other.version, Some(other.party))
     }
 }
 

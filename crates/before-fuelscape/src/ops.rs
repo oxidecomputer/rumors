@@ -14,7 +14,7 @@
 //! # Totality over the public surface
 //!
 //! Coverage is bound to the surface-coverage suite's committed roster
-//! (`before::surface`): every roster row is either claimed by a panel's
+//! (`before::testing::surface`): every roster row is either claimed by a panel's
 //! `covers` list or carries a one-line reason in [`EXEMPTIONS`], and the
 //! parity test in `tests.rs` holds both directions mechanically — a new
 //! public operation cannot ship without a panel or a reviewed exemption,
@@ -182,7 +182,7 @@ pub struct OpSpec {
     pub name: &'static str,
     /// The input space the row samples.
     pub inputs: Inputs,
-    /// The coverage roster rows (`before::surface` op names) this panel
+    /// The coverage roster rows (`before::testing::surface` op names) this panel
     /// prices; the parity test holds panels ∪ exemptions total over the
     /// roster.
     pub covers: &'static [&'static str],

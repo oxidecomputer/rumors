@@ -26,7 +26,7 @@
 
 use std::sync::Arc;
 
-use crate::oracle;
+use crate::testing::oracles::tree;
 
 /// The inflation cost the paper assigns: `(expansions, depth)`, lexicographic.
 ///
@@ -46,11 +46,11 @@ pub(crate) type GrowCost = (u64, u64);
 /// callers normalize before comparing to `event`'s output. Recursive over a bounded test
 /// tree (the impl's own traversals are iterative).
 pub(crate) fn all_inflations(
-    id: &oracle::Party,
-    e: &oracle::Version,
-) -> Vec<(oracle::Version, GrowCost)> {
-    use oracle::Party as P;
-    use oracle::Version as V;
+    id: &tree::Party,
+    e: &tree::Version,
+) -> Vec<(tree::Version, GrowCost)> {
+    use tree::Party as P;
+    use tree::Version as V;
     match (id, e) {
         // id full over a leaf: the one free inflation — increment in place.
         (P::Leaf(true), V::Leaf(n)) => vec![(V::Leaf(n + 1u32), (0, 0))],
@@ -108,7 +108,7 @@ pub(crate) fn all_inflations(
 /// The globally minimal inflation cost over the full search space, or `None` if
 /// the id owns nothing. Independent of `grow`'s DP: a flat minimum over
 /// [`all_inflations`].
-pub(crate) fn min_inflation_cost(id: &oracle::Party, e: &oracle::Version) -> Option<GrowCost> {
+pub(crate) fn min_inflation_cost(id: &tree::Party, e: &tree::Version) -> Option<GrowCost> {
     all_inflations(id, e).into_iter().map(|(_, c)| c).min()
 }
 
@@ -127,11 +127,11 @@ pub(crate) fn min_inflation_cost(id: &oracle::Party, e: &oracle::Version) -> Opt
 /// minimum is strictly cheaper than the right's (`cl < cr`), else descend
 /// right.
 pub(crate) fn best_inflation(
-    id: &oracle::Party,
-    e: &oracle::Version,
-) -> Option<(oracle::Version, GrowCost)> {
-    use oracle::Party as P;
-    use oracle::Version as V;
+    id: &tree::Party,
+    e: &tree::Version,
+) -> Option<(tree::Version, GrowCost)> {
+    use tree::Party as P;
+    use tree::Version as V;
     match (id, e) {
         (P::Leaf(false), _) => None,
         (P::Leaf(true), V::Leaf(n)) => Some((V::Leaf(n + 1u32), (0, 0))),

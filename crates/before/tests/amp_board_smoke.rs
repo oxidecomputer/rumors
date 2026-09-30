@@ -1,4 +1,4 @@
-//! Smoke coverage for the amplification board (`before::meter::board`).
+//! Smoke coverage for the amplification board (`before::testing::meter::board`).
 //!
 //! The board is the campaign's dashboard, not its enforcement: this test
 //! only pins that the whole sweep keeps compiling and running — every
@@ -10,17 +10,18 @@
 //! process-isolated envelope suite in `tests/meter.rs`.
 //!
 //! This binary also holds the registry's band-name parity survivor (the
-//! `before::meter::registry` module doc names it): the envelope suite's
+//! `before::testing::meter::registry` module doc names it): the envelope suite's
 //! band-named tests live in a separate test binary, where test function
 //! names are strings the compiler cannot resolve, so the scan below
 //! holds them equal, name for name, to the registry's committed band
 //! citations.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use before::meter::board::{self, HeapMeter, BOARD_PRICED};
-use before::meter::registry::{Bands, Coverage, FamilyId, AXIS_BANDS};
+use before::testing::meter::board::{self, HeapMeter, BOARD_PRICED};
+use before::testing::meter::registry::{Bands, Coverage, FamilyId, AXIS_BANDS};
 use peak_alloc::PeakAlloc;
 
 #[global_allocator]
@@ -355,7 +356,7 @@ fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
 // ─── the band-name parity survivor ──────────────────────────────────────────
 
 /// The envelope suite's flatness/adequacy band tests: every
-/// `#[test]`-attributed function in `tests/meter.rs` whose name carries
+/// `#[test]`-attributed function in the meter suite whose name carries
 /// the band convention (`_is_flat_per_unit` anywhere, or the `_band`
 /// suffix).
 ///
@@ -390,12 +391,32 @@ fn band_test_names(source: &str) -> BTreeSet<String> {
     names
 }
 
+/// Add the band tests from every Rust source beneath `path`.
+fn collect_band_test_names(path: &Path, names: &mut BTreeSet<String>) {
+    if path.is_dir() {
+        let entries = std::fs::read_dir(path)
+            .unwrap_or_else(|err| panic!("reading {} failed: {err}", path.display()));
+        for entry in entries {
+            let entry = entry.unwrap_or_else(|err| {
+                panic!("reading an entry beneath {} failed: {err}", path.display())
+            });
+            collect_band_test_names(&entry.path(), names);
+        }
+        return;
+    }
+    if path.extension().is_some_and(|extension| extension == "rs") {
+        let source = std::fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("reading {} failed: {err}", path.display()));
+        names.extend(band_test_names(&source));
+    }
+}
+
 /// The envelope suite's band-named tests and the registry's band
 /// citations name each other, name for name, and each failure names the
 /// missing side.
 ///
 /// This is the registry's named parity survivor for band names (the
-/// `before::meter::registry` module doc): the bands live in this crate's
+/// `before::testing::meter::registry` module doc): the bands live in this crate's
 /// separate test binary, where test function names are not items the
 /// compiler can resolve, so the seam is pinned here — every band-named
 /// test is cited by exactly one family's `Bands::Priced` roster or by
@@ -405,10 +426,10 @@ fn band_test_names(source: &str) -> BTreeSet<String> {
 /// band can only mint its operands through `registry::Shape`.
 #[test]
 fn band_tests_and_registry_citations_stay_paired() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/meter.rs");
-    let source = std::fs::read_to_string(path)
-        .unwrap_or_else(|err| panic!("reading the envelope suite at {path} failed: {err}"));
-    let scanned = band_test_names(&source);
+    let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut scanned = BTreeSet::new();
+    collect_band_test_names(&tests.join("meter.rs"), &mut scanned);
+    collect_band_test_names(&tests.join("meter"), &mut scanned);
 
     let mut cited: BTreeMap<&str, &str> = BTreeMap::new();
     for family in FamilyId::ALL {

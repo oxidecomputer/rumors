@@ -13,8 +13,9 @@
 
 #![cfg(all(feature = "meter", feature = "scan-meter", feature = "touch-meter"))]
 
-use before::meter::registry::Shape;
-use before::{meter, Party, Version};
+use before::testing::meter;
+use before::testing::meter::registry::Shape;
+use before::{Party, Version};
 
 /// One counter snapshot of a closure run.
 fn counters(f: impl FnOnce()) -> (u64, u64) {

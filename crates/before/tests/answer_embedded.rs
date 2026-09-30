@@ -24,7 +24,8 @@
 
 #![cfg(all(feature = "meter", feature = "scan-meter", feature = "touch-meter"))]
 
-use before::{meter, Party, Ticks, Version};
+use before::testing::meter;
+use before::{Party, Ticks, Version};
 
 fn counters(f: impl FnOnce()) -> (u64, u64) {
     meter::reset_scan_bits();

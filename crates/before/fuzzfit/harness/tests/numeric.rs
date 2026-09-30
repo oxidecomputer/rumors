@@ -7,8 +7,8 @@
 //! precision must stay independent of the unprinted suffix. These finite
 //! sweeps detect regressions; they do not prove the bounds for every size.
 
-use before::meter::board::MAX_SCALING_EXPONENT;
-use before::meter::registry::Shape;
+use before::testing::meter::board::MAX_SCALING_EXPONENT;
+use before::testing::meter::registry::Shape;
 use before::{Rank, Ticks, Version};
 use fuzzfit_harness::fit::fit;
 use fuzzfit_harness::wasm::Guest;

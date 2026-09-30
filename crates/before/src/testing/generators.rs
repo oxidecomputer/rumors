@@ -9,8 +9,8 @@ mod tests;
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use crate::codec;
-use crate::oracle;
+use crate::bits;
+use crate::testing::oracles::tree;
 use crate::{Party, Version};
 
 use super::bridge::{from_oracle_party, from_oracle_version};
@@ -51,7 +51,7 @@ pub(crate) fn arb_shape() -> impl Strategy<Value = Shape> {
 ///
 /// Splitting an odd count unevenly gives leaves at varying depths. Recursive
 /// over a `O(log)` depth (test-only; the impl is iterative).
-fn bushy_version(lo: u64, leaves: usize) -> oracle::Version {
+fn bushy_version(lo: u64, leaves: usize) -> tree::Version {
     bushy_version_with(lo, leaves, &|k| k.into())
 }
 
@@ -60,8 +60,8 @@ fn bushy_version_with(
     lo: u64,
     leaves: usize,
     leaf_value: &impl Fn(u64) -> BigUint,
-) -> oracle::Version {
-    use oracle::Version as V;
+) -> tree::Version {
+    use tree::Version as V;
     if leaves <= 1 {
         return V::leaf(leaf_value(lo));
     }
@@ -78,8 +78,8 @@ fn bushy_version_with(
 /// sit at varying depths.
 ///
 /// Recursive over a `O(log)` depth (test-only; the impl is iterative).
-fn bushy_party(lo: usize, leaves: usize) -> oracle::Party {
-    use oracle::Party as P;
+fn bushy_party(lo: usize, leaves: usize) -> tree::Party {
+    use tree::Party as P;
     if leaves <= 1 {
         return P::Leaf(lo.is_multiple_of(2)); // even index owned, odd empty
     }
@@ -95,7 +95,7 @@ fn bushy_party(lo: usize, leaves: usize) -> oracle::Party {
 /// splice's chosen path (and its one skip of the whole off-path bushy
 /// subtree) is scale-independent.
 pub(crate) fn bushy_expand_party(scale: usize) -> Party {
-    use oracle::Party as P;
+    use tree::Party as P;
     from_oracle_party(&P::node(bushy_party(0, scale + 1), P::Leaf(true)))
 }
 
@@ -105,7 +105,7 @@ pub(crate) fn bushy_expand_party(scale: usize) -> Party {
 /// bushy shape has `~scale` leaves. Distinct leaf bases prevent collapse,
 /// preserving the shape and size.
 pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
-    use oracle::Version as V;
+    use tree::Version as V;
     if let Shape::Bushy = shape {
         return from_oracle_version(&bushy_version(0, scale + 1));
     }
@@ -142,7 +142,7 @@ pub(crate) fn shape_version_wide(
     wide: &BigUint,
     at_tip: bool,
 ) -> Version {
-    use oracle::Version as V;
+    use tree::Version as V;
     debug_assert!(scale >= 1, "a scale-0 shape has nowhere to put the leaf");
     if let Shape::Bushy = shape {
         let wide_at = if at_tip {
@@ -190,7 +190,7 @@ pub(crate) fn shape_version_wide(
 /// a `grow` over it has nodes whose two children are both feasible, exercising
 /// the multi-region cost comparison).
 pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
-    use oracle::Party as P;
+    use tree::Party as P;
     if let Shape::Bushy = shape {
         return from_oracle_party(&bushy_party(0, scale + 1));
     }
@@ -220,7 +220,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// children). Built with a flat loop: no recursion at any depth, in the builder
 /// or in `Drop` (the encoded forms are flat buffers).
 pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
-    let mut bits = codec::BitsBuf::with_capacity(2 * depth as u64 + 2);
+    let mut bits = bits::BitsWriter::with_capacity(2 * depth as u64 + 2);
     for _ in 0..depth {
         bits.push(true); // Left-only tag `10`: left child present ...
         bits.push(false); //   ... right child absent
@@ -284,10 +284,10 @@ pub(crate) fn arb_magnitude() -> impl Strategy<Value = BigUint> {
 /// Random recursive shape; every interior node goes through the oracle's
 /// normalizing `Party::node`, so the result is always in normal form (no
 /// collapsible `(b, b)` node survives).
-pub(crate) fn arb_oracle_party() -> impl Strategy<Value = oracle::Party> {
-    let leaf = any::<bool>().prop_map(oracle::Party::Leaf);
+pub(crate) fn arb_oracle_party() -> impl Strategy<Value = tree::Party> {
+    let leaf = any::<bool>().prop_map(tree::Party::Leaf);
     leaf.prop_recursive(ARB_DEPTH, ARB_NODES, 2, |inner| {
-        (inner.clone(), inner).prop_map(|(l, r)| oracle::Party::node(l, r))
+        (inner.clone(), inner).prop_map(|(l, r)| tree::Party::node(l, r))
     })
 }
 
@@ -296,7 +296,7 @@ pub(crate) fn arb_oracle_party() -> impl Strategy<Value = oracle::Party> {
 ///
 /// Filters out the anonymous tree so the impl bridge and ops that require a
 /// real share (fork/join) get a meaningful input.
-pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = oracle::Party> {
+pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = tree::Party> {
     arb_oracle_party().prop_filter("non-anonymous id", |p| !p.is_empty())
 }
 
@@ -306,10 +306,10 @@ pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = oracle::Party
 /// (including values near/beyond `u64::MAX`); every interior node goes through
 /// the oracle's normalizing `Version::node`, so the result is always in normal
 /// form (a zero-base child at every node, no collapsible `(n, m, m)`).
-pub(crate) fn arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
-    let leaf = arb_magnitude().prop_map(oracle::Version::Leaf);
+pub(crate) fn arb_oracle_version() -> impl Strategy<Value = tree::Version> {
+    let leaf = arb_magnitude().prop_map(tree::Version::Leaf);
     leaf.prop_recursive(ARB_DEPTH, ARB_NODES, 2, |inner| {
-        (arb_magnitude(), inner.clone(), inner).prop_map(|(n, l, r)| oracle::Version::node(n, l, r))
+        (arb_magnitude(), inner.clone(), inner).prop_map(|(n, l, r)| tree::Version::node(n, l, r))
     })
 }
 
@@ -364,9 +364,9 @@ pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
 /// operand loses a fresh input and diverges — where lattice-derived
 /// items would be absorbed and leave the misread invisible. The empty
 /// version keeps the folds' `O(1)` identity short-circuits under mass.
-fn arb_version_pool() -> impl Strategy<Value = Vec<oracle::Version>> {
+fn arb_version_pool() -> impl Strategy<Value = Vec<tree::Version>> {
     proptest::collection::vec(arb_oracle_version(), 1..=3).prop_map(|mut pool| {
-        pool.push(oracle::Version::new());
+        pool.push(tree::Version::new());
         pool
     })
 }
@@ -397,8 +397,7 @@ fn family_picks<T: Clone + core::fmt::Debug>(pool: Vec<T>) -> impl Strategy<Valu
 /// receiver-repeats (an input aliasing the fold's seed) arise
 /// naturally too. Arity per [`arb_fold_arity`]; pool per
 /// [`arb_version_pool`].
-pub(crate) fn arb_version_family() -> impl Strategy<Value = (oracle::Version, Vec<oracle::Version>)>
-{
+pub(crate) fn arb_version_family() -> impl Strategy<Value = (tree::Version, Vec<tree::Version>)> {
     arb_version_pool().prop_flat_map(family_picks)
 }
 
@@ -410,7 +409,7 @@ pub(crate) fn arb_version_family() -> impl Strategy<Value = (oracle::Version, Ve
 /// overlapping byte-identically — which is exactly the input class the
 /// fallible folds' rejection paths exist for, so pool indexing keeps
 /// the refusal arm under mass at every arity.
-pub(crate) fn arb_party_family() -> impl Strategy<Value = (oracle::Party, Vec<oracle::Party>)> {
+pub(crate) fn arb_party_family() -> impl Strategy<Value = (tree::Party, Vec<tree::Party>)> {
     proptest::collection::vec(arb_oracle_party_nonempty(), 1..=3).prop_flat_map(family_picks)
 }
 
@@ -425,8 +424,8 @@ pub(crate) fn arb_party_family() -> impl Strategy<Value = (oracle::Party, Vec<or
 /// keeps fresh-line clocks under mass.
 pub(crate) fn arb_clock_family() -> impl Strategy<
     Value = (
-        (oracle::Party, oracle::Version),
-        Vec<(oracle::Party, oracle::Version)>,
+        (tree::Party, tree::Version),
+        Vec<(tree::Party, tree::Version)>,
     ),
 > {
     (
@@ -434,7 +433,7 @@ pub(crate) fn arb_clock_family() -> impl Strategy<
         arb_version_pool(),
     )
         .prop_flat_map(|(parties, versions)| {
-            let pool: Vec<(oracle::Party, oracle::Version)> = parties
+            let pool: Vec<(tree::Party, tree::Version)> = parties
                 .iter()
                 .flat_map(|p| versions.iter().map(move |v| (p.clone(), v.clone())))
                 .collect();

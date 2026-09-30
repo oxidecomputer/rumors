@@ -4,19 +4,25 @@ use insta::assert_snapshot;
 
 use num_bigint::BigUint;
 
-use crate::codec::{gamma, BitsBuf, BitsView};
+use crate::bits::{BitRead, BitsReader, BitsWriter};
 use crate::error::{Crossed, Decode, Overlap, ParseRank};
-use crate::oracle;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
+use crate::testing::oracles::tree;
 use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`,
-/// the same order [`gamma::encode`] and the preorder codec emit. Empty stream
+/// the same order the stored integer code and preorder encoding emit. Empty stream
 /// renders as `""`.
-fn bits_to_string(bits: BitsView<'_>) -> String {
-    (0..bits.len())
-        .map(|i| if bits.bit(i) { '1' } else { '0' })
-        .collect()
+fn bits_to_string(mut bits: BitsReader<'_>) -> String {
+    let mut rendered = String::new();
+    while bits.position() < bits.len() {
+        rendered.push(if bits.read_bit().expect("position is live") {
+            '1'
+        } else {
+            '0'
+        });
+    }
+    rendered
 }
 
 /// Render bytes as space-separated two-digit hex, e.g. `[0x80, 0x01]` -> `"80 01"`.
@@ -30,12 +36,12 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// One Elias-gamma row: `n` then its code as an MSB-first bit string and the bit count.
 fn gamma_row(n: u64) -> String {
-    let mut bits = BitsBuf::new();
-    gamma::encode(&BigUint::from(n), &mut bits);
+    let mut bits = BitsWriter::new();
+    bits.write_gamma(&BigUint::from(n));
     format!(
         "{:>20} -> {} ({} bits)",
         n,
-        bits_to_string(crate::codec::built_view(&bits)),
+        bits_to_string(bits.reader()),
         bits.len()
     )
 }
@@ -73,13 +79,13 @@ fn gamma_bit_layout_table() {
 
     // Arbitrary-width witness: 2^64 has no u64 representation, but the gamma code (and
     // therefore an event base of this magnitude) encodes and round-trips regardless.
-    let mut big_bits = BitsBuf::new();
+    let mut big_bits = BitsWriter::new();
     let big = BigUint::from(1u8) << 64u32; // 2^64
-    gamma::encode(&big, &mut big_bits);
+    big_bits.write_gamma(&big);
     assert_snapshot!(
         format!(
             "2^64 -> {} ({} bits)",
-            bits_to_string(crate::codec::built_view(&big_bits)),
+            bits_to_string(big_bits.reader()),
             big_bits.len()
         ),
         @"2^64 -> 000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000001 (129 bits)"
@@ -88,20 +94,21 @@ fn gamma_bit_layout_table() {
 
 /// Render a party's debug form and binary encoding.
 fn party_block(p: &Party) -> String {
+    let bits = p.to_writer();
     format!(
         "debug:   {p:?}\nbits:    {} ({} bits)\nbytes:   {}",
-        bits_to_string(p.as_bits()),
-        p.as_bits().len(),
+        bits_to_string(bits.reader()),
+        bits.len(),
         bytes_to_hex(&p.encode()),
     )
 }
 
 /// Render a version's debug form and binary encoding.
 fn version_block(v: &Version) -> String {
-    let bits = v.as_bits();
+    let bits = crate::version::instrument::bits(v);
     format!(
         "debug:   {v:?}\nbits:    {} ({} bits)\nbytes:   {}",
-        bits_to_string(bits),
+        bits_to_string(bits.reader()),
         bits.len(),
         bytes_to_hex(&v.encode()),
     )
@@ -129,9 +136,9 @@ fn party_canonical_forms() {
     bytes:   88
     ");
 
-    let deep = from_oracle_party(&oracle::Party::node(
-        oracle::Party::Leaf(true),
-        oracle::Party::node(oracle::Party::Leaf(false), oracle::Party::Leaf(true)),
+    let deep = from_oracle_party(&tree::Party::node(
+        tree::Party::Leaf(true),
+        tree::Party::node(tree::Party::Leaf(false), tree::Party::Leaf(true)),
     ));
     assert_snapshot!(party_block(&deep), @"
     debug:   Party(0b11000100)
@@ -162,10 +169,10 @@ fn version_canonical_forms() {
     bytes:   9a
     ");
 
-    let node = from_oracle_version(&oracle::Version::node(
+    let node = from_oracle_version(&tree::Version::node(
         1u8,
-        oracle::Version::leaf(0u8),
-        oracle::Version::node(0u8, oracle::Version::leaf(1u8), oracle::Version::leaf(0u8)),
+        tree::Version::leaf(0u8),
+        tree::Version::node(0u8, tree::Version::leaf(1u8), tree::Version::leaf(0u8)),
     ));
     assert_snapshot!(version_block(&node), @"
     debug:   Version(0b01010010111010)
@@ -182,11 +189,14 @@ fn clock_canonical_form() {
     // A `Clock`'s canonical stream is its `Party` bits followed by its `Version` bits,
     // with no padding between (padding is added only by `encode`). Rebuild that unpadded
     // concatenation here to show the boundary between the two halves.
-    let mut bits = c.party().as_bits().to_buf();
-    bits.extend_from_buf(&c.version().as_bits().to_buf());
+    let party = c.party().to_writer();
+    let version = crate::version::instrument::bits(c.version());
+    let mut bits = BitsWriter::with_capacity(party.len() + version.len());
+    bits.splice_writer(&party, 0, party.len());
+    bits.splice_writer(&version, 0, version.len());
     let fields = format!(
         "debug:   {c:?}\nbits:    {} ({} bits)\nbytes:   {}",
-        bits_to_string(crate::codec::built_view(&bits)),
+        bits_to_string(bits.reader()),
         bits.len(),
         bytes_to_hex(&c.encode()),
     );
@@ -213,16 +223,16 @@ fn rank_row(label: &str, r: &Rank) -> String {
 /// one canonical binary form, with `Debug` equal to `Display`.
 #[test]
 fn rank_rendered_forms() {
-    let integral = from_oracle_version(&oracle::Version::leaf(5u8)).rank();
-    let half = from_oracle_version(&oracle::Version::node(
+    let integral = from_oracle_version(&tree::Version::leaf(5u8)).rank();
+    let half = from_oracle_version(&tree::Version::node(
         0u8,
-        oracle::Version::leaf(1u8),
-        oracle::Version::leaf(0u8),
+        tree::Version::leaf(1u8),
+        tree::Version::leaf(0u8),
     ));
-    let three_halves = from_oracle_version(&oracle::Version::node(
+    let three_halves = from_oracle_version(&tree::Version::node(
         0u8,
-        oracle::Version::leaf(3u8),
-        oracle::Version::leaf(0u8),
+        tree::Version::leaf(3u8),
+        tree::Version::leaf(0u8),
     ));
     // 3/2 − 1/2 = 2/2: the raw difference is even over 2^1, so the
     // subtraction's output normalizes back to the integral 1.
@@ -232,10 +242,10 @@ fn rank_rendered_forms() {
         .expect("3/2 dominates 1/2");
     // 2^100 + 1 is odd, so the fractional form remains normalized.
     let wide = (BigUint::from(1u8) << 100u32) + BigUint::from(1u8);
-    let wide_rank = from_oracle_version(&oracle::Version::node(
+    let wide_rank = from_oracle_version(&tree::Version::node(
         0u8,
-        oracle::Version::leaf(wide),
-        oracle::Version::leaf(0u8),
+        tree::Version::leaf(wide),
+        tree::Version::leaf(0u8),
     ));
 
     let block = [

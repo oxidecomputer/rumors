@@ -149,7 +149,8 @@ triage's dispositions and branches are leads only.
       Sources: `skyline-fill-grow-2` and its witness.
 
 - [x] Apply the global transient-heap ceiling to `min_ticks` by storing its
-      open boundaries and reign records compactly, with exact fallbacks.
+      open minimum boundaries and leaf contributions compactly, with exact
+      fallbacks.
       Sources: `skyline-watermark` open question 4; owner review, 2026-09-17.
 
 - [x] Make each arbitrary-count Party and Clock fork step linear in the stored
@@ -201,6 +202,15 @@ triage's dispositions and branches are leads only.
       Simplify skyline coding, fill, grow, comparison, query, and watermark so
       their invariants live in one place and their control flow is reviewable.
       Sources: all `skyline-*` partitions; `module-graph-*`.
+
+- [ ] Audit public methods that merely wrap hidden representation-level
+      helpers. Collapse each pair into one method on the domain type, expressed
+      through domain readers, writers, and manipulators rather than exposing or
+      delegating through raw storage. Check the free `*_core` Span algebra,
+      named projection/operator trampolines, Version ordering aliases, and raw
+      Party/Version construction seams; retain an alias only when it is a
+      deliberate public spelling or an instrumentation boundary with distinct
+      behavior.
 
 - [ ] Consolidate codec buffers, cursors, builders, and parse paths; delete
       redundant validation passes and representations.

@@ -110,8 +110,8 @@ fn hole_pair(plan: &Plan) -> (Party, Version) {
 }
 
 #[cfg(feature = "oracle")]
-fn oracle_clocks(plan: &Plan, groups: u8) -> Vec<before::oracle::Clock> {
-    use before::oracle;
+fn oracle_clocks(plan: &Plan, groups: u8) -> Vec<before::testing::oracles::tree::Clock> {
+    use before::testing::oracles::tree as oracle;
     let mut universe = vec![oracle::Clock::seed()];
     for &i in &plan.schedule {
         let child = universe[i].fork();

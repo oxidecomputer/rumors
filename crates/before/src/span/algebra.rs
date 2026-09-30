@@ -48,7 +48,6 @@ use std::cmp::Ordering;
 use std::iter::{Product, Sum};
 use std::ops::{Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, Mul};
 
-use crate::codec;
 use crate::Version;
 
 use super::Span;
@@ -371,9 +370,9 @@ impl<'a> Span<'a> {
             .chain(iter.into_iter().map(FoldInput::Item))
             .filter(move |input| {
                 let s = input.span();
-                let dup = last.as_ref().is_some_and(|(lo, hi)| {
-                    lo.view().ptr_eq(s.lo().view()) && hi.view().ptr_eq(s.hi().view())
-                });
+                let dup = last
+                    .as_ref()
+                    .is_some_and(|(lo, hi)| lo.ptr_eq(s.lo()) && hi.ptr_eq(s.hi()));
                 if !dup {
                     last = Some((s.lo().clone(), s.hi().clone()));
                 }
@@ -396,8 +395,8 @@ impl<'a> Span<'a> {
                     }
                     (Group::Merged { mut lo, mut hi }, Group::Input(b)) => {
                         let b = b.span();
-                        (ops.lo_view)(&mut lo, b.lo().view());
-                        (ops.hi_view)(&mut hi, b.hi().view());
+                        (ops.lo_in_place)(&mut lo, b.lo());
+                        (ops.hi_in_place)(&mut hi, b.hi());
                         (lo, hi)
                     }
                     (
@@ -407,8 +406,8 @@ impl<'a> Span<'a> {
                         },
                         Group::Merged { lo: b_lo, hi: b_hi },
                     ) => {
-                        (ops.lo_view)(&mut a_lo, b_lo.view());
-                        (ops.hi_view)(&mut a_hi, b_hi.view());
+                        (ops.lo_in_place)(&mut a_lo, &b_lo);
+                        (ops.hi_in_place)(&mut a_hi, &b_hi);
                         (a_lo, a_hi)
                     }
                     // Unreachable through the counter's weight discipline (a
@@ -418,8 +417,8 @@ impl<'a> Span<'a> {
                     // the raw input into the owned group is value-identical.
                     (Group::Input(a), Group::Merged { mut lo, mut hi }) => {
                         let a = a.span();
-                        (ops.lo_view)(&mut lo, a.lo().view());
-                        (ops.hi_view)(&mut hi, a.hi().view());
+                        (ops.lo_in_place)(&mut lo, a.lo());
+                        (ops.hi_in_place)(&mut hi, a.hi());
                         (lo, hi)
                     }
                 }
@@ -449,9 +448,9 @@ struct SpanFoldOps {
     /// Combine two borrowed upper endpoints into a fresh owned one.
     hi_refs: fn(&Version, &Version) -> Version,
     /// Fold one borrowed stream into the owned `lo` leg in place.
-    lo_view: fn(&mut Version, &codec::Bits),
+    lo_in_place: fn(&mut Version, &Version),
     /// Fold one borrowed stream into the owned `hi` leg in place.
-    hi_view: fn(&mut Version, &codec::Bits),
+    hi_in_place: fn(&mut Version, &Version),
     /// Combine two point spans, taking advantage of their equal endpoints.
     points: fn(&Version, &Version) -> (Version, Version),
 }
@@ -468,7 +467,7 @@ fn union_points(a: &Version, b: &Version) -> (Version, Version) {
 /// per-leg walks whose crossed output the operator's final validation rejects (or a
 /// later combine absorbs).
 fn intersect_points(a: &Version, b: &Version) -> (Version, Version) {
-    if codec::canonical_eq(a.view(), b.view()) {
+    if a == b {
         return (a.clone(), a.clone());
     }
     (a.join(b), a.meet(b))
@@ -493,8 +492,8 @@ fn meet_points(a: &Version, b: &Version) -> (Version, Version) {
 const UNION_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::meet,
     hi_refs: Version::join,
-    lo_view: Version::meet_view,
-    hi_view: Version::join_view,
+    lo_in_place: Version::meet_in_place,
+    hi_in_place: Version::join_in_place,
     points: union_points,
 };
 
@@ -502,8 +501,8 @@ const UNION_OPS: SpanFoldOps = SpanFoldOps {
 const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::join,
     hi_refs: Version::meet,
-    lo_view: Version::join_view,
-    hi_view: Version::meet_view,
+    lo_in_place: Version::join_in_place,
+    hi_in_place: Version::meet_in_place,
     points: intersect_points,
 };
 
@@ -511,8 +510,8 @@ const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
 const JOIN_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::join,
     hi_refs: Version::join,
-    lo_view: Version::join_view,
-    hi_view: Version::join_view,
+    lo_in_place: Version::join_in_place,
+    hi_in_place: Version::join_in_place,
     points: join_points,
 };
 
@@ -520,8 +519,8 @@ const JOIN_OPS: SpanFoldOps = SpanFoldOps {
 const MEET_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::meet,
     hi_refs: Version::meet,
-    lo_view: Version::meet_view,
-    hi_view: Version::meet_view,
+    lo_in_place: Version::meet_in_place,
+    hi_in_place: Version::meet_in_place,
     points: meet_points,
 };
 
@@ -571,7 +570,7 @@ impl<'i, 's, T: Borrow<Span<'s>>> Group<FoldInput<'_, 'i, T>> {
                 let s = input.span();
                 s.is_coincident().then(|| s.lo())
             }
-            Group::Merged { lo, hi } => lo.view().ptr_eq(hi.view()).then_some(lo),
+            Group::Merged { lo, hi } => lo.ptr_eq(hi).then_some(lo),
         }
     }
 }
@@ -585,8 +584,8 @@ fn union_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     }
     let mut lo = a.lo().clone(); // O(1): a stored version's clone shares its buffer
     let mut hi = a.hi().clone();
-    lo.meet_view(b.lo().view());
-    hi.join_view(b.hi().view());
+    lo.meet_in_place(b.lo());
+    hi.join_in_place(b.hi());
     // The lower bound only decreased and the upper bound only increased, so
     // the result preserves the input span's endpoint order.
     Span::owned(lo, hi)
@@ -598,13 +597,12 @@ fn intersect_core(a: &Span<'_>, b: &Span<'_>) -> Option<Span<'static>> {
     if a.is_coincident() && b.is_coincident() {
         // Two points share a version exactly when they are equal: one byte
         // compare, no walk.
-        return codec::canonical_eq(a.lo().view(), b.lo().view())
-            .then(|| Span::owned(a.lo().clone(), a.lo().clone()));
+        return (a.lo() == b.lo()).then(|| Span::owned(a.lo().clone(), a.lo().clone()));
     }
     let mut lo = a.lo().clone();
     let mut hi = a.hi().clone();
-    lo.join_view(b.lo().view());
-    hi.meet_view(b.hi().view());
+    lo.join_in_place(b.lo());
+    hi.meet_in_place(b.hi());
     // Common versions exist exactly when the new lower bound is at most the
     // new upper bound; incomparable endpoints also mean an empty intersection.
     match lo.partial_cmp(&hi) {
@@ -624,8 +622,8 @@ fn join_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     }
     let mut lo = a.lo().clone();
     let mut hi = a.hi().clone();
-    lo.join_view(b.lo().view());
-    hi.join_view(b.hi().view());
+    lo.join_in_place(b.lo());
+    hi.join_in_place(b.hi());
     // Ordered by construction: `hi` bounds every operand endpoint from above,
     // the joined meets included.
     Span::owned(lo, hi)
@@ -640,8 +638,8 @@ fn meet_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
     }
     let mut lo = a.lo().clone();
     let mut hi = a.hi().clone();
-    lo.meet_view(b.lo().view());
-    hi.meet_view(b.hi().view());
+    lo.meet_in_place(b.lo());
+    hi.meet_in_place(b.hi());
     Span::owned(lo, hi)
 }
 

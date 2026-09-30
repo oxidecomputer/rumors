@@ -2,7 +2,7 @@
 //!
 //! The board itself — the operation × input-family sweep, the meters, the
 //! green/red criterion, and the not-applicable coverage list — lives in
-//! `before::meter::board`; this binary installs the counting allocator
+//! `before::testing::meter::board`; this binary installs the counting allocator
 //! the board's peak-heap column reads (a global allocator is per-binary
 //! state the library cannot own), parses the size knob, and orchestrates
 //! the process sharding below.
@@ -50,7 +50,7 @@
 use std::io;
 use std::process::{Command, Stdio};
 
-use before::meter::board::{self, HeapMeter};
+use before::testing::meter::board::{self, HeapMeter};
 use peak_alloc::PeakAlloc;
 
 #[global_allocator]

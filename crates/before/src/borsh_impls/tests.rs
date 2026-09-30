@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::decode_error;
-use crate::codec::{self, BitCursor, BitsBuf};
+use crate::bits::{BitRead, BitsWriter};
 use crate::error::Decode;
 use crate::span::Span;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
@@ -13,7 +13,7 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{step_impl, world_strategy};
-use crate::version::skyline::{validate_dominating_from, Admission};
+use crate::version::io::validate::{dominating_from, Admission};
 use crate::{Clock, Party, Rank, Ranked, Version};
 
 /// Build a version with the same event count everywhere.
@@ -25,7 +25,7 @@ fn uniform(ticks: impl Into<crate::Ticks>) -> Version {
 
 /// Build a nonuniform version from the recursive oracle.
 fn sample_version() -> Version {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     from_oracle_version(&V::node(
         1u8,
         V::leaf(2u8),
@@ -35,7 +35,7 @@ fn sample_version() -> Version {
 
 /// Build a version whose left half is one tick ahead.
 fn half() -> Version {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)))
 }
 
@@ -43,7 +43,7 @@ fn half() -> Version {
 /// (`UnexpectedEof`), never a masked decode error.
 ///
 /// `Decode::Io` is the one rich variant the bit-level error split must still
-/// deliver losslessly through `ReaderCursor`: the prefix-free encodings pad
+/// deliver losslessly through `StreamBitsReader`: the prefix-free encodings pad
 /// only to the next byte boundary, so every proper byte prefix of a canonical
 /// encoding ends mid-tree or ahead of the tree's padding, and the next
 /// per-bit refill hits end-of-input. The
@@ -57,7 +57,7 @@ fn truncated_borsh_stream_reports_unexpected_eof() {
     }
     let version = sample_version();
     let wide = {
-        use crate::oracle::Version as V;
+        use crate::testing::oracles::tree::Version as V;
         from_oracle_version(&V::node(0u8, V::leaf(u64::MAX), V::leaf(0u8)))
     };
 
@@ -310,7 +310,7 @@ proptest! {
 
 // ─────────────── wire cursor ≡ per-bit reference (differential) ───────────────
 //
-// `ReaderCursor` reads bits by byte-index and integers through the word
+// `StreamBitsReader` reads bits by byte-index and integers through the word
 // window over its already-read bytes; the per-bit cursor below — a growing
 // bit buffer, per-bit reads only — is the specification. These tests pin the
 // wire decode to it differentially: same accepts, same rejects, same error
@@ -318,15 +318,15 @@ proptest! {
 
 /// The per-bit reference cursor, the wire decode's differential oracle.
 ///
-/// The definitional shape with no fast paths: a growing `BitsBuf` refilled one
-/// byte at a time, per-bit reads only, and the default per-bit `read_int`.
-struct BitwiseReaderCursor<'a, R> {
+/// The definitional shape with no fast paths: a growing `BitsWriter` refilled one
+/// byte at a time, per-bit reads only, and the default per-bit `read_gamma`.
+struct BitwiseStreamReader<'a, R> {
     reader: &'a mut R,
-    bits: BitsBuf,
+    bits: BitsWriter,
     position: u64,
 }
 
-impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
+impl<R: Read> BitRead for BitwiseStreamReader<'_, R> {
     type Error = Decode;
 
     fn read_bit(&mut self) -> Result<bool, Decode> {
@@ -335,7 +335,7 @@ impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
             self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
             self.bits.push_bits(u64::from(byte[0]), 8);
         }
-        let bit = self.bits.get(self.position);
+        let bit = self.bits.bit(self.position);
         self.position += 1;
         Ok(bit)
     }
@@ -350,7 +350,7 @@ impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
 /// live bits end flush against a boundary, exactly as the wire cursor's
 /// `finish` does.
 fn reference_consume_padding<R: Read>(
-    cursor: &mut BitwiseReaderCursor<'_, R>,
+    cursor: &mut BitwiseStreamReader<'_, R>,
 ) -> Result<(), Decode> {
     if !cursor.read_bit()? {
         return Err(Decode::TrailingBits);
@@ -363,37 +363,37 @@ fn reference_consume_padding<R: Read>(
     Ok(())
 }
 
-/// Decode one event tree per-bit through [`BitwiseReaderCursor`].
+/// Decode one event tree per-bit through [`BitwiseStreamReader`].
 ///
 /// Replicates the wire pipeline stage for stage: parse, padding
 /// consumption, truncate to the consumed live bits.
 fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
-    let mut cursor = BitwiseReaderCursor {
+    let mut cursor = BitwiseStreamReader {
         reader,
-        bits: BitsBuf::new(),
+        bits: BitsWriter::new(),
         position: 0,
     };
-    crate::version::skyline::validate_from(&mut cursor)?;
+    crate::version::io::validate::from_reader(&mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
     bits.truncate(position);
-    Ok(Version::from_bits(bits))
+    Ok(crate::version::io::finish(bits))
 }
 
-/// Decode one id tree per-bit through [`BitwiseReaderCursor`].
+/// Decode one id tree per-bit through [`BitwiseStreamReader`].
 ///
 /// Replicates the wire pipeline stage for stage: parse, padding
 /// consumption, truncate to the consumed live bits. The id grammar has no
 /// empty production, so the parsed id is a nonzero share — exactly as
 /// `Party::deserialize_reader` relies on.
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
-    let mut cursor = BitwiseReaderCursor {
+    let mut cursor = BitwiseStreamReader {
         reader,
-        bits: BitsBuf::new(),
+        bits: BitsWriter::new(),
         position: 0,
     };
-    codec::parse_party_from(&mut cursor)?;
+    crate::party::io::validate::prefix_from_reader(&mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
@@ -500,7 +500,7 @@ proptest! {
 }
 
 /// Decode one clock — an id tree, then an event tree — per-bit through
-/// [`BitwiseReaderCursor`], replicating the wire entry point's composition: the
+/// [`BitwiseStreamReader`], replicating the wire entry point's composition: the
 /// version decode starts exactly where the party decode stopped.
 fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
     let party = reference_party(reader)?;
@@ -510,7 +510,7 @@ fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
 
 /// Decode one composite key — a self-delimiting rank stream, then an
 /// version skyline — with the version leg per-bit through
-/// [`BitwiseReaderCursor`] and the wire entry point's own cross-check after it.
+/// [`BitwiseStreamReader`] and the wire entry point's own cross-check after it.
 ///
 /// The rank stream has exactly one parser, shared with the wire entry point
 /// byte for byte, so the surface this reference pins differentially is
@@ -529,7 +529,7 @@ fn reference_ranked<R: Read>(reader: &mut R) -> Result<Ranked<'static>, Decode> 
     Ok(Ranked::from(version))
 }
 
-/// Decode one span composite per-bit through [`BitwiseReaderCursor`],
+/// Decode one span composite per-bit through [`BitwiseStreamReader`],
 /// replicating the wire pipeline stage for stage.
 ///
 /// The stages, in the wire entry point's order: the meet's tree and padding, the
@@ -537,12 +537,12 @@ fn reference_ranked<R: Read>(reader: &mut R) -> Result<Ranked<'static>, Decode> 
 /// which outranks the pair verdict — then the verdict.
 fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
     let lo = reference_version(reader)?;
-    let mut cursor = BitwiseReaderCursor {
+    let mut cursor = BitwiseStreamReader {
         reader,
-        bits: BitsBuf::new(),
+        bits: BitsWriter::new(),
         position: 0,
     };
-    let admission = validate_dominating_from((lo.view()).live(), &mut cursor)?;
+    let admission = dominating_from(&lo, &mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
@@ -550,7 +550,7 @@ fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
     let hi = match admission {
         Admission::Refuted => return Err(Decode::NotCanonical),
         Admission::Equal => lo.clone(),
-        Admission::Dominates => Version::from_bits(bits),
+        Admission::Dominates => crate::version::io::finish(bits),
     };
     Ok(Span::owned(lo, hi))
 }
@@ -801,14 +801,13 @@ proptest! {
 /// consumption.
 #[test]
 fn deep_trees_roundtrip_through_borsh() {
-    // Deep enough that the frame stack regrows several times mid-parse
-    // (`codec::tests::parse_stacks_handle_deep_spines` is the direct pin).
+    // Deep enough that the frame stack regrows several times mid-parse.
     const DEPTH: usize = 48;
     const TRAILING: &[u8] = &[0xA5, 0x5A, 0xFF];
 
     // A right-spine event tree: every node has a base-0 left leaf, and the
     // innermost pair of leaves differ, so the whole spine is canonical.
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let mut spine = V::leaf(2u8);
     for _ in 0..DEPTH {
         spine = V::node(1u8, V::leaf(0u8), spine);
@@ -848,7 +847,7 @@ fn rank_borsh_is_the_canonical_encoding() {
     let battery = [
         crate::Rank::ZERO,
         uniform(7u8).rank(),
-        crate::version::Rank::from_raw(BigUint::from(1u8), 40),
+        crate::Rank::from_raw(BigUint::from(1u8), 40),
     ];
     for rank in &battery {
         let bytes = borsh::to_vec(rank).unwrap();
@@ -924,7 +923,7 @@ fn ranked_borsh_composes_and_preserves_decode_errors() {
 /// each read consuming exactly its own bytes.
 #[test]
 fn rank_composes_in_a_borsh_stream() {
-    let a = crate::version::Rank::from_raw(BigUint::from(129u8), 8);
+    let a = crate::Rank::from_raw(BigUint::from(129u8), 8);
     let v = half();
     let b = uniform(5u8).rank();
     let mut stream = Vec::new();
@@ -943,7 +942,7 @@ fn rank_composes_in_a_borsh_stream() {
 /// `InvalidData` carrying the exact [`Decode`] variant.
 #[test]
 fn rank_borsh_preserves_decode_errors() {
-    let deep = crate::version::Rank::from_raw(BigUint::from(5u128 << 40 | 1), 40);
+    let deep = crate::Rank::from_raw(BigUint::from(5u128 << 40 | 1), 40);
     let bytes = borsh::to_vec(&deep).unwrap();
     assert!(bytes.len() >= 7, "the fraction spans several groups");
     for cut in 0..bytes.len() {
@@ -1111,7 +1110,7 @@ fn borsh_every_type_pair_composes_with_exact_boundaries() {
         let _ = c.fork(); // a non-seed party beside a non-empty version
         c
     };
-    let rank = crate::version::Rank::from_raw(BigUint::from(129u8), 8);
+    let rank = crate::Rank::from_raw(BigUint::from(129u8), 8);
     let ranked: Ranked<'static> = Ranked::from(version.clone());
     let span: Span<'static> = {
         let mut c = Clock::seed();
@@ -1200,7 +1199,7 @@ fn borsh_every_type_pair_composes_with_exact_boundaries() {
 /// field.
 #[test]
 fn borsh_sequence_defect_preserves_its_error_class() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let elems = vec![
         sample_version(),
         from_oracle_version(&V::node(1u8, V::leaf(0u8), V::leaf(4u8))),
@@ -1257,7 +1256,7 @@ fn span_borsh_dedups_the_coincident_span() {
     assert_eq!(decoded, span, "the wire round-trips the coincident span");
     assert_eq!(borsh::to_vec(&decoded).unwrap(), bytes);
     assert!(
-        decoded.lo().view().ptr_eq(decoded.hi().view()),
+        decoded.lo().ptr_eq(decoded.hi()),
         "the borsh admission verdict must dedup the coincident span's storage"
     );
 }
@@ -1318,7 +1317,7 @@ fn coincident_span_keeps_borsh_container_framing() {
 /// byte-slice decode orders them.
 #[test]
 fn coincident_span_borsh_rejects_tampered_join_padding() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let v = from_oracle_version(&V::node(1u8, V::leaf(0u8), V::leaf(4u8)));
     assert_ne!(
         v.encoded_bits() % 8,
@@ -1349,7 +1348,7 @@ fn coincident_span_borsh_rejects_tampered_join_padding() {
 /// canonical empty meet, then a join whose height dips negative — root
 /// internal `0`, left leaf height gamma(0), right leaf delta zigzag(-1),
 /// padding marker. No encode produces it, so only a constructed stream
-/// reaches the verdict's rejection arm under a `ReaderCursor`; it rides
+/// reaches the verdict's rejection arm under a `StreamBitsReader`; it rides
 /// beside [`span_wire_decode_matches_bitwise_reference`] as a direct check of
 /// that rejection path.
 #[test]
@@ -1372,7 +1371,7 @@ fn span_borsh_rejects_negative_height_join() {
 
 /// A join carrying a collapsible sibling pair rejects through the borsh
 /// span entry point as `InvalidData` carrying [`Decode::NotCanonical`]: the
-/// close-out canonicality check fires under a `ReaderCursor` too.
+/// close-out canonicality check fires under a `StreamBitsReader` too.
 ///
 /// The bytes are a canonical empty meet, then an internal node whose two
 /// leaf children carry height 0 and delta 0 — a sibling pair normal form

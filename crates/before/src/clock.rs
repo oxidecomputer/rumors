@@ -6,7 +6,7 @@ use core::ops::{BitOr, BitOrAssign};
 use std::io::{Read, Write};
 
 use crate::{
-    codec,
+    bits::{Bits, BitsReader},
     error::{Decode, Overlap},
     OwnVersion, Party, Ticks, Version,
 };
@@ -691,7 +691,7 @@ impl Clock {
     /// assert!(own_a & own_b == Version::new());
     /// ```
     pub fn own_version(&self) -> OwnVersion<'_> {
-        self.version() / self.party()
+        self.version.project(&self.party)
     }
 
     /// The clock's shape.
@@ -833,21 +833,21 @@ impl Clock {
     /// the party and version.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
         let party_bytes = {
-            let party_end = codec::parse_party(codec::BitsView::whole(&buf), 0)?;
+            let party_end = crate::party::io::validate::prefix(BitsReader::from_bytes(&buf))?;
             let party_bytes = (party_end + 1).div_ceil(8);
             if party_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
             }
             let party_bytes =
                 usize::try_from(party_bytes).expect("the party prefix ends within the read buffer");
-            codec::require_marker_padding(&buf[..party_bytes], party_end)?;
+            Bits::validate_padding(&buf[..party_bytes], party_end)?;
             let tail = &buf[party_bytes..];
-            let v_end = crate::version::skyline::validate_prefix(codec::BitsView::whole(tail))?;
-            codec::require_marker_padding(tail, v_end)?;
+            let v_end = crate::version::io::validate::prefix(BitsReader::from_bytes(tail))?;
+            Bits::validate_padding(tail, v_end)?;
             party_bytes
         };
-        let party = Party::from_frozen(codec::Bits::from_canonical(buf.slice(..party_bytes)));
-        let version = Version::from_frozen(codec::Bits::from_canonical(buf.slice(party_bytes..)));
+        let party = Party::from_frozen(Bits::from_canonical(buf.slice(..party_bytes)));
+        let version = crate::version::io::from_canonical(buf.slice(party_bytes..));
         Ok(Clock::from_parts(party, version))
     }
 

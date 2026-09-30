@@ -27,14 +27,11 @@ const DUPLICATE_TEST_NAMES: &[(&str, &[&str])] = &[
     ),
     (
         "exhaustive_small_scope_agrees",
-        &[
-            "src/version/skyline/query/tests.rs",
-            "src/version/skyline/sweep/tests.rs",
-        ],
+        &["src/version/measure/tests.rs", "src/version/order/tests.rs"],
     ),
     (
         "heterogeneous_joins",
-        &["src/clock/tests.rs", "src/oracle/tests.rs"],
+        &["src/clock/tests.rs", "src/testing/oracles/tree/tests.rs"],
     ),
     (
         "join_all_matches_the_recursive_oracle",
@@ -42,15 +39,15 @@ const DUPLICATE_TEST_NAMES: &[(&str, &[&str])] = &[
     ),
     (
         "organic_histories_agree",
-        &[
-            "src/version/skyline/query/tests.rs",
-            "src/version/skyline/sweep/tests.rs",
-        ],
+        &["src/version/measure/tests.rs", "src/version/order/tests.rs"],
     ),
-    ("sync", &["src/clock/tests.rs", "src/oracle/tests.rs"]),
+    (
+        "sync",
+        &["src/clock/tests.rs", "src/testing/oracles/tree/tests.rs"],
+    ),
     (
         "worked_example",
-        &["src/clock/tests.rs", "src/oracle/tests.rs"],
+        &["src/clock/tests.rs", "src/testing/oracles/tree/tests.rs"],
     ),
 ];
 
@@ -81,7 +78,7 @@ fn roster_is_total_over_the_public_fn_surface() {
 fn every_cited_binding_test_exists() {
     let mut declared = declared_test_names();
     declared.extend(
-        crate::laws::registered_names()
+        crate::testing::laws::registered_names()
             .into_iter()
             .map(str::to_owned),
     );
@@ -127,7 +124,7 @@ fn citations_resolve_only_to_executable_tests() {
         );
     }
     // Registered law names also exclude ordinary helper functions.
-    let laws = crate::laws::registered_names();
+    let laws = crate::testing::laws::registered_names();
     assert!(
         laws.contains(&"forks_matches_from_array"),
         "a roster-cited law must be registered in its table"
@@ -144,10 +141,10 @@ fn citations_resolve_only_to_executable_tests() {
 /// and a model quantity delegated elsewhere must name an existing coverage row.
 #[test]
 fn exclusion_payload_citations_resolve() {
-    use crate::surface::Exclusion;
+    use crate::testing::surface::Exclusion;
     let mut resolvable = declared_test_names();
     resolvable.extend(
-        crate::laws::registered_names()
+        crate::testing::laws::registered_names()
             .into_iter()
             .map(str::to_owned),
     );
@@ -216,7 +213,7 @@ fn every_exclusion_family_is_used() {
             }
         }
     }
-    for family in crate::surface::Exclusion::FAMILIES {
+    for family in crate::testing::surface::Exclusion::FAMILIES {
         assert!(
             census.get(family).copied().unwrap_or(0) > 0,
             "exclusion family {family} is unused"
@@ -259,7 +256,9 @@ fn duplicate_test_names_are_recorded() {
 #[test]
 fn binding_kinds_never_shadow_each_other() {
     let tests = declared_test_names();
-    let laws: BTreeSet<&str> = crate::laws::registered_names().into_iter().collect();
+    let laws: BTreeSet<&str> = crate::testing::laws::registered_names()
+        .into_iter()
+        .collect();
     let descriptors: BTreeSet<&str> = crate::testing::diff_ops::registered_names()
         .into_iter()
         .collect();

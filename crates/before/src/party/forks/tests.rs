@@ -4,6 +4,7 @@ use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use super::{Forks, Party, Plan};
+use crate::party::io::PartySnapshot;
 use crate::testing::bridge::from_oracle_party;
 use crate::testing::generators::arb_oracle_party_nonempty;
 use crate::Ticks;
@@ -42,7 +43,7 @@ proptest! {
     ) {
         let party = from_oracle_party(&party);
         let expected = recursive_forks(party.dangerously_alias(), count);
-        let actual: Vec<Party> = Plan::new(party.0, count.into()).collect();
+        let actual: Vec<Party> = Plan::new(PartySnapshot::new(&party), count.into()).collect();
         prop_assert!(actual == expected);
     }
 
@@ -94,10 +95,11 @@ proptest! {
 #[test]
 fn every_small_arity_is_balanced() {
     for count in 1usize..=256 {
-        let shares: Vec<Party> = Plan::new(Party::seed().0, count.into()).collect();
+        let party = Party::seed();
+        let shares: Vec<Party> = Plan::new(PartySnapshot::new(&party), count.into()).collect();
         let maximum_depth = shares
             .iter()
-            .map(|party| (party.as_bits().len() - 2) / 2)
+            .map(|party| (party.stored_len() - 2) / 2)
             .max()
             .expect("a nonzero fork has a share");
         assert_eq!(
@@ -113,7 +115,8 @@ fn every_small_arity_is_balanced() {
 #[test]
 fn small_size_hints_are_exact() {
     for count in 1usize..=256 {
-        let mut plan = Plan::new(Party::seed().0, count.into());
+        let party = Party::seed();
+        let mut plan = Plan::new(PartySnapshot::new(&party), count.into());
         for remaining in (0..=count).rev() {
             assert_eq!(plan.size_hint(), (remaining, Some(remaining)));
             if remaining > 0 {
@@ -129,7 +132,8 @@ fn small_size_hints_are_exact() {
 #[test]
 fn adjacent_wide_count_becomes_exact() {
     let count = Ticks::from(usize::MAX) + Ticks::from(1u8);
-    let mut plan = Plan::new(Party::seed().0, count);
+    let party = Party::seed();
+    let mut plan = Plan::new(PartySnapshot::new(&party), count);
 
     assert_eq!(plan.size_hint(), (usize::MAX, None));
     assert!(plan.next().is_some());
@@ -166,7 +170,8 @@ fn two_to_128_count_stays_iterable() {
 fn distant_size_hint_stays_sound_near_exhaustion() {
     let depth = u64::from(usize::BITS) + 2;
     let count = BigUint::from(1u8) << depth;
-    let mut plan = Plan::new(Party::seed().0, Ticks(count.clone()));
+    let party = Party::seed();
+    let mut plan = Plan::new(PartySnapshot::new(&party), Ticks(count.clone()));
     plan.index = &count - BigUint::from(usize::MAX);
 
     assert_eq!(plan.size_hint(), (usize::MAX, None));

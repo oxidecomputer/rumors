@@ -38,7 +38,7 @@ cargo install cargo-fuzz
   + observers). Pushes adversarially-shaped but canonical trees through the
   skyline kernels every operation runs on.
 - **`fuzz_laws`** decodes versions, parties, and a clock from length-prefixed
-  chunks, then asserts every named law in `before::laws` on them — the same
+  chunks, then asserts every named law in `before::testing::laws` on them — the same
   collection the in-tree law proptests drive, here fed hostile-but-canonical
   values. A violated law panics with the law's name, so the fuzzer minimizes
   straight to the algebraic defect.

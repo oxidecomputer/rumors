@@ -11,9 +11,9 @@
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, TestRunner};
 
-use crate::oracle;
+use crate::testing::oracles::function::{ev_depth, id_depth};
+use crate::testing::oracles::tree;
 use crate::testing::rng::strategy_rng;
-use crate::testing::semantic_oracle::{ev_depth, id_depth};
 use num_bigint::BigUint;
 
 use super::{arb_oracle_party, arb_oracle_version, ARB_DEPTH};
@@ -45,8 +45,8 @@ struct VersionCensus {
 }
 
 /// Classify one version tree for the census.
-fn census_of(v: &oracle::Version) -> VersionCensus {
-    use oracle::Version as V;
+fn census_of(v: &tree::Version) -> VersionCensus {
+    use tree::Version as V;
     let two64 = BigUint::from(1u8) << 64u32;
     let mut c = VersionCensus {
         wide: false,

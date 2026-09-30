@@ -15,14 +15,18 @@
 //! [`dangerously_alias`](Party::dangerously_alias) deliberately duplicates one
 //! in memory.
 
-use crate::codec::{self, BitsView};
+use crate::bits::{Bits, BitsReader, BitsWriter};
 use crate::error::Decode;
-use crate::party::tree::PartyCursor;
+use crate::party::io::PartyReader;
 use crate::{Ticks, Version};
 
+mod compare;
+mod fork;
 mod forks;
-pub(crate) mod ops;
-pub(crate) mod tree;
+pub(crate) mod io;
+mod join;
+mod sync;
+mod without;
 
 pub use forks::Forks;
 
@@ -62,7 +66,7 @@ mod tests;
 /// assert!(whole.is_seed());
 /// ```
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
-pub struct Party(codec::Bits);
+pub struct Party(Bits);
 
 // Identity Linearity (the crate docs' second safety rule) is compiler-enforced
 // within a process precisely because `Party` is `!Clone`: every operation that
@@ -76,11 +80,11 @@ static_assertions::assert_not_impl_any!(Party: Clone, Copy);
 // its live length, resting on the canonical-raw-slice invariant: the build
 // buffer keeps its dead bits zero and `from_bits` seals the marker at every
 // storage seam, so raw-byte equality is exactly bit equality (see
-// `codec::canonical_eq` for the argument and the measurement). The two impls
+// `Bits::eq` for the argument and the measurement). The two impls
 // read the same pair, so `Eq`/`Hash` consistency holds by construction.
 impl PartialEq for Party {
     fn eq(&self, other: &Self) -> bool {
-        codec::canonical_eq(&self.0, &other.0)
+        self.0 == other.0
     }
 }
 
@@ -97,7 +101,7 @@ impl Eq for Party {}
 )]
 impl core::hash::Hash for Party {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        codec::canonical_hash(&self.0, state);
+        core::hash::Hash::hash(&self.0, state);
     }
 }
 
@@ -127,13 +131,11 @@ impl Party {
         // `0b0010_0000`: construction allocates nothing, and every seed
         // shares the one static buffer. A `static`, not a `const`: a
         // const's promoted allocation has no guaranteed unique address,
-        // and the cross-call sharing claim rests on one. The codec
-        // round-trip and text laws pin the constant against the parsed
+        // and the cross-call sharing claim rests on one. Encoding
+        // round-trips and text laws pin the constant against the parsed
         // form.
         static SEED_STREAM: &[u8] = &[0b0010_0000];
-        Party(codec::Bits::from_canonical(bytes::Bytes::from_static(
-            SEED_STREAM,
-        )))
+        Party(Bits::from_canonical(bytes::Bytes::from_static(SEED_STREAM)))
     }
 
     /// Whether this party is equal to [`Party::seed`].
@@ -240,9 +242,9 @@ impl Party {
     /// assert!(!p.is_seed() && !q.is_seed()); // ...and neither is the whole
     /// ```
     pub fn fork(&mut self) -> Party {
-        let (keep, give) = Self::fork_tree(self.as_bits());
-        *self = Party::from_bits(keep);
-        Party::from_bits(give)
+        let (keep, give) = Self::fork_tree(self.reader());
+        *self = keep;
+        give
     }
 
     /// Forks `k` balanced shares off this [`Party`] as a lazy iterator.
@@ -315,9 +317,9 @@ impl Party {
     /// assert!(p.is_seed());
     /// ```
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
-        match self.cursor().join(other.cursor()) {
-            Some(bits) => {
-                *self = Party::from_bits(bits);
+        match self.reader().join(other.reader()) {
+            Some(joined) => {
+                *self = joined;
                 Ok(())
             }
             None => Err(other),
@@ -402,7 +404,7 @@ impl Party {
     // operand pair — and the lockstep walk stays the one mechanism the
     // fuel bands price.
     pub fn is_disjoint(&self, other: &Party) -> bool {
-        self.cursor().is_disjoint(other.cursor())
+        self.reader().is_disjoint(other.reader())
     }
 
     /// Tests whether `self`'s owned region contains all of `other`'s
@@ -431,7 +433,7 @@ impl Party {
     // No clone-identity fast path, as `is_disjoint`: linearity leaves a
     // live clone-shared party pair no production witness.
     pub fn covers(&self, other: &Party) -> bool {
-        self.cursor().covers(other.cursor())
+        self.reader().covers(other.reader())
     }
 
     /// Carves `other`'s region out of `self`, forcing the parties to become
@@ -463,11 +465,14 @@ impl Party {
     /// assert!(Party::seed().without(&Party::seed()).is_none());
     /// ```
     pub fn without(self, other: &Party) -> Option<Party> {
-        let bits = self.cursor().without(other.cursor());
-        if bits.is_empty() {
-            None
+        // Disjoint subtraction cannot change `self`. Detect it before opening
+        // an output buffer so the existing canonical storage can be returned
+        // unchanged. If the parties overlap, the failed check adds one forward
+        // scan before the difference walk; both passes remain linear.
+        if self.reader().is_disjoint(other.reader()) {
+            Some(self)
         } else {
-            Some(Party::from_bits(bits))
+            self.reader().without(other.reader())
         }
     }
 
@@ -609,7 +614,7 @@ impl Party {
     #[cfg(any(test, feature = "meter"))]
     pub fn encoded_bits(&self) -> u64 {
         // The stored form's O(1) length: exact at every size memory holds.
-        self.0.len()
+        self.0.reader().len()
     }
 
     /// Decodes one [`Party`] from a reader.
@@ -655,15 +660,15 @@ impl Party {
     /// Validates and adopts an owned canonical encoding.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
         {
-            let end = codec::parse_party(codec::BitsView::whole(&buf), 0)?;
-            codec::require_marker_padding(&buf, end)?;
+            let end = crate::party::io::validate::prefix(BitsReader::from_bytes(&buf))?;
+            Bits::validate_padding(&buf, end)?;
         }
-        Ok(Party(codec::Bits::from_canonical(buf)))
+        Ok(Party(Bits::from_canonical(buf)))
     }
 
-    /// A read-only [`PartyCursor`] cursor at the root of this party's party bits.
-    pub(crate) fn cursor(&self) -> PartyCursor<'_> {
-        PartyCursor::root(self.0.live())
+    /// Start reading the canonical ownership tree at its root.
+    pub(crate) fn reader(&self) -> PartyReader<'_> {
+        PartyReader::for_party(self)
     }
 
     /// The canonical bytes of this [`Party`], borrowed.
@@ -688,37 +693,41 @@ impl Party {
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
         debug_assert!(
-            codec::padding_is_canonical(&self.0),
+            self.0.has_canonical_padding(),
             "non-canonical Party storage: the bytes must end in the `1 0*` padding",
         );
         self.0.as_raw_slice()
     }
 
-    /// The preorder bit stream, live bits only (the padding stays
-    /// behind the view). Internal.
-    pub(crate) fn as_bits(&self) -> BitsView<'_> {
-        self.0.live()
+    /// Number of bits occupied by the canonical ownership tree.
+    pub(crate) fn stored_len(&self) -> u64 {
+        self.0.reader().len()
     }
 
-    /// Freeze a normal-form encoded bit stream as a `Party`, canonicalizing its
-    /// storage. The single build-side gate every built/parsed `Party` passes
-    /// through.
+    /// Copy the ownership tree into mutable instrumentation storage.
+    #[cfg(any(test, feature = "meter"))]
+    pub(crate) fn to_writer(&self) -> BitsWriter {
+        let len = self.stored_len();
+        let mut writer = BitsWriter::with_capacity(len);
+        writer.splice(&self.0, 0, len);
+        writer
+    }
+
+    /// Finalize a normal-form ownership tree as a `Party`.
     ///
-    /// Callers guarantee normal *tree* form (a nonempty, normalized party);
-    /// the freeze seals the marker padding so the stored bytes are
-    /// canonical — see [`codec::Bits::freeze`] for the seam's contract and
-    /// what the padding underpins.
-    pub(crate) fn from_bits(bits: codec::BitsBuf) -> Self {
-        Party(codec::Bits::freeze(bits))
+    /// Callers guarantee a nonempty, normalized tree. Finalization adds the
+    /// marker and zero padding that give every party one canonical byte
+    /// representation.
+    pub(crate) fn from_bits(bits: BitsWriter) -> Self {
+        Party(bits.finalize())
     }
 
-    /// Adopt an already-frozen canonical party stream as a `Party`: the
-    /// decode-side gate, dual to the build-side [`from_bits`](Self::from_bits).
+    /// Adopt sealed canonical storage as a `Party`.
     ///
     /// Callers guarantee the stream is a nonempty normal-form party in canonical
     /// storage — what a validated decode slice already is — so no
     /// re-canonicalization runs and adoption is `O(1)`.
-    pub(crate) fn from_frozen(bits: codec::Bits) -> Self {
+    pub(crate) fn from_frozen(bits: Bits) -> Self {
         Party(bits)
     }
 }

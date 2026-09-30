@@ -15,7 +15,7 @@
 //! The scan-meter pins cover balanced folds. Meter-only pins cover the
 //! value-dependent work in rank, distance, lag, and ranked keys.
 
-use crate::meter::registry::Shape;
+use crate::testing::meter::registry::Shape;
 use num_bigint::BigUint;
 
 // ─── the fold entry points' log-factor liveness ───────────────────────────────
@@ -38,14 +38,14 @@ use num_bigint::BigUint;
 const FOLD_DOOR_TEETH: usize = 64;
 
 /// The staggered version population `SG(n, 64)` in bit-reversed feed
-/// order ([`Shape::StaggerPopulation`](crate::meter::registry::Shape)).
+/// order ([`Shape::StaggerPopulation`](crate::testing::meter::registry::Shape)).
 ///
 /// Every balanced merge joins maximally interleaving region sets, so
 /// intermediates stay proportional to the leaves they carry.
 #[cfg(feature = "scan-meter")]
 fn stagger_versions(n: usize) -> Vec<crate::Version> {
     let (versions, _) =
-        crate::meter::registry::Shape::StaggerPopulation.population(n, FOLD_DOOR_TEETH);
+        crate::testing::meter::registry::Shape::StaggerPopulation.population(n, FOLD_DOOR_TEETH);
     versions.iter().map(|p| p.version()).collect()
 }
 
@@ -53,7 +53,8 @@ fn stagger_versions(n: usize) -> Vec<crate::Version> {
 /// fold's dual of [`stagger_versions`].
 #[cfg(feature = "scan-meter")]
 fn stagger_parties(n: usize) -> Vec<crate::Party> {
-    let (_, ids) = crate::meter::registry::Shape::StaggerPopulation.population(n, FOLD_DOOR_TEETH);
+    let (_, ids) =
+        crate::testing::meter::registry::Shape::StaggerPopulation.population(n, FOLD_DOOR_TEETH);
     ids.iter()
         .map(|p| crate::Party::decode(&p.bytes[..]).expect("generated ids are strict normal form"))
         .collect()
@@ -64,9 +65,9 @@ fn stagger_parties(n: usize) -> Vec<crate::Party> {
 /// without editing the harness.
 #[cfg(feature = "scan-meter")]
 fn door_scan_bits<R>(name: &str, n: usize, input_bytes: usize, run: impl FnOnce() -> R) -> u64 {
-    crate::meter::reset_scan_bits();
+    crate::testing::meter::reset_scan_bits();
     std::hint::black_box(run());
-    let bits = crate::meter::scan_bits();
+    let bits = crate::testing::meter::scan_bits();
     eprintln!("MEASURED {name}: n={n} input_bytes={input_bytes} scan_bits={bits}");
     bits
 }
@@ -376,7 +377,7 @@ fn mul_bound_embedding_is_alive() {
 
     let (w, d) = (64usize, 48usize);
     let v = Shape::PlateauPuncture.build2(w, d).version();
-    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
+    let (x, y) = crate::testing::meter::plateau_puncture_factors(w, d);
     assert_eq!(
         (x.bits(), y.bits()),
         ((32 * w) as u64, (66 * d - 1) as u64),
@@ -449,7 +450,7 @@ fn mul_bound_pair_embedding_is_alive() {
         "the pair must be unequal: an equal pair would answer through \
          the canonical-equality rung without running the pair co-sweep"
     );
-    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
+    let (x, y) = crate::testing::meter::plateau_puncture_factors(w, d);
     let expected = crate::Rank::from_raw(((&x * &y) << 1usize) + 1u8, (66 * d) as u64);
     assert_eq!(
         v.distance(&empty),
@@ -494,7 +495,7 @@ fn mul_bound_pair_embedding_is_alive() {
 fn mul_bound_key_embedding_is_alive() {
     let (w, d) = (64usize, 48usize);
     let v = Shape::PlateauPuncture.build2(w, d).version();
-    let (x, y) = crate::meter::plateau_puncture_factors(w, d);
+    let (x, y) = crate::testing::meter::plateau_puncture_factors(w, d);
     let expected = crate::Rank::from_raw(((&x * &y) << 1usize) + 1u8, (66 * d) as u64);
     let rank_key = crate::Ranked::from(&v).encode_rank();
     assert_eq!(

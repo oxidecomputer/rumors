@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
-use crate::oracle;
+use crate::testing::oracles::tree;
 use crate::Clock;
 
 /// One step of a seed-derived execution. Indices are reduced modulo the live
@@ -51,7 +51,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 /// Consumers that size a resource to the deepest reachable history derive
 /// from this constant rather than transcribing it (the semantic oracle
 /// derives its comparison-grid ceiling
-/// [`super::semantic_oracle::GRID_N`] from it, so a cap change cannot
+/// [`super::oracles::function::GRID_N`] from it, so a cap change cannot
 /// silently outgrow the grid).
 pub(crate) const MAX_TRACE_OPS: usize = 30;
 
@@ -69,8 +69,8 @@ pub(crate) fn world_strategy_up_to(max_ops: usize) -> impl Strategy<Value = Vec<
 }
 
 /// Apply a trace to a fresh oracle population.
-pub(crate) fn run(ops: &[Op]) -> Vec<oracle::Clock> {
-    let mut cs = vec![oracle::Clock::seed()];
+pub(crate) fn run(ops: &[Op]) -> Vec<tree::Clock> {
+    let mut cs = vec![tree::Clock::seed()];
     for op in ops {
         let n = cs.len();
         match *op {
@@ -165,11 +165,11 @@ pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
 }
 
 /// Every live clock's current version.
-pub(crate) fn versions(cs: &[oracle::Clock]) -> Vec<oracle::Version> {
+pub(crate) fn versions(cs: &[tree::Clock]) -> Vec<tree::Version> {
     cs.iter().map(|c| c.version()).collect()
 }
 
 /// `a <= b` under the oracle causal order (treating concurrency as not-`<=`).
-pub(crate) fn leq(a: &oracle::Version, b: &oracle::Version) -> bool {
+pub(crate) fn leq(a: &tree::Version, b: &tree::Version) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
 }

@@ -1404,7 +1404,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 /// and meaningful one scenario per process (nextest's model).
 #[cfg(feature = "meter")]
 mod span_traffic {
-    use before::meter;
+    use before::testing::meter;
     use bytes::Bytes;
 
     use super::{Tree, insert_action, party_of};

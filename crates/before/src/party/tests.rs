@@ -3,11 +3,11 @@
 use proptest::prelude::*;
 
 use super::Party;
-use crate::oracle;
-use crate::party::tree::PartyCursor;
+use crate::party::io::PartyReader;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
 use crate::testing::generators::arb_oracle_party_nonempty;
 use crate::testing::optrace::{run, world_strategy};
+use crate::testing::oracles::tree;
 
 // ───────────────────────────── the join fold ─────────────────────────────
 
@@ -34,10 +34,10 @@ fn join_all_preserves_regions_on_overlap() {
 }
 
 /// Return the union of some oracle parties.
-fn oracle_union_all(parties: impl IntoIterator<Item = oracle::Party>) -> oracle::Party {
+fn oracle_union_all(parties: impl IntoIterator<Item = tree::Party>) -> tree::Party {
     parties
         .into_iter()
-        .fold(oracle::Party::Leaf(false), oracle::Party::union)
+        .fold(tree::Party::Leaf(false), tree::Party::union)
 }
 
 /// Compare `join_all` with sequential oracle joins.
@@ -47,7 +47,7 @@ fn oracle_union_all(parties: impl IntoIterator<Item = oracle::Party>) -> oracle:
 /// must together equal the union of every input region.
 fn assert_join_all_matches_recursive_oracle(mut acc: Party, inputs: Vec<Party>) {
     let initial = to_oracle_party(&acc);
-    let oracle_inputs: Vec<oracle::Party> = inputs.iter().map(to_oracle_party).collect();
+    let oracle_inputs: Vec<tree::Party> = inputs.iter().map(to_oracle_party).collect();
     let expected =
         oracle_union_all(std::iter::once(initial.clone()).chain(oracle_inputs.iter().cloned()));
     let mut oracle_acc = initial;
@@ -83,6 +83,19 @@ proptest! {
             picks.iter().map(|&i| from_oracle_party(&pool[i])).collect();
         assert_join_all_matches_recursive_oracle(acc, inputs);
     }
+}
+
+/// Forking a one-byte left share from a deep right share retains only that
+/// one-byte result allocation.
+#[test]
+fn asymmetric_fork_sizes_the_small_result_independently() {
+    let left = constructed::full();
+    let right = constructed::spine(8_192, false, constructed::full());
+    let mut parent = Party::from_bits(constructed::node(Some(&left), Some(&right)));
+
+    let _large_right_share = parent.fork();
+    assert_eq!(parent.as_bytes().len(), 1);
+    assert_eq!(parent.0.allocation_capacity(), 1);
 }
 
 // ───────────────────────────── differential vs oracle ─────────────────────────────
@@ -212,11 +225,11 @@ fn sync_handles_a_join_that_collapses_to_a_terminal() {
 /// Each encoding is emitted in one pass, so its depth does not increase the
 /// number of allocations.
 mod constructed {
-    use crate::codec::BitsBuf;
+    use crate::bits::BitsWriter;
 
     /// The full `1` leaf: terminal tag `00`.
-    pub(super) fn full() -> BitsBuf {
-        let mut b = BitsBuf::new();
+    pub fn full() -> BitsWriter {
+        let mut b = BitsWriter::new();
         b.push(false);
         b.push(false);
         b
@@ -224,33 +237,33 @@ mod constructed {
 
     /// A branch over the present children (normal form is the caller's
     /// obligation: at least one child, never two terminals).
-    pub(super) fn node(left: Option<&BitsBuf>, right: Option<&BitsBuf>) -> BitsBuf {
-        let mut b = BitsBuf::new();
+    pub fn node(left: Option<&BitsWriter>, right: Option<&BitsWriter>) -> BitsWriter {
+        let mut b = BitsWriter::new();
         b.push(left.is_some());
         b.push(right.is_some());
         if let Some(l) = left {
-            b.extend_from_buf(l);
+            b.extend_from_writer(l);
         }
         if let Some(r) = right {
-            b.extend_from_buf(r);
+            b.extend_from_writer(r);
         }
         b
     }
 
     /// `levels` unary nodes toward `left_side` over `tail` (built tags-first,
     /// so a deep spine costs one pass, not one per level).
-    pub(super) fn spine(levels: usize, left_side: bool, tail: BitsBuf) -> BitsBuf {
-        let mut b = BitsBuf::with_capacity(2 * levels as u64 + tail.len());
+    pub fn spine(levels: usize, left_side: bool, tail: BitsWriter) -> BitsWriter {
+        let mut b = BitsWriter::with_capacity(2 * levels as u64 + tail.len());
         for _ in 0..levels {
             b.push(left_side);
             b.push(!left_side);
         }
-        b.extend_from_buf(&tail);
+        b.extend_from_writer(&tail);
         b
     }
 
     /// The leftmost `2^-k` cell: a `k`-level left-unary spine over `1`.
-    pub(super) fn leftmost(k: usize) -> BitsBuf {
+    pub fn leftmost(k: usize) -> BitsWriter {
         spine(k, true, full())
     }
 
@@ -260,17 +273,17 @@ mod constructed {
     /// Built by one preorder pass — `k − 1` both-present nodes whose left child
     /// continues and whose right child is full, then the deepest right-only
     /// cell.
-    pub(super) fn complement_leftmost(k: usize) -> BitsBuf {
-        let mut b = BitsBuf::with_capacity(4 * k as u64);
+    pub fn complement_leftmost(k: usize) -> BitsWriter {
+        let mut b = BitsWriter::with_capacity(4 * k as u64);
         for _ in 1..k {
             b.push(true);
             b.push(true);
         }
         b.push(false);
         b.push(true);
-        b.extend_from_buf(&full());
+        b.extend_from_writer(&full());
         for _ in 1..k {
-            b.extend_from_buf(&full());
+            b.extend_from_writer(&full());
         }
         b
     }
@@ -283,16 +296,16 @@ mod constructed {
 mod sync_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node, spine};
     use super::*;
-    use crate::codec::BitsBuf;
+    use crate::bits::BitsWriter;
 
     /// Adopt a hand-built canonical party tree.
-    fn party(bits: &BitsBuf) -> Party {
+    fn party(bits: &BitsWriter) -> Party {
         Party::from_bits(bits.clone())
     }
 
     /// The fused walk against its composition on one party pair, in both operand
     /// orders (byte equality, `None` arms included).
-    fn assert_matches_composition(a: &BitsBuf, b: &BitsBuf) {
+    fn assert_matches_composition(a: &BitsWriter, b: &BitsWriter) {
         for (x, y) in [(a, b), (b, a)] {
             let fused = party(x).sync(&party(y));
             let mut joined = party(x);
@@ -361,25 +374,26 @@ mod sync_constructed {
         assert_matches_composition(&x, &y);
     }
 
-    /// Synchronization scans no more input than separate join and fork operations.
+    /// Synchronization does no more encoded-bit work than separate join and
+    /// fork operations.
     ///
     /// Deep cases cover merging a shared child, copying an exclusively owned
-    /// child, and following a long one-child chain. Copying an exclusive child
-    /// must inspect only the two root tags, regardless of that child's depth.
+    /// child, and following a long one-child chain. Copying exclusive children
+    /// must read only the two root tags and write each output bit once.
     #[cfg(feature = "scan-meter")]
     #[test]
-    fn sync_scan_never_exceeds_join_then_fork() {
-        let compare = |name: &str, a: &BitsBuf, b: &BitsBuf| -> u64 {
-            crate::codec::scan::reset();
+    fn sync_scan_work_never_exceeds_join_then_fork() {
+        let compare = |name: &str, a: &BitsWriter, b: &BitsWriter| -> u64 {
+            crate::testing::instrument::scan::reset();
             party(a).sync(&party(b));
-            let fused = crate::codec::scan::scan_bits();
+            let fused = crate::testing::instrument::scan::scan_bits();
 
-            crate::codec::scan::reset();
+            crate::testing::instrument::scan::reset();
             let mut joined = party(a);
             if joined.join(party(b)).is_ok() {
                 joined.fork();
             }
-            let composed = crate::codec::scan::scan_bits();
+            let composed = crate::testing::instrument::scan::scan_bits();
             assert!(
                 0 < fused && fused <= composed,
                 "{name}: fused walk scanned {fused} bits against the \
@@ -401,9 +415,10 @@ mod sync_constructed {
             let b = node(None, Some(&leftmost(k)));
             let spliced = compare(&format!("splice k={k}"), &a, &b);
             assert_eq!(
-                spliced, 8,
-                "a splice-resolved pair reads exactly its two root tags \
-                 per operand (peeked, then read), at any depth",
+                spliced,
+                4 + a.len() + b.len(),
+                "a splice-resolved pair reads each two-bit root tag once and \
+                 writes both results once",
             );
             let a = leftmost(k);
             let b = spine(k - 1, true, node(None, Some(&full())));
@@ -428,7 +443,7 @@ mod sync_constructed {
 mod without_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node};
     use super::*;
-    use crate::codec::BitsBuf;
+    use crate::bits::BitsWriter;
 
     /// Depths used by every constructed family.
     const SCALES: [usize; 3] = [256, 4096, 100_000];
@@ -437,27 +452,29 @@ mod without_constructed {
     const ORACLE_SCALE_MAX: usize = 4096;
 
     /// Check exact bytes, plus the recursive oracle where its stack permits.
-    fn assert_without(a: &BitsBuf, b: &BitsBuf, expected: &BitsBuf, k: usize) {
-        let d = PartyCursor::root(crate::codec::built_view(a))
-            .without(PartyCursor::root(crate::codec::built_view(b)));
+    fn assert_without(a: &BitsWriter, b: &BitsWriter, expected: &BitsWriter, k: usize) {
+        let (a_bits, b_bits) = (a.clone().finalize(), b.clone().finalize());
+        let d = PartyReader::from_bits(&a_bits).without(PartyReader::from_bits(&b_bits));
+        let expected = (!expected.is_empty()).then(|| Party::from_bits(expected.clone()));
         assert_eq!(
-            &d, expected,
+            d.as_ref(),
+            expected.as_ref(),
             "without diverged from the constructed expectation (k={k})"
         );
         if k <= ORACLE_SCALE_MAX {
             let oa = to_oracle_party(&Party::from_bits(a.clone()));
             let ob = to_oracle_party(&Party::from_bits(b.clone()));
             let oracle_diff = oa.without(&ob);
-            if d.is_empty() {
+            if let Some(d) = &d {
+                assert_eq!(
+                    to_oracle_party(d),
+                    oracle_diff,
+                    "without diverged from the recursive oracle (k={k})"
+                );
+            } else {
                 assert!(
                     oracle_diff.is_empty(),
                     "the oracle kept a remainder the sweep dropped (k={k})"
-                );
-            } else {
-                assert_eq!(
-                    to_oracle_party(&Party::from_bits(d)),
-                    oracle_diff,
-                    "without diverged from the recursive oracle (k={k})"
                 );
             }
         }
@@ -488,7 +505,7 @@ mod without_constructed {
         for k in SCALES {
             let a = leftmost(k);
             let b = node(Some(&full()), None);
-            assert_without(&a, &b, &BitsBuf::new(), k);
+            assert_without(&a, &b, &BitsWriter::new(), k);
         }
     }
 
@@ -517,11 +534,11 @@ mod without_constructed {
         /// Constant scan overhead of a settled block beyond its operand reads
         /// and output write: the root-level tag reservations and patches.
         const BLOCK_SLACK: u64 = 8;
-        let scan = |a: &BitsBuf, b: &BitsBuf| -> u64 {
-            crate::codec::scan::reset();
-            PartyCursor::root(crate::codec::built_view(a))
-                .without(PartyCursor::root(crate::codec::built_view(b)));
-            crate::codec::scan::scan_bits()
+        let scan = |a: &BitsWriter, b: &BitsWriter| -> u64 {
+            crate::testing::instrument::scan::reset();
+            let (a_bits, b_bits) = (a.clone().finalize(), b.clone().finalize());
+            PartyReader::from_bits(&a_bits).without(PartyReader::from_bits(&b_bits));
+            crate::testing::instrument::scan::scan_bits()
         };
         for k in [256usize, 4096] {
             let spine = leftmost(k);
@@ -591,7 +608,7 @@ proptest! {
 }
 
 proptest! {
-    /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
+    /// Byte-level equality (``==``) agrees with a plain
     /// bit-level compare of the live party streams, in both operand orders.
     ///
     /// Canonical padding makes raw byte equality equivalent to live-bit
@@ -603,7 +620,7 @@ proptest! {
     ) {
         let a = from_oracle_party(&oa);
         let b = from_oracle_party(&ob);
-        let bit_eq = a.as_bits().to_buf() == b.as_bits().to_buf();
+        let bit_eq = a.to_writer() == b.to_writer();
         prop_assert_eq!(a == b, bit_eq);
         prop_assert_eq!(b == a, bit_eq);
         if a == b {

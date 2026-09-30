@@ -4,13 +4,13 @@
 //! and lattice laws, grow optimality against the brute-force reference,
 //! `min_ticks`, and projection (`/`).
 
-use crate::meter::registry::Shape;
+use crate::testing::meter::registry::Shape;
 use std::cmp::Ordering;
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use super::{skyline, Ranked, Version};
+use super::{Ranked, Version};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
@@ -26,13 +26,13 @@ fn uniform(ticks: impl Into<Ticks>) -> Version {
 
 /// Builds a version whose left half is one tick ahead.
 fn half() -> Version {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)))
 }
 
 /// Builds two opposite quarter-height peaks with the same rank as [`half`].
 fn peaks() -> Version {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     from_oracle_version(&V::node(
         0u8,
         V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
@@ -115,7 +115,7 @@ proptest! {
 /// `Version::new()` is the empty history and the two-sided identity for `|`.
 #[test]
 fn new_is_join_identity() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let empty = Version::new();
     assert!(empty == from_oracle_version(&V::leaf(0u64))); // empty history is Leaf(0)
     assert!(Version::default() == empty); // Default delegates to new()
@@ -295,17 +295,15 @@ proptest! {
 // The method spellings of `|`, `&`, and `^` (`Version::join`, `Version::meet`,
 // and the four-cell `^` matrix against `Version::span`) are laws
 // (`join_method_is_the_operator`, `meet_method_is_the_operator`,
-// `span_operator_matrix_is_the_method` in `crate::laws`), driven over
+// `span_operator_matrix_is_the_method` in `crate::testing::laws`), driven over
 // arbitrary normal forms, these op-trace populations, and the fuzz target's
 // decoded values.
 
 proptest! {
     /// Lattice identity for join, byte-identical: `0 | v == v == v | 0`.
     ///
-    /// The encoded bytes equal `v`'s own — both through the `join_view`
-    /// short-circuit (empty on either side) and through the general merge
-    /// kernel called directly (`skyline::emit::join`), which the short-circuit
-    /// must match bit for bit.
+    /// The encoded bytes equal `v`'s own through both the public empty-operand
+    /// shortcut and the general merge walk.
     #[test]
     fn join_identity_byte_parity(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -316,10 +314,8 @@ proptest! {
 
         // The general path, bypassing the short-circuit: the merge kernel on
         // the identity cases lands on `v`'s canonical bytes.
-        let general_left =
-            Version::from_bits(skyline::emit::join(empty.as_bits(), v.as_bits()));
-        let general_right =
-            Version::from_bits(skyline::emit::join(v.as_bits(), empty.as_bits()));
+        let general_left = empty.join(&v);
+        let general_right = v.join(&empty);
         prop_assert_eq!(general_left.encode(), v.encode());
         prop_assert_eq!(general_right.encode(), v.encode());
 
@@ -333,9 +329,7 @@ proptest! {
     /// The empty version absorbs the meet, byte-identical: `0 & v == 0 == v & 0`.
     ///
     /// The encoded bytes equal `Version::new()`'s — both through the
-    /// `meet_view` short-circuit (empty on either side) and through the general
-    /// merge kernel called directly (`skyline::emit::meet`), which the
-    /// short-circuit must match bit for bit. Dual to
+    /// public empty-operand shortcut and through the general merge walk. Dual to
     /// [`join_identity_byte_parity`].
     #[test]
     fn meet_absorbing_byte_parity(ops in world_strategy(), i in 0usize..64) {
@@ -347,10 +341,8 @@ proptest! {
 
         // The general path, bypassing the short-circuit: the merge kernel on
         // the absorbing cases lands on the canonical empty bytes.
-        let general_left =
-            Version::from_bits(skyline::emit::meet(empty.as_bits(), v.as_bits()));
-        let general_right =
-            Version::from_bits(skyline::emit::meet(v.as_bits(), empty.as_bits()));
+        let general_left = empty.meet(&v);
+        let general_right = v.meet(&empty);
         prop_assert_eq!(general_left.encode(), empty.encode());
         prop_assert_eq!(general_right.encode(), empty.encode());
 
@@ -361,7 +353,7 @@ proptest! {
 }
 
 // The lattice, order, tick, and projection laws on impl values live in
-// `crate::laws` and are driven by the algebraic-laws suite over both arbitrary
+// `crate::testing::laws` and are driven by the algebraic-laws suite over both arbitrary
 // normal forms and these same op-trace populations; this file keeps the
 // differential and mechanism-level tests.
 
@@ -375,7 +367,7 @@ proptest! {
 /// heights at full precision.
 #[test]
 fn path_sum_beyond_u64_compares_greater() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let big = 1u64 << 63;
     // Normal form: the outer min(big, 0) child is the right `0` leaf; the inner
     // node's min(0, 1) child is its left `0` leaf. The left half's true value
@@ -395,13 +387,17 @@ fn path_sum_beyond_u64_compares_greater() {
 #[test]
 fn stored_base_beyond_u64_ticks_and_merges() {
     let height = BigUint::from(1u8) << 64u32;
-    let big = from_oracle_version(&crate::oracle::Version::leaf(height.clone()));
+    let big = from_oracle_version(&crate::testing::oracles::tree::Version::leaf(
+        height.clone(),
+    ));
     let mut ticked = big.clone();
     ticked.tick(&Party::seed());
 
     assert_eq!(
         ticked,
-        from_oracle_version(&crate::oracle::Version::leaf(height + BigUint::from(1u8),))
+        from_oracle_version(&crate::testing::oracles::tree::Version::leaf(
+            height + BigUint::from(1u8),
+        ))
     );
     assert_eq!(big.clone() | ticked.clone(), ticked);
     assert_eq!(Version::decode(&ticked.encode()[..]).unwrap(), ticked);
@@ -429,8 +425,7 @@ proptest! {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
         // The walk's verdict, taken from the comparison sweep directly.
-        let walk_eq =
-            skyline::sweep::causal_cmp(a.as_bits(), b.as_bits()) == Some(Ordering::Equal);
+        let walk_eq = a.causal_cmp(&b) == Some(Ordering::Equal);
 
         prop_assert_eq!(a == b, walk_eq);
         // The equality direction: a version equals its own clone.
@@ -491,7 +486,7 @@ proptest! {
 //
 // The defining causality property (§3, §5.3.4): an event registers a *minimal*
 // inflation. The oracle's `grow` is pinned to a brute-force search over the
-// entire feasible inflation space in `oracle::tests`; these hold the encoded
+// entire feasible inflation space in `tree::tests`; these hold the encoded
 // impl to the same standard. `tick = fill else grow`, so when `fill` already
 // simplifies the tree the grow path is not taken — `grow_matches_brute_force`
 // filters to the grow case (fill a no-op) and asserts the impl's inflation
@@ -636,7 +631,7 @@ fn trace_ticks(ops: &[Op]) -> u64 {
 fn min_ticks_known_values() {
     assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
     assert_eq!(uniform(5u8).min_ticks(), Ticks::from(5u64));
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let peaks = from_oracle_version(&V::node(
         0u8,
         V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
@@ -651,7 +646,7 @@ proptest! {
     /// exceeds the ticks actually performed.
     ///
     /// Cross-checks the fold itself against the recursive oracle's sum-of-bases
-    /// (`oracle::Version::min_ticks`); the min_ticks descriptor's fs leg
+    /// (`tree::Version::min_ticks`); the min_ticks descriptor's fs leg
     /// supplies the independent second computation.
     #[test]
     fn min_ticks_floors_every_history(ops in world_strategy()) {
@@ -751,7 +746,7 @@ fn rank_known_values() {
     assert_eq!(Version::new().rank().to_string(), "0");
     assert_eq!(uniform(5u8).rank().to_string(), "101");
 
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let half = from_oracle_version(&V::node(0u8, V::leaf(1u8), V::leaf(0u8)));
     let one = uniform(1u8);
     assert!(half < one, "strict containment in the causal order");
@@ -992,7 +987,7 @@ proptest! {
     fn rank_triple_laws_on_seeded_ranks(seeds in proptest::collection::vec(any::<u64>(), 3)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
         let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
-        for (name, law) in crate::laws::RANK_TRIPLE {
+        for (name, law) in crate::testing::laws::RANK_TRIPLE {
             prop_assert!(law(a, b, c), "law violated: {}", name);
         }
     }
@@ -1341,10 +1336,10 @@ fn rank_decode_preserves_late_reader_errors() {
 /// fractional bits. Each checks the claimed linear size bound directly.
 #[test]
 fn rank_encoding_size_is_provenance_linear() {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     // A deep spine holding one unit leaf: rank 2⁻ᵏ, the exponent axis.
     fn spine(depth: usize) -> Version {
-        use crate::oracle::Version as V;
+        use crate::testing::oracles::tree::Version as V;
         let mut tree = V::leaf(1u8);
         for _ in 0..depth {
             tree = V::node(0u8, tree, V::leaf(0u8));
@@ -1355,7 +1350,7 @@ fn rank_encoding_size_is_provenance_linear() {
     // contributes a set fraction bit — the set-bits-per-level maximum the
     // white-box attack found.
     fn staircase(depth: usize) -> Version {
-        use crate::oracle::Version as V;
+        use crate::testing::oracles::tree::Version as V;
         let mut tree = V::node(0u8, V::leaf(1u8), V::leaf(0u8));
         for _ in 0..depth {
             tree = V::node(0u8, tree, V::leaf(1u8));
@@ -1364,7 +1359,7 @@ fn rank_encoding_size_is_provenance_linear() {
     }
     // A wide counter behind a spine: both axes at once.
     fn deep_counter(depth: usize, counter: &BigUint) -> Version {
-        use crate::oracle::Version as V;
+        use crate::testing::oracles::tree::Version as V;
         let mut tree = V::leaf(counter.clone());
         for _ in 0..depth {
             tree = V::node(0u8, tree, V::leaf(0u8));
@@ -1521,7 +1516,7 @@ proptest! {
         let versions: Vec<Version> = pool.iter().map(from_oracle_version).collect();
         let (first, rest) = versions.split_first().expect("the pool is nonempty");
         let prod = first.meet_all(rest);
-        let reference = crate::oracle::Version::meet_all(pool.iter().cloned())
+        let reference = crate::testing::oracles::tree::Version::meet_all(pool.iter().cloned())
             .expect("the pool is nonempty");
         prop_assert_eq!(to_oracle_version(&prod), reference);
     }
@@ -1561,8 +1556,10 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
             carrier,
             "feed order must not change the meet on MS({d}, {k})"
         );
-        let oracle = crate::oracle::Version::meet_all(population.iter().map(to_oracle_version))
-            .expect("the population is nonempty");
+        let oracle = crate::testing::oracles::tree::Version::meet_all(
+            population.iter().map(to_oracle_version),
+        )
+        .expect("the population is nonempty");
         assert_eq!(
             to_oracle_version(&carrier),
             oracle,
@@ -1636,7 +1633,7 @@ proptest! {
 /// The two leans are mirror images — their areas agree level for level, so they
 /// share a rank by symmetry. The depth extends beyond generated inputs.
 fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let mut tree = to_oracle_version(core);
     for _ in 0..depth {
         tree = if lean_left {
@@ -1668,7 +1665,7 @@ fn ranked_fused_walk_survives_deep_cancellation() {
     // The same mirror with its deepest step split: a rank-3/8 core instead of
     // 1/2, so the total drops by exactly 2⁻⁸⁰³ after 800 levels of
     // cancellation.
-    use crate::oracle::Version as V;
+    use crate::testing::oracles::tree::Version as V;
     let shallower_core = from_oracle_version(&V::node(
         0u8,
         V::node(0u8, V::leaf(1u8), V::node(0u8, V::leaf(1u8), V::leaf(0u8))),
@@ -1725,7 +1722,7 @@ fn version_encoding_is_prefix_free_on_growth_chains() {
         b = clock.fork();
     }
     for depth in [0usize, 1, 2, 3, 8, 200, 201, 800] {
-        use crate::oracle::Version as V;
+        use crate::testing::oracles::tree::Version as V;
         let mut tree = V::leaf(1u8);
         for _ in 0..depth {
             tree = V::node(0u8, tree, V::leaf(0u8));
@@ -2018,7 +2015,7 @@ fn div_can_fragment_and_raise_min_ticks() {
 
 /// The at-rest form is exactly the wire bytes' refcounted handle.
 ///
-/// A [`Version`] is exactly one `codec::Bits` — the refcounted buffer handle
+/// A [`Version`] is exactly one immutable refcounted byte buffer
 /// alone: pointer, byte length, shared-state pointer, vtable — 32 bytes on
 /// 64-bit, and a [`Clock`](crate::Clock) is a `Party` plus a `Version` (64). A
 /// regression here means the storage grew a field beside the container: the
@@ -2035,7 +2032,7 @@ fn at_rest_size_is_one_container_per_stream() {
 }
 
 proptest! {
-    /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
+    /// Byte-level equality (``==``) agrees with a plain
     /// bit-level compare of the live streams, in both operand orders.
     ///
     /// Canonical padding makes raw byte equality equivalent to live-bit
@@ -2047,7 +2044,8 @@ proptest! {
     ) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
-        let bit_eq = a.as_bits().to_buf() == b.as_bits().to_buf();
+        let bit_eq =
+            crate::version::instrument::bits(&a) == crate::version::instrument::bits(&b);
         prop_assert_eq!(a == b, bit_eq);
         prop_assert_eq!(b == a, bit_eq);
         if a == b {

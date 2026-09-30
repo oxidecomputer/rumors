@@ -47,20 +47,15 @@ pub(crate) const ITEM_EXCEPTIONS: &[Exception] = &[];
 /// accident.
 pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
     Exception {
-        name: "meter::",
-        reason: "adversarial generators, deterministic resource meters, and the \
-                 kernel-seam re-exports the envelope suite drives (the `skyline` \
-                 transcoder spellings of kernels whose API spellings hold roster \
-                 rows), public under the `meter` feature for the instrument \
-                 binaries alone and never part of a production build; the tree's \
-                 totality discipline is the family registry's own (the \
-                 compiler-forced constructor table and the registry pins), and \
-                 the differential roster excludes it by the meter \
-                 instrumentation plumbing family row",
+        name: "testing::meter::",
+        reason: "adversarial generators, deterministic resource meters, and \
+                 direct access to measured kernels, exposed only for the \
+                 metering binaries; its family registry and coverage tables \
+                 enforce their own totality",
         decided: "2026-07-30",
     },
     Exception {
-        name: "oracle::",
+        name: "testing::oracles::tree::",
         reason: "the paper-transcription reference oracle, public under the \
                  `oracle` feature so the bench suite can time it; it is the \
                  differential architecture's ground truth, not a surface to bind \
@@ -68,7 +63,7 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
         decided: "2026-07-30",
     },
     Exception {
-        name: "surface::",
+        name: "testing::surface::",
         reason: "the roster's own row accessors (`Leg::cited`, \
                  `Leg::exclusion`, the `Exclusion` family census), public \
                  under the `meter` feature so instrument crates can read the \
@@ -77,7 +72,7 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
         decided: "2026-07-30",
     },
     Exception {
-        name: "laws::",
+        name: "testing::laws::",
         reason: "the named algebraic-law predicate tables (statics of law \
                  rows), public under the `laws` feature so the fuzz workspace \
                  can drive the same collection the in-tree proptests assert; \
@@ -146,13 +141,13 @@ impl Findings {
         block(
             "public function-like items with no roster row and no exception",
             "add a METHOD_SURFACE row naming each leg's disposition \
-             (crates/before/src/surface.rs), or a dated exception in \
+             (crates/before/src/testing/surface.rs), or a dated exception in \
              crates/before/surfacecheck/src/check.rs",
             &self.unrostered,
         );
         block(
             "roster rows naming no reachable public item",
-            "remove or rename the row in crates/before/src/surface.rs",
+            "remove or rename the row in crates/before/src/testing/surface.rs",
             &self.orphaned,
         );
         block(
@@ -160,7 +155,7 @@ impl Findings {
             "a new impl is a deliberate API event: pin it in TRAIT_IMPLS \
              (crates/before/surfacecheck/src/census.rs) and, for a new \
              operator or trait family, add the FAMILY_SURFACE row \
-             (crates/before/src/surface.rs) naming its leg dispositions",
+             (crates/before/src/testing/surface.rs) naming its leg dispositions",
             &self.unrostered_impls,
         );
         block(

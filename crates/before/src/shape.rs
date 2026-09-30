@@ -74,7 +74,7 @@
 
 use core::iter::FusedIterator;
 
-use crate::version::skyline::shape::{advance_refinement, PartyWalk, Refine, VersionWalk};
+use crate::version::shape::{advance_refinement, PartyWalk, Refine, VersionWalk};
 use crate::{Clock, Party, Ticks, Version};
 
 #[cfg(test)]
@@ -155,7 +155,7 @@ impl<'a> Plateaus<'a> {
     /// Open a version's shape at its first plateau.
     pub(crate) fn of_version(version: &'a Version) -> Self {
         Plateaus {
-            walk: VersionWalk::open(version.view().live()),
+            walk: VersionWalk::open(version),
             finished: false,
         }
     }
@@ -206,7 +206,7 @@ impl<'a> Regions<'a> {
     /// Open a party's shape at its first region.
     pub(crate) fn of_party(party: &'a Party) -> Self {
         Regions {
-            walk: PartyWalk::open(party.as_bits()),
+            walk: PartyWalk::open(party),
             finished: false,
         }
     }
@@ -265,8 +265,8 @@ impl<'a> Overlay<'a> {
     /// Open a clock's overlay walk at its first fragment.
     pub(crate) fn of_clock(clock: &'a Clock) -> Self {
         Overlay {
-            version: VersionWalk::open(clock.version().view().live()),
-            party: PartyWalk::open(clock.party().as_bits()),
+            version: VersionWalk::open(clock.version()),
+            party: PartyWalk::open(clock.party()),
             finished: false,
         }
     }
@@ -347,7 +347,7 @@ impl FusedIterator for Overlay<'_> {}
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub fn combine<'a, const N: usize>(versions: [&'a Version; N]) -> Cells<'a, N> {
     Cells {
-        walks: versions.map(|version| VersionWalk::open(version.view().live())),
+        walks: versions.map(VersionWalk::open),
         finished: false,
     }
 }

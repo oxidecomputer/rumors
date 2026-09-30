@@ -429,11 +429,13 @@
 // attribute on the macro invocation never reaches the expanded `static`.
 #![cfg_attr(target_os = "illumos", allow(clippy::missing_const_for_thread_local))]
 
-mod auto_traits;
+pub(crate) mod accumulator;
+mod bits;
 mod clock;
-mod codec;
 mod fold;
 mod party;
+mod rank;
+mod ranked;
 mod recurse;
 mod span;
 mod version;
@@ -443,22 +445,12 @@ pub use clock::Clock;
 pub mod causally;
 pub mod error;
 pub use party::Party;
+pub use rank::Rank;
+pub use ranked::Ranked;
 pub use span::{Dominance, Endpoint, OwnSpan, Placement, Precedence, Span};
-pub use version::{Limbs, OwnVersion, Rank, Ranked, Ticks, Version};
+pub use version::{Limbs, OwnVersion, Ticks, Version};
 pub mod iter;
 pub mod shape;
-
-#[cfg(any(test, feature = "oracle"))]
-pub mod oracle;
-
-#[cfg(any(test, feature = "meter"))]
-pub mod meter;
-
-#[cfg(any(test, feature = "meter"))]
-pub mod surface;
-
-#[cfg(any(test, feature = "laws"))]
-pub mod laws;
 
 #[cfg(feature = "serde")]
 mod serde_impls;
@@ -466,5 +458,7 @@ mod serde_impls;
 #[cfg(feature = "borsh")]
 mod borsh_impls;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "laws", feature = "meter", feature = "oracle"))]
+pub mod testing;
+#[cfg(not(any(test, feature = "laws", feature = "meter", feature = "oracle")))]
 mod testing;

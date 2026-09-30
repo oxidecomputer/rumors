@@ -46,7 +46,7 @@
 
 use std::collections::BTreeMap;
 
-use before::meter::board;
+use before::testing::meter::board;
 use before::{Clock, Version};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;

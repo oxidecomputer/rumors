@@ -2,7 +2,7 @@
 
 Per-operation timing comparison of this crate's optimized implementation
 (`before` — encoded bit-stream storage with a transient working form) against the
-naive recursive reference (`oracle`, `src/oracle.rs`), on identical randomized
+naive recursive tree oracle, on identical randomized
 inputs. The inputs are built through the public API by the
 fork-a-universe / preserve-a-subset / join-each-group recipe in
 [`benches/common`](../../benches/common/mod.rs); impl and oracle are driven from

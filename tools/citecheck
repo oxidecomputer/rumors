@@ -5,7 +5,7 @@ Usage:
     citecheck --tests FILE --root DIR
     citecheck --self-test
 
-The `before` coverage roster (src/surface.rs), the bespoke half of the
+The `before` coverage roster (src/testing/surface.rs), the bespoke half of the
 pointwise-differential tiling (src/testing/diff_ops.rs), and the per-leg
 adequacy tripwires (src/testing/surface_coverage.rs) cite their binding
 checks as bare strings: `Leg::Bound`/`Law`/`Trans` names, exclusion `pins`
@@ -75,10 +75,10 @@ import sys
 from pathlib import Path
 
 # The fixed shape of the crate under check, relative to --root.
-SURFACE = "src/surface.rs"
+SURFACE = "src/testing/surface.rs"
 DIFF_OPS = "src/testing/diff_ops.rs"
 SURFACE_COVERAGE = "src/testing/surface_coverage.rs"
-LAWS = "src/laws.rs"
+LAWS = "src/testing/laws.rs"
 
 # Asserted absent from the haystack, then required to fail resolution, on
 # every live run: proof the resolver can reject at all.

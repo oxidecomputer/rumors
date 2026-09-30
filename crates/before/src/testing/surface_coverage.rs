@@ -1,7 +1,7 @@
 //! Verifies coverage of the public API by independent implementations and laws.
 //!
 //! Production behavior is compared with the recursive oracle and the
-//! function-space oracle. Each [`crate::surface`] row records a direct
+//! function-space oracle. Each [`crate::testing::surface`] row records a direct
 //! comparison, an algebraic law, a comparison supplied transitively by other
 //! rows, or a documented reason that a reference does not apply.
 //!
@@ -26,7 +26,7 @@ use std::path::PathBuf;
 mod tests;
 
 // Use the same roster exposed to external verification tools.
-pub(crate) use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
+pub(crate) use crate::testing::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
 
 /// Tests that demonstrate each comparison is active and can detect an error.
 pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
@@ -98,12 +98,12 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
         type_overrides: &[],
     },
     SourceSpec {
-        path: "src/version/rank.rs",
+        path: "src/rank.rs",
         module_prefix: None,
         type_overrides: &[],
     },
     SourceSpec {
-        path: "src/version/ranked.rs",
+        path: "src/ranked.rs",
         module_prefix: None,
         type_overrides: &[],
     },

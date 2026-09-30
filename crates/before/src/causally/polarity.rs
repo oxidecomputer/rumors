@@ -31,7 +31,7 @@ mod sealed {
 
     use super::super::{le, lt};
     use super::{Hole, Version};
-    use crate::version::skyline::place::filter::Demand;
+    use crate::version::place::filter::Demand;
 
     /// The polarity dispatch: how one hole of this polarity behaves, stated
     /// once per marker.

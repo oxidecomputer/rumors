@@ -5,9 +5,8 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
-use crate::codec;
 use crate::error::Crossed;
-use crate::version::skyline::place;
+use crate::version::place;
 use crate::{Party, Version};
 
 mod algebra;
@@ -252,13 +251,13 @@ impl<'a> Span<'a> {
     pub fn place(&self, version: &Version) -> Placement {
         // The coincident span collapses placement to pairwise
         // comparison — the `degenerate_span_place_is_partial_cmp` law
-        // in [`laws`](crate::laws) — and clone identity certifies
+        // in [`laws`](crate::testing::laws) — and clone identity certifies
         // `lo == hi` in `O(1)`: a coincident span built by the hull
         // constructors or the wire decode stores one buffer twice, so the
         // fused three-stream walk would read that buffer twice where
         // one pair sweep answers. Coincident endpoints in distinct
         // buffers still take the fused walk below.
-        if self.lo.view().ptr_eq(self.hi.view()) {
+        if self.lo.ptr_eq(&self.hi) {
             return match version.partial_cmp(self.lo()) {
                 Some(Ordering::Less) => Placement::Before,
                 Some(Ordering::Equal) => Placement::At(Endpoint::Both),
@@ -266,11 +265,7 @@ impl<'a> Span<'a> {
                 None => Placement::Concurrent(Endpoint::Both),
             };
         }
-        place::span(
-            version.view().live(),
-            self.lo.view().live(),
-            self.hi.view().live(),
-        )
+        place::span(version, &self.lo, &self.hi)
     }
 
     /// Determines how much of this [`Span`] `version` *dominates*, rendering a
@@ -319,7 +314,7 @@ impl<'a> Span<'a> {
         //
         // This is the compressed-subtree classification fast path: a node whose
         // version bounds coincide is classified against one stream, not two.
-        if self.lo.view().ptr_eq(self.hi.view()) {
+        if self.lo.ptr_eq(&self.hi) {
             // `hi <= probe` is exactly membership in the probe's causal
             // past (`causally::before(probe).contains(hi)`).
             return if matches!(
@@ -331,11 +326,7 @@ impl<'a> Span<'a> {
                 Dominance::Before
             };
         }
-        place::dominance(
-            version.view().live(),
-            self.lo.view().live(),
-            self.hi.view().live(),
-        )
+        place::dominance(version, &self.lo, &self.hi)
     }
 
     /// Determines how much of this [`Span`] `version` *precedes*, rendering a
@@ -385,7 +376,7 @@ impl<'a> Span<'a> {
         // This is the compressed-subtree classification fast path, mirrored: a
         // node whose version bounds coincide is classified against one stream,
         // not two.
-        if self.lo.view().ptr_eq(self.hi.view()) {
+        if self.lo.ptr_eq(&self.hi) {
             // `probe <= lo` is exactly membership in the probe's causal
             // future (`causally::after(probe).contains(lo)`).
             return if matches!(
@@ -397,11 +388,7 @@ impl<'a> Span<'a> {
                 Precedence::After
             };
         }
-        place::precedence(
-            version.view().live(),
-            self.lo.view().live(),
-            self.hi.view().live(),
-        )
+        place::precedence(version, &self.lo, &self.hi)
     }
 
     /// Whether this [`Span`] contains `other`, in the containment order:
@@ -469,14 +456,10 @@ impl<'a> Span<'a> {
             // equality: on `lo == hi` the segment is one version, and
             // equality of canonical streams is byte equality — one compare,
             // no walk.
-            if self.lo.view().ptr_eq(self.hi.view()) {
-                return codec::canonical_eq(version.view(), self.lo().view());
+            if self.lo.ptr_eq(&self.hi) {
+                return version == self.lo();
             }
-            return place::contains(
-                version.view().live(),
-                self.lo.view().live(),
-                self.hi.view().live(),
-            );
+            return place::contains(version, &self.lo, &self.hi);
         }
         // A span is contained iff both its endpoints are: every version
         // between them lies within `self` by transitivity of the bounds.
@@ -564,7 +547,7 @@ impl<'a> Span<'a> {
     /// clone identity certifies `lo == hi` without a walk. Coincident endpoints
     /// in distinct buffers are still equal — they just take the general walks.
     fn is_coincident(&self) -> bool {
-        self.lo.view().ptr_eq(self.hi.view())
+        self.lo.ptr_eq(&self.hi)
     }
 
     /// Destructures this span into its owned `(lo, hi)` endpoints.

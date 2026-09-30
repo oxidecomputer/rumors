@@ -65,7 +65,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::oracle;
+use crate::testing::oracles::tree;
 
 /// Inclusive id depth bound for the fast, gate-resident enumeration.
 ///
@@ -106,16 +106,16 @@ const BASES: [u64; 3] = [0, 1, 2];
 /// Every distinct **normal-form** id tree of depth `≤ depth`.
 ///
 /// Enumerated by building all *raw* trees up to the bound and folding each
-/// through the oracle's normalizing constructor [`oracle::Party::node`] (which
+/// through the oracle's normalizing constructor [`tree::Party::node`] (which
 /// collapses `(0, 0)` and `(1, 1)`), then deduplicating. Dedup is essential:
 /// many raw shapes normalize to the same canonical tree, and the differential
 /// harness keys `Eq`/`Hash` on canonical form, so the corpus must be the set of
 /// *canonical* trees. Iterative worklist over depth levels (the impl's own
 /// traversals are iterative; this is test scaffolding, but the same discipline
 /// keeps it allocation-bounded and obvious).
-pub(crate) fn all_normal_ids(depth: usize) -> Vec<oracle::Party> {
-    use oracle::Party as P;
+pub(crate) fn all_normal_ids(depth: usize) -> Vec<tree::Party> {
     use std::collections::BTreeSet;
+    use tree::Party as P;
 
     // `pool` holds the deduped *canonical* trees of depth `≤ d`, keyed for
     // de-dup by a cheap injective preorder encoding (`Party` has no `Ord`).
@@ -151,11 +151,11 @@ pub(crate) fn all_normal_ids(depth: usize) -> Vec<oracle::Party> {
 /// in [`BASES`].
 ///
 /// Built and deduped exactly as [`all_normal_ids`], folding each raw node
-/// through [`oracle::Version::node`] (which enforces the zero-base-child rule
+/// through [`tree::Version::node`] (which enforces the zero-base-child rule
 /// and collapses equal leaves).
-pub(crate) fn all_normal_events(depth: usize) -> Vec<oracle::Version> {
-    use oracle::Version as V;
+pub(crate) fn all_normal_events(depth: usize) -> Vec<tree::Version> {
     use std::collections::BTreeSet;
+    use tree::Version as V;
 
     let mut seen: BTreeSet<Vec<u8>> = BTreeSet::new();
     let mut pool: Vec<V> = Vec::new();
@@ -183,8 +183,8 @@ pub(crate) fn all_normal_events(depth: usize) -> Vec<oracle::Version> {
 
 /// Injective preorder encoding of a (canonical) id tree, used only as a de-dup
 /// key.
-fn id_key(t: &oracle::Party) -> Vec<u8> {
-    use oracle::Party as P;
+fn id_key(t: &tree::Party) -> Vec<u8> {
+    use tree::Party as P;
     let mut out = Vec::new();
     let mut stack = vec![t];
     while let Some(n) = stack.pop() {
@@ -205,8 +205,8 @@ fn id_key(t: &oracle::Party) -> Vec<u8> {
 /// Injective preorder encoding of a (canonical) event tree, used only as a
 /// de-dup key. Bases are in [`BASES`] (single-digit), so a one-byte tag per
 /// base is injective.
-fn ev_key(t: &oracle::Version) -> Vec<u8> {
-    use oracle::Version as V;
+fn ev_key(t: &tree::Version) -> Vec<u8> {
+    use tree::Version as V;
     let mut out = Vec::new();
     let mut stack = vec![t];
     while let Some(n) = stack.pop() {

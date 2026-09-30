@@ -14,7 +14,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-# The roster of record: `before::surface::METHOD_SURFACE`, public under
+# The roster of record: `before::testing::surface::METHOD_SURFACE`, public under
 # the `meter` feature exactly so instrument crates like this one can bind
 # to the rows the surface-coverage suite enforces — one enumeration, no
 # second hand-maintained copy to drift.

@@ -10,9 +10,8 @@ use std::marker::PhantomData;
 
 use super::polarity::{Hole, Neutral, Polarity};
 use super::{le, Version};
-use crate::codec::BitsView;
 use crate::span::Span;
-use crate::version::skyline::place::filter::{self, Demand};
+use crate::version::place::filter::{self, Demand};
 
 /// A causal filter on [`Version`]s and [`Span`]s within a restricted [`Query`]
 /// language.
@@ -91,24 +90,20 @@ impl<'a, P: Polarity> Query<'a, P> {
     }
 
     /// Every bound in deterministic read order.
-    fn demands(&self) -> impl Iterator<Item = (BitsView<'_>, Demand)> {
+    fn demands(&self) -> impl Iterator<Item = (&Version, Demand)> {
         self.floor
             .as_deref()
-            .map(|p| (p.view().live(), Demand::After))
+            .map(|p| (p, Demand::After))
             .into_iter()
             .chain(Self::hole_demands(&self.holes))
-            .chain(
-                self.ceiling
-                    .as_deref()
-                    .map(|e| (e.view().live(), Demand::Before)),
-            )
+            .chain(self.ceiling.as_deref().map(|e| (e, Demand::Before)))
     }
 
     /// The stored holes as the stream demands consumed by the fused walks.
-    fn hole_demands<'b>(holes: &'b [Hole<'a>]) -> impl Iterator<Item = (BitsView<'b>, Demand)> {
+    fn hole_demands<'b>(holes: &'b [Hole<'a>]) -> impl Iterator<Item = (&'b Version, Demand)> {
         holes
             .iter()
-            .map(|hole| (hole.at.view().live(), P::hole_demand(hole.strict)))
+            .map(|hole| (hole.at.as_ref(), P::hole_demand(hole.strict)))
     }
 
     /// Whether the query admits `version`.
@@ -156,7 +151,7 @@ impl<'a, P: Polarity> Query<'a, P> {
         doc = "floor + ceiling + hole: `O(n)` in total input bytes; `O(|self| + |version|)`"
     )]
     pub fn contains(&self, version: &Version) -> bool {
-        filter::admits(version.view().live(), self.demands())
+        filter::admits(version, self.demands())
     }
 
     /// How much of `span` this query admits.
@@ -209,14 +204,14 @@ impl<'a, P: Polarity> Query<'a, P> {
     pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
         let span = span.into();
         let (lo, hi) = (span.lo(), span.hi());
-        if lo.view().ptr_eq(hi.view()) {
+        if lo.ptr_eq(hi) {
             return if self.contains(lo) {
                 Coverage::Full
             } else {
                 Coverage::Empty
             };
         }
-        match filter::coverage(lo.view().live(), hi.view().live(), self.demands()) {
+        match filter::coverage(lo, hi, self.demands()) {
             Coverage::Full => Coverage::Full,
             Coverage::Empty => Coverage::Empty,
             Coverage::Partial => self.refine_partial(lo, hi),
@@ -249,7 +244,7 @@ impl<'a, P: Polarity> Query<'a, P> {
         }
 
         let endpoint = P::covering_endpoint(&clamped_lo, &clamped_hi);
-        if filter::admits(endpoint.view().live(), Self::hole_demands(&self.holes)) {
+        if filter::admits(endpoint, Self::hole_demands(&self.holes)) {
             Coverage::Partial
         } else {
             Coverage::Empty

@@ -1,5 +1,5 @@
 //! The adversarial overlay: committed worst-case family generators from
-//! `before::meter`, rendered as marked points on the same axes as the
+//! `before::testing::meter`, rendered as marked points on the same axes as the
 //! uniform cloud.
 //!
 //! Uniform sampling audits the bulk; the engineered corners are
@@ -11,8 +11,8 @@
 //! size lands inside the plotted span; the x-coordinate is the same
 //! measure as the cloud's (total encoded input bytes).
 
-use before::meter::registry::Shape;
-use before::meter::Encoding;
+use before::testing::meter::registry::Shape;
+use before::testing::meter::Encoding;
 use before::{Party, Version};
 
 use crate::ops::{Inputs, OpSpec, Operand};

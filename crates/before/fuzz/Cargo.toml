@@ -35,7 +35,7 @@ serde = "1"
 
 [dependencies.before]
 path = ".."
-# `laws` exposes the named law predicates (`before::laws`) the fuzz_laws
+# `laws` exposes the named law predicates (`before::testing::laws`) the fuzz_laws
 # target drives; `serde` and `borsh` light the transport impls the
 # fuzz_decode_differential target holds against the raw decodes.
 features = ["laws", "serde", "borsh"]
@@ -75,7 +75,7 @@ doc = false
 bench = false
 
 # Law-driven target: decode versions, parties, and a clock from length-prefixed chunks,
-# then assert every named law in `before::laws` on them — the same collection the
+# then assert every named law in `before::testing::laws` on them — the same collection the
 # in-tree proptests drive, here fed hostile-but-canonical values; a failure panics with
 # the violated law's name.
 [[bin]]

@@ -25,8 +25,8 @@ fn version_and_party(
 ) -> (
     Vec<u8>,
     Party,
-    before::oracle::Version,
-    before::oracle::Party,
+    before::testing::oracles::tree::Version,
+    before::testing::oracles::tree::Party,
 ) {
     let plan = common::plan(r, n, 1);
     let (iparty, iversion) = common::impl_clocks(&plan, 1).pop().unwrap().into_parts();

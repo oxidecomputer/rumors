@@ -14,27 +14,29 @@ use std::sync::Arc;
 
 use num_bigint::BigUint;
 
-use crate::codec::{self, gamma, BitsBuf};
-use crate::oracle;
+use crate::bits::BitsWriter;
+use crate::party::io::{PartyNode, PartyReader};
 use crate::recurse::descend;
+use crate::testing::oracles::tree;
+use crate::version::io::tree::{VersionNode, VersionTreeReader};
 use crate::{Clock, Party, Version};
 
 // ───────────────────────────── oracle → impl ─────────────────────────────
 
 /// Whether an oracle id subtree is the empty `0` region. In normal form that is
 /// exactly the `Leaf(false)`; the bridge only ever emits normalized oracle trees.
-fn id_is_zero(t: &oracle::Party) -> bool {
-    matches!(t, oracle::Party::Leaf(false))
+fn id_is_zero(t: &tree::Party) -> bool {
+    matches!(t, tree::Party::Leaf(false))
 }
 
-fn emit_id(out: &mut BitsBuf, t: &oracle::Party) {
+fn emit_id(out: &mut BitsWriter, t: &tree::Party) {
     match t {
-        oracle::Party::Leaf(false) => {} // `0`: absence, no bits
-        oracle::Party::Leaf(true) => {
+        tree::Party::Leaf(false) => {} // `0`: absence, no bits
+        tree::Party::Leaf(true) => {
             out.push(false); // terminal tag `00`
             out.push(false);
         }
-        oracle::Party::Node(l, r) => {
+        tree::Party::Node(l, r) => {
             // 2-bit presence tag, then the present children (a `0` child emits
             // nothing).
             out.push(!id_is_zero(l)); // bit 0 = left present
@@ -45,15 +47,15 @@ fn emit_id(out: &mut BitsBuf, t: &oracle::Party) {
     }
 }
 
-fn emit_ev(out: &mut BitsBuf, t: &oracle::Version) {
+fn emit_ev(out: &mut BitsWriter, t: &tree::Version) {
     match t {
-        oracle::Version::Leaf(n) => {
+        tree::Version::Leaf(n) => {
             out.push(false);
-            gamma::encode(n, out);
+            out.write_gamma(n);
         }
-        oracle::Version::Node(n, l, r) => {
+        tree::Version::Node(n, l, r) => {
             out.push(true);
-            gamma::encode(n, out);
+            out.write_gamma(n);
             descend!(0, emit_ev(out, l));
             descend!(0, emit_ev(out, r));
         }
@@ -62,16 +64,20 @@ fn emit_ev(out: &mut BitsBuf, t: &oracle::Version) {
 
 /// The min-lifted preorder stream of an oracle tree: the
 /// construction language the generators and the skyline transcoder share.
-pub(crate) fn encoded_bits_of(t: &oracle::Version) -> BitsBuf {
-    let mut bits = BitsBuf::new();
+pub(crate) fn encoded_bits_of(t: &tree::Version) -> BitsWriter {
+    let mut bits = BitsWriter::new();
     emit_ev(&mut bits, t);
     bits
 }
 
 /// Build the impl `Party` whose canonical bits encode `t`. Recursive over a bounded
 /// oracle tree (test-only; the impl's own traversals are iterative).
-pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
-    let mut bits = BitsBuf::new();
+pub(crate) fn from_oracle_party(t: &tree::Party) -> Party {
+    assert!(
+        !t.is_empty(),
+        "the production Party type represents nonempty ownership"
+    );
+    let mut bits = BitsWriter::new();
     emit_id(&mut bits, t);
     Party::from_bits(bits)
 }
@@ -81,16 +87,14 @@ pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
 /// Recursive over a bounded oracle tree (test-only; the impl's own
 /// traversals are iterative): emits the min-lifted preorder stream,
 /// then transcodes it into the skyline coding the version stores.
-pub(crate) fn from_oracle_version(t: &oracle::Version) -> Version {
-    let mut bits = BitsBuf::new();
+pub(crate) fn from_oracle_version(t: &tree::Version) -> Version {
+    let mut bits = BitsWriter::new();
     emit_ev(&mut bits, t);
-    Version::from_bits(crate::version::skyline::encode_bits(
-        crate::codec::built_view(&bits),
-    ))
+    crate::version::io::finish(crate::version::io::encode::encode_bits(bits.reader()))
 }
 
 /// Build the impl `Clock` mirroring an oracle clock.
-pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
+pub(crate) fn from_oracle_clock(c: &tree::Clock) -> Clock {
     let (party, version) = c.trees();
     Clock::from_parts(from_oracle_party(party), from_oracle_version(version))
 }
@@ -107,29 +111,21 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 // tree (test-only; the impl's own traversals are iterative). Both
 // forms are normalized, so structural `==` ⇔ semantic equality.
 
-fn read_id(bits: codec::BitsView<'_>, pos: u64) -> (oracle::Party, u64) {
-    let left = bits.bit(pos);
-    let right = bits.bit(pos + 1);
-    if !left && !right {
-        return (oracle::Party::Leaf(true), pos + 2); // terminal = `1`
-    }
-    // Read the present children; an absent child lowers to the `0` leaf.
-    let mut next = pos + 2;
-    let l = if left {
-        let (l, np) = read_id(bits, next);
-        next = np;
-        l
-    } else {
-        oracle::Party::Leaf(false)
+fn read_id(reader: &mut PartyReader<'_>) -> tree::Party {
+    let PartyNode::Branch(branch) = reader.read() else {
+        return tree::Party::Leaf(true);
     };
-    let r = if right {
-        let (r, np) = read_id(bits, next);
-        next = np;
-        r
+    let left = if branch.has_left_child() {
+        descend!(0, read_id(reader))
     } else {
-        oracle::Party::Leaf(false)
+        tree::Party::Leaf(false)
     };
-    (oracle::Party::Node(Arc::new(l), Arc::new(r)), next)
+    let right = if branch.has_right_child() {
+        descend!(0, read_id(reader))
+    } else {
+        tree::Party::Leaf(false)
+    };
+    tree::Party::Node(Arc::new(left), Arc::new(right))
 }
 
 /// Read one skyline subtree at `pos` into a raw oracle tree.
@@ -140,22 +136,13 @@ fn read_id(bits: codec::BitsView<'_>, pos: u64) -> (oracle::Party, u64) {
 ///
 /// The oracle base is the arbitrary-precision `BigUint` (matching the impl),
 /// so lowering is lossless for any magnitude: no `u64` truncation point.
-fn read_ev(
-    bits: codec::BitsView<'_>,
-    pos: u64,
-    prev: &mut Option<BigUint>,
-) -> (oracle::Version, u64) {
-    // Skyline topology flag: `0` internal, `1` leaf.
-    let internal = !bits.bit(pos);
-    if internal {
-        let (l, after_l) = descend!(0, read_ev(bits, pos + 1, prev));
-        let (r, after_r) = descend!(0, read_ev(bits, after_l, prev));
-        return (
-            oracle::Version::Node(BigUint::ZERO, Arc::new(l), Arc::new(r)),
-            after_r,
-        );
+fn read_ev(reader: &mut VersionTreeReader<'_>, prev: &mut Option<BigUint>) -> tree::Version {
+    if reader.node() == VersionNode::Branch {
+        let left = descend!(0, read_ev(reader, prev));
+        let right = descend!(0, read_ev(reader, prev));
+        return tree::Version::Node(BigUint::ZERO, Arc::new(left), Arc::new(right));
     }
-    let (code, after_n) = codec::gamma::decode(bits, pos + 1).expect("canonical impl bits decode");
+    let code = reader.payload();
     // First leaf: the absolute height. Later leaves: zigzag deltas
     // (`even -> +m/2`, `odd -> -(m + 1)/2`) off the previous leaf.
     let value = match prev.take() {
@@ -169,26 +156,23 @@ fn read_ev(
         }
     };
     *prev = Some(value.clone());
-    (oracle::Version::Leaf(value), after_n)
+    tree::Version::Leaf(value)
 }
 
 /// Lower an impl `Party` to the oracle's structural tree by reading its encoded bits.
-pub(crate) fn to_oracle_party(p: &Party) -> oracle::Party {
-    if p.as_bits().is_empty() {
-        return oracle::Party::Leaf(false); // the anonymous `0` id
-    }
-    read_id(p.as_bits(), 0).0
+pub(crate) fn to_oracle_party(p: &Party) -> tree::Party {
+    read_id(&mut p.reader())
 }
 
 /// Lower an impl `Version` to the oracle's structural tree by reading its
 /// stored skyline stream: absolute leaf heights become a raw tree, which
 /// one normalization pass min-lifts into the oracle's canonical spelling.
-pub(crate) fn to_oracle_version(v: &Version) -> oracle::Version {
-    let raw = read_ev(v.as_bits(), 0, &mut None).0;
+pub(crate) fn to_oracle_version(v: &Version) -> tree::Version {
+    let raw = read_ev(&mut VersionTreeReader::new(v), &mut None);
     raw.normalized_for_test()
 }
 
 /// Lower an impl `Clock` to the oracle's `(Party, Version)` structural form.
-pub(crate) fn to_oracle_clock(c: &Clock) -> (oracle::Party, oracle::Version) {
+pub(crate) fn to_oracle_clock(c: &Clock) -> (tree::Party, tree::Version) {
     (to_oracle_party(c.party()), to_oracle_version(c.version()))
 }

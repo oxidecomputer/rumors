@@ -4,7 +4,7 @@
 
 #![cfg(feature = "meter")]
 
-use before::meter;
+use before::testing::meter;
 
 use crate::{
     Version, causally,
@@ -28,7 +28,7 @@ use super::Unknown;
 /// known version, so the probe stream is decoded once per check.
 /// Verdict-identical to [`Unknown`] by the
 /// `span_place_matches_relations` and
-/// `span_dominance_coarsens_place` laws in `before::laws`; this
+/// `span_dominance_coarsens_place` laws in `before::testing::laws`; this
 /// suite additionally asserts the pruned trees match.
 trait TwoPass: Height {
     /// The two-check spelling of [`Unknown::unknown`] at this height.

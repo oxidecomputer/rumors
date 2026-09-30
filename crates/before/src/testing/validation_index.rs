@@ -14,11 +14,11 @@
 //!
 //! # The semantic instruments
 //!
-//! **The public-surface coverage roster** (`crate::surface`, enforced by
+//! **The public-surface coverage roster** (`crate::testing::surface`, enforced by
 //! [`super::surface_coverage`]). The differential architecture compares
 //! three implementations — production, the recursive paper-transcription
-//! oracle (`crate::oracle`), and the function-space semantic oracle
-//! ([`super::semantic_oracle`]) — along three legs, and the roster
+//! oracle (`crate::testing::oracles::tree`), and the function-space semantic oracle
+//! ([`super::oracles::function`]) — along three legs, and the roster
 //! commits one row per public operation stating each leg's disposition:
 //! bound by a named test, law-pinned, transitively bound, or excluded
 //! with the reason. What it alone catches: **coverage holes** — a new
@@ -26,7 +26,7 @@
 //! for name, to the `pub fn` surface extracted from source), and a
 //! renamed or deleted differential fails the row that cites it. The
 //! differentials themselves catch wrong answers; the roster catches the
-//! silent absence of a differential. The rows live in `crate::surface`
+//! silent absence of a differential. The rows live in `crate::testing::surface`
 //! (public under the `meter` feature) exactly so external instrument
 //! crates bind to the same enumeration instead of hand-maintaining a
 //! second one.
@@ -48,7 +48,7 @@
 //! derived from the table, or bespoke under a declared category — so a
 //! pointwise operation cannot quietly land as one more hand-written body.
 //!
-//! **The algebraic laws** (`crate::laws`, driven by [`super::algebraic_laws`]
+//! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:
 //! lattice identities, monotonicity, the distance metric's axioms, order/rank
 //! consistency. What they alone catch: contract violations **where no reference
@@ -74,7 +74,7 @@
 //! no counter can see the class, and fuel where no family was chosen at
 //! all.
 //!
-//! **The amplification board** (`crate::meter::board`; rendered by
+//! **The amplification board** (`crate::testing::meter::board`; rendered by
 //! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
 //! worst-case family, a four-size measurement ladder per cell, judged on
@@ -117,7 +117,7 @@
 //! audit view of where the bulk of the input space sends each
 //! operation, so early-exit strata and log-factor banding are visible
 //! to the eye. It enforces nothing (its committed checks are sampler
-//! correctness and coverage parity against `crate::surface`);
+//! correctness and coverage parity against `crate::testing::surface`);
 //! enforcement stays in the envelopes and bands, which is why it may
 //! read the roster but never create a threshold.
 //!
@@ -135,7 +135,7 @@
 //! section states its own bound inline, denominated in its operation's
 //! actual arguments.
 //!
-//! **The board tiling** ([`crate::meter::board`]'s coverage tables).
+//! **The board tiling** ([`crate::testing::meter::board`]'s coverage tables).
 //! Every public-surface row priced by named board rows or excused with
 //! a mechanism, never both, never neither — so a new public operation
 //! cannot land unmeasured and unexcused, and the board carries no

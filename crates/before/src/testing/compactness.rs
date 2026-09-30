@@ -1,7 +1,7 @@
 //! The Tier 2 compactness envelope and the Euler-tour charge probe.
 //!
 //! The Tier 2 coding stores preorder topology plus delta-coded absolute leaf
-//! values ([`crate::meter::tier2`]); the claim its adoption turns on is that
+//! values ([`crate::testing::meter::tier2`]); the claim its adoption turns on is that
 //! its coded size never exceeds ~2x today's size plus O(1) bits per node.
 //! This module holds the shared scaffolding for the tests that pin that claim
 //! over every input family: the envelope and charge checks with their
@@ -23,8 +23,8 @@ use proptest::prelude::*;
 
 use num_bigint::BigUint;
 
-use crate::codec::{gamma, BitsBuf};
-use crate::meter::tier2::{tier2_size, Tier2Size};
+use crate::bits::BitsWriter;
+use crate::testing::meter::tier2::{tier2_size, Tier2Size};
 use crate::Version;
 
 #[cfg(test)]
@@ -83,7 +83,7 @@ pub(crate) fn check_sample(version: &Version) -> Sample {
     let encoded = crate::testing::bridge::encoded_bits_of(
         &crate::testing::bridge::to_oracle_version(version),
     );
-    let tier2 = tier2_size(crate::codec::built_view(&encoded));
+    let tier2 = tier2_size(encoded.reader());
     let current_bits = encoded.len();
     let ratio = tier2.total_bits as f64 / current_bits as f64;
 
@@ -138,28 +138,27 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     let m = (BigUint::from(1u8) << m_bits_u32) - &BigUint::from(1u8);
 
     let pair_bits = 2 * m_bits + 8;
-    let mut bits = BitsBuf::with_capacity((pairs * pair_bits - 2) as u64);
+    let mut bits = BitsWriter::with_capacity((pairs * pair_bits - 2) as u64);
     // The spine: each node is `1 . gamma(0)`, its left child the next spine
     // node (the innermost left child is the first pair subtree).
     for _ in 0..pairs - 1 {
         bits.push(true);
-        gamma::encode(&BigUint::ZERO, &mut bits);
+        bits.write_gamma(&BigUint::ZERO);
     }
     // The pair subtrees, innermost first: `(0, 0, M)` is
     // `1 . gamma(0) . 0 . gamma(0) . 0 . gamma(M)`.
     for _ in 0..pairs {
         bits.push(true);
-        gamma::encode(&BigUint::ZERO, &mut bits);
+        bits.write_gamma(&BigUint::ZERO);
         bits.push(false);
-        gamma::encode(&BigUint::ZERO, &mut bits);
+        bits.write_gamma(&BigUint::ZERO);
         bits.push(false);
-        gamma::encode(&m, &mut bits);
+        bits.write_gamma(&m);
     }
     // The comb is hand-built in the min-lifted encoded construction
     // language; the transcoding bridge lifts it into the stored coding.
-    let version = Version::from_bits(crate::version::skyline::encode_bits(
-        crate::codec::built_view(&bits),
-    ));
+    let version =
+        crate::version::io::finish(crate::version::io::encode::encode_bits(bits.reader()));
 
     // Self-check: the built stream is canonical and round-trips the wire.
     let decoded = Version::decode(version.encode().as_slice())

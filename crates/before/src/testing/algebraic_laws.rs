@@ -8,7 +8,7 @@
 //! ITC algebra (paper §2-§4) *regardless of the reference*, so they pin the
 //! impl to the math itself, not to a second implementation of it.
 //!
-//! The laws themselves live in [`crate::laws`] as named predicates, grouped
+//! The laws themselves live in [`crate::testing::laws`] as named predicates, grouped
 //! by signature; this suite is one of their consumers. [`tests`] holds one
 //! generic driver per signature group, each iterating its whole slice so a
 //! failure names the violated law, over two input regimes:

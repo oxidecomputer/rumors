@@ -9,11 +9,8 @@
 use std::borrow::Cow;
 use std::io::{self, Read, Write};
 
-use crate::codec;
-use crate::codec::BitCursor;
+use crate::bits::{BitRead, Bits, BitsReader};
 use crate::error::Decode;
-use crate::version::skyline;
-use crate::Version;
 
 use super::Span;
 
@@ -130,33 +127,34 @@ impl<'a> Span<'a> {
     /// Validates an owned canonical encoding and shares its storage between
     /// the endpoints.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Span<'static>, Decode> {
-        let (lo_bytes, admission) = {
-            let lo_end = skyline::validate_prefix(codec::BitsView::whole(&buf))?;
+        let (lo, lo_bytes, admission) = {
+            let lo_end = crate::version::io::validate::prefix(BitsReader::from_bytes(&buf))?;
             let lo_bytes = (lo_end + 1).div_ceil(8);
             if lo_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
             }
             let lo_bytes =
                 usize::try_from(lo_bytes).expect("the meet's prefix ends within the read buffer");
-            codec::require_marker_padding(&buf[..lo_bytes], lo_end)?;
-            let lo = codec::BitsView::new(&buf[..lo_bytes], lo_end);
+            Bits::validate_padding(&buf[..lo_bytes], lo_end)?;
+            let lo = crate::version::io::from_canonical(buf.slice(..lo_bytes));
             let tail = &buf[lo_bytes..];
-            let mut cursor = codec::DsiCursor::new(codec::BitsView::whole(tail));
-            let admission = skyline::validate_dominating_from(lo, &mut cursor)?;
+            let mut cursor = BitsReader::from_bytes(tail);
+            let admission = crate::version::io::validate::dominating_from(&lo, &mut cursor)?;
             let hi_end = cursor.position();
-            codec::require_marker_padding(tail, hi_end)?;
-            if admission == skyline::Admission::Refuted {
+            Bits::validate_padding(tail, hi_end)?;
+            if admission == crate::version::io::validate::Admission::Refuted {
                 return Err(Decode::NotCanonical);
             }
-            (lo_bytes, admission)
+            (lo, lo_bytes, admission)
         };
-        let lo = Version::from_frozen(codec::Bits::from_canonical(buf.slice(..lo_bytes)));
         let hi = match admission {
-            skyline::Admission::Equal => lo.clone(),
-            skyline::Admission::Dominates => {
-                Version::from_frozen(codec::Bits::from_canonical(buf.slice(lo_bytes..)))
+            crate::version::io::validate::Admission::Equal => lo.clone(),
+            crate::version::io::validate::Admission::Dominates => {
+                crate::version::io::from_canonical(buf.slice(lo_bytes..))
             }
-            skyline::Admission::Refuted => unreachable!("refuted admissions rejected above"),
+            crate::version::io::validate::Admission::Refuted => {
+                unreachable!("refuted admissions rejected above")
+            }
         };
         Ok(Span {
             lo: Cow::Owned(lo),

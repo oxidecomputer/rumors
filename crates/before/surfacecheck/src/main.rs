@@ -2,7 +2,7 @@
 //! is rostered, pinned, or excepted, checked from the compiler's own
 //! account of the public surface.
 //!
-//! The surface roster (`before::surface::METHOD_SURFACE`) is enforced
+//! The surface roster (`before::testing::surface::METHOD_SURFACE`) is enforced
 //! in-tree against a line-scan extractor over a hand-maintained source
 //! list, which cannot see a public item added in a file the list does not
 //! name. This binary closes that hole from the other side: it parses the
@@ -97,7 +97,7 @@ fn main() -> ExitCode {
     };
 
     let surface = extract::public_surface(&krate);
-    let rostered: BTreeSet<&str> = before::surface::METHOD_SURFACE
+    let rostered: BTreeSet<&str> = before::testing::surface::METHOD_SURFACE
         .iter()
         .map(|row| row.op)
         .collect();

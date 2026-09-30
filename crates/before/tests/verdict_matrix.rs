@@ -12,8 +12,8 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use before::causally::{self, Coverage};
-use before::meter::registry::{FamilyId, Shape};
-use before::meter::Encoding;
+use before::testing::meter::registry::{FamilyId, Shape};
+use before::testing::meter::Encoding;
 use before::{
     Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };

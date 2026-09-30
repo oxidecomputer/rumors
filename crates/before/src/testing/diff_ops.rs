@@ -44,18 +44,19 @@
 //! recorded in [`DIFF_BESPOKE`] under a [`BespokeCategory`], so "bespoke" is a
 //! closed status a reviewer diffs rather than the default anything falls
 //! into. The tiling pin in this module's tests holds every `Bound` citation
-//! in [`crate::surface`] to exactly one side: derived from this table, or
+//! in [`crate::testing::surface`] to exactly one side: derived from this table, or
 //! bespoke with a declared category — never both, never neither.
 
 use std::cmp::Ordering;
 
-use crate::testing::{bridge, semantic_oracle, shape_rows};
-use crate::{oracle, Party, Rank, Ticks, Version};
+use crate::testing::oracles::{function, tree};
+use crate::testing::{bridge, shape_rows};
+use crate::{Party, Rank, Ticks, Version};
 use num_bigint::BigUint;
 
 /// One descriptor: its name and the check the drivers run.
 ///
-/// The same shape as [`crate::laws::Law`], and for the same reason: an
+/// The same shape as [`crate::testing::laws::Law`], and for the same reason: an
 /// assertion that fails names the entry it came from.
 pub(crate) type DiffOp<F> = (&'static str, F);
 
@@ -74,17 +75,17 @@ pub(crate) trait Matches<Reference> {
     fn matches(&self, reference: &Reference) -> bool;
 }
 
-impl Matches<oracle::Version> for Version {
-    fn matches(&self, reference: &oracle::Version) -> bool {
+impl Matches<tree::Version> for Version {
+    fn matches(&self, reference: &tree::Version) -> bool {
         *self == bridge::from_oracle_version(reference)
             && bridge::to_oracle_version(self) == *reference
     }
 }
 
-impl Matches<oracle::Party> for Option<Party> {
+impl Matches<tree::Party> for Option<Party> {
     /// The oracle carries the empty region as a value where production
     /// carries it as `None`, so the arms are matched before the trees.
-    fn matches(&self, reference: &oracle::Party) -> bool {
+    fn matches(&self, reference: &tree::Party) -> bool {
         match self {
             None => reference.is_empty(),
             Some(party) => {
@@ -96,11 +97,11 @@ impl Matches<oracle::Party> for Option<Party> {
     }
 }
 
-impl Matches<oracle::Party> for Party {
+impl Matches<tree::Party> for Party {
     /// A plain production id, for spellings whose population guarantees
     /// the region is live: the reference must own something, and the trees
     /// must agree across the bridge both ways.
-    fn matches(&self, reference: &oracle::Party) -> bool {
+    fn matches(&self, reference: &tree::Party) -> bool {
         !reference.is_empty()
             && *self == bridge::from_oracle_party(reference)
             && bridge::to_oracle_party(self) == *reference
@@ -163,8 +164,8 @@ impl Matches<Vec<(u64, Vec<BigUint>)>> for Vec<(u64, Vec<BigUint>)> {
 ///
 /// The fs-column counterpart of [`Matches`], implemented once per result
 /// type an fs spelling can produce, so a descriptor never spells its own
-/// comparison here either. Function-shaped results ([`semantic_oracle::Event`],
-/// [`semantic_oracle::Id`]) compare by scanning both functions over the
+/// comparison here either. Function-shaped results ([`function::Event`],
+/// [`function::Id`]) compare by scanning both functions over the
 /// grid; the reference tree is lifted for the scan, and its own depth is
 /// folded into the grid so a reference deeper than the operands (which no
 /// pointwise combinator produces, but the comparison does not assume that)
@@ -176,23 +177,17 @@ pub(crate) trait FsMatches<Reference> {
     fn fs_matches(&self, reference: &Reference, grid: u32) -> bool;
 }
 
-impl FsMatches<oracle::Version> for semantic_oracle::Event {
-    fn fs_matches(&self, reference: &oracle::Version, grid: u32) -> bool {
-        let g = grid.max(semantic_oracle::fs_grid(&[semantic_oracle::ev_depth(
-            reference,
-        )]));
-        semantic_oracle::ev_order(self, &semantic_oracle::lift_ev(reference.clone()), g)
-            == Some(Ordering::Equal)
+impl FsMatches<tree::Version> for function::Event {
+    fn fs_matches(&self, reference: &tree::Version, grid: u32) -> bool {
+        let g = grid.max(function::fs_grid(&[function::ev_depth(reference)]));
+        function::ev_order(self, &function::lift_ev(reference.clone()), g) == Some(Ordering::Equal)
     }
 }
 
-impl FsMatches<oracle::Party> for semantic_oracle::Id {
-    fn fs_matches(&self, reference: &oracle::Party, grid: u32) -> bool {
-        let g = grid.max(semantic_oracle::fs_grid(&[semantic_oracle::id_depth(
-            reference,
-        )]));
-        semantic_oracle::id_order(self, &semantic_oracle::lift_id(reference.clone()), g)
-            == Some(Ordering::Equal)
+impl FsMatches<tree::Party> for function::Id {
+    fn fs_matches(&self, reference: &tree::Party, grid: u32) -> bool {
+        let g = grid.max(function::fs_grid(&[function::id_depth(reference)]));
+        function::id_order(self, &function::lift_id(reference.clone()), g) == Some(Ordering::Equal)
     }
 }
 
@@ -220,21 +215,21 @@ impl FsMatches<Rank> for Rank {
 /// collapses any refinement fragments), and the existing
 /// tree-versus-function scans decide. The rows come from the
 /// descriptor's tree spelling, whose depths the grid already covers.
-impl FsMatches<Vec<(BigUint, u64)>> for semantic_oracle::Event {
+impl FsMatches<Vec<(BigUint, u64)>> for function::Event {
     fn fs_matches(&self, reference: &Vec<(BigUint, u64)>, grid: u32) -> bool {
         let tree = shape_rows::version_from_rows(reference);
-        <semantic_oracle::Event as FsMatches<oracle::Version>>::fs_matches(self, &tree, grid)
+        <function::Event as FsMatches<tree::Version>>::fs_matches(self, &tree, grid)
     }
 }
 
-impl FsMatches<Vec<(bool, u64)>> for semantic_oracle::Id {
+impl FsMatches<Vec<(bool, u64)>> for function::Id {
     fn fs_matches(&self, reference: &Vec<(bool, u64)>, grid: u32) -> bool {
         let tree = shape_rows::party_from_rows(reference);
-        <semantic_oracle::Id as FsMatches<oracle::Party>>::fs_matches(self, &tree, grid)
+        <function::Id as FsMatches<tree::Party>>::fs_matches(self, &tree, grid)
     }
 }
 
-impl FsMatches<Vec<(u64, BigUint, bool)>> for semantic_oracle::FunctionClock {
+impl FsMatches<Vec<(u64, BigUint, bool)>> for function::FunctionClock {
     fn fs_matches(&self, reference: &Vec<(u64, BigUint, bool)>, grid: u32) -> bool {
         let heights: Vec<(BigUint, u64)> = reference
             .iter()
@@ -248,7 +243,7 @@ impl FsMatches<Vec<(u64, BigUint, bool)>> for semantic_oracle::FunctionClock {
     }
 }
 
-impl FsMatches<Vec<(u64, Vec<BigUint>)>> for (semantic_oracle::Event, semantic_oracle::Event) {
+impl FsMatches<Vec<(u64, Vec<BigUint>)>> for (function::Event, function::Event) {
     fn fs_matches(&self, reference: &Vec<(u64, Vec<BigUint>)>, grid: u32) -> bool {
         let column = |index: usize| -> Vec<(BigUint, u64)> {
             reference
@@ -286,7 +281,7 @@ impl FsMatches<Vec<(u64, Vec<BigUint>)>> for (semantic_oracle::Event, semantic_o
 /// the spellings.
 ///
 /// The fs spelling's header names one extra binding, `fs(g):` — the
-/// comparison grid ([`semantic_oracle::fs_grid`] over the operands'
+/// comparison grid ([`function::fs_grid`] over the operands'
 /// structural depths), in scope for spellings whose combinator scans
 /// (`id_order`, `disjoint`, `min_ticks`, `rank`); a spelling that never
 /// scans names it with an underscore. The fs result is compared against
@@ -366,7 +361,7 @@ macro_rules! diff_ops {
             // The grid derives from the oracle carriers before the fs
             // scope shadows them, so a spelling can never scan a lifted
             // value coarser than the value's own boundaries.
-            let $grid = $crate::testing::semantic_oracle::fs_grid(&[
+            let $grid = $crate::testing::oracles::function::fs_grid(&[
                 $(diff_ops!(@depth $kind, $param)),+
             ]);
             let fs = { $( let mut $param = diff_ops!(@fslift $kind, $param); )+ $fs };
@@ -378,10 +373,10 @@ macro_rules! diff_ops {
     // The carrier tags: each names the oracle-side type a driver supplies,
     // the production value raised from it, the function-space value lifted
     // from it, and the structural depth its fs comparison grid folds in.
-    (@oracle version) => { $crate::oracle::Version };
-    (@oracle party) => { $crate::oracle::Party };
-    (@oracle disjoint_party) => { $crate::oracle::Party };
-    (@oracle clock) => { $crate::oracle::Clock };
+    (@oracle version) => { $crate::testing::oracles::tree::Version };
+    (@oracle party) => { $crate::testing::oracles::tree::Party };
+    (@oracle disjoint_party) => { $crate::testing::oracles::tree::Party };
+    (@oracle clock) => { $crate::testing::oracles::tree::Clock };
     (@oracle ticks) => { $crate::Ticks };
     (@lower version, $carrier:expr) => { $crate::testing::bridge::from_oracle_version($carrier) };
     (@lower party, $carrier:expr) => { $crate::testing::bridge::from_oracle_party($carrier) };
@@ -389,31 +384,31 @@ macro_rules! diff_ops {
     (@lower clock, $carrier:expr) => { $crate::testing::bridge::from_oracle_clock($carrier) };
     (@lower ticks, $carrier:expr) => { ::core::clone::Clone::clone($carrier) };
     (@fslift version, $carrier:expr) => {
-        $crate::testing::semantic_oracle::lift_ev(::core::clone::Clone::clone($carrier))
+        $crate::testing::oracles::function::lift_ev(::core::clone::Clone::clone($carrier))
     };
     (@fslift party, $carrier:expr) => {
-        $crate::testing::semantic_oracle::lift_id(::core::clone::Clone::clone($carrier))
+        $crate::testing::oracles::function::lift_id(::core::clone::Clone::clone($carrier))
     };
     (@fslift disjoint_party, $carrier:expr) => {
-        $crate::testing::semantic_oracle::lift_id(::core::clone::Clone::clone($carrier))
+        $crate::testing::oracles::function::lift_id(::core::clone::Clone::clone($carrier))
     };
     (@fslift clock, $carrier:expr) => {
-        $crate::testing::semantic_oracle::FunctionClock {
-            id: $crate::testing::semantic_oracle::lift_id(::core::clone::Clone::clone(
+        $crate::testing::oracles::function::FunctionClock {
+            id: $crate::testing::oracles::function::lift_id(::core::clone::Clone::clone(
                 $carrier.party(),
             )),
-            ev: $crate::testing::semantic_oracle::lift_ev($carrier.version()),
+            ev: $crate::testing::oracles::function::lift_ev($carrier.version()),
         }
     };
     (@fslift ticks, $carrier:expr) => { ::core::clone::Clone::clone($carrier) };
-    (@depth version, $carrier:expr) => { $crate::testing::semantic_oracle::ev_depth($carrier) };
-    (@depth party, $carrier:expr) => { $crate::testing::semantic_oracle::id_depth($carrier) };
+    (@depth version, $carrier:expr) => { $crate::testing::oracles::function::ev_depth($carrier) };
+    (@depth party, $carrier:expr) => { $crate::testing::oracles::function::id_depth($carrier) };
     (@depth disjoint_party, $carrier:expr) => {
-        $crate::testing::semantic_oracle::id_depth($carrier)
+        $crate::testing::oracles::function::id_depth($carrier)
     };
     (@depth clock, $carrier:expr) => {
-        $crate::testing::semantic_oracle::id_depth($carrier.party())
-            .max($crate::testing::semantic_oracle::ev_depth(&$carrier.version()))
+        $crate::testing::oracles::function::id_depth($carrier.party())
+            .max($crate::testing::oracles::function::ev_depth(&$carrier.version()))
     };
     (@depth ticks, $carrier:expr) => { 0u32 };
 }
@@ -445,7 +440,7 @@ diff_ops! {
     fn version_projection_matches_the_oracle {
         prod: (&a / &p).to_version(),
         tree: a / &p,
-        fs(_g): semantic_oracle::project(a, p),
+        fs(_g): function::project(a, p),
     }
 }
 
@@ -503,7 +498,7 @@ diff_ops! {
     fn clock_own_version_matches_the_oracle {
         prod: c.own_version().to_version(),
         tree: c.own_version(),
-        fs(_g): semantic_oracle::project(c.ev, c.id),
+        fs(_g): function::project(c.ev, c.id),
     }
 
     /// `shape`: the clock's overlay walk.
@@ -542,7 +537,7 @@ diff_ops! {
     /// seed.
     fn party_is_seed_matches_the_oracle {
         prod: a.is_seed(),
-        tree: a == oracle::Party::seed(),
+        tree: a == tree::Party::seed(),
     }
 
     /// `shape`: the party's membership function as region items.
@@ -580,7 +575,7 @@ diff_ops! {
         prod: a.covers(&b),
         tree: a.covers(&b),
         fs(g): matches!(
-            semantic_oracle::id_order(&a, &b, g),
+            function::id_order(&a, &b, g),
             Some(Ordering::Less | Ordering::Equal)
         ),
     }
@@ -595,7 +590,7 @@ diff_ops! {
     fn party_disjointness_matches_the_oracle {
         prod: a.is_disjoint(&b),
         tree: a.is_disjoint(&b),
-        fs(g): semantic_oracle::disjoint(&a, &b, g),
+        fs(g): function::disjoint(&a, &b, g),
     }
 
     /// `without`: the region difference, which production answers as
@@ -605,7 +600,7 @@ diff_ops! {
     fn party_without_matches_the_oracle {
         prod: a.without(&b),
         tree: a.without(&b),
-        fs(_g): semantic_oracle::diff(a, b),
+        fs(_g): function::diff(a, b),
     }
 }
 
@@ -633,7 +628,7 @@ diff_ops! {
             a.join(b).expect("disjoint parties join");
             a
         },
-        fs(_g): semantic_oracle::sum(a, b),
+        fs(_g): function::sum(a, b),
     }
 }
 
@@ -653,7 +648,7 @@ diff_ops! {
     fn version_min_ticks_matches_the_oracle {
         prod: a.min_ticks(),
         tree: a.min_ticks(),
-        fs(g): crate::Ticks(semantic_oracle::min_ticks(&a, g)),
+        fs(g): crate::Ticks(function::min_ticks(&a, g)),
     }
 
     /// `shape`: the version's step function as plateau items.
@@ -678,7 +673,7 @@ diff_ops! {
     fn version_rank_matches_the_oracle {
         prod: a.rank(),
         tree: a.rank(),
-        fs(g): semantic_oracle::rank(&a, g),
+        fs(g): function::rank(&a, g),
     }
 }
 
@@ -726,7 +721,7 @@ diff_ops! {
     fn version_meet_matches_the_oracle {
         prod: a & b,
         tree: a & b,
-        fs(_g): semantic_oracle::meet(a, b),
+        fs(_g): function::meet(a, b),
     }
 
     /// The causal order's verdict, the concurrent `None` arm included.
@@ -760,8 +755,8 @@ diff_ops! {
                 .expect("the join dominates the meet")
         },
         fs(g): {
-            let met = semantic_oracle::rank(&semantic_oracle::meet(a.clone(), b.clone()), g);
-            semantic_oracle::rank(&semantic_oracle::join(a, b), g)
+            let met = function::rank(&function::meet(a.clone(), b.clone()), g);
+            function::rank(&function::join(a, b), g)
                 .checked_sub(&met)
                 .expect("the join dominates the meet")
         },
@@ -782,8 +777,8 @@ diff_ops! {
                 .expect("the join dominates its operand")
         },
         fs(g): {
-            let own = semantic_oracle::rank(&a, g);
-            semantic_oracle::rank(&semantic_oracle::join(a, b), g)
+            let own = function::rank(&a, g);
+            function::rank(&function::join(a, b), g)
                 .checked_sub(&own)
                 .expect("the join dominates its operand")
         },
@@ -868,7 +863,7 @@ impl BespokeCategory {
 }
 
 /// The bespoke half of the tiling: every `Bound` citation in
-/// [`crate::surface`] this table does not derive, with the category explaining
+/// [`crate::testing::surface`] this table does not derive, with the category explaining
 /// it.
 ///
 /// Held equal, both directions, to the roster's `Bound` citations minus the

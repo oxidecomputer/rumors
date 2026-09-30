@@ -311,7 +311,7 @@ docs-docsrs:
     cargo +{{ nightly_toolchain }} docs-rs -p before --target-dir target/doc-docsrs
     ./tools/fuelscape-assets target/doc-docsrs/{{ host_triple }}/doc
 
-# The before coverage roster (crates/before/src/surface.rs) and the bespoke
+# The before coverage roster (crates/before/src/testing/surface.rs) and the bespoke
 # half of the pointwise-differential tiling (src/testing/diff_ops.rs) cite
 # their binding checks as bare strings. The in-crate suite holds those names
 # to the live law/descriptor tables and to a #[test]-attribute source scan;
@@ -553,7 +553,7 @@ bench-build:
     cargo bench --workspace --no-run
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
-# itself) and the `before::laws` law collection are asserted inline in the
+# itself) and the `before::testing::laws` law collection are asserted inline in the
 # targets, so any hit is a crash. Each run names two corpus directories:
 # libFuzzer reads seeds from both and writes new discoveries to the first, so
 # the committed `seeds/<target>/` corpus (derived from the live API;
@@ -787,14 +787,6 @@ bench target *filter:
 bench-quick target *filter:
     cargo bench --workspace --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
-# Compile one alternative projection allocation strategy and save its
-# Criterion baseline. "shipped" selects the normal implementation.
-
-# Run one allocation-strategy A/B arm of a bench target, saving its criterion baseline.
-bench-alloc-ab target arm="shipped" *filter:
-    @case "{{ arm }}" in (shipped|projection_growth|projection_shrink) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
-    RUSTFLAGS='{{ if arm == "shipped" { "" } else { '--cfg before_alloc_ab="' + arm + '"' } }}' cargo bench -p before --bench {{ target }} -- --save-baseline {{ target }}-{{ arm }} {{ filter }}
-
 # Each board cell judges deterministic work counters (touches, scans, heap)
 # against its declared bounds: green means the samples fit, red is a resource
 # regression to investigate. The board
@@ -845,7 +837,7 @@ amp-board-acceptance:
     {{ amp_board_command }} -- acceptance
 
 # The surface-totality leg: the operation roster in
-# crates/before/src/surface.rs (METHOD_SURFACE, the machine-readable
+# crates/before/src/testing/surface.rs (METHOD_SURFACE, the machine-readable
 # enumeration the surface-coverage suite enforces) is held total against
 # nightly rustdoc JSON — the compiler's own account of the public
 # surface — so a public fn or method added anywhere (a new file, a new
