@@ -78,9 +78,14 @@ pub enum StoredAccumulator {
 const _: () = assert!(core::mem::size_of::<StoredAccumulator>() <= 2 * core::mem::size_of::<u64>());
 
 impl StoredAccumulator {
-    /// Retain `value` in its smallest representation.
+    /// Retain a narrow value inline, without normalizing a wide accumulator.
     fn new(value: Accumulator) -> Self {
-        match value.into_i64() {
+        // At most two held digits make exact conversion constant-width.
+        // A wider representation stays boxed even if its digits might cancel.
+        if value.stored_digit_count() > 2 {
+            return Self::Wide(Box::new(value));
+        }
+        match i64::try_from(value) {
             Ok(small) => Self::Small(small),
             Err(wide) => Self::Wide(Box::new(wide)),
         }
@@ -512,9 +517,9 @@ impl TickWalk<'_> {
                 // `anchor - reference`. Their difference gives
                 // `target - anchor`, the offset needed to install that minimum.
                 let mut arm_offset = self.minima.follower_take(REL_FOLLOWER);
-                arm_offset.negate();
+                arm_offset = -arm_offset;
                 if let Some(link) = link {
-                    arm_offset.add_accum(&link);
+                    arm_offset += &link;
                     drop(link);
                 }
                 if self.minima.compare_above_vs(above, &arm_offset) == Ordering::Less {
@@ -526,7 +531,7 @@ impl TickWalk<'_> {
                 } else {
                     // Store `anchor - target` before emitting; if emission
                     // moves the anchor, the tracker updates this follower with it.
-                    arm_offset.negate();
+                    arm_offset = -arm_offset;
                     self.minima.follower_set(REL_FOLLOWER, arm_offset);
                     self.emit_offset(depth + 1, above.clone());
                 }
@@ -554,10 +559,10 @@ impl TickWalk<'_> {
         // as the next reference without materializing either absolute value.
         relation.add_bigint(above);
         if let Some(link) = link {
-            relation.sub_accum(&link);
+            relation -= &link;
             drop(link);
         }
-        let sign = relation.sign();
+        let sign = relation.cmp_zero();
         relation.sub_bigint(above);
         if sign == Ordering::Less {
             // The memoized minimum dominates the old maximum, so the new leaf
@@ -568,8 +573,8 @@ impl TickWalk<'_> {
             if first {
                 // First output leaf, coded absolute: value = h − below.
                 let mut absolute = Accumulator::new();
-                absolute.add_accum(&self.height);
-                absolute.sub_accum(&relation);
+                absolute += &self.height;
+                absolute -= &relation;
                 self.minima.emit_below_accum(relation);
                 let value = absolute.into_bigint();
                 debug_assert!(value.sign() != Sign::Minus, "a raised height is a natural");
@@ -647,7 +652,7 @@ impl TickWalk<'_> {
             out_delta.into_bigint()
         } else {
             // `gap` is current input height minus previous output height.
-            self.gap.sign();
+            self.gap.cmp_zero();
             self.gap.to_bigint()
         };
         // The new gap is h − value = 0 exactly.
@@ -676,7 +681,7 @@ impl TickWalk<'_> {
         if first {
             // The first output payload stores an absolute height.
             debug_assert!(!self.w_anchored, "the first emission finds no anchor");
-            self.height.sign();
+            self.height.cmp_zero();
             let value = self.height.to_bigint() + &offset;
             debug_assert!(
                 value.sign() != Sign::Minus,
@@ -694,7 +699,7 @@ impl TickWalk<'_> {
             } else {
                 // `gap + offset` is the new value minus previous output.
                 self.gap.add_bigint(&offset);
-                self.gap.sign();
+                self.gap.cmp_zero();
                 self.gap.to_bigint()
             };
             self.output.change(depth, &delta);

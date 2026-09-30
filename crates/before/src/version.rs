@@ -8,7 +8,7 @@ use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
 use std::io::{Read, Result as IoResult, Write};
 
-use crate::bits::{Bits, BitsReader};
+use crate::bits::Bits;
 use crate::error::Decode;
 use crate::span::Span;
 use crate::testing::instrument::span_hull;
@@ -92,7 +92,7 @@ mod tests;
 // ([`Bits`]); its stored bytes are also its wire encoding.
 //
 // Canonical uniqueness makes byte equality exactly causal equality; `PartialEq`
-// is the macro's byte-level stream compare (see `causal_cmp_impls!`), and the
+// is the byte-level stream compare below, and the
 // manual `Hash` below reads the same bytes, so their consistency holds by
 // construction. The
 // container's backing store is refcounted (`bytes::Bytes`), which is what makes
@@ -501,8 +501,10 @@ impl Version {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(iter), Self::join, Self::join_in_place)
-            .expect("the fold is seeded with the receiver: never empty")
+        Self::balanced_fold(self.with_items(iter), Self::join, |version, other| {
+            *version |= other;
+        })
+        .expect("the fold is seeded with the receiver: never empty")
     }
 
     /// The meet (greatest lower bound) of this version and `other`: the
@@ -582,8 +584,10 @@ impl Version {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(iter), Self::meet, Self::meet_in_place)
-            .expect("the fold is seeded with the receiver: never empty")
+        Self::balanced_fold(self.with_items(iter), Self::meet, |version, other| {
+            *version &= other;
+        })
+        .expect("the fold is seeded with the receiver: never empty")
     }
 
     /// The causal [`Span`] from this [`Version`] to `other`.
@@ -689,8 +693,8 @@ impl Version {
                 (Hull::Input(a), Hull::Input(b)) => a.version().hull(b.version()),
                 (Hull::Merged { mut lo, mut hi }, Hull::Input(b)) => {
                     let b = b.version();
-                    lo.meet_in_place(b);
-                    hi.join_in_place(b);
+                    lo &= b;
+                    hi |= b;
                     (lo, hi)
                 }
                 (
@@ -700,8 +704,8 @@ impl Version {
                     },
                     Hull::Merged { lo: b_lo, hi: b_hi },
                 ) => {
-                    a_lo.meet_in_place(&b_lo);
-                    a_hi.join_in_place(&b_hi);
+                    a_lo &= &b_lo;
+                    a_hi |= &b_hi;
                     (a_lo, a_hi)
                 }
                 // Unreachable through the counter's weight discipline (a
@@ -711,8 +715,8 @@ impl Version {
                 // the raw input into the owned hull is value-identical.
                 (Hull::Input(a), Hull::Merged { mut lo, mut hi }) => {
                     let a = a.version();
-                    lo.meet_in_place(a);
-                    hi.join_in_place(a);
+                    lo &= a;
+                    hi |= a;
                     (lo, hi)
                 }
             };
@@ -867,49 +871,6 @@ impl Version {
         core::iter::once(FoldInput::Receiver(self)).chain(iter.into_iter().map(FoldInput::Item))
     }
 
-    /// Join a canonical stored skyline into this version in place.
-    ///
-    /// Equal values and an empty incoming version leave the receiver unchanged.
-    /// An empty receiver adopts the incoming buffer by sharing it. Empty-stream
-    /// checks take constant time; equality takes constant time for shared
-    /// buffers and otherwise compares canonical bytes. The remaining case
-    /// emits a merged skyline directly from the two streams.
-    pub(crate) fn join_in_place(&mut self, incoming: &Version) {
-        if incoming.is_empty() {
-            return; // v ∨ 0 = v: nothing to fold in
-        }
-        if self.is_empty() {
-            // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams are
-            // canonical, so the shared buffer (an `O(1)` refcount clone) equals
-            // the merge byte for byte.
-            *self = incoming.clone();
-            return;
-        }
-        if self == incoming {
-            return; // a ∨ a = a
-        }
-        *self = lattice::Extreme::Higher.emit(self, incoming);
-    }
-
-    /// Meet a canonical stored skyline with this version in place.
-    ///
-    /// Equal values leave the receiver unchanged. If either input is empty,
-    /// the result is empty; otherwise one pass emits the pointwise minimum.
-    pub(crate) fn meet_in_place(&mut self, incoming: &Version) {
-        if self.is_empty() {
-            return; // 0 ∧ v = 0: already empty, nothing can shrink it
-        }
-        if incoming.is_empty() {
-            // v ∧ 0 = 0: the result is the empty version, whatever `v` was.
-            *self = Version::new();
-            return;
-        }
-        if self == incoming {
-            return; // a ∧ a == a
-        }
-        *self = lattice::Extreme::Lower.emit(self, incoming);
-    }
-
     /// Return the meet and join of two versions as their enclosing endpoints.
     ///
     /// Equality and empty inputs determine both endpoints immediately. If the
@@ -936,7 +897,7 @@ impl Version {
             span_hull::record(Rung::Empty);
             return (Version::new(), self.clone());
         }
-        match self.causal_cmp(other) {
+        match self.partial_cmp(other) {
             Some(Ordering::Less) => {
                 span_hull::record(Rung::Comparable);
                 return (self.clone(), other.clone());
@@ -1086,16 +1047,7 @@ impl Version {
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        Self::decode_bytes(buf.into())
-    }
-
-    /// Validates and adopts an owned canonical encoding.
-    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
-        {
-            let end = io::validate::prefix(BitsReader::from_bytes(&buf))?;
-            Bits::validate_padding(&buf, end)?;
-        }
-        Ok(io::from_canonical(buf))
+        io::decode(buf.into())
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its
@@ -1305,7 +1257,8 @@ impl Default for Version {
 /// Auxiliary space is `O(|iter|)`.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
-        Version::balanced_fold(iter, Version::join, Version::join_in_place).unwrap_or_default()
+        Version::balanced_fold(iter, Version::join, |version, other| *version |= other)
+            .unwrap_or_default()
     }
 }
 
@@ -1322,7 +1275,8 @@ impl Sum<Version> for Version {
 /// Auxiliary space is `O(|iter|)`.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
-        Version::balanced_fold(iter, Version::join, Version::join_in_place).unwrap_or_default()
+        Version::balanced_fold(iter, Version::join, |version, other| *version |= other)
+            .unwrap_or_default()
     }
 }
 
@@ -1375,28 +1329,26 @@ impl Debug for Version {
 //
 // A value-operator cell turns its left operand into a fresh owned `Version`
 // (`own` moves an owned `Version`, `clone` copies a borrowed one), then folds
-// the right operand's view into it. An assign cell folds the right operand's
-// view into the receiver in place. The two families differ only in the
-// in-place method each cell routes through: `Version::join_in_place` for join,
-// `Version::meet_in_place` for meet.
+// the right operand's view into it. An assign cell folds an owned right operand
+// into the receiver. Every cell delegates to the borrowed assignment operator,
+// which is the single implementation of each operator family.
 
 /// Generates one binary-operator family's full matrix over owned and borrowed
 /// `Version` operands.
 ///
-/// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
-/// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and
-/// the in-place method `$view` every cell routes through (`join_in_place` or
-/// `meet_in_place`). Each strategy — `own`/`clone` for value cells, `assign` for
-/// assign cells — has its own `@cell` arm so the receiver `self` is written in
-/// the same expansion as the method it belongs to (`self` cannot cross a
+/// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`) and
+/// its assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`).
+/// Each strategy — `own`/`clone` for value cells and `assign` for an owned
+/// right-hand side — has its own `@cell` arm so the receiver `self` is written
+/// in the same expansion as the method it belongs to (`self` cannot cross a
 /// macro-invocation boundary).
 macro_rules! binop_matrix {
-    ($island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident;
+    ($island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident;
      $($lhs:ty, $rhs:ty, $strat:tt);* $(;)?
     ) => {
-        $( binop_matrix!(@cell $island, $contract, $opdoc, $Op::$op, $Assign::$assign, $view, $lhs, $rhs, $strat); )*
+        $( binop_matrix!(@cell $island, $contract, $opdoc, $Op::$op, $Assign::$assign, $lhs, $rhs, $strat); )*
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, own) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $lhs:ty, $rhs:ty, own) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
@@ -1407,12 +1359,12 @@ macro_rules! binop_matrix {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self;
-                out.$view(r.borrow());
+                $Assign::$assign(&mut out, r.borrow());
                 out
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, clone) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $lhs:ty, $rhs:ty, clone) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
@@ -1423,12 +1375,12 @@ macro_rules! binop_matrix {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self.clone();
-                out.$view(r.borrow());
+                $Assign::$assign(&mut out, r.borrow());
                 out
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, assign) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $lhs:ty, $rhs:ty, assign) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
@@ -1437,18 +1389,58 @@ macro_rules! binop_matrix {
         #[cfg_attr(not(doc), doc = $contract)]
         impl $Assign<$rhs> for $lhs {
             fn $assign(&mut self, r: $rhs) {
-                self.$view(r.borrow());
+                $Assign::$assign(self, r.borrow());
             }
         }
     };
 }
 
-// The join (`|`, `|=`) family. Routes through `Version::join_in_place`.
+/// Assigns the causal join with a borrowed version.
+///
+/// Empty and equal inputs reuse an existing buffer. Otherwise one pass emits
+/// the joined version directly from the two inputs.
+impl BitOrAssign<&Version> for Version {
+    fn bitor_assign(&mut self, incoming: &Version) {
+        if incoming.is_empty() {
+            return;
+        }
+        if self.is_empty() {
+            *self = incoming.clone();
+            return;
+        }
+        if self == incoming {
+            return;
+        }
+        *self = lattice::Extreme::Higher.emit(self, incoming);
+    }
+}
+
+/// Assigns the causal meet with a borrowed version.
+///
+/// Empty and equal inputs reuse an existing buffer. Otherwise one pass emits
+/// the met version directly from the two inputs.
+impl BitAndAssign<&Version> for Version {
+    fn bitand_assign(&mut self, incoming: &Version) {
+        if self.is_empty() {
+            return;
+        }
+        if incoming.is_empty() {
+            *self = Version::new();
+            return;
+        }
+        if self == incoming {
+            return;
+        }
+        *self = lattice::Extreme::Lower.emit(self, incoming);
+    }
+}
+
+// The remaining join (`|`, `|=`) cells delegate to borrowed assignment.
 binop_matrix! {
     "version_join",
     "`O(n)` in total input bytes; `O(|self| + |other|)`",
     "`a | b` and `a |= b`: the causal join, the operator matrix of [`Version::join`] over owned and borrowed operands.",
-    BitOr::bitor, BitOrAssign::bitor_assign, join_in_place;
+    BitOr::bitor, BitOrAssign::bitor_assign;
     // value operator: left operand becomes a fresh owned `Version`
     Version,  Version,  own;
     Version,  &Version, own;
@@ -1456,17 +1448,14 @@ binop_matrix! {
     &Version, &Version, clone;
     // assign: right operand folded into the left operand in place
     Version,  Version,  assign;
-    Version,  &Version, assign;
 }
 
-// The meet (`&`, `&=`) family: the dual of the join matrix above, with the
-// same cells and strategies, routing through `Version::meet_in_place` instead
-// of `join_in_place`.
+// The remaining meet (`&`, `&=`) cells are its dual.
 binop_matrix! {
     "version_meet",
     "`O(n)` in total input bytes; `O(|self| + |other|)`",
     "`a & b` and `a &= b`: the causal meet, the operator matrix of [`Version::meet`] over owned and borrowed operands.",
-    BitAnd::bitand, BitAndAssign::bitand_assign, meet_in_place;
+    BitAnd::bitand, BitAndAssign::bitand_assign;
     // value operator: left operand becomes a fresh owned `Version`
     Version,  Version,  own;
     Version,  &Version, own;
@@ -1474,7 +1463,6 @@ binop_matrix! {
     &Version, &Version, clone;
     // assign: right operand folded into the left operand in place
     Version,  Version,  assign;
-    Version,  &Version, assign;
 }
 
 // ───────────────────────── the pair hull (`^`) ─────────────────────────
@@ -1571,51 +1559,37 @@ impl<'a> Div<&'a Party> for &'a Version {
     }
 }
 
-// Causal comparison over owned and borrowed `Version` operands, reading current
-// state in place. Every cell comes from this macro, so the comparison matrix
-// reads as a matrix. Each ordering cell delegates to the skyline comparison
-// sweep; each equality cell is a byte compare of the two stored streams
-// (`Bits::eq`) — the skyline coding is a canonical unique
-// representation, so byte equality is exactly causal equality. The `Version`
-// derive list deliberately omits `PartialEq`/`PartialOrd` so the macro is the
-// single source of both (see the note on the derive above).
-macro_rules! causal_cmp_impls {
-    ($($lhs:ty, $rhs:ty);* $(;)?) => {
-        $(
-            impl PartialEq<$rhs> for $lhs {
-                fn eq(&self, o: &$rhs) -> bool {
-                    self.0 == o.0
-                }
-            }
-            impl PartialOrd<$rhs> for $lhs {
-                fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    self.causal_cmp(o)
-                }
-            }
-            impl PartialEq<$rhs> for &$lhs {
-                fn eq(&self, o: &$rhs) -> bool {
-                    self.0 == o.0
-                }
-            }
-            impl PartialOrd<$rhs> for &$lhs {
-                fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    self.causal_cmp(o)
-                }
-            }
-            impl PartialEq<&$rhs> for $lhs {
-                fn eq(&self, o: &&$rhs) -> bool {
-                    self.0 == o.0
-                }
-            }
-            impl PartialOrd<&$rhs> for $lhs {
-                fn partial_cmp(&self, o: &&$rhs) -> Option<Ordering> {
-                    self.causal_cmp(o)
-                }
-            }
-        )*
-    };
+/// Compares canonical version bytes, which uniquely encode causal equality.
+impl PartialEq<Version> for Version {
+    fn eq(&self, other: &Version) -> bool {
+        self.0 == other.0
+    }
 }
 
-causal_cmp_impls! {
-    Version, Version;
+/// Compares an owned version with a borrowed version by canonical bytes.
+impl PartialEq<&Version> for Version {
+    fn eq(&self, other: &&Version) -> bool {
+        self == *other
+    }
+}
+
+/// Compares a borrowed version with an owned version by canonical bytes.
+impl PartialEq<Version> for &Version {
+    fn eq(&self, other: &Version) -> bool {
+        *self == other
+    }
+}
+
+/// Applies the canonical causal comparison to a borrowed right operand.
+impl PartialOrd<&Version> for Version {
+    fn partial_cmp(&self, other: &&Version) -> Option<Ordering> {
+        self.partial_cmp(*other)
+    }
+}
+
+/// Applies the canonical causal comparison to a borrowed left operand.
+impl PartialOrd<Version> for &Version {
+    fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
+        (*self).partial_cmp(other)
+    }
 }

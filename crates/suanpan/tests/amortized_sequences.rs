@@ -2,8 +2,8 @@
 //! rounds-by-width product.
 //!
 //! Hold `-1` at digit 0,
-//! then alternate `add_limbs_shl([1], d)` / `sign()` /
-//! `sub_limbs_shl([1], d)` / `sign()`. Every write is one operand limb
+//! then alternate adding `2^d`, comparing with zero, subtracting `2^d`, and
+//! comparing again. Every write is one operand limb
 //! (amortized `O(1)` touches, shift-independent); every read
 //! flips the sign of a value whose decisive digits sit `d` bits apart.
 //! Re-scanning the gap on each flip would therefore cost `n × d/32`, while the
@@ -26,13 +26,13 @@ fn touches(metered: impl FnOnce()) -> u64 {
 /// Total touches for the wide sign-flip oscillation.
 fn s1(rounds: usize, d_bits: u64) -> u64 {
     let mut acc = Accumulator::new();
-    acc.sub_u64(1);
+    acc -= 1_u64;
     touches(|| {
         for _ in 0..rounds {
-            acc.add_limbs_shl([1], d_bits);
-            assert_eq!(acc.sign(), std::cmp::Ordering::Greater);
-            acc.sub_limbs_shl([1], d_bits);
-            assert_eq!(acc.sign(), std::cmp::Ordering::Less);
+            acc.add_shifted_limbs(d_bits, [1]);
+            assert_eq!(acc.cmp_zero(), std::cmp::Ordering::Greater);
+            acc.sub_shifted_limbs(d_bits, [1]);
+            assert_eq!(acc.cmp_zero(), std::cmp::Ordering::Less);
         }
     })
 }

@@ -306,7 +306,7 @@ impl<'a> Ranked<'a> {
             consumed += 1;
             Ok(byte)
         })?;
-        let version = Version::decode_bytes(buf.slice(consumed..))?;
+        let version = crate::version::io::decode(buf.slice(consumed..))?;
         if !version.rank().encoding_matches(&buf[..consumed]) {
             return Err(Decode::NotCanonical);
         }
@@ -349,21 +349,6 @@ impl core::fmt::Debug for Ranked<'_> {
     }
 }
 
-impl Ranked<'_> {
-    /// Compare ranks, breaking a tie with canonical version bytes.
-    fn total_cmp(&self, other: &Ranked<'_>) -> Ordering {
-        // Identity is the common cheap case. Without this check, equal versions
-        // would be traversed once to establish equal rank and again for the
-        // byte tiebreak.
-        if self.version == other.version {
-            return Ordering::Equal;
-        }
-        self.version
-            .rank_cmp(&other.version)
-            .then_with(|| self.version.as_bytes().cmp(other.version.as_bytes()))
-    }
-}
-
 /// Compares version identity, matching [`Ord`] and [`Hash`](core::hash::Hash).
 impl PartialEq<Ranked<'_>> for Ranked<'_> {
     fn eq(&self, other: &Ranked<'_>) -> bool {
@@ -399,13 +384,21 @@ impl core::hash::Hash for Ranked<'_> {
 )]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.total_cmp(other)
+        // Identity is the common cheap case. Without this check, equal versions
+        // would be traversed once to establish equal rank and again for the
+        // byte tiebreak.
+        if self.version == other.version {
+            return Ordering::Equal;
+        }
+        self.version
+            .rank_cmp(&other.version)
+            .then_with(|| self.version.as_bytes().cmp(other.version.as_bytes()))
     }
 }
 
 /// Returns the total comparison supplied by [`Ord`].
 impl PartialOrd<Ranked<'_>> for Ranked<'_> {
     fn partial_cmp(&self, other: &Ranked<'_>) -> Option<Ordering> {
-        Some(self.total_cmp(other))
+        Some(self.cmp(other))
     }
 }

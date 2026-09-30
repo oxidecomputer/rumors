@@ -61,12 +61,12 @@ impl HeightPrefixes {
     /// The absolute height is `frozen_prefix + live`. The live offset is added
     /// immediately; the prefix coefficient is deferred until settlement.
     pub fn add_leaf(&mut self, live: &Accumulator, total: &mut Accumulator) -> LeafHeight {
-        let (ordering, magnitude) = live.signed_magnitude();
+        let (ordering, magnitude) = live.biguint_parts();
         let negative = ordering == Ordering::Less;
         if negative {
-            total.sub_biguint_shl(&magnitude, 0);
+            total.sub_shifted_limbs(0, magnitude.iter_u64_digits());
         } else {
-            total.add_biguint_shl(&magnitude, 0);
+            total.add_shifted_limbs(0, magnitude.iter_u64_digits());
         }
         *self
             .coefficients
@@ -134,9 +134,9 @@ impl HeightPrefixes {
         let mut product = factor.clone();
         product *= BigUint::from(count);
         if subtract {
-            total.sub_biguint_shl(&product, 0);
+            total.sub_shifted_limbs(0, product.iter_u64_digits());
         } else {
-            total.add_biguint_shl(&product, 0);
+            total.add_shifted_limbs(0, product.iter_u64_digits());
         }
     }
 }

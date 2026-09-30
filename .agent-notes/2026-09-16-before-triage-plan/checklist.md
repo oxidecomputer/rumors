@@ -11,14 +11,15 @@ triage's dispositions and branches are leads only.
       Sources: `gate-legs-*`, `deps-*`, `suite-economics-*`; later fuzz-fit
       failures indexed in the old triage's `new-findings.md`.
 
-- [ ] Audit the meter-harness and proptest changes already landed from the
+- [x] Audit the meter-harness and proptest changes already landed from the
       aborted triage; retain, simplify, consolidate, or revert each coherent
       mechanism by current evidence.
       Sources: `envelopes-a-*`, `envelopes-b-*`, `meter-adequacy-*`,
       `tests-other-*`; aborted-triage changes.
 
-- [ ] Correct crate guideposts that already point to missing modules or stale
-      verification architecture.
+- [ ] Correct crate guideposts and prose that still name missing modules or
+      stale verification architecture, including the removed `implementation`,
+      `version/skyline`, and `codec` paths.
       Sources: `crate-root-*`, `module-graph-*`, `prose-hygiene-*`;
       `crates/before/AGENTS.md` and the current crate docs.
 
@@ -196,23 +197,22 @@ triage's dispositions and branches are leads only.
       Sources: `party-*`, `performance.md` Party entries,
       `simplification.md` Party entries.
 
-- [ ] Apply the same structural standard to Version and related public types:
+- [x] Apply the same structural standard to Version and related public types:
       align internal and public vocabulary, prefer associated behavior over
       detached procedures, and give substantial helper state a focused module.
-      Simplify skyline coding, fill, grow, comparison, query, and watermark so
-      their invariants live in one place and their control flow is reviewable.
+      Keep IO, lattice, measurement, ordering, projection, minima, and ticking
+      behind focused boundaries whose invariants and control flow are
+      reviewable.
       Sources: all `skyline-*` partitions; `module-graph-*`.
 
-- [ ] Audit public methods that merely wrap hidden representation-level
-      helpers. Collapse each pair into one method on the domain type, expressed
-      through domain readers, writers, and manipulators rather than exposing or
-      delegating through raw storage. Check the free `*_core` Span algebra,
-      named projection/operator trampolines, Version ordering aliases, and raw
-      Party/Version construction seams; retain an alias only when it is a
-      deliberate public spelling or an instrumentation boundary with distinct
-      behavior.
+- [x] Keep public operations together in their intended rustdoc order while
+      delegating only to objects that own substantial traversal state or the
+      result being constructed. Put Span's binary algorithms directly on its
+      public methods, use standard operator traits internally rather than
+      parallel aliases, and confine raw Party and Version storage to domain IO
+      or explicit testing instrumentation.
 
-- [ ] Consolidate codec buffers, cursors, builders, and parse paths; delete
+- [x] Consolidate codec buffers, cursors, builders, and parse paths; delete
       redundant validation passes and representations.
       Sources: `codec-bits-*`, `codec-base-text-tree-*`, codec performance
       entries.
@@ -222,10 +222,10 @@ triage's dispositions and branches are leads only.
       carries a clear contract.
       Sources: `suanpan-*`, `suanpan-tests-*`.
 
-- [x] Make suanpan's limb-stream operations preserve their quick-register path
-      for word-sized values, and reduce Before's integer bridge to coherent
-      accumulator methods. Keep compact parked values local unless moving them
-      can preserve both their storage density and suanpan's wide-value costs.
+- [x] Keep fixed-width updates allocation-free, and reduce Before's integer
+      bridge to coherent accumulator operations. Move accumulated values
+      directly between algorithms; normalize only where a returned or retained
+      arbitrary-precision integer is actually required.
 
 - [x] Eliminate `dashu` if the remaining rank and accumulator arithmetic can
       be expressed more simply without it. The intended outcome is one
@@ -237,6 +237,12 @@ triage's dispositions and branches are leads only.
 
 Broad test-suite cleanup follows the behavioral and API work; do not mix it
 into otherwise small feature increments.
+
+- [x] Drive every public suanpan operation through one differential proptest
+      against an arbitrary-precision integer oracle. Deliberately generate the
+      small/digit transition, carry and limb boundaries, sparse high shifts,
+      cancellation, and every primitive conversion limit; retain focused
+      regressions and exact-cost tests where they prove distinct properties.
 
 - [ ] Give the recursive oracle, function-space oracle, algebraic laws, and
       exhaustive enumeration distinct jobs; consolidate duplicated operation

@@ -83,7 +83,18 @@ impl<'a> Span<'a> {
     /// assert_eq!(head.union(&a3), a1.span(&a3));
     /// ```
     pub fn union<'b>(&self, other: impl Into<Span<'b>>) -> Span<'static> {
-        union_core(self, &other.into())
+        let other = other.into();
+        if self.is_coincident() && other.is_coincident() {
+            // The union of two points is their causal hull. `span` computes
+            // its meet and join in one paired walk.
+            return self.lo().span(other.lo());
+        }
+        let mut lo = self.lo().clone();
+        let mut hi = self.hi().clone();
+        lo &= other.lo();
+        hi |= other.hi();
+        // The lower bound only decreased and the upper bound only increased.
+        Span::owned(lo, hi)
     }
 
     /// The tightest [`Span`] covering every input (including `self`).
@@ -158,7 +169,19 @@ impl<'a> Span<'a> {
     /// assert_eq!(a1.span(&a1).intersect(&tail), None);
     /// ```
     pub fn intersect(&self, other: &Span<'_>) -> Option<Span<'static>> {
-        intersect_core(self, other)
+        if self.is_coincident() && other.is_coincident() {
+            // Two points intersect exactly when they are equal.
+            return (self.lo() == other.lo())
+                .then(|| Span::owned(self.lo().clone(), self.lo().clone()));
+        }
+        let mut lo = self.lo().clone();
+        let mut hi = self.hi().clone();
+        lo |= other.lo();
+        hi &= other.hi();
+        match lo.partial_cmp(&hi) {
+            Some(Ordering::Less | Ordering::Equal) => Some(Span::owned(lo, hi)),
+            Some(Ordering::Greater) | None => None,
+        }
     }
 
     /// The largest [`Span`] every input (including `self`) covers, or `None` if
@@ -237,7 +260,18 @@ impl<'a> Span<'a> {
     /// assert_eq!(advanced, a1.span(&a2).join(&b1.span(&b1)));
     /// ```
     pub fn join<'b>(&self, other: impl Into<Span<'b>>) -> Span<'static> {
-        join_core(self, &other.into())
+        let other = other.into();
+        if self.is_coincident() && other.is_coincident() {
+            // Pointwise join keeps a point: both endpoints are the versions'
+            // join and can share its immutable buffer.
+            let joined = self.lo().join(other.lo());
+            return Span::owned(joined.clone(), joined);
+        }
+        let mut lo = self.lo().clone();
+        let mut hi = self.hi().clone();
+        lo |= other.lo();
+        hi |= other.hi();
+        Span::owned(lo, hi)
     }
 
     /// The [`Span`] whose lower and upper bounds are, respectively, the joins
@@ -308,7 +342,18 @@ impl<'a> Span<'a> {
     /// assert_eq!(clamped, a2.span(&a3).meet(&a2.span(&a2)));
     /// ```
     pub fn meet<'b>(&self, other: impl Into<Span<'b>>) -> Span<'static> {
-        meet_core(self, &other.into())
+        let other = other.into();
+        if self.is_coincident() && other.is_coincident() {
+            // Pointwise meet likewise keeps a point and shares one buffer
+            // between its endpoints.
+            let met = self.lo().meet(other.lo());
+            return Span::owned(met.clone(), met);
+        }
+        let mut lo = self.lo().clone();
+        let mut hi = self.hi().clone();
+        lo &= other.lo();
+        hi &= other.hi();
+        Span::owned(lo, hi)
     }
 
     /// The [`Span`] whose lower and upper bounds are, respectively, the meets
@@ -395,8 +440,8 @@ impl<'a> Span<'a> {
                     }
                     (Group::Merged { mut lo, mut hi }, Group::Input(b)) => {
                         let b = b.span();
-                        (ops.lo_in_place)(&mut lo, b.lo());
-                        (ops.hi_in_place)(&mut hi, b.hi());
+                        (ops.assign_lo)(&mut lo, b.lo());
+                        (ops.assign_hi)(&mut hi, b.hi());
                         (lo, hi)
                     }
                     (
@@ -406,8 +451,8 @@ impl<'a> Span<'a> {
                         },
                         Group::Merged { lo: b_lo, hi: b_hi },
                     ) => {
-                        (ops.lo_in_place)(&mut a_lo, &b_lo);
-                        (ops.hi_in_place)(&mut a_hi, &b_hi);
+                        (ops.assign_lo)(&mut a_lo, &b_lo);
+                        (ops.assign_hi)(&mut a_hi, &b_hi);
                         (a_lo, a_hi)
                     }
                     // Unreachable through the counter's weight discipline (a
@@ -417,8 +462,8 @@ impl<'a> Span<'a> {
                     // the raw input into the owned group is value-identical.
                     (Group::Input(a), Group::Merged { mut lo, mut hi }) => {
                         let a = a.span();
-                        (ops.lo_in_place)(&mut lo, a.lo());
-                        (ops.hi_in_place)(&mut hi, a.hi());
+                        (ops.assign_lo)(&mut lo, a.lo());
+                        (ops.assign_hi)(&mut hi, a.hi());
                         (lo, hi)
                     }
                 }
@@ -448,9 +493,9 @@ struct SpanFoldOps {
     /// Combine two borrowed upper endpoints into a fresh owned one.
     hi_refs: fn(&Version, &Version) -> Version,
     /// Fold one borrowed stream into the owned `lo` leg in place.
-    lo_in_place: fn(&mut Version, &Version),
+    assign_lo: fn(&mut Version, &Version),
     /// Fold one borrowed stream into the owned `hi` leg in place.
-    hi_in_place: fn(&mut Version, &Version),
+    assign_hi: fn(&mut Version, &Version),
     /// Combine two point spans, taking advantage of their equal endpoints.
     points: fn(&Version, &Version) -> (Version, Version),
 }
@@ -492,8 +537,8 @@ fn meet_points(a: &Version, b: &Version) -> (Version, Version) {
 const UNION_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::meet,
     hi_refs: Version::join,
-    lo_in_place: Version::meet_in_place,
-    hi_in_place: Version::join_in_place,
+    assign_lo: |version, other| *version &= other,
+    assign_hi: |version, other| *version |= other,
     points: union_points,
 };
 
@@ -501,8 +546,8 @@ const UNION_OPS: SpanFoldOps = SpanFoldOps {
 const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::join,
     hi_refs: Version::meet,
-    lo_in_place: Version::join_in_place,
-    hi_in_place: Version::meet_in_place,
+    assign_lo: |version, other| *version |= other,
+    assign_hi: |version, other| *version &= other,
     points: intersect_points,
 };
 
@@ -510,8 +555,8 @@ const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
 const JOIN_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::join,
     hi_refs: Version::join,
-    lo_in_place: Version::join_in_place,
-    hi_in_place: Version::join_in_place,
+    assign_lo: |version, other| *version |= other,
+    assign_hi: |version, other| *version |= other,
     points: join_points,
 };
 
@@ -519,8 +564,8 @@ const JOIN_OPS: SpanFoldOps = SpanFoldOps {
 const MEET_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::meet,
     hi_refs: Version::meet,
-    lo_in_place: Version::meet_in_place,
-    hi_in_place: Version::meet_in_place,
+    assign_lo: |version, other| *version &= other,
+    assign_hi: |version, other| *version &= other,
     points: meet_points,
 };
 
@@ -575,92 +620,24 @@ impl<'i, 's, T: Borrow<Span<'s>>> Group<FoldInput<'_, 'i, T>> {
     }
 }
 
-/// `a + b`'s kernel: the containment join over borrowed operands.
-fn union_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
-    if a.is_coincident() && b.is_coincident() {
-        // Both endpoints come from the same version pair, so compute their
-        // meet and join together.
-        return a.lo().span(b.lo());
-    }
-    let mut lo = a.lo().clone(); // O(1): a stored version's clone shares its buffer
-    let mut hi = a.hi().clone();
-    lo.meet_in_place(b.lo());
-    hi.join_in_place(b.hi());
-    // The lower bound only decreased and the upper bound only increased, so
-    // the result preserves the input span's endpoint order.
-    Span::owned(lo, hi)
-}
-
-/// `a * b`'s kernel: the containment meet over borrowed operands, or [`None`]
-/// where the segments share no version.
-fn intersect_core(a: &Span<'_>, b: &Span<'_>) -> Option<Span<'static>> {
-    if a.is_coincident() && b.is_coincident() {
-        // Two points share a version exactly when they are equal: one byte
-        // compare, no walk.
-        return (a.lo() == b.lo()).then(|| Span::owned(a.lo().clone(), a.lo().clone()));
-    }
-    let mut lo = a.lo().clone();
-    let mut hi = a.hi().clone();
-    lo.join_in_place(b.lo());
-    hi.meet_in_place(b.hi());
-    // Common versions exist exactly when the new lower bound is at most the
-    // new upper bound; incomparable endpoints also mean an empty intersection.
-    match lo.partial_cmp(&hi) {
-        Some(Ordering::Less | Ordering::Equal) => Some(Span::owned(lo, hi)),
-        Some(Ordering::Greater) | None => None,
-    }
-}
-
-/// `a | b`'s kernel: the pointwise join over borrowed operands.
-fn join_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
-    if a.is_coincident() && b.is_coincident() {
-        // On points the pointwise operation is exactly the version operator: one walk feeds
-        // both endpoints, stored twice (the clones share one buffer, keeping
-        // the result coincident).
-        let v = a.lo().join(b.lo());
-        return Span::owned(v.clone(), v);
-    }
-    let mut lo = a.lo().clone();
-    let mut hi = a.hi().clone();
-    lo.join_in_place(b.lo());
-    hi.join_in_place(b.hi());
-    // Ordered by construction: `hi` bounds every operand endpoint from above,
-    // the joined meets included.
-    Span::owned(lo, hi)
-}
-
-/// `a & b`'s kernel: the pointwise meet over borrowed operands, dually to
-/// [`join_core`] in every clause.
-fn meet_core(a: &Span<'_>, b: &Span<'_>) -> Span<'static> {
-    if a.is_coincident() && b.is_coincident() {
-        let v = a.lo().meet(b.lo());
-        return Span::owned(v.clone(), v);
-    }
-    let mut lo = a.lo().clone();
-    let mut hi = a.hi().clone();
-    lo.meet_in_place(b.lo());
-    hi.meet_in_place(b.hi());
-    Span::owned(lo, hi)
-}
-
 /// Implements a total span operator for owned and borrowed receivers.
 ///
 /// The right operand may be any span-convertible value. The result owns its
 /// endpoints, so the operand lifetimes remain independent.
 macro_rules! span_total_binop_matrix {
-    ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident) => {
+    ($(#[$doc:meta])* $Op:ident::$op:ident, $method:ident) => {
         $(#[$doc])*
         impl<'a, 'b, T: Into<Span<'b>>> $Op<T> for Span<'a> {
             type Output = Span<'static>;
             fn $op(self, r: T) -> Span<'static> {
-                $core(&self, &r.into())
+                Span::$method(&self, r)
             }
         }
         $(#[$doc])*
         impl<'a, 'b, T: Into<Span<'b>>> $Op<T> for &Span<'a> {
             type Output = Span<'static>;
             fn $op(self, r: T) -> Span<'static> {
-                $core(self, &r.into())
+                Span::$method(self, r)
             }
         }
     };
@@ -678,33 +655,33 @@ macro_rules! span_total_binop_matrix {
 /// version lattice says, while `v + w` must stay absent — `Sum` for
 /// [`Version`] is the join fold, which a version-pair `+` would contradict.
 macro_rules! span_version_lhs_matrix {
-    ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident) => {
+    ($(#[$doc:meta])* $Op:ident::$op:ident, $method:ident) => {
         $(#[$doc])*
         impl<'b> $Op<Span<'b>> for Version {
             type Output = Span<'static>;
             fn $op(self, r: Span<'b>) -> Span<'static> {
-                $core(&Span::at(&self), &r)
+                Span::$method(&Span::at(&self), r)
             }
         }
         $(#[$doc])*
         impl<'b> $Op<&Span<'b>> for Version {
             type Output = Span<'static>;
             fn $op(self, r: &Span<'b>) -> Span<'static> {
-                $core(&Span::at(&self), r)
+                Span::$method(&Span::at(&self), r)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<Span<'b>> for &'a Version {
             type Output = Span<'static>;
             fn $op(self, r: Span<'b>) -> Span<'static> {
-                $core(&Span::at(self), &r)
+                Span::$method(&Span::at(self), r)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<&Span<'b>> for &'a Version {
             type Output = Span<'static>;
             fn $op(self, r: &Span<'b>) -> Span<'static> {
-                $core(&Span::at(self), r)
+                Span::$method(&Span::at(self), r)
             }
         }
     };
@@ -715,33 +692,33 @@ macro_rules! span_version_lhs_matrix {
 /// Unlike total operators, intersection accepts only actual spans. Implicitly
 /// widening a version to a point would make disjointness too easy to overlook.
 macro_rules! span_binop_matrix {
-    ($(#[$doc:meta])* $Op:ident::$op:ident, $core:ident, $Out:ty) => {
+    ($(#[$doc:meta])* $Op:ident::$op:ident, $method:ident, $Out:ty) => {
         $(#[$doc])*
         impl<'a, 'b> $Op<Span<'b>> for Span<'a> {
             type Output = $Out;
             fn $op(self, r: Span<'b>) -> $Out {
-                $core(&self, &r)
+                Span::$method(&self, &r)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<&Span<'b>> for Span<'a> {
             type Output = $Out;
             fn $op(self, r: &Span<'b>) -> $Out {
-                $core(&self, r)
+                Span::$method(&self, r)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<Span<'b>> for &Span<'a> {
             type Output = $Out;
             fn $op(self, r: Span<'b>) -> $Out {
-                $core(self, &r)
+                Span::$method(self, &r)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<&Span<'b>> for &Span<'a> {
             type Output = $Out;
             fn $op(self, r: &Span<'b>) -> $Out {
-                $core(self, r)
+                Span::$method(self, r)
             }
         }
     };
@@ -776,7 +753,7 @@ span_total_binop_matrix! {
     /// // The version was taken as its point span.
     /// assert_eq!(advanced, &a1.span(&a2) | &b1.span(&b1));
     /// ```
-    BitOr::bitor, join_core
+    BitOr::bitor, join
 }
 
 span_total_binop_matrix! {
@@ -807,7 +784,7 @@ span_total_binop_matrix! {
     /// let (s, t) = (a1.span(&a2), a2.span(&a3));
     /// assert_eq!(&(&s | &t) & &s, s);
     /// ```
-    BitAnd::bitand, meet_core
+    BitAnd::bitand, meet
 }
 
 span_total_binop_matrix! {
@@ -839,7 +816,7 @@ span_total_binop_matrix! {
     /// // …and the version was taken as its point span, the same from either side.
     /// assert_eq!(both, &b1.span(&b1) + &ours);
     /// ```
-    Add::add, union_core
+    Add::add, union
 }
 
 span_version_lhs_matrix! {
@@ -866,7 +843,7 @@ span_version_lhs_matrix! {
     /// // The same span from either side of the symbol.
     /// assert_eq!(&b1 | &a1.span(&a2), &a1.span(&a2) | &b1);
     /// ```
-    BitOr::bitor, join_core
+    BitOr::bitor, join
 }
 
 span_version_lhs_matrix! {
@@ -893,7 +870,7 @@ span_version_lhs_matrix! {
     /// assert_eq!(&a2 & &a2.span(&a3), a2.span(&a2));
     /// assert_eq!(&a2 & &a2.span(&a3), &a2.span(&a3) & &a2);
     /// ```
-    BitAnd::bitand, meet_core
+    BitAnd::bitand, meet
 }
 
 span_version_lhs_matrix! {
@@ -924,7 +901,7 @@ span_version_lhs_matrix! {
     /// // The same union from either side of the symbol.
     /// assert_eq!(&b1 + &a1.span(&a2), &a1.span(&a2) + &b1);
     /// ```
-    Add::add, union_core
+    Add::add, union
 }
 
 span_binop_matrix! {
@@ -959,18 +936,18 @@ span_binop_matrix! {
     /// // …and disjoint segments have no intersection.
     /// assert_eq!(&a1.span(&a1) * &tail, None);
     /// ```
-    Mul::mul, intersect_core, Option<Span<'static>>
+    Mul::mul, intersect, Option<Span<'static>>
 }
 
 /// Implements an assigning span operator for any span-convertible right side.
 ///
 /// `a ⊕= b` is exactly `a = a ⊕ b`, using the same kernel.
 macro_rules! span_assign_matrix {
-    ($(#[$doc:meta])* $Assign:ident::$assign:ident, $core:ident) => {
+    ($(#[$doc:meta])* $Assign:ident::$assign:ident, $method:ident) => {
         $(#[$doc])*
         impl<'a, 'b, T: Into<Span<'b>>> $Assign<T> for Span<'a> {
             fn $assign(&mut self, r: T) {
-                *self = $core(self, &r.into());
+                *self = Span::$method(self, r);
             }
         }
     };
@@ -985,7 +962,7 @@ span_assign_matrix! {
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
-    BitOrAssign::bitor_assign, join_core
+    BitOrAssign::bitor_assign, join
 }
 
 span_assign_matrix! {
@@ -997,7 +974,7 @@ span_assign_matrix! {
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
-    BitAndAssign::bitand_assign, meet_core
+    BitAndAssign::bitand_assign, meet
 }
 
 span_assign_matrix! {
@@ -1009,7 +986,7 @@ span_assign_matrix! {
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
-    AddAssign::add_assign, union_core
+    AddAssign::add_assign, union
 }
 
 /// Generates the union-fold collection impls for one item shape.

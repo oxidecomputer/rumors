@@ -69,8 +69,8 @@ pub mod query_env {
     // accumulator instead of skipping the meet leg, which is what buys
     // its heap, scan, and touch readings down to the distance row's
     // neighborhood.
-    pub const DISTANCE_JUMP_PAIR: Envelope           = envelope(  5_750, band(208_749, 125_249), band(2_694_095, 1_616_457)); // the fused co-sweep with cluster-delegated settle products and certificate skips; this pair freezes early, so the segment feed's deposits are the pre-freeze prefix alone, and the max_depth pre-scan records each payload skip once, twice per pair walk
-    pub const LAG_JUMP_PAIR: Envelope                = envelope(  5_750, band(173_492, 104_094), band(2_694_095, 1_616_457)); // the one-sided functional over the same fused co-sweep as the distance row
+    pub const DISTANCE_JUMP_PAIR: Envelope           = envelope(  5_750,  band(158_194, 94_916), band(2_694_095, 1_616_457)); // the fused co-sweep applies signed differences directly and settles each frozen segment once; the pre-scan still records each payload skip once per operand
+    pub const LAG_JUMP_PAIR: Envelope                = envelope(  5_750,  band(145_950, 87_570), band(2_694_095, 1_616_457)); // the one-sided functional over the same fused co-sweep as the distance row
     pub const DISTANCE_CONCURRENT: Envelope          = envelope(      0,   band(32_429, 19_457),      band(117_753, 70_651)); // orientation-switch density on word-scale heights: the pair never freezes, so no segment feed deposits
     pub const LAG_CONCURRENT: Envelope               = envelope(      0,   band(33_278, 19_966),      band(117_753, 70_651)); // the one-sided functional over the same switch-dense overlay
     // The masked-comparison rows:

@@ -29,7 +29,7 @@ fn version_of(p: &Encoding) -> Version {
 
 /// The sweep's causal order of two versions, on their stored streams.
 fn cmp_enc(a: &Version, b: &Version) -> Option<Ordering> {
-    a.causal_cmp(b)
+    a.partial_cmp(b)
 }
 
 /// Assert all four entry points agree with the recursive oracle's
@@ -37,14 +37,14 @@ fn cmp_enc(a: &Version, b: &Version) -> Option<Ordering> {
 fn assert_verdicts(a: &Version, b: &Version) {
     let want = to_oracle_version(a).partial_cmp(&to_oracle_version(b));
     assert_eq!(
-        a.causal_cmp(b),
+        a.partial_cmp(b),
         want,
-        "causal_cmp disagrees with the recursive oracle: {a:?} vs {b:?}"
+        "partial_cmp disagrees with the recursive oracle: {a:?} vs {b:?}"
     );
     assert_eq!(
-        b.causal_cmp(a),
+        b.partial_cmp(a),
         want.map(Ordering::reverse),
-        "causal_cmp breaks antisymmetry against the recursive oracle: {b:?} vs {a:?}"
+        "partial_cmp breaks antisymmetry against the recursive oracle: {b:?} vs {a:?}"
     );
     let equal = want == Some(Ordering::Equal);
     assert_eq!(a.walk_eq(b), equal, "eq disagrees: {a:?} vs {b:?}");
@@ -179,9 +179,9 @@ fn exhaustive_small_scope_agrees() {
         for (tb, vb) in &pool {
             let want = ta.partial_cmp(tb);
             assert_eq!(
-                va.causal_cmp(vb),
+                va.partial_cmp(vb),
                 want,
-                "causal_cmp disagrees: {va:?} vs {vb:?}"
+                "partial_cmp disagrees: {va:?} vs {vb:?}"
             );
             assert_eq!(
                 va.walk_eq(vb),
@@ -236,7 +236,7 @@ proptest! {
         for (ta, va) in &pool {
             for (tb, vb) in &pool {
                 let want = ta.partial_cmp(tb);
-                prop_assert_eq!(va.causal_cmp(vb), want, "causal_cmp disagrees: {:?} vs {:?}", va, vb);
+                prop_assert_eq!(va.partial_cmp(vb), want, "partial_cmp disagrees: {:?} vs {:?}", va, vb);
                 prop_assert_eq!(
                     va.walk_eq(vb),
                     want == Some(Ordering::Equal),

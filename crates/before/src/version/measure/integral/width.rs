@@ -29,7 +29,7 @@ impl ScaledWidth {
     /// rewrite digits and lower the lowest-written position, making this read
     /// traverse a prefix it could otherwise skip.
     pub fn read(width: &Accumulator) -> Self {
-        let (sign, magnitude, shift) = width.scaled_signed_magnitude();
+        let (sign, magnitude, shift) = width.scaled_biguint_parts();
         debug_assert_ne!(sign, Ordering::Less, "interval widths only accumulate");
         Self { magnitude, shift }
     }
@@ -41,7 +41,7 @@ impl ScaledWidth {
 
     /// Add this relative width to another sum, retaining its scale.
     pub fn add_to(&self, total: &mut Accumulator) {
-        total.add_biguint_shl(&self.magnitude, self.shift);
+        total.add_shifted_limbs(self.shift, self.magnitude.iter_u64_digits());
     }
 
     /// Convert the width to balanced digits before multiplying by a height.
@@ -86,7 +86,7 @@ impl SparseWidth {
     }
 
     /// Number of stored digits: the work needed to merge this width.
-    pub fn digit_count(&self) -> usize {
+    pub fn stored_digit_count(&self) -> usize {
         self.digits.len()
     }
 
@@ -187,9 +187,9 @@ impl SparseWidth {
                 product *=
                     u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
                 if (sign == Sign::Minus) != digit.is_negative() {
-                    total.sub_biguint_shl(&product, 32 * index);
+                    total.sub_shifted_limbs(32 * index, product.iter_u64_digits());
                 } else {
-                    total.add_biguint_shl(&product, 32 * index);
+                    total.add_shifted_limbs(32 * index, product.iter_u64_digits());
                 }
                 continue;
             }
@@ -215,9 +215,9 @@ impl SparseWidth {
                 if !part.is_empty {
                     let product = height * &BigUint::from_bytes_le(&part.bytes);
                     if sign == part_sign {
-                        total.add_limbs_shl(product.iter_u64_digits(), 32 * floor_index);
+                        total.add_shifted_limbs(32 * floor_index, product.iter_u64_digits());
                     } else {
-                        total.sub_limbs_shl(product.iter_u64_digits(), 32 * floor_index);
+                        total.sub_shifted_limbs(32 * floor_index, product.iter_u64_digits());
                     }
                 }
             }

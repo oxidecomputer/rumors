@@ -733,16 +733,16 @@ pub extern "C" fn pin_suanpan_landing(case: u64) -> i64 {
     let mut acc = Accumulator::new();
     match case {
         // The third limb's low digit lands four positions above the base.
-        1 => acc.add_limbs_shl([0, 0, 5], 32 * (max - 3)),
+        1 => acc.add_shifted_limbs(32 * (max - 3), [0, 0, 5]),
         // The only nonzero held digit lands two positions above the base.
         2 => {
-            acc.add_u64(1);
-            acc.shl(64);
-            acc.shl(32 * (max - 1));
+            acc += 1_u64;
+            acc <<= 64;
+            acc <<= 32 * (max - 1);
         }
         // This position fits usize, but the required length does not.
-        3 => acc.add_u64_shl(1, 32 * max),
+        3 => acc.add_shifted_limbs(32 * max, [1]),
         _ => return -1,
     }
-    i64::try_from(acc.digit_count()).unwrap_or(-2)
+    i64::try_from(acc.stored_digit_count()).unwrap_or(-2)
 }

@@ -15,7 +15,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use num_bigint::BigUint;
 
 use crate::{
-    bits::{BitRead, Bits, BitsReader},
+    bits::{BitRead, BitsReader},
     error::Decode,
     span::Span,
     testing::instrument::scan,
@@ -140,7 +140,7 @@ fn deserialize_party<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
     bits.finish().map_err(decode_error)
 }
 
-/// Read and validate one byte-aligned canonical version skyline,
+/// Read and validate one byte-aligned canonical version tree,
 /// returning its canonical marker-padded bytes.
 fn deserialize_version<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
     let mut bits = StreamBitsReader::new(reader);
@@ -168,7 +168,7 @@ impl BorshDeserialize for Party {
         // child. A complete parsed tree therefore satisfies Party's nonempty
         // ownership invariant.
         let bytes = deserialize_party(reader)?;
-        Ok(Party::from_frozen(Bits::from_canonical(bytes.into())))
+        Ok(crate::party::io::from_canonical(bytes.into()))
     }
 }
 

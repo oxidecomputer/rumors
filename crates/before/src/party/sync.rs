@@ -15,7 +15,29 @@ impl Party {
     /// The result is identical to [`Party::join`] followed by [`Party::fork`].
     /// Overlap is rejected exactly as it is by `join`.
     pub(crate) fn sync(&self, other: &Party) -> Option<(Party, Party)> {
-        Sync::between(self, other)
+        let mut sync = Sync {
+            a: self.reader(),
+            b: other.reader(),
+            prefix: PartyWriter::new(),
+        };
+        // Before ownership can divide, the union may follow a chain of
+        // one-child branches. Both results need that same prefix, so retain it
+        // once and duplicate it only when the union first reaches two children.
+        loop {
+            let a_start = sync.a.offset();
+            let b_start = sync.b.offset();
+            let a = Sync::branch_or_overlap(sync.a.read())?;
+            let b = Sync::branch_or_overlap(sync.b.read())?;
+            let joined = a.union(b);
+            if joined == PartyBranch::Both {
+                // This is the first place the union can be split into two
+                // nonempty shares. The helper finishes each child without
+                // rebuilding the prefix or materializing the whole union.
+                return sync.fork_joined_branch(a, b, a_start, b_start);
+            }
+
+            sync.prefix.branch(joined);
+        }
     }
 }
 
@@ -37,27 +59,6 @@ struct Sync<'a> {
 }
 
 impl<'a> Sync<'a> {
-    /// Join two parties and fork their union in one traversal.
-    fn between(a: &'a Party, b: &'a Party) -> Option<(Party, Party)> {
-        let mut sync = Self {
-            a: a.reader(),
-            b: b.reader(),
-            prefix: PartyWriter::new(),
-        };
-        loop {
-            let a_start = sync.a.offset();
-            let b_start = sync.b.offset();
-            let a = Self::branch_or_overlap(sync.a.read())?;
-            let b = Self::branch_or_overlap(sync.b.read())?;
-            let joined = a.union(b);
-            if joined == PartyBranch::Both {
-                return sync.fork_joined_branch(a, b, a_start, b_start);
-            }
-
-            sync.prefix.branch(joined);
-        }
-    }
-
     /// Return the branch, or reject the overlap exposed by an owned region.
     fn branch_or_overlap(node: PartyNode) -> Option<PartyBranch> {
         match node {

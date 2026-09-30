@@ -1,14 +1,16 @@
-//! Differential and structural tests for the accumulator, against an
-//! exact `IBig` oracle.
+//! Compare exact arithmetic with an independent big-integer oracle.
 //!
-//! The shared helpers construct either accumulator representation, compare
-//! both readouts with an independent big-integer oracle, and build values
-//! from limb streams.
+//! Starting each schedule in both representations protects the scalar fast
+//! path as well as digit arithmetic. Inspecting the private invariants catches
+//! stale zero ranges that might corrupt a later query even when the current
+//! value still reads correctly.
 
 mod differential;
-mod ledger;
 #[cfg(feature = "touch-meter")]
 mod metered;
+mod primitives;
+mod representation;
+mod surface;
 mod witnesses;
 
 use core::cmp::Ordering;
@@ -17,13 +19,14 @@ use num_bigint::{BigInt as IBig, BigUint as UBig, Sign};
 
 use super::Accumulator;
 
-/// A fresh accumulator in the requested mode: the quick register, or
-/// the digit engine armed by a forced spill — so every schedule drives
-/// both starting modes and neither path's coverage goes vacuous.
-fn fresh(engine: bool) -> Accumulator {
+/// Start at zero in either the scalar or digit representation.
+///
+/// Forcing digits lets each schedule exercise both paths even when all its
+/// values would fit in the scalar.
+fn fresh(digits: bool) -> Accumulator {
     let mut acc = Accumulator::new();
-    if engine {
-        acc.spill();
+    if digits {
+        acc.ensure_digits();
     }
     acc
 }
@@ -43,27 +46,32 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
 
 /// Assert that both limb readouts denote the oracle's exact signed value.
 fn assert_value(acc: &Accumulator, oracle: &IBig) {
-    let (limb_sign, limbs) = acc.sign_limbs();
-    assert_eq!(limb_sign, oracle_sign(oracle), "sign_limbs sign");
+    let expected_sign = oracle_sign(oracle);
+    let (sign, limbs) = acc.signed_magnitude();
+    assert_eq!(sign, expected_sign, "unscaled sign");
+    assert_ne!(limbs.as_ref().last(), Some(&0), "no high zero limb");
+    let magnitude = IBig::from(from_limbs(limbs.as_ref()));
+    let rebuilt = if sign == Ordering::Less {
+        -magnitude
+    } else {
+        magnitude
+    };
+    assert_eq!(&rebuilt, oracle, "unscaled value");
+
+    let (sign, limbs, shift) = acc.scaled_signed_magnitude();
+    assert_eq!(sign, expected_sign, "scaled sign");
     assert_ne!(
-        limbs.last(),
+        limbs.as_ref().last(),
         Some(&0),
-        "sign_limbs limbs are minimal: no high zero limb"
+        "no high zero limb at scale"
     );
-    let rebuilt = match limb_sign {
-        Ordering::Less => -IBig::from(from_limbs(&limbs)),
-        _ => IBig::from(from_limbs(&limbs)),
+    let magnitude = IBig::from(from_limbs(limbs.as_ref())) << usize::try_from(shift).unwrap();
+    let rebuilt = if sign == Ordering::Less {
+        -magnitude
+    } else {
+        magnitude
     };
-    assert_eq!(&rebuilt, oracle, "sign_limbs magnitude");
-    // The scaled read denotes the same value: ±magnitude · 2^shift.
-    let (shl_sign, shl_limbs, shift) = acc.sign_limbs_shl();
-    assert_eq!(shl_sign, limb_sign, "sign_limbs_shl sign");
-    let scaled = IBig::from(from_limbs(&shl_limbs)) << usize::try_from(shift).unwrap();
-    let rebuilt = match shl_sign {
-        Ordering::Less => -scaled,
-        _ => scaled,
-    };
-    assert_eq!(&rebuilt, oracle, "sign_limbs_shl magnitude at scale");
+    assert_eq!(&rebuilt, oracle, "scaled value");
 }
 
 /// A wide magnitude from little-endian 64-bit limbs.
@@ -92,45 +100,54 @@ trait TestBig {
     fn sign_biguint_shl(&self) -> (Ordering, UBig, u64);
 }
 
+/// Keep the oracle library outside the production arithmetic paths.
 impl TestBig for Accumulator {
+    /// Stream an unscaled magnitude without copying its limbs.
     fn add_limb_value(&mut self, value: &UBig) {
-        self.add_limbs_shl(value.iter_u64_digits(), 0);
+        self.add_shifted_limbs(0, value.iter_u64_digits());
     }
 
+    /// Subtract an unscaled magnitude without copying its limbs.
     fn sub_limb_value(&mut self, value: &UBig) {
-        self.sub_limbs_shl(value.iter_u64_digits(), 0);
+        self.sub_shifted_limbs(0, value.iter_u64_digits());
     }
 
+    /// Stream a magnitude directly into its shifted positions.
     fn add_limb_value_shl(&mut self, value: &UBig, shift: u64) {
-        self.add_limbs_shl(value.iter_u64_digits(), shift);
+        self.add_shifted_limbs(shift, value.iter_u64_digits());
     }
 
+    /// Deposit negative contributions directly at the requested shift.
     fn sub_limb_value_shl(&mut self, value: &UBig, shift: u64) {
-        self.sub_limbs_shl(value.iter_u64_digits(), shift);
+        self.sub_shifted_limbs(shift, value.iter_u64_digits());
     }
 
+    /// Exercise array-backed word input whenever the oracle fits one limb.
     fn add_value_shl(&mut self, value: &UBig, shift: u64) {
         match oracle_word(value) {
-            Some(word) => self.add_u64_shl(word, shift),
+            Some(word) => self.add_shifted_limbs(shift, [word]),
             None => self.add_limb_value_shl(value, shift),
         }
     }
 
+    /// Exercise array-backed negative input whenever the oracle fits one limb.
     fn sub_value_shl(&mut self, value: &UBig, shift: u64) {
         match oracle_word(value) {
-            Some(word) => self.sub_u64_shl(word, shift),
+            Some(word) => self.sub_shifted_limbs(shift, [word]),
             None => self.sub_limb_value_shl(value, shift),
         }
     }
 
+    /// Build the oracle directly from the borrowed normalized limbs.
     fn sign_biguint(&self) -> (Ordering, UBig) {
-        let (sign, limbs) = self.sign_limbs();
-        (sign, from_limbs(&limbs))
+        let (sign, limbs) = self.signed_magnitude();
+        (sign, from_limbs(limbs.as_ref()))
     }
 
+    /// Preserve the returned scale while converting the borrowed magnitude.
     fn sign_biguint_shl(&self) -> (Ordering, UBig, u64) {
-        let (sign, limbs, shift) = self.sign_limbs_shl();
-        (sign, from_limbs(&limbs), shift)
+        let (sign, limbs, shift) = self.scaled_signed_magnitude();
+        (sign, from_limbs(limbs.as_ref()), shift)
     }
 }
 
@@ -143,46 +160,15 @@ fn oracle_word(value: &UBig) -> Option<u64> {
     }
 }
 
-/// Deposit `−(2^33 − 1)` — the lazy zone's most negative digit — at
-/// digit `index` through the public word-scale entry points, without
-/// triggering a recenter.
+/// Put the smallest permitted coefficient, `−(2^33 − 1)`, at `index`.
 ///
-/// Two deposits of `−2^32` and `−(2^32 − 1)` land in one digit because
-/// each intermediate total stays inside the zone; a single deposit of
-/// the full value would recenter. This is the construction behind the
-/// extreme-cancellation witnesses and the differential suite's
-/// accumulator-operand probes: any digit can be parked one unit inside the
-/// zone boundary.
+/// Both the intermediate and final coefficients stay strictly above `−2^33`,
+/// so these word inputs do not carry. The resulting coefficient is useful
+/// for testing the largest possible cancellation below a deciding high digit.
 fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
-    // The construction is a digit-engine spelling: arm the engine so
-    // the register cannot fuse the two deposits into one exact value.
-    acc.spill();
-    acc.sub_u64_shl(1u64 << 32, 32 * index);
-    acc.sub_u64_shl((1u64 << 32) - 1, 32 * index);
-}
-
-/// `into_i64` extracts only quick-register values that fit and otherwise
-/// returns the accumulator unchanged.
-#[test]
-fn into_i64_is_a_representation_query() {
-    let mut minimum = Accumulator::new();
-    minimum.add_small(i64::MIN);
-    assert_eq!(minimum.into_i64().unwrap(), i64::MIN);
-
-    let mut maximum = Accumulator::new();
-    maximum.add_small(i64::MAX);
-    assert_eq!(maximum.into_i64().unwrap(), i64::MAX);
-
-    let mut too_wide = Accumulator::new();
-    too_wide.add_u64_shl(1, 64);
-    let too_wide = too_wide.into_i64().expect_err("2^64 does not fit in i64");
-    assert_value(&too_wide, &(IBig::from(1u8) << 64));
-
-    let mut spilled = Accumulator::new();
-    spilled.add_small(7);
-    spilled.spill();
-    let spilled = spilled
-        .into_i64()
-        .expect_err("a digit-engine value is not normalized for this query");
-    assert_value(&spilled, &IBig::from(7u8));
+    // Store both updates as digits so their sum remains one extreme signed
+    // coefficient instead of being combined in the scalar.
+    acc.ensure_digits();
+    acc.sub_shifted_limbs(32 * index, [1u64 << 32]);
+    acc.sub_shifted_limbs(32 * index, [(1u64 << 32) - 1]);
 }

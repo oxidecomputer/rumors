@@ -2,331 +2,140 @@
 
 <!-- cargo-rdme start -->
 
-*Cliff-free* signed accumulators: redundant balanced signed digits with no
-carry cliffs anywhere — machine-word deltas and sign reads amortized O(1),
-limb-stream deltas amortized O(operand limbs), on every input sequence.
+Exact signed accumulation with bounded carry and cancellation work.
 
-`Accumulator` holds a running signed integer — a running total, a running
-difference of two totals, a running weighted sum — under interleaved adds,
-subtracts, and sign reads:
+`Accumulator` maintains a running integer while positive and negative
+updates interleave. It is designed for workloads in which a normalized big
+integer could repeatedly traverse the same high-order bits—for example, a
+weighted sum that moves back and forth across a carry boundary. Suanpan
+postpones that work and ensures that later comparisons do not repeatedly
+pay for the same cancellation.
 
 ```rust
 use core::cmp::Ordering;
 use suanpan::Accumulator;
 
-let mut acc = Accumulator::new();
-acc.add_u64_shl(1, 512);                      // park a total on a carry boundary
+let mut total = Accumulator::new();
+total.add_shifted_limbs(512, [1]);
 for _ in 0..1_000 {
-    acc.sub_small(1);                         // oscillate across it: amortized O(1) each
-    assert_eq!(acc.sign(), Ordering::Greater);
-    acc.add_small(1);
+    total -= 1_i64;
+    assert_eq!(total.cmp_zero(), Ordering::Greater);
+    total += 1_i64;
 }
-let (sign, limbs) = acc.sign_limbs();          // one carry pass, at the very end
+let (sign, limbs) = total.signed_magnitude();
 assert_eq!(sign, Ordering::Greater);
-assert_eq!(limbs, [0, 0, 0, 0, 0, 0, 0, 0, 1]);
+assert_eq!(limbs.as_ref(), [0, 0, 0, 0, 0, 0, 0, 0, 1]);
 ```
 
-These amortized bounds hold over every operation sequence, not merely on
-average. The sections below explain how the representation pays for them.
+## Operations
 
-## The problem: carry cliffs
+Construct zero with `Accumulator::new` or `Default`, or convert any
+primitive integer with `From`. Standard `+`, `-`, `+=`, `-=`, unary `-`,
+`<<`, and `<<=` operations accept the corresponding owned, borrowed, or
+primitive values. Consuming operations reuse their left operand; owned
+addition may instead reuse either input's allocation because addition is
+commutative.
 
-Keep a running total in a normalized big integer and park its value at `2^k
-− 1`. Adding 1 then subtracting it back, over and over, propagates a full
-k-bit carry and then a full k-bit borrow per pair: Θ(k) limb work bought by
-O(1) bits of delta — and when the stream itself built the k-bit total,
-quadratic in the stream's length. The cliff is not a quirk of one library;
-it is the price of *normal form*. A normalized representation spells each
-value exactly one way, so two values that differ by 1 can differ in every
-digit — and a type that must always hold the normal spelling must pay the
-full rewrite every time a small delta crosses a carry boundary. Any workload
-whose deltas mix signs near such a boundary inherits the cost.
+Arbitrary-width magnitudes can be streamed as little-endian `u64` limbs
+through `add_shifted_limbs` and
+`sub_shifted_limbs`. The shift comes first
+and multiplies the streamed value by that power of two; use zero for an
+unscaled value. The analogous accumulator methods avoid constructing a
+shifted temporary.
 
-## The representation
+`cmp_zero` returns the exact comparison. It takes `&mut self`
+because the query compacts cancellation so later queries do not repeat the
+work. `is_known_zero` is a cheaper one-sided
+check: `true` proves zero; `false` means the stored form is inconclusive.
 
-Value storage is two-tier. Every accumulator begins in the *quick register*:
-the exact value in one `i128`, held while it and every operand stay
-word-scale (magnitudes to `2^96`, shifts to 30 bits) — there, an add is one
-machine addition and a sign read one comparison. The first limb stream,
-large shift, or outgrown sum spills the register into the digit
-representation below, once per `reset` epoch and at
-O(1) cost. The spill is one-way, so the register is not the two-zone design
-rejected later in this section: there is no boundary a delta stream can
-oscillate across — crossing it retires it — and every amortized bound below
-holds with the register in front, since register operations are exact and
-O(1). The digit representation is the accumulator's load-bearing tier:
+`signed_magnitude` returns normalized limbs
+and may allocate in proportion to the accumulator's working width. The scaled form returns
+a known power-of-two factor separately, which can avoid materializing an
+unused low zero prefix. Primitive `TryFrom` conversions are exact, and
+return the original accumulator on failure so its storage can still be
+reused.
 
-An accumulator stores little-endian signed digits `dᵢ: i64` denoting `value
-= Σ dᵢ · 2^(32·i)`, each digit kept in the *lazy zone* `|dᵢ| < 2^33` — twice
-the digit base, and symmetric about zero. The representation is *redundant*:
-a value has many spellings, no operation requires the normal one, and
-nothing eagerly normalizes. It is *balanced*: digits carry their own signs,
-so a subtraction is just a negated addition and no borrow machinery exists.
+To compare two totals, subtract one from a clone of the other and compare
+the difference with zero. When their scales differ greatly,
+`cmp_zero_stable_under` can avoid reading the
+smaller total: `Some(ordering)` means every adjustment within the supplied
+bit bound is too small to change that comparison; `None` means the caller
+must perform the subtraction.
 
-Every deposit a write makes lands in one digit (a machine-word delta is one
-deposit; a limb stream makes one per limb), forming the sum `t` in wider
-(128-bit) intermediate arithmetic so nothing overflows. If `t` is in the
-zone, it becomes the digit and that is the whole write. If not, the digit
-*recenters*: it carries `c = (t + 2^31) >> 32` upward (an arithmetic shift)
-and keeps the remainder `t − c·2^32`, which lands in `[−2^31, 2^31)`. Two
-facts make this cheap: a freshly recentered digit must absorb at
-least `2^33 − 2^31` of further net inflow before it can carry again, and a
-carry chain attenuates fast — the first carry out of a word-scale write is
-at most about `2^32`, and the next is already a handful of units, tiny
-against the inflow the digit above needs before it carries on. So sustained
-carry traffic thins out geometrically with height, and the total carry work
-is dominated by the deltas that entered below. The write bounds are
-amortized: a single call can be caught repaying a run of digits that earlier
-writes parked near the zone's edge, but never more than those writes prepaid
-— over any sequence, total digit work stays O(1) per machine-word call and
-O(operand limbs) per streamed call.
+## Costs and storage
 
-Machine-word deltas are therefore amortized O(1) digit work. A streamed delta
-enters limb by limb — throughout this page a *limb* is one 64-bit word of
-the operand's value — each
-limb landing as two contributions at the digit positions it spans, for
-amortized O(operand limbs) total: independent of how wide the *held* value
-is, and of any power-of-two shift applied on the way in.
+Cancellation can shorten the mathematical result while the accumulator
+still retains contributions at higher bit positions. The costs below
+therefore use *working width*, reported by
+`stored_bits`, rather than the result's bit
+length. Let `W` be the greatest working width reached by the receiver, `A`
+the operand's working width, `L` the number of input limbs, and `G` the
+increase in the receiver's working width. A large shift can make `G` large
+even when the input is one limb.
 
-Because *every* write recenters, no region of the representation is ever
-kept in normal form — hence no boundary a worst-case delta stream can
-oscillate across at less than the cost the stream itself paid, at any delta
-width. The obvious halfway design fails exactly there: a two-zone form (a
-normalized prefix plus a fixed-width lazy window over the low digits) has a
-boundary at the window's top, and a stream of deltas one digit beyond
-the window forces the normalized prefix through a full carry per delta.
-Widening the window moves the boundary; only having no normalized region
-removes it.
+Amortized bounds apply to the whole operation sequence: one call may finish
+carry or cancellation work prepared by earlier calls, but the sequence does
+not pay for that work repeatedly. Additional space excludes inputs and
+returned output. Growing an allocation can briefly keep both allocations
+alive.
 
-## Reading the sign
+| Operation | Time | Additional space |
+|---|---|---|
+| `+=` / `-=` a primitive | Amortized O(log(`W` + 1)) | O(1) retained |
+| Add or subtract `L` limbs | Amortized O(`L` log(`W` + 1) + `G`) | O(`L` + `G`) retained |
+| Add or subtract an accumulator | Amortized O(`A` log(`W` + 1) + `G`) | O(`A` + `G`) retained |
+| Exact or bounded comparison with zero | Amortized O(log(`W` + 1)) | O(1) retained |
+| Working-width and known-zero queries | O(1) | O(1) |
+| Unary `-` and `reset` | O(`W`) | O(1) |
+| `normalize`, producing working width `Q` | O(`W` + `Q` log(`Q` + 1)) | O(1) scratch; existing O(`W`) capacity retained for reuse |
+| Primitive `TryFrom` | O(`W`) | O(`W`) temporary |
 
-The sign of a redundant value is not visible in any one digit — high digits
-may cancel lower ones. `Accumulator::sign` folds digits from the top: at
-digit index `i` the running partial `s = Σ_{j≥i} dⱼ · 2^(32·(j−i))` is the
-scanned suffix's exact value in units of `2^(32·i)`, while the unscanned
-digits below contribute less than `2.01 · 2^(32·i)` in magnitude (a
-geometric series — each digit under `2^33`, each level down worth `2^32`
-times less — summing to just over `2 · 2^(32·i)`; `2.01` is that bound
-rounded up for slack). So once `|s| ≥ 3`, the suffix dominates everything
-below — `3 > 2.01` — and the fold stops. While `|s| < 3` it must descend,
-but the partial stays small enough for machine arithmetic at every step, and
-if it reaches digit 0 the partial *is* the value, exactly.
+Any operation that grows the receiver may need O(`W` + `G`) temporary
+space while replacing its allocation. This is allocator work, not an
+additional copy made by the arithmetic. The retained bounds in the table
+describe what remains after the operation.
+Normalization can remove arbitrarily much cancelled width, but can extend
+the working width by at most one 32-bit position: `Q <= W + 32`. It rewrites
+the existing allocation rather than constructing a normalized copy, and
+deliberately retains that O(`W`) capacity for later updates. Its rebuilt
+skip metadata occupies O(`Q`) space within that retained bound. Only an
+extension beyond the existing capacity can temporarily keep both the old
+and replacement buffers alive.
 
-A cancelling prefix — high digits summing to a tiny net value, as built by
-`+2^k` then `−(2^k − 1)` — forces the fold below the top digit. The fold
-therefore *collapses* what it scanned: the scanned digits are zeroed and
-their exact partial is re-deposited at the scan's floor (recentering upward
-like any write when the partial exceeds the zone), so the next sign read
-re-reads none of them — the re-deposited digit is that next fold's first
-step, inside its O(1) budget. A digit is scanned at most once per write that
-made it nonzero, so sign reads amortize against the writes that built the
-prefix — amortized O(1) however sign reads and writes interleave. This is
-why the sign queries take `&mut self`: they may rewrite the representation.
-The rewrite is always value-preserving — the digits change, the integer they
-denote never does.
+An unscaled magnitude read producing `Q` limbs takes O(`W` + `Q`) time,
+O(`W`) temporary space, and O(`Q`) output space. A scaled read can omit a
+low range known to be zero; for that operation, replace `W` with the number
+of bits between the lowest relevant update and the top of the working range.
 
-## The zero-run ledger
+The accumulator may retain more allocation than its current working width
+after cancellation or reset. A nonzero left shift can replace that
+allocation; the old and new allocations may coexist while the shift runs.
 
-Keeping the top digit index exact has a scan to pay: when a write zeroes the
-highest nonzero digit, the new top is the next nonzero digit below, and
-something must find it. Between a shifted write's landing site and the
-digits below it lies a run of never-written zeros; a scan that walked it
-would do work no operand limb funded, and an alternating pair of shifted
-writes would make it walk again, forever, at a price that grows with the
-shift. The shifted rows of the cost table are true only because that walk
-never happens.
+`reserve_digits` can avoid repeated allocation
+growth. `reset` clears the value while retaining its
+allocation for reuse. Cloning and debug formatting take time and space
+proportional to all retained allocation, not merely the current value.
 
-The accumulator instead keeps a *zero-run ledger*: certificates `(lo, hi)`,
-each stating that every digit strictly between `lo` and `hi` is zero. A
-write that lands above the current top leaves exactly one such run behind
-and records it — one O(1) entry, whatever the run's width. A scan that
-reaches a certified run consumes the certificate and skips to `lo` whole,
-one touch instead of one per digit; the sign fold does the same when its
-running partial is zero (a nonzero partial decides within one step, so a
-fold never walks into a certified run while carrying value). A write whose
-carries land inside a certified run splits the certificate around the digits
-actually written, keeping both remnants.
+## Scope
 
-The amortization is a potential argument over the ledger: at
-every moment, every digit position at or below the top is either inside some
-certificate's run or funded by one scan credit deposited by the metered
-write that most recently touched it. A plain scan step spends the credit at
-its position; a skip consumes a certificate; each certificate is created
-once, by the write that jumped the run, and consumed at most once. For a
-scan to reach a position twice, the top must rise back above it in between,
-and each way it can — a carry run writing through the position, or a write
-jumping over it and recording a fresh certificate — re-arms the accounting.
-So top maintenance never exceeds the metered work that funded it: amortized
-O(1) per write beyond the write's own deposits, at any shift, on any
-schedule.
+This is an accumulator, not a general-purpose integer type: it provides no
+general multiplication, division, or right shift. If the value fits a
+fixed-width integer, that is usually the simpler choice. The benefit here
+is predictable amortized work when updates change sign near carry
+boundaries and comparisons with zero interleave with cancellation.
 
-The ledger itself is bookkeeping, not digit work: certificates live in an
-ordered map costing O(log ledger size) machine-word operations per write,
-never counted as digit touches and never reading or writing a digit.
-Disjoint runs cap the ledger at half the held digit positions, so its memory
-is O(held digits) — the digit buffer's own order, at a few machine words per
-certificate where a digit costs one.
+`Accumulator` deliberately has no `PartialEq` or `Ord`: exact comparison may
+mutate an operand to preserve the amortized bound. Subtract and compare the
+difference with zero instead. The crate requires `std`.
 
-## Domination certificates
+## Optional metering
 
-A comparison between totals of wildly different scales should not cost the
-wide one's width. `Accumulator::sign_dominates_at` returns the (always
-exact) sign of the held value `v`, plus a *certificate*: `decided = true`
-guarantees `sign(v + a) = sign(v)` and `|v| > |a|` for every adjustment `a`
-with `|a| < 2^(32·(floor + 1))` — and moreover for any accumulator held in
-digits `0..=floor`: its redundant spelling can exceed that, bounded by `2.01
-· 2^(32·(floor + 1))` (the same rounded geometric bound), and the decision
-margin covers that too. So the caller compares against anything at or below
-the floor's scale without ever folding it in:
-
-```rust
-use core::cmp::Ordering;
-use suanpan::Accumulator;
-
-let mut watermark = Accumulator::new();
-watermark.add_u64_shl(1, 300);
-// Could any adjustment below 2^128 flip the watermark's sign?
-// floor = 128.div_ceil(32) - 1 = 3: certainty without a wide fold.
-let (sign, decided) = watermark.sign_dominates_at(3);
-assert_eq!((sign, decided), (Ordering::Greater, true));
-```
-
-For `u64`-scale adjustments,
-`sign_dominates_word` is the
-shorthand.
-
-## The operations
-
-Costs below count accumulator digits or 64-bit operand limbs. *Amortized*
-bounds hold over the whole operation
-sequence — one write can be caught repaying carries that earlier writes
-parked near the zone's edge, never more than they prepaid; unmarked rows are
-worst-case per call.
-
-| Operation | Cost |
-|---|---|
-| `add_small`, `sub_small`, `add_u64`, `sub_u64` | amortized O(1) |
-| `add_u64_shl`, `sub_u64_shl` | amortized O(1), independent of the shift |
-| `add_limbs_shl`, `sub_limbs_shl` | amortized O(limbs yielded), independent of the shift |
-| `add_accum`, `sub_accum` | amortized O(other's held digits) |
-| `add_accum_shl`, `sub_accum_shl` | amortized O(other's held digits), independent of the shift |
-| `merge_into_wider` | amortized O(the narrower accumulator's held digits) |
-| `sign`, `is_negative`, `sign_dominates_word`, `sign_dominates_at` | amortized O(1) |
-| `is_literally_zero` (one-sided: `true` means zero, `false` means unknown), `digit_count`, `bit_span` | O(1) |
-| `shl`, `negate`, `reset`, `sign_limbs`, `with_sign_limbs` | O(held digits) |
-| `sign_limbs_shl`, `with_sign_limbs_shl` | O(w), w the written span since the last reset |
-
-Digit touches are shift-independent; memory is not. A shifted entry point
-grows the digit buffer to cover the shifted position, so memory is O(shift /
-32) plus the operand's own digits (the zero-run ledger adds at most one
-entry per write that lands above the held top, bounded by half the held
-digit positions). The *written span* is every digit from the lowest position
-written since the last reset up to the top, never-written gaps between
-writes included: parking one value far above another prices the scaled read
-at the distance between them, however few digits the writes themselves
-touched.
-
-Arbitrary-width operands enter as minimal little-endian 64-bit limbs and
-totals leave in the same form. Callers should use the `u64` operations when
-the operand fits a word; those retain the register's O(1) path. There is no
-from-value constructor: build with `new` (or `Default`)
-and one add operation, then read with
-`sign_limbs`.
-
-## When not to reach for it
-
-The accumulator spends representation slack to buy worst-case bounds; when
-nothing exploits the slack, simpler types win. If the total fits
-`i64`/`i128`, use `i64`/`i128`. If the deltas never change sign, a plain big
-integer is already amortized O(1) per delta (the binary counter argument:
-each carry clears a bit an earlier increment set, so carries never outnumber
-increments) and needs no slack. The accumulator earns its keep when deltas
-mix signs — when the total can be driven onto a carry boundary and
-oscillated — or when sign reads interleave with cancelling updates. And this
-is an accumulator, not a number type: it adds, subtracts, scales by powers
-of two (left only — a right shift would need normalization), reads its sign,
-and converts out through `sign_limbs` —
-no multiplication, no division, and no ordering between two accumulators
-except by subtracting one from the other and reading the difference's sign
-(subtract from a `clone` when the receiver's value must
-survive the comparison) — or, when the scales differ wildly, a domination
-certificate (`sign_dominates_at` with
-`floor = other.digit_count() - 1`) that decides without folding.
-
-## Metering
-
-The `touch-meter` feature counts every digit read-modify-write (plus one per
-operand limb read by a wide streamed operation, and one per zero digit a
-top-settlement scan steps or skips past — a certificate skip is one touch
-however wide the certified run, because the run's digits are neither read
-nor written) into the `touch_meter` module's process-global counter. The
-quick register holds no digits, yet its work is metered too: a delta, sign
-query, negation, or shift the register absorbs counts exactly one touch, a
-register read-out (`sign_limbs` and its
-scaled twin) counts the value's `digit_count`,
-and the spill prices only the deposit of the register's few digits — so
-touch-count floors derived from the digit engine's shapes survive the
-register fast path. Counts are deterministic for a fixed implementation and
-operation sequence, which makes exact regression tests possible; individual
-totals are not an API compatibility promise. Digit-touch cost is invisible
-to heap meters and step counters — the work is wider, not more frequent — so
-this counter is what a caller's resource envelopes should pin; the zero-run
-ledger's own upkeep is machine-word bookkeeping outside the digit
-denomination (its bound is stated in the ledger section). Off by default,
-and without the feature the module is absent and the counting compiles to
-nothing; with it, each touch is one relaxed atomic increment.
-
-## Traits
-
-The crate requires `std`; no `no_std` build is offered. `Accumulator` is `Clone`,
-`Default`, `Debug`, and `Send + Sync` — though `Sync` buys less than usual:
-every amortized-O(1) sign query takes `&mut self`, so the value reads
-available behind a shared reference are
-`is_literally_zero`,
-`digit_count`, the O(held digits)
-`sign_limbs` (and its scaled twin
-`sign_limbs_shl`), and a
-`clone` — wrap in a lock for shared sign reads. It is
-deliberately not `PartialEq`: two spellings of one value would compare
-unequal, so compare by subtracting and reading the difference's sign.
-`touch-meter` is the crate's only feature.
-
-## Testing
-
-Differential proptests drive mixed word/limb operation streams against an
-exact signed big-integer oracle, comparing the sign after every operation
-and the full value at periodic snapshots; deterministic streams pin difficult
-shapes — the boundary comb (a
-±1 oscillation parked on a `2^k` carry boundary), wide teeth (±2^w strides
-across a higher boundary), cancelling-prefix chains (repeated falls from
-`2^k` to 1 and back, each forcing the sign fold below the top digit), and
-alternating shifted pairs (a one-limb value blinking on and off far above
-every other written digit, the schedule whose top maintenance the zero-run
-ledger prices).
-
-## Traditions, and the name
-
-Nothing here is novel so much as assembled. Signed-digit redundancy is
-Avizienis (1961), and it is the trick inside hardware carry-save adders:
-spend representation slack, defer carry propagation. Redundant *number
-representations* as an amortization device are the theme of Okasaki's purely
-functional data structures. Accumulating wide addends at their own offsets
-into a fixed-radix array is the Kulisch long accumulator. And
-unsaturated-limb big-integer pipelines in cryptographic code leave headroom
-bits in every limb so carries can batch. The representation, in short, is
-known technique that no package ships as a reusable accumulator — that
-absence is why this crate exists. The query layer is the novel part: a sign
-read over a redundant value that pays for itself by collapsing the prefix it
-scanned, and domination certificates that answer cross-scale comparisons
-without folding either side.
-
-A *suanpan* is the Chinese abacus. Each rod carries two heaven beads (worth
-five) and five earth beads (worth one): a rod holds 0–15, though a decimal
-digit needs only 0–9. The slack is the point — a skilled operator parks
-intermediate values in the redundant range and defers carries until a
-convenient moment. The Japanese soroban keeps one heaven and four earth
-beads — a rod holds exactly 0–9, no slack — which is exactly the
-normalization this crate refuses. A suanpan rod holds more than a digit so
-the carries can wait; so do ours.
+The only feature, `touch-meter`, exposes a process-global implementation
+counter in the `touch_meter` module. It supports regression tests for the
+arithmetic core; it does not measure allocation or all bookkeeping and
+therefore does not by itself establish the bounds above. Counts are
+deterministic for a fixed implementation and operation sequence, but
+individual totals are not an API compatibility promise. Run measured
+scenarios serially. With the feature disabled, counting compiles away.
 
 <!-- cargo-rdme end -->

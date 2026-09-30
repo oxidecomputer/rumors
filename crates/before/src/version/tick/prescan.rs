@@ -273,14 +273,14 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // For the outermost entry, the previous reference is scan-entry
             // height instead.
             let mut difference = self.minima.follower_take(REL_FOLLOWER);
-            if difference.sign() == Ordering::Equal {
+            if difference.cmp_zero() == Ordering::Equal {
                 drop(difference);
             } else {
                 if level > 0 {
                     // Add this difference to latest_minimum - first_minimum.
                     // Work follows the new difference's width, even if the sum
                     // is wide. Level zero has no deferred first entry.
-                    self.latest_from_first.add_accum(&difference);
+                    self.latest_from_first += &difference;
                 }
                 self.memo.set_link(slot, StoredAccumulator::new(difference));
             }
@@ -316,16 +316,16 @@ impl<'a, 'm> PreScan<'a, 'm> {
         //   + (latest_minimum - first_minimum)
         //   = enclosing_minimum - first_minimum.
         let mut chain_span = self.minima.follower_take(REL_FOLLOWER);
-        chain_span.add_accum(&self.latest_from_first);
-        if chain_span.sign() != Ordering::Equal {
+        chain_span += &self.latest_from_first;
+        if chain_span.cmp_zero() != Ordering::Equal {
             // The first memo entry needs the reverse difference. It is copied
             // once at the width of the value that will be stored and consumed.
             let first_slot = self
                 .first_slot
                 .expect("a nested level records its first lookahead when suspended");
             let mut link = Accumulator::new();
-            link.add_accum(&chain_span);
-            link.negate();
+            link += &chain_span;
+            link = -link;
             self.memo.set_link(first_slot, StoredAccumulator::new(link));
         }
         // Restore the outer relation:
@@ -338,7 +338,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .pop()
             .expect("a deeper reference level implies a suspended outer level");
         let mut resumed = outer.first_from_outer.restore();
-        resumed.add_accum(&chain_span);
+        resumed += &chain_span;
         drop(chain_span);
         let latest_from_first = outer.latest_from_first.restore();
         let dead = core::mem::replace(&mut self.latest_from_first, latest_from_first);
@@ -453,10 +453,10 @@ impl<'a, 'm> PreScan<'a, 'm> {
             return;
         }
         let net = walk.net_remaining(&mut self.cursor);
-        self.minima.fold_height(&net);
         if let Some(entry) = &mut self.entry_net {
-            entry.add_bigint(&net);
+            *entry += &net;
         }
+        self.minima.fold_accumulator(net);
     }
 
     /// Consume an owned right subtree and return its maximum minus its final
@@ -495,8 +495,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 &mut above,
                 Some(first_leaf_depth),
             );
-            let net = net.to_bigint();
-            self.minima.fold_height(&net);
+            self.minima.fold_accumulator(net);
         }
         let result = above.into_offset().into_bigint();
         debug_assert!(result.sign() != Sign::Minus, "the fold floors at zero");

@@ -100,11 +100,11 @@ where
             zero_delta = code == BigUint::ZERO;
             let delta = PayloadKind::Delta.decode(code);
             height.add_bigint(&delta);
-            if delta.sign() == Sign::Minus && height.sign() == Ordering::Less {
+            if delta.sign() == Sign::Minus && height.cmp_zero() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            height.add_biguint_shl(&code, 0);
+            height.add_shifted_limbs(0, code.iter_u64_digits());
             seen_leaf = true;
         }
 

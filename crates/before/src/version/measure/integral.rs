@@ -103,7 +103,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint};
 use suanpan::Accumulator;
 
-use crate::accumulator::{self, BigIntAccumulator as _};
+use crate::accumulator::BigIntAccumulator as _;
 
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
@@ -166,10 +166,22 @@ impl Integrator {
         }
     }
 
-    /// Set the opening height before adding any region or boundary changes.
-    /// Heights may be signed when integrating a difference of ranks.
-    pub fn open(&mut self, opening: &BigInt) {
-        self.base.add_bigint(opening);
+    /// Set an unsigned opening height before adding any regions or boundary changes.
+    pub fn open_height(&mut self, opening: &BigUint) {
+        self.base.add_shifted_limbs(0, opening.iter_u64_digits());
+    }
+
+    /// Set the opening difference before adding any regions or boundary changes.
+    ///
+    /// `orientation` is `1` when the difference contributes as stored and `-1`
+    /// when it contributes with the opposite sign. Reading the accumulator
+    /// directly avoids normalizing the opening value merely to copy it here.
+    pub fn open_difference(&mut self, opening: &Accumulator, orientation: i8) {
+        match orientation {
+            1 => self.base += opening,
+            -1 => self.base -= opening,
+            _ => panic!("an active orientation is either -1 or 1"),
+        }
     }
 
     /// Add the next region, whose width at the common scale is `2^weight_shift`.
@@ -177,11 +189,12 @@ impl Integrator {
         // This cheap test may miss cancellation in buffered digits. Adding a
         // mathematically zero buffer is harmless; normalizing it here would
         // add an unnecessary full-width pass to each region.
-        if !self.live.is_literally_zero() {
-            self.total.add_accum_shl(&self.live, weight_shift);
+        if !self.live.is_known_zero() {
+            self.total.add_shifted(weight_shift, &self.live);
         }
         if self.tracks_width {
-            self.segment_width.add_biguint_shl(&self.one, weight_shift);
+            self.segment_width
+                .add_shifted_limbs(weight_shift, self.one.iter_u64_digits());
         }
     }
 
@@ -190,40 +203,45 @@ impl Integrator {
     /// The orientation `sigma` is monotone in the sign of `D` and lies in
     /// `{-1, 0, 1}`. A nonzero correction is therefore positive: the coefficient
     /// and the new difference have the same sign. Its coefficient has magnitude
-    /// one or two. Reading the difference is affordable here because crossing
-    /// zero bounds its new magnitude by the deltas just read.
-    pub fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
-        let (sign, magnitude) = diff.signed_magnitude();
-        if magnitude == BigUint::ZERO {
+    /// one or two. Applying the signed accumulator directly avoids normalizing
+    /// it into a temporary magnitude merely to stream that magnitude back into
+    /// another accumulator.
+    pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &Accumulator) {
+        if order == Ordering::Equal {
             return;
         }
         // Keep the sign check in release builds: an invalid orientation must
         // not silently turn subtraction into addition.
         assert_eq!(
             coefficient < 0,
-            sign == Ordering::Less,
+            order == Ordering::Less,
             "the orientation correction must be nonnegative"
         );
         let shift = if coefficient.abs() == 2 { 1 } else { 0 };
-        self.live.add_biguint_shl(&magnitude, shift);
+        if order == Ordering::Less {
+            self.live.sub_shifted(shift, diff);
+        } else {
+            self.live.add_shifted(shift, diff);
+        }
     }
 
     /// Finish a boundary, bounding the live width by the widest delta read there.
     pub fn boundary(&mut self, delta_digits: usize) {
-        if self.live.digit_count() > delta_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
+        if self.live.stored_digit_count() > delta_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
             self.freeze();
         }
     }
 
     /// Account for the old parked height, then park the recent changes.
     fn freeze(&mut self) {
-        let (drift_sign, drift) = self.live.signed_magnitude();
-        if drift == BigUint::ZERO {
+        let drift_order = self.live.cmp_zero();
+        if drift_order == Ordering::Equal {
             // Buffered changes cancel. Nothing moves, and the current segment
             // remains open because its parked height has not changed.
             self.live.reset();
             return;
         }
+        let drift_digits = self.live.stored_digit_count();
         self.tracks_width = true;
         #[cfg(test)]
         FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
@@ -231,17 +249,11 @@ impl Integrator {
         // This segment belongs to the old parked height. Live changes have
         // already contributed to it region by region; folding them into the
         // parked height first would charge those contributions a second time.
-        self.close_segment();
-        if self.parked.digit_count()
-            > accumulator::digit_len(&drift) + HEIGHT_FREEZE_ALLOWANCE_DIGITS
-        {
-            self.defer_parked();
+        let parked = self.close_segment();
+        if self.parked.stored_digit_count() > drift_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
+            self.defer_parked(parked);
         }
-        if drift_sign == Ordering::Less {
-            self.parked.sub_biguint_shl(&drift, 0);
-        } else {
-            self.parked.add_biguint_shl(&drift, 0);
-        }
+        self.parked += &self.live;
         self.live.reset();
 
         // reset() clears the whole allocated span. Segment digits can be high
@@ -249,26 +261,35 @@ impl Integrator {
         self.segment_width = Accumulator::new();
     }
 
-    /// Settle the completed segment and remember its width for future deferrals.
-    fn close_segment(&mut self) {
+    /// Settle the completed segment and return its normalized parked height.
+    ///
+    /// A following deferral reuses the value already needed for multiplication,
+    /// rather than reading the parked accumulator twice at the same boundary.
+    fn close_segment(&mut self) -> Option<BigInt> {
         let width = ScaledWidth::read(&self.segment_width);
         if width.is_zero() {
-            return;
+            debug_assert!(
+                self.parked.is_known_zero(),
+                "the first freeze has no parked height or preceding width"
+            );
+            return None;
         }
         self.deferred.add_width(&width);
-        if !self.parked.is_literally_zero() {
-            let parked = self.parked.to_bigint();
-            if parked != BigInt::ZERO {
-                width.add_product(&mut self.total, &parked);
-            }
+        if self.parked.is_known_zero() {
+            return None;
         }
+        let parked = self.parked.to_bigint();
+        if parked == BigInt::ZERO {
+            return None;
+        }
+        width.add_product(&mut self.total, &parked);
+        Some(parked)
     }
 
     /// Record the parked height's remaining contribution from this boundary on.
     /// The preceding segment must already have been closed.
-    fn defer_parked(&mut self) {
-        let parked = self.parked.to_bigint();
-        if parked != BigInt::ZERO {
+    fn defer_parked(&mut self, parked: Option<BigInt>) {
+        if let Some(parked) = parked {
             self.deferred.push(parked);
         }
         self.parked.reset();
@@ -276,7 +297,7 @@ impl Integrator {
 
     /// Settle the last parked segment without collecting an unused deferred width.
     fn finish_segment(&mut self) {
-        if self.parked.is_literally_zero() {
+        if self.parked.is_known_zero() {
             return;
         }
         let parked = self.parked.to_bigint();
@@ -298,9 +319,9 @@ impl Integrator {
                 .add_width(&ScaledWidth::read(&self.segment_width));
             self.deferred.finish(&mut self.total);
         }
-        if !self.base.is_literally_zero() {
-            self.total.add_accum_shl(&self.base, closing_shift);
+        if !self.base.is_known_zero() {
+            self.total.add_shifted(closing_shift, &self.base);
         }
-        self.total.signed_magnitude()
+        self.total.biguint_parts()
     }
 }

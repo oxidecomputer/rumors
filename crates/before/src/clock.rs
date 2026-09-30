@@ -6,7 +6,6 @@ use core::ops::{BitOr, BitOrAssign};
 use std::io::{Read, Write};
 
 use crate::{
-    bits::{Bits, BitsReader},
     error::{Decode, Overlap},
     OwnVersion, Party, Ticks, Version,
 };
@@ -832,22 +831,8 @@ impl Clock {
     /// Validates an owned canonical encoding and shares its storage between
     /// the party and version.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
-        let party_bytes = {
-            let party_end = crate::party::io::validate::prefix(BitsReader::from_bytes(&buf))?;
-            let party_bytes = (party_end + 1).div_ceil(8);
-            if party_bytes > buf.len() as u64 {
-                return Err(Decode::Truncated);
-            }
-            let party_bytes =
-                usize::try_from(party_bytes).expect("the party prefix ends within the read buffer");
-            Bits::validate_padding(&buf[..party_bytes], party_end)?;
-            let tail = &buf[party_bytes..];
-            let v_end = crate::version::io::validate::prefix(BitsReader::from_bytes(tail))?;
-            Bits::validate_padding(tail, v_end)?;
-            party_bytes
-        };
-        let party = Party::from_frozen(Bits::from_canonical(buf.slice(..party_bytes)));
-        let version = crate::version::io::from_canonical(buf.slice(party_bytes..));
+        let (party, party_bytes) = crate::party::io::decode_prefix(&buf)?;
+        let version = crate::version::io::decode(buf.slice(party_bytes..))?;
         Ok(Clock::from_parts(party, version))
     }
 
@@ -939,10 +924,9 @@ impl Debug for Clock {
 // the clock; `|=` merges in place (`Clock::absorb` is the named spelling of
 // both). There is no `Clock | Clock`: a borrowing
 // form would duplicate the clock's party, and reuniting two whole clocks is the
-// fallible `Clock::join`. Every cell folds the version operand into the clock's
-// `version` through the `Version` join-assign; `Borrow::borrow` coerces an
-// owned or borrowed operand uniformly to `&Version`, so one `@cell` arm per
-// position covers both forms.
+// fallible `Clock::join`. Every cell delegates to `Clock::absorb`;
+// `Borrow::borrow` coerces an owned or borrowed operand uniformly to
+// `&Version`, so one `@cell` arm per position covers both forms.
 
 /// Generates the `Clock` join matrix.
 ///
@@ -966,7 +950,7 @@ macro_rules! clock_join_matrix {
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(mut self, r: $rhs) -> Clock {
-                self.version |= r.borrow();
+                self.absorb(r.borrow());
                 self
             }
         }
@@ -981,7 +965,7 @@ macro_rules! clock_join_matrix {
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(self, mut r: $rhs) -> Clock {
-                r.version |= self.borrow();
+                r.absorb(self.borrow());
                 r
             }
         }
@@ -995,7 +979,7 @@ macro_rules! clock_join_matrix {
         #[cfg_attr(not(doc), doc = $contract)]
         impl BitOrAssign<$rhs> for $lhs {
             fn bitor_assign(&mut self, r: $rhs) {
-                self.version |= r.borrow();
+                self.absorb(r.borrow());
             }
         }
     };

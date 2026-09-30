@@ -91,7 +91,7 @@ proptest! {
 fn asymmetric_fork_sizes_the_small_result_independently() {
     let left = constructed::full();
     let right = constructed::spine(8_192, false, constructed::full());
-    let mut parent = Party::from_bits(constructed::node(Some(&left), Some(&right)));
+    let mut parent = crate::party::io::finish(constructed::node(Some(&left), Some(&right)));
 
     let _large_right_share = parent.fork();
     assert_eq!(parent.as_bytes().len(), 1);
@@ -300,7 +300,7 @@ mod sync_constructed {
 
     /// Adopt a hand-built canonical party tree.
     fn party(bits: &BitsWriter) -> Party {
-        Party::from_bits(bits.clone())
+        crate::party::io::finish(bits.clone())
     }
 
     /// The fused walk against its composition on one party pair, in both operand
@@ -455,15 +455,15 @@ mod without_constructed {
     fn assert_without(a: &BitsWriter, b: &BitsWriter, expected: &BitsWriter, k: usize) {
         let (a_bits, b_bits) = (a.clone().finalize(), b.clone().finalize());
         let d = PartyReader::from_bits(&a_bits).without(PartyReader::from_bits(&b_bits));
-        let expected = (!expected.is_empty()).then(|| Party::from_bits(expected.clone()));
+        let expected = (!expected.is_empty()).then(|| crate::party::io::finish(expected.clone()));
         assert_eq!(
             d.as_ref(),
             expected.as_ref(),
             "without diverged from the constructed expectation (k={k})"
         );
         if k <= ORACLE_SCALE_MAX {
-            let oa = to_oracle_party(&Party::from_bits(a.clone()));
-            let ob = to_oracle_party(&Party::from_bits(b.clone()));
+            let oa = to_oracle_party(&crate::party::io::finish(a.clone()));
+            let ob = to_oracle_party(&crate::party::io::finish(b.clone()));
             let oracle_diff = oa.without(&ob);
             if let Some(d) = &d {
                 assert_eq!(
@@ -620,7 +620,7 @@ proptest! {
     ) {
         let a = from_oracle_party(&oa);
         let b = from_oracle_party(&ob);
-        let bit_eq = a.to_writer() == b.to_writer();
+        let bit_eq = crate::party::instrument::bits(&a) == crate::party::instrument::bits(&b);
         prop_assert_eq!(a == b, bit_eq);
         prop_assert_eq!(b == a, bit_eq);
         if a == b {

@@ -79,7 +79,7 @@ pub(crate) fn from_oracle_party(t: &tree::Party) -> Party {
     );
     let mut bits = BitsWriter::new();
     emit_id(&mut bits, t);
-    Party::from_bits(bits)
+    crate::party::io::finish(bits)
 }
 
 /// Build the impl `Version` whose canonical bits encode `t`.

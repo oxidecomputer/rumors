@@ -127,7 +127,7 @@ const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 46_272;
 /// accumulator's quick register folds the comb's narrow values in
 /// its register, so the ceiling sits close over the derived floor
 /// below.
-const PURE_COMB_TOUCH_CEILING: u64 = 2_793;
+const PURE_COMB_TOUCH_CEILING: u64 = 2_714;
 
 /// Touch liveness floor on the pure comb's larger run, derived from
 /// the cycle's irreducible work — never from a measured basis.

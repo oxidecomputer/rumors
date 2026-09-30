@@ -7,16 +7,11 @@ use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::arb_oracle_version;
 use crate::{Clock, Version};
 
-/// Compare through the streaming kernel, bypassing public fast paths.
-fn causal_cmp(a: &Version, b: &Version) -> Option<Ordering> {
-    a.causal_cmp(b)
-}
-
 /// The composed two-sweep spelling of the span mode: the nine-state verdict
 /// transcribed from the raw relations.
 fn composed_span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
-    let lo_rel = causal_cmp(probe, lo);
-    let hi_rel = causal_cmp(probe, hi);
+    let lo_rel = probe.partial_cmp(lo);
+    let hi_rel = probe.partial_cmp(hi);
     match lo_rel {
         Some(Ordering::Less) => Placement::Before,
         Some(Ordering::Equal) => match hi_rel {
@@ -76,7 +71,7 @@ fn composed_contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
 /// The composed pairwise spelling of one demand's verdict: the filter walks'
 /// stream-level oracle, per bound.
 fn demand_admits(probe: &Version, bound: &Version, demand: Demand) -> bool {
-    let rel = causal_cmp(probe, bound);
+    let rel = probe.partial_cmp(bound);
     let le = matches!(rel, Some(Ordering::Less | Ordering::Equal));
     let lt = rel == Some(Ordering::Less);
     let ge = matches!(rel, Some(Ordering::Greater | Ordering::Equal));
@@ -98,15 +93,15 @@ fn composed_coverage(lo: &Version, hi: &Version, bounds: &[(&Version, Demand)]) 
     let mut full = true;
     for &(bound, demand) in bounds {
         let le =
-            |p: &Version| matches!(causal_cmp(p, bound), Some(Ordering::Less | Ordering::Equal));
-        let lt = |p: &Version| causal_cmp(p, bound) == Some(Ordering::Less);
+            |p: &Version| matches!(p.partial_cmp(bound), Some(Ordering::Less | Ordering::Equal));
+        let lt = |p: &Version| p.partial_cmp(bound) == Some(Ordering::Less);
         let ge = |p: &Version| {
             matches!(
-                causal_cmp(p, bound),
+                p.partial_cmp(bound),
                 Some(Ordering::Greater | Ordering::Equal)
             )
         };
-        let gt = |p: &Version| causal_cmp(p, bound) == Some(Ordering::Greater);
+        let gt = |p: &Version| p.partial_cmp(bound) == Some(Ordering::Greater);
         let (empties, admits_all) = match demand {
             Demand::After => (!ge(hi), ge(lo)),
             Demand::Before => (!le(lo), le(hi)),

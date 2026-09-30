@@ -2580,7 +2580,7 @@ const DOMINATED_UNDERCUT_EXIT_RISE: u64 = 1;
 /// 2^b` makes the domination read's decision a closed form: the gap magnitude
 /// `5·2^b − 1` at `b ≥ 128` has its top digit at base-`2^32` index at least 4,
 /// and the sign fold's running partial reaches the domination bound at or
-/// above index 3 — one digit of descent at most — which is `sign_dominates_at`
+/// above index 3 — one digit of descent at most — which is `cmp_zero_stable_under`
 /// floor `1` (the word bound) plus the two-digit clearance the certificate
 /// requires. Normal form: every node's child minima meet 0 (each site's raise
 /// leaf and the wide leaf's zero sibling), and no sibling leaves are equal.
@@ -2669,7 +2669,7 @@ fn seam_rung() -> BigUint {
 ///
 /// The top digit of 5 makes every domination read a closed form: the sign
 /// fold's running partial reaches the decision bound (magnitude 3) at the top
-/// digit itself, so `sign_dominates_at` decides — or honestly refuses — on
+/// digit itself, so `cmp_zero_stable_under` decides — or honestly refuses — on
 /// the digit-index clearance alone, with no descent, in one digit touch
 /// (suanpan's witness `decision_bound_top_decides_on_the_first_touch`).
 fn seam_wide(w: usize) -> BigUint {
@@ -2689,7 +2689,7 @@ fn seam_wide(w: usize) -> BigUint {
 /// ([`seam_wide`]`(r) + (k + 1)` rungs, same digit count) through all of
 /// them. At `r = 5` every hop sits exactly at the wide-hop guards' two-digit
 /// clearance line (`residue digits = boundary digits + 2`, the least
-/// clearance `sign_dominates_at` can certify), so each boundary dies by one
+/// clearance `cmp_zero_stable_under` can certify), so each boundary dies by one
 /// fold of its own three digits into the residue — the
 /// residue-dominates arm at its decision boundary, which no other committed
 /// shape reaches (their dying differences are word-scale or the hop is an

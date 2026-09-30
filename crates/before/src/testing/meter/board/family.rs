@@ -1191,7 +1191,7 @@ impl FamilyData {
 fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let shape = decode_party(id);
     let mount = |left: bool| -> Vec<u8> {
-        let shape_bits = shape.to_writer();
+        let shape_bits = crate::party::instrument::bits(&shape);
         let mut bits = BitsWriter::with_capacity(shape_bits.len() + 2);
         bits.push(left);
         bits.push(!left);
@@ -1226,7 +1226,7 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
 /// overlap it mints (both halves decode canonically on the way).
 pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let shape = decode_party(id);
-    let bits = shape.to_writer();
+    let bits = crate::party::instrument::bits(&shape);
     let path = rightmost_terminal_path(shape.reader());
     assert!(
         !path.is_empty(),

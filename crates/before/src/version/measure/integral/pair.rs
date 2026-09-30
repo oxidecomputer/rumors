@@ -2,9 +2,9 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::BigUint;
 
-use crate::accumulator::{self, BigIntAccumulator as _};
+use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::version::overlay::{advance_diff, OpenedPair, Side};
 use crate::{Rank, Version};
@@ -45,18 +45,11 @@ impl Integrator {
             mut diff,
             ..
         } = OpenedPair::open(a, b);
-        let mut current_orientation = orientation(diff.sign());
+        let mut current_orientation = orientation(diff.cmp_zero());
         let mut integral = Integrator::new();
 
         if current_orientation != 0 {
-            let (opening_sign, opening) = diff.signed_magnitude();
-            let negative = match opening_sign {
-                Ordering::Greater => current_orientation < 0,
-                Ordering::Less => current_orientation > 0,
-                Ordering::Equal => false,
-            };
-            let sign = if negative { Sign::Minus } else { Sign::Plus };
-            integral.open(&BigInt::from_biguint(sign, opening));
+            integral.open_difference(&diff, current_orientation);
         }
 
         loop {
@@ -66,7 +59,8 @@ impl Integrator {
             }
 
             let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-            let new_orientation = orientation(diff.sign());
+            let diff_order = diff.cmp_zero();
+            let new_orientation = orientation(diff_order);
 
             // While the selected part is active, fold each input delta into the
             // integrand. Reversing orientation reverses which operand adds and
@@ -86,10 +80,9 @@ impl Integrator {
 
             if new_orientation != current_orientation {
                 // The delta folds above use the old orientation. This correction
-                // applies the orientation change to the updated signed difference. A
-                // sign crossing bounds its magnitude by the deltas just consumed,
-                // which is why materializing it here preserves the input-paid bound.
-                integral.jump(new_orientation - current_orientation, &diff);
+                // applies the orientation change to the updated signed difference.
+                // A sign crossing bounds its magnitude by the deltas just consumed.
+                integral.jump(new_orientation - current_orientation, diff_order, &diff);
                 current_orientation = new_orientation;
             }
 

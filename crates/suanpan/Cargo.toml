@@ -2,7 +2,7 @@
 name = "suanpan"
 version = "0.1.0"
 edition = "2021"
-description = "Cliff-free signed accumulators: redundant balanced signed-digit arithmetic with amortized O(1) deltas and sign reads on every input sequence."
+description = "Exact signed accumulation with bounded carry and cancellation work."
 license = "MPL-2.0"
 readme = "README.md"
 
@@ -11,9 +11,6 @@ proptest = { workspace = true }
 num-bigint = { workspace = true }
 
 [features]
-# Counts every digit read-modify-write (plus one per operand limb read by a
-# wide operation) into a process-global counter read via [`touch_meter`].
-# Digit-touch cost is invisible to heap and step meters — the work is wider,
-# not more frequent — so this is the counter resource envelopes pin. Additive
-# and off by default: one relaxed atomic bump per touch.
+# Counts arithmetic digit work and streamed operand reads in a process-global
+# counter. Disabled by default; each recorded touch uses a relaxed atomic add.
 touch-meter = []

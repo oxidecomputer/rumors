@@ -2,8 +2,6 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::BigInt;
-
 use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::version::overlay::Side;
@@ -17,7 +15,7 @@ impl Rank {
         let max_depth = VersionRegionReader::max_depth(version);
         let (mut cursor, first) = VersionRegionReader::open(version);
         let mut integral = Integrator::new();
-        integral.open(&BigInt::from(first));
+        integral.open_height(&first);
 
         // At the common depth, a leaf at depth `d` has integer width
         // `2^(max_depth - d)`. Integrating those scaled widths yields the

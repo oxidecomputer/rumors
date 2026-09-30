@@ -541,7 +541,7 @@ fn deep_tree_stack_safety() {
     assert!(early | current.clone() == current);
 
     // Observers over a deep clock and a deep message do not overflow:
-    // `has_seen` lowers to a deep `causal_cmp` against the version, and the
+    // `has_seen` lowers to a deep `partial_cmp` against the version, and the
     // clock-vs-clock observers compare two deep versions.
     let sent = clock.send().clone();
     assert!(clock.version() >= sent);

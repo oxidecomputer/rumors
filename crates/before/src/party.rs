@@ -15,7 +15,7 @@
 //! [`dangerously_alias`](Party::dangerously_alias) deliberately duplicates one
 //! in memory.
 
-use crate::bits::{Bits, BitsReader, BitsWriter};
+use crate::bits::Bits;
 use crate::error::Decode;
 use crate::party::io::PartyReader;
 use crate::{Ticks, Version};
@@ -23,6 +23,8 @@ use crate::{Ticks, Version};
 mod compare;
 mod fork;
 mod forks;
+#[cfg(any(test, feature = "meter"))]
+pub(crate) mod instrument;
 pub(crate) mod io;
 mod join;
 mod sync;
@@ -106,6 +108,11 @@ impl core::hash::Hash for Party {
 }
 
 impl Party {
+    /// Wrap canonical storage after the IO boundary establishes its invariants.
+    fn from_storage(bits: Bits) -> Self {
+        Party(bits)
+    }
+
     /// The initial [`Party`] in the system.
     ///
     /// Call this function (or [`Clock::seed`](crate::Clock::seed), which
@@ -135,7 +142,7 @@ impl Party {
         // round-trips and text laws pin the constant against the parsed
         // form.
         static SEED_STREAM: &[u8] = &[0b0010_0000];
-        Party(Bits::from_canonical(bytes::Bytes::from_static(SEED_STREAM)))
+        io::from_canonical(bytes::Bytes::from_static(SEED_STREAM))
     }
 
     /// Whether this party is equal to [`Party::seed`].
@@ -654,16 +661,7 @@ impl Party {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        Self::decode_bytes(buf.into())
-    }
-
-    /// Validates and adopts an owned canonical encoding.
-    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
-        {
-            let end = crate::party::io::validate::prefix(BitsReader::from_bytes(&buf))?;
-            Bits::validate_padding(&buf, end)?;
-        }
-        Ok(Party(Bits::from_canonical(buf)))
+        io::decode(buf.into())
     }
 
     /// Start reading the canonical ownership tree at its root.
@@ -697,38 +695,6 @@ impl Party {
             "non-canonical Party storage: the bytes must end in the `1 0*` padding",
         );
         self.0.as_raw_slice()
-    }
-
-    /// Number of bits occupied by the canonical ownership tree.
-    pub(crate) fn stored_len(&self) -> u64 {
-        self.0.reader().len()
-    }
-
-    /// Copy the ownership tree into mutable instrumentation storage.
-    #[cfg(any(test, feature = "meter"))]
-    pub(crate) fn to_writer(&self) -> BitsWriter {
-        let len = self.stored_len();
-        let mut writer = BitsWriter::with_capacity(len);
-        writer.splice(&self.0, 0, len);
-        writer
-    }
-
-    /// Finalize a normal-form ownership tree as a `Party`.
-    ///
-    /// Callers guarantee a nonempty, normalized tree. Finalization adds the
-    /// marker and zero padding that give every party one canonical byte
-    /// representation.
-    pub(crate) fn from_bits(bits: BitsWriter) -> Self {
-        Party(bits.finalize())
-    }
-
-    /// Adopt sealed canonical storage as a `Party`.
-    ///
-    /// Callers guarantee the stream is a nonempty normal-form party in canonical
-    /// storage — what a validated decode slice already is — so no
-    /// re-canonicalization runs and adoption is `O(1)`.
-    pub(crate) fn from_frozen(bits: Bits) -> Self {
-        Party(bits)
     }
 }
 

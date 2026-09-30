@@ -65,7 +65,7 @@ impl Ticks {
             // that exposed the imbalance can cause later work to revisit it.
             // The allowance absorbs small width fluctuations without changing
             // the asymptotic rule.
-            if recent_height_change.digit_count()
+            if recent_height_change.stored_digit_count()
                 > accumulator::digit_len(height_change.magnitude()) + HEIGHT_FREEZE_ALLOWANCE_DIGITS
             {
                 height_prefixes.freeze(&mut recent_height_change);
@@ -80,7 +80,7 @@ impl Ticks {
         // stated in the module documentation.
         subtree_minima.close_all(&mut answer, &mut height_prefixes);
         height_prefixes.settle(&mut answer);
-        let (sign, magnitude) = answer.signed_magnitude();
+        let (sign, magnitude) = answer.biguint_parts();
         debug_assert_ne!(
             sign,
             Ordering::Less,

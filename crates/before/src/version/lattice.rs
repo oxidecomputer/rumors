@@ -65,7 +65,7 @@ use crate::Version;
 impl Side {
     /// The output delta when switching to this side.
     fn switch_delta(self, diff: &Accumulator, old_step: Option<&HeightChange>) -> BigInt {
-        let (diff_sign, magnitude) = diff.signed_magnitude();
+        let (diff_sign, magnitude) = diff.biguint_parts();
         debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches sides");
         let negative = match self {
             Side::A => diff_sign == Ordering::Less,
@@ -166,7 +166,7 @@ impl Version {
 
         // Both outputs and the relation use the same sign on each region.
         let mut directions = OrderState::new();
-        let sign = diff.sign();
+        let sign = diff.cmp_zero();
         directions.fold(sign);
 
         // Open each output with the selected first height. The side fields are
@@ -203,7 +203,7 @@ impl Version {
         while !(cursor_a.done() && cursor_b.done()) {
             // Decode this boundary once, then write both resulting deltas.
             let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-            let sign = diff.sign();
+            let sign = diff.cmp_zero();
             directions.fold(sign);
             let depth = cursor_a.depth().max(cursor_b.depth());
             for emission in &mut outputs {
@@ -251,7 +251,7 @@ impl Extreme {
         // no longer than both inputs together.
         //
         // Equal first heights encode identically, so A may break the tie.
-        let mut side = self.pick(diff.sign(), Side::A);
+        let mut side = self.pick(diff.cmp_zero(), Side::A);
         let mut out = VersionWriter::with_capacity(a_bits.stored_len() + b_bits.stored_len());
         let first = match side {
             Side::A => &a_first,
@@ -265,7 +265,7 @@ impl Extreme {
 
         while !(cursor_a.done() && cursor_b.done()) {
             let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-            let new_side = self.pick(diff.sign(), side);
+            let new_side = self.pick(diff.cmp_zero(), side);
             let old_side = side;
             side = new_side;
             old_side.write_delta(

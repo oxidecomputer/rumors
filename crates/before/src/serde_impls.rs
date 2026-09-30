@@ -39,7 +39,7 @@ impl Serialize for Party {
 /// Strictly decodes a party from typed bytes or a byte sequence.
 impl<'de> Deserialize<'de> for Party {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        deserialize_bytes(d, Party::decode_bytes)
+        deserialize_bytes(d, crate::party::io::decode)
     }
 }
 
@@ -53,7 +53,7 @@ impl Serialize for Version {
 /// Strictly decodes a version from typed bytes or a byte sequence.
 impl<'de> Deserialize<'de> for Version {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        deserialize_bytes(d, Version::decode_bytes)
+        deserialize_bytes(d, crate::version::io::decode)
     }
 }
 

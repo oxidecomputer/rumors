@@ -237,7 +237,7 @@ impl PartyWriter {
     pub fn finish(self) -> Party {
         let bits = self.out;
         assert!(!bits.is_empty(), "a finished Party owns a region");
-        Party::from_bits(bits)
+        super::finish(bits)
     }
 }
 

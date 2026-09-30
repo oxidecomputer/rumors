@@ -17,7 +17,8 @@ use super::{
     assert_value, fresh, from_limbs, oracle_sign, park_extreme_negative_digit, Accumulator,
     TestBig as _,
 };
-use crate::accumulator::QUICK_SHIFT_MAX;
+use crate::accumulator::operand::Update;
+use crate::accumulator::small::SMALL_SHIFT_MAX;
 
 /// One accumulator operation, oracle-applicable.
 #[derive(Debug, Clone)]
@@ -48,7 +49,7 @@ enum Op {
 fn apply(acc: &mut Accumulator, oracle: &mut IBig, op: &Op) {
     match op {
         Op::Small(delta) => {
-            acc.add_small(*delta);
+            *acc += *delta;
             *oracle += *delta;
         }
         Op::Wide { negative, value } => {
@@ -81,10 +82,10 @@ fn apply(acc: &mut Accumulator, oracle: &mut IBig, op: &Op) {
         } => {
             let scaled = IBig::from(from_limbs(limbs)) << usize::try_from(*shift).unwrap();
             if *negative {
-                acc.sub_limbs_shl(limbs.iter().copied(), *shift);
+                acc.sub_shifted_limbs(*shift, limbs.iter().copied());
                 *oracle -= scaled;
             } else {
-                acc.add_limbs_shl(limbs.iter().copied(), *shift);
+                acc.add_shifted_limbs(*shift, limbs.iter().copied());
                 *oracle += scaled;
             }
         }
@@ -149,23 +150,18 @@ fn arb_op() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// How the domination family's held value is built.
+/// How the stability property's larger value is built.
 #[derive(Debug, Clone)]
-enum Held {
-    /// A random mixed stream: samples the digit engine and the sign
-    /// fold's decision index.
-    Stream { ops: Vec<Op>, engine_first: bool },
-    /// A register-parked `m · 2^(32·(floor + 1) − 31) + delta`, both
-    /// signs: samples the quick branch's direct magnitude comparison,
-    /// optionally spilled so the same magnitudes also run through the
-    /// fold.
+enum StabilityValue {
+    /// A mixed stream that varies where comparisons become decisive.
+    Stream { ops: Vec<Op>, digits_first: bool },
+    /// A small `m · 2^(32·(floor + 1) − 31) + delta`, with either sign.
     ///
-    /// The value reaches its scale by one of the two register-preserving
-    /// shift routes — in-place `shl` steps, or register-to-register
-    /// shifted folds (`fold_shift`). Both draw their first step at the
-    /// widest in-register shift, so each route's register keep is
-    /// exercised at its `QUICK_SHIFT_MAX` boundary.
-    Register {
+    /// The value reaches its scale either through in-place shifts or by adding
+    /// the previous value into a new accumulator at the same shift. Both paths
+    /// cross `SMALL_SHIFT_MAX`, and `spill` repeats the comparison after an
+    /// explicit move to signed digits.
+    Small {
         m: u64,
         delta: u64,
         negative: bool,
@@ -174,23 +170,23 @@ enum Held {
     },
 }
 
-/// A held value paired with the floor it is probed at.
+/// A larger value paired with the digit position through which adjustments fit.
 ///
-/// Stream-built values draw any floor; register-built values
+/// Stream-built values draw any floor; small values
 /// concentrate `m` (the multiplier in units of `2^31`) around the
-/// quick branch's certification boundary `3 · 2^(32·(floor + 1))` and
+/// small-value path's decision boundary `3 · 2^(32·(floor + 1))` and
 /// the redundant-operand bound just above `2 · 2^(32·(floor + 1))`,
-/// spanning multipliers 1.5..4 in between. Register floors stop at 1:
-/// a wider floor puts the boundary past the register's ceiling.
-fn arb_held() -> impl Strategy<Value = (Held, usize)> {
+/// spanning multipliers 1.5..4 in between. Small-value floors stop at 1
+/// because a wider floor puts the boundary beyond `2^96`.
+fn arb_stability_value() -> impl Strategy<Value = (StabilityValue, usize)> {
     prop_oneof![
         1 => (proptest::collection::vec(arb_op(), 1..60), any::<bool>(), 0usize..8).prop_map(
-            |(ops, engine_first, floor)| (Held::Stream { ops, engine_first }, floor)
+            |(ops, digits_first, floor)| (StabilityValue::Stream { ops, digits_first }, floor)
         ),
         1 => (
             prop_oneof![
                 2 => Just(1u64 << 32),           // multiplier 2: the operand bound
-                1 => Just(3u64 << 31),           // multiplier 3: the certification boundary
+                1 => Just(3u64 << 31),           // multiplier 3: the decision boundary
                 3 => (3u64 << 30)..(1u64 << 33), // multipliers spanning 1.5..4
             ],
             prop_oneof![
@@ -205,7 +201,7 @@ fn arb_held() -> impl Strategy<Value = (Held, usize)> {
         )
             .prop_map(|(m, delta, negative, spill, fold_shift, floor)| {
                 (
-                    Held::Register {
+                    StabilityValue::Small {
                         m,
                         delta,
                         negative,
@@ -218,19 +214,18 @@ fn arb_held() -> impl Strategy<Value = (Held, usize)> {
     ]
 }
 
-/// Materialize a held-value spec as the accumulator and its exact
-/// oracle.
-fn build_held(held: &Held, floor: usize) -> (Accumulator, IBig) {
-    match held {
-        Held::Stream { ops, engine_first } => {
-            let mut acc = fresh(*engine_first);
+/// Materialize a stability input and its exact oracle value.
+fn build_stability_value(value: &StabilityValue, floor: usize) -> (Accumulator, IBig) {
+    match value {
+        StabilityValue::Stream { ops, digits_first } => {
+            let mut acc = fresh(*digits_first);
             let mut oracle = IBig::from(0);
             for op in ops {
                 apply(&mut acc, &mut oracle, op);
             }
             (acc, oracle)
         }
-        Held::Register {
+        StabilityValue::Small {
             m,
             delta,
             negative,
@@ -238,36 +233,34 @@ fn build_held(held: &Held, floor: usize) -> (Accumulator, IBig) {
             fold_shift,
         } => {
             let mut acc = Accumulator::new();
-            acc.add_u64(*m);
-            // Shift to the floor's scale in chunks the register accepts,
-            // so the value stays register-held throughout — in place, or
-            // by folding the running value into a fresh register at the
-            // same step (the other register-preserving shift schedule).
+            acc += *m;
+            // Shift in chunks the small representation accepts, either in
+            // place or by adding the previous value into a fresh accumulator.
             let mut remaining = 32 * (floor as u64 + 1) - 31;
             while remaining > 0 {
-                let step = remaining.min(QUICK_SHIFT_MAX);
+                let step = remaining.min(SMALL_SHIFT_MAX);
                 if *fold_shift {
                     let operand = core::mem::take(&mut acc);
-                    acc.add_accum_shl(&operand, step);
+                    acc.add_shifted(step, &operand);
                 } else {
-                    acc.shl(step);
+                    acc <<= step;
                 }
                 remaining -= step;
             }
-            acc.add_u64(*delta);
+            acc += *delta;
             if *negative {
-                acc.negate();
+                acc = -acc;
             }
             assert!(
-                acc.quick.is_some(),
-                "the register arm stays register-held until its own spill"
+                acc.small.is_some(),
+                "the small-value arm remains small until its requested spill"
             );
             let mut oracle = (IBig::from(*m) << (32 * (floor + 1) - 31)) + IBig::from(*delta);
             if *negative {
                 oracle = -oracle;
             }
             if *spill {
-                acc.spill();
+                acc.ensure_digits();
             }
             (acc, oracle)
         }
@@ -277,7 +270,7 @@ fn build_held(held: &Held, floor: usize) -> (Accumulator, IBig) {
 /// One digit of an accumulator-operand probe.
 #[derive(Debug, Clone, Copy)]
 enum ProbeDigit {
-    /// Parked at the lazy zone's edge: `−(2^33 − 1)`.
+    /// Parked at the lazy digit limit: `−(2^33 − 1)`.
     Extreme,
     /// A single word deposit `−w`, `w < 2^32`.
     Word(u64),
@@ -285,7 +278,7 @@ enum ProbeDigit {
     Absent,
 }
 
-/// A probe digit, biased toward the zone's edge — the spellings whose
+/// A probe digit, biased toward the digit limit — the representations whose
 /// magnitude exceeds any plain probe under the same floor.
 fn arb_probe_digit() -> impl Strategy<Value = ProbeDigit> {
     prop_oneof![
@@ -295,10 +288,10 @@ fn arb_probe_digit() -> impl Strategy<Value = ProbeDigit> {
     ]
 }
 
-/// Materialize an accumulator-operand probe held in digits
+/// Materialize an accumulator operand stored in digits
 /// `0..=floor`, as the accumulator and its exact oracle.
 ///
-/// `all_extreme` overrides every digit spec to the zone's edge — the
+/// `all_extreme` overrides every digit spec to the digit limit — the
 /// extremal operand of the floor, up to `(2^33 − 1)` per digit —
 /// so the strategy carries a point mass at the strongest probe.
 fn build_probe(
@@ -308,9 +301,9 @@ fn build_probe(
     floor: usize,
 ) -> (Accumulator, IBig) {
     let mut probe = Accumulator::new();
-    // A digit-engine spelling by construction: the deposits below must
-    // land as lazy-zone digits, not fuse in the register.
-    probe.spill();
+    // Force the signed-digit representation so the contributions remain
+    // separate coefficients rather than combining as one small integer.
+    probe.ensure_digits();
     let mut oracle = IBig::from(0);
     for (index, spec) in digits[..=floor].iter().enumerate() {
         let spec = if all_extreme {
@@ -331,198 +324,19 @@ fn build_probe(
         }
     }
     if negate {
-        probe.negate();
+        probe = -probe;
         oracle = -oracle;
     }
     (probe, oracle)
 }
 
 proptest! {
-    /// On random mixed small/wide streams the accumulator's sign matches an
-    /// exact `IBig` oracle after every single operation, and the full
-    /// value matches at periodic snapshots and at the end.
-    #[test]
-    fn mixed_streams_match_the_bigint_oracle(
-        ops in proptest::collection::vec(arb_op(), 1..300),
-        engine_first: bool,
-    ) {
-        let mut acc = fresh(engine_first);
-        let mut oracle = IBig::from(0);
-        for (step, op) in ops.iter().enumerate() {
-            apply(&mut acc, &mut oracle, op);
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle), "sign at step {}", step);
-            if step % 64 == 0 {
-                assert_value(&acc, &oracle);
-            }
-        }
-        assert_value(&acc, &oracle);
-    }
-
-    /// The shifted entry points hold `x · 2^s` exactly.
-    ///
-    /// A stream applied through `add_value_shl` at arbitrary sub-digit and
-    /// multi-digit shifts, mixed with unshifted subtractions, matches the
-    /// oracle's explicitly shifted value at every sign and at the final
-    /// value.
-    #[test]
-    fn shifted_entry_points_match_the_oracle(
-        ops in proptest::collection::vec(
-            (any::<bool>(), proptest::collection::vec(any::<u64>(), 1..=3), 0u64..200),
-            1..200,
-        ),
-    ) {
-        let mut acc = Accumulator::new();
-        let mut oracle = IBig::from(0);
-        for (negative, limbs, shift) in &ops {
-            let value = from_limbs(limbs);
-            if *negative {
-                acc.sub_limb_value(&value);
-                oracle -= IBig::from(value);
-            } else {
-                acc.add_value_shl(&value, *shift);
-                oracle += IBig::from(value << *shift as usize);
-            }
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
-        }
-        assert_value(&acc, &oracle);
-    }
-
-    /// The shifted subtraction entry points hold `−x · 2^s` exactly: a
-    /// stream mixing `sub_value_shl` and `sub_limb_value_shl` at arbitrary shifts
-    /// with unshifted additions matches the oracle at every sign and at
-    /// the final value.
-    #[test]
-    fn shifted_subtraction_entry_points_match_the_oracle(
-        ops in proptest::collection::vec(
-            (0u8..3, proptest::collection::vec(any::<u64>(), 1..=3), 0u64..200),
-            1..200,
-        ),
-    ) {
-        let mut acc = Accumulator::new();
-        let mut oracle = IBig::from(0);
-        for (arm, limbs, shift) in &ops {
-            let value = from_limbs(limbs);
-            match arm {
-                0 => {
-                    acc.sub_value_shl(&value, *shift);
-                    oracle -= IBig::from(value << *shift as usize);
-                }
-                1 => {
-                    acc.sub_limb_value_shl(&value, *shift);
-                    oracle -= IBig::from(value << *shift as usize);
-                }
-                _ => {
-                    acc.add_limb_value(&value);
-                    oracle += IBig::from(value);
-                }
-            }
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
-        }
-        assert_value(&acc, &oracle);
-    }
-
-    /// Accumulator-into-accumulator merges preserve the value: building two
-    /// operands from independent streams and merging one into the other at
-    /// an arbitrary shift, added or subtracted, equals the oracle's
-    /// `x ± y · 2^s`.
-    #[test]
-    fn merges_match_the_oracle(
-        receiver_ops in proptest::collection::vec(arb_op(), 1..60),
-        operand_ops in proptest::collection::vec(arb_op(), 1..60),
-        merge_shift in 0u64..200,
-        subtract: bool,
-    ) {
-        let mut receiver = Accumulator::new();
-        let mut receiver_oracle = IBig::from(0);
-        for op in &receiver_ops {
-            apply(&mut receiver, &mut receiver_oracle, op);
-        }
-        let mut operand = Accumulator::new();
-        let mut operand_oracle = IBig::from(0);
-        for op in &operand_ops {
-            apply(&mut operand, &mut operand_oracle, op);
-        }
-        if subtract {
-            receiver.sub_accum_shl(&operand, merge_shift);
-            receiver_oracle -= operand_oracle << merge_shift as usize;
-        } else {
-            receiver.add_accum_shl(&operand, merge_shift);
-            receiver_oracle += operand_oracle << merge_shift as usize;
-        }
-        assert_value(&receiver, &receiver_oracle);
-    }
-
-    /// `digit_count` covers the held width: after any stream, the value's
-    /// magnitude fits inside the counted digits (each digit spans 32 bits
-    /// plus one lazy-zone bit of overhang).
-    #[test]
-    fn size_probe_covers_the_value(
-        ops in proptest::collection::vec(arb_op(), 1..120),
-    ) {
-        let mut acc = Accumulator::new();
-        let mut oracle = IBig::from(0);
-        for op in &ops {
-            apply(&mut acc, &mut oracle, op);
-            let (_, magnitude) = acc.sign_biguint();
-            prop_assert!(
-                u64::try_from(acc.digit_count()).expect("digit counts fit u64") * 32 + 33
-                    >= magnitude.bits(),
-                "digit_count misses value width"
-            );
-        }
-    }
-
-    /// The fold primitives match the oracle.
-    ///
-    /// `add_accum` and `sub_accum` fold one accumulator's held value
-    /// into another at any interleaving, `negate` flips the value
-    /// exactly, and `reset` returns to exact zero — all with the sign
-    /// readable afterward.
-    #[test]
-    fn fold_primitives_match_the_oracle(
-        receiver_ops in proptest::collection::vec(arb_op(), 1..60),
-        operand_ops in proptest::collection::vec(arb_op(), 1..60),
-        subtract: bool,
-        flip: bool,
-        receiver_engine: bool,
-        operand_engine: bool,
-    ) {
-        let mut receiver = fresh(receiver_engine);
-        let mut receiver_oracle = IBig::from(0);
-        for op in &receiver_ops {
-            apply(&mut receiver, &mut receiver_oracle, op);
-        }
-        let mut operand = fresh(operand_engine);
-        let mut operand_oracle = IBig::from(0);
-        for op in &operand_ops {
-            apply(&mut operand, &mut operand_oracle, op);
-        }
-        if flip {
-            operand.negate();
-            operand_oracle = -operand_oracle;
-            assert_value(&operand, &operand_oracle);
-        }
-        if subtract {
-            receiver.sub_accum(&operand);
-            receiver_oracle -= &operand_oracle;
-        } else {
-            receiver.add_accum(&operand);
-            receiver_oracle += &operand_oracle;
-        }
-        assert_value(&receiver, &receiver_oracle);
-        assert_value(&operand, &operand_oracle);
-        receiver.reset();
-        assert_eq!(receiver.sign(), Ordering::Equal);
-        assert_value(&receiver, &IBig::from(0));
-    }
-
-    /// Reset re-arms the register, and
-    /// a later stream that spills back into the retained digit buffer
-    /// sees no residue of the pre-reset value.
+    /// Reset restores the small representation, and a later wide stream
+    /// reuses the retained digit buffer without observing the old value.
     ///
     /// Two independent streams with a reset between them: after the
     /// reset the accumulator equals fresh zero, and the second stream —
-    /// whose wide operands re-arm the digit engine over the buffer the
+    /// whose wide operands re-arm the digit representation over the buffer the
     /// first stream grew — matches an oracle that starts from zero.
     #[test]
     fn pooled_reuse_after_reset_matches_the_oracle(
@@ -539,174 +353,47 @@ proptest! {
         assert_value(&acc, &oracle);
         for (step, op) in second.iter().enumerate() {
             apply(&mut acc, &mut oracle, op);
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle), "sign at step {}", step);
+            prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle), "sign at step {}", step);
         }
         assert_value(&acc, &oracle);
     }
 
-    /// `is_literally_zero` is one-sided and a sign read canonicalizes.
+    /// Stability answers cover both normalized magnitudes and signed-digit operands.
     ///
-    /// After any stream, `is_literally_zero() == true` implies the value
-    /// is zero, and whenever the value is zero a `sign` read collapses
-    /// the spelling so `is_literally_zero` reads true afterward.
+    /// For each requested digit-aligned width, check the reported sign and apply
+    /// both signs of an operand within that width. The larger magnitude must exceed
+    /// the operand's magnitude. Small values additionally pin the exact
+    /// 3·2^bits threshold; constructed signed digits exercise the extra magnitude
+    /// allowed by redundant coefficients.
     #[test]
-    fn is_literally_zero_is_sound_and_sign_canonicalizes(
-        ops in proptest::collection::vec(arb_op(), 1..120),
-        engine_first: bool,
-    ) {
-        let mut acc = fresh(engine_first);
-        let mut oracle = IBig::from(0);
-        for op in &ops {
-            apply(&mut acc, &mut oracle, op);
-            if acc.is_literally_zero() {
-                prop_assert_eq!(&oracle, &IBig::ZERO);
-            }
-            if acc.sign() == Ordering::Equal {
-                prop_assert_eq!(&oracle, &IBig::ZERO);
-                prop_assert!(
-                    acc.is_literally_zero(),
-                    "a sign read canonicalizes zero"
-                );
-            }
-        }
-    }
-
-    /// Run-forming shift streams match the exact oracle at every step.
-    ///
-    /// Wide-shifted writes at scales that jump far above the held top —
-    /// creating, splitting, and consuming zero-run certificates on
-    /// every schedule the strategy can draw — mixed with word-scale
-    /// deltas and a sign read per step: the ledger never changes the
-    /// value the digits denote, and the full value matches at periodic
-    /// snapshots and the end.
-    #[test]
-    fn run_forming_shift_streams_match_the_bigint_oracle(
-        ops in proptest::collection::vec(
-            (0u8..4, proptest::collection::vec(any::<u64>(), 1..=2), 0u64..4_096),
-            1..150,
-        ),
-        engine_first: bool,
-    ) {
-        let mut acc = fresh(engine_first);
-        let mut oracle = IBig::from(0);
-        for (step, (arm, limbs, shift)) in ops.iter().enumerate() {
-            let value = from_limbs(limbs);
-            let scaled = IBig::from(value.clone()) << usize::try_from(*shift).unwrap();
-            match arm {
-                0 => {
-                    acc.add_limb_value_shl(&value, *shift);
-                    oracle += scaled;
-                }
-                1 => {
-                    acc.sub_limb_value_shl(&value, *shift);
-                    oracle -= scaled;
-                }
-                2 => {
-                    acc.sub_value_shl(&value, *shift);
-                    oracle -= scaled;
-                }
-                _ => {
-                    let delta = limbs[0] as i64;
-                    acc.add_small(delta);
-                    oracle += delta;
-                }
-            }
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle), "sign at step {}", step);
-            if step % 32 == 0 {
-                assert_value(&acc, &oracle);
-            }
-        }
-        assert_value(&acc, &oracle);
-    }
-
-    /// `shl` scales in place exactly: after any stream, shifting the held
-    /// value by an arbitrary amount matches the oracle's `x · 2^s`.
-    #[test]
-    fn in_place_shift_matches_the_oracle(
-        ops in proptest::collection::vec(arb_op(), 1..60),
-        shift in 0u64..200,
-        engine_first: bool,
-    ) {
-        let mut acc = fresh(engine_first);
-        let mut oracle = IBig::from(0);
-        for op in &ops {
-            apply(&mut acc, &mut oracle, op);
-        }
-        acc.shl(shift);
-        oracle <<= shift as usize;
-        assert_value(&acc, &oracle);
-    }
-
-    /// `merge_into_wider` preserves the sum regardless of which operand is
-    /// wider, and hands back a drained buffer whose stale digits never
-    /// leak into the result.
-    #[test]
-    fn width_ordered_merges_match_the_oracle(
-        receiver_ops in proptest::collection::vec(arb_op(), 1..60),
-        operand_ops in proptest::collection::vec(arb_op(), 1..60),
-        receiver_engine: bool,
-        operand_engine: bool,
-    ) {
-        let mut receiver = fresh(receiver_engine);
-        let mut receiver_oracle = IBig::from(0);
-        for op in &receiver_ops {
-            apply(&mut receiver, &mut receiver_oracle, op);
-        }
-        let mut operand = fresh(operand_engine);
-        let mut operand_oracle = IBig::from(0);
-        for op in &operand_ops {
-            apply(&mut operand, &mut operand_oracle, op);
-        }
-        let drained = receiver.merge_into_wider(operand);
-        receiver_oracle += &operand_oracle;
-        assert_value(&receiver, &receiver_oracle);
-        // The pool contract: a drained buffer re-arms to a clean zero.
-        let mut reused = drained;
-        reused.reset();
-        assert_value(&reused, &IBig::from(0));
-    }
-
-    /// `sign_dominates_at` never lies at any floor: the sign matches
-    /// the oracle's, and a `decided` verdict covers every operand in
-    /// digits `0..=floor` — plain or redundantly spelled.
-    ///
-    /// Held values come from random streams (the digit fold's decision
-    /// index) and from register-parked values concentrated at the quick
-    /// branch's certification boundary (its direct magnitude
-    /// comparison). Three legs per decided verdict: a plain-magnitude
-    /// probe under `2^(32·(floor + 1))` folded through the oracle; an
-    /// accumulator-operand probe built from lazy-zone digit deposits in
-    /// digits `0..=floor` (whose redundant spelling can reach
-    /// `2.01 · 2^(32·(floor + 1))`), folded in both signs with the held
-    /// magnitude asserted strictly larger; and, while register-held, the
-    /// documented certification bound pinned exactly —
-    /// `decided ⇔ |value| ≥ 3 · 2^(32·(floor + 1))`.
-    #[test]
-    fn floor_domination_is_sound(
-        (held, floor) in arb_held(),
+    fn stored_width_stability_is_sound(
+        (value, floor) in arb_stability_value(),
         probe_limbs in proptest::collection::vec(any::<u64>(), 1..=4),
         probe_negative: bool,
         probe_digits in proptest::collection::vec(arb_probe_digit(), 8),
         probe_all_extreme: bool,
         probe_negate: bool,
     ) {
-        let (mut acc, oracle) = build_held(&held, floor);
-        let register_held = acc.quick.is_some();
-        let (sign, decided) = acc.sign_dominates_at(floor);
-        prop_assert_eq!(sign, oracle_sign(&oracle));
+        let (mut acc, oracle) = build_stability_value(&value, floor);
+        let was_small = acc.small.is_some();
+        let stable = acc.cmp_zero_stable_under((floor as u64 + 1) * 32);
+        let sign = oracle_sign(&oracle);
+        if let Some(reported) = stable {
+            prop_assert_eq!(reported, sign);
+        }
         assert_value(&acc, &oracle);
-        if register_held {
-            // The register arm's contract is exact, not merely sound:
-            // the certificate is the direct magnitude comparison.
+        if was_small {
+            // The small path's contract is exact, not merely sound:
+            // the bound is the direct magnitude comparison.
             let (_, magnitude) = acc.sign_biguint();
             prop_assert_eq!(
-                decided,
+                stable.is_some(),
                 magnitude >= UBig::from(3u8) << (32 * (floor + 1)),
-                "a register-held verdict is exactly the comparison \
+                "a small-value verdict is exactly the comparison \
                  against 3 · 2^(32·(floor + 1))"
             );
         }
-        if decided {
+        if stable.is_some() {
             // The largest plain operand the verdict covers: top digit
             // index at most `floor`, so at most 32·(floor + 1) bits.
             let mut probe = from_limbs(&probe_limbs);
@@ -722,60 +409,63 @@ proptest! {
                 oracle_sign(&folded), sign,
                 "a decided verdict survives any fold under its floor"
             );
-            // The accumulator-operand clause: a redundant lazy-zone
-            // spelling in digits 0..=floor can exceed every plain
+            // The accumulator-operand clause: a redundant signed
+            // representation in digits 0..=floor can exceed every plain
             // magnitude under the floor, and the verdict covers it too.
             let (operand, operand_oracle) =
                 build_probe(&probe_digits, probe_all_extreme, probe_negate, floor);
             prop_assert!(
-                operand.digit_count() <= floor + 1,
+                operand.stored_digit_count() <= floor + 1,
                 "the probe operand sits at or below the floor"
             );
             assert_value(&operand, &operand_oracle);
-            let (_, held_magnitude) = acc.sign_biguint();
+            let (_, larger_magnitude) = acc.sign_biguint();
             let (_, operand_magnitude) = operand.sign_biguint();
             prop_assert!(
-                held_magnitude > operand_magnitude,
-                "a decided verdict implies the held magnitude strictly \
-                 exceeds any operand held in digits 0..=floor"
+                larger_magnitude > operand_magnitude,
+                "a decided verdict implies the larger magnitude strictly \
+                 exceeds any operand stored in digits 0..=floor"
             );
             let mut folded = acc.clone();
-            folded.sub_accum(&operand);
+            folded -= &operand;
             prop_assert_eq!(
-                folded.sign(), sign,
-                "a decided verdict survives subtracting an operand held \
+                folded.cmp_zero(), sign,
+                "a decided verdict survives subtracting an operand stored \
                  in digits 0..=floor"
             );
             let mut folded = acc.clone();
-            folded.add_accum(&operand);
+            folded += &operand;
             prop_assert_eq!(
-                folded.sign(), sign,
-                "a decided verdict survives adding an operand held in \
+                folded.cmp_zero(), sign,
+                "a decided verdict survives adding an operand stored in \
                  digits 0..=floor"
             );
         }
     }
 
-    /// `sign_dominates_word` never lies: the sign always matches the
-    /// oracle's, and a `decided` verdict implies the held magnitude
+    /// `cmp_zero_stable_under(64)` never lies: the sign always matches the
+    /// oracle's, and a `Some` result implies the current magnitude
     /// exceeds any machine word — folding any `u64` afterward cannot
     /// flip the sign.
     #[test]
-    fn word_domination_is_sound(
+    fn word_width_stability_is_sound(
         ops in proptest::collection::vec(arb_op(), 1..60),
         probe: u64,
         probe_negative: bool,
-        engine_first: bool,
+        digits_first: bool,
     ) {
-        let mut acc = fresh(engine_first);
+        let mut acc = fresh(digits_first);
         let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
         }
-        let (sign, decided) = acc.sign_dominates_word();
-        prop_assert_eq!(sign, oracle_sign(&oracle));
+        let stable = acc.cmp_zero_stable_under(64);
+        let sign = oracle_sign(&oracle);
+        if let Some(reported) = stable {
+            prop_assert_eq!(reported, sign);
+        }
         assert_value(&acc, &oracle);
-        if decided {
+        if stable.is_some() {
             let mut folded = oracle.clone();
             if probe_negative {
                 folded -= probe;
@@ -789,21 +479,12 @@ proptest! {
         }
     }
 
-    /// Digit-aligned streams — every delta an exact multiple of 2^32 —
-    /// convert exactly at every step: recenter ties leave zero
-    /// remainders that the read-out's complement carry must ripple
-    /// across.
+    /// Digit-aligned updates normalize exactly when carries leave zero remainders.
     ///
-    /// The generalized family behind the flush-right carry-tie witness:
-    /// with the digit engine forced, deposits biased toward small
-    /// multiples drive digits onto exact `±k · 2^33` boundaries (every
-    /// recenter of a digit holding a multiple of `2^32` is a tie, since
-    /// the recentered remainder is both a multiple of `2^32` and inside
-    /// `[−2^31, 2^31)` — so exactly 0), and the zero digits they leave
-    /// under nonzero highs route `sign_biguint` through the
-    /// `rem_euclid`/complement boundary at random digit offsets, for both
-    /// signs. The value is oracle-checked after every deposit, before
-    /// the sign read collapses the spelling.
+    /// Updates by multiples of 2^32 force recentered digits to zero. Reading their
+    /// magnitude must propagate the complement carry across those zero positions,
+    /// at every generated offset and for both signs. Read before asking for the
+    /// comparison so it cannot first simplify the representation under test.
     #[test]
     fn carry_tie_streams_match_the_oracle(
         ops in proptest::collection::vec(
@@ -816,9 +497,9 @@ proptest! {
         ),
     ) {
         let mut acc = Accumulator::new();
-        // This boundary exists in the digit engine: register-held values read
-        // out from the register arm and never recenter.
-        acc.spill();
+        // This boundary exists only in signed digits; a small value is read
+        // directly and never recentered.
+        acc.ensure_digits();
         let mut oracle = IBig::from(0);
         for (multiple, index, negative) in &ops {
             let delta = UBig::from(multiple << 32);
@@ -831,10 +512,10 @@ proptest! {
                 acc.add_value_shl(&delta, 32 * index);
                 oracle += scaled;
             }
-            // Raw spelling first: the read-out samples the complement
-            // boundary before the sign read's collapse rewrites the digits.
+            // Raw representation first: the read-out samples the complement
+            // boundary before comparison with zero compacts the digits.
             assert_value(&acc, &oracle);
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
+            prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
         }
     }
 }
@@ -853,12 +534,12 @@ fn boundary_comb_oscillation_matches_the_oracle() {
     acc.add_limb_value(&below_cliff);
     oracle += IBig::from(below_cliff);
     for _ in 0..2_000 {
-        acc.add_small(1);
+        acc += 1_i64;
         oracle += 1;
-        assert_eq!(acc.sign(), Ordering::Greater, "above the cliff");
-        acc.sub_small(1);
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "above the cliff");
+        acc -= 1_i64;
         oracle -= 1;
-        assert_eq!(acc.sign(), Ordering::Greater, "back below the cliff");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back below the cliff");
     }
     assert_value(&acc, &oracle);
 }
@@ -878,10 +559,10 @@ fn wide_teeth_across_the_cliff_match_the_oracle() {
     for _ in 0..500 {
         acc.sub_limb_value(&tooth);
         oracle -= IBig::from(tooth.clone());
-        assert_eq!(acc.sign(), Ordering::Greater, "below the cliff");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "below the cliff");
         acc.add_limb_value(&tooth);
         oracle += IBig::from(tooth.clone());
-        assert_eq!(acc.sign(), Ordering::Greater, "back at the cliff");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at the cliff");
     }
     assert_value(&acc, &oracle);
 }
@@ -900,14 +581,14 @@ fn cancelling_prefix_chain_matches_the_oracle() {
     let mut oracle = IBig::from(0);
     acc.add_limb_value(&peak);
     oracle += IBig::from(peak);
-    assert_eq!(acc.sign(), Ordering::Greater);
+    assert_eq!(acc.cmp_zero(), Ordering::Greater);
     for cycle in 0..200 {
         acc.sub_limb_value(&descent);
         oracle -= IBig::from(descent.clone());
-        assert_eq!(acc.sign(), Ordering::Greater, "down at 1");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "down at 1");
         acc.add_limb_value(&descent);
         oracle += IBig::from(descent.clone());
-        assert_eq!(acc.sign(), Ordering::Greater, "back at the peak");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at the peak");
         if cycle % 16 == 0 {
             assert_value(&acc, &oracle);
         }
@@ -927,17 +608,19 @@ fn exact_cancellation_and_unit_nudges_read_correctly() {
     oracle += IBig::from(wide.clone());
     acc.sub_limb_value(&wide);
     oracle -= IBig::from(wide);
-    assert_eq!(acc.sign(), Ordering::Equal, "exact cancellation is zero");
+    assert_eq!(
+        acc.cmp_zero(),
+        Ordering::Equal,
+        "exact cancellation is zero"
+    );
     assert_value(&acc, &oracle);
-    acc.sub_small(1);
+    acc -= 1_i64;
     oracle -= 1;
-    assert_eq!(acc.sign(), Ordering::Less, "one below zero");
-    assert!(acc.is_negative(), "is_negative agrees with sign");
+    assert_eq!(acc.cmp_zero(), Ordering::Less, "one below zero");
     assert_value(&acc, &oracle);
-    acc.add_small(2);
+    acc += 2_i64;
     oracle += 2;
-    assert_eq!(acc.sign(), Ordering::Greater, "one above zero");
-    assert!(!acc.is_negative(), "is_negative agrees with sign");
+    assert_eq!(acc.cmp_zero(), Ordering::Greater, "one above zero");
     assert_value(&acc, &oracle);
 }
 
@@ -951,7 +634,7 @@ fn negative_limb_values_read_back_exactly() {
     let wide = (UBig::from(1u8) << 192usize) - 5u8;
     acc.sub_limb_value(&wide);
     oracle -= IBig::from(wide);
-    assert_eq!(acc.sign(), Ordering::Less);
+    assert_eq!(acc.cmp_zero(), Ordering::Less);
     assert_value(&acc, &oracle);
     // Exact multiple of 2^32: −2^96.
     let mut acc = Accumulator::new();
@@ -959,7 +642,7 @@ fn negative_limb_values_read_back_exactly() {
     let aligned = UBig::from(1u8) << 96usize;
     acc.sub_limb_value(&aligned);
     oracle -= IBig::from(aligned);
-    assert_eq!(acc.sign(), Ordering::Less);
+    assert_eq!(acc.cmp_zero(), Ordering::Less);
     assert_value(&acc, &oracle);
 }
 
@@ -967,44 +650,43 @@ fn negative_limb_values_read_back_exactly() {
 /// including values past `i64::MAX`, in both directions.
 #[test]
 fn u64_entry_points_cover_the_full_range() {
-    for engine in [false, true] {
-        let mut acc = fresh(engine);
+    for digits in [false, true] {
+        let mut acc = fresh(digits);
         let mut oracle = IBig::from(0);
-        acc.add_u64(u64::MAX);
+        acc += u64::MAX;
         oracle += u64::MAX;
-        assert_eq!(acc.sign(), Ordering::Greater);
+        assert_eq!(acc.cmp_zero(), Ordering::Greater);
         assert_value(&acc, &oracle);
-        acc.sub_u64(u64::MAX);
+        acc -= u64::MAX;
         oracle -= u64::MAX;
-        assert_eq!(acc.sign(), Ordering::Equal);
+        assert_eq!(acc.cmp_zero(), Ordering::Equal);
         assert_value(&acc, &oracle);
-        acc.sub_u64(u64::MAX);
+        acc -= u64::MAX;
         oracle -= u64::MAX;
-        assert_eq!(acc.sign(), Ordering::Less);
+        assert_eq!(acc.cmp_zero(), Ordering::Less);
         assert_value(&acc, &oracle);
     }
 }
 
-/// A redundantly spelled zero reads `is_literally_zero() == false` until
-/// a sign read collapses it: the one-sided contract the method's name and
-/// rustdoc carry, pinned so any change to it is deliberate.
+/// Cancelling digits `[−2^32, 1]` are not visibly zero until comparison
+/// collapses them, although normalized readout already reports exact zero.
 #[test]
 fn redundant_zero_reads_nonzero_until_collapsed() {
-    // Start in the digit engine deliberately: the test needs two cancelling
+    // Start in the digit representation deliberately: the test needs two cancelling
     // digits, not a particular public operation's dispatch choice.
     let mut acc = fresh(true);
-    acc.apply_limbs(core::iter::once(1), false, 32);
-    acc.sub_small(1 << 32);
+    acc.digits.apply_limbs(core::iter::once(1), Update::Add, 32);
+    acc -= 1_i64 << 32;
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!((sign, magnitude), (Ordering::Equal, UBig::ZERO));
     assert!(
-        !acc.is_literally_zero(),
+        !acc.is_known_zero(),
         "cancelling digits spell zero redundantly"
     );
-    assert_eq!(acc.sign(), Ordering::Equal);
+    assert_eq!(acc.cmp_zero(), Ordering::Equal);
     assert!(
-        acc.is_literally_zero(),
-        "the sign read collapses to the canonical zero"
+        acc.is_known_zero(),
+        "comparison with zero compacts the representation to visible zero"
     );
 }
 
@@ -1012,7 +694,7 @@ fn redundant_zero_reads_nonzero_until_collapsed() {
 #[test]
 fn new_and_default_hold_zero() {
     for mut acc in [Accumulator::new(), Accumulator::default()] {
-        assert_eq!(acc.sign(), Ordering::Equal);
+        assert_eq!(acc.cmp_zero(), Ordering::Equal);
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Equal);
         assert_eq!(magnitude, UBig::from(0u8));

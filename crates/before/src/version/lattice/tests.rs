@@ -103,15 +103,15 @@ fn assert_pointwise(a: &Version, b: &Version, out: &Version, meet: bool) {
     // BigInt differences out − a and out − b: the pointwise claim reads off
     // their signs without materializing any height.
     let mut oa = Accumulator::new();
-    oa.add_biguint_shl(&ho, 0);
-    oa.sub_biguint_shl(&ha, 0);
+    oa.add_shifted_limbs(0, ho.iter_u64_digits());
+    oa.sub_shifted_limbs(0, ha.iter_u64_digits());
     let mut ob = Accumulator::new();
-    ob.add_biguint_shl(&ho, 0);
-    ob.sub_biguint_shl(&hb, 0);
+    ob.add_shifted_limbs(0, ho.iter_u64_digits());
+    ob.sub_shifted_limbs(0, hb.iter_u64_digits());
     let mut intervals = 0u64;
     loop {
         intervals += 1;
-        let (against_a, against_b) = (oa.sign(), ob.sign());
+        let (against_a, against_b) = (oa.cmp_zero(), ob.cmp_zero());
         if meet {
             assert!(
                 against_a <= core::cmp::Ordering::Equal && against_b <= core::cmp::Ordering::Equal,

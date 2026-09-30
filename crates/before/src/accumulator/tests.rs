@@ -23,7 +23,7 @@ fn oracle_sign(oracle: &BigInt) -> Ordering {
 
 /// Assert the accumulator's full value equals the oracle.
 fn assert_value(acc: &Accumulator, oracle: &BigInt) {
-    let (sign, magnitude) = acc.signed_magnitude();
+    let (sign, magnitude) = acc.biguint_parts();
     assert_eq!(sign, oracle_sign(oracle), "accumulator sign");
     let rebuilt = match sign {
         Ordering::Less => -BigInt::from(magnitude),
@@ -47,13 +47,13 @@ proptest! {
         for (negative, digits) in &ops {
             let value = BigUint::from_slice(digits);
             if *negative {
-                acc.sub_biguint_shl(&value, 0);
+                acc.sub_shifted_limbs(0, value.iter_u64_digits());
                 oracle -= BigInt::from(value);
             } else {
-                acc.add_biguint_shl(&value, 0);
+                acc.add_shifted_limbs(0, value.iter_u64_digits());
                 oracle += BigInt::from(value);
             }
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
+            prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
         }
         assert_value(&acc, &oracle);
     }
@@ -71,13 +71,13 @@ proptest! {
         for (negative, digits, shift) in &ops {
             let value = BigUint::from_slice(digits);
             if *negative {
-                acc.sub_biguint_shl(&value, *shift);
+                acc.sub_shifted_limbs(*shift, value.iter_u64_digits());
                 oracle -= BigInt::from(value << *shift as usize);
             } else {
-                acc.add_biguint_shl(&value, *shift);
+                acc.add_shifted_limbs(*shift, value.iter_u64_digits());
                 oracle += BigInt::from(value << *shift as usize);
             }
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
+            prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
         }
         assert_value(&acc, &oracle);
     }
@@ -107,7 +107,7 @@ proptest! {
                 acc.add_bigint(&value);
                 oracle += value;
             }
-            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
+            prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
         }
         assert_value(&acc, &oracle);
     }

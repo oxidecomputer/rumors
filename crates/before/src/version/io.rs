@@ -27,6 +27,13 @@ pub(crate) fn from_canonical(bytes: bytes::Bytes) -> Version {
     Version::from_storage(Bits::from_canonical(bytes))
 }
 
+/// Validate and adopt exactly one canonical Version encoding.
+pub(crate) fn decode(bytes: bytes::Bytes) -> Result<Version, crate::error::Decode> {
+    let end = validate::prefix(BitsReader::from_bytes(&bytes))?;
+    Bits::validate_padding(&bytes, end)?;
+    Ok(from_canonical(bytes))
+}
+
 /// Seal a trusted domain writer as a Version.
 pub(crate) fn finish(writer: BitsWriter) -> Version {
     Version::from_storage(writer.finalize())

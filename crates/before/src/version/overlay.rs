@@ -270,8 +270,8 @@ impl<'a> OpenedPair<'a> {
         let (a, a_first) = VersionRegionReader::open(a);
         let (b, b_first) = VersionRegionReader::open(b);
         let mut diff = Accumulator::new();
-        diff.add_biguint_shl(&a_first, 0);
-        diff.sub_biguint_shl(&b_first, 0);
+        diff.add_shifted_limbs(0, a_first.iter_u64_digits());
+        diff.sub_shifted_limbs(0, b_first.iter_u64_digits());
         OpenedPair {
             a,
             b,

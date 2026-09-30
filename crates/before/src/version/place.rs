@@ -61,7 +61,6 @@ use suanpan::Accumulator;
 
 use num_bigint::BigUint;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::span::{Dominance, Endpoint, Placement, Precedence};
 
 use super::order::OrderState;
@@ -99,8 +98,8 @@ impl<'a> BoundSide<'a> {
     fn open(bits: &'a Version, probe_first: &BigUint) -> BoundSide<'a> {
         let (cursor, first) = VersionRegionReader::open(bits);
         let mut diff = Accumulator::new();
-        diff.add_biguint_shl(probe_first, 0);
-        diff.sub_biguint_shl(&first, 0);
+        diff.add_shifted_limbs(0, probe_first.iter_u64_digits());
+        diff.sub_shifted_limbs(0, first.iter_u64_digits());
         BoundSide {
             cursor,
             diff,
@@ -110,7 +109,7 @@ impl<'a> BoundSide<'a> {
 
     /// Fold this interval's sign into the surviving directions.
     fn read(&mut self) {
-        self.directions.fold(self.diff.sign());
+        self.directions.fold(self.diff.cmp_zero());
     }
 
     /// The relation the completed sweep decided, as the causal order.
@@ -135,7 +134,7 @@ impl<'a> BoundSide<'a> {
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::causal_cmp`],
+/// The canonical-stream contract of [`Version::partial_cmp`],
 /// on all three operands.
 pub fn span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
     /// Either endpoint's decided concurrency drops its own cursor while the
@@ -192,7 +191,7 @@ pub fn span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::causal_cmp`],
+/// The canonical-stream contract of [`Version::partial_cmp`],
 /// on all three operands.
 pub fn dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance {
     walk(
@@ -242,7 +241,7 @@ pub fn dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance {
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::causal_cmp`],
+/// The canonical-stream contract of [`Version::partial_cmp`],
 /// on all three operands.
 pub fn precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedence {
     walk(
@@ -291,7 +290,7 @@ pub fn precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedence {
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::causal_cmp`],
+/// The canonical-stream contract of [`Version::partial_cmp`],
 /// on all three operands.
 pub fn contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
     walk(

@@ -23,7 +23,6 @@ use suanpan::Accumulator;
 
 use num_bigint::BigUint;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::bits::stack::BitStack;
 use crate::bits::BitRead;
 use crate::error::Decode;
@@ -246,7 +245,7 @@ pub enum Admission {
 /// # Panics
 ///
 /// `lo` must be a canonical Version stream — its cursor is the pair sweep's and
-/// shares [`Version::causal_cmp`]'s contract. The parsed
+/// shares [`Version::partial_cmp`]'s contract. The parsed
 /// stream needs no such trust; that is the point.
 pub fn dominating_from<C: BitRead>(lo: &Version, cursor: &mut C) -> Result<Admission, Decode>
 where
@@ -257,8 +256,8 @@ where
     // The difference is `height_lo - height_hi`. Dominance holds only while it
     // is nonpositive over every region produced by the combined walk.
     let mut diff = Accumulator::new();
-    diff.add_biguint_shl(&lo_first, 0);
-    diff.sub_biguint_shl(&hi_first, 0);
+    diff.add_shifted_limbs(0, lo_first.iter_u64_digits());
+    diff.sub_shifted_limbs(0, hi_first.iter_u64_digits());
     // Equality rides the same sign reads: the pair is equal exactly when no
     // elementary interval reads a strict `Less` (and none reads `Greater`,
     // which refutes outright) — canonical uniqueness then makes the verdict
@@ -268,7 +267,7 @@ where
         // One sign read per elementary interval, exactly as the sweep folds it;
         // the three-way match keeps that single read while deciding both the
         // dominance and the equality questions.
-        match diff.sign() {
+        match diff.cmp_zero() {
             Ordering::Greater => {
                 // Dominance is permanently refuted. Stop using the lower
                 // cursor and difference, but finish parsing the upper stream

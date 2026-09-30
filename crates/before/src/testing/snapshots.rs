@@ -94,7 +94,7 @@ fn gamma_bit_layout_table() {
 
 /// Render a party's debug form and binary encoding.
 fn party_block(p: &Party) -> String {
-    let bits = p.to_writer();
+    let bits = crate::party::instrument::bits(p);
     format!(
         "debug:   {p:?}\nbits:    {} ({} bits)\nbytes:   {}",
         bits_to_string(bits.reader()),
@@ -189,7 +189,7 @@ fn clock_canonical_form() {
     // A `Clock`'s canonical stream is its `Party` bits followed by its `Version` bits,
     // with no padding between (padding is added only by `encode`). Rebuild that unpadded
     // concatenation here to show the boundary between the two halves.
-    let party = c.party().to_writer();
+    let party = crate::party::instrument::bits(c.party());
     let version = crate::version::instrument::bits(c.version());
     let mut bits = BitsWriter::with_capacity(party.len() + version.len());
     bits.splice_writer(&party, 0, party.len());

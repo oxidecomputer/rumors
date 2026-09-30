@@ -69,6 +69,11 @@ impl Anchor {
         self.gap.add_bigint(delta);
     }
 
+    /// Consume a running-height change without normalizing or copying it.
+    pub(super) fn fold_accumulator(&mut self, delta: Accumulator) {
+        self.gap += delta;
+    }
+
     /// Undo a temporary height offset after a comparison.
     pub(super) fn subtract_offset(&mut self, offset: &BigInt) {
         self.gap.sub_bigint(offset);
@@ -84,13 +89,13 @@ impl Anchor {
     pub(super) fn arm_below(&mut self, below: Accumulator) -> Accumulator {
         // (h - A) - (h - v) = v - A. The new gap keeps the supplied buffer.
         let mut offset = core::mem::replace(&mut self.gap, below);
-        offset.sub_accum(&self.gap);
+        offset -= &self.gap;
         self.move_by(offset)
     }
 
     /// Move the anchor by an owned difference, returning `v - old_minimum`.
     pub(super) fn arm_relative(&mut self, offset: Accumulator) -> Accumulator {
-        self.gap.sub_accum(&offset);
+        self.gap -= &offset;
         self.move_by(offset)
     }
 
@@ -101,10 +106,10 @@ impl Anchor {
     /// The merge consumes the narrower value and retains the wider buffer.
     fn move_by(&mut self, mut offset: Accumulator) -> Accumulator {
         for follower in self.followers.iter_mut().flatten() {
-            follower.add_accum(&offset);
+            *follower += &offset;
         }
         if let Some(deferred) = self.deferred.take() {
-            drop(offset.merge_into_wider(deferred));
+            offset += deferred;
         }
         offset
     }
@@ -115,7 +120,7 @@ impl Anchor {
     /// `A > m`, so any height at or above `A` is above `m`. A height below `A`
     /// requires comparing the distances `A - h` and `A - m`.
     pub(super) fn compare_height(&mut self) -> Ordering {
-        let sign = self.gap.sign();
+        let sign = self.gap.cmp_zero();
         if self.deferred.is_none() {
             return sign;
         }
@@ -132,35 +137,38 @@ impl Anchor {
     /// their widths are comparable: consume the deferred state once and read
     /// the sign of the resulting `h - m`.
     fn compare_below_anchor(&mut self) -> Ordering {
-        let gap_floor = self.gap.digit_count() - 1;
+        let gap_bits = self.gap.stored_bits();
         let deferred = self
             .deferred
             .as_mut()
             .expect("the minimum is below the anchor");
         // Sign normalization removes cancelling leading digits before the
         // digit counts are used as width certificates.
-        let sign = deferred.sign();
+        let sign = deferred.cmp_zero();
         debug_assert_eq!(sign, Ordering::Greater, "the deferred distance is positive");
-        if deferred.sign_dominates_at(gap_floor).1 {
+        if deferred.cmp_zero_stable_under(gap_bits).is_some() {
             return Ordering::Greater;
         }
-        if self.gap.sign_dominates_at(deferred.digit_count() - 1).1 {
+        if self
+            .gap
+            .cmp_zero_stable_under(deferred.stored_bits())
+            .is_some()
+        {
             return Ordering::Less;
         }
         self.resolve();
-        self.gap.sign()
+        self.gap.cmp_zero()
     }
 
     /// Certify the gap's sign when adding any word-sized offset cannot change it.
     pub(super) fn gap_dominates_word(&mut self) -> Option<Ordering> {
-        let (sign, decided) = self.gap.sign_dominates_word();
-        decided.then_some(sign)
+        self.gap.cmp_zero_stable_under(64)
     }
 
     /// Make the current height a confirmed new minimum and return `old_min - h`.
     pub(super) fn undercut_here(&mut self) -> Accumulator {
         let mut decrease = core::mem::take(&mut self.gap);
-        decrease.negate();
+        decrease = -decrease;
         self.lower_by(decrease)
     }
 
@@ -171,7 +179,7 @@ impl Anchor {
     /// [`Self::set_gap_below_offset`], so no offset buffer overlaps that work.
     pub(super) fn undercut_offset(&mut self, offset: &BigInt) -> Accumulator {
         let mut decrease = core::mem::take(&mut self.gap);
-        decrease.negate();
+        decrease = -decrease;
         decrease.sub_bigint(offset);
         self.lower_by(decrease)
     }
@@ -193,10 +201,10 @@ impl Anchor {
     /// for the outer boundaries. The caller has already replaced the old gap.
     fn lower_by(&mut self, mut decrease: Accumulator) -> Accumulator {
         for follower in self.followers.iter_mut().flatten() {
-            follower.sub_accum(&decrease);
+            *follower -= &decrease;
         }
         if let Some(deferred) = self.deferred.take() {
-            decrease.sub_accum(&deferred);
+            decrease -= &deferred;
         }
         decrease
     }
@@ -225,9 +233,9 @@ impl Anchor {
             return;
         };
         for follower in self.followers.iter_mut().flatten() {
-            follower.sub_accum(&deferred);
+            *follower -= &deferred;
         }
-        drop(self.gap.merge_into_wider(deferred));
+        self.gap += deferred;
     }
 
     /// Whether the current minimum lies below the anchor.
@@ -248,7 +256,7 @@ impl Anchor {
 
     /// Add `h - A` to convert an anchor-relative difference into `h - X`.
     pub(super) fn add_gap_to(&self, delta: &mut Accumulator) {
-        delta.add_accum(&self.gap);
+        *delta += &self.gap;
     }
 
     /// Subtract `h - m` to convert a height-relative difference into `m - X`.
@@ -257,7 +265,7 @@ impl Anchor {
             !self.is_deferred(),
             "the anchor must first be the true minimum"
         );
-        delta.sub_accum(&self.gap);
+        *delta -= &self.gap;
     }
 
     /// Compare `h + above` with `A + candidate`, where deferred terms cancel.
@@ -266,11 +274,11 @@ impl Anchor {
         above: &BigInt,
         candidate: &Accumulator,
     ) -> Ordering {
-        self.gap.sub_accum(candidate);
+        self.gap -= candidate;
         self.gap.add_bigint(above);
-        let sign = self.gap.sign();
+        let sign = self.gap.cmp_zero();
         self.gap.sub_bigint(above);
-        self.gap.add_accum(candidate);
+        self.gap += candidate;
         sign
     }
 }

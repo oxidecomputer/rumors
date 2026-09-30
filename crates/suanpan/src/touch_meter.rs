@@ -1,33 +1,28 @@
-//! Process-global counter of accumulator digit touches.
+//! Process-global counter for arithmetic-core regression tests.
 //!
-//! Present only with the `touch-meter` cargo feature. Counts one per
-//! digit read-modify-write in [`Accumulator`](crate::Accumulator)'s own
-//! code (a sign-fold step counts one touch per digit read plus one per
-//! digit its collapse zeroes; a top-settlement scan counts one per zero
-//! digit it steps past, and one — total — per certified zero run it
-//! skips whole; a wide limb-stream operation adds one per operand limb read):
-//! the unit every cost on the crate page is denominated in. The quick
-//! register meters too, though it holds no digits: a delta, sign query,
-//! negation, or shift the register absorbs counts exactly one touch,
-//! and a register read-out counts the value's digit count. Readings are
-//! deterministic for a fixed implementation and operation sequence, but the
-//! totals are test instrumentation rather than an API compatibility promise.
-//! Because the counter is
-//! process-global with relaxed ordering, readings are meaningful only
-//! when metered scenarios run serially — [`reset`] between them, read
-//! after the metered call returns; a default-parallel test runner
-//! interleaves scenarios into one count.
+//! Available with the `touch-meter` feature. The counter records bounded units
+//! of accumulator arithmetic and input reading. Its exact denomination is an
+//! implementation detail: it excludes allocation and some indexing work, so it
+//! neither measures elapsed time nor independently establishes the public
+//! complexity bounds. Counts are deterministic for a fixed implementation and
+//! operation sequence, but individual totals are not an API compatibility
+//! promise.
+//!
+//! Run measured scenarios serially: [`reset`] the counter, perform the
+//! operations, then read [`touches`]. Relaxed atomic updates make counting
+//! thread-safe, but concurrent scenarios contribute to the same total.
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+/// Process-wide total; callers isolate measured scenarios themselves.
 static TOUCHES: AtomicU64 = AtomicU64::new(0);
 
-/// Add `count` digit touches to the counter.
+/// Add `count` implementation work units to the counter.
 pub(crate) fn record(count: u64) {
     TOUCHES.fetch_add(count, Ordering::Relaxed);
 }
 
-/// The digit touches recorded since process start or the last
+/// The work units recorded since process start or the last
 /// [`reset`], whichever is later.
 ///
 /// # Complexity

@@ -510,13 +510,13 @@ impl Rank {
         if let Ok(digits) = usize::try_from(widest / 32 + 2) {
             acc.reserve_digits(digits);
         }
-        acc.add_biguint_shl(&self.num, exp - self.exp);
+        acc.add_shifted_limbs(exp - self.exp, self.num.iter_u64_digits());
         if subtract_rhs {
-            acc.sub_biguint_shl(&rhs.num, exp - rhs.exp);
+            acc.sub_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
         } else {
-            acc.add_biguint_shl(&rhs.num, exp - rhs.exp);
+            acc.add_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
         }
-        let (sign, num) = acc.signed_magnitude();
+        let (sign, num) = acc.biguint_parts();
         debug_assert_ne!(
             sign,
             Ordering::Less,
@@ -1046,20 +1046,20 @@ impl Rank {
             }
             if !has_value {
                 exp = rank.exp;
-                acc.add_biguint_shl(&rank.num, 0);
+                acc.add_shifted_limbs(0, rank.num.iter_u64_digits());
                 has_value = true;
                 continue;
             }
             if rank.exp > exp {
                 let gap = rank.exp - exp;
-                let held_span = acc.bit_span();
+                let held_span = acc.stored_bits();
                 let shift = gap.max(held_span).min(u64::MAX - exp);
-                acc.shl(shift);
+                acc <<= shift;
                 exp += shift;
             }
-            acc.add_biguint_shl(&rank.num, exp - rank.exp);
+            acc.add_shifted_limbs(exp - rank.exp, rank.num.iter_u64_digits());
         }
-        let (sign, num) = acc.signed_magnitude();
+        let (sign, num) = acc.biguint_parts();
         debug_assert_ne!(
             sign,
             Ordering::Less,
@@ -1232,16 +1232,16 @@ impl FromStr for Rank {
 
         let fraction = fraction.unwrap_or_default();
         let exponent = u64::try_from(fraction.len()).map_err(|_| ParseRank)?;
-        let digit_count = integer.len() + fraction.len();
+        let stored_digit_count = integer.len() + fraction.len();
         let bits_per_digit = u32::BITS as usize;
-        let mut digits = vec![0u32; digit_count.div_ceil(bits_per_digit)];
+        let mut digits = vec![0u32; stored_digit_count.div_ceil(bits_per_digit)];
 
         // Text is most-significant-bit first, while `BigUint::new` takes
         // little-endian base-2^32 digits. The rightmost text digit is therefore
         // bit zero regardless of where the point appeared.
         for (offset, digit) in integer.iter().chain(fraction).enumerate() {
             if *digit == b'1' {
-                let position = digit_count - offset - 1;
+                let position = stored_digit_count - offset - 1;
                 let word = position / bits_per_digit;
                 let bit = position % bits_per_digit;
                 digits[word] |= 1u32 << bit;

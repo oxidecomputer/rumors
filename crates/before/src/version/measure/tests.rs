@@ -319,7 +319,7 @@ fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
 ///
 /// Four freezes fire, the fourth settling and promoting against a parked
 /// component whose buffered positive and negative terms cancel. The cheap
-/// `is_literally_zero` check cannot detect that cancellation, and every fold
+/// `is_known_zero` check cannot detect that cancellation, and every fold
 /// stays exact against the tree oracle.
 #[test]
 fn parked_cancellation_settles_and_promotes_exactly() {

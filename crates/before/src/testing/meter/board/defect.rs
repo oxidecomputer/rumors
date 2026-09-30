@@ -91,7 +91,7 @@ pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
 /// stream's last position: the maximally-deferred
 /// [`NotCanonical`](crate::error::Decode) defect on the id side.
 pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
-    let bits = p.to_writer();
+    let bits = crate::party::instrument::bits(p);
     let end = bits.len();
     assert!(
         !bits.bit(end - 2) && !bits.bit(end - 1),

@@ -50,9 +50,7 @@ const RANK_FREEZE_POSITION_SMALL: usize = 1_000;
 /// the doubling; an accounting that reads the position
 /// accumulator's whole written span per freeze reads superlinear
 /// and exceeds these ceilings.
-// Ceilings: the element-wise tightest of two independent truings,
-// held green by the run below.
-const RANK_FREEZE_POSITION_CEILINGS: [u64; 2] = [109_361, 219_007];
+const RANK_FREEZE_POSITION_CEILINGS: [u64; 2] = [95_040, 190_342];
 
 /// rank is linear on the freeze-position family: per-byte touch work stays
 /// flat (×1.25) across a block-count doubling, under
@@ -148,7 +146,7 @@ fn distance_freeze_position_run(k: usize) -> QueryRun {
 
 /// Absolute two-scale ceilings for distance and lag on the
 /// freeze-position family and its mate.
-const DISTANCE_FREEZE_POSITION_CEILINGS: [u64; 2] = [323_345, 646_895];
+const DISTANCE_FREEZE_POSITION_CEILINGS: [u64; 2] = [268_742, 537_839];
 
 /// Distance and lag remain linear as the number of freeze positions
 /// doubles.
@@ -218,7 +216,7 @@ const PROMOTION_REARM_SMALL: usize = 1_000;
 /// the doubling, with the settle's window-digit traffic metered;
 /// rereading the position accumulator's whole written span at every
 /// promotion would exceed these ceilings.
-const RANK_PROMOTION_REARM_CEILINGS: [u64; 2] = [504_890, 1_010_122];
+const RANK_PROMOTION_REARM_CEILINGS: [u64; 2] = [443_187, 886_544];
 
 /// rank is linear on the promotion re-arm spine: per-byte touch work stays
 /// flat (×1.25) across a block-count doubling, under
@@ -524,7 +522,7 @@ fn distance_promotion_rearm_run(p: usize) -> QueryRun {
 /// The ceilings price the three query bodies together — three
 /// sweeps' worth — flat per encoded byte across the doubling, including
 /// the settle's window-digit traffic.
-const DISTANCE_PROMOTION_REARM_CEILINGS: [u64; 2] = [1_368_802, 2_737_957];
+const DISTANCE_PROMOTION_REARM_CEILINGS: [u64; 2] = [1_165_230, 2_330_635];
 
 /// Distance and lag are linear on the promotion re-arm analogue:
 /// the two-operand arming case reads flat (×1.25) per encoded byte

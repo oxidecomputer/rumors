@@ -218,7 +218,7 @@ impl VersionSubtreeReader {
     /// The stream must be canonical. The violations this walk structurally
     /// notices — truncation, malformation — panic; the rest walk silently
     /// with an unspecified result (the contract of
-    /// [`Version::causal_cmp`], stated once there).
+    /// [`Version::partial_cmp`], stated once there).
     pub fn descend(&mut self, cursor: &mut VersionTreeReader<'_>) -> Option<u64> {
         if self.started {
             loop {
@@ -285,7 +285,7 @@ impl Extremum {
             Direction::Max => Ordering::Less,
             Direction::Min => Ordering::Greater,
         };
-        if self.register.sign() == overtaken {
+        if self.register.cmp_zero() == overtaken {
             match self.direction {
                 Direction::Max => self.register.reset(),
                 Direction::Min => self.register = Accumulator::new(),
@@ -339,7 +339,7 @@ impl VersionSubtreeReader {
     /// The caller has already descended to the first leaf and leaves its
     /// payload waiting at `cursor`. That pending payload must be delta-coded;
     /// the stream's absolute opening payload must already have been consumed.
-    pub fn net_remaining(&mut self, cursor: &mut VersionTreeReader<'_>) -> BigInt {
+    pub fn net_remaining(&mut self, cursor: &mut VersionTreeReader<'_>) -> Accumulator {
         let mut net = Accumulator::new();
         loop {
             let code = cursor.payload();
@@ -349,7 +349,7 @@ impl VersionSubtreeReader {
                 break;
             }
         }
-        net.to_bigint()
+        net
     }
 
     /// Summarize the remaining leaves by their net change and minimum.

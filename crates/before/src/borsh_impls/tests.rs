@@ -398,7 +398,7 @@ fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
     bits.truncate(position);
-    Ok(Party::from_bits(bits))
+    Ok(crate::party::io::finish(bits))
 }
 
 /// Assert two wire decode errors agree on `ErrorKind` and, when both carry a

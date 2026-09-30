@@ -36,7 +36,7 @@ pub fn meet(a: &Version, b: &Version) -> Version {
 /// Run the causal-comparison traversal used by public ordering operations.
 #[cfg(feature = "meter")]
 pub fn causal_cmp(a: &Version, b: &Version) -> Option<core::cmp::Ordering> {
-    a.causal_cmp(b)
+    a.partial_cmp(b)
 }
 
 /// Run semantic equality rather than comparing canonical bytes.

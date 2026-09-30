@@ -82,7 +82,7 @@ impl VersionWriter {
         let (mut version, first) = VersionRegionReader::open(source);
         let mut ownership = PartyRegionReader::new(party);
         let mut height = Accumulator::new();
-        height.add_biguint_shl(&first, 0);
+        height.add_shifted_limbs(0, first.iter_u64_digits());
         let mut owned = ownership.owned();
 
         // Most projections fit within the combined input size. Larger outputs
@@ -131,7 +131,7 @@ impl VersionWriter {
                 // Entering ownership raises the output from zero to the current
                 // absolute height.
                 (false, true) => {
-                    height.sign();
+                    height.cmp_zero();
                     let height = height.to_bigint();
                     debug_assert!(height.sign() != Sign::Minus, "heights are nonnegative");
                     height
@@ -140,7 +140,7 @@ impl VersionWriter {
                 // this boundary. If the Version stepped here too, remove that
                 // just-applied change to recover the preceding height.
                 (true, false) => {
-                    height.sign();
+                    height.cmp_zero();
                     let now = height.to_bigint();
                     debug_assert!(now.sign() != Sign::Minus, "heights are nonnegative");
                     let before = match version_step {
@@ -237,12 +237,12 @@ impl<'a> Comparison<'a> {
         // ownership case reads it otherwise, so feeding it would be pure waste.
         let height_a = b_party.map(|_| {
             let mut height_a = Accumulator::new();
-            height_a.add_biguint_shl(&a_first, 0);
+            height_a.add_shifted_limbs(0, a_first.iter_u64_digits());
             height_a
         });
         let height_b = a_party.map(|_| {
             let mut height_b = Accumulator::new();
-            height_b.add_biguint_shl(&b_first, 0);
+            height_b.add_shifted_limbs(0, b_first.iter_u64_digits());
             height_b
         });
         Comparison {
@@ -278,7 +278,7 @@ impl<'a> Comparison<'a> {
             let owned_a = self.a_party.as_ref().is_none_or(PartyRegionReader::owned);
             let owned_b = self.b_party.as_ref().is_none_or(PartyRegionReader::owned);
             let sign = match (owned_a, owned_b) {
-                (true, true) => self.diff.sign(),
+                (true, true) => self.diff.cmp_zero(),
                 (true, false) => {
                     // `h′_b = 0`: the interval's sign is `sign(h_a)`, the
                     // trichotomy's zero-check on the unmasked side.
@@ -286,7 +286,7 @@ impl<'a> Comparison<'a> {
                         .height_a
                         .as_mut()
                         .expect("a restricted `b` maintains h_a")
-                        .sign();
+                        .cmp_zero();
                     debug_assert_ne!(height_sign, Ordering::Less, "heights are nonnegative");
                     height_sign
                 }
@@ -295,7 +295,7 @@ impl<'a> Comparison<'a> {
                         .height_b
                         .as_mut()
                         .expect("a restricted `a` maintains h_b")
-                        .sign();
+                        .cmp_zero();
                     debug_assert_ne!(height_sign, Ordering::Less, "heights are nonnegative");
                     height_sign.reverse()
                 }
@@ -356,9 +356,9 @@ impl<'a> Comparison<'a> {
             {
                 let mut net = Accumulator::new();
                 self.a.skip_deeper(a_bound, &mut net);
-                self.diff.add_accum(&net);
+                self.diff += &net;
                 if let Some(height_a) = &mut self.height_a {
-                    height_a.add_accum(&net);
+                    *height_a += &net;
                 }
                 continue;
             }
@@ -368,9 +368,9 @@ impl<'a> Comparison<'a> {
             {
                 let mut net = Accumulator::new();
                 self.b.skip_deeper(b_bound, &mut net);
-                self.diff.sub_accum(&net);
+                self.diff -= &net;
                 if let Some(height_b) = &mut self.height_b {
-                    height_b.add_accum(&net);
+                    *height_b += &net;
                 }
                 continue;
             }

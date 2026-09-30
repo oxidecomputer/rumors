@@ -77,7 +77,7 @@ const DISTANCE_JUMP_PAIR_SMALL_DIGITS: usize = 64;
 /// The anchored-segment co-sweep reads flat per encoded byte across
 /// the doubling; the composed form this family was built to expose
 /// reads superlinear, several times over these ceilings.
-const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (212_660, 425_320);
+const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (158_194, 316_347);
 /// The jump-pair distance is linear in the pair size: per-byte
 /// touch work stays flat (×1.25) across a (teeth, digits)
 /// doubling, under absolute two-scale ceilings.

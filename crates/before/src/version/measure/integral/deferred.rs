@@ -107,7 +107,7 @@ impl Aggregate {
 
     /// Data read when this group participates in a merge; even empty groups cost one.
     fn weight(&self) -> u64 {
-        (self.heights.digit_count() + self.widths.digit_count()).max(1) as u64
+        (self.heights.stored_digit_count() + self.widths.stored_digit_count()).max(1) as u64
     }
 
     /// Merge a newer right group into this older left group.
@@ -118,7 +118,7 @@ impl Aggregate {
         if heights != BigInt::ZERO {
             right.widths.add_product(total, &heights);
         }
-        self.heights.add_accum(&right.heights);
+        self.heights += &right.heights;
         self.widths.add(right.widths);
     }
     /// Reduce boundary-ordered groups, balancing the work by integer data size.

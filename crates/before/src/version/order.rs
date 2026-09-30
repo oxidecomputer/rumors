@@ -33,30 +33,7 @@ use super::overlay::{advance_diff, OpenedPair};
 use crate::version::io::regions::RegionReader;
 use crate::Version;
 
-/// The causal order of the versions two canonical streams denote; `None` is
-/// concurrent.
-///
-/// Traverses the two streams once and stops as soon as concurrency is known.
-///
-/// # Panics
-///
-/// Operands must be canonical Versions. Decode untrusted bytes before they
-/// reach this internal walk. The violations
-/// the walk structurally notices (truncation, malformation) panic; the rest (a
-/// collapsible sibling pair, a delta driving the running height negative) sweep
-/// silently, and the verdict is then unspecified.
 impl Version {
-    /// Compare causally by walking both Version trees.
-    pub(crate) fn causal_cmp(&self, other: &Version) -> Option<Ordering> {
-        // Shared storage proves equality for free. A full `==` here would scan
-        // every unequal pair once before the causal walk scans it again.
-        if self.ptr_eq(other) {
-            return Some(Ordering::Equal);
-        }
-        // At exhaustion every surviving combination is a verdict.
-        compare(self, other, OrderState::exit_order, OrderState::relation)
-    }
-
     /// Test equality through the tree walk rather than canonical bytes.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn walk_eq(&self, other: &Version) -> bool {
@@ -72,7 +49,7 @@ impl Version {
     /// Test concurrency through the comparison walk.
     #[cfg(test)]
     pub(crate) fn walk_concurrent(&self, other: &Version) -> bool {
-        self.causal_cmp(other).is_none()
+        self.partial_cmp(other).is_none()
     }
 
     /// Test causal domination with the single-direction early exit.
@@ -90,6 +67,21 @@ impl Version {
             },
             OrderState::allows_le,
         )
+    }
+}
+
+/// Compares two versions in causal order by walking their canonical streams.
+///
+/// Shared storage proves equality without a walk. Otherwise traversal stops as
+/// soon as both possible orderings have been refuted.
+impl PartialOrd<Version> for Version {
+    fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
+        // A full `==` would scan every unequal pair before this walk scanned it
+        // again; shared storage preserves the useful constant-time fast path.
+        if self.ptr_eq(other) {
+            return Some(Ordering::Equal);
+        }
+        compare(self, other, OrderState::exit_order, OrderState::relation)
     }
 }
 
@@ -209,7 +201,7 @@ fn compare<V>(
     loop {
         // The current region ends at the earlier leaf boundary, and D is
         // constant throughout it.
-        directions.fold(diff.sign());
+        directions.fold(diff.cmp_zero());
         if let ControlFlow::Break(verdict) = exit(directions) {
             return verdict;
         }

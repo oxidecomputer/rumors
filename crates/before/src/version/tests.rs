@@ -425,7 +425,7 @@ proptest! {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
         // The walk's verdict, taken from the comparison sweep directly.
-        let walk_eq = a.causal_cmp(&b) == Some(Ordering::Equal);
+        let walk_eq = a.partial_cmp(&b) == Some(Ordering::Equal);
 
         prop_assert_eq!(a == b, walk_eq);
         // The equality direction: a version equals its own clone.

@@ -127,7 +127,7 @@ impl Comparison {
     /// Fold this interval's height relation into the surviving directions.
     fn read(&mut self, probe: &mut Accumulator, bound: &mut Accumulator) {
         let sign = match &mut self.difference {
-            Some(difference) => difference.sign(),
+            Some(difference) => difference.cmp_zero(),
             None => {
                 let (sign, difference) = compare_heights(probe, bound);
                 self.difference = difference;
@@ -178,31 +178,24 @@ impl GatedComparison {
 /// Put an absolute Version height into the accumulator representation.
 fn height(first: &BigUint) -> Accumulator {
     let mut height = Accumulator::new();
-    height.add_biguint_shl(first, 0);
+    height.add_shifted_limbs(0, first.iter_u64_digits());
     height
 }
 
 /// Whether neither height is three accumulator digits wider than the other.
 fn widths_overlap(a: &Accumulator, b: &Accumulator) -> bool {
-    a.digit_count().abs_diff(b.digit_count()) < 3
-}
-
-/// Replace a redundant absolute-height spelling with its normalized value.
-fn normalize_height(value: &mut Accumulator) {
-    let (sign, magnitude) = value.signed_magnitude();
-    debug_assert_ne!(sign, Ordering::Less, "Version heights are nonnegative");
-    *value = height(&magnitude);
+    a.stored_digit_count().abs_diff(b.stored_digit_count()) < 3
 }
 
 /// Compare two nonnegative heights without copying a much wider operand.
 ///
 /// A three-digit width lead may certify the answer from the larger value's top
-/// digits. If a redundant spelling prevents that decision, normalizing the
-/// shared absolute height either makes the widths overlap or proves that its
-/// magnitude is larger: three digits of separation exceed the accumulator's
-/// 33-bit representation overhang. An exact private difference is therefore
-/// built only from comparably wide operands. It copies live digits, not spare
-/// capacity retained by either source.
+/// digits. If cancellation prevents that decision, normalizing the wider value
+/// either brings the stored widths together or proves that its magnitude is
+/// larger: three digits of separation exceed the accumulator's representation
+/// overhang. An exact private difference is therefore built only from
+/// comparably wide operands. It copies live digits, not spare capacity retained
+/// by either source.
 fn compare_heights(
     probe: &mut Accumulator,
     bound: &mut Accumulator,
@@ -210,29 +203,27 @@ fn compare_heights(
     let mut probe_normalized = false;
     let mut bound_normalized = false;
     loop {
-        if probe.digit_count() >= bound.digit_count().saturating_add(3) {
+        if probe.stored_digit_count() >= bound.stored_digit_count().saturating_add(3) {
             if probe_normalized {
                 return (Ordering::Greater, None);
             }
-            let (sign, decided) = probe.sign_dominates_at(bound.digit_count() - 1);
-            if decided {
+            if let Some(sign) = probe.cmp_zero_stable_under(bound.stored_bits()) {
                 debug_assert_eq!(sign, Ordering::Greater, "Version heights are nonnegative");
                 return (Ordering::Greater, None);
             }
-            normalize_height(probe);
+            probe.normalize();
             probe_normalized = true;
             continue;
         }
-        if bound.digit_count() >= probe.digit_count().saturating_add(3) {
+        if bound.stored_digit_count() >= probe.stored_digit_count().saturating_add(3) {
             if bound_normalized {
                 return (Ordering::Less, None);
             }
-            let (sign, decided) = bound.sign_dominates_at(probe.digit_count() - 1);
-            if decided {
+            if let Some(sign) = bound.cmp_zero_stable_under(probe.stored_bits()) {
                 debug_assert_eq!(sign, Ordering::Greater, "Version heights are nonnegative");
                 return (Ordering::Less, None);
             }
-            normalize_height(bound);
+            bound.normalize();
             bound_normalized = true;
             continue;
         }
@@ -241,15 +232,15 @@ fn compare_heights(
 
     debug_assert!(widths_overlap(probe, bound));
     let mut difference = Accumulator::new();
-    if probe.digit_count() <= bound.digit_count() {
-        difference.add_accum(probe);
-        difference.sub_accum(bound);
+    if probe.stored_digit_count() <= bound.stored_digit_count() {
+        difference += &*probe;
+        difference -= &*bound;
     } else {
-        difference.add_accum(bound);
-        difference.sub_accum(probe);
-        difference.negate();
+        difference += &*bound;
+        difference -= &*probe;
+        difference = -difference;
     }
-    let sign = difference.sign();
+    let sign = difference.cmp_zero();
     (sign, Some(difference))
 }
 

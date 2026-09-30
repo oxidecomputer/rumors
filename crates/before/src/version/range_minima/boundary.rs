@@ -13,8 +13,6 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
-
 /// A strictly positive difference, with a compact word form for small values.
 pub(super) enum Boundary {
     /// An ordinary difference; packed storage retains only its meaningful bits.
@@ -40,14 +38,18 @@ impl Boundary {
     /// A `u64` uses at most two base-2^32 digits. Materializing at most two
     /// digits has constant cost; a wider accumulator is retained directly.
     pub(super) fn from_positive(difference: Accumulator) -> Self {
-        if difference.digit_count() <= 2 {
-            let (sign, magnitude) = difference.signed_magnitude();
+        #[cfg(debug_assertions)]
+        {
+            let sign = difference.clone().cmp_zero();
             debug_assert_eq!(sign, Ordering::Greater, "boundaries are positive");
-            if let Ok(word) = u64::try_from(&magnitude) {
-                return Self::Word(word);
-            }
         }
-        Self::Wide(difference)
+        if difference.stored_digit_count() > 2 {
+            return Self::Wide(difference);
+        }
+        match u64::try_from(difference) {
+            Ok(word) => Self::Word(word),
+            Err(difference) => Self::Wide(difference),
+        }
     }
 
     /// Transfer this boundary into a newly deferred distance.
@@ -55,7 +57,7 @@ impl Boundary {
         match self {
             Self::Word(word) => {
                 let mut value = Accumulator::new();
-                value.add_u64(word);
+                value += word;
                 value
             }
             Self::Wide(value) => value,
@@ -65,8 +67,8 @@ impl Boundary {
     /// Add this boundary to a deferred distance, retaining the wider buffer.
     pub(super) fn add_to(self, deferred: &mut Accumulator) {
         match self {
-            Self::Word(word) => deferred.add_u64(word),
-            Self::Wide(wide) => drop(deferred.merge_into_wider(wide)),
+            Self::Word(word) => *deferred += word,
+            Self::Wide(wide) => *deferred += wide,
         }
     }
 
@@ -80,12 +82,12 @@ impl Boundary {
 
     /// A word-sized boundary costs one constant-width subtraction.
     fn lower_word(boundary: u64, mut decrease: Accumulator) -> Remainder {
-        decrease.sub_u64(boundary);
-        match decrease.sign() {
+        decrease -= boundary;
+        match decrease.cmp_zero() {
             Ordering::Greater => Remainder::Decrease(decrease),
             Ordering::Equal => Remainder::Equal,
             Ordering::Less => {
-                decrease.negate();
+                decrease = -decrease;
                 Remainder::Boundary(Self::from_positive(decrease))
             }
         }
@@ -98,33 +100,33 @@ impl Boundary {
     /// fails, the values are close enough in stored width that subtracting
     /// once costs no more than processing comparable operands.
     fn lower_wide(mut boundary: Accumulator, mut decrease: Accumulator) -> Remainder {
-        if decrease.digit_count() >= boundary.digit_count() + 2 {
-            match decrease.sign_dominates_at(boundary.digit_count() - 1) {
-                (Ordering::Greater, true) => {
-                    decrease.sub_accum(&boundary);
+        if decrease.stored_digit_count() >= boundary.stored_digit_count() + 2 {
+            match decrease.cmp_zero_stable_under(boundary.stored_bits()) {
+                Some(Ordering::Greater) => {
+                    decrease -= &boundary;
                     return Remainder::Decrease(decrease);
                 }
-                (_, true) => unreachable!("the decrease is positive"),
-                (_, false) => {}
+                Some(_) => unreachable!("the decrease is positive"),
+                None => {}
             }
         }
-        if boundary.digit_count() >= decrease.digit_count() + 2 {
-            match boundary.sign_dominates_at(decrease.digit_count() - 1) {
-                (Ordering::Greater, true) => {
-                    boundary.sub_accum(&decrease);
+        if boundary.stored_digit_count() >= decrease.stored_digit_count() + 2 {
+            match boundary.cmp_zero_stable_under(decrease.stored_bits()) {
+                Some(Ordering::Greater) => {
+                    boundary -= &decrease;
                     return Remainder::Boundary(Self::from_positive(boundary));
                 }
-                (_, true) => unreachable!("stored boundaries are positive"),
-                (_, false) => {}
+                Some(_) => unreachable!("stored boundaries are positive"),
+                None => {}
             }
         }
 
-        boundary.sub_accum(&decrease);
-        match boundary.sign() {
+        boundary -= &decrease;
+        match boundary.cmp_zero() {
             Ordering::Greater => Remainder::Boundary(Self::from_positive(boundary)),
             Ordering::Equal => Remainder::Equal,
             Ordering::Less => {
-                boundary.negate();
+                boundary = -boundary;
                 Remainder::Decrease(boundary)
             }
         }

@@ -144,6 +144,17 @@ impl<P> RangeMinima<P> {
         }
     }
 
+    /// Advance the running height from an accumulator already owned by the walk.
+    ///
+    /// Block scans consume their net change here. This lets a zero anchor adopt
+    /// the supplied storage directly, without either normalizing or rereading
+    /// the value merely to accumulate it again.
+    pub fn fold_accumulator(&mut self, delta: Accumulator) {
+        if self.armed() {
+            self.anchor.fold_accumulator(delta);
+        }
+    }
+
     /// Give all pending ranges their first minimum at the current height.
     ///
     /// First arming establishes an anchor and equal minima. With older armed
@@ -207,7 +218,7 @@ impl<P> RangeMinima<P> {
         payload: impl FnOnce(&mut C) -> P,
         mut retire_payload: impl FnMut(P, &mut C),
     ) {
-        match above_minimum.sign() {
+        match above_minimum.cmp_zero() {
             Ordering::Greater => {
                 self.boundaries
                     .push_positive(Boundary::from_positive(above_minimum), payload(context));
@@ -219,7 +230,7 @@ impl<P> RangeMinima<P> {
             }
             Ordering::Less => {
                 retire_payload(payload(context), context);
-                above_minimum.negate();
+                above_minimum = -above_minimum;
                 self.propagate_drop(above_minimum, context, retire_payload);
                 self.boundaries.push_equal(pending);
             }

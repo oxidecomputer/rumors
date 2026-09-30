@@ -21,9 +21,9 @@ use suanpan::{touch_meter, Accumulator};
 fn fold_big(acc: &mut Accumulator, value: &BigUint, subtract: bool) {
     let limbs = value.iter_u64_digits();
     if subtract {
-        acc.sub_limbs_shl(limbs, 0);
+        acc.sub_shifted_limbs(0, limbs);
     } else {
-        acc.add_limbs_shl(limbs, 0);
+        acc.add_shifted_limbs(0, limbs);
     }
 }
 
@@ -101,10 +101,10 @@ fn comb_run(k: u32, n: usize) -> Run {
     fold_big(&mut acc, &((BigUint::from(1u8) << k as usize) - 1u8), false);
     touch_meter::reset();
     for _ in 0..n {
-        acc.add_small(1);
-        assert_eq!(acc.sign(), Ordering::Greater, "at 2^k");
-        acc.sub_small(1);
-        assert_eq!(acc.sign(), Ordering::Greater, "back at 2^k - 1");
+        acc += 1_i64;
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "at 2^k");
+        acc -= 1_i64;
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at 2^k - 1");
     }
     Run {
         denominator: 2 * n as u64,
@@ -122,9 +122,9 @@ fn wide_tooth_run(k: u32, w: u32, n: usize) -> Run {
     touch_meter::reset();
     for _ in 0..n {
         fold_big(&mut acc, &tooth, true);
-        assert_eq!(acc.sign(), Ordering::Greater, "below the cliff");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "below the cliff");
         fold_big(&mut acc, &tooth, false);
-        assert_eq!(acc.sign(), Ordering::Greater, "back at the cliff");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at the cliff");
     }
     Run {
         denominator: 2 * n as u64,
@@ -146,9 +146,9 @@ fn cancelling_run(k: u32, n: usize) -> Run {
     touch_meter::reset();
     for _ in 0..n {
         fold_big(&mut acc, &drop, true);
-        assert_eq!(acc.sign(), Ordering::Greater, "down at 1");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "down at 1");
         fold_big(&mut acc, &drop, false);
-        assert_eq!(acc.sign(), Ordering::Greater, "back at the peak");
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at the peak");
     }
     Run {
         denominator: (2 * n as u64) * (2 * u64::from(k) + 3) / 8,
@@ -158,7 +158,7 @@ fn cancelling_run(k: u32, n: usize) -> Run {
 }
 
 /// The static-prefix read stream: a cancelling prefix built once,
-/// then `n` cycles of `add_small(1)` / sign / `sub_small(1)` / sign.
+/// then `n` cycles of `+= 1_i64` / sign / `-= 1_i64` / sign.
 ///
 /// The prefix is `+2^k` then `−(2^k − 1)`, leaving value 1 spelled
 /// across `k/32` wide digits. Setup is excluded from the count; the
@@ -177,10 +177,10 @@ fn static_prefix_run(k: u32, n: usize) -> Run {
     fold_big(&mut acc, &drop, true);
     touch_meter::reset();
     for _ in 0..n {
-        acc.add_small(1);
-        assert_eq!(acc.sign(), Ordering::Greater, "up at 2");
-        acc.sub_small(1);
-        assert_eq!(acc.sign(), Ordering::Greater, "back at 1");
+        acc += 1_i64;
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "up at 2");
+        acc -= 1_i64;
+        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at 1");
     }
     Run {
         denominator: 2 * n as u64,
