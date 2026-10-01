@@ -101,7 +101,7 @@ impl Party {
                 let output_bits = common_path.stored_len() + 4;
                 let mut keep = PartyWriter::with_capacity(output_bits);
                 let mut give = PartyWriter::with_capacity(output_bits);
-                PartyWriter::copy_shared_unary_path(common_path, &mut keep, &mut give);
+                keep.copy_shared_unary_path(common_path, &mut give);
                 // Splitting a fully owned region gives one half to each
                 // result.
                 keep.branch(PartyBranch::Left);
@@ -119,7 +119,7 @@ impl Party {
                 let prefix_bits = common_path.stored_len() + 2;
                 let mut keep = PartyWriter::with_capacity(prefix_bits + left.stored_len());
                 let mut give = PartyWriter::with_capacity(prefix_bits + right.stored_len());
-                PartyWriter::copy_shared_unary_path(common_path, &mut keep, &mut give);
+                keep.copy_shared_unary_path(common_path, &mut give);
                 // Each child is already one complete half of the union.
                 keep.branch(PartyBranch::Left);
                 keep.copy_subtree(left);

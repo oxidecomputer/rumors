@@ -5,10 +5,20 @@
 //! version with a [`Demand`] on its relation to a probe. Composed from the pair
 //! sweep, evaluating a query would decode the probe once per bound. The fused
 //! walk instead shares one probe traversal and one running probe height. Each
-//! bound also keeps its absolute height. A pair materializes their difference
-//! only while their numeric widths overlap, and discards it before a later
-//! crossing would copy a much wider shared height. The walk advances by the
-//! overlay-advance law ([`advance_set`]), and the verdict hooks are branch-only.
+//! bound also keeps its absolute height.
+//!
+//! Comparing those heights is cheap while they retain similar numbers of
+//! digits: the pair keeps `probe - bound` and applies later changes directly to
+//! it. This difference is private to one bound, whereas the probe height is
+//! shared by every bound. If the probe grows much wider, copying it into every
+//! private difference would multiply memory by the number of bounds. The
+//! filter therefore discards a difference before such a change and compares
+//! the two shared heights without copying either one. This policy belongs here
+//! because it controls the query walk's per-bound cache; it is not part of
+//! Version arithmetic itself.
+//!
+//! The walk advances by the overlay-advance law ([`advance_set`]), and the
+//! verdict hooks are branch-only.
 //!
 //! # Early exit
 //!
@@ -45,19 +55,22 @@
 //!
 //! Auxiliary state is `O(n + k)`: the walk keeps one fixed-size record and one
 //! absolute height per bound. A private difference exists only while its two
-//! absolute heights have comparable widths, so its copy is funded by the
-//! bound's maximum width over its input stream. A later crossing that separates
-//! the widths discards the difference before folding the crossing, so a wide
-//! probe value is copied across the bounds only when they carry corresponding
-//! width. If a wide absolute height's redundant representation prevents a
-//! domination decision, it is normalized in shared state rather than copied
-//! into every comparison.
+//! absolute heights retain similar numbers of digits, so its size is bounded
+//! by the bound height it accompanies. If a change makes the shared probe much
+//! wider, the filter discards the difference before applying that change. When
+//! cancellation makes a height retain many leading digits that no longer
+//! affect its value, the stability comparison compacts that one shared height
+//! rather than copying it into every comparison.
 //!
-//! A difference may be rebuilt after the widths converge again. Reaching that
-//! state requires a width-changing input crossing or normalization of a
-//! redundant absolute height. The crossing's payload or the folds that created
-//! the redundant width pay for that work. Thus rebuilding does not introduce
-//! an uncharged width factor into either bound above.
+//! Two parts of this bound are amortized. First, an accumulator comparison may
+//! scan leading cancellation, but it compacts the digits it scans; they cannot
+//! impose that cost again until later input rewrites them. Second, after a
+//! private difference is discarded, rebuilding it requires the heights to
+//! become close again. That takes either another width-changing payload or the
+//! removal of cancellation created by earlier payloads. The intervening input
+//! therefore pays for the copied width. Across `k` bounds, a shared probe
+//! payload may still be processed `k` times, as the `k·p` time term states, but
+//! those copies are not all retained when the bounds are narrow.
 //!
 //! Compared with composing binary sweeps, the fused walk avoids decoding the
 //! probe once per bound; it does not eliminate the work of evaluating `k`
@@ -75,6 +88,9 @@ use super::super::order::OrderState;
 use super::super::overlay::{advance_set, CursorSet, Side};
 use crate::version::io::regions::{HeightChange, RegionReader, VersionRegionReader};
 use crate::Version;
+
+#[cfg(test)]
+mod tests;
 
 /// What a query demands of the relation between the probe and one bound stream,
 /// in the probe-first orientation (`le` is `probe <= bound`).
@@ -101,11 +117,10 @@ pub enum Demand {
 
 /// One (probe, bound) comparison and its surviving directions.
 ///
-/// While the heights are far apart, `difference` stays absent and the pair
-/// reads their shared absolute accumulators through a domination certificate.
-/// While their widths overlap, it stores `probe − bound` and receives both
-/// streams' later deltas directly. A later crossing that separates the widths
-/// returns to shared comparison before that crossing is folded.
+/// While the heights retain similar numbers of digits, this stores
+/// `probe - bound` and applies both streams' later changes to it. If one height
+/// becomes much wider, the difference is discarded before that change is
+/// applied; later reads compare the two absolute heights without copying them.
 ///
 /// Settlement — a comparison whose verdict contribution is fixed mid-walk —
 /// belongs to the coverage walk ([`GatedComparison`]); the membership walk
@@ -113,6 +128,42 @@ pub enum Demand {
 struct Comparison {
     difference: Option<Accumulator>,
     directions: OrderState,
+}
+
+/// Whether an exact difference remains cheap enough to keep per bound.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HeightWidths {
+    /// The wider height occupies at most two more accumulator positions.
+    Close,
+    /// The probe may be arbitrarily wider than this bound.
+    ProbeFarWider,
+    /// The bound may be arbitrarily wider than the probe.
+    BoundFarWider,
+}
+
+impl HeightWidths {
+    /// The greatest width lead permitted in a private difference.
+    ///
+    /// Accumulators use base-2^32 signed digits. Their fast stability check may
+    /// descend one digit before the sign is settled, then needs two positions
+    /// of clearance over the other value. A lead greater than this limit is
+    /// therefore where the no-copy comparison becomes useful. Keeping the
+    /// limit here also caps a private difference at two digits beyond the
+    /// narrower height; the `ProbeFarWider` case has no such upper bound.
+    const MAX_CLOSE_LEAD: usize = 2;
+
+    /// Classify the heights by their retained working widths.
+    fn between(probe: &Accumulator, bound: &Accumulator) -> Self {
+        let probe_digits = probe.stored_digit_count();
+        let bound_digits = bound.stored_digit_count();
+        if probe_digits > bound_digits.saturating_add(Self::MAX_CLOSE_LEAD) {
+            Self::ProbeFarWider
+        } else if bound_digits > probe_digits.saturating_add(Self::MAX_CLOSE_LEAD) {
+            Self::BoundFarWider
+        } else {
+            Self::Close
+        }
+    }
 }
 
 impl Comparison {
@@ -129,7 +180,7 @@ impl Comparison {
         let sign = match &mut self.difference {
             Some(difference) => difference.cmp_zero(),
             None => {
-                let (sign, difference) = compare_heights(probe, bound);
+                let (sign, difference) = Self::compare_heights(probe, bound);
                 self.difference = difference;
                 sign
             }
@@ -137,9 +188,9 @@ impl Comparison {
         self.directions.fold(sign);
     }
 
-    /// Fold one crossing unless it separates the shared heights.
+    /// Fold one crossing unless it makes a private difference too wide.
     fn fold(&mut self, side: Side, probe: &Accumulator, bound: &Accumulator, step: &HeightChange) {
-        if self.difference.is_some() && !widths_overlap(probe, bound) {
+        if self.difference.is_some() && HeightWidths::between(probe, bound) != HeightWidths::Close {
             self.difference = None;
             return;
         }
@@ -151,6 +202,79 @@ impl Comparison {
     /// The relation the completed sweep decided, as the causal order.
     fn relation(&self) -> Option<Ordering> {
         self.directions.relation()
+    }
+
+    /// Put an absolute Version height into the accumulator representation.
+    fn absolute_height(first: &BigUint) -> Accumulator {
+        let mut height = Accumulator::new();
+        height.add_shifted_limbs(0, first.iter_u64_digits());
+        height
+    }
+
+    /// Compare two nonnegative heights without copying a much wider operand.
+    ///
+    /// Close heights get one exact difference, which later crossings update in
+    /// place. For a much wider height, `cmp_zero_stable_under` either proves
+    /// that the narrower height cannot affect the order or compacts the wider
+    /// height. A refusal can reveal another layer of cancellation on the other
+    /// side, so the wider side may alternate. Every refusal strictly shortens
+    /// the side it examines, bounding the loop by the two heights' initial
+    /// combined width. An exact difference is never built from a far-wider
+    /// operand.
+    fn compare_heights(
+        probe: &mut Accumulator,
+        bound: &mut Accumulator,
+    ) -> (Ordering, Option<Accumulator>) {
+        loop {
+            match HeightWidths::between(probe, bound) {
+                HeightWidths::Close => break,
+                HeightWidths::ProbeFarWider => {
+                    let previous_width = probe.stored_digit_count();
+                    if let Some(sign) = probe.cmp_zero_stable_under(bound.stored_bits()) {
+                        debug_assert_eq!(
+                            sign,
+                            Ordering::Greater,
+                            "Version heights are nonnegative"
+                        );
+                        return (Ordering::Greater, None);
+                    }
+                    debug_assert!(
+                        probe.stored_digit_count() < previous_width,
+                        "a refused stability check compacts the examined height"
+                    );
+                }
+                HeightWidths::BoundFarWider => {
+                    let previous_width = bound.stored_digit_count();
+                    if let Some(sign) = bound.cmp_zero_stable_under(probe.stored_bits()) {
+                        debug_assert_eq!(
+                            sign,
+                            Ordering::Greater,
+                            "Version heights are nonnegative"
+                        );
+                        return (Ordering::Less, None);
+                    }
+                    debug_assert!(
+                        bound.stored_digit_count() < previous_width,
+                        "a refused stability check compacts the examined height"
+                    );
+                }
+            }
+            // The shorter representation may expose the other side as wider;
+            // classifying again removes its next layer of cancellation.
+        }
+
+        debug_assert_eq!(HeightWidths::between(probe, bound), HeightWidths::Close);
+        let mut difference = Accumulator::new();
+        if probe.stored_digit_count() <= bound.stored_digit_count() {
+            difference += &*probe;
+            difference -= &*bound;
+        } else {
+            difference += &*bound;
+            difference -= &*probe;
+            difference = -difference;
+        }
+        let sign = difference.cmp_zero();
+        (sign, Some(difference))
     }
 }
 
@@ -173,75 +297,6 @@ impl GatedComparison {
             live: true,
         }
     }
-}
-
-/// Put an absolute Version height into the accumulator representation.
-fn height(first: &BigUint) -> Accumulator {
-    let mut height = Accumulator::new();
-    height.add_shifted_limbs(0, first.iter_u64_digits());
-    height
-}
-
-/// Whether neither height is three accumulator digits wider than the other.
-fn widths_overlap(a: &Accumulator, b: &Accumulator) -> bool {
-    a.stored_digit_count().abs_diff(b.stored_digit_count()) < 3
-}
-
-/// Compare two nonnegative heights without copying a much wider operand.
-///
-/// A three-digit width lead may certify the answer from the larger value's top
-/// digits. If cancellation prevents that decision, normalizing the wider value
-/// either brings the stored widths together or proves that its magnitude is
-/// larger: three digits of separation exceed the accumulator's representation
-/// overhang. An exact private difference is therefore built only from
-/// comparably wide operands. It copies live digits, not spare capacity retained
-/// by either source.
-fn compare_heights(
-    probe: &mut Accumulator,
-    bound: &mut Accumulator,
-) -> (Ordering, Option<Accumulator>) {
-    let mut probe_normalized = false;
-    let mut bound_normalized = false;
-    loop {
-        if probe.stored_digit_count() >= bound.stored_digit_count().saturating_add(3) {
-            if probe_normalized {
-                return (Ordering::Greater, None);
-            }
-            if let Some(sign) = probe.cmp_zero_stable_under(bound.stored_bits()) {
-                debug_assert_eq!(sign, Ordering::Greater, "Version heights are nonnegative");
-                return (Ordering::Greater, None);
-            }
-            probe.normalize();
-            probe_normalized = true;
-            continue;
-        }
-        if bound.stored_digit_count() >= probe.stored_digit_count().saturating_add(3) {
-            if bound_normalized {
-                return (Ordering::Less, None);
-            }
-            if let Some(sign) = bound.cmp_zero_stable_under(probe.stored_bits()) {
-                debug_assert_eq!(sign, Ordering::Greater, "Version heights are nonnegative");
-                return (Ordering::Less, None);
-            }
-            bound.normalize();
-            bound_normalized = true;
-            continue;
-        }
-        break;
-    }
-
-    debug_assert!(widths_overlap(probe, bound));
-    let mut difference = Accumulator::new();
-    if probe.stored_digit_count() <= bound.stored_digit_count() {
-        difference += &*probe;
-        difference -= &*bound;
-    } else {
-        difference += &*bound;
-        difference -= &*probe;
-        difference = -difference;
-    }
-    let sign = difference.cmp_zero();
-    (sign, Some(difference))
 }
 
 // ───────────────────────────── membership ─────────────────────────────
@@ -280,7 +335,7 @@ pub fn admits<'a>(
             let (cursor, first) = VersionRegionReader::open(bits);
             Some(BoundSide {
                 cursor,
-                bound: height(&first),
+                bound: Comparison::absolute_height(&first),
                 comparison: Comparison::new(),
                 demand,
             })
@@ -289,7 +344,7 @@ pub fn admits<'a>(
     let mut live = sides.len();
     let mut walk = MemberCursors {
         probe,
-        probe_height: height(&probe_first),
+        probe_height: Comparison::absolute_height(&probe_first),
         sides,
     };
 
@@ -458,7 +513,7 @@ pub fn coverage<'a>(
             Some(SpanSide {
                 cursor,
                 demand,
-                bound: height(&first),
+                bound: Comparison::absolute_height(&first),
                 lo: GatedComparison::new(),
                 hi: GatedComparison::new(),
             })
@@ -472,10 +527,10 @@ pub fn coverage<'a>(
 
     let mut walk = SpanCursors {
         lo,
-        lo_height: height(&lo_first),
+        lo_height: Comparison::absolute_height(&lo_first),
         lo_live: true,
         hi,
-        hi_height: height(&hi_first),
+        hi_height: Comparison::absolute_height(&hi_first),
         hi_live: true,
         sides,
     };
@@ -584,61 +639,7 @@ pub fn coverage<'a>(
         advance_set(&mut walk);
     }
 
-    finish(&walk.sides, full_possible)
-}
-
-/// Map the exhausted coverage walk's decided relations to the verdict.
-///
-/// Division of labor with the walk: a settled *required* pair's refutation
-/// already lives in `full_possible`, so the `!live` guards on the two
-/// required arms keep `finish` from consulting a settled pair's stale
-/// `directions`. The stale directions would happen to agree (a
-/// settle-direction refutation is permanent), but that agreement is not part
-/// of the contract: only a pair alive at exhaustion answers by its decided
-/// relation. A hole needs no guard on its fullness endpoint: a surviving
-/// hole's dominated pair — `lo` for a down-set, `hi` for an up-set — is
-/// always alive here, because settling it forces the dominating pair's
-/// settle at the same interval and the joint settle drops the side (the walk
-/// arms' settle-order argument; the walk's per-interval assert keeps it
-/// loud).
-fn finish(sides: &[Option<SpanSide<'_>>], mut full_possible: bool) -> Coverage {
-    for side in sides.iter().flatten() {
-        // Emptiness first: any bound whose subtraction covers the whole segment
-        // (or whose requirement admits none of it — returned inline during the
-        // walk) empties the verdict.
-        let (lo, hi) = (side.lo.comparison.relation(), side.hi.comparison.relation());
-        let empty = match side.demand {
-            // Their emptying refutations returned inline.
-            Demand::After | Demand::Before => false,
-            // The subtracted down-set covers the maximum…
-            Demand::NotBefore => matches!(hi, Some(Ordering::Less | Ordering::Equal)),
-            Demand::NotStrictlyBefore => hi == Some(Ordering::Less),
-            // …or the subtracted up-set reaches the minimum.
-            Demand::NotAfter => matches!(lo, Some(Ordering::Greater | Ordering::Equal)),
-            Demand::NotStrictlyAfter => lo == Some(Ordering::Greater),
-        };
-        if empty {
-            return Coverage::Empty;
-        }
-        // Fullness: the bound must admit everything the segment covers
-        // (required demands inclusively: `After` admits equality).
-        let admits_all = match side.demand {
-            Demand::After => {
-                !side.lo.live || matches!(lo, Some(Ordering::Greater | Ordering::Equal))
-            }
-            Demand::Before => !side.hi.live || matches!(hi, Some(Ordering::Less | Ordering::Equal)),
-            Demand::NotBefore => !matches!(lo, Some(Ordering::Less | Ordering::Equal)),
-            Demand::NotStrictlyBefore => lo != Some(Ordering::Less),
-            Demand::NotAfter => !matches!(hi, Some(Ordering::Greater | Ordering::Equal)),
-            Demand::NotStrictlyAfter => hi != Some(Ordering::Greater),
-        };
-        full_possible &= admits_all;
-    }
-    if full_possible {
-        Coverage::Full
-    } else {
-        Coverage::Partial
-    }
+    walk.finish(full_possible)
 }
 
 /// The coverage walk's owned cursor set: both probe endpoints' cursors, their
@@ -667,6 +668,50 @@ impl SpanCursors<'_> {
     const HI: usize = 0;
     /// The `lo` endpoint's slot; bound `i` occupies slot `i + 2`.
     const LO: usize = 1;
+
+    /// Map the exhausted comparisons to the query's coverage verdict.
+    ///
+    /// A required comparison that settled early has already made full coverage
+    /// impossible, so only live comparisons contribute another relation here.
+    /// A surviving hole still has the endpoint relation needed to decide
+    /// whether it removes all, some, or none of the span.
+    fn finish(&self, mut full_possible: bool) -> Coverage {
+        for side in self.sides.iter().flatten() {
+            // A hole that covers the entire span decides emptiness. Required
+            // bounds return Empty at their first refutation during the walk.
+            let (lo, hi) = (side.lo.comparison.relation(), side.hi.comparison.relation());
+            let empty = match side.demand {
+                Demand::After | Demand::Before => false,
+                Demand::NotBefore => matches!(hi, Some(Ordering::Less | Ordering::Equal)),
+                Demand::NotStrictlyBefore => hi == Some(Ordering::Less),
+                Demand::NotAfter => matches!(lo, Some(Ordering::Greater | Ordering::Equal)),
+                Demand::NotStrictlyAfter => lo == Some(Ordering::Greater),
+            };
+            if empty {
+                return Coverage::Empty;
+            }
+
+            // Full coverage requires this one demand to admit both endpoints.
+            let admits_all = match side.demand {
+                Demand::After => {
+                    !side.lo.live || matches!(lo, Some(Ordering::Greater | Ordering::Equal))
+                }
+                Demand::Before => {
+                    !side.hi.live || matches!(hi, Some(Ordering::Less | Ordering::Equal))
+                }
+                Demand::NotBefore => !matches!(lo, Some(Ordering::Less | Ordering::Equal)),
+                Demand::NotStrictlyBefore => lo != Some(Ordering::Less),
+                Demand::NotAfter => !matches!(hi, Some(Ordering::Greater | Ordering::Equal)),
+                Demand::NotStrictlyAfter => hi != Some(Ordering::Greater),
+            };
+            full_possible &= admits_all;
+        }
+        if full_possible {
+            Coverage::Full
+        } else {
+            Coverage::Partial
+        }
+    }
 }
 
 /// The coverage walk's slot roster.

@@ -15,7 +15,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use num_bigint::BigUint;
 
 use crate::{
-    bits::{BitRead, BitsReader},
+    bits::{BitRead, Bits, BitsReader},
     error::Decode,
     span::Span,
     testing::instrument::scan,
@@ -72,8 +72,8 @@ impl<'a, R: Read> StreamBitsReader<'a, R> {
     /// bits end flush against a byte boundary, the padding is a whole
     /// `1000_0000` byte the parse never pulled, and leaving it unread would
     /// hand its bits to the next borsh field. After it, the buffered bytes
-    /// are exactly the tree's marker-padded canonical spelling — the at-rest
-    /// storage form, adopted without a copy).
+    /// are exactly the tree's marker-padded canonical spelling, which the
+    /// decoded value adopts without a copy.
     fn finish(mut self) -> Result<Vec<u8>, Decode> {
         if !self.read_bit()? {
             return Err(Decode::TrailingBits);
@@ -132,27 +132,13 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
     }
 }
 
-/// Read and validate one byte-aligned canonical party tree, returning its
-/// canonical marker-padded bytes.
-fn deserialize_party<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
-    let mut bits = StreamBitsReader::new(reader);
-    crate::party::io::validate::from_reader(&mut bits).map_err(decode_error)?;
-    bits.finish().map_err(decode_error)
-}
-
-/// Read and validate one byte-aligned canonical version tree,
-/// returning its canonical marker-padded bytes.
-fn deserialize_version<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
-    let mut bits = StreamBitsReader::new(reader);
-    crate::version::io::validate::from_reader(&mut bits).map_err(decode_error)?;
-    bits.finish().map_err(decode_error)
-}
-
-/// Preserve I/O failures and classify invalid encodings as invalid data.
-fn decode_error(error: Decode) -> Error {
-    match error {
-        Decode::Io(source) => source,
-        error => Error::new(ErrorKind::InvalidData, error),
+impl Decode {
+    /// Preserve an underlying I/O failure; classify malformed bytes as invalid data.
+    fn into_borsh_error(self) -> Error {
+        match self {
+            Decode::Io(source) => source,
+            error => Error::new(ErrorKind::InvalidData, error),
+        }
     }
 }
 
@@ -164,11 +150,13 @@ impl BorshSerialize for Party {
 
 impl BorshDeserialize for Party {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let mut bits = StreamBitsReader::new(reader);
+        crate::party::io::validate::from_reader(&mut bits).map_err(Decode::into_borsh_error)?;
+        let bytes = bits.finish().map_err(Decode::into_borsh_error)?;
         // Every stored terminal owns its region, and every stored branch has a
         // child. A complete parsed tree therefore satisfies Party's nonempty
         // ownership invariant.
-        let bytes = deserialize_party(reader)?;
-        Ok(crate::party::io::from_canonical(bytes.into()))
+        Ok(Party::from_canonical(Bits::from_canonical(bytes.into())))
     }
 }
 
@@ -180,7 +168,10 @@ impl BorshSerialize for Version {
 
 impl BorshDeserialize for Version {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        deserialize_version(reader).map(|bytes| crate::version::io::from_canonical(bytes.into()))
+        let mut bits = StreamBitsReader::new(reader);
+        crate::version::io::validate::from_reader(&mut bits).map_err(Decode::into_borsh_error)?;
+        let bytes = bits.finish().map_err(Decode::into_borsh_error)?;
+        Ok(Version::from_canonical(Bits::from_canonical(bytes.into())))
     }
 }
 
@@ -219,7 +210,7 @@ impl BorshDeserialize for Rank {
             reader.read_exact(&mut byte).map_err(Decode::Io)?;
             Ok(byte[0])
         })
-        .map_err(decode_error)
+        .map_err(Decode::into_borsh_error)
     }
 }
 
@@ -250,10 +241,10 @@ impl BorshDeserialize for Ranked<'static> {
             rank_bytes.push(byte[0]);
             Ok(byte[0])
         })
-        .map_err(decode_error)?;
+        .map_err(Decode::into_borsh_error)?;
         let version = Version::deserialize_reader(reader)?;
         if !version.rank().encoding_matches(&rank_bytes) {
-            return Err(decode_error(Decode::NotCanonical));
+            return Err(Decode::NotCanonical.into_borsh_error());
         }
         Ok(Ranked::from(version))
     }
@@ -284,19 +275,19 @@ impl BorshDeserialize for Span<'static> {
         let lo = Version::deserialize_reader(reader)?;
         let mut cursor = StreamBitsReader::new(reader);
         let admission = crate::version::io::validate::dominating_from(&lo, &mut cursor)
-            .map_err(decode_error)?;
+            .map_err(Decode::into_borsh_error)?;
         // The final byte's padding check outranks the pair verdict,
         // exactly as the byte-slice decode orders them.
-        let bytes = cursor.finish().map_err(decode_error)?;
+        let bytes = cursor.finish().map_err(Decode::into_borsh_error)?;
         let hi = match admission {
-            Admission::Refuted => return Err(decode_error(Decode::NotCanonical)),
+            Admission::Refuted => return Err(Decode::NotCanonical.into_borsh_error()),
             // The coincident span stores one buffer twice: the admission
             // walk proved the second stream byte-equal to the first, so
             // the join is the meet's clone — an `O(1)` refcount bump the
             // ptr_eq fast paths then recognize — and the parsed bytes are
             // dropped unstored.
             Admission::Equal => lo.clone(),
-            Admission::Dominates => crate::version::io::from_canonical(bytes.into()),
+            Admission::Dominates => Version::from_canonical(Bits::from_canonical(bytes.into())),
         };
         Ok(Span::owned(lo, hi))
     }

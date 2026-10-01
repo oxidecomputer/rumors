@@ -117,8 +117,8 @@ impl Hash for Version {
 }
 
 impl Version {
-    /// Wrap canonical storage after the IO boundary has established its invariants.
-    fn from_storage(bits: Bits) -> Self {
+    /// Adopt a canonical Version representation produced or validated by its I/O boundary.
+    pub(crate) fn from_canonical(bits: Bits) -> Self {
         Version(bits)
     }
 
@@ -144,7 +144,9 @@ impl Version {
         // unique address, and the cross-call sharing claim rests on one.
         // Encoding tests pin the constant against the built form.
         static EMPTY_STREAM: &[u8] = &[0b1110_0000];
-        io::from_canonical(bytes::Bytes::from_static(EMPTY_STREAM))
+        Version::from_canonical(Bits::from_canonical(bytes::Bytes::from_static(
+            EMPTY_STREAM,
+        )))
     }
 
     /// Whether this version records no events: equal to [`Version::new`].
@@ -1039,7 +1041,7 @@ impl Version {
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        io::decode(buf.into())
+        Version::decode_bytes(buf.into())
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its

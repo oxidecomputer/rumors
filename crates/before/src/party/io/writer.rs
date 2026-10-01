@@ -173,14 +173,10 @@ impl PartyWriter {
     }
 
     /// Copy the same one-child path into both results of a fork.
-    pub fn copy_shared_unary_path(
-        path: PartyPath<'_>,
-        first: &mut PartyWriter,
-        second: &mut PartyWriter,
-    ) {
+    pub fn copy_shared_unary_path(&mut self, path: PartyPath<'_>, other: &mut PartyWriter) {
         let (src, start, end) = path.storage();
-        first.out.splice(src, start, end);
-        second.out.splice(src, start, end);
+        self.out.splice(src, start, end);
+        other.out.splice(src, start, end);
     }
 
     /// Copy the complete subtree occupying the unread suffix of `src`.
@@ -237,7 +233,7 @@ impl PartyWriter {
     pub fn finish(self) -> Party {
         let bits = self.out;
         assert!(!bits.is_empty(), "a finished Party owns a region");
-        super::finish(bits)
+        Party::from_canonical(bits.finalize())
     }
 }
 

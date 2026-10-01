@@ -108,8 +108,8 @@ impl core::hash::Hash for Party {
 }
 
 impl Party {
-    /// Wrap canonical storage after the IO boundary establishes its invariants.
-    fn from_storage(bits: Bits) -> Self {
+    /// Adopt a canonical Party representation produced or validated by its I/O boundary.
+    pub(crate) fn from_canonical(bits: Bits) -> Self {
         Party(bits)
     }
 
@@ -142,7 +142,7 @@ impl Party {
         // round-trips and text laws pin the constant against the parsed
         // form.
         static SEED_STREAM: &[u8] = &[0b0010_0000];
-        io::from_canonical(bytes::Bytes::from_static(SEED_STREAM))
+        Party::from_canonical(Bits::from_canonical(bytes::Bytes::from_static(SEED_STREAM)))
     }
 
     /// Whether this party is equal to [`Party::seed`].
@@ -661,7 +661,7 @@ impl Party {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        io::decode(buf.into())
+        Party::decode_bytes(buf.into())
     }
 
     /// Start reading the canonical ownership tree at its root.

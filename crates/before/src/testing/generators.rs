@@ -227,7 +227,7 @@ pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
     }
     bits.push(false); // terminal tag `00`: the deep-left owned tip
     bits.push(false);
-    crate::party::io::finish(bits)
+    Party::from_test_bits(bits)
 }
 
 // ───────────────────────── arbitrary normal-form ─────────────────────────

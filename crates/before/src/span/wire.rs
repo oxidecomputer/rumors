@@ -11,6 +11,7 @@ use std::io::{self, Read, Write};
 
 use crate::bits::{BitRead, Bits, BitsReader};
 use crate::error::Decode;
+use crate::Version;
 
 use super::Span;
 
@@ -136,7 +137,7 @@ impl<'a> Span<'a> {
             let lo_bytes =
                 usize::try_from(lo_bytes).expect("the meet's prefix ends within the read buffer");
             Bits::validate_padding(&buf[..lo_bytes], lo_end)?;
-            let lo = crate::version::io::from_canonical(buf.slice(..lo_bytes));
+            let lo = Version::from_canonical(Bits::from_canonical(buf.slice(..lo_bytes)));
             let tail = &buf[lo_bytes..];
             let mut cursor = BitsReader::from_bytes(tail);
             let admission = crate::version::io::validate::dominating_from(&lo, &mut cursor)?;
@@ -150,7 +151,7 @@ impl<'a> Span<'a> {
         let hi = match admission {
             crate::version::io::validate::Admission::Equal => lo.clone(),
             crate::version::io::validate::Admission::Dominates => {
-                crate::version::io::from_canonical(buf.slice(lo_bytes..))
+                Version::from_canonical(Bits::from_canonical(buf.slice(lo_bytes..)))
             }
             crate::version::io::validate::Admission::Refuted => {
                 unreachable!("refuted admissions rejected above")

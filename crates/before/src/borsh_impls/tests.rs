@@ -4,7 +4,6 @@ use num_bigint::BigUint;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
-use super::decode_error;
 use crate::bits::{BitRead, BitsWriter};
 use crate::error::Decode;
 use crate::span::Span;
@@ -378,7 +377,7 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
     bits.truncate(position);
-    Ok(crate::version::io::finish(bits))
+    Ok(Version::from_test_bits(bits))
 }
 
 /// Decode one id tree per-bit through [`BitwiseStreamReader`].
@@ -398,7 +397,7 @@ fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
     bits.truncate(position);
-    Ok(crate::party::io::finish(bits))
+    Ok(Party::from_test_bits(bits))
 }
 
 /// Assert two wire decode errors agree on `ErrorKind` and, when both carry a
@@ -456,7 +455,7 @@ proptest! {
         let mut subject_reader: &[u8] = &stream;
         let subject = Version::deserialize_reader(&mut subject_reader);
         let mut oracle_reader: &[u8] = &stream;
-        let oracle = reference_version(&mut oracle_reader).map_err(decode_error);
+        let oracle = reference_version(&mut oracle_reader).map_err(Decode::into_borsh_error);
         prop_assert_eq!(
             subject_reader.len(),
             oracle_reader.len(),
@@ -485,7 +484,7 @@ proptest! {
         let mut subject_reader: &[u8] = &stream;
         let subject = Party::deserialize_reader(&mut subject_reader);
         let mut oracle_reader: &[u8] = &stream;
-        let oracle = reference_party(&mut oracle_reader).map_err(decode_error);
+        let oracle = reference_party(&mut oracle_reader).map_err(Decode::into_borsh_error);
         prop_assert_eq!(
             subject_reader.len(),
             oracle_reader.len(),
@@ -550,7 +549,7 @@ fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
     let hi = match admission {
         Admission::Refuted => return Err(Decode::NotCanonical),
         Admission::Equal => lo.clone(),
-        Admission::Dominates => crate::version::io::finish(bits),
+        Admission::Dominates => Version::from_test_bits(bits),
     };
     Ok(Span::owned(lo, hi))
 }
@@ -579,7 +578,7 @@ proptest! {
         let mut subject_reader: &[u8] = &stream;
         let subject = Clock::deserialize_reader(&mut subject_reader);
         let mut oracle_reader: &[u8] = &stream;
-        let oracle = reference_clock(&mut oracle_reader).map_err(decode_error);
+        let oracle = reference_clock(&mut oracle_reader).map_err(Decode::into_borsh_error);
         prop_assert_eq!(
             subject_reader.len(),
             oracle_reader.len(),
@@ -613,7 +612,7 @@ proptest! {
         let mut subject_reader: &[u8] = &stream;
         let subject = Ranked::deserialize_reader(&mut subject_reader);
         let mut oracle_reader: &[u8] = &stream;
-        let oracle = reference_ranked(&mut oracle_reader).map_err(decode_error);
+        let oracle = reference_ranked(&mut oracle_reader).map_err(Decode::into_borsh_error);
         prop_assert_eq!(
             subject_reader.len(),
             oracle_reader.len(),
@@ -720,7 +719,7 @@ proptest! {
         let mut subject_reader: &[u8] = &stream;
         let subject = Span::deserialize_reader(&mut subject_reader);
         let mut oracle_reader: &[u8] = &stream;
-        let oracle = reference_span(&mut oracle_reader).map_err(decode_error);
+        let oracle = reference_span(&mut oracle_reader).map_err(Decode::into_borsh_error);
         prop_assert_eq!(
             subject_reader.len(),
             oracle_reader.len(),

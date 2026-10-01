@@ -831,8 +831,8 @@ impl Clock {
     /// Validates an owned canonical encoding and shares its storage between
     /// the party and version.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
-        let (party, party_bytes) = crate::party::io::decode_prefix(&buf)?;
-        let version = crate::version::io::decode(buf.slice(party_bytes..))?;
+        let (party, party_bytes) = Party::decode_prefix(&buf)?;
+        let version = Version::decode_bytes(buf.slice(party_bytes..))?;
         Ok(Clock::from_parts(party, version))
     }
 

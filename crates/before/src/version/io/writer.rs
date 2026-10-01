@@ -613,7 +613,7 @@ impl VersionWriter {
             self.path.all_set(),
             "the final leaf closes every open ancestor from the right"
         );
-        crate::version::io::finish(self.out.finish())
+        Version::from_canonical(self.out.finish().finalize())
     }
 
     /// Accept a completed narrow payload, collapsing an equal direct sibling

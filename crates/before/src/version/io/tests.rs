@@ -48,7 +48,7 @@ use crate::version::io::validate::whole;
 /// Validate one live bit stream and adopt it as canonical Version storage.
 fn decode_stream(bits: BitsWriter) -> Result<Version, Decode> {
     whole(bits.reader())?;
-    Ok(crate::version::io::finish(bits))
+    Ok(Version::from_test_bits(bits))
 }
 
 /// Lift a meter-generated encoded shape into a [`Version`].

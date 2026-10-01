@@ -306,7 +306,7 @@ impl<'a> Ranked<'a> {
             consumed += 1;
             Ok(byte)
         })?;
-        let version = crate::version::io::decode(buf.slice(consumed..))?;
+        let version = Version::decode_bytes(buf.slice(consumed..))?;
         if !version.rank().encoding_matches(&buf[..consumed]) {
             return Err(Decode::NotCanonical);
         }

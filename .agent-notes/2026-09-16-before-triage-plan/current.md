@@ -1,7 +1,7 @@
 # Current triage state
 
-Work proceeds directly on `main`. The production-structure and exact-
-accumulation work is integrated through `fdd1bf47`.
+Work proceeds directly on `main`. Resource verification is consolidated through
+`193a1474`.
 
 ## Completed foundation
 
@@ -24,20 +24,21 @@ claims, direct amplification-board gaps, numeric fuel gaps, balanced-fold
 premise, and crate-headline disposition have each been resolved or assigned to
 the owner's deferred crate-page rewrite.
 
-## Ready for review
+## Current increment
 
-Resource verification is consolidated around the amplification board. Every
-adversarial family supplies valid operands to every compatible public operation;
-correlated pairs, masks, and populations remain intact. The separate resource
-suite now contains only independent arguments, paired marginals, exact early
-exits, and the densification observation that the board cannot express. Dead
-stack and branch-traffic counters and the duplicated harness are gone.
+Party and Version decoding and canonical-byte adoption live on their domain
+types through one `from_canonical` boundary, and writers finish directly into
+those types. Adaptation façades are absent where callers can state the operation
+directly; algorithm-specific helpers belong to the state that owns their
+invariants. Genuine module laws remain detached.
 
-The board preserves independent operand-count and operand-size axes for
-staggered folds, a fixed-work bound for masked comparison through an unowned
-region, and a one-pass ceiling for read-only Party comparisons. A focused heap
-check retains the distinct guarantee that joining separately stored equal
-versions does not copy either operand.
+The query filter retains an exact height difference only while its storage is
+bounded by the corresponding query bound. Wider comparisons compact shared
+accumulators without normalization; each refusal strictly reduces retained
+width, so the work is amortized and the comparison loop terminates. Targeted
+differential properties cover the accumulator postcondition, alternating
+cancellation, exact order, and the per-bound storage condition. The discovered
+alternating-cancellation witness is pinned as a proptest regression.
 
 ## Next outcome
 

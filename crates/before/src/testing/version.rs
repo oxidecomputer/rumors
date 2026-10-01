@@ -6,12 +6,14 @@
 //! changes between adjacent leaves. This module is the test-only boundary
 //! between those representations.
 
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 
-use crate::bits::{BitRead, BitsReader, BitsWriter};
+use crate::bits::{BitRead, BitsReader};
+use crate::version::io::writer::VersionWriter;
 use crate::Version;
 
 /// Zigzag-code the change between adjacent absolute leaf heights.
+#[cfg(test)]
 pub(crate) fn zigzag_difference(previous: &BigUint, current: &BigUint) -> BigUint {
     if current >= previous {
         (current - previous) << 1u32
@@ -34,24 +36,24 @@ pub(crate) fn zigzag_difference(previous: &BigUint, current: &BigUint) -> BigUin
 /// Panics if the generator-built input is incomplete or contains more than one
 /// tree.
 pub(crate) fn from_tree_stream(mut reader: BitsReader<'_>) -> Version {
-    let mut out = BitsWriter::with_capacity(reader.len());
-    let mut pending_offsets = vec![BigUint::ZERO];
+    let mut out = VersionWriter::with_capacity(reader.len());
+    let mut pending = vec![(BigUint::ZERO, 0u64)];
     let mut previous_leaf: Option<BigUint> = None;
 
-    while let Some(offset) = pending_offsets.pop() {
+    while let Some((offset, depth)) = pending.pop() {
         let internal = reader.read_bit().expect("the test tree is complete");
         let base = reader.read_gamma().expect("the test tree is complete");
 
-        // Test trees use `1` for a branch; stored versions use `1` for a leaf.
-        out.push(!internal);
         let height = &offset + &base;
         if internal {
-            pending_offsets.push(height.clone());
-            pending_offsets.push(height);
+            pending.push((height.clone(), depth + 1));
+            pending.push((height, depth + 1));
         } else {
             match previous_leaf.replace(height.clone()) {
-                None => out.write_gamma(&height),
-                Some(previous) => out.write_gamma(&zigzag_difference(&previous, &height)),
+                None => out.height(depth, &height),
+                Some(previous) => {
+                    out.change(depth, &(BigInt::from(height) - BigInt::from(previous)))
+                }
             }
         }
     }
@@ -61,5 +63,5 @@ pub(crate) fn from_tree_stream(mut reader: BitsReader<'_>) -> Version {
         reader.len(),
         "the test stream contains exactly one tree"
     );
-    crate::version::io::finish(out)
+    out.finish()
 }

@@ -116,6 +116,16 @@ pub enum PartyNode {
     Branch(PartyBranch),
 }
 
+impl PartyNode {
+    /// Return this node's children, or `None` for a wholly owned region.
+    pub fn branch(self) -> Option<PartyBranch> {
+        match self {
+            PartyNode::Owned => None,
+            PartyNode::Branch(branch) => Some(branch),
+        }
+    }
+}
+
 /// The children present beneath a stored branch.
 ///
 /// The three variants are exactly the valid nonempty presence tags. The `00`

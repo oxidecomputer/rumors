@@ -255,10 +255,14 @@ impl Accumulator {
     /// `Some(Greater)` result guarantees that both adding and subtracting the
     /// other accumulator leave this value positive.
     ///
-    /// `None` makes no claim: the smaller operand may or may not change the
-    /// answer. Apply it and call [`cmp_zero`](Self::cmp_zero) to decide. Like an
-    /// exact comparison, this query may reduce the working width without changing
-    /// the value.
+    /// `None` makes no claim about the answer: the smaller operand may or may
+    /// not change it. The scan nevertheless compacts what it reads. When `bits`
+    /// comes from another accumulator's [`stored_bits`](Self::stored_bits), a
+    /// `None` result leaves this accumulator at most two base-2^32 digit
+    /// positions (64 working bits) wider than that operand. If compaction
+    /// reveals that the other accumulator is now wider, the caller can retry
+    /// with their roles reversed. Once neither is much wider, apply the operand
+    /// and call [`cmp_zero`](Self::cmp_zero) to decide.
     ///
     /// ```
     /// use core::cmp::Ordering;

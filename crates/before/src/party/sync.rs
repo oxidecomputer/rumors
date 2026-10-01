@@ -6,7 +6,7 @@
 //! the whole union when their child subtrees can be separated with one scan.
 
 use crate::party::io::writer::PartyWriter;
-use crate::party::io::{PartyBranch, PartyNode, PartyReader, PartySubtree};
+use crate::party::io::{PartyBranch, PartyReader, PartySubtree};
 use crate::party::Party;
 
 impl Party {
@@ -26,8 +26,8 @@ impl Party {
         loop {
             let a_start = sync.a.offset();
             let b_start = sync.b.offset();
-            let a = Sync::branch_or_overlap(sync.a.read())?;
-            let b = Sync::branch_or_overlap(sync.b.read())?;
+            let a = sync.a.read().branch()?;
+            let b = sync.b.read().branch()?;
             let joined = a.union(b);
             if joined == PartyBranch::Both {
                 // This is the first place the union can be split into two
@@ -59,14 +59,6 @@ struct Sync<'a> {
 }
 
 impl<'a> Sync<'a> {
-    /// Return the branch, or reject the overlap exposed by an owned region.
-    fn branch_or_overlap(node: PartyNode) -> Option<PartyBranch> {
-        match node {
-            PartyNode::Owned => None,
-            PartyNode::Branch(branch) => Some(branch),
-        }
-    }
-
     /// Fork the first joined branch whose two children are present.
     fn fork_joined_branch(
         self,

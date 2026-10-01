@@ -364,7 +364,10 @@ proptest! {
     /// both signs of an operand within that width. The larger magnitude must exceed
     /// the operand's magnitude. Small values additionally pin the exact
     /// 3·2^bits threshold; constructed signed digits exercise the extra magnitude
-    /// allowed by redundant coefficients.
+    /// allowed by redundant coefficients. A refusal must compact the receiver
+    /// to within two stored digits of the requested width. If the other operand
+    /// is then wider, checking it in turn bounds both sides before an exact
+    /// subtraction.
     #[test]
     fn stored_width_stability_is_sound(
         (value, floor) in arb_stability_value(),
@@ -380,6 +383,11 @@ proptest! {
         let sign = oracle_sign(&oracle);
         if let Some(reported) = stable {
             prop_assert_eq!(reported, sign);
+        } else {
+            prop_assert!(
+                acc.stored_digit_count() <= floor + 3,
+                "a refusal leaves at most two digits above the operand width"
+            );
         }
         assert_value(&acc, &oracle);
         if was_small {
@@ -441,6 +449,71 @@ proptest! {
                  digits 0..=floor"
             );
         }
+    }
+
+    /// Alternating stability refusals converge to a cheap exact comparison.
+    ///
+    /// Both operands range across the scalar and signed-digit representations,
+    /// including shifted updates, cancellation, and extreme coefficients. The
+    /// test follows the comparison protocol used by clients: inspect the wider
+    /// operand, reverse roles whenever compaction exposes the other as wider,
+    /// and subtract only once their stored widths differ by at most two digits.
+    /// Every refusal must strictly reduce the combined retained width.
+    #[test]
+    fn two_sided_stability_converges_to_exact_comparison(
+        (left_value, left_floor) in arb_stability_value(),
+        (right_value, right_floor) in arb_stability_value(),
+    ) {
+        let (mut left, left_oracle) = build_stability_value(&left_value, left_floor);
+        let (mut right, right_oracle) = build_stability_value(&right_value, right_floor);
+        let expected = left_oracle.cmp(&right_oracle);
+        let close = |left: &Accumulator, right: &Accumulator| {
+            left.stored_digit_count().abs_diff(right.stored_digit_count()) <= 2
+        };
+
+        let initial_width = left.stored_digit_count() + right.stored_digit_count();
+        let mut decided = None;
+        let mut refusals = 0;
+        while !close(&left, &right) {
+            let previous_width = left.stored_digit_count() + right.stored_digit_count();
+            if left.stored_digit_count() > right.stored_digit_count() {
+                match left.cmp_zero_stable_under(right.stored_bits()) {
+                    Some(ordering) => {
+                        decided = Some(ordering);
+                        break;
+                    }
+                    None => refusals += 1,
+                }
+            } else {
+                match right.cmp_zero_stable_under(left.stored_bits()) {
+                    Some(ordering) => {
+                        decided = Some(ordering.reverse());
+                        break;
+                    }
+                    None => refusals += 1,
+                }
+            }
+            prop_assert!(
+                left.stored_digit_count() + right.stored_digit_count() < previous_width,
+                "every refusal must compact the wider operand"
+            );
+        }
+
+        prop_assert!(refusals < initial_width);
+        let actual = if let Some(ordering) = decided {
+            ordering
+        } else {
+            prop_assert!(
+                close(&left, &right),
+                "all far-wider cancellation must be compacted before subtraction"
+            );
+            let mut difference = left.clone();
+            difference -= &right;
+            difference.cmp_zero()
+        };
+        prop_assert_eq!(actual, expected);
+        assert_value(&left, &left_oracle);
+        assert_value(&right, &right_oracle);
     }
 
     /// `cmp_zero_stable_under(64)` never lies: the sign always matches the

@@ -11,6 +11,7 @@ use num_bigint::BigUint;
 use crate::bits::BitsWriter;
 use crate::error::Decode;
 use crate::version::io::validate::whole;
+use crate::Version;
 
 use super::Comparison;
 
@@ -42,8 +43,8 @@ fn collapsible_sibling_pair_sweeps_without_panicking() {
     good.push(true);
     good.write_gamma(&BigUint::from(5u64));
     whole(good.reader()).expect("the peer operand is canonical");
-    let bad = crate::version::io::finish(bad);
-    let good = crate::version::io::finish(good);
+    let bad = Version::from_test_bits(bad);
+    let good = Version::from_test_bits(good);
     // Both entry points, both operand positions: each call must return. The
     // verdicts are unspecified and deliberately unpinned.
     let _ = Comparison::order(&bad, None, &good, None);

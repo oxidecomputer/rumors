@@ -18,28 +18,26 @@
 
 use core::ops::Range;
 
-use crate::bits::{BitRead, Bits, BitsReader, BitsWriter};
+#[cfg(test)]
+use crate::bits::BitsWriter;
+use crate::bits::{BitRead, Bits, BitsReader};
 use crate::Version;
 use num_bigint::BigUint;
 
-/// Adopt bytes whose padding and Version contents were already validated.
-pub(crate) fn from_canonical(bytes: bytes::Bytes) -> Version {
-    Version::from_storage(Bits::from_canonical(bytes))
-}
-
-/// Validate and adopt exactly one canonical Version encoding.
-pub(crate) fn decode(bytes: bytes::Bytes) -> Result<Version, crate::error::Decode> {
-    let end = validate::prefix(BitsReader::from_bytes(&bytes))?;
-    Bits::validate_padding(&bytes, end)?;
-    Ok(from_canonical(bytes))
-}
-
-/// Seal a trusted domain writer as a Version.
-pub(crate) fn finish(writer: BitsWriter) -> Version {
-    Version::from_storage(writer.finalize())
-}
-
 impl Version {
+    /// Validate and adopt exactly one canonical Version encoding.
+    pub(crate) fn decode_bytes(bytes: bytes::Bytes) -> Result<Self, crate::error::Decode> {
+        let end = validate::prefix(BitsReader::from_bytes(&bytes))?;
+        Bits::validate_padding(&bytes, end)?;
+        Ok(Self::from_canonical(Bits::from_canonical(bytes)))
+    }
+
+    /// Adopt a test-built stream without validating the Version invariants.
+    #[cfg(test)]
+    pub(crate) fn from_test_bits(bits: BitsWriter) -> Self {
+        Version::from_canonical(bits.finalize())
+    }
+
     /// Number of meaningful bits in the representation.
     pub(crate) fn stored_len(&self) -> u64 {
         self.0.reader().len()
