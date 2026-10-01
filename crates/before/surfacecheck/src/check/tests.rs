@@ -12,7 +12,6 @@ fn exception(name: &'static str) -> Exception {
     Exception {
         name,
         reason: "synthetic test exception",
-        decided: "2026-07-30",
     }
 }
 
@@ -22,7 +21,7 @@ fn names(entries: &[&str]) -> BTreeSet<String> {
 }
 
 /// A surface whose functions are the given names, with no impls and no
-/// items — the shape most function-roster tests need.
+/// items — the shape most function-coverage tests need.
 fn functions(entries: &[&str]) -> Surface {
     Surface {
         functions: names(entries),
@@ -30,12 +29,12 @@ fn functions(entries: &[&str]) -> Surface {
     }
 }
 
-/// A rostered set from string literals.
-fn rostered<'a>(entries: &[&'a str]) -> BTreeSet<&'a str> {
+/// A board-operation set from string literals.
+fn board<'a>(entries: &[&'a str]) -> BTreeSet<&'a str> {
     entries.iter().copied().collect()
 }
 
-/// A surface that exactly matches the roster and censuses (anchors
+/// A surface that exactly matches board coverage and the censuses (anchors
 /// included) is clean: the check's green path exists.
 #[test]
 fn exact_match_is_clean() {
@@ -44,10 +43,10 @@ fn exact_match_is_clean() {
         impls: names(&["A: impl core::ops::Not for A"]),
         items: names(&["A::ZERO"]),
     };
-    let ro = rostered(&["A::f", "B::g", "Party::seed", "causally::all"]);
+    let coverage = board(&["A::f", "B::g", "Party::seed", "causally::all"]);
     let findings = reconcile_with(
         &surface,
-        &ro,
+        &coverage,
         &[],
         &[],
         ANCHORS,
@@ -57,30 +56,27 @@ fn exact_match_is_clean() {
     assert!(findings.is_clean(), "{findings:?}");
 }
 
-/// A public item with no roster row and no exception is an unrostered
-/// finding: new public surface cannot silently skip the roster.
+/// A public item with no board row and no exception is uncovered.
 #[test]
-fn unrostered_item_reads_red() {
+fn uncovered_item_reads_red() {
     let surface = functions(&["A::f", "A::new_fn", "Party::seed", "causally::all"]);
-    let ro = rostered(&["A::f", "Party::seed", "causally::all"]);
-    let findings = reconcile_with(&surface, &ro, &[], &[], ANCHORS, &[], &[]);
-    assert_eq!(findings.unrostered, vec!["A::new_fn".to_owned()]);
+    let coverage = board(&["A::f", "Party::seed", "causally::all"]);
+    let findings = reconcile_with(&surface, &coverage, &[], &[], ANCHORS, &[], &[]);
+    assert_eq!(findings.uncovered_functions, vec!["A::new_fn".to_owned()]);
     assert!(!findings.is_clean());
 }
 
-/// A roster row whose public item is gone is an orphan finding: the
-/// roster cannot keep naming removed surface.
+/// A board row whose public item is gone is an orphan finding.
 #[test]
 fn orphaned_row_reads_red() {
     let surface = functions(&["Party::seed", "causally::all"]);
-    let ro = rostered(&["Party::seed", "causally::all", "A::removed"]);
-    let findings = reconcile_with(&surface, &ro, &[], &[], ANCHORS, &[], &[]);
-    assert_eq!(findings.orphaned, vec!["A::removed".to_owned()]);
+    let coverage = board(&["Party::seed", "causally::all", "A::removed"]);
+    let findings = reconcile_with(&surface, &coverage, &[], &[], ANCHORS, &[], &[]);
+    assert_eq!(findings.stale_board_rows, vec!["A::removed".to_owned()]);
 }
 
-/// A reachable trait impl with no census pin is an unrostered-impl
-/// finding, and a pin naming no reachable impl is an orphaned-impl
-/// finding: the impl census reconciles both ways.
+/// A reachable trait impl with no census pin and a pin naming no reachable impl
+/// both fail: the impl census reconciles in both directions.
 #[test]
 fn impl_census_reconciles_both_ways() {
     let surface = Surface {
@@ -88,10 +84,10 @@ fn impl_census_reconciles_both_ways() {
         impls: names(&["Version: impl core::ops::Not for Version"]),
         items: BTreeSet::new(),
     };
-    let ro = rostered(&["Party::seed", "causally::all"]);
+    let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
         &surface,
-        &ro,
+        &coverage,
         &[],
         &[],
         ANCHORS,
@@ -99,7 +95,7 @@ fn impl_census_reconciles_both_ways() {
         &[],
     );
     assert_eq!(
-        findings.unrostered_impls,
+        findings.unpinned_impls,
         vec!["Version: impl core::ops::Not for Version".to_owned()]
     );
     assert_eq!(
@@ -109,9 +105,8 @@ fn impl_census_reconciles_both_ways() {
     assert!(!findings.is_clean());
 }
 
-/// A reachable const/static/macro with no census pin is an
-/// unrostered-item finding, and a dead pin is an orphaned-item finding:
-/// the item census reconciles both ways.
+/// A reachable const, static, or macro with no census pin and a pin naming no
+/// reachable item both fail: the item census reconciles in both directions.
 #[test]
 fn item_census_reconciles_both_ways() {
     let surface = Surface {
@@ -119,9 +114,17 @@ fn item_census_reconciles_both_ways() {
         impls: BTreeSet::new(),
         items: names(&["Rank::ZERO"]),
     };
-    let ro = rostered(&["Party::seed", "causally::all"]);
-    let findings = reconcile_with(&surface, &ro, &[], &[], ANCHORS, &[], &["Ticks::ZERO"]);
-    assert_eq!(findings.unrostered_items, vec!["Rank::ZERO".to_owned()]);
+    let coverage = board(&["Party::seed", "causally::all"]);
+    let findings = reconcile_with(
+        &surface,
+        &coverage,
+        &[],
+        &[],
+        ANCHORS,
+        &[],
+        &["Ticks::ZERO"],
+    );
+    assert_eq!(findings.unpinned_items, vec!["Rank::ZERO".to_owned()]);
     assert_eq!(findings.orphaned_items, vec!["Ticks::ZERO".to_owned()]);
     assert!(!findings.is_clean());
 }
@@ -143,10 +146,10 @@ fn exceptions_excuse_their_scope() {
         impls: names(&["gated::T: impl core::fmt::Debug for T"]),
         items: names(&["gated::CONST"]),
     };
-    let ro = rostered(&["Party::seed", "causally::all"]);
+    let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
         &surface,
-        &ro,
+        &coverage,
         &[exception("lone::item")],
         &[exception("gated::")],
         ANCHORS,
@@ -161,29 +164,32 @@ fn exceptions_excuse_their_scope() {
 #[test]
 fn module_exception_does_not_leak_to_siblings() {
     let surface = functions(&["Party::seed", "causally::all", "gated::a", "gatedmore::x"]);
-    let ro = rostered(&["Party::seed", "causally::all"]);
+    let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
         &surface,
-        &ro,
+        &coverage,
         &[],
         &[exception("gated::")],
         ANCHORS,
         &[],
         &[],
     );
-    assert_eq!(findings.unrostered, vec!["gatedmore::x".to_owned()]);
+    assert_eq!(
+        findings.uncovered_functions,
+        vec!["gatedmore::x".to_owned()]
+    );
 }
 
 /// An exception matching nothing is a dead entry, and an exception
-/// shadowing a live roster row is a conflict: both read red, so the
+/// shadowing a live board row is a conflict: both read red, so the
 /// lists self-prune.
 #[test]
 fn dead_and_shadowing_exceptions_read_red() {
     let surface = functions(&["Party::seed", "causally::all"]);
-    let ro = rostered(&["Party::seed", "causally::all"]);
+    let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
         &surface,
-        &ro,
+        &coverage,
         &[exception("gone::item"), exception("Party::seed")],
         &[exception("gonemod::")],
         ANCHORS,
@@ -210,10 +216,10 @@ fn module_exception_live_through_impls_and_items() {
         impls: names(&["implonly::T: impl core::fmt::Debug for T"]),
         items: names(&["itemonly::CONST"]),
     };
-    let ro = rostered(&["Party::seed", "causally::all"]);
+    let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
         &surface,
-        &ro,
+        &coverage,
         &[],
         &[exception("implonly::"), exception("itemonly::")],
         ANCHORS,
@@ -224,13 +230,13 @@ fn module_exception_live_through_impls_and_items() {
 }
 
 /// A walk that returns nothing cannot read green: the liveness anchors
-/// are missing-anchor findings even when roster and extraction agree on
+/// are missing-anchor findings even when coverage and extraction agree on
 /// the empty surface.
 #[test]
 fn empty_extraction_trips_the_anchors() {
     let findings = reconcile_with(
         &Surface::default(),
-        &rostered(&[]),
+        &board(&[]),
         &[],
         &[],
         ANCHORS,
@@ -246,82 +252,39 @@ fn empty_extraction_trips_the_anchors() {
 #[test]
 fn render_names_the_findings() {
     let findings = Findings {
-        unrostered: vec!["A::x".to_owned()],
-        orphaned: vec!["B::y".to_owned()],
-        unrostered_impls: vec!["C: impl core::ops::Not for C".to_owned()],
-        unrostered_items: vec!["D::ZERO".to_owned()],
+        uncovered_functions: vec!["A::x".to_owned()],
+        stale_board_rows: vec!["B::y".to_owned()],
+        unpinned_impls: vec!["C: impl core::ops::Not for C".to_owned()],
+        unpinned_items: vec!["D::ZERO".to_owned()],
         ..Findings::default()
     };
     let report = findings.render();
     assert!(report.contains("A::x") && report.contains("B::y"));
     assert!(report.contains("C: impl core::ops::Not for C") && report.contains("D::ZERO"));
-    assert!(report.contains("METHOD_SURFACE"));
+    assert!(report.contains("BOARD_PRICED"));
     assert!(report.contains("TRAIT_IMPLS"));
 }
 
 /// The exemption discipline is enforced by the judgment itself: a
 /// malformed exception is a finding.
 ///
-/// Malformed means an undated ruling — wrong length, dashes or digits
-/// out of place, or a month or day outside its range — a too-thin
-/// reason, or a module prefix not ending in `::`.
+/// Malformed means a too-thin reason or a module prefix not ending in `::`.
 #[test]
 fn malformed_exceptions_read_red() {
-    let surface = functions(&[
-        "Party::seed",
-        "causally::all",
-        "a::x",
-        "b::y",
-        "c::z",
-        "d::w",
-        "e::v",
-    ]);
-    let ro = rostered(&["Party::seed", "causally::all"]);
-    let undated = Exception {
-        name: "a::x",
-        reason: "a substantive reason of adequate length",
-        decided: "sometime in July",
-    };
+    let surface = functions(&["Party::seed", "causally::all", "a::x", "b::y", "c::z"]);
+    let coverage = board(&["Party::seed", "causally::all"]);
     let thin = Exception {
-        name: "b::y",
+        name: "a::x",
         reason: "because",
-        decided: "2026-07-30",
-    };
-    // Ten characters holding two dashes, but no date: the shape check
-    // must read the positions, not count characters.
-    let misdashed = Exception {
-        name: "d::w",
-        reason: "a substantive reason of adequate length",
-        decided: "20-26-07xx",
-    };
-    let unmonthed = Exception {
-        name: "e::v",
-        reason: "a substantive reason of adequate length",
-        decided: "2026-13-01",
     };
     let unscoped = Exception {
         name: "c::z",
         reason: "a substantive reason of adequate length",
-        decided: "2026-07-30",
     };
-    let findings = reconcile_with(
-        &surface,
-        &ro,
-        &[undated, thin, misdashed, unmonthed],
-        &[unscoped],
-        ANCHORS,
-        &[],
-        &[],
-    );
+    let findings = reconcile_with(&surface, &coverage, &[thin], &[unscoped], ANCHORS, &[], &[]);
     assert_eq!(
         findings.malformed_exceptions,
-        vec![
-            "a::x".to_owned(),
-            "b::y".to_owned(),
-            "d::w".to_owned(),
-            "e::v".to_owned(),
-            "c::z".to_owned(),
-        ],
+        vec!["a::x".to_owned(), "c::z".to_owned(),],
     );
 }
 
@@ -330,10 +293,10 @@ fn malformed_exceptions_read_red() {
 #[test]
 fn committed_exceptions_are_well_formed() {
     let surface = functions(&["Party::seed", "causally::all"]);
-    let ro = rostered(&["Party::seed", "causally::all"]);
+    let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
         &surface,
-        &ro,
+        &coverage,
         ITEM_EXCEPTIONS,
         MODULE_EXCEPTIONS,
         ANCHORS,

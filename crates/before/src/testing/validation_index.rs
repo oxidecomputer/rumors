@@ -14,39 +14,28 @@
 //!
 //! # The semantic instruments
 //!
-//! **The public-surface coverage roster** (`crate::testing::surface`, enforced by
-//! [`super::surface_coverage`]). The differential architecture compares
-//! three implementations — production, the recursive paper-transcription
-//! oracle (`crate::testing::oracles::tree`), and the function-space semantic oracle
-//! ([`super::oracles::function`]) — along three legs, and the roster
-//! commits one row per public operation stating each leg's disposition:
-//! bound by a named test, law-pinned, transitively bound, or excluded
-//! with the reason. What it alone catches: **coverage holes** — a new
-//! public operation cannot land unbound (the roster is held equal, name
-//! for name, to the `pub fn` surface extracted from source), and a
-//! renamed or deleted differential fails the row that cites it. The
-//! differentials themselves catch wrong answers; the roster catches the
-//! silent absence of a differential. The rows live in `crate::testing::surface`
-//! (public under the `meter` feature) exactly so external instrument
-//! crates bind to the same enumeration instead of hand-maintaining a
-//! second one.
+//! **The pointwise differential table** ([`super::diff_ops`]). Every
+//! deterministic operation in the three models' common vocabulary is spelled
+//! once for production, the recursive oracle, and the function-space oracle.
+//! Shared drivers apply every descriptor to arbitrary normal forms and values
+//! produced by realistic operation traces.
+//! What it alone catches: **population holes** — an operation checked on
+//! arbitrary shapes but not on causally related values, or the reverse.
 //!
-//! **The pointwise differential table** ([`super::diff_ops`]). One
-//! descriptor per public operation that is a pure function of ids,
-//! histories, and clocks, spelled once per reference — against
-//! production, against the recursive oracle, and (where the
-//! function-space realization is deterministic) against the
-//! function-space combinators — and driven over shared populations by
-//! roster expansion. What it alone catches: **population holes** — an
-//! operation bisimulated on arbitrary normal forms but not on organic op-trace
-//! values, or the reverse. The hand-written bodies it replaced could not
-//! prevent one: each chose its own population, so coverage was a product nobody
-//! enumerated. Here the population belongs to the driver and the operation to
-//! the descriptor, and the two meet by construction. Deliberately incorrect
-//! descriptors demonstrate that the drivers reject mistranscribed operations. A
-//! separate coverage check assigns every `Bound` citation to exactly one side —
-//! derived from the table, or bespoke under a declared category — so a
-//! pointwise operation cannot quietly land as one more hand-written body.
+//! **The trace differential** ([`super::optrace`]). One operation vocabulary
+//! drives production and both oracles through the same stateful schedule. The
+//! model trait is mandatory: adding a generated trace operation cannot compile
+//! until all three implementations define it. What it alone catches:
+//! **sequence errors** — a locally correct operation that leaves later
+//! operations observing the wrong state.
+//!
+//! **Focused behavioral properties** (the public types' sibling test modules).
+//! Public behavior outside that common vocabulary is tested at its natural
+//! boundary: exact production policy against the recursive oracle, codecs and
+//! streaming writers against canonical bytes, borrowing views against their
+//! materialized values, and adapters against the operation they delegate to.
+//! What they alone catch: **surface composition errors** that no independent
+//! model represents, such as omitting one component from a streamed encoding.
 //!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:
@@ -114,9 +103,8 @@
 //! audit view of where the bulk of the input space sends each
 //! operation, so early-exit strata and log-factor banding are visible
 //! to the eye. It enforces nothing (its committed checks are sampler
-//! correctness and coverage parity against `crate::testing::surface`);
-//! enforcement stays in the board and fuel bands, which is why it may read the
-//! roster but never create a threshold.
+//! correctness and coverage parity against the board's operation inventory);
+//! enforcement stays in the board and fuel bands.
 //!
 //! # The documentation instruments
 //!
@@ -132,11 +120,13 @@
 //! section states its own bound inline, denominated in its operation's
 //! actual arguments.
 //!
-//! **The board tiling** ([`crate::testing::meter::board`]'s coverage tables).
-//! Every public-surface row priced by named board rows or excused with
-//! a mechanism, never both, never neither — so a new public operation
-//! cannot land unmeasured and unexcused, and the board carries no
-//! orphan row.
+//! **The surface and board tiling** (`surfacecheck` and
+//! [`crate::testing::meter::board`]'s coverage tables).
+//! Every public function is priced by named board rows or excused with a
+//! mechanism, never both and never neither. Public trait implementations are
+//! pinned separately, with their resource decisions grouped into board
+//! families. A new public function therefore cannot land unmeasured and
+//! unexcused, and the board carries no orphan measurement.
 //!
 //! # Reading the map
 //!

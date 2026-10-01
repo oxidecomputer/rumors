@@ -4,7 +4,6 @@ members = [
     "crates/before-viz",
     "crates/rumors-tracing",
     "crates/rumors-testkit",
-    "crates/surface-scan",
     "crates/suanpan",
 ]
 
@@ -75,7 +74,6 @@ smallvec = { version = "1.15", features = ["union"] }
 stacker = "0.1"
 static_assertions = "1.1"
 suanpan = { path = "crates/suanpan" }
-surface-scan = { path = "crates/surface-scan" }
 tempfile = "=3.23.0"
 thiserror = "2"
 tinyvec = { version = "1.11", features = ["alloc"] }

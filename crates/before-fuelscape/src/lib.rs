@@ -2,9 +2,9 @@
 //! against exact input size, sampled uniformly from each size's whole
 //! canonical input space.
 //!
-//! The crate's other instruments enforce points and slopes: envelope pins
-//! bound chosen adversarial families, the fuzz-fit bands bound fuzzed
-//! shapes, the amplification board prices the committed worst cases. None
+//! The crate's other instruments enforce points and slopes: the amplification
+//! board prices committed adversarial families, while fuzz-fit explores
+//! generated shapes. Neither
 //! of them shows a human the *distribution* of work over a declared input
 //! measure. The atlas is that instrument: for each public operation it
 //! renders `p(fuel | size)` as a log-log heatmap — one column per input
@@ -16,16 +16,15 @@
 //! **The atlas is an audit view, not enforcement.** Its committed checks
 //! are the sampler-correctness pins, the coverage parity pin, and a
 //! pipeline smoke test, nothing else: no fuel threshold, percentile gate,
-//! or band is ever minted from atlas data — the envelope suite and the
-//! fuzz-fit bands own enforcement.
+//! or band is ever minted from atlas data — the board and fuzz-fit own
+//! enforcement.
 //!
-//! **Totality over the public surface is a chain, not a promise:** the
-//! public API surface is pinned to the coverage roster (`before::testing::surface`,
-//! tamper-evident and total by construction over the extracted `pub fn`
-//! surface), and the roster is pinned to the atlas panels plus the
-//! documented exemption table ([`ops::EXEMPTIONS`]) by the parity test in
-//! `ops/tests.rs` — a new public operation cannot ship without a panel or
-//! an explicitly reasoned exemption.
+//! **Coverage is a checked chain:** compiler output is reconciled against the
+//! board's priced and inapplicable function entries, while public trait
+//! implementations are pinned separately. The board inventory is then held to
+//! the atlas panels plus the documented exemption table ([`ops::EXEMPTIONS`])
+//! by the parity test in `ops/tests.rs`. A new public function cannot ship
+//! without a panel or an explicitly reasoned exemption.
 //!
 //! **The measure, and what it cannot see.** Inputs are drawn uniformly
 //! from the set of canonical inputs whose encoding is exactly `n`
@@ -35,8 +34,8 @@
 //! sends the operation. Engineered adversarial corners are measure-zero
 //! out there — no uniform sample will ever hit one — which is exactly why
 //! the committed family generators are overlaid as explicit points rather
-//! than trusted to appear in the cloud, and why the board and the
-//! envelopes (not the atlas) carry the adversarial verdicts.
+//! than trusted to appear in the cloud, and why the board, not the atlas,
+//! carries the adversarial verdicts.
 //!
 //! Fuel is wasmtime instruction-count metering through the fuzz-fit
 //! guest — the same currency, guest, and driver as the band enforcement —

@@ -128,9 +128,9 @@ macro_rules! emit_registration {
         ///
         /// The collection read from the tables themselves — the same entries
         /// the roster-derived drivers execute — so anything that consumes law
-        /// names (the uniqueness pin, the coverage roster's citation check)
-        /// resolves against what actually runs, never against a text scan that
-        /// a stray same-named `fn` could satisfy.
+        /// names (currently the uniqueness pin) resolves against what actually
+        /// runs, never against a text scan that a stray same-named `fn` could
+        /// satisfy.
         pub(crate) fn registered_names() -> Vec<&'static str> {
             std::iter::empty()
                 $(.chain($group.iter().map(|(name, _)| *name)))*

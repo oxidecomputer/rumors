@@ -6,6 +6,7 @@
 
 use crate::testing::meter::registry::Shape;
 use std::cmp::Ordering;
+use std::io::{self, Write};
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
@@ -15,6 +16,7 @@ use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_v
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
+use crate::testing::oracles::function;
 use crate::{Clock, Party, Rank, Ticks};
 
 /// Build a uniform version through the public tick operation.
@@ -492,6 +494,38 @@ proptest! {
 // filters to the grow case (fill a no-op) and asserts the impl's inflation
 // equals the brute-force right-favoring minimum; `grow_minimal` checks the
 // paper's metamorphic condition on every `tick`.
+
+proptest! {
+    /// `tick` and fused `ticks` choose exactly the recursive oracle's
+    /// inflation over arbitrary canonical parties and versions.
+    ///
+    /// The function-space model may choose any valid inflation, so the shared
+    /// three-model trace compares causal observations instead of requiring
+    /// identical representations. This focused two-model property pins the
+    /// stronger implementation contract: production uses the recursive
+    /// oracle's minimal, right-favoring policy. The master clock differential
+    /// exercises the same equality after every step of organic traces.
+    #[test]
+    fn tick_and_ticks_match_the_recursive_oracle(
+        party in arb_oracle_party_nonempty(),
+        version in arb_oracle_version(),
+        count in 0u64..24,
+    ) {
+        let production_party = from_oracle_party(&party);
+
+        let mut production_tick = from_oracle_version(&version);
+        production_tick.tick(&production_party);
+        let mut recursive_tick = version.clone();
+        recursive_tick.tick(&party);
+        prop_assert_eq!(to_oracle_version(&production_tick), recursive_tick);
+
+        let mut production_ticks = from_oracle_version(&version);
+        production_ticks.ticks(&production_party, count);
+        let mut recursive_ticks = version;
+        recursive_ticks.ticks(&party, Ticks::from(count));
+        prop_assert_eq!(to_oracle_version(&production_ticks), recursive_ticks);
+    }
+}
 
 proptest! {
     /// When `tick` takes the `grow` branch (`fill` leaves the tree unchanged),
@@ -1086,6 +1120,24 @@ fn rank_encoding_known_values() {
     }
 }
 
+/// A writer that exercises `Write::write_all`'s partial-write path.
+#[derive(Default)]
+struct OneByteWriter(Vec<u8>);
+
+impl Write for OneByteWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let Some(&byte) = bytes.first() else {
+            return Ok(0);
+        };
+        self.0.push(byte);
+        Ok(1)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Streaming rank encoding matches the canonical bytes across buffer flushes
 /// and partial writes.
 ///
@@ -1094,26 +1146,6 @@ fn rank_encoding_known_values() {
 /// correctly resume every partial write as well as every internal flush.
 #[test]
 fn rank_encode_to_streams_the_canonical_encoding() {
-    use std::io::{self, Write};
-
-    /// A writer that accepts at most one byte per call.
-    #[derive(Default)]
-    struct OneByteWriter(Vec<u8>);
-
-    impl Write for OneByteWriter {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            let Some(&byte) = bytes.first() else {
-                return Ok(0);
-            };
-            self.0.push(byte);
-            Ok(1)
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
     let ranks = [
         super::Rank::from_raw(BigUint::ONE, 4_096),
         super::Rank::from_raw((BigUint::ONE << 4_096usize) - 1u8, 0),
@@ -1123,6 +1155,46 @@ fn rank_encode_to_streams_the_canonical_encoding() {
         let mut writer = OneByteWriter::default();
         rank.encode_to(&mut writer).unwrap();
         assert_eq!(writer.0, expected);
+    }
+}
+
+proptest! {
+    /// Every rank-bearing and span streaming encoder emits exactly its
+    /// canonical buffered form, even when the sink accepts one byte at a time.
+    ///
+    /// These encoders compose independently verified version and rank streams,
+    /// but composition still has observable boundaries: a missing component,
+    /// reversed component order, or mishandled partial write changes the bytes.
+    #[test]
+    fn composite_streaming_encoders_match_their_buffered_forms(
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+    ) {
+        let a = from_oracle_version(&a);
+        let b = from_oracle_version(&b);
+        let rank = a.rank();
+        let ranked = a.ranked();
+        let span = a.span(&b);
+
+        let mut writer = OneByteWriter::default();
+        rank.encode_to(&mut writer).unwrap();
+        prop_assert_eq!(writer.0, rank.encode());
+
+        let mut writer = OneByteWriter::default();
+        a.encode_rank_to(&mut writer).unwrap();
+        prop_assert_eq!(writer.0, a.encode_rank());
+
+        let mut writer = OneByteWriter::default();
+        ranked.encode_rank_to(&mut writer).unwrap();
+        prop_assert_eq!(writer.0, ranked.encode_rank());
+
+        let mut writer = OneByteWriter::default();
+        ranked.encode_to(&mut writer).unwrap();
+        prop_assert_eq!(writer.0, ranked.encode());
+
+        let mut writer = OneByteWriter::default();
+        span.encode_to(&mut writer).unwrap();
+        prop_assert_eq!(writer.0, span.encode());
     }
 }
 
@@ -1503,22 +1575,47 @@ proptest! {
 // organic, arbitrary, and fuzz-decoded populations.
 
 proptest! {
-    /// `meet_all` matches the recursive oracle's fold over arbitrary
-    /// normal-form pools.
+    /// `join_all` and `meet_all` match both independent semantic models over
+    /// arbitrary normal-form pools.
     ///
-    /// The production entry point folds the receiver and its items; the oracle folds
-    /// the same family as one list. Independent arbitrary shapes (not just
-    /// op-trace populations) are the corner where meets restructure most.
+    /// Each production entry point folds the receiver and its items. The
+    /// recursive model performs the corresponding binary tree fold, while the
+    /// function-space model takes pointwise maxima or minima. Independent
+    /// shapes are the inputs on which the balanced production fold restructures
+    /// most aggressively.
     #[test]
-    fn meet_all_matches_oracle(
+    fn version_collection_folds_match_all_models(
         pool in proptest::collection::vec(arb_oracle_version(), 1..8),
     ) {
         let versions: Vec<Version> = pool.iter().map(from_oracle_version).collect();
         let (first, rest) = versions.split_first().expect("the pool is nonempty");
-        let prod = first.meet_all(rest);
-        let reference = crate::testing::oracles::tree::Version::meet_all(pool.iter().cloned())
+        let grid = function::fs_grid(
+            &pool.iter().map(function::ev_depth).collect::<Vec<_>>(),
+        );
+
+        let joined = first.join_all(rest);
+        let joined_tree = pool
+            .iter()
+            .cloned()
+            .reduce(|left, right| left | right)
             .expect("the pool is nonempty");
-        prop_assert_eq!(to_oracle_version(&prod), reference);
+        let joined_function = function::join_all(pool.iter().cloned().map(function::lift_ev));
+        prop_assert_eq!(to_oracle_version(&joined), joined_tree.clone());
+        prop_assert_eq!(
+            function::ev_order(&joined_function, &function::lift_ev(joined_tree), grid),
+            Some(Ordering::Equal),
+        );
+
+        let met = first.meet_all(rest);
+        let met_tree = crate::testing::oracles::tree::Version::meet_all(pool.iter().cloned())
+            .expect("the pool is nonempty");
+        let met_function = function::meet_all(pool.iter().cloned().map(function::lift_ev))
+            .expect("the pool is nonempty");
+        prop_assert_eq!(to_oracle_version(&met), met_tree.clone());
+        prop_assert_eq!(
+            function::ev_order(&met_function, &function::lift_ev(met_tree), grid),
+            Some(Ordering::Equal),
+        );
     }
 }
 

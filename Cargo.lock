@@ -105,7 +105,6 @@ dependencies = [
  "stacker",
  "static_assertions",
  "suanpan",
- "surface-scan",
  "thiserror",
 ]
 
@@ -1367,10 +1366,6 @@ dependencies = [
  "num-bigint",
  "proptest",
 ]
-
-[[package]]
-name = "surface-scan"
-version = "0.1.0"
 
 [[package]]
 name = "syn"

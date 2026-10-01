@@ -4,7 +4,7 @@
 //! One table row per operation — adding an operation is one [`OpSpec`]
 //! entry. Each row names its input space (which picks the samplers and
 //! the size measure — the row's `size_measure` string is stamped on its
-//! render), the coverage roster rows it covers, and a `measure` function
+//! render), the public operations it covers, and a `measure` function
 //! that stages the sampled encoded inputs into the guest and runs exactly
 //! one measured kernel, returning that call's fuel. Register loading and
 //! all other staging happen before the measured call, so a reading prices
@@ -13,13 +13,14 @@
 //!
 //! # Totality over the public surface
 //!
-//! Coverage is bound to the surface-coverage suite's committed roster
-//! (`before::testing::surface`): every roster row is either claimed by a panel's
+//! Coverage is bound to the resource board's operation inventory: every entry
+//! is either claimed by a panel's
 //! `covers` list or carries a one-line reason in [`EXEMPTIONS`], and the
-//! parity test in `tests.rs` holds both directions mechanically — a new
-//! public operation cannot ship without a panel or a reviewed exemption,
-//! and a renamed one fails by name. The exemption reasons are the
-//! reviewed artifact; membership is enforced, never remembered.
+//! parity test in `tests.rs` holds both directions mechanically. The
+//! compiler-derived surface check independently holds the board's
+//! function-like entries to the public API and pins every public trait
+//! implementation for review. The exemption reasons are the reviewed
+//! artifact; membership is enforced, never remembered.
 //!
 //! The causal comparison is `PartialOrd` (`ff_version_cmp`) — the crate
 //! exposes no separate comparison entry point — with `concurrent` as its
@@ -176,15 +177,14 @@ impl Compensation {
     }
 }
 
-/// One measured operation: a roster row.
+/// One measured operation.
 pub struct OpSpec {
     /// The atlas name (also the output file stem).
     pub name: &'static str,
     /// The input space the row samples.
     pub inputs: Inputs,
-    /// The coverage roster rows (`before::testing::surface` op names) this panel
-    /// prices; the parity test holds panels ∪ exemptions total over the
-    /// roster.
+    /// The public operations this panel prices; the parity test holds panels
+    /// and exemptions total over the board's operation inventory.
     pub covers: &'static [&'static str],
     /// The declared size measure, stamped verbatim on the render.
     pub size_measure: &'static str,
@@ -207,7 +207,7 @@ pub struct OpSpec {
     /// Uniform sampling shows the *bulk*, so an early-exit operation
     /// deliberately opens with a falling band — the bulk beating the
     /// claimed worst case is the finding, and the flatter guides are one
-    /// click away. The envelope suite and the fuzz-fit bands own
+    /// click away. The amplification board and the fuzz-fit bands own
     /// worst-case enforcement; this choice routes a reader's first look.
     pub compensation: Compensation,
     /// Stage `inputs` (one canonical byte sequence per operand) and run the
@@ -2092,7 +2092,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
 ];
 
-/// The coverage roster rows deliberately without a panel, each with its
+/// The public operations deliberately without a panel, each with its
 /// one-line reason.
 ///
 /// The reviewed half of the totality binding: the parity test in

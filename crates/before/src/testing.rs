@@ -1,9 +1,8 @@
 //! Test support, independent oracles, and cross-cutting semantic checks.
 //!
-//! These tests compare the binary implementation with independent models,
-//! exercise families of inputs, and check that the public surface is covered.
-//! The test-only validation index explains the purpose and limits of each
-//! instrument.
+//! These tests compare the binary implementation with independent models and
+//! exercise families of semantic and resource-sensitive inputs. The test-only
+//! validation index explains the purpose and limits of each instrument.
 
 mod auto_traits;
 pub(crate) mod instrument;
@@ -16,9 +15,6 @@ pub mod meter;
 
 #[cfg(any(test, feature = "oracle"))]
 pub mod oracles;
-
-#[cfg(any(test, feature = "meter"))]
-pub mod surface;
 
 #[cfg(any(test, feature = "meter"))]
 pub(crate) mod version;
@@ -50,7 +46,5 @@ pub(crate) mod exhaustive;
 mod fuelscape_islands;
 #[cfg(test)]
 mod snapshots;
-#[cfg(test)]
-pub(crate) mod surface_coverage;
 #[cfg(test)]
 pub mod validation_index;

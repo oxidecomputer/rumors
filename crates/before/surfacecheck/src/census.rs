@@ -4,10 +4,8 @@
 //! These lists are tamper-evidence, not judgment: adding, removing, or
 //! reshaping an impl (a derive included) changes the extracted set, and
 //! the reconcile fails until the diff-visible pin here moves with it.
-//! The *semantic* dispositions — which differential legs bind each
-//! operator family, and why the excluded ones are excluded — live in
-//! `before::testing::surface::FAMILY_SURFACE`; a row here says only "this impl
-//! exists and was reviewed in".
+//! A row here says only that an impl exists and was reviewed. The resource
+//! board separately prices grouped trait families.
 //!
 //! Row format, produced by [`crate::extract`]:
 //!

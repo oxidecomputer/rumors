@@ -311,21 +311,6 @@ docs-docsrs:
     cargo +{{ nightly_toolchain }} docs-rs -p before --target-dir target/doc-docsrs
     ./tools/fuelscape-assets target/doc-docsrs/{{ host_triple }}/doc
 
-# The before coverage roster (crates/before/src/testing/surface.rs) and the bespoke
-# half of the pointwise-differential tiling (src/testing/diff_ops.rs) cite
-# their binding checks as bare strings. The in-crate suite holds those names
-# to the live law/descriptor tables and to a #[test]-attribute source scan;
-# what no source scan can attest is *collection* — a test in a module the
-# tree never wires, or behind a cfg the gate never lights, scans fine and
-# never runs. tools/citecheck closes that seam: every citation must resolve,
-# by exact name only (final `::` segment for tests, registered name for laws
-# and descriptors), against the runner's own inventory from
-# `cargo nextest list`, with per-source extraction floors and a self-test
-# pinning the red paths. The listing is captured whole to a file and judged
-# from the artifact; the verdict is deterministic under any load. The list
-# invocation builds test binaries in the root target/, which is why this leg
-# rides the workspace stream, after test-all has warmed those artifacts.
-
 # tests/future_size.rs pins the public futures' sizes, and a `cfg` that
 # compiles it empty would read as a pass. This leg reruns that binary from
 # test-all's build set (same features, so no rebuild) with
@@ -336,12 +321,6 @@ docs-docsrs:
 # Fail unless the future-size pins were collected and pass (liveness for tests/future_size.rs).
 future-size:
     cargo nextest run --workspace --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
-
-# Resolve every roster, bespoke, and tripwire citation against the collected test inventory.
-citecheck:
-    ./tools/citecheck --self-test
-    mkdir -p target && cargo nextest list -p before --all-features --message-format json > target/citecheck-tests.json
-    ./tools/citecheck --tests target/citecheck-tests.json --root crates/before
 
 # The supply-chain leg, two build-free checks over the committed lockfiles.
 # cargo-audit sweeps every lockfile in the repository — the root workspace
@@ -474,7 +453,7 @@ gate-streams:
     # tests keep first call on the cores, and the shorter streams fill
     # what the tests leave idle instead of competing for it.
     began=$SECONDS
-    start_stream workspace     0 clippy clippy-default docs test-all future-size citecheck
+    start_stream workspace     0 clippy clippy-default docs test-all future-size
     start_stream doctest      10 doctest
     start_stream board        10 amp-board-acceptance worst-cases-pin
     start_stream wasm         10 fuzzfit fuelscape-test wasm32-pins
@@ -836,20 +815,16 @@ amp-board *args:
 amp-board-acceptance:
     {{ amp_board_command }} -- acceptance
 
-# The surface-totality leg: the operation roster in
-# crates/before/src/testing/surface.rs (METHOD_SURFACE, the machine-readable
-# enumeration the surface-coverage suite enforces) is held total against
-# nightly rustdoc JSON — the compiler's own account of the public
-# surface — so a public fn or method added anywhere (a new file, a new
-# module, a feature-gated tree) fails the gate until it gains a roster
-# row or a named, reasoned exception in crates/before/surfacecheck. Trait
-# impls (operators, codecs, derives) and non-function items (associated
-# consts and types, statics, macros) are held to the same standard by
-# the pinned censuses in crates/before/surfacecheck/src/census.rs,
-# reconciled both ways, so a new impl or item reads red until pinned. The
-# in-tree roster test scans a hand-named source-file list; this leg is
-# the other jaw of the pincer, with no file list to forget. The checker
-# lives in a detached workspace (the fuzzfit idiom), so ordinary
+# The surface-totality leg holds the resource board's operation inventory
+# against nightly rustdoc JSON — the compiler's own account of the public
+# surface. A public function or method added anywhere fails until it gains a
+# board disposition or a named exception.
+# Trait impls (operators, codecs, derives) and non-function items (associated
+# consts and types, statics, macros) are pinned by the censuses in
+# crates/before/surfacecheck/src/census.rs, reconciled both ways, so a new impl
+# or item reads red until reviewed. Trait resource decisions remain grouped in
+# the board's family entries. The checker lives in a detached workspace (the
+# fuzzfit idiom), so ordinary
 # workspace builds never compile it; this recipe also runs its lints and
 # unit tests, which the workspace-wide gate legs cannot reach.
 #
@@ -869,7 +844,7 @@ amp-board-acceptance:
 surface-json:
     cargo +{{ nightly_toolchain }} rustdoc -p before --lib --all-features --target-dir target/surface-json -- -Z unstable-options --output-format json
 
-# Hold before's public surface (from rustdoc JSON) total against the roster.
+# Hold before's public surface total against resource coverage.
 [working-directory("crates/before/surfacecheck")]
 surface-totality: surface-json
     cargo fmt --check
@@ -925,7 +900,7 @@ worst-cases-pin:
 # cannot run: a short libFuzzer smoke and the formal and model-based gates.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all future-size citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all future-size doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, coverage, fuzz smoke, and formal/model gates.
 all: ci test-release coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe

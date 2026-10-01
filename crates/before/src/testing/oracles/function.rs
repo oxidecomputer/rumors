@@ -215,6 +215,12 @@ impl Event {
     pub(crate) fn at(&self, x: Dyadic) -> BigUint {
         (self.f)(x)
     }
+
+    /// The structural resolution ceiling: a scan at this level resolves the
+    /// function exactly.
+    pub(crate) fn res_ceiling(&self) -> u32 {
+        self.res_ceiling
+    }
 }
 
 /// `⟦seed⟧`: owns all of `[0,1)`.
@@ -282,6 +288,45 @@ pub(crate) fn meet(a: Event, b: Event) -> Event {
             vb
         }
     })
+}
+
+/// Pointwise meet of a nonempty event family.
+///
+/// Keeping the fold here makes the collection operation part of the
+/// function-space model rather than treating arity as a reason to abandon the
+/// third implementation. The caller supplies the nonempty family because the
+/// meet has no greatest identity event.
+pub(crate) fn meet_all(events: impl IntoIterator<Item = Event>) -> Option<Event> {
+    events.into_iter().reduce(meet)
+}
+
+/// Pointwise join of an event family, with the zero event as the identity.
+pub(crate) fn join_all(events: impl IntoIterator<Item = Event>) -> Event {
+    events.into_iter().fold(new_ev(), join)
+}
+
+/// Sequentially union disjoint party functions and return those that overlap
+/// the accumulated region.
+///
+/// This is the function-space definition of the value behavior of
+/// [`Party::join_all`](crate::Party::join_all): disjointness is pointwise, an
+/// accepted party extends the accumulated characteristic function, and a
+/// rejected party is returned unchanged. It deliberately mirrors the contract
+/// rather than either tree implementation.
+pub(crate) fn join_all_parties(
+    mut current: Id,
+    inputs: impl IntoIterator<Item = Id>,
+) -> (Id, Vec<Id>) {
+    let mut rejected = Vec::new();
+    for input in inputs {
+        let grid = current.res_ceiling().max(input.res_ceiling());
+        if disjoint(&current, &input, grid) {
+            current = sum(current, input);
+        } else {
+            rejected.push(input);
+        }
+    }
+    (current, rejected)
 }
 
 // ───────────────────────────── cell indexing ─────────────────────────────
@@ -705,6 +750,25 @@ impl FunctionClock {
             Ok(())
         } else {
             Err(other)
+        }
+    }
+
+    /// Sequentially join a family, returning every clock whose party overlaps
+    /// the region accumulated before it.
+    pub(crate) fn join_all(
+        &mut self,
+        inputs: impl IntoIterator<Item = FunctionClock>,
+    ) -> Result<(), Vec<FunctionClock>> {
+        let mut rejected = Vec::new();
+        for input in inputs {
+            if let Err(input) = self.join(input) {
+                rejected.push(input);
+            }
+        }
+        if rejected.is_empty() {
+            Ok(())
+        } else {
+            Err(rejected)
         }
     }
 

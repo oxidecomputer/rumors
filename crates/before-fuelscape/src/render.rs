@@ -624,7 +624,7 @@ pub fn render_gallery(
          <h1>before population atlas</h1>\n\
          <p>p(fuel | size) per public operation: uniform draws from exact-size canonical input\n\
          spaces (bulk, blue density), committed adversarial families (orange crosses), reference\n\
-         slopes (dashed). Audit view only — enforcement lives in the envelope suite and the\n\
+         slopes (dashed). Audit view only — enforcement lives in the board and the\n\
          fuzz-fit bands.</p>\n\
          <p class=\"stamp\">seed {:#x} · {} samples/column (avg; spread-weighted) · fuel: wasmtime instruction metering · each panel carries its measurement commit</p>\n\
          <div class=\"grid\">\n{figures}</div>\n</body>\n</html>\n",

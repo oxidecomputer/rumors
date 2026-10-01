@@ -1,23 +1,15 @@
-//! Surface totality against rustdoc JSON: every public item of `before`
-//! is rostered, pinned, or excepted, checked from the compiler's own
-//! account of the public surface.
+//! Public-surface totality against rustdoc JSON.
 //!
-//! The surface roster (`before::testing::surface::METHOD_SURFACE`) is enforced
-//! in-tree against a line-scan extractor over a hand-maintained source
-//! list, which cannot see a public item added in a file the list does not
-//! name. This binary closes that hole from the other side: it parses the
-//! nightly rustdoc JSON for `before` (built by the `just surface-totality`
-//! recipe with `--all-features`, so feature-gated modules are visible),
-//! walks the publicly reachable item tree, and holds every public item to
-//! exactly one disposition:
+//! This binary parses `before`'s nightly rustdoc JSON, built with all features
+//! so feature-gated modules remain visible. It walks the publicly reachable
+//! item tree and gives every item exactly one disposition:
 //!
-//! - function-like items (free functions, inherent methods,
-//!   public-trait-declared methods): a roster row in `METHOD_SURFACE`, or
-//!   a named, dated exception in [`check`];
-//! - trait implementations: a pinned row in [`census::TRAIT_IMPLS`],
-//!   reconciled both ways, so a
-//!   new impl and a vanished pin both read red — the mechanical jaw
-//!   behind `FAMILY_SURFACE`'s per-family dispositions;
+//! - function-like items (free functions, inherent methods, and
+//!   public-trait-declared methods): one disposition in the amplification
+//!   board, or a named exception in [`check`];
+//! - trait implementations: a pin in [`census::TRAIT_IMPLS`], reconciled in
+//!   both directions. The board records their reviewed resource decisions by
+//!   trait family;
 //! - associated consts and types, module consts, statics, and macros: a
 //!   pinned row in [`census::ITEMS`], reconciled the same way.
 //!
@@ -34,9 +26,37 @@ mod census;
 mod check;
 mod extract;
 
+/// The board entries that name public free functions or inherent methods.
+///
+/// Grouped trait families use explanatory phrases containing spaces or
+/// punctuation. Rust paths contain only identifier characters and `::`, so
+/// this split follows the labels' syntax rather than another hand-maintained
+/// list. A root free function is a one-segment path.
+fn board_function_inventory() -> BTreeSet<&'static str> {
+    before::testing::meter::board::BOARD_PRICED
+        .iter()
+        .map(|(operation, _)| *operation)
+        .chain(
+            before::testing::meter::board::BOARD_NOT_APPLICABLE
+                .iter()
+                .map(|(operation, _)| *operation),
+        )
+        .filter(|operation| is_rust_path(operation))
+        .collect()
+}
+
+/// Whether an operation label is a Rust item path rather than a grouped trait
+/// family description.
+fn is_rust_path(operation: &str) -> bool {
+    operation
+        .split("::")
+        .all(|part| !part.is_empty() && part.chars().all(|c| c == '_' || c.is_alphanumeric()))
+}
+
 /// Read the rustdoc JSON at the path given as the sole CLI argument,
-/// refuse a format-version mismatch, and reconcile the extracted surface
-/// against the roster, the pinned censuses, and the exception lists.
+/// refuse a format-version mismatch, and reconcile the extracted surface.
+///
+/// The check covers resource decisions, pinned censuses, and named exceptions.
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     // `--list` renders the census (every extracted item with its
@@ -97,14 +117,11 @@ fn main() -> ExitCode {
     };
 
     let surface = extract::public_surface(&krate);
-    let rostered: BTreeSet<&str> = before::testing::surface::METHOD_SURFACE
-        .iter()
-        .map(|row| row.op)
-        .collect();
+    let board = board_function_inventory();
     if list.is_some() {
-        render_list(&surface, &rostered);
+        render_list(&surface, &board);
     }
-    let findings = check::reconcile(&surface, &rostered);
+    let findings = check::reconcile(&surface, &board);
     if findings.is_clean() {
         let outside = |set: &BTreeSet<String>| {
             set.iter()
@@ -116,12 +133,12 @@ fn main() -> ExitCode {
                 .count()
         };
         println!(
-            "surface totality: {} public function-like items = {} rostered + {} \
+            "surface totality: {} public function-like items = {} board-covered + {} \
              excepted ({} item exceptions, {} module-scope); {} trait impls = {} \
              pinned + {} module-excepted; {} items = {} pinned + {} module-excepted",
             surface.functions.len(),
-            rostered.len(),
-            surface.functions.len() - rostered.len(),
+            board.len(),
+            surface.functions.len() - board.len(),
             check::ITEM_EXCEPTIONS.len(),
             check::MODULE_EXCEPTIONS.len(),
             surface.impls.len(),
@@ -140,21 +157,21 @@ fn main() -> ExitCode {
 
 /// Render every extracted row with its disposition, category by
 /// category, for triage and review.
-fn render_list(surface: &extract::Surface, rostered: &BTreeSet<&str>) {
+fn render_list(surface: &extract::Surface, board: &BTreeSet<&str>) {
     let module_exception = |name: &str| {
         check::MODULE_EXCEPTIONS
             .iter()
             .find(|e| name.starts_with(e.name))
     };
     for name in &surface.functions {
-        let disposition = if rostered.contains(name.as_str()) {
-            "rostered".to_owned()
+        let disposition = if board.contains(name.as_str()) {
+            "board".to_owned()
         } else if check::ITEM_EXCEPTIONS.iter().any(|e| e.name == name) {
             "excepted (item)".to_owned()
         } else if let Some(e) = module_exception(name) {
             format!("excepted (module {})", e.name)
         } else {
-            "UNROSTERED".to_owned()
+            "UNCOVERED".to_owned()
         };
         println!("{name:60} {disposition}");
     }
@@ -164,7 +181,7 @@ fn render_list(surface: &extract::Surface, rostered: &BTreeSet<&str>) {
         } else if let Some(e) = module_exception(row) {
             format!("excepted (module {})", e.name)
         } else {
-            "UNROSTERED".to_owned()
+            "UNPINNED".to_owned()
         }
     };
     for row in &surface.impls {
@@ -172,5 +189,21 @@ fn render_list(surface: &extract::Surface, rostered: &BTreeSet<&str>) {
     }
     for row in &surface.items {
         println!("{row:60} {}", census_disposition(row, census::ITEMS));
+    }
+}
+
+#[cfg(test)]
+mod inventory_tests {
+    use super::is_rust_path;
+
+    /// Item paths are admitted while descriptive trait-family labels remain
+    /// under the separate trait census.
+    #[test]
+    fn function_inventory_distinguishes_paths_from_families() {
+        assert!(is_rust_path("root_function"));
+        assert!(is_rust_path("Party::seed"));
+        assert!(is_rust_path("causally::strictly_before"));
+        assert!(!is_rust_path("Version PartialOrd (owned and borrowed)"));
+        assert!(!is_rust_path("serde / borsh impls"));
     }
 }

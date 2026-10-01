@@ -3,9 +3,10 @@
 //!
 //! Each family supplies a related set of operands. Every operation that can use
 //! those operands becomes a board cell, so adding a family or operation expands
-//! coverage without hand-writing individual pairings. The coverage table
-//! requires every rostered public method and grouped trait family to be either
-//! measured or explicitly inapplicable.
+//! coverage without hand-writing individual pairings. The compiler-derived
+//! surface check requires every public function to be either measured or
+//! explicitly inapplicable. It also pins every public trait implementation;
+//! the coverage table groups those implementations into reviewable families.
 //!
 //! # What a cell measures
 //!

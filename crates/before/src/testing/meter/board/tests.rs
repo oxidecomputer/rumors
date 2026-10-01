@@ -847,9 +847,11 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 /// The committed ranking pin stays well-formed against the live axes without a
 /// board run.
 ///
-/// Per sampling scale it names exactly the board's operation rows, in board
-/// row order, and every pinned worst set is name-sorted, duplicate-free
-/// rostered family names (or the dead-row `-`).
+/// Per sampling scale it names exactly the board's enabled operation rows, in
+/// board row order, and every pinned worst set is name-sorted, duplicate-free
+/// rostered family names (or the dead-row `-`). Serialization rows remain in
+/// the all-feature pin when their feature is disabled, so reduced-feature test
+/// builds omit those rows from the comparison.
 ///
 /// The cheap structural half of the pin's tamper evidence; the readings half —
 /// the argmax itself — is the release-profile entry-compare (`just
@@ -867,6 +869,11 @@ fn worst_rankings_pin_is_well_formed() {
             .iter()
             .filter(|(scale, _, _)| *scale == label)
             .map(|(_, op, _)| *op)
+            .filter(|op| match *op {
+                name if name.ends_with("_serde_deserialize") => cfg!(feature = "serde"),
+                name if name.ends_with("_borsh_deserialize") => cfg!(feature = "borsh"),
+                _ => true,
+            })
             .collect();
         assert_eq!(
             pinned, ops,
@@ -874,11 +881,6 @@ fn worst_rankings_pin_is_well_formed() {
              row order"
         );
     }
-    assert_eq!(
-        WORST_RANKINGS.len(),
-        ops.len() * super::worst::WORST_MAP_SCALES.len(),
-        "the pin carries exactly one entry per operation per sampling scale"
-    );
     for (scale, op, columns) in WORST_RANKINGS {
         for worst in columns {
             if *worst == "-" {

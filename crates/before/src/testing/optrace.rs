@@ -1,18 +1,196 @@
-//! The seed-derived op-trace generator: a proptest strategy that produces a sequence of
-//! fork/tick/send/sync/join steps.
+//! Stateful differential traces over clocks.
 //!
-//! Plus the appliers that run a trace against an oracle
-//! population ([`run`]) or an impl population ([`step_impl`]). Values are always generated
-//! via operations from a single seed, so every member is valid normal form and the
-//! population is pairwise party-disjoint. Used by both the oracle property suite and the
-//! impl property tests.
+//! The strategy generates sequences of clock operations. [`replay`] applies
+//! the same sequence to production and both independent models through
+//! [`TraceModel`], so scheduling details cannot drift between three copied
+//! drivers. Every trace begins with one seed and creates clocks only by
+//! splitting or recombining it; independently seeded universes are therefore
+//! unrepresentable.
+//!
+//! [`run`] and [`step_impl`] are the narrower adapters used by tests that need
+//! recursive-oracle populations or production state after each step.
 
 use std::cmp::Ordering;
 
 use proptest::prelude::*;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
+use crate::testing::oracles::function::{Event, FunctionClock};
 use crate::testing::oracles::tree;
-use crate::Clock;
+use crate::{Clock, Version};
+
+/// One implementation of the stateful ITC operations shared by all three
+/// semantic models.
+///
+/// The trace driver is generic over this trait. Consequently, every operation
+/// it can generate has one implementation for production, the recursive tree
+/// model, and the function-space model; adding a method fails to compile until
+/// all three are supplied. The trait deliberately contains only their common
+/// semantic vocabulary.
+pub(crate) trait TraceModel {
+    /// This model's clock value.
+    type Clock;
+    /// The version-like message transmitted by `send`.
+    type Message;
+
+    /// Create the initial clock.
+    fn seed() -> Self::Clock;
+    /// Register one event.
+    fn tick(clock: &mut Self::Clock, rng: &mut ChaChaRng);
+    /// Register `count` events through the model's native spelling.
+    fn ticks(clock: &mut Self::Clock, count: u8, rng: &mut ChaChaRng);
+    /// Split off a child clock.
+    fn fork(clock: &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock;
+    /// Advance and snapshot a message.
+    fn send(clock: &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message;
+    /// Merge a message and advance.
+    fn receive(clock: &mut Self::Clock, message: Self::Message, rng: &mut ChaChaRng);
+    /// Reconcile two clocks, reporting whether synchronization succeeded.
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, rng: &mut ChaChaRng) -> bool;
+    /// Absorb a clock, returning it unchanged when its party overlaps.
+    fn join(
+        clock: &mut Self::Clock,
+        other: Self::Clock,
+        rng: &mut ChaChaRng,
+    ) -> Result<(), Self::Clock>;
+}
+
+/// Production's implementation of [`TraceModel`].
+pub(crate) struct Production;
+
+impl TraceModel for Production {
+    type Clock = Clock;
+    type Message = Version;
+
+    fn seed() -> Self::Clock {
+        Clock::seed()
+    }
+
+    fn tick(clock: &mut Self::Clock, _rng: &mut ChaChaRng) {
+        clock.tick();
+    }
+
+    fn ticks(clock: &mut Self::Clock, count: u8, _rng: &mut ChaChaRng) {
+        clock.ticks(u64::from(count));
+    }
+
+    fn fork(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Clock {
+        clock.fork()
+    }
+
+    fn send(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Message {
+        clock.send().clone()
+    }
+
+    fn receive(clock: &mut Self::Clock, message: Self::Message, _rng: &mut ChaChaRng) {
+        clock.recv(&message);
+    }
+
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ChaChaRng) -> bool {
+        left.sync(right).is_ok()
+    }
+
+    fn join(
+        clock: &mut Self::Clock,
+        other: Self::Clock,
+        _rng: &mut ChaChaRng,
+    ) -> Result<(), Self::Clock> {
+        clock.join(other).map(|_| ())
+    }
+}
+
+/// The recursive tree implementation of [`TraceModel`].
+pub(crate) struct Recursive;
+
+impl TraceModel for Recursive {
+    type Clock = tree::Clock;
+    type Message = tree::Version;
+
+    fn seed() -> Self::Clock {
+        tree::Clock::seed()
+    }
+
+    fn tick(clock: &mut Self::Clock, _rng: &mut ChaChaRng) {
+        clock.tick();
+    }
+
+    fn ticks(clock: &mut Self::Clock, count: u8, _rng: &mut ChaChaRng) {
+        for _ in 0..count {
+            clock.tick();
+        }
+    }
+
+    fn fork(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Clock {
+        clock.fork()
+    }
+
+    fn send(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Message {
+        clock.send()
+    }
+
+    fn receive(clock: &mut Self::Clock, message: Self::Message, _rng: &mut ChaChaRng) {
+        clock.receive(message);
+    }
+
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ChaChaRng) -> bool {
+        left.sync(right).is_ok()
+    }
+
+    fn join(
+        clock: &mut Self::Clock,
+        other: Self::Clock,
+        _rng: &mut ChaChaRng,
+    ) -> Result<(), Self::Clock> {
+        clock.join(other)
+    }
+}
+
+/// The function-space implementation of [`TraceModel`].
+pub(crate) struct FunctionSpace;
+
+impl TraceModel for FunctionSpace {
+    type Clock = FunctionClock;
+    type Message = Event;
+
+    fn seed() -> Self::Clock {
+        FunctionClock::seed()
+    }
+
+    fn tick(clock: &mut Self::Clock, rng: &mut ChaChaRng) {
+        clock.tick(rng);
+    }
+
+    fn ticks(clock: &mut Self::Clock, count: u8, rng: &mut ChaChaRng) {
+        for _ in 0..count {
+            clock.tick(rng);
+        }
+    }
+
+    fn fork(clock: &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock {
+        clock.fork(rng)
+    }
+
+    fn send(clock: &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message {
+        clock.send(rng)
+    }
+
+    fn receive(clock: &mut Self::Clock, message: Self::Message, rng: &mut ChaChaRng) {
+        clock.receive(message, rng);
+    }
+
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, rng: &mut ChaChaRng) -> bool {
+        left.sync(right, rng).is_ok()
+    }
+
+    fn join(
+        clock: &mut Self::Clock,
+        other: Self::Clock,
+        _rng: &mut ChaChaRng,
+    ) -> Result<(), Self::Clock> {
+        clock.join(other)
+    }
+}
 
 /// One step of a seed-derived execution. Indices are reduced modulo the live
 /// population, so any index is valid and every member descends from one seed via
@@ -68,100 +246,103 @@ pub(crate) fn world_strategy_up_to(max_ops: usize) -> impl Strategy<Value = Vec<
     prop::collection::vec(op_strategy(), 0..max_ops)
 }
 
-/// Apply a trace to a fresh oracle population.
-pub(crate) fn run(ops: &[Op]) -> Vec<tree::Clock> {
-    let mut cs = vec![tree::Clock::seed()];
-    for op in ops {
-        let n = cs.len();
-        match *op {
-            Op::Tick(i) => cs[i % n].tick(),
-            // The oracle side is the literal iteration, so every
-            // downstream differential holds the impl's fused call to n
-            // sequential reference ticks.
-            Op::Ticks(i, k) => {
-                for _ in 0..k {
-                    cs[i % n].tick();
-                }
-            }
-            Op::Fork(i) => {
-                let child = cs[i % n].fork();
-                cs.push(child);
-            }
-            Op::Send(i, j) => {
-                let (i, j) = (i % n, j % n);
-                let msg = cs[i].send();
-                cs[j].receive(msg);
-            }
-            Op::Sync(i, j) => {
-                let (i, j) = (i % n, j % n);
-                if i != j {
-                    let (lo, hi) = (i.min(j), i.max(j));
-                    let (a, b) = cs.split_at_mut(hi);
-                    a[lo]
-                        .sync(&mut b[0])
-                        .expect("seed-derived parties are disjoint");
-                }
-            }
-            Op::Join(i, j) => {
-                if n > 1 {
-                    let (i, j) = (i % n, j % n);
-                    if i != j {
-                        let victim = cs.remove(j);
-                        let i2 = if j < i { i - 1 } else { i };
-                        cs[i2]
-                            .join(victim)
-                            .expect("seed-derived parties are disjoint");
-                    }
-                }
-            }
-        }
-    }
-    cs
+/// Result of applying a trace to one [`TraceModel`].
+pub(crate) struct Replay<C> {
+    /// Final live clock population, in trace index order.
+    pub(crate) clocks: Vec<C>,
+    /// Whether each attempted join or sync succeeded, in operation order.
+    pub(crate) accepted: Vec<bool>,
 }
 
-/// Apply one op to an impl population, mirroring [`run`] for the oracle (same index
-/// arithmetic, so traces line up). Used by tests that drive the impl alone.
-pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
-    let n = imp.len();
+/// Apply one operation through a model.
+///
+/// Population indexing and rejected-join restoration live here so the
+/// operation enum's exhaustive match is the one schedule definition used by
+/// every model and by tests that inspect production after each step.
+fn apply<M: TraceModel>(
+    clocks: &mut Vec<M::Clock>,
+    op: &Op,
+    rng: &mut ChaChaRng,
+    accepted: &mut Vec<bool>,
+) {
+    let n = clocks.len();
     match *op {
-        Op::Tick(i) => {
-            imp[i % n].tick();
-        }
-        Op::Ticks(i, k) => {
-            imp[i % n].ticks(u64::from(k));
-        }
+        Op::Tick(i) => M::tick(&mut clocks[i % n], rng),
+        Op::Ticks(i, count) => M::ticks(&mut clocks[i % n], count, rng),
         Op::Fork(i) => {
-            let child = imp[i % n].fork();
-            imp.push(child);
+            let child = M::fork(&mut clocks[i % n], rng);
+            clocks.push(child);
         }
         Op::Send(i, j) => {
             let (i, j) = (i % n, j % n);
-            let msg = imp[i].send().clone();
-            imp[j].recv(&msg);
+            let message = M::send(&mut clocks[i], rng);
+            M::receive(&mut clocks[j], message, rng);
         }
         Op::Sync(i, j) => {
             let (i, j) = (i % n, j % n);
             if i != j {
                 let (lo, hi) = (i.min(j), i.max(j));
-                let (a, b) = imp.split_at_mut(hi);
-                a[lo]
-                    .sync(&mut b[0])
-                    .expect("seed-derived parties are disjoint");
+                let (left, right) = clocks.split_at_mut(hi);
+                accepted.push(M::sync(&mut left[lo], &mut right[0], rng));
             }
         }
         Op::Join(i, j) => {
             if n > 1 {
                 let (i, j) = (i % n, j % n);
                 if i != j {
-                    let victim = imp.remove(j);
-                    let i2 = if j < i { i - 1 } else { i };
-                    imp[i2]
-                        .join(victim)
-                        .expect("seed-derived parties are disjoint");
+                    let other = clocks.remove(j);
+                    let receiver = if j < i { i - 1 } else { i };
+                    match M::join(&mut clocks[receiver], other, rng) {
+                        Ok(()) => accepted.push(true),
+                        Err(other) => {
+                            clocks.insert(j, other);
+                            accepted.push(false);
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/// Apply a trace to one seed-derived universe through a model's complete
+/// state-transition interface.
+///
+/// This is the sole spelling of the trace schedule. The model trait supplies
+/// only the operations themselves, so index handling, removal and restoration
+/// after a rejected join, and the definition of a skipped self-operation
+/// cannot drift among the three implementations. The driver creates exactly
+/// one seed so independently seeded universes are unrepresentable here.
+pub(crate) fn replay<M: TraceModel>(ops: &[Op], rng: &mut ChaChaRng) -> Replay<M::Clock> {
+    let mut clocks = vec![M::seed()];
+    let mut accepted = Vec::new();
+    for op in ops {
+        apply::<M>(&mut clocks, op, rng, &mut accepted);
+    }
+    Replay { clocks, accepted }
+}
+
+/// Apply a trace to a fresh oracle population.
+pub(crate) fn run(ops: &[Op]) -> Vec<tree::Clock> {
+    let replay = replay::<Recursive>(ops, &mut ChaChaRng::seed_from_u64(0));
+    assert!(
+        replay.accepted.iter().all(|accepted| *accepted),
+        "single-seed trace produced overlapping live parties"
+    );
+    replay.clocks
+}
+
+/// Apply one operation to an existing production population.
+///
+/// This incremental form lets tests assert after every step while delegating to
+/// the same scheduler as [`replay`].
+pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
+    let mut accepted = Vec::new();
+    apply::<Production>(imp, op, &mut ChaChaRng::seed_from_u64(0), &mut accepted);
+    assert!(
+        accepted.iter().all(|accepted| *accepted),
+        "single-seed trace produced overlapping live parties"
+    );
 }
 
 /// Every live clock's current version.

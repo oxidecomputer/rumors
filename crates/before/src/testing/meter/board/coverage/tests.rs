@@ -1,9 +1,8 @@
-//! Checks that the resource board accounts for every public operation.
+//! Checks that the resource board's coverage tables are internally complete.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
-use crate::testing::surface_coverage;
 
 /// Every board operation name, from the board's own axis declarations at a tiny
 /// build-only scale.
@@ -14,34 +13,18 @@ fn board_ops() -> BTreeSet<String> {
         .collect()
 }
 
-/// The resource roster: every mechanically extracted `pub fn` plus every
-/// grouped trait-family row.
-fn public_surface() -> BTreeSet<String> {
-    let mut surface: BTreeSet<String> = surface_coverage::extract_public_fns();
-    surface.extend(
-        surface_coverage::FAMILY_SURFACE
-            .iter()
-            .map(|row| row.op.to_owned()),
-    );
-    surface
-}
-
-/// Every rostered method and trait family is either measured by the board or
-/// explicitly marked not applicable, never both.
+/// Every coverage entry is either measured or explicitly inapplicable, never
+/// both, and every measurement is used.
 ///
-/// The test also rejects duplicates, stale names, and references to missing
-/// board operations.
+/// The compiler-derived `surface-totality` gate separately holds the
+/// function-like entries against the public API and pins every public trait
+/// implementation. This test checks the relationships internal to the board
+/// without maintaining another copy of the API.
 #[test]
-fn board_coverage_tiles_the_public_surface() {
-    let surface = public_surface();
+fn board_coverage_is_consistent() {
     let ops = board_ops();
     let mut priced: BTreeMap<&str, &[&str]> = BTreeMap::new();
     for (op, rows) in BOARD_PRICED {
-        assert!(
-            surface.contains(*op),
-            "BOARD_PRICED names {op:?}, which is no public-surface row: \
-             remove or rename the entry"
-        );
         assert!(
             !rows.is_empty(),
             "{op}: a priced entry must cite at least one board row"
@@ -57,11 +40,6 @@ fn board_coverage_tiles_the_public_surface() {
     let mut na = BTreeMap::new();
     for (op, reason) in BOARD_NOT_APPLICABLE {
         assert!(
-            surface.contains(*op),
-            "BOARD_NOT_APPLICABLE names {op:?}, which is no public-surface row: \
-             remove or rename the entry"
-        );
-        assert!(
             reason.len() >= 20,
             "{op}: the not-applicable reason is too thin to be a mechanism: {reason:?}"
         );
@@ -75,15 +53,6 @@ fn board_coverage_tiles_the_public_surface() {
              the tiling sides must stay disjoint; remove one"
         );
     }
-    let untiled: Vec<&String> = surface
-        .iter()
-        .filter(|op| !priced.contains_key(op.as_str()) && !na.contains_key(op.as_str()))
-        .collect();
-    assert!(
-        untiled.is_empty(),
-        "public-surface rows neither priced by board rows nor excused in \
-         BOARD_NOT_APPLICABLE (add them to one side of the tiling): {untiled:?}"
-    );
     // The reverse leg: every board operation row prices some public
     // row, so the board carries no orphan row a rename could strand.
     let cited: BTreeSet<&str> = BOARD_PRICED

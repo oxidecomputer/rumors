@@ -7,7 +7,7 @@ use crate::party::io::PartyReader;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
 use crate::testing::generators::arb_oracle_party_nonempty;
 use crate::testing::optrace::{run, world_strategy};
-use crate::testing::oracles::tree;
+use crate::testing::oracles::{function, tree};
 
 // ───────────────────────────── the join fold ─────────────────────────────
 
@@ -16,7 +16,7 @@ use crate::testing::oracles::tree;
 fn join_all_agrees_with_oracle_when_none_overlap() {
     let mut acc = Party::seed();
     let shares: Vec<Party> = acc.forks(5u64).collect();
-    assert_join_all_matches_recursive_oracle(acc, shares);
+    assert_join_all_matches_all_models(acc, shares);
 }
 
 /// An overlap among inputs is reported without losing any region.
@@ -30,7 +30,7 @@ fn join_all_preserves_regions_on_overlap() {
     let b = shares.pop().expect("five forks");
     let a = shares.pop().expect("five forks");
     let alias = a.dangerously_alias();
-    assert_join_all_matches_recursive_oracle(acc, vec![a, b, alias, c, d, e]);
+    assert_join_all_matches_all_models(acc, vec![a, b, alias, c, d, e]);
 }
 
 /// Return the union of some oracle parties.
@@ -40,37 +40,88 @@ fn oracle_union_all(parties: impl IntoIterator<Item = tree::Party>) -> tree::Par
         .fold(tree::Party::Leaf(false), tree::Party::union)
 }
 
-/// Compare `join_all` with sequential oracle joins.
+/// Compare `join_all` with both independent semantic models.
 ///
-/// Both must agree whether every region can be absorbed. On success their
-/// accumulators match; on error the production accumulator and returned groups
-/// must together equal the union of every input region.
-fn assert_join_all_matches_recursive_oracle(mut acc: Party, inputs: Vec<Party>) {
+/// All three implementations must agree on success. On failure, the balanced
+/// production fold may group inputs differently from the sequential models;
+/// the contract requires each result to return every region it did not retain,
+/// so the observable comparison is conservation of the complete union.
+fn assert_join_all_matches_all_models(mut acc: Party, inputs: Vec<Party>) {
     let initial = to_oracle_party(&acc);
     let oracle_inputs: Vec<tree::Party> = inputs.iter().map(to_oracle_party).collect();
     let expected =
         oracle_union_all(std::iter::once(initial.clone()).chain(oracle_inputs.iter().cloned()));
-    let mut oracle_acc = initial;
-    let reference = oracle_acc.join_all(oracle_inputs);
-    let result = acc.join_all(inputs);
+    let mut recursive_acc = initial;
+    let function_acc = function::lift_id(recursive_acc.clone());
+    let function_inputs = oracle_inputs
+        .iter()
+        .cloned()
+        .map(function::lift_id)
+        .collect::<Vec<_>>();
+    let recursive_result = recursive_acc.join_all(oracle_inputs);
+    let (function_acc, function_rejected) =
+        function::join_all_parties(function_acc, function_inputs);
+    let production_result = acc.join_all(inputs);
 
-    assert_eq!(result.is_ok(), reference.is_ok(), "the verdicts differ");
-    match result {
-        Ok(()) => assert_eq!(to_oracle_party(&acc), oracle_acc),
-        Err(back) => {
+    assert_eq!(
+        production_result.is_ok(),
+        recursive_result.is_ok(),
+        "recursive-oracle verdict differs"
+    );
+    assert_eq!(
+        production_result.is_ok(),
+        function_rejected.is_empty(),
+        "function-space verdict differs"
+    );
+    match (production_result, recursive_result) {
+        (Ok(()), Ok(())) => {
+            assert_eq!(
+                to_oracle_party(&acc),
+                recursive_acc,
+                "final accumulators differ"
+            );
+            let grid = function::fs_grid(&[
+                function::id_depth(&recursive_acc),
+                function_acc.res_ceiling(),
+            ]);
+            assert_eq!(
+                function::id_order(
+                    &function_acc,
+                    &function::lift_id(recursive_acc.clone()),
+                    grid,
+                ),
+                Some(std::cmp::Ordering::Equal),
+                "function-space accumulator differs"
+            );
+        }
+        (Err(rejected), Err(recursive_rejected)) => {
             let actual = oracle_union_all(
-                std::iter::once(to_oracle_party(&acc)).chain(back.iter().map(to_oracle_party)),
+                std::iter::once(to_oracle_party(&acc)).chain(rejected.iter().map(to_oracle_party)),
             );
             assert_eq!(actual, expected, "join_all lost or invented a region");
+            let recursive_actual =
+                oracle_union_all(std::iter::once(recursive_acc).chain(recursive_rejected));
+            assert_eq!(recursive_actual, expected, "recursive model lost a region");
+            let function_actual = function_rejected
+                .into_iter()
+                .fold(function_acc, function::sum);
+            let grid =
+                function::fs_grid(&[function::id_depth(&expected), function_actual.res_ceiling()]);
+            assert_eq!(
+                function::id_order(&function_actual, &function::lift_id(expected.clone()), grid,),
+                Some(std::cmp::Ordering::Equal),
+                "function-space model lost a region"
+            );
         }
+        _ => unreachable!("verdict equality was checked above"),
     }
 }
 
 proptest! {
-    /// `join_all` matches the sequential oracle's verdict and successful
-    /// result, and conserves every region when overlap prevents a full join.
+    /// `join_all` matches both semantic models on success and conserves the
+    /// complete region in every model after overlap.
     #[test]
-    fn join_all_matches_the_recursive_oracle(
+    fn party_join_all_matches_all_models(
         oacc in arb_oracle_party_nonempty(),
         (pool, picks) in proptest::collection::vec(arb_oracle_party_nonempty(), 1..5)
             .prop_flat_map(|pool| {
@@ -81,7 +132,7 @@ proptest! {
         let acc = from_oracle_party(&oacc);
         let inputs: Vec<Party> =
             picks.iter().map(|&i| from_oracle_party(&pool[i])).collect();
-        assert_join_all_matches_recursive_oracle(acc, inputs);
+        assert_join_all_matches_all_models(acc, inputs);
     }
 }
 

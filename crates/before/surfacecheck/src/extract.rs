@@ -3,19 +3,18 @@
 //! The walk starts at the crate's root module and follows exactly what a
 //! user of the public API can reach — public modules, `pub use`
 //! re-exports (named and glob), public types and their impls, and public
-//! traits — recording each item under the path it is *reachable* at,
-//! which is the roster's own naming (`Party::seed` for a root re-export,
+//! traits — recording each item under the path it is *reachable* at
+//! (`Party::seed` for a root re-export,
 //! `causally::Range::since` inside a public module). The `paths` table's
 //! definition paths are deliberately not used for reachable naming: they
 //! name private modules (`party::Party`, `version::io`) and include
 //! items the public tree never reaches.
 //!
-//! Three categories come back, each held total by its own committed
-//! roster:
+//! Three categories come back, each checked against its owning inventory:
 //!
 //! - **functions** — free functions, inherent methods, and public-trait
-//!   -declared methods, reconciled against `METHOD_SURFACE` and the
-//!   exception lists in [`crate::check`];
+//!   -declared methods, reconciled against the board's operation inventory and
+//!   the exception lists in [`crate::check`];
 //! - **impls** — every reachable trait impl, one row per
 //!   `type: impl Trait for For` spelling, reconciled against the pinned
 //!   [`crate::census::TRAIT_IMPLS`]. Compiler-synthesized auto-trait
@@ -39,7 +38,7 @@ use rustdoc_types::{Crate, GenericArg, GenericArgs, Id, Item, ItemEnum, Path, Ty
 ///
 /// A type reachable at two public paths contributes its methods and
 /// impls under both names; the reconcile step then surfaces the extra
-/// path as an unrostered finding to triage, which is the honest reading
+/// path as an uncovered item to triage, which is the honest reading
 /// (two public spellings are two rows of surface).
 #[derive(Debug, Default)]
 pub(crate) struct Surface {
@@ -311,7 +310,7 @@ fn render_trait(krate: &Crate, trait_: &Path) -> String {
 /// Named types render as their bare name (the last segment of the
 /// definition path): census rows are keyed under the reachable path of
 /// the type they were found at, which carries the disambiguation, and
-/// bare names keep the pinned roster legible. A type shape this crate's
+/// bare names keep the pinned census legible. A type shape this crate's
 /// surface never uses panics rather than rendering approximately — a
 /// new shape must be named here before it can be pinned.
 fn render_type(krate: &Crate, ty: &Type) -> String {
@@ -384,7 +383,7 @@ fn push<'p>(prefix: &[&'p str], name: &'p str) -> Vec<&'p str> {
     out
 }
 
-/// The roster-style name of an item at `prefix`: path segments joined
+/// The public name of an item at `prefix`: path segments joined
 /// with `::`, the crate root contributing nothing.
 fn join(prefix: &[&str], name: &str) -> String {
     if prefix.is_empty() {

@@ -1,11 +1,12 @@
 //! Coverage tables for the amplification board.
 //!
-//! [`BOARD_PRICED`] maps each rostered public method or grouped trait family to
+//! [`BOARD_PRICED`] maps each public method or grouped trait family to
 //! the measurements that bound its cost. Several operations may share a
 //! measurement when they use the same implementation.
-//! [`BOARD_NOT_APPLICABLE`] records rows for which the board's resource model
-//! does not apply. Tests require the tables to cover the method and family
-//! rosters without overlap and require every named measurement to exist.
+//! [`BOARD_NOT_APPLICABLE`] records entries for which the board's resource
+//! model does not apply. The compiler-derived surface check holds their union
+//! against the public API; local tests reject overlap and require every named
+//! measurement to exist.
 //!
 //! Rejection rows place errors as late as possible in the input. Errors handled
 //! by the same decoder, parser, or pairwise operation share that measurement;
@@ -13,9 +14,11 @@
 
 /// Measurements that bound each priced method or trait family's resource use.
 ///
-/// The coverage test requires every rostered method and trait family to appear
-/// in exactly one coverage table and every named measurement to exist and be
-/// used.
+/// The compiler-derived surface check requires every public function to appear
+/// in exactly one coverage table and pins every public trait implementation.
+/// The trait-family entries record the reviewed resource decision for those
+/// implementations. Local tests require every named measurement to exist and
+/// be used.
 pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::tick", &["version_tick", "version_tick_adv_party"]),
     ("Party::ticks", &["version_ticks"]),
@@ -335,8 +338,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ),
 ];
 
-/// The board's not-applicable table: every `before::testing::surface` row with no board
-/// row of its own, and the mechanism-based reason why.
+/// Public operations with no board row of their own, and why the board's
+/// resource model does not apply.
 ///
 /// The machine-readable excused half of the board's coverage tiling, covering
 /// method and family rows alike; [`BOARD_PRICED`] is the priced half, and the

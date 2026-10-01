@@ -4,8 +4,8 @@
 //!
 //! Uniform sampling audits the bulk; the engineered corners are
 //! measure-zero to it. The atlas therefore marks the committed family
-//! generators explicitly — the same generators the resource envelopes and
-//! the amplification board price — so one canvas shows where the
+//! generators explicitly — the same generators the amplification board
+//! prices — so one canvas shows where the
 //! adversarial frontier sits relative to the population. Families are
 //! ramped by doubling their main knob and keeping the points whose encoded
 //! size lands inside the plotted span; the x-coordinate is the same

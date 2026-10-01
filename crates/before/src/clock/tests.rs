@@ -10,7 +10,7 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
-use crate::testing::oracles::tree;
+use crate::testing::oracles::{function, tree};
 use crate::{Clock, Party, Version};
 
 /// `join_all` matches sequential oracle joins for disjoint and overlapping
@@ -35,9 +35,9 @@ fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
         (acc, children)
     };
     let (acc, children) = population(false);
-    assert_join_all_matches_recursive_oracle(acc, children);
+    assert_join_all_matches_all_models(acc, children);
     let (acc, children) = population(true);
-    assert_join_all_matches_recursive_oracle(acc, children);
+    assert_join_all_matches_all_models(acc, children);
 }
 
 /// Return the combined region and history of some oracle clocks.
@@ -52,8 +52,8 @@ fn oracle_clock_union(
     )
 }
 
-/// Compare `join_all` with sequential oracle joins.
-fn assert_join_all_matches_recursive_oracle(mut acc: Clock, inputs: Vec<Clock>) {
+/// Compare `join_all` with both independent semantic models.
+fn assert_join_all_matches_all_models(mut acc: Clock, inputs: Vec<Clock>) {
     let lift = |c: &Clock| {
         let (p, v) = to_oracle_clock(c);
         tree::Clock::from_parts(p, v)
@@ -64,33 +64,112 @@ fn assert_join_all_matches_recursive_oracle(mut acc: Clock, inputs: Vec<Clock>) 
         std::iter::once(initial.clone().into_parts())
             .chain(oracle_inputs.iter().cloned().map(tree::Clock::into_parts)),
     );
-    let mut oracle_acc = initial;
-    let reference = oracle_acc.join_all(oracle_inputs);
-    let result = acc.join_all(inputs).cloned();
+    let lower_function = |clock: &tree::Clock| function::FunctionClock {
+        id: function::lift_id(clock.party().clone()),
+        ev: function::lift_ev(clock.version()),
+    };
+    let mut recursive_acc = initial;
+    let mut function_acc = lower_function(&recursive_acc);
+    let function_inputs = oracle_inputs.iter().map(lower_function).collect::<Vec<_>>();
+    let recursive_result = recursive_acc.join_all(oracle_inputs);
+    let function_result = function_acc.join_all(function_inputs);
+    let production_result = acc.join_all(inputs).cloned();
 
-    assert_eq!(result.is_ok(), reference.is_ok(), "the verdicts differ");
-    match result {
-        Ok(version) => {
-            assert_eq!(to_oracle_version(&version), oracle_acc.version());
+    assert_eq!(
+        production_result.is_ok(),
+        recursive_result.is_ok(),
+        "recursive-oracle verdict differs"
+    );
+    assert_eq!(
+        production_result.is_ok(),
+        function_result.is_ok(),
+        "the function-space verdict differs"
+    );
+    match (production_result, recursive_result, function_result) {
+        (Ok(version), Ok(()), Ok(())) => {
+            assert_eq!(to_oracle_version(&version), recursive_acc.version());
             assert_eq!(
                 to_oracle_clock(&acc),
-                (oracle_acc.party().clone(), oracle_acc.version())
+                (recursive_acc.party().clone(), recursive_acc.version()),
+                "final clocks differ"
+            );
+            let grid = function::fs_grid(&[
+                function::id_depth(recursive_acc.party()),
+                function::ev_depth(&recursive_acc.version()),
+                function_acc.id.res_ceiling(),
+                function_acc.ev.res_ceiling(),
+            ]);
+            assert_eq!(
+                function::id_order(
+                    &function_acc.id,
+                    &function::lift_id(recursive_acc.party().clone()),
+                    grid,
+                ),
+                Some(std::cmp::Ordering::Equal),
+                "function-space parties differ"
+            );
+            assert_eq!(
+                function::ev_order(
+                    &function_acc.ev,
+                    &function::lift_ev(recursive_acc.version()),
+                    grid,
+                ),
+                Some(std::cmp::Ordering::Equal),
+                "function-space versions differ"
             );
         }
-        Err(back) => {
+        (Err(rejected), Err(recursive_rejected), Err(function_rejected)) => {
             let actual = oracle_clock_union(
-                std::iter::once(to_oracle_clock(&acc)).chain(back.iter().map(to_oracle_clock)),
+                std::iter::once(to_oracle_clock(&acc)).chain(rejected.iter().map(to_oracle_clock)),
             );
             assert_eq!(actual, expected, "join_all lost a region or version");
+            let recursive_actual = oracle_clock_union(
+                std::iter::once(recursive_acc.into_parts())
+                    .chain(recursive_rejected.into_iter().map(tree::Clock::into_parts)),
+            );
+            assert_eq!(
+                recursive_actual, expected,
+                "recursive model lost a region or version"
+            );
+
+            for clock in function_rejected {
+                function_acc.id = function::sum(function_acc.id, clock.id);
+                function_acc.ev = function::join(function_acc.ev, clock.ev);
+            }
+            let grid = function::fs_grid(&[
+                function::id_depth(&expected.0),
+                function::ev_depth(&expected.1),
+                function_acc.id.res_ceiling(),
+                function_acc.ev.res_ceiling(),
+            ]);
+            assert_eq!(
+                function::id_order(
+                    &function_acc.id,
+                    &function::lift_id(expected.0.clone()),
+                    grid,
+                ),
+                Some(std::cmp::Ordering::Equal),
+                "function-space model lost a region"
+            );
+            assert_eq!(
+                function::ev_order(
+                    &function_acc.ev,
+                    &function::lift_ev(expected.1.clone()),
+                    grid,
+                ),
+                Some(std::cmp::Ordering::Equal),
+                "function-space model lost a version"
+            );
         }
+        _ => unreachable!("verdict equality was checked above"),
     }
 }
 
 proptest! {
-    /// Clock `join_all` matches the sequential oracle's verdict and successful
-    /// result, and conserves every region and version on error.
+    /// Clock `join_all` matches both independent models, including the clocks
+    /// returned after overlap.
     #[test]
-    fn join_all_matches_the_recursive_oracle(
+    fn clock_join_all_matches_all_models(
         oacc in (arb_oracle_party_nonempty(), arb_oracle_version()),
         (pool, picks) in proptest::collection::vec(
             (arb_oracle_party_nonempty(), arb_oracle_version()),
@@ -106,7 +185,7 @@ proptest! {
         };
         let acc = lower(&oacc);
         let inputs: Vec<Clock> = picks.iter().map(|&i| lower(&pool[i])).collect();
-        assert_join_all_matches_recursive_oracle(acc, inputs);
+        assert_join_all_matches_all_models(acc, inputs);
     }
 }
 

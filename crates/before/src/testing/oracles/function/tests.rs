@@ -18,10 +18,10 @@ use super::{
 };
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
-use crate::testing::optrace::MAX_TRACE_OPS;
-use crate::testing::optrace::{world_strategy, Op};
+use crate::testing::optrace::{
+    self, world_strategy, FunctionSpace, Production, Recursive, MAX_TRACE_OPS,
+};
 use crate::testing::oracles::tree;
-use crate::Clock;
 use num_bigint::BigUint;
 
 // ───────────────────────────── helpers ─────────────────────────────
@@ -46,109 +46,6 @@ fn grid_for(parts: &[u32]) -> u32 {
 
 // ───────────────────────────── replay cross-check ─────────────────────────────
 
-/// Replays operations against all three implementations and returns their
-/// index-aligned final populations.
-///
-/// Tests use one seed because values from separate universes may not interact.
-/// A `Join` or `Sync` between overlapping parties is a no-op in all three
-/// implementations.
-fn replay(
-    seeds: usize,
-    ops: &[Op],
-    rng: &mut ChaChaRng,
-) -> (Vec<Clock>, Vec<tree::Clock>, Vec<FunctionClock>) {
-    let mut im: Vec<Clock> = (0..seeds).map(|_| Clock::seed()).collect();
-    let mut or: Vec<tree::Clock> = (0..seeds).map(|_| tree::Clock::seed()).collect();
-    let mut se: Vec<FunctionClock> = (0..seeds).map(|_| FunctionClock::seed()).collect();
-
-    for op in ops {
-        let n = im.len();
-        match *op {
-            Op::Tick(i) => {
-                let i = i % n;
-                im[i].tick();
-                or[i].tick();
-                se[i].tick(rng);
-            }
-            Op::Ticks(i, k) => {
-                let i = i % n;
-                im[i].ticks(u64::from(k));
-                // Both references iterate: the semantic clock has no
-                // fused form, and the oracle's is the literal loop.
-                for _ in 0..k {
-                    or[i].tick();
-                    se[i].tick(rng);
-                }
-            }
-            Op::Fork(i) => {
-                let i = i % n;
-                let c = im[i].fork();
-                im.push(c);
-                let c = or[i].fork();
-                or.push(c);
-                let c = se[i].fork(rng);
-                se.push(c);
-            }
-            Op::Send(i, j) => {
-                let (i, j) = (i % n, j % n);
-                let m = im[i].send().clone();
-                im[j].recv(&m);
-                let m = or[i].send();
-                or[j].receive(m);
-                let m = se[i].send(rng);
-                se[j].receive(m, rng);
-            }
-            Op::Sync(i, j) => {
-                let (i, j) = (i % n, j % n);
-                if i != j {
-                    let (lo, hi) = (i.min(j), i.max(j));
-                    let d_im = im[i].party().is_disjoint(im[j].party());
-                    let d_or = or[i].party().is_disjoint(or[j].party());
-                    let g = se[i].id.res_ceiling().max(se[j].id.res_ceiling());
-                    let d_se = disjoint(&se[i].id, &se[j].id, g);
-                    assert!(
-                        d_im == d_or && d_or == d_se,
-                        "sync disjointness disagreement"
-                    );
-                    if d_im {
-                        let (a, b) = im.split_at_mut(hi);
-                        assert!(a[lo].sync(&mut b[0]).is_ok());
-                        let (a, b) = or.split_at_mut(hi);
-                        assert!(a[lo].sync(&mut b[0]).is_ok());
-                        let (a, b) = se.split_at_mut(hi);
-                        assert!(a[lo].sync(&mut b[0], rng).is_ok());
-                    }
-                }
-            }
-            Op::Join(i, j) => {
-                if n > 1 {
-                    let (i, j) = (i % n, j % n);
-                    if i != j {
-                        let d_im = im[i].party().is_disjoint(im[j].party());
-                        let d_or = or[i].party().is_disjoint(or[j].party());
-                        let g = se[i].id.res_ceiling().max(se[j].id.res_ceiling());
-                        let d_se = disjoint(&se[i].id, &se[j].id, g);
-                        assert!(
-                            d_im == d_or && d_or == d_se,
-                            "join disjointness disagreement"
-                        );
-                        if d_im {
-                            let i2 = if j < i { i - 1 } else { i };
-                            let v = im.remove(j);
-                            assert!(im[i2].join(v).is_ok());
-                            let v = or.remove(j);
-                            assert!(or[i2].join(v).is_ok());
-                            let v = se.remove(j);
-                            assert!(se[i2].join(v).is_ok());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    (im, or, se)
-}
-
 proptest! {
     /// All three implementations produce the same causal ordering and party
     /// disjointness after any generated single-universe trace.
@@ -158,42 +55,76 @@ proptest! {
     /// while the seed keeps failures reproducible.
     #[test]
     fn replay_matches_across_references(ops in world_strategy(), seed in any::<u64>()) {
-        let (im, or, se) = replay(1, &ops, &mut ChaChaRng::seed_from_u64(seed));
-        let n = im.len();
+        let production = optrace::replay::<Production>(&ops, &mut ChaChaRng::seed_from_u64(0));
+        let recursive = optrace::replay::<Recursive>(&ops, &mut ChaChaRng::seed_from_u64(0));
+        let function_space = optrace::replay::<FunctionSpace>(
+            &ops,
+            &mut ChaChaRng::seed_from_u64(seed),
+        );
+        prop_assert_eq!(
+            &production.accepted,
+            &recursive.accepted,
+            "production vs recursive verdicts",
+        );
+        prop_assert_eq!(
+            &recursive.accepted,
+            &function_space.accepted,
+            "recursive vs function-space verdicts",
+        );
+        let (production, recursive, function_space) = (
+            production.clocks,
+            recursive.clocks,
+            function_space.clocks,
+        );
+        let n = production.len();
         // One granularity for all the function-space scans: the finest boundary
         // actually present in the population's own closures (probed, then
         // capped — guarded by `grid_cap_is_never_reached`). Sampling at that
         // level resolves every step exactly, so the random policy's
         // region/inflation boundaries are never aliased.
-        let g = se
+        let g = function_space
             .iter()
             .map(|c| id_res(&c.id).max(ev_res(&c.ev)))
             .max()
             .map_or(0, |d| d.min(GRID_N));
         for i in 0..n {
             for j in 0..n {
-                let (ovi, ovj) = (or[i].version(), or[j].version());
-                let (ivi, ivj) = (im[i].version(), im[j].version());
-                let d_impl = (
-                    ivi.partial_cmp(ivj),
-                    im[i].party().is_disjoint(im[j].party()),
+                let (recursive_i, recursive_j) =
+                    (recursive[i].version(), recursive[j].version());
+                let (production_i, production_j) =
+                    (production[i].version(), production[j].version());
+                let production_observation = (
+                    production_i.partial_cmp(production_j),
+                    production[i]
+                        .party()
+                        .is_disjoint(production[j].party()),
                 );
-                let d_oracle = (
-                    ovi.partial_cmp(&ovj),
-                    or[i].party().is_disjoint(or[j].party()),
+                let recursive_observation = (
+                    recursive_i.partial_cmp(&recursive_j),
+                    recursive[i].party().is_disjoint(recursive[j].party()),
                 );
-                let d_sem = (
-                    ev_order(&se[i].ev, &se[j].ev, g),
-                    disjoint(&se[i].id, &se[j].id, g),
+                let function_observation = (
+                    ev_order(&function_space[i].ev, &function_space[j].ev, g),
+                    disjoint(&function_space[i].id, &function_space[j].id, g),
                 );
-                prop_assert_eq!(d_impl, d_oracle, "impl vs oracle at ({}, {})", i, j);
-                prop_assert_eq!(d_oracle, d_sem, "function-space vs oracle at ({}, {})", i, j);
+                prop_assert_eq!(
+                    production_observation,
+                    recursive_observation,
+                    "production vs recursive model at ({}, {})",
+                    i,
+                    j,
+                );
+                prop_assert_eq!(
+                    recursive_observation,
+                    function_observation,
+                    "function-space vs recursive model at ({}, {})",
+                    i,
+                    j,
+                );
             }
         }
     }
 }
-
-// ───────────────────────────── operation cross-checks ─────────────────────────────
 
 // ───────────────────────────── law suite (the function-space model is a sound ITC) ─────────────────────────────
 
@@ -507,12 +438,14 @@ fn grid_cap_is_never_reached() {
     let max_d = AtomicU32::new(0);
     runner
         .run(&(world_strategy(), any::<u64>()), |(ops, seed)| {
-            let (_, or, se) = replay(1, &ops, &mut ChaChaRng::seed_from_u64(seed));
-            for c in &or {
+            let or = optrace::replay::<Recursive>(&ops, &mut ChaChaRng::seed_from_u64(0));
+            let se = optrace::replay::<FunctionSpace>(&ops, &mut ChaChaRng::seed_from_u64(seed));
+            assert_eq!(or.accepted, se.accepted);
+            for c in &or.clocks {
                 max_d.fetch_max(ev_depth(&c.version()), AOrd::Relaxed);
                 max_d.fetch_max(id_depth(c.party()), AOrd::Relaxed);
             }
-            for c in &se {
+            for c in &se.clocks {
                 max_d.fetch_max(id_res(&c.id), AOrd::Relaxed);
                 max_d.fetch_max(ev_res(&c.ev), AOrd::Relaxed);
             }
