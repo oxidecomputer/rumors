@@ -768,7 +768,10 @@ window-tradeoff:
 # IDs (`group/function`), for example `just bench version merge` or
 # `just bench gossip_grid`.
 
-# Run one bench target through a criterion filter, at full sampling.
+# Run one bench target through a Criterion filter, at full sampling. Additional
+# arguments pass through to Criterion. For example,
+# `just bench version version/hole --profile-time 10` records a focused
+# profiler workload without a second profiling harness.
 bench target *filter:
     cargo bench --workspace --bench {{ target }} -- {{ filter }}
 

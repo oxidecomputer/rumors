@@ -18,7 +18,6 @@ members = [
 async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
-bitvec = "1"
 sha3 = "0.12"
 borsh = "1"
 bytes = "1"

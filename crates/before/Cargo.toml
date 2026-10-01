@@ -35,10 +35,6 @@ serde_bytes = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
 
 [dev-dependencies]
-# The emit_probe example's external comparison baseline: the production
-# build buffer is the crate-owned BitsWriter, and nothing shipped links bitvec.
-bitvec = { workspace = true }
-borsh = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
@@ -99,14 +95,6 @@ scan-meter = ["meter"]
 [[example]]
 name = "amp_board"
 required-features = ["touch-meter", "scan-meter", "serde", "borsh"]
-
-# The integer-code corpus study walks the board's shape bundles, which live
-# behind the meter surface. Measure-only: it re-parses stored streams and
-# prices candidate codes closed-form on the histograms; it reads no
-# counters, so the base `meter` feature is enough.
-[[example]]
-name = "code_study"
-required-features = ["meter"]
 
 # The focused meter tests pin touch and scan columns; built without the counter
 # features both columns would judge nothing. Requiring

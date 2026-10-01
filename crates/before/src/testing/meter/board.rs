@@ -104,7 +104,6 @@ pub use ceilings::{
 };
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
-pub use family::study_family_versions;
 pub use measure::HeapMeter;
 pub use render::Summary;
 pub use shard::{
