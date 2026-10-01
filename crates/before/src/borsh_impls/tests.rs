@@ -9,12 +9,37 @@ use crate::error::Decode;
 use crate::span::Span;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{
-    arb_flush_party, arb_flush_version, arb_oracle_party_nonempty, arb_oracle_version,
-    deep_left_spine_party,
+    arb_flush_party, arb_flush_version, arb_magnitude, arb_oracle_party_nonempty,
+    arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{step_impl, world_strategy};
 use crate::version::io::validate::{dominating_from, Admission};
-use crate::{Clock, Party, Rank, Ranked, Version};
+use crate::{Clock, Count, Party, Rank, Ranked, Version};
+
+proptest! {
+    /// Count's Borsh form is exactly its canonical limb sequence, and every
+    /// arbitrary-width count round-trips through it.
+    #[test]
+    fn count_borsh_matches_canonical_limbs(value in arb_magnitude()) {
+        let count = Count(value);
+        let limbs = count.limbs().collect::<Vec<_>>();
+        let bytes = borsh::to_vec(&count).unwrap();
+        prop_assert_eq!(&bytes, &borsh::to_vec(&limbs).unwrap());
+        prop_assert_eq!(Count::try_from_slice(&bytes).unwrap(), count);
+    }
+
+    /// Appending a redundant high zero limb makes every otherwise canonical
+    /// Count spelling invalid.
+    #[test]
+    fn count_borsh_rejects_trailing_zero(value in arb_magnitude()) {
+        let count = Count(value);
+        let mut limbs = count.limbs().collect::<Vec<_>>();
+        limbs.push(0);
+        let bytes = borsh::to_vec(&limbs).unwrap();
+        let error = Count::try_from_slice(&bytes).unwrap_err();
+        prop_assert_eq!(error.kind(), ErrorKind::InvalidData);
+    }
+}
 
 /// Build a version with the same event count everywhere.
 fn uniform(ticks: impl Into<crate::Count>) -> Version {

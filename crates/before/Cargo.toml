@@ -24,12 +24,13 @@ serde_json = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
+hex = { workspace = true }
 num-bigint = { workspace = true }
 suanpan = { workspace = true }
 dsi-bitstream = { workspace = true }
 static_assertions = { workspace = true }
 thiserror = { workspace = true }
-serde = { workspace = true, optional = true, features = ["alloc"] }
+serde = { workspace = true, optional = true, features = ["alloc", "derive"] }
 serde_bytes = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
 

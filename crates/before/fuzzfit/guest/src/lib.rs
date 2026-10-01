@@ -353,6 +353,40 @@ pub extern "C" fn ff_party_decode(dst: u32) -> i32 {
     })
 }
 
+/// Parse the staged hexadecimal text as a `Version` into `dst`.
+#[no_mangle]
+pub extern "C" fn ff_version_parse(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| {
+        let Ok(text) = std::str::from_utf8(stage) else {
+            return ERR_CODEC;
+        };
+        match text.parse::<Version>() {
+            Ok(version) => {
+                put(dst, Val::V(version));
+                OK
+            }
+            Err(_) => ERR_CODEC,
+        }
+    })
+}
+
+/// Parse the staged hexadecimal text as a `Party` into `dst`.
+#[no_mangle]
+pub extern "C" fn ff_party_parse(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| {
+        let Ok(text) = std::str::from_utf8(stage) else {
+            return ERR_CODEC;
+        };
+        match text.parse::<Party>() {
+            Ok(party) => {
+                put(dst, Val::P(party));
+                OK
+            }
+            Err(_) => ERR_CODEC,
+        }
+    })
+}
+
 /// Decode the staged bytes as a canonical `Clock` into `dst`.
 #[no_mangle]
 pub extern "C" fn ff_clock_decode(dst: u32) -> i32 {
@@ -381,6 +415,24 @@ pub extern "C" fn ff_party_encode(src: u32) -> i32 {
     code(with_p(src, |p| {
         let bytes = p.encode();
         STAGE.with_borrow_mut(|stage| *stage = bytes);
+        OK
+    }))
+}
+
+/// Render the `Version` in `src` as hexadecimal text in the staging buffer.
+#[no_mangle]
+pub extern "C" fn ff_version_display(src: u32) -> i32 {
+    code(with_v(src, |version| {
+        STAGE.with_borrow_mut(|stage| *stage = version.to_string().into_bytes());
+        OK
+    }))
+}
+
+/// Render the `Party` in `src` as hexadecimal text in the staging buffer.
+#[no_mangle]
+pub extern "C" fn ff_party_display(src: u32) -> i32 {
+    code(with_p(src, |party| {
+        STAGE.with_borrow_mut(|stage| *stage = party.to_string().into_bytes());
         OK
     }))
 }
@@ -1482,6 +1534,23 @@ pub extern "C" fn ff_count_display(src: u32) -> i32 {
         STAGE.with_borrow_mut(|stage| *stage = ticks.to_string().into_bytes());
         OK
     }))
+}
+
+/// Parse the staged decimal text as a count into `dst`.
+#[no_mangle]
+pub extern "C" fn ff_count_parse(dst: u32) -> i32 {
+    STAGE.with_borrow(|stage| {
+        let Ok(text) = std::str::from_utf8(stage) else {
+            return ERR_CODEC;
+        };
+        match text.parse::<Count>() {
+            Ok(count) => {
+                put(dst, Val::T(count));
+                OK
+            }
+            Err(_) => ERR_CODEC,
+        }
+    })
 }
 
 /// `Ranked::encode`: the composite causal-ordering key of the version

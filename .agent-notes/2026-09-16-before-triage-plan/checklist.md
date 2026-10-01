@@ -382,7 +382,7 @@ into otherwise small feature increments.
       pure-operation diagnostics, iterator and Count naming, Count arithmetic,
       decoding errors, value hashing, and causal-atom coverage.
 
-- [ ] Implement and verify the approved text and serialization surface while
+- [x] Implement and verify the approved text and serialization surface while
       preserving every existing binary wire encoding.
 
 - [ ] Put each required value, size, and cost guarantee at the public method
@@ -391,7 +391,7 @@ into otherwise small feature increments.
       Sources: `rumors-dependence-1`, `rumors-dependence-2`,
       `rumors-dependence-5`, and the dependence ledger.
 
-- [ ] Update and test Rumors in the same batch as every approved external
+- [x] Update and test Rumors in the same batch as every approved external
       `before` API change.
       Source: owner instruction, 2026-09-16.
 

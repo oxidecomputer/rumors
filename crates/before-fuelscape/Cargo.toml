@@ -22,6 +22,10 @@ before = { path = "../before", features = ["meter"] }
 # fuel. Reused whole rather than duplicated, so the atlas and the band
 # enforcement read the same currency from the same guest.
 fuzzfit-harness = { path = "../before/fuzzfit/harness" }
+# Canonical text panels stage the same lowercase hexadecimal accepted by the
+# subject's public parsers; conversion belongs to the standard hex crate, not a
+# second hand-rolled spelling in the instrument.
+hex = "0.4"
 # One progress bar per in-flight panel plus a run total, so an operator
 # can watch a long survey; bars draw only on a tty, so nohup logs keep
 # the plain per-panel lines.

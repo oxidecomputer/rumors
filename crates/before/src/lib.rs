@@ -391,13 +391,13 @@
 //! Every feature is off by default.
 //!
 //! - **`serde`:** `Serialize`/`Deserialize` for [`Party`], [`Version`],
-//!   [`Clock`], [`Rank`], [`Ranked`], and [`Span`]. Binary formats carry each
-//!   value's canonical encoded bytes. Human-readable formats use [`Rank`]'s
-//!   canonical binary text; the other types remain byte values.
-//! - **`borsh`:** `BorshSerialize`/`BorshDeserialize`, likewise as the
-//!   canonical encodings. The encodings are *prefix-free* — no value's
-//!   encoding is a prefix of another's — and values therefore compose
-//!   inside larger borsh messages without a length prefix.
+//!   [`Clock`], [`Rank`], [`Ranked`], [`Span`], and [`Count`]. Binary formats
+//!   retain the existing types' canonical bytes; [`Count`] uses canonical
+//!   least-significant-first `u64` limbs. Human-readable formats use strings
+//!   for scalar values and named records for compound values.
+//! - **`borsh`:** `BorshSerialize`/`BorshDeserialize` uses each existing
+//!   type's prefix-free canonical encoding without a length prefix. [`Count`]
+//!   instead uses its length-prefixed canonical `u64` limbs.
 //! - **`oracle`**, **`meter`** (plus the meter's counter switches
 //!   `touch-meter` and `scan-meter`), and **`laws`:** expose the crate's own
 //!   verification instruments (the reference implementation,
@@ -439,6 +439,7 @@ mod rank;
 mod ranked;
 mod recurse;
 mod span;
+mod text;
 mod version;
 
 // The whole public API:

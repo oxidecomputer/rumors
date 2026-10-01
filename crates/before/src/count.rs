@@ -8,7 +8,7 @@ use core::ops::{Add, AddAssign};
 
 use num_bigint::{BigUint, U64Digits};
 
-use crate::error::TooWide;
+use crate::error::{ParseValue, TooWide};
 
 /// An unbounded natural-number count.
 ///
@@ -17,7 +17,8 @@ use crate::error::TooWide;
 /// and borrowed conversions out to every unsigned machine integer return
 /// [`TooWide`] when the count does not fit. [`limbs`](Count::limbs) spells any
 /// count in base-2^64 for consumers with their own wide arithmetic, and
-/// [`Display`](fmt::Display) renders decimal.
+/// [`Display`](fmt::Display) and [`FromStr`](core::str::FromStr) use canonical
+/// unsigned decimal.
 ///
 /// Counts are totally ordered ([`Ord`]), can be added ([`Add`], [`AddAssign`],
 /// [`Sum`]), and support checked or saturating subtraction. [`ZERO`](Count::ZERO)
@@ -44,6 +45,7 @@ use crate::error::TooWide;
 /// assert_eq!(clock.version().min_ticks(), Count::from(3u64));
 /// ```
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Count(pub(crate) BigUint);
 
 /// The zero count (same as [`Count::ZERO`]).
@@ -138,6 +140,42 @@ impl Count {
     }
 }
 
+/// Builds a count directly while a serializer yields canonical `u64` limbs.
+///
+/// The decoder-facing form avoids retaining both the serialized limbs and the
+/// integer's backing digits. [`finish`](CanonicalLimbs::finish) enforces the
+/// one canonicality rule: a nonempty sequence may not end in zero.
+#[cfg(any(feature = "serde", feature = "borsh"))]
+pub(crate) struct CanonicalLimbs {
+    /// Base-2^32 digits accepted directly by [`BigUint`].
+    digits: Vec<u32>,
+    /// The most recently decoded limb, if any.
+    last: Option<u64>,
+}
+
+#[cfg(any(feature = "serde", feature = "borsh"))]
+impl CanonicalLimbs {
+    /// Begin an empty limb sequence.
+    pub(crate) fn new() -> CanonicalLimbs {
+        CanonicalLimbs {
+            digits: Vec::new(),
+            last: None,
+        }
+    }
+
+    /// Append one least-significant-first `u64` limb.
+    pub(crate) fn push(&mut self, limb: u64) {
+        self.digits.push(limb as u32);
+        self.digits.push((limb >> 32) as u32);
+        self.last = Some(limb);
+    }
+
+    /// Return the decoded count, or [`None`] for a redundant high zero limb.
+    pub(crate) fn finish(self) -> Option<Count> {
+        (self.last != Some(0)).then(|| Count(BigUint::new(self.digits)))
+    }
+}
+
 /// An iterator over a [`Count`]'s base-2^64 limbs, least significant first;
 /// see [`Count::limbs`].
 ///
@@ -218,9 +256,39 @@ impl From<usize> for Count {
 /// ```
 /// assert_eq!(before::Count::from(42u64).to_string(), "42");
 /// ```
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/count_display.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "superlinear but subquadratic in the count's numeric width"
+)]
 impl fmt::Display for Count {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.0, f)
+    }
+}
+
+/// Parses the canonical decimal form produced by [`Display`](fmt::Display).
+/// Signs, leading zeroes, and whitespace are not accepted.
+///
+/// Parsing `d` decimal digits takes `O(d²)` time and `O(d)` space.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/count_parse.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n^2)` in total input bytes; `O(n^2)` in text bytes"
+)]
+impl core::str::FromStr for Count {
+    type Err = ParseValue;
+
+    fn from_str(text: &str) -> Result<Self, ParseValue> {
+        let bytes = text.as_bytes();
+        if bytes.is_empty()
+            || !bytes.iter().all(u8::is_ascii_digit)
+            || (bytes.len() > 1 && bytes[0] == b'0')
+        {
+            return Err(ParseValue::InvalidSyntax);
+        }
+        let value = BigUint::parse_bytes(bytes, 10).ok_or(ParseValue::InvalidSyntax)?;
+        Ok(Count(value))
     }
 }
 

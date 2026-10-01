@@ -28,12 +28,13 @@ surface.
 
 - `Party` and `Version` display lowercase canonical-byte hex with no prefix.
   Parsing accepts either hex case, but no prefix or whitespace.
-- `Clock`, `Ranked`, and `Span` display records using their public components.
-  Preserve the existing diagnostic `Debug` forms.
-- Use one non-exhaustive `ParseValue` error that distinguishes malformed text,
-  invalid component encodings, and crossed span endpoints.
-- Human-readable serde uses these textual/component forms. `Rank` keeps its
-  exact binary-point string, and `Count` uses its decimal display and parser.
+- Compound types retain their existing diagnostic `Debug` forms and do not add
+  a separate text grammar.
+- Use one non-exhaustive `ParseValue` error that distinguishes malformed text
+  from contents which do not encode a valid value.
+- Human-readable serde uses strings for the scalar text forms and named records
+  for `Clock`, `Ranked`, and `Span`. `Rank` keeps its exact binary-point string,
+  and `Count` uses its decimal display and parser.
 - Existing binary serde remains byte-for-byte unchanged. Binary serde and
   borsh encode `Count` as least-significant-first `u64` limbs. The empty
   sequence is zero; a final zero limb is non-canonical.

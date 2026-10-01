@@ -5,7 +5,7 @@ use insta::assert_snapshot;
 use num_bigint::BigUint;
 
 use crate::bits::{BitRead, BitsReader, BitsWriter};
-use crate::error::{Crossed, Decode, Overlap, ParseRank};
+use crate::error::{Crossed, Decode, Overlap, ParseRank, ParseValue};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::oracles::tree;
 use crate::{Clock, Party, Rank, Version};
@@ -278,6 +278,11 @@ fn error_display_strings() {
         format!("Overlap               {Overlap}"),
         format!("Crossed               {Crossed}"),
         format!("ParseRank             {ParseRank}"),
+        format!("ParseValue::Syntax    {}", ParseValue::InvalidSyntax),
+        format!(
+            "ParseValue::Encoding  {}",
+            ParseValue::InvalidEncoding(Decode::NotCanonical)
+        ),
         format!("Decode::Truncated     {}", Decode::Truncated),
         format!("Decode::TrailingBits  {}", Decode::TrailingBits),
         format!("Decode::NotCanonical  {}", Decode::NotCanonical),
@@ -287,6 +292,8 @@ fn error_display_strings() {
     Overlap               parties are not disjoint
     Crossed               span endpoints cross: the start is not within the end
     ParseRank             invalid rank
+    ParseValue::Syntax    invalid value syntax
+    ParseValue::Encoding  invalid value encoding: input is not canonical
     Decode::Truncated     unexpected end of input
     Decode::TrailingBits  malformed or spurious trailing input
     Decode::NotCanonical  input is not canonical

@@ -258,20 +258,41 @@ fn count_sum_scales_with_total_content_and_arity() {
     }
 }
 
-/// Decimal rendering stays below quadratic growth across wide counts and
-/// agrees byte-for-byte with native rendering at every measured width.
+/// Decimal rendering stays below quadratic growth and canonical decimal
+/// parsing stays at most quadratic across wide counts. Both agree with native
+/// behavior at every measured width.
 #[test]
-fn count_decimal_rendering_stays_subquadratic() {
-    let mut samples = Vec::new();
+fn count_decimal_text_respects_its_bounds() {
+    let mut display_samples = Vec::new();
+    let mut parse_samples = Vec::new();
+    let mut reject_samples = Vec::new();
     for power in 10..=18 {
         let width = 1usize << power;
         let mut guest = Guest::new();
-        let ticks = load_wide_count(&mut guest, 0, width);
-        let fuel = measure(&mut guest, "ff_count_display", &[0]);
-        assert_eq!(guest.stage_read(), ticks.to_string().as_bytes());
-        samples.push((width as u64, fuel));
+        let count = load_wide_count(&mut guest, 0, width);
+        let display_fuel = measure(&mut guest, "ff_count_display", &[0]);
+        let text = guest.stage_read();
+        assert_eq!(text, count.to_string().as_bytes());
+        display_samples.push((width as u64, display_fuel));
+
+        let parse_fuel = measure(&mut guest, "ff_count_parse", &[1]);
+        assert_count(&mut guest, 1, &count);
+        parse_samples.push((text.len() as u64, parse_fuel));
+
+        let mut invalid = text;
+        *invalid.last_mut().expect("a count always has decimal text") = b'x';
+        guest.stage_write(&invalid);
+        let rejected = guest.call("ff_count_parse", &[2]);
+        assert_eq!(rejected.ret, -3);
+        reject_samples.push((invalid.len() as u64, rejected.fuel));
     }
-    check_growth("ticks decimal", &samples, 2.0);
+    check_growth("count decimal display", &display_samples, 2.0);
+    check_growth("count decimal parse", &parse_samples, 2.05);
+    check_growth(
+        "count decimal rejection",
+        &reject_samples,
+        MAX_SCALING_EXPONENT,
+    );
 }
 
 /// Shape combination prices independently growing arity and operand size.

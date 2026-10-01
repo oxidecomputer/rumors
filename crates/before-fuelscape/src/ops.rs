@@ -356,6 +356,33 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "version_display",
+        inputs: Inputs::Operands(&[Operand::Version]),
+        covers: &["Version Display"],
+        size_measure: M_UNARY,
+        variant: "",
+        contract: "`O(|self|)`",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            g.call("ff_version_display", &[0])
+        },
+    },
+    OpSpec {
+        name: "version_parse",
+        inputs: Inputs::Operands(&[Operand::Version]),
+        covers: &["Version FromStr"],
+        size_measure: "canonical hexadecimal text bytes",
+        variant: "",
+        contract: "`O(n)` in text bytes",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            let text = hex::encode(&inputs[0]);
+            g.stage_write(text.as_bytes());
+            g.call("ff_version_parse", &[0])
+        },
+    },
+    OpSpec {
         name: "version_rank",
         inputs: Inputs::Operands(&[Operand::Version]),
         covers: &["Version::rank"],
@@ -724,6 +751,33 @@ pub const ROSTER: &[OpSpec] = &[
         measure: |g, inputs, _| {
             load_party(g, 0, &inputs[0]);
             g.call("ff_party_encode", &[0])
+        },
+    },
+    OpSpec {
+        name: "party_display",
+        inputs: Inputs::Operands(&[Operand::Party]),
+        covers: &["Party Display"],
+        size_measure: M_UNARY,
+        variant: "",
+        contract: "`O(|self|)`",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_party(g, 0, &inputs[0]);
+            g.call("ff_party_display", &[0])
+        },
+    },
+    OpSpec {
+        name: "party_parse",
+        inputs: Inputs::Operands(&[Operand::Party]),
+        covers: &["Party FromStr"],
+        size_measure: "canonical hexadecimal text bytes",
+        variant: "",
+        contract: "`O(n)` in text bytes",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            let text = hex::encode(&inputs[0]);
+            g.stage_write(text.as_bytes());
+            g.call("ff_party_parse", &[0])
         },
     },
     OpSpec {
@@ -1198,6 +1252,35 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 0, &inputs[0]);
             prep(g, "ff_version_rank", &[1, 0]);
             g.call("ff_rank_display", &[1])
+        },
+    },
+    OpSpec {
+        name: "count_display",
+        inputs: Inputs::Operands(&[Operand::Version]),
+        covers: &["Count Display"],
+        size_measure: "encoded bytes of the version whose minimum count is rendered",
+        variant: "",
+        contract: "superlinear but subquadratic in the count's numeric width",
+        compensation: Compensation::Comparison("n^2"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            prep(g, "ff_count_from_version", &[1, 0]);
+            g.call("ff_count_display", &[1])
+        },
+    },
+    OpSpec {
+        name: "count_parse",
+        inputs: Inputs::Operands(&[Operand::Version]),
+        covers: &["Count FromStr"],
+        size_measure: "encoded bytes of the version whose minimum count is rendered and parsed",
+        variant: "",
+        contract: "`O(n^2)` in text bytes",
+        compensation: Compensation::Claim("n^2"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            prep(g, "ff_count_from_version", &[1, 0]);
+            prep(g, "ff_count_display", &[1]);
+            g.call("ff_count_parse", &[2])
         },
     },
     OpSpec {
@@ -2290,7 +2373,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     // ── representation mechanics ──
     (
-        "Count ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
+        "Count ZERO / From / TryFrom / Add / Sum / Ord / Eq / Hash",
         "the opaque count carrier's own arithmetic and text, not a tree walk; its \
          semantics are priced at the min_ticks panel",
     ),

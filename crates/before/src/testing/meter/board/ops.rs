@@ -109,6 +109,19 @@ fn formatted_len(args: fmt::Arguments<'_>) -> usize {
     len.0
 }
 
+/// Read a hexadecimal formatting result's byte length.
+fn hex_text_output_bytes(result: &dyn std::any::Any) -> usize {
+    if let Some((text, _)) = result.downcast_ref::<(String, Party)>() {
+        text.len()
+    } else {
+        result
+            .downcast_ref::<(String, Version)>()
+            .expect("a hexadecimal display cell keeps its text")
+            .0
+            .len()
+    }
+}
+
 /// Drain a shape iterator while making every yielded item observable.
 fn drain_shape(items: impl IntoIterator) {
     for item in items {
@@ -467,6 +480,41 @@ pub(super) fn ops() -> Vec<Op> {
                     touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (v.encode(), v)))
+            },
+        },
+        Op {
+            name: "version_display",
+            prepare: |f| {
+                let (version, n) = f.version()?;
+                Some(Cell::io(
+                    n,
+                    Floors {
+                        heap: heap_materializes(n * 2),
+                        scan: na(NA_SCAN_BYTE_COPY),
+                        touch: na(NA_TOUCH_NOT_FORCED),
+                    },
+                    hex_text_output_bytes,
+                    move || (version.to_string(), version),
+                ))
+            },
+        },
+        Op {
+            name: "version_parse",
+            prepare: |f| {
+                let (version, n) = f.version()?;
+                let text = version.to_string();
+                Some(Cell::new(
+                    text.len(),
+                    Floors {
+                        heap: heap_materializes(n),
+                        scan: scan_examines(n),
+                        touch: touch_wide_stream(&version),
+                    },
+                    move || {
+                        text.parse::<Version>()
+                            .expect("displayed version text is canonical")
+                    },
+                ))
             },
         },
         Op {
@@ -969,6 +1017,23 @@ pub(super) fn ops() -> Vec<Op> {
                     count_floors(na(NA_HEAP_COUNT_FORMAT)),
                     count_text_output_bytes,
                     move || (formatted_len(format_args!("{count}")), count),
+                ))
+            },
+        },
+        Op {
+            name: "count_parse",
+            prepare: |f| {
+                let count = counts_for_family(f)?
+                    .into_iter()
+                    .max_by_key(|count| count.0.bits())?;
+                let text = count.to_string();
+                Some(Cell::new(
+                    text.len(),
+                    count_floors(count_heap_floor(count_value_bytes(&count))),
+                    move || {
+                        text.parse::<Count>()
+                            .expect("displayed count text is canonical")
+                    },
                 ))
             },
         },
@@ -1892,6 +1957,43 @@ pub(super) fn ops() -> Vec<Op> {
                     touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || (a.encode(), a)))
+            },
+        },
+        Op {
+            name: "party_display",
+            prepare: |f| {
+                let (party, _, _) = f.party_pair()?;
+                let n = party.as_bytes().len();
+                Some(Cell::io(
+                    n,
+                    Floors {
+                        heap: heap_materializes(n * 2),
+                        scan: na(NA_SCAN_BYTE_COPY),
+                        touch: na(NA_TOUCH_ID_TREE),
+                    },
+                    hex_text_output_bytes,
+                    move || (party.to_string(), party),
+                ))
+            },
+        },
+        Op {
+            name: "party_parse",
+            prepare: |f| {
+                let (party, _, _) = f.party_pair()?;
+                let n = party.as_bytes().len();
+                let text = party.to_string();
+                Some(Cell::new(
+                    text.len(),
+                    Floors {
+                        heap: heap_materializes(n),
+                        scan: scan_examines(n),
+                        touch: na(NA_TOUCH_ID_TREE),
+                    },
+                    move || {
+                        text.parse::<Party>()
+                            .expect("displayed party text is canonical")
+                    },
+                ))
             },
         },
         Op {
@@ -3001,6 +3103,39 @@ impl<'de> Deserializer<'de> for OwnedBytes {
     }
 }
 
+/// A binary serde sequence backed by owned `u64` limbs.
+#[cfg(feature = "serde")]
+struct OwnedLimbs(Vec<u64>);
+
+#[cfg(feature = "serde")]
+impl<'de> Deserializer<'de> for OwnedLimbs {
+    type Error = serde::de::value::Error;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_seq(visitor)
+    }
+
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_seq(serde::de::value::SeqDeserializer::new(self.0.into_iter()))
+    }
+
+    fn is_human_readable(&self) -> bool {
+        false
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes
+        byte_buf option unit unit_struct newtype_struct tuple tuple_struct map struct enum
+        identifier ignored_any
+    }
+}
+
 /// Deserialize one binary serde byte field while transferring its allocation.
 #[cfg(feature = "serde")]
 fn serde_from_owned_bytes<T: DeserializeOwned>(bytes: Vec<u8>) -> T {
@@ -3008,9 +3143,16 @@ fn serde_from_owned_bytes<T: DeserializeOwned>(bytes: Vec<u8>) -> T {
         .unwrap_or_else(|error| panic!("board-generated serde bytes must decode: {error}"))
 }
 
+/// Deserialize a binary serde Count field from canonical limbs.
+#[cfg(feature = "serde")]
+fn serde_count_from_limbs(limbs: Vec<u64>) -> Count {
+    <Count as serde::Deserialize>::deserialize(OwnedLimbs(limbs))
+        .unwrap_or_else(|error| panic!("board-generated Count limbs must decode: {error}"))
+}
+
 /// Direct serde deserialization rows for each distinct allocation lifetime.
 #[cfg(feature = "serde")]
-fn serde_decode_ops() -> [Op; 6] {
+fn serde_decode_ops() -> [Op; 7] {
     const OWNED_INPUT: &str = "serde transfers the caller's byte allocation into the decoded \
         value; only validation state may allocate";
     [
@@ -3133,12 +3275,27 @@ fn serde_decode_ops() -> [Op; 6] {
                 )
             },
         },
+        Op {
+            name: "count_serde_deserialize",
+            prepare: |f| {
+                let count = counts_for_family(f)?
+                    .into_iter()
+                    .max_by_key(|count| count.0.bits())?;
+                let limbs = count.limbs().collect::<Vec<_>>();
+                let n = count_input_bytes(&count);
+                Some(Cell::new(
+                    n,
+                    count_floors(count_heap_floor(count_value_bytes(&count))),
+                    move || serde_count_from_limbs(limbs),
+                ))
+            },
+        },
     ]
 }
 
 /// Direct borsh deserialization rows for each distinct allocation lifetime.
 #[cfg(feature = "borsh")]
-fn borsh_decode_ops() -> [Op; 6] {
+fn borsh_decode_ops() -> [Op; 7] {
     [
         Op {
             name: "party_borsh_deserialize",
@@ -3272,6 +3429,25 @@ fn borsh_decode_ops() -> [Op; 6] {
                         ModelSpec::ceiling(DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE),
                     ),
                 )
+            },
+        },
+        Op {
+            name: "count_borsh_deserialize",
+            prepare: |f| {
+                let count = counts_for_family(f)?
+                    .into_iter()
+                    .max_by_key(|count| count.0.bits())?;
+                let bytes =
+                    borsh::to_vec(&count).expect("a board-generated Count serializes to memory");
+                let n = bytes.len();
+                Some(Cell::new(
+                    n,
+                    count_floors(count_heap_floor(count_value_bytes(&count))),
+                    move || {
+                        Count::try_from_slice(&bytes)
+                            .expect("board-generated Count limbs are canonical")
+                    },
+                ))
             },
         },
     ]

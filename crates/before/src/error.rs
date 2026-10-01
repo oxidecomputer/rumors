@@ -68,6 +68,22 @@ pub struct TooWide;
 #[error("invalid rank")]
 pub struct ParseRank;
 
+/// Why text failed to parse as a `before` value.
+///
+/// The error distinguishes malformed text from a well-formed component whose
+/// contents do not encode a valid value of the requested type.
+#[non_exhaustive]
+#[derive(Debug, thiserror::Error)]
+pub enum ParseValue {
+    /// The text does not have the type's documented syntax.
+    #[error("invalid value syntax")]
+    InvalidSyntax,
+    /// The text has the documented syntax, but its contents do not encode a
+    /// valid value of the requested type.
+    #[error("invalid value encoding: {0}")]
+    InvalidEncoding(#[source] Decode),
+}
+
 /// Why bytes failed to decode into a [`Party`](crate::Party),
 /// [`Version`](crate::Version), [`Clock`](crate::Clock), [`Rank`](crate::Rank),
 /// [`Ranked`](crate::Ranked), or [`Span`](crate::Span).

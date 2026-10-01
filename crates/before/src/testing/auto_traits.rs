@@ -34,6 +34,29 @@ assert_impl_all!(crate::error::Crossed: Send, Sync, Unpin);
 assert_impl_all!(crate::error::Decode: Send, Sync, Unpin);
 assert_impl_all!(crate::error::Overlap: Send, Sync, Unpin);
 assert_impl_all!(crate::error::ParseRank: Send, Sync, Unpin);
+assert_impl_all!(crate::error::ParseValue: Send, Sync, Unpin);
 
 assert_impl_all!(crate::iter::PartyForks<'static>: Send, Sync, Unpin);
 assert_impl_all!(crate::iter::ClockForks<'static>: Send, Sync, Unpin);
+
+/// Assert the same owned types implement both optional serialization surfaces.
+macro_rules! assert_serialization_parity {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            #[cfg(feature = "serde")]
+            assert_impl_all!($ty: serde::Serialize, serde::de::DeserializeOwned);
+            #[cfg(feature = "borsh")]
+            assert_impl_all!($ty: borsh::BorshSerialize, borsh::BorshDeserialize);
+        )+
+    };
+}
+
+assert_serialization_parity!(
+    crate::Party,
+    crate::Version,
+    crate::Clock,
+    crate::Rank,
+    crate::Ranked<'static>,
+    crate::Span<'static>,
+    crate::Count,
+);

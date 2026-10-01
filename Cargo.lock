@@ -89,6 +89,7 @@ dependencies = [
  "ciborium",
  "criterion",
  "dsi-bitstream",
+ "hex",
  "indicatif",
  "insta",
  "num-bigint",

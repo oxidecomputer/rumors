@@ -14,6 +14,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "dsi-bitstream",
+ "hex",
  "num-bigint",
  "serde_json",
  "static_assertions",
@@ -35,6 +36,12 @@ checksum = "f5f3e8a7ab0f1148cf7a792807d330f1e417dda3f4f122526e609a83925b4823"
 dependencies = [
  "num-primitive",
 ]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "itoa"

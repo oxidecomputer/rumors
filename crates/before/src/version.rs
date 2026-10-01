@@ -9,9 +9,9 @@ use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
 use std::io::{Read, Result as IoResult, Write};
 
 use crate::bits::Bits;
-use crate::error::Decode;
+use crate::error::{Decode, ParseValue};
 use crate::span::Span;
-use crate::{Count, Party};
+use crate::{text, Count, Party};
 
 #[cfg(any(test, feature = "meter"))]
 pub(crate) mod instrument;
@@ -54,6 +54,10 @@ mod tests;
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`, `a ==
 /// b`, and `a > b` are all false.
+///
+/// [`Display`](core::fmt::Display) and [`FromStr`](core::str::FromStr) use the
+/// lowercase hexadecimal form of the canonical bytes. Parsing also accepts
+/// uppercase hexadecimal letters.
 ///
 /// # Complexity
 ///
@@ -98,6 +102,32 @@ mod tests;
 #[derive(Clone, Eq)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Version(Bits);
+
+/// Renders the version's canonical bytes as lowercase hexadecimal.
+///
+/// Takes `O(n)` time and output space for `n` canonical bytes.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_display.html")))]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
+impl core::fmt::Display for Version {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        text::write_hex(self.as_bytes(), f)
+    }
+}
+
+/// Parses the hexadecimal form produced by [`Display`](core::fmt::Display).
+/// Hexadecimal letters may use either case; prefixes and whitespace are not
+/// accepted.
+///
+/// Takes `O(n)` time and `O(n)` space for `n` text bytes.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_parse.html")))]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` in text bytes")]
+impl core::str::FromStr for Version {
+    type Err = ParseValue;
+
+    fn from_str(text: &str) -> Result<Self, ParseValue> {
+        text::decode_hex(text, |bytes| Version::decode_bytes(bytes.into()))
+    }
+}
 
 /// Hashes the canonical bytes, consistently with `Eq`'s byte compare.
 ///

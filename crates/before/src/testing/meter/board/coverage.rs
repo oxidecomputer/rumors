@@ -286,6 +286,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "ranked_serde_deserialize",
             #[cfg(feature = "serde")]
             "span_serde_deserialize",
+            #[cfg(feature = "serde")]
+            "count_serde_deserialize",
             #[cfg(feature = "borsh")]
             "party_borsh_deserialize",
             #[cfg(feature = "borsh")]
@@ -298,6 +300,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "ranked_borsh_deserialize",
             #[cfg(feature = "borsh")]
             "span_borsh_deserialize",
+            #[cfg(feature = "borsh")]
+            "count_borsh_deserialize",
             "version_encode",
             "version_decode",
             "party_encode",
@@ -312,6 +316,10 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "span_decode",
         ],
     ),
+    ("Party Display", &["party_display"]),
+    ("Party FromStr", &["party_parse"]),
+    ("Version Display", &["version_display"]),
+    ("Version FromStr", &["version_parse"]),
     (
         "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display / FromStr",
         &[
@@ -326,9 +334,11 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "Count ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
-        &["count_clone", "count_add", "count_sum", "count_display"],
+        "Count ZERO / From / TryFrom / Add / Sum / Ord / Eq / Hash",
+        &["count_clone", "count_add", "count_sum"],
     ),
+    ("Count Display", &["count_display"]),
+    ("Count FromStr", &["count_parse"]),
     ("Count::checked_sub", &["count_add"]),
     ("Count::saturating_sub", &["count_add"]),
     (

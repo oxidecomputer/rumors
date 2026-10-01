@@ -16,9 +16,9 @@
 //! in memory.
 
 use crate::bits::Bits;
-use crate::error::Decode;
+use crate::error::{Decode, ParseValue};
 use crate::party::io::PartyReader;
-use crate::{Count, Version};
+use crate::{text, Count, Version};
 
 mod compare;
 mod fork;
@@ -54,6 +54,10 @@ mod tests;
 /// Party`: reuniting is the fallible [`join`](Party::join), which verifies
 /// disjointness itself.
 ///
+/// [`Display`](core::fmt::Display) and [`FromStr`](core::str::FromStr) use the
+/// lowercase hexadecimal form of the canonical bytes. Parsing also accepts
+/// uppercase hexadecimal letters.
+///
 /// Like [`Clock`](crate::Clock), [`Party`] is [`!Clone`](Clone): duplicating a
 /// live party would violate the linearity which interval tree clocks require,
 /// while discarding one would lose its identity share. The type is therefore
@@ -72,6 +76,32 @@ mod tests;
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 #[must_use = "discarding a `Party` loses its share of identity space"]
 pub struct Party(Bits);
+
+/// Renders the party's canonical bytes as lowercase hexadecimal.
+///
+/// Takes `O(n)` time and output space for `n` canonical bytes.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_display.html")))]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
+impl core::fmt::Display for Party {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        text::write_hex(self.as_bytes(), f)
+    }
+}
+
+/// Parses the hexadecimal form produced by [`Display`](core::fmt::Display).
+/// Hexadecimal letters may use either case; prefixes and whitespace are not
+/// accepted.
+///
+/// Takes `O(n)` time and `O(n)` space for `n` text bytes.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_parse.html")))]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` in text bytes")]
+impl core::str::FromStr for Party {
+    type Err = ParseValue;
+
+    fn from_str(text: &str) -> Result<Self, ParseValue> {
+        text::decode_hex(text, |bytes| Party::decode_bytes(bytes.into()))
+    }
+}
 
 // Identity Linearity (the crate docs' second safety rule) is compiler-enforced
 // within a process precisely because `Party` is `!Clone`: every operation that

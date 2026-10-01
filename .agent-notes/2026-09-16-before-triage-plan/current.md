@@ -41,19 +41,17 @@ bounds; targeted differential properties cover the accumulator postcondition,
 alternating cancellation, exact order, and the per-bound storage condition.
 
 The approved public surface is recorded in
-[`api-proposal.md`](api-proposal.md). The core-type increment is complete. The
-text and serialization increment follows it.
+[`api-proposal.md`](api-proposal.md). Its core-type, text, and serialization
+increments are complete.
 
 ## Remaining work
 
-1. **Finish the approved API.** Implement the approved text and serialization
-   forms without changing existing binary wire encodings.
-2. **Settle the remaining verification infrastructure.** Simplify fuzz replay,
+1. **Settle the remaining verification infrastructure.** Simplify fuzz replay,
    the direct 32-bit suite, gate and CI derivation, dependencies, and generated
    assets while preserving each distinct signal.
-3. **Finish the documentation.** Rewrite the crate page and public item docs at
+2. **Finish the documentation.** Rewrite the crate page and public item docs at
    caller altitude; correct stale guideposts; finish the maintainer-prose sweep.
-4. **Reconcile and verify.** Re-read every original finding against the final
+3. **Reconcile and verify.** Re-read every original finding against the final
    tree, run the justified full verification set, and present the integrated
    result for approval.
 

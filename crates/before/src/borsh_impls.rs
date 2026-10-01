@@ -1,11 +1,14 @@
 //! `borsh` support (feature-gated).
 //!
-//! Each type's borsh representation is exactly its canonical byte encoding:
+//! The tree-based types retain exactly their canonical byte encoding:
 //! [`Party::as_bytes`], [`Version::as_bytes`], [`Clock::encode`],
 //! [`Rank::encode`], [`Ranked::encode`], or [`Span::encode`]. The encodings are
 //! self-delimiting, so a decoder finds their ends from the encoding itself; no
 //! borsh length prefix is needed. This also lets values compose inside a larger
 //! borsh stream while preserving their in-memory wire form.
+//!
+//! [`Count`] has no tree encoding. It uses a Borsh sequence of canonical
+//! least-significant-first `u64` limbs; the sequence is empty for zero.
 //!
 //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
 //! [`Party::decode`]/[`Clock::decode`] do.
@@ -16,10 +19,11 @@ use num_bigint::BigUint;
 
 use crate::{
     bits::{BitRead, Bits, BitsReader},
+    count::CanonicalLimbs,
     error::Decode,
     span::Span,
     testing::instrument::scan,
-    Clock, Party, Rank, Ranked, Version,
+    Clock, Count, Party, Rank, Ranked, Version,
 };
 
 /// A bit reader which consumes only one canonical tree.
@@ -290,6 +294,35 @@ impl BorshDeserialize for Span<'static> {
             Admission::Dominates => Version::from_canonical(Bits::from_canonical(bytes.into())),
         };
         Ok(Span::owned(lo, hi))
+    }
+}
+
+/// Encodes a count as its least-significant-first `u64` limbs. Borsh's sequence
+/// length prefixes the limbs; zero is the empty sequence.
+impl BorshSerialize for Count {
+    fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        let len = u32::try_from(self.limbs().len())
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "count has too many limbs"))?;
+        len.serialize(writer)?;
+        for limb in self.limbs() {
+            limb.serialize(writer)?;
+        }
+        Ok(())
+    }
+}
+
+/// Decodes canonical least-significant-first `u64` limbs. A nonempty sequence
+/// ending in zero is rejected as redundant.
+impl BorshDeserialize for Count {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let len = u32::deserialize_reader(reader)? as usize;
+        let mut limbs = CanonicalLimbs::new();
+        for _ in 0..len {
+            limbs.push(u64::deserialize_reader(reader)?);
+        }
+        limbs
+            .finish()
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "count has a trailing zero limb"))
     }
 }
 
