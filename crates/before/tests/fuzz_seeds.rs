@@ -1,13 +1,12 @@
 //! Canonicity gate for the committed fuzz seed corpus.
 //!
-//! The corpus rots silently when the wire format moves: a stale seed
-//! decodes as nothing (or as the wrong value) and quietly stops seeding
-//! the fuzzer with what it was written to represent. These tests hold
-//! `fuzz/seeds/` byte-identical to the live derivation
-//! (`tests/support/fuzz_seed_set.rs`) and hold every seed to the
-//! contract it seeds — the decode targets' round-trips, the
-//! differential target's rejection witnesses — so format drift is a
-//! red gate with a one-command fix (`cargo run -p before --example fuzz_seeds`).
+//! The corpus rots silently when the wire format moves: a stale seed decodes as
+//! nothing (or as the wrong value) and quietly stops seeding the fuzzer with
+//! what it was written to represent. These tests hold `fuzz/seeds/`
+//! byte-identical to the live derivation (`tests/support/fuzz_seed_set.rs`) and
+//! hold every seed to the contract it seeds — the decode targets' round-trips,
+//! the differential target's rejection witnesses — so format drift is a red
+//! gate with a one-command fix (`cargo run -p before --example fuzz_seeds`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -17,6 +16,8 @@ use before::{error::Decode, Clock, Party, Rank, Ranked, Span, Version};
 
 #[path = "support/fuzz_seed_set.rs"]
 mod fuzz_seed_set;
+
+use fuzz_seed_set::input::{law_input, operations_input, Operations, Target};
 
 /// The committed seed root.
 fn seeds_root() -> PathBuf {
@@ -29,14 +30,16 @@ fn seeds_root() -> PathBuf {
 #[test]
 fn committed_seeds_match_the_live_derivation() {
     for seed in fuzz_seed_set::seed_set() {
-        let path = seeds_root().join(seed.target).join(seed.name);
+        let path = seeds_root().join(seed.target.name()).join(seed.name);
         let committed = fs::read(&path)
             .unwrap_or_else(|err| panic!("reading {} failed: {err}", path.display()));
         assert_eq!(
-            committed, seed.bytes,
+            committed,
+            seed.bytes,
             "{}/{} differs from the live derivation: regenerate with \
              `cargo run -p before --example fuzz_seeds` and commit",
-            seed.target, seed.name,
+            seed.target.name(),
+            seed.name,
         );
     }
 }
@@ -51,7 +54,7 @@ fn seed_directories_hold_exactly_the_set_of_record() {
     let mut expected: std::collections::BTreeMap<String, BTreeSet<String>> = Default::default();
     for seed in fuzz_seed_set::seed_set() {
         expected
-            .entry(seed.target.to_string())
+            .entry(seed.target.name().to_string())
             .or_default()
             .insert(seed.name.to_string());
     }
@@ -67,6 +70,14 @@ fn seed_directories_hold_exactly_the_set_of_record() {
         })
         .collect();
     let expected_targets: BTreeSet<String> = expected.keys().cloned().collect();
+    let all_targets = Target::ALL
+        .into_iter()
+        .map(|target| target.name().to_string())
+        .collect();
+    assert_eq!(
+        expected_targets, all_targets,
+        "every fuzz target must have committed seeds"
+    );
     assert_eq!(
         listed_targets, expected_targets,
         "fuzz/seeds holds directories outside the targets of record (or is missing some)"
@@ -99,7 +110,7 @@ fn seed_directories_hold_exactly_the_set_of_record() {
 #[test]
 fn decode_seeds_decode_as_named_and_round_trip() {
     for seed in fuzz_seed_set::seed_set() {
-        if seed.target != "fuzz_decode" {
+        if seed.target != Target::Decode {
             continue;
         }
         let bytes = &seed.bytes;
@@ -171,7 +182,7 @@ fn decode_seeds_decode_as_named_and_round_trip() {
 #[test]
 fn differential_seeds_exercise_their_error_boundaries() {
     for seed in fuzz_seed_set::seed_set() {
-        if seed.target != "fuzz_decode_differential" {
+        if seed.target != Target::DecodeDifferential {
             continue;
         }
         let bytes = &seed.bytes;
@@ -239,52 +250,68 @@ fn differential_seeds_exercise_their_error_boundaries() {
                 );
                 assert_eq!(&span.encode(), bytes, "span seed re-encode is not stable");
             }
+            "count_borsh_wide" => {
+                let limbs = borsh::from_slice::<Vec<u64>>(bytes)
+                    .expect("the borsh seed carries a limb sequence");
+                assert_eq!(limbs, [0, 0, 1], "the seed must reach a wide Count");
+            }
+            "count_borsh_redundant_zero" => {
+                let limbs = borsh::from_slice::<Vec<u64>>(bytes)
+                    .expect("the borsh seed carries a limb sequence");
+                assert_eq!(limbs, [0], "the seed must end in a redundant zero limb");
+            }
+            "count_postcard_wide" => {
+                let limbs = postcard::from_bytes::<Vec<u64>>(bytes)
+                    .expect("the postcard seed carries a limb sequence");
+                assert_eq!(limbs, [0, 0, 1], "the seed must reach a wide Count");
+            }
+            "count_postcard_redundant_zero" => {
+                let limbs = postcard::from_bytes::<Vec<u64>>(bytes)
+                    .expect("the postcard seed carries a limb sequence");
+                assert_eq!(limbs, [0], "the seed must end in a redundant zero limb");
+            }
             other => panic!("unknown differential seed {other}"),
         }
     }
 }
 
-/// Carve the next length-prefixed chunk off a `fuzz_laws` seed, exactly as
-/// the target's framing does (part of the wire contract the seed set
-/// documents).
-fn laws_chunk<'d>(data: &mut &'d [u8]) -> &'d [u8] {
-    let Some((&len, rest)) = data.split_first() else {
-        *data = &[];
-        return &[];
-    };
-    let split = (len as usize).min(rest.len());
-    let (bytes, tail) = rest.split_at(split);
-    *data = tail;
-    bytes
-}
-
-/// Carve one list script — `[arity: u8][pool indices]` — off a `fuzz_laws`
-/// seed, exactly as the target's framing does.
-///
-/// Asserts the seed's bytes are in-band as written — the arity below the
-/// target's fold and every index below its pool — so no seed byte silently
-/// aliases a smaller value than it was written to represent.
-fn laws_script(name: &str, data: &mut &[u8], pool: usize) -> usize {
-    const ARITY_SPAN: usize = 18; // the target's arity band, per its framing
-    let (&arity, rest) = data
-        .split_first()
-        .unwrap_or_else(|| panic!("{name}: input exhausted before a list script's arity byte"));
-    *data = rest;
-    assert!(
-        usize::from(arity) < ARITY_SPAN,
-        "{name}: script arity {arity} is out of the target's arity band"
-    );
-    for _ in 0..arity {
-        let (&index, rest) = data
-            .split_first()
-            .unwrap_or_else(|| panic!("{name}: input exhausted inside a list script"));
-        *data = rest;
-        assert!(
-            usize::from(index) < pool,
-            "{name}: script index {index} is outside its pool of {pool}"
-        );
+/// The two operation seeds reach both target modes with a canonical clock;
+/// the script seed selects every operation and the message seed carries a
+/// canonical version concurrent with that clock.
+#[test]
+fn operation_seeds_drive_both_modes_and_every_operation() {
+    for seed in fuzz_seed_set::seed_set() {
+        if seed.target != Target::DecodeOperations {
+            continue;
+        }
+        let input = operations_input(&seed.bytes)
+            .unwrap_or_else(|| panic!("{} does not contain an operations frame", seed.name));
+        let clock = Clock::decode(input.clock)
+            .unwrap_or_else(|error| panic!("{} clock fails decode: {error}", seed.name));
+        match (seed.name, input.operations) {
+            ("clock_then_ops", Operations::Script) => {
+                let selected = input
+                    .tail
+                    .iter()
+                    .map(|byte| byte % 8)
+                    .collect::<BTreeSet<_>>();
+                assert_eq!(
+                    selected,
+                    (0..8).collect(),
+                    "the seed must select every operation"
+                );
+            }
+            ("clock_then_msg", Operations::Message) => {
+                let message = Version::decode(input.tail)
+                    .unwrap_or_else(|error| panic!("message fails decode: {error}"));
+                assert!(
+                    clock.version().concurrent(&message),
+                    "the message must exercise concurrent receive"
+                );
+            }
+            (name, mode) => panic!("{name} has the wrong operation mode: {mode:?}"),
+        }
     }
-    usize::from(arity)
 }
 
 /// Every `fuzz_laws` seed decodes positionally per the target's framing —
@@ -295,57 +322,66 @@ fn laws_script(name: &str, data: &mut &[u8], pool: usize) -> usize {
 /// value it was written for. And the corpus keeps its deliberate tails: the
 /// wide-gamma seed's first version is a magnitude past `u64::MAX` (a
 /// 21+-digit leaf, the decode tier random bytes essentially never reach),
-/// some version script crosses the balanced counter's merged–merged carry
-/// inside the first octave (arity 4..=9), and some crosses the second
-/// octave (arity 15+).
+/// some version script reaches the fold's first regrouping boundary (length
+/// 4..=9), and some crosses its second power-of-two boundary (length 15+).
 #[test]
 fn laws_seeds_decode_per_framing_and_stay_wide() {
     let mut saw_wide = false;
-    let mut saw_carry = false;
-    let mut saw_second_octave = false;
+    let mut saw_first_regrouping = false;
+    let mut saw_second_boundary = false;
+    let mut saw_repeated_party = false;
+    let mut saw_repeated_clock = false;
     for seed in fuzz_seed_set::seed_set() {
-        if seed.target != "fuzz_laws" {
+        if seed.target != Target::Laws {
             continue;
         }
-        let mut data = &seed.bytes[..];
-        let data = &mut data;
-        let versions: Vec<Version> = (0..3)
-            .map(|position| {
-                Version::decode(laws_chunk(data)).unwrap_or_else(|err| {
-                    panic!(
-                        "{}: version chunk {position} fails decode: {err}",
-                        seed.name
-                    )
+        let input = law_input(&seed.bytes);
+        let versions: Vec<Version> = input
+            .versions
+            .into_iter()
+            .enumerate()
+            .map(|(position, bytes)| {
+                Version::decode(bytes).unwrap_or_else(|error| {
+                    panic!("{}: version {position} fails decode: {error}", seed.name)
                 })
             })
             .collect();
-        for position in 0..2 {
-            let _ = Party::decode(laws_chunk(data)).unwrap_or_else(|err| {
-                panic!("{}: party chunk {position} fails decode: {err}", seed.name)
+        for (position, bytes) in input.parties.into_iter().enumerate() {
+            let _ = Party::decode(bytes).unwrap_or_else(|error| {
+                panic!("{}: party {position} fails decode: {error}", seed.name)
             });
         }
-        let _ = Clock::decode(laws_chunk(data))
-            .unwrap_or_else(|err| panic!("{}: clock chunk fails decode: {err}", seed.name));
-        let version_arity = laws_script(seed.name, data, 4);
-        laws_script(seed.name, data, 3);
-        laws_script(seed.name, data, 3);
+        let _ = Clock::decode(input.clock)
+            .unwrap_or_else(|error| panic!("{}: clock fails decode: {error}", seed.name));
         assert!(
-            data.is_empty(),
+            input.remainder.is_empty(),
             "{}: bytes past the framed chunks and scripts",
             seed.name
         );
 
         saw_wide |= u64::try_from(&versions[0].min_ticks()).is_err();
-        saw_carry |= (4..=9).contains(&version_arity);
-        saw_second_octave |= version_arity >= 15;
+        saw_first_regrouping |= (4..=9).contains(&input.version_indices.len());
+        saw_second_boundary |= input.version_indices.len() >= 15;
+        saw_repeated_party |=
+            input.party_indices.iter().collect::<BTreeSet<_>>().len() < input.party_indices.len();
+        saw_repeated_clock |=
+            input.clock_indices.iter().collect::<BTreeSet<_>>().len() < input.clock_indices.len();
     }
     assert!(saw_wide, "no fuzz_laws seed reaches the wide-gamma tier");
     assert!(
-        saw_carry,
-        "no fuzz_laws seed crosses the merged–merged carry in the first octave"
+        saw_first_regrouping,
+        "no fuzz_laws seed reaches the first balanced-fold regrouping"
     );
     assert!(
-        saw_second_octave,
-        "no fuzz_laws seed crosses the second arity octave"
+        saw_second_boundary,
+        "no fuzz_laws seed crosses the second balanced-fold boundary"
+    );
+    assert!(
+        saw_repeated_party,
+        "no fuzz_laws seed exercises duplicate party refusal"
+    );
+    assert!(
+        saw_repeated_clock,
+        "no fuzz_laws seed exercises duplicate clock refusal"
     );
 }

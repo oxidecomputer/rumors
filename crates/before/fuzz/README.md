@@ -1,74 +1,62 @@
-# `before` fuzz targets (PROG-5 / COV-7)
+# `before` fuzzing
 
-Coverage-guided fuzzing of the byte codec and the decode-then-operate path, via
-[`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) / libFuzzer.
-
-This is a **standalone workspace** (note the empty `[workspace]` table in `Cargo.toml`):
-it is detached from the parent `rumors` workspace on purpose, so the before `clippy`/`nextest`
-gate never tries to build it. Fuzzing needs a nightly toolchain and libFuzzer; the gate
-does not.
-
-## Prerequisites
-
-```sh
-rustup toolchain install nightly
-cargo install cargo-fuzz
-```
+This detached workspace uses libFuzzer to search byte strings and operation
+sequences that the ordinary generators do not choose. The target bodies live
+in `src/targets/`; the files in `fuzz_targets/` only connect them to
+libFuzzer.
 
 ## Targets
 
-- **`fuzz_decode`** feeds arbitrary bytes to every top-level `decode` —
-  `Party`, `Version`, `Clock`, `Rank`, `Ranked`, and `Span`. Asserts the key
-  invariant inline: an accepted value re-encodes stably and decodes back to
-  itself (so a non-canonical accept is a crash, not a silent pass). The
-  structural `is_normal`-on-accept form of the same invariant is checked by
-  the in-tree proptest `clock::tests::h34_decode_never_panics`.
-- **`fuzz_decode_differential`** feeds the same arbitrary bytes to every
-  decode that has a composed public-API counterpart and asserts agreement on
-  acceptance, value plus re-encoding, and rejection class: the fused `Span` and
-  `Ranked` decodes against their carve-decode-validate spellings, borsh's
-  self-delimiting prefix reads against the whole-slice raw decodes, and
-  postcard (the byte-carrying serde format of record) against its `Vec<u8>`
-  framing plus raw decode. Error classes are what round-trip fuzzing cannot
-  see: two paths both rejecting an input while disagreeing on *which* error
-  breaks the documented precedence (structural errors outrank the pair
-  verdict).
-- **`fuzz_decode_ops`** decodes a value from the front of the input, then uses
-  the trailing bytes as an op script (tick / fork / join / sync / send / receive
-  + observers). Pushes adversarially-shaped but canonical trees through the
-  skyline kernels every operation runs on.
-- **`fuzz_laws`** decodes versions, parties, and a clock from length-prefixed
-  chunks, then asserts every named law in `before::testing::laws` on them — the same
-  collection the in-tree law proptests drive, here fed hostile-but-canonical
-  values. A violated law panics with the law's name, so the fuzzer minimizes
-  straight to the algebraic defect.
+- **`fuzz_decode`** is the fast, transport-independent pass over every raw
+  decoder. An accepted input must be the value's exact canonical encoding and
+  must decode identically a second time.
+- **`fuzz_decode_differential`** compares raw, fused, borsh, and postcard
+  decoding. It checks values, consumed bytes, and rejection classes, including
+  `Span` and `Ranked` validation. It also compares `Count` with its public
+  limb sequence.
+- **`fuzz_decode_ops`** decodes a clock before driving public operations or
+  receiving a decoded message. This exposes the algorithms to valid stored
+  shapes that API-generated traces may not reach.
+- **`fuzz_laws`** evaluates the crate's shared algebraic laws over decoded
+  versions, parties, and clocks. Invalid chunks use canonical starting values,
+  so every input runs every law group while successful decodes earn new
+  coverage.
 
-## Run
+Every target also rejects a survivable allocation spike above the fuzz
+harness's absolute emergency cap. The resource board and fuzz-fit, not this
+coarse guard, establish the library's proportional cost contracts.
 
-From this directory:
+## Cadence
+
+Verification separates target correctness from input discovery:
+
+1. The ordinary gate builds every target and replays every committed seed
+   through the exact target body. This deterministic pass catches broken
+   framing, assertions, and transport comparisons.
+2. `just all` runs a short coverage-guided smoke over every target.
+3. Longer exploratory sessions use the root justfile's `fuzz` recipe with a
+   larger duration. `just --show fuzz` displays the command of record.
+
+Fuzzing requires the pinned nightly toolchain and
+[cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz). A crash is written under
+`artifacts/<target>/`; reproduce it with
+`cargo +nightly fuzz run <target> artifacts/<target>/<crash-file>`.
+
+## Committed seeds
+
+`seeds/<target>/` contains canonical values, rejection-boundary witnesses,
+operation sequences, and law inputs that random mutation is unlikely to
+discover. The shared framing in `tests/support/fuzz_input.rs` is used by both
+the targets and seed derivation. `tests/support/fuzz_seed_set.rs` derives the
+seed bytes from the live API, and `tests/fuzz_seeds.rs` checks their names,
+bytes, and intended semantic cases.
+
+After a deliberate wire or framing change, regenerate the corpus with:
 
 ```sh
-cargo +nightly fuzz build   # build all targets
-cargo +nightly fuzz run fuzz_decode              corpus/fuzz_decode              seeds/fuzz_decode              -- -max_total_time=20
-cargo +nightly fuzz run fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time=20
-cargo +nightly fuzz run fuzz_decode_ops          corpus/fuzz_decode_ops          seeds/fuzz_decode_ops          -- -max_total_time=20
-cargo +nightly fuzz run fuzz_laws                corpus/fuzz_laws                seeds/fuzz_laws                -- -max_total_time=20
+cargo run -p before --example fuzz_seeds
 ```
 
-Drop `-max_total_time` to fuzz indefinitely. Crashes land in `artifacts/<target>/`;
-reproduce with `cargo +nightly fuzz run <target> artifacts/<target>/<crash-file>`.
-
-## Seeds
-
-`seeds/<target>/` holds a small committed seed corpus (canonical encodings of every
-wire type, decode-then-ops scripts, law-target chunk inputs, and the differential
-target's rejection witnesses — including
-wide-gamma bases, whose 64+-zero unary prefixes random bytes essentially never
-produce). Nothing consumes it
-implicitly: a run reads it only when the seed directory is named as an extra corpus
-argument, as the invocations above (and the `just fuzz` recipe) do — libFuzzer reads
-every named directory and writes new discoveries to the first, so the committed seeds
-stay pristine. The live `corpus/`, `artifacts/`, and `target/` directories are
-git-ignored. The seeds derive from the live public API: `tests/fuzz_seeds.rs` holds the
-directory byte-identical to the derivation, and
-`cargo run -p before --example fuzz_seeds` regenerates it.
+The live `corpus/`, `artifacts/`, and `target/` directories are
+git-ignored. Coverage-guided runs read committed seeds from a second corpus
+directory and write discoveries only to the live corpus.

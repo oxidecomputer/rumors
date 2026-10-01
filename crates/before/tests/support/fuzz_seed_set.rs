@@ -16,6 +16,14 @@
 
 use before::{Clock, Count, Party, Ranked, Span, Version};
 
+// The writer example uses only the encoding half; the test and detached fuzz
+// workspace use the parsers and target list from the same file.
+#[allow(dead_code)]
+#[path = "fuzz_input.rs"]
+pub mod input;
+
+use input::{encode_laws, encode_operations, Operations, Target};
+
 /// Returns `2^exponent` as an unbounded tick count.
 fn power_of_two(exponent: u32) -> Count {
     let mut count = Count::from(1u8);
@@ -36,7 +44,7 @@ fn uniform(count: impl Into<Count>) -> Version {
 /// One committed seed file: its fuzz target, file name, and exact bytes.
 pub struct Seed {
     /// The fuzz target directory under `fuzz/seeds/`.
-    pub target: &'static str,
+    pub target: Target,
     /// The file name inside the target directory.
     pub name: &'static str,
     /// The file's exact bytes.
@@ -45,11 +53,10 @@ pub struct Seed {
 
 /// Every seed file of record, derived from the live API.
 ///
-/// The `fuzz_decode` seeds are canonical encodings of a small family of
-/// known values (the seed clock, a forked pair, split parties, a nested
-/// version); the `fuzz_decode_ops` seeds are decode-then-operate scripts
-/// in that target's framing (flavour byte, length-prefixed value bytes,
-/// one op per trailing byte). Deterministic: no randomness, no clocks.
+/// The decode seeds are canonical encodings and deliberate rejection
+/// witnesses. The operation and law seeds use the framing shared with their
+/// target bodies. Derivation is deterministic: it uses neither randomness nor
+/// wall-clock time.
 pub fn seed_set() -> Vec<Seed> {
     let mut seeds = Vec::new();
 
@@ -57,7 +64,7 @@ pub fn seed_set() -> Vec<Seed> {
     // canonical clock, and two siblings whose parties are proper halves.
     let mut a = Clock::seed();
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "clock_seed",
         bytes: a.encode(),
     });
@@ -65,12 +72,12 @@ pub fn seed_set() -> Vec<Seed> {
     a.tick();
     b.tick();
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "clock_forked_a",
         bytes: a.encode(),
     });
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "clock_forked_b",
         bytes: b.encode(),
     });
@@ -79,19 +86,19 @@ pub fn seed_set() -> Vec<Seed> {
     // level deeper.
     let mut whole = Clock::seed();
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "party_seed",
         bytes: whole.party().encode(),
     });
     let mut half = whole.fork();
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "party_split",
         bytes: whole.party().encode(),
     });
     let quarter = half.fork();
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "party_nested",
         bytes: quarter.party().encode(),
     });
@@ -99,7 +106,7 @@ pub fn seed_set() -> Vec<Seed> {
     // Versions: the empty version, and a nested tree built from a forked
     // history (concurrent ticks joined through sync).
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "version_seed",
         bytes: Version::new().encode(),
     });
@@ -115,7 +122,7 @@ pub fn seed_set() -> Vec<Seed> {
     z.tick();
     x.sync(&mut z).expect("forked clocks are disjoint");
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "version_nested",
         bytes: x.version().encode(),
     });
@@ -130,7 +137,7 @@ pub fn seed_set() -> Vec<Seed> {
     // `0`, left leaf `1` with height gamma(0) `1`, right leaf `1` with
     // delta zigzag(-1) `010`, then the padding marker — 0b0111_0101.
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "version_negative_height",
         bytes: vec![0x75],
     });
@@ -139,7 +146,7 @@ pub fn seed_set() -> Vec<Seed> {
     // delta zigzag(0) `1` — nine live bits, 0b0100_1101 then `1`, the
     // padding marker, and six zeros.
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "version_zero_sibling",
         bytes: vec![0x4D, 0xC0],
     });
@@ -149,14 +156,14 @@ pub fn seed_set() -> Vec<Seed> {
     let newer = x.version().clone();
 
     // Ranks, ranked keys, and spans: canonical encodings of the remaining
-    // wire types, so the decode target's corpus reaches every roster row.
+    // wire types, so the decode target's corpus reaches every supported type.
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "rank_nested",
         bytes: newer.rank().encode(),
     });
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "ranked_nested",
         bytes: Ranked::from(&newer).encode(),
     });
@@ -164,7 +171,7 @@ pub fn seed_set() -> Vec<Seed> {
         .expect("one history's versions are ordered")
         .encode();
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "span_ordered",
         bytes: span_ordered.clone(),
     });
@@ -175,12 +182,12 @@ pub fn seed_set() -> Vec<Seed> {
     // incorrect error ordering (a pair verdict pronounced before
     // the padding check) crashes the very first smoke run.
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "span_ordered",
         bytes: span_ordered.clone(),
     });
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "ranked_nested",
         bytes: Ranked::from(&newer).encode(),
     });
@@ -189,14 +196,14 @@ pub fn seed_set() -> Vec<Seed> {
     // plain byte-sequence framing, so the frame derives from the
     // encoding alone (no serde feature needed here).
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "postcard_span",
         bytes: postcard::to_allocvec(&span_ordered)
             .expect("postcard serialization to a Vec is infallible"),
     });
     // A strictly crossed pair: the join strictly below the meet.
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "span_crossed",
         bytes: [newer.encode(), older.encode()].concat(),
     });
@@ -205,7 +212,7 @@ pub fn seed_set() -> Vec<Seed> {
     // walk's Equal verdict — plus both static stream buffers, through
     // every differential arm.
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "span_coincident",
         bytes: [Version::new().encode(), Version::new().encode()].concat(),
     });
@@ -214,7 +221,7 @@ pub fn seed_set() -> Vec<Seed> {
     let mut padded_empty = Version::new().encode();
     padded_empty[0] |= 0x04;
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "span_crossed_padding",
         bytes: [older.encode(), padded_empty].concat(),
     });
@@ -225,21 +232,21 @@ pub fn seed_set() -> Vec<Seed> {
     // documented fused/composed divergence, the height-dip
     // subsumption.
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "span_negative_join",
         bytes: [Version::new().encode(), vec![0x75]].concat(),
     });
     // A complete span followed by a spurious byte: the borsh prefix read
     // accepts and leaves a remainder; the whole-slice decode must reject.
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "span_trailing",
         bytes: [span_ordered, vec![0x00]].concat(),
     });
     // A rank prefix the version does not measure: well-formed components
     // no encode ever pairs.
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "ranked_mismatched",
         bytes: [newer.rank().encode(), older.encode()].concat(),
     });
@@ -251,97 +258,87 @@ pub fn seed_set() -> Vec<Seed> {
     // between the reader and slice entry points (`UnexpectedEof` is exactly raw
     // `Truncated`).
     seeds.push(Seed {
-        target: "fuzz_decode_differential",
+        target: Target::DecodeDifferential,
         name: "version_flush_cut",
         bytes: uniform(7u8).encode()[..1].to_vec(),
     });
+    // Count's transport-only representation is a canonical sequence of
+    // least-significant-first u64 limbs. Wide and redundant-zero sequences
+    // exercise the accept and canonicality arms in both formats.
+    let wide_limbs = vec![0_u64, 0, 1];
+    let redundant_zero = vec![0_u64];
+    seeds.push(Seed {
+        target: Target::DecodeDifferential,
+        name: "count_borsh_wide",
+        bytes: borsh::to_vec(&wide_limbs).expect("serializing a Vec cannot fail"),
+    });
+    seeds.push(Seed {
+        target: Target::DecodeDifferential,
+        name: "count_borsh_redundant_zero",
+        bytes: borsh::to_vec(&redundant_zero).expect("serializing a Vec cannot fail"),
+    });
+    seeds.push(Seed {
+        target: Target::DecodeDifferential,
+        name: "count_postcard_wide",
+        bytes: postcard::to_allocvec(&wide_limbs).expect("serializing a Vec cannot fail"),
+    });
+    seeds.push(Seed {
+        target: Target::DecodeDifferential,
+        name: "count_postcard_redundant_zero",
+        bytes: postcard::to_allocvec(&redundant_zero).expect("serializing a Vec cannot fail"),
+    });
 
-    // Decode-then-ops scripts, in fuzz_decode_ops framing: flavour byte,
-    // 1-byte length prefix, the value bytes, then the op script. The
-    // framing and the op indices below are a wire contract with
-    // `fuzz/fuzz_targets/fuzz_decode_ops.rs` (its `run` carves the value,
-    // its `drive_clock` op table is the `% 8` dispatch the script bytes
-    // select from); a change on either side means regenerating the seeds.
+    // Decode-then-operate inputs. The shared writer fixes the framing; these
+    // bytes choose one complete lap of the script dispatch and one concurrent
+    // message reception.
     let mut clock = Clock::seed();
     let mut sibling = clock.fork();
     clock.tick();
     sibling.tick();
+    let clock_branch = clock.version().clone();
+    let sibling_branch = sibling.version().clone();
+
+    seeds.push(Seed {
+        target: Target::DecodeOperations,
+        name: "clock_then_ops",
+        bytes: encode_operations(
+            Operations::Script,
+            &clock.encode(),
+            &[0, 1, 3, 5, 2, 4, 6, 7],
+        ),
+    });
+    seeds.push(Seed {
+        target: Target::DecodeOperations,
+        name: "clock_then_msg",
+        bytes: encode_operations(
+            Operations::Message,
+            &clock.encode(),
+            &sibling.version().encode(),
+        ),
+    });
+
+    // Synchronize the pair for the clock-valued law input while retaining the
+    // concurrent branch versions above for the version-valued laws.
     clock
         .sync(&mut sibling)
         .expect("forked clocks are disjoint");
-    let clock_bytes = clock.encode();
-    let len = u8::try_from(clock_bytes.len()).expect("seed clocks encode within one length byte");
 
-    // Flavour 0: drive the clock op set (tick, fork, join, sync, send/recv,
-    // compare, fused multi-tick — one full lap of the script's op table).
-    let mut ops = vec![0u8, len];
-    ops.extend_from_slice(&clock_bytes);
-    ops.extend_from_slice(&[0, 1, 3, 5, 2, 4, 6, 7]);
+    // A live family: two concurrent branch versions, the empty version, and
+    // the two disjoint parties of a synchronized clock pair. A five-item
+    // version list crosses the balanced fold's first regrouping boundary and
+    // repeats the empty version. The four-item party and clock lists repeat
+    // aliases, which exercises overlap rejection.
     seeds.push(Seed {
-        target: "fuzz_decode_ops",
-        name: "clock_then_ops",
-        bytes: ops,
-    });
-
-    // Flavour 1: compare against, then receive, a canonical message (the
-    // sibling's version, concurrent to the clock's own history).
-    let mut msg = vec![1u8, len];
-    msg.extend_from_slice(&clock_bytes);
-    msg.extend_from_slice(&sibling.version().encode());
-    seeds.push(Seed {
-        target: "fuzz_decode_ops",
-        name: "clock_then_msg",
-        bytes: msg,
-    });
-
-    // Law-target inputs, in fuzz_laws framing: six length-prefixed chunks —
-    // `[len: u8][bytes]` each — decoded positionally as three Versions, two
-    // Parties, and a Clock, then three list scripts — `[arity: u8][pool
-    // indices: one byte per element]`, versions (pool of 4) then parties
-    // (pool of 3) then clocks (pool of 3) — feeding the variadic law
-    // groups. The framing is a wire contract with
-    // `fuzz/fuzz_targets/fuzz_laws.rs` (its `chunk` carves the values in
-    // this order, its `picks` reads the scripts); a change on either side
-    // means regenerating the seeds.
-    let laws_chunks =
-        |versions: [&Version; 3], parties: [&Party; 2], clock: &Clock, scripts: [&[u8]; 3]| {
-            let mut bytes = Vec::new();
-            let mut push = |encoded: Vec<u8>| {
-                let len =
-                    u8::try_from(encoded.len()).expect("seed values encode within one length byte");
-                bytes.push(len);
-                bytes.extend_from_slice(&encoded);
-            };
-            for version in versions {
-                push(version.encode());
-            }
-            for party in parties {
-                push(party.encode());
-            }
-            push(clock.encode());
-            for script in scripts {
-                let arity = u8::try_from(script.len())
-                    .expect("seed list scripts stay within one arity byte");
-                bytes.push(arity);
-                bytes.extend_from_slice(script);
-            }
-            bytes
-        };
-
-    // A live family: the synced clock's nested version, the sibling's
-    // concurrent version, the empty version, and the two disjoint sibling
-    // parties around the clock itself. The scripts cross the balanced
-    // counter's first-octave boundaries: an arity-5 version list (the
-    // merged–merged carry at four, then the drain) with a repeat and the
-    // empty version, and arity-4 party and clock lists whose repeats are
-    // aliases (the refusal arm).
-    seeds.push(Seed {
-        target: "fuzz_laws",
+        target: Target::Laws,
         name: "laws_family",
-        bytes: laws_chunks(
-            [clock.version(), sibling.version(), &Version::new()],
-            [clock.party(), sibling.party()],
-            &clock,
+        bytes: encode_laws(
+            [
+                &clock_branch.encode(),
+                &sibling_branch.encode(),
+                &Version::new().encode(),
+            ],
+            [clock.party().as_bytes(), sibling.party().as_bytes()],
+            &clock.encode(),
             [&[0, 1, 2, 3, 0], &[0, 1, 2, 0], &[0, 1, 2, 0]],
         ),
     });
@@ -364,22 +361,26 @@ pub fn seed_set() -> Vec<Seed> {
     let mut quarter_owner = Clock::seed();
     let mut half = quarter_owner.fork();
     let quarter = half.fork();
-    // The second-octave scripts: arities 17/16/15 (a lone input under a
-    // weight-4 carry; the full carry; a four-group drain), cycling their
-    // pools so wide-gamma values ride through every combine weight.
+    // Lengths 15, 16, and 17 cross the fold's second power-of-two boundary.
+    // Cycling the pools carries wide values through each regrouping case.
     let deep_versions: Vec<u8> = (0..17u8).map(|i| i % 4).collect();
     let deep_parties: Vec<u8> = (0..16u8).map(|i| i % 3).collect();
     let deep_clocks: Vec<u8> = (0..15u8).map(|i| i % 3).collect();
     seeds.push(Seed {
-        target: "fuzz_laws",
+        target: Target::Laws,
         name: "laws_wide_gamma",
-        bytes: laws_chunks(
-            [&wide_leaf, &wide_nested, clock.version()],
-            [half.party(), quarter.party()],
+        bytes: encode_laws(
+            [
+                &wide_leaf.encode(),
+                &wide_nested.encode(),
+                &clock.version().encode(),
+            ],
+            [half.party().as_bytes(), quarter.party().as_bytes()],
             &Clock::from_parts(
                 quarter_owner.party().dangerously_alias(),
                 wide_nested.clone(),
-            ),
+            )
+            .encode(),
             [&deep_versions, &deep_parties, &deep_clocks],
         ),
     });
@@ -391,17 +392,17 @@ pub fn seed_set() -> Vec<Seed> {
     // wide bases — shapes random bytes essentially never reach (the same
     // ~2^-64 unary-prefix argument as the laws seeds above).
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "rank_wide",
         bytes: wide_nested.rank().encode(),
     });
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "ranked_wide",
         bytes: Ranked::from(&wide_nested).encode(),
     });
     seeds.push(Seed {
-        target: "fuzz_decode",
+        target: Target::Decode,
         name: "span_wide",
         bytes: Span::new(&wide_nested, &wide_leaf)
             .expect("the nested wide tree sits below the 2^128 leaf")

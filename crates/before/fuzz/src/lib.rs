@@ -1,47 +1,53 @@
-//! Shared harness for the fuzz targets: every input runs under a heap cap.
+//! Deterministic bodies shared by the libFuzzer entry points and seed replay.
 //!
-//! The targets' assertions catch wrong *answers*; this harness catches wrong
-//! *costs*. A resource amplifier — an input whose computation materializes
-//! transient state grossly disproportionate to its encoded size — produces no
-//! wrong answer, so without a ceiling it stays latent. Running every input
-//! through [`under_heap_cap`] turns one into an ordinary crash finding: the
-//! fuzzer minimizes and archives the offending input like any panic.
+//! Coverage-guided runs supply arbitrary bytes to [`targets`]. Ordinary tests
+//! replay every committed seed through these same functions, so the target
+//! assertions and input framing cannot compile successfully while remaining
+//! unexecuted until a manual fuzzing session.
 //!
-//! The ceiling is generous and absolute: a flat [`PEAK_HEAP_CAP_BYTES`],
-//! not yet proportional to input size. The known amplifiers are linear in
-//! the input with constants in the hundreds, and libFuzzer's default 4096-byte
-//! inputs keep them megabytes below the cap, so a trip means a new class of
-//! blowup, not a bigger constant. The peak is read after the body returns
-//! rather than enforced inside the allocator, so a spike that outruns the
-//! process before returning is stopped by libFuzzer's RSS limit instead; the
-//! cap's job is the far more common survivable amplification.
+//! [`under_heap_cap`] also turns a survivable allocation spike above 1 GiB into
+//! a crash that libFuzzer can minimize. It is an absolute emergency bound, not
+//! evidence for the library's proportional auxiliary-space contracts; the
+//! resource board and fuzz-fit enforce those contracts directly.
 
 use peak_alloc::PeakAlloc;
 
-/// The binary-wide peak-tracking allocator the cap reads.
-///
-/// One global allocator exists per fuzz binary, and libFuzzer drives inputs
-/// through it sequentially, so a per-input reset-then-read is exact.
+#[path = "../../tests/support/fuzz_input.rs"]
+pub mod input;
+pub mod targets;
+
+/// Process-wide allocation tracker used by each single-threaded fuzz binary.
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
 
-/// Hard ceiling on one input's peak transient heap: 1 GiB.
+/// Maximum transient heap growth allowed while one fuzz input runs.
 pub const PEAK_HEAP_CAP_BYTES: usize = 1 << 30;
 
-/// Run one fuzz input's body and panic if its peak heap exceeded the cap.
+/// Run one fuzz input and fail if it grows the live heap by more than 1 GiB.
+///
+/// The baseline excludes libFuzzer's resident corpus and process-lifetime
+/// allocations. This measures only growth above what was live when the input
+/// began.
 ///
 /// # Panics
 ///
-/// Panics — a deliberate, distinguishable crash finding — when the body's
-/// peak heap usage exceeds [`PEAK_HEAP_CAP_BYTES`].
+/// Panics when peak growth exceeds [`PEAK_HEAP_CAP_BYTES`].
 pub fn under_heap_cap<R>(body: impl FnOnce() -> R) -> R {
-    HEAP.reset_peak_usage();
-    let r = body();
-    let peak = HEAP.peak_usage();
-    assert!(
-        peak <= PEAK_HEAP_CAP_BYTES,
-        "before-fuzz: peak heap {peak} B exceeds the {PEAK_HEAP_CAP_BYTES} B cap: \
-         resource amplification finding"
-    );
-    r
+    under_heap_cap_at(PEAK_HEAP_CAP_BYTES, body)
 }
+
+/// Apply an explicit cap, allowing a small allocation to test the instrument.
+fn under_heap_cap_at<R>(cap: usize, body: impl FnOnce() -> R) -> R {
+    let baseline = HEAP.current_usage();
+    HEAP.reset_peak_usage();
+    let result = body();
+    let growth = HEAP.peak_usage().saturating_sub(baseline);
+    assert!(
+        growth <= cap,
+        "before-fuzz: transient heap grew by {growth} B, exceeding the {cap} B cap"
+    );
+    result
+}
+
+#[cfg(test)]
+mod tests;

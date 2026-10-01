@@ -38,6 +38,7 @@ borsh = { workspace = true, optional = true }
 # The emit_probe example's external comparison baseline: the production
 # build buffer is the crate-owned BitsWriter, and nothing shipped links bitvec.
 bitvec = { workspace = true }
+borsh = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
