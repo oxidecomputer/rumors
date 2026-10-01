@@ -6,20 +6,17 @@
 #
 #   inner loop   just check / just test <filter>     seconds to a minute
 #   commit gate  just gate                           fully clean before every commit
-#   no-rot sweep just ci / just all                  everything, so nothing rots
+#   CI sweep     just ci                              the CI build job
+#   full sweep   just all                             CI plus developer-only sweep checks
 #
 # The gate runs every check a commit must pass: build-free lints first,
 # then every building leg concurrently (see the comment above `gate` for
 # the stream grouping and why parallelism cannot move a verdict).
-# `ci` is the recipe GitHub CI's `ci` job runs: the gate's lints and tests
-# plus the artifacts the gate doesn't reach (the feature matrix, wasm, bench
-# builds, the viz bundle). `all` adds the coverage legs (CI's `coverage`
-# job) and what CI cannot run (the fuzz smoke and formal tier). Neither sweep
-# repeats the gate's instrument legs -- the fuel
-# bands, the board verdicts and pins, and surface totality run in
-# `just gate`, and GitHub CI's `instruments` job re-runs the counter-based
-# subset (the workflow file says which legs stay local and why). The
-# comment above each recipe states what it verifies and why.
+# `ci` is the build-everything job GitHub runs. The other `ci-*` recipes own
+# its instrument, coverage, and high-count-property jobs. `all` composes those
+# four CI groups with the checks that require a developer machine. Each check
+# is listed once below; the workflow invokes the owning group rather than
+# copying its contents.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -323,9 +320,9 @@ future-size:
     cargo nextest run --workspace --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
 
 # The supply-chain leg, two build-free checks over the committed lockfiles.
-# cargo-audit sweeps every lockfile in the repository — the root workspace
-# and each detached workspace (fuzz, fuzzfit, fuelscape, surfacecheck) —
-# against the RustSec advisory database (fetched over the network, so this
+# cargo-audit sweeps every lockfile tracked by Git — the root workspace and
+# every detached workspace —
+# against the RustSec advisory database (fetched once over the network, so this
 # is the one gate leg that needs connectivity): a vulnerability anywhere
 # fails the gate; unmaintained/unsound/yanked advisories print as warnings
 # for triage without failing. cargo-deny holds the root workspace's
@@ -341,29 +338,33 @@ future-size:
 
 # Audit advisories on every lockfile and hold the workspace to single crate versions.
 supply-chain:
-    cargo audit
-    cargo audit --file crates/before/fuzz/Cargo.lock
-    cargo audit --file crates/before/fuzzfit/Cargo.lock
-    cargo audit --file crates/before-fuelscape/Cargo.lock
-    cargo audit --file crates/before/surfacecheck/Cargo.lock
-    cargo audit --file crates/before/wasm32-pins/Cargo.lock
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fetch=1
+    while IFS= read -r -d '' lock; do
+        if ((fetch)); then
+            cargo audit --file "$lock"
+            fetch=0
+        else
+            cargo audit --no-fetch --file "$lock"
+        fi
+    done < <(git ls-files -z -- '*Cargo.lock')
     cargo deny --workspace check bans
 
 # The fuzz targets live in a detached workspace (crates/before/fuzz), so no
-# workspace-wide build reaches them and nothing but this leg holds them to
-# the API they assert against. It is a gate leg rather than a sweep leg
-# because the drift it catches is caused by ordinary refactors — a rename in
-# `before` breaks a fuzz target in the same commit that lands it, and a
-# compile is seconds of gate time. Only the build: the libFuzzer smoke is
-# poor per-commit spend and runs at `just all` cadence. The fmt line is
-# the detached workspace's formatting leg: the root `cargo fmt --all`
-# cannot reach it.
+# root-workspace command formats, lints, tests, or compiles them. This gate leg
+# provides that ordinary Rust verification. Its library tests replay every
+# committed seed through the same target body and heap guard; the short
+# coverage-guided libFuzzer run remains a `just all` sweep because it is too
+# expensive and nondeterministic for per-commit judgment.
 # Needs cargo-fuzz: `cargo install cargo-fuzz`.
 
-# Build the libFuzzer targets (nightly), with the detached workspace's fmt check.
+# Verify the detached fuzz crate and compile every libFuzzer target (nightly).
 [working-directory("crates/before/fuzz")]
 fuzz-build:
     cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
+    cargo test --lib
     cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The gate runs in two tiers. First `gate-lints`, sequential and
@@ -419,16 +420,12 @@ gate-streams:
     run_stream() {
         name=$1
         niceness=$2
-        shift 2
+        recipe=$3
         began=$SECONDS
-        rc=0
-        for leg in "$@"; do
-            echo "===== just $leg ====="
-            if ! nice -n "$niceness" just "$leg"; then rc=1; break; fi
-        done
+        echo "===== just $recipe ====="
         # The marker is the record and the echo is narration, so the marker
         # is written first: a stream that reported ok has already banked it.
-        if [ "$rc" -eq 0 ]; then
+        if nice -n "$niceness" just "$recipe"; then
             : > "$logs/$name.ok"
             echo "gate: ok      $name ($((SECONDS - began))s)" >&3
         else
@@ -441,10 +438,10 @@ gate-streams:
     start_stream() {
         name=$1
         niceness=$2
-        shift 2
+        recipe=$3
         streams+=("$name")
-        run_stream "$name" "$niceness" "$@" > "$logs/$name.log" 2>&1 &
-        echo "gate: start   $name ($*)"
+        run_stream "$name" "$niceness" "$recipe" > "$logs/$name.log" 2>&1 &
+        echo "gate: start   $name ($recipe)"
     }
 
     # The workspace stream carries the test suite and is the critical
@@ -453,15 +450,15 @@ gate-streams:
     # tests keep first call on the cores, and the shorter streams fill
     # what the tests leave idle instead of competing for it.
     began=$SECONDS
-    start_stream workspace     0 clippy clippy-default docs test-all future-size
-    start_stream doctest      10 doctest
-    start_stream board        10 amp-board-acceptance worst-cases-pin
-    start_stream wasm         10 fuzzfit fuelscape-test wasm32-pins
-    start_stream fuzz         10 fuzz-build
-    start_stream surface      10 surface-totality
-    start_stream internal-docs 10 docs-internal
-    start_stream docsrs       10 docs-docsrs
-    start_stream audit        10 supply-chain
+    start_stream workspace     0 _gate-workspace
+    start_stream doctest      10 _gate-doctest
+    start_stream board        10 _gate-board
+    start_stream wasm         10 _gate-wasm
+    start_stream fuzz         10 _gate-fuzz
+    start_stream surface      10 _gate-surface
+    start_stream internal-docs 10 _gate-internal-docs
+    start_stream docsrs       10 _gate-docsrs
+    start_stream audit        10 _gate-audit
     wait
 
     failed=$(cd "$logs" && ls *.failed 2>/dev/null | sed 's/\.failed$//')
@@ -491,6 +488,19 @@ gate-streams:
         exit 1
     fi
     echo "gate: clean in $((SECONDS - began))s; stream logs in $logs"
+
+# The stream recipes are the gate's build roster. Keeping each stream's legs
+# here lets the gate runner choose scheduling without becoming a second list of
+# checks; CI reuses the same coherent groups where its cadence overlaps.
+_gate-workspace: clippy clippy-default docs test-all future-size
+_gate-doctest: doctest
+_gate-board: amp-board-acceptance worst-cases-pin
+_gate-wasm: fuzzfit fuelscape-test wasm32-pins
+_gate-fuzz: fuzz-build
+_gate-surface: surface-totality
+_gate-internal-docs: docs-internal
+_gate-docsrs: docs-docsrs
+_gate-audit: supply-chain
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -532,24 +542,25 @@ bench-build:
     cargo bench --workspace --no-run
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
-# itself) and the `before::testing::laws` law collection are asserted inline in the
-# targets, so any hit is a crash. Each run names two corpus directories:
+# itself) and the `before::testing::laws` law collection are asserted inline in
+# the targets, so any hit is a crash. Each run names two corpus directories:
 # libFuzzer reads seeds from both and writes new discoveries to the first, so
-# the committed `seeds/<target>/` corpus (derived from the live API;
-# `tests/fuzz_seeds.rs` gates it) actually seeds every run while staying
-# pristine.
+# the committed `seeds/<target>/` corpus actually seeds every run while staying
+# pristine. `cargo fuzz list` is the roster of record: a new target cannot be
+# compiled by the gate yet silently omitted from this sweep.
 
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
-    # libFuzzer requires its write-corpus directory to exist, and the
-    # discovery corpus is deliberately untracked (fuzz/.gitignore), so a
-    # fresh checkout must create the directories before the first run.
-    mkdir -p corpus/fuzz_decode corpus/fuzz_decode_differential corpus/fuzz_decode_ops corpus/fuzz_laws
-    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_differential corpus/fuzz_decode_differential seeds/fuzz_decode_differential -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_laws corpus/fuzz_laws seeds/fuzz_laws -- -max_total_time={{ secs }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    while IFS= read -r target; do
+        # libFuzzer requires its write corpus to exist. That discovery corpus
+        # is deliberately untracked, while the committed seed corpus remains
+        # pristine as the run's second input.
+        mkdir -p "corpus/$target"
+        cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} "$target" "corpus/$target" "seeds/$target" -- -max_total_time={{ secs }}
+    done < <(cargo +{{ nightly_toolchain }} fuzz list)
 
 # The fuzz-fit asymptotics harness lives in a detached workspace
 # (crates/before/fuzzfit, the fuzz-target idiom), so workspace-wide builds
@@ -880,29 +891,30 @@ worst-cases-pin:
     {{ amp_board_command }} -- worst-cases-check
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
-# `ci` is the build-everything tier: formatting and lints, the feature matrix,
-# wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
-# and the viz bundle, ordered cheap-first so failures surface early. GitHub
-# CI's `ci` job runs exactly this. Neither `ci` nor `all` runs the gate's
-# instrument legs -- the fuel bands, the fuelscape pins, the board's
-# acceptance verdicts and ranking pin, and surface totality run in
-# `just gate` (its recipe line is the roster of record), pre-commit on a
-# developer machine; GitHub CI's `instruments` job re-runs the counter-based
-# subset (board verdicts, the ranking pin, surface totality, and the
-# supply-chain leg) beside the `ci` sweep, leaving the wall-time judge and
-# the wasm fuel tier local.
-# CI's `coverage` job carries the two instrumented-coverage legs (the
-# coverage section below): too slow for the gate, judged against the
-# curated kernel pin.
-#
-# `all` is `ci` plus the high-count property run, coverage legs, and work CI
-# cannot run: a short libFuzzer smoke and the formal and model-based gates.
+# Each recipe below owns one CI job. The workflow calls these groups without
+# restating their members, while `all` composes the same groups for a local
+# sweep. Gate-only instruments remain in `_gate-wasm`: their deterministic
+# fuel and 32-bit checks run before commits but are intentionally absent from
+# shared runners. `all` adds the fuzz smoke and formal checks that CI does not
+# have the runtime or toolchain to execute.
 
-# Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all future-size doctest bench-build fuzz-build fuelscape-verify viz
+# Build everything in CI's primary job, without running libFuzzer.
+ci: gate-lints _gate-workspace _gate-doctest _gate-fuzz _gate-internal-docs _gate-docsrs fuelscape-claims features wasm-check bench-build fuelscape-verify viz
 
-# Everything: the no-rot sweep, coverage, fuzz smoke, and formal/model gates.
-all: ci test-release coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe
+# Re-run the gate judgments suitable for shared CI runners.
+ci-instruments: _gate-audit _gate-board _gate-surface
+
+# Run both pinned kernel-coverage judgments.
+ci-coverage: coverage-kernel coverage-kernel-branch
+
+# Run the larger release-profile property population.
+ci-properties: test-release
+
+# Run the checks that require local fuzz and Lean toolchains.
+local-only: (fuzz fuzz_smoke_secs) lean eventdag muxprobe
+
+# Run every CI group and every local-only sweep check.
+all: ci ci-instruments ci-coverage ci-properties local-only
 
 # ── the coverage legs (`all` and CI cadence; the gate never runs them) ───────
 # GOAL: no skyline-kernel arm goes silently unexercised — every uncovered

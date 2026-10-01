@@ -53,6 +53,8 @@ name (`nightly_toolchain` in the justfile, pinned for the same reason),
 `just`, `cargo-nextest`, `cargo-rdme`, `cargo-fuzz`, `cargo-docs-rs`, and
 python3 with bash (the `tools/` linters). `just ci`
 additionally wants `wasm-pack` and node/npm.
+`just all` also wants `cargo-audit`, `cargo-deny`, `cargo-llvm-cov`, and the
+Elan-managed Lean toolchain.
 
 1. Iterate with the inner loop: `just check`, `just test <filter>`,
    `just clippy`, `just fmt`.

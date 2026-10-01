@@ -18,6 +18,7 @@ on:
     paths:
       - "crates/before-viz/**"
       - "crates/before/**" # the engine the visualizer compiles in
+      - ".github/actions/setup/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -39,24 +40,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      # The same SHA-pinned install path ci.yml uses, so both workflows
-      # share one provenance story for wasm-pack.
-      - name: Install wasm-pack
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
+      # Use the same pinned toolchain, tools, Node version, and npm cache as
+      # the CI build of this artifact.
+      - uses: ./.github/actions/setup
         with:
-          tool: wasm-pack
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: crates/before-viz/www/package-lock.json
+          tools: just,wasm-pack
+          node: "true"
 
       - name: Build visualizer
-        run: ./crates/before-viz/build.sh
+        run: just viz
 
       # Assemble the minimal runtime set: index.html + style.css + fonts + the esbuild
       # bundle + the wasm. The bundle inlines pkg/before_viz.js and resolves the wasm via
