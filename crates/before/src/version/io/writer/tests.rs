@@ -94,10 +94,10 @@ fn bits(s: &str) -> BitsWriter {
 fn arb_nonzero_magnitude() -> impl Strategy<Value = BigUint> {
     prop_oneof![
         (1u64..=u64::MAX).prop_map(BigUint::from),
-        prop::collection::vec(any::<u32>(), 1..8)
-            .prop_map(BigUint::new)
-            .prop_filter("the delta must keep two distinct leaves", |n| *n
-                != BigUint::ZERO),
+        (1u32..=u32::MAX, prop::collection::vec(any::<u32>(), 0..7)).prop_map(|(low, mut high)| {
+            high.insert(0, low);
+            BigUint::new(high)
+        }),
     ]
 }
 

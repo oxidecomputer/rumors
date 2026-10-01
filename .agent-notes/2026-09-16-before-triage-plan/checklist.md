@@ -74,16 +74,16 @@ triage's dispositions and branches are leads only.
       coverage against relation-level oracles over a complete finite interval
       and arbitrary wide normal-form versions.
 
-- [ ] Consolidate the Party and Clock properties around disjointness,
+- [x] Consolidate the Party and Clock properties around disjointness,
       linearity, fork/join conservation, and stale-state hazards.
       Sources: `party-*`, `clock-*`, `oracle-laws-*`, `testing-diff-gen-*`.
 
-- [ ] Consolidate Version, Span, Rank, projection, and causal-query properties
+- [x] Consolidate Version, Span, Rank, projection, and causal-query properties
       around their algebra and independent oracles.
       Sources: `version-core-*`, `rank-*`, `span-causally-*`,
       `oracle-laws-*`, `testing-oracles-*`.
 
-- [ ] Exercise iterative traversal over the meaningful deep shapes and branches,
+- [x] Exercise iterative traversal over the meaningful deep shapes and branches,
       including right descents and both-present frames, without retaining a
       decorative stack metric.
       Sources: `clock-22`, `recursion-*`, `meter-adequacy-1`,
@@ -244,18 +244,18 @@ into otherwise small feature increments.
       cancellation, and every primitive conversion limit; retain focused
       regressions and exact-cost tests where they prove distinct properties.
 
-- [ ] Give the recursive oracle, function-space oracle, algebraic laws, and
+- [x] Give the recursive oracle, function-space oracle, algebraic laws, and
       exhaustive enumeration distinct jobs; consolidate duplicated operation
       descriptors, populations, and drivers.
       Sources: `oracle-laws-*`, `testing-oracles-*`,
       `testing-diff-gen-*`, `paper-fidelity-*`.
 
-- [ ] Replace hand-maintained surface rosters and source scanners with the
+- [x] Replace hand-maintained surface rosters and source scanners with the
       smallest reliable public-surface check, or retire them where compiler and
       ordinary tests already provide the signal.
       Sources: `surface-roster-*`, `api-audit-*`, `tools-*`.
 
-- [ ] Generate constrained proptest inputs directly, share useful generators,
+- [x] Generate constrained proptest inputs directly, share useful generators,
       and remove rejection-heavy or decorative case-count machinery.
       Sources: generator findings in `testing-diff-gen-*`, `tests-other-*`,
       and the old triage's later findings.

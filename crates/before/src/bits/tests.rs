@@ -16,7 +16,9 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{
+    arb_flush_party, arb_flush_version, arb_oracle_party_nonempty, arb_oracle_version,
+};
 use crate::testing::optrace::{run, versions, world_strategy};
 use crate::testing::oracles::tree;
 use crate::{error::Decode, Clock, Party, Rank, Ranked, Version};
@@ -1268,26 +1270,6 @@ proptest! {
 // `Version`, `Clock`, `Ranked`, `Span`); `Rank` has no marker padding (its
 // stream is self-delimiting within its final byte), so no flush-cut input
 // exists for it and its truncations are all mid-stream.
-
-/// An arbitrary impl `Version` whose live bits end flush against a byte
-/// boundary, so its canonical padding occupies a whole final `1000_0000`
-/// byte.
-fn arb_flush_version() -> impl Strategy<Value = Version> {
-    arb_oracle_version()
-        .prop_map(|t| from_oracle_version(&t))
-        .prop_filter("live bits must end on a byte boundary", |v| {
-            v.encoded_bits().is_multiple_of(8)
-        })
-}
-
-/// As [`arb_flush_version`], for `Party`.
-fn arb_flush_party() -> impl Strategy<Value = Party> {
-    arb_oracle_party_nonempty()
-        .prop_map(|t| from_oracle_party(&t))
-        .prop_filter("live bits must end on a byte boundary", |p| {
-            p.encoded_bits().is_multiple_of(8)
-        })
-}
 
 /// A stream missing its full padding byte reports [`Decode::Truncated`].
 ///

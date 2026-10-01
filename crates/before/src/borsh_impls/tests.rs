@@ -9,7 +9,8 @@ use crate::error::Decode;
 use crate::span::Span;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{
-    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
+    arb_flush_party, arb_flush_version, arb_oracle_party_nonempty, arb_oracle_version,
+    deep_left_spine_party,
 };
 use crate::testing::optrace::{step_impl, world_strategy};
 use crate::version::io::validate::{dominating_from, Admission};
@@ -115,26 +116,6 @@ fn non_canonical_borsh_bytes_report_invalid_data() {
         matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
         "expected NotCanonical, got: {inner:?}"
     );
-}
-
-/// An arbitrary impl `Version` whose live bits end flush against a byte
-/// boundary, so its canonical padding occupies a whole final `1000_0000`
-/// byte.
-fn arb_flush_version() -> impl Strategy<Value = Version> {
-    arb_oracle_version()
-        .prop_map(|t| from_oracle_version(&t))
-        .prop_filter("live bits must end on a byte boundary", |v| {
-            v.encoded_bits().is_multiple_of(8)
-        })
-}
-
-/// As [`arb_flush_version`], for `Party`.
-fn arb_flush_party() -> impl Strategy<Value = Party> {
-    arb_oracle_party_nonempty()
-        .prop_map(|t| from_oracle_party(&t))
-        .prop_filter("live bits must end on a byte boundary", |p| {
-            p.encoded_bits().is_multiple_of(8)
-        })
 }
 
 /// Both decoders classify a stream missing its full padding byte as truncated.

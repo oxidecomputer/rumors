@@ -6,9 +6,7 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{
-    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
-};
+use crate::testing::generators::{arb_clock_family, deep_left_spine_party};
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::testing::oracles::{function, tree};
 use crate::{Clock, Party, Version};
@@ -170,21 +168,13 @@ proptest! {
     /// returned after overlap.
     #[test]
     fn clock_join_all_matches_all_models(
-        oacc in (arb_oracle_party_nonempty(), arb_oracle_version()),
-        (pool, picks) in proptest::collection::vec(
-            (arb_oracle_party_nonempty(), arb_oracle_version()),
-            1..5,
-        )
-        .prop_flat_map(|pool| {
-            let len = pool.len();
-            (Just(pool), proptest::collection::vec(0..len, 0..10))
-        }),
+        (oacc, oracle_inputs) in arb_clock_family(),
     ) {
         let lower = |(p, v): &(tree::Party, tree::Version)| {
             Clock::from_parts(from_oracle_party(p), from_oracle_version(v))
         };
         let acc = lower(&oacc);
-        let inputs: Vec<Clock> = picks.iter().map(|&i| lower(&pool[i])).collect();
+        let inputs = oracle_inputs.iter().map(lower).collect();
         assert_join_all_matches_all_models(acc, inputs);
     }
 }

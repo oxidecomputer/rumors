@@ -48,7 +48,10 @@ proptest! {
     fn clustered_products_match_dense_integer_multiplication(
         factor_bytes in proptest::collection::vec(any::<u8>(), 1..200),
         entries in proptest::collection::vec(
-            (0u64..80, (-(1i64 << 31)..(1i64 << 31)).prop_filter("nonzero", |digit| *digit != 0)),
+            (
+                0u64..80,
+                prop_oneof![-(1i64 << 31)..0, 1..(1i64 << 31)],
+            ),
             1..60,
         ),
         negative in any::<bool>(),

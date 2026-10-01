@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use super::Party;
 use crate::party::io::PartyReader;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
-use crate::testing::generators::arb_oracle_party_nonempty;
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_party_family};
 use crate::testing::optrace::{run, world_strategy};
 use crate::testing::oracles::{function, tree};
 
@@ -122,16 +122,10 @@ proptest! {
     /// complete region in every model after overlap.
     #[test]
     fn party_join_all_matches_all_models(
-        oacc in arb_oracle_party_nonempty(),
-        (pool, picks) in proptest::collection::vec(arb_oracle_party_nonempty(), 1..5)
-            .prop_flat_map(|pool| {
-                let len = pool.len();
-                (Just(pool), proptest::collection::vec(0..len, 0..12))
-            }),
+        (oacc, oracle_inputs) in arb_party_family(),
     ) {
         let acc = from_oracle_party(&oacc);
-        let inputs: Vec<Party> =
-            picks.iter().map(|&i| from_oracle_party(&pool[i])).collect();
+        let inputs = oracle_inputs.iter().map(from_oracle_party).collect();
         assert_join_all_matches_all_models(acc, inputs);
     }
 }

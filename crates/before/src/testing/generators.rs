@@ -249,24 +249,12 @@ const ARB_DEPTH: u32 = 4;
 /// count, which bounds how bushy a generated tree gets.
 const ARB_NODES: u32 = 16;
 
-/// An arbitrary event magnitude.
+/// An event magnitude spanning small values and arbitrary-width boundaries.
 ///
-/// Mixes a dense small range (where collapses and `one_zero` corners live) with
-/// values straddling `u64::MAX`, so a generated event tree can have
-/// root-to-leaf path sums that would overflow `u64`. The big-value arms are
-/// built from `u128` conversions and shifted powers, well beyond `u64`. The
-/// `2^64`-aligned arm produces small nonzero multiples of `2^64`: values (and
-/// differences of two draws — the fused tick's raise offsets) whose low limb
-/// is exactly zero, the class a limb-truncated value comparison misreads as
-/// zero. The fill flag's full-width worked witnesses pin that comparison
-/// pointwise; this arm keeps the class under ongoing generator mass. The
-/// genuinely-wide arm — a small odd multiplier shifted anywhere in `0..512`
-/// bits — puts many-limb magnitudes with arbitrary limb positions under
-/// ongoing mass, so kernel guards that first activate past two limbs
-/// (digit-count clearances, carry chains beyond the second limb, first-word
-/// reads on wide top digits) are inside every random differential's sampled
-/// universe, not beyond it. [`tests::generator_classes_stay_under_mass`]
-/// pins each of these classes alive.
+/// The weighted arms keep common collapses frequent while reaching `u64` and
+/// `u128` boundaries, low zero limbs, sparse high bits, and values wider than
+/// two limbs. [`tests::generator_classes_stay_under_mass`] checks that the
+/// wide classes remain reachable.
 pub(crate) fn arb_magnitude() -> impl Strategy<Value = BigUint> {
     prop_oneof![
         6 => (0u64..6).prop_map(BigUint::from),
@@ -291,13 +279,33 @@ pub(crate) fn arb_oracle_party() -> impl Strategy<Value = tree::Party> {
     })
 }
 
-/// An arbitrary *non-empty* normal-form id tree — a valid standalone [`Party`]
-/// (owns at least one region).
-///
-/// Filters out the anonymous tree so the impl bridge and ops that require a
-/// real share (fork/join) get a meaningful input.
+/// An arbitrary nonempty normal-form id tree suitable for a [`Party`].
 pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = tree::Party> {
-    arb_oracle_party().prop_filter("non-anonymous id", |p| !p.is_empty())
+    arb_oracle_party().prop_map(|party| {
+        if party.is_empty() {
+            tree::Party::Leaf(true)
+        } else {
+            party
+        }
+    })
+}
+
+/// An arbitrary version whose live bits end at a byte boundary.
+pub(crate) fn arb_flush_version() -> impl Strategy<Value = Version> {
+    arb_oracle_version()
+        .prop_map(|version| from_oracle_version(&version))
+        .prop_filter("live bits end at a byte boundary", |version| {
+            version.encoded_bits().is_multiple_of(8)
+        })
+}
+
+/// An arbitrary party whose live bits end at a byte boundary.
+pub(crate) fn arb_flush_party() -> impl Strategy<Value = Party> {
+    arb_oracle_party_nonempty()
+        .prop_map(|party| from_oracle_party(&party))
+        .prop_filter("live bits end at a byte boundary", |party| {
+            party.encoded_bits().is_multiple_of(8)
+        })
 }
 
 /// An arbitrary normal-form event tree.
@@ -315,55 +323,19 @@ pub(crate) fn arb_oracle_version() -> impl Strategy<Value = tree::Version> {
 
 // ───────────────────────── variadic-law families ─────────────────────────
 
-/// A list arity for the variadic law drivers, swept past every
-/// structural boundary of the balanced binary counter every n-ary fold
-/// runs on ([`crate::fold`]).
+/// A list length spanning every fold case through two carry boundaries.
 ///
-/// The counter's behavior over `k` inputs changes only at these
-/// boundaries, derived from its structure:
-///
-/// - `k = 0` and `k = 1`: the identity and lone-input short-circuits —
-///   no combine runs at all;
-/// - `k = 2`: the first in-counter combine, of two raw inputs (the leaf
-///   arm);
-/// - `k = 3`: the first closing-drain combine (the drain performs
-///   `popcount(k) - 1` combines, so it first runs here), pairing a
-///   merged group with a lone raw input;
-/// - `k = 4`: the first merged–merged combine — two weight-1 groups
-///   carrying inside the counter — the arm beyond every fixed arity-3
-///   law signature;
-/// - `k = 6`: the first *drain* combine of two merged groups (surviving
-///   weights 2 and 1);
-/// - `k = 2^j` and `k = 2^j + 1`: each octave carries one weight deeper
-///   (a chain of `j` in-counter combines), then leaves a lone raw input
-///   under the deep group for the drain.
-///
-/// Every combine-arm case the folds dispatch on (leaf,
-/// merged–input, merged–merged; in-counter and drain) is reachable by
-/// `k = 6`. The band `0..=9` covers each case plus the first full
-/// octave boundary (8, 9); the band `15..=17` crosses the next octave
-/// (15 = 0b1111 drains four groups through three combines, 16 carries
-/// to a single weight-4 group, 17 leaves a lone input under it), so
-/// behavior keyed to a particular *weight* rather than a case still
-/// meets two octaves of weights.
+/// The range includes empty and singleton folds, combinations of raw and
+/// merged values, both the carry and final-drain paths, and the boundaries at
+/// eight and sixteen inputs.
 pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
-    prop_oneof![
-        3 => 0usize..=9,
-        1 => 15usize..=17,
-    ]
+    0usize..=17
 }
 
-/// A small pool of arbitrary versions with the empty version always
-/// present.
+/// A small version pool containing arbitrary values and the identity.
 ///
-/// Variadic-law lists are built by *indexing* into a pool this small,
-/// so repeats and shared-structure elements arise naturally at every
-/// arity. Repeats matter: repeated raw inputs coalesce into counter
-/// groups that each carry information their partners lack in both
-/// lattice directions, so an arm that drops or misreads a merged
-/// operand loses a fresh input and diverges — where lattice-derived
-/// items would be absorbed and leave the misread invisible. The empty
-/// version keeps the folds' `O(1)` identity short-circuits under mass.
+/// Drawing fold inputs from a pool makes repeats and shared values common,
+/// while the empty version exercises identity shortcuts.
 fn arb_version_pool() -> impl Strategy<Value = Vec<tree::Version>> {
     proptest::collection::vec(arb_oracle_version(), 1..=3).prop_map(|mut pool| {
         pool.push(tree::Version::new());
@@ -371,8 +343,7 @@ fn arb_version_pool() -> impl Strategy<Value = Vec<tree::Version>> {
     })
 }
 
-/// Draws from `pool` for one receiver and a boundary-swept
-/// ([`arb_fold_arity`]) list of items.
+/// Draw one receiver and a boundary-swept list of items from `pool`.
 fn family_picks<T: Clone + core::fmt::Debug>(pool: Vec<T>) -> impl Strategy<Value = (T, Vec<T>)> {
     (
         any::<prop::sample::Index>(),
@@ -390,38 +361,26 @@ fn family_picks<T: Clone + core::fmt::Debug>(pool: Vec<T>) -> impl Strategy<Valu
         })
 }
 
-/// A pool-indexed version family — a receiver and a boundary-swept
-/// list of items — for the variadic version-law drivers.
+/// A receiver and list for variadic version laws.
 ///
-/// The receiver is drawn from the same pool as the items, so
-/// receiver-repeats (an input aliasing the fold's seed) arise
-/// naturally too. Arity per [`arb_fold_arity`]; pool per
-/// [`arb_version_pool`].
+/// Both come from the same small pool, making repeated values and receiver
+/// aliases common at the lengths selected by [`arb_fold_arity`].
 pub(crate) fn arb_version_family() -> impl Strategy<Value = (tree::Version, Vec<tree::Version>)> {
     arb_version_pool().prop_flat_map(family_picks)
 }
 
-/// A pool-indexed party family — a receiver and a boundary-swept list
-/// of items — for the variadic party-law drivers.
+/// A receiver and list for variadic party laws.
 ///
-/// The pool holds live (non-anonymous) parties only, the admissible
-/// inputs of every party law. Repeats are *aliases* — regions
-/// overlapping byte-identically — which is exactly the input class the
-/// fallible folds' rejection paths exist for, so pool indexing keeps
-/// the refusal arm under mass at every arity.
+/// Repeated pool entries create overlapping regions, keeping both successful
+/// joins and rejection with conservation under test.
 pub(crate) fn arb_party_family() -> impl Strategy<Value = (tree::Party, Vec<tree::Party>)> {
-    proptest::collection::vec(arb_oracle_party_nonempty(), 1..=3).prop_flat_map(family_picks)
+    proptest::collection::vec(arb_oracle_party_nonempty(), 1..=4).prop_flat_map(family_picks)
 }
 
-/// A pool-indexed clock family — a receiver and a boundary-swept list
-/// of items, each a canonical party/version pairing — for the variadic
-/// clock-law drivers.
+/// A receiver and list for variadic clock laws.
 ///
-/// Parties and versions are drawn from independent small pools and
-/// paired combinatorially (every canonical pairing is a valid clock,
-/// including ones no op sequence reaches); party repeats give aliased
-/// clocks for the refusal arm, and the version pool's empty element
-/// keeps fresh-line clocks under mass.
+/// Independent party and version pools cover arbitrary valid pairings. Reused
+/// parties exercise overlap, and the empty version exercises fresh clocks.
 pub(crate) fn arb_clock_family() -> impl Strategy<
     Value = (
         (tree::Party, tree::Version),
