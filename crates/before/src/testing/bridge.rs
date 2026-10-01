@@ -62,14 +62,6 @@ fn emit_ev(out: &mut BitsWriter, t: &tree::Version) {
     }
 }
 
-/// The min-lifted preorder stream of an oracle tree: the
-/// construction language the generators and the skyline transcoder share.
-pub(crate) fn encoded_bits_of(t: &tree::Version) -> BitsWriter {
-    let mut bits = BitsWriter::new();
-    emit_ev(&mut bits, t);
-    bits
-}
-
 /// Build the impl `Party` whose canonical bits encode `t`. Recursive over a bounded
 /// oracle tree (test-only; the impl's own traversals are iterative).
 pub(crate) fn from_oracle_party(t: &tree::Party) -> Party {

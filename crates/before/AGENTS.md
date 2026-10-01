@@ -2,11 +2,10 @@
 
 A guidepost, not a manual: the documentation of record is the rustdoc and,
 for the algorithms, the ITC 2008 paper (`reference/itc2008.md`). Read the
-crate docs for the model (`Party`/`Version`/`Clock`, the Law of
-Disjointness) and the public `implementation` module for the design essay,
-`version/skyline.rs` for the stored coding and its operation kernels, and
-`testing/` module docs for the differential-test architecture (recursive
-oracle, function-space oracle, exhaustive small-scope, algebraic laws).
+crate docs first for the model and safety contract. An operation's public type
+module is the entry point to its implementation; the `bits` docs explain the
+shared storage boundary, and the `testing` docs explain how independent models,
+properties, and resource measurements divide the verification work.
 
 ## Commands
 

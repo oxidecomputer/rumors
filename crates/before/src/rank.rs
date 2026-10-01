@@ -98,7 +98,8 @@ use crate::error::{Decode, ParseRank};
 ///
 /// Write `‖r‖ = bits(numerator) + exponent` for a rank's binary width, and
 /// `|v|` for a version's size. For `r = v.rank()`, `‖r‖ = O(|v|)`, though it
-/// may be much smaller. The rank's memory use and encoded size are `O(‖r‖)`.
+/// may be much smaller. The rank's memory use and canonical byte length are
+/// `O(‖r‖)`.
 ///
 /// Comparison, equality, hashing, and cloning take `O(‖r‖)` time. Addition
 /// and subtraction take `O(‖a‖ + ‖b‖)` time. Encoding and decoding are linear

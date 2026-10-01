@@ -5,7 +5,7 @@
 //! re-exports (named and glob), public types and their impls, and public
 //! traits — recording each item under the path it is *reachable* at
 //! (`Party::seed` for a root re-export,
-//! `causally::Range::since` inside a public module). The `paths` table's
+//! `causally::since` inside a public module). The `paths` table's
 //! definition paths are deliberately not used for reachable naming: they
 //! name private modules (`party::Party`, `version::io`) and include
 //! items the public tree never reaches.

@@ -1,6 +1,4 @@
-//! Causal spans: ordered pairs of concrete upper-/lower-bounding [`Version`]s.
-//! The contract documentation, the operation table, and the algebra live on
-//! [`Span`].
+//! Causal intervals bounded by an ordered pair of [`Version`]s.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -65,7 +63,7 @@ mod tests;
 /// [`meet_all`](Span::meet_all), [`union_all`](Span::union_all),
 /// [`intersect_all`](Span::intersect_all)), each one a balanced fold.
 ///
-/// Projection applies [`Version::project`] pointwise to the low and high ends
+/// Projection applies [`Version::project`] pointwise to the lower and upper ends
 /// of the span: for a given [`Span`] `s`, `s / &p` yields the span `(lo / &p)
 /// <= (hi / &p)`.
 ///
@@ -110,8 +108,7 @@ pub struct Span<'a> {
 impl<'a> Span<'a> {
     /// Constructs the span `lo <= hi`, checking that the pair is ordered.
     ///
-    /// Each endpoint is anything [`Into`] a [`Cow`] of [`Version`], which
-    /// permits borrowed or owned arguments to be passed as desired.
+    /// Endpoints may be borrowed or owned.
     ///
     /// # Complexity
     ///
@@ -152,10 +149,10 @@ impl<'a> Span<'a> {
         }
     }
 
-    /// The coincident [`Span`] `version <= version`: the span at one point.
+    /// The point [`Span`] `version <= version`.
     ///
-    /// That single point may be anything [`Into`] a [`Cow`] of [`Version`],
-    /// which permits a borrowed or owned argument to be passed as desired.
+    /// The version may be borrowed or owned. Classification methods recognize
+    /// the result as a point directly, without first comparing its endpoints.
     ///
     /// # Complexity
     ///
@@ -177,16 +174,13 @@ impl<'a> Span<'a> {
     /// ```
     pub fn at(version: impl Into<Cow<'a, Version>>) -> Span<'a> {
         let lo = version.into();
-        // A borrowed endpoint is lent twice; an owned one moves in
-        // and its buffer-sharing clone fills the second slot — either
-        // way the pair reads one shared buffer, the O(1) coincidence
-        // certificate every fast path reads.
+        // Cloning a Cow either repeats the borrow or shares Version storage.
+        // The endpoints can therefore be recognized as equal in O(1).
         let hi = lo.clone();
         Span { lo, hi }
     }
 
-    /// Internal-only: A span from endpoints the caller derived as one
-    /// collection's meet and join.
+    /// Construct a span from endpoints already known to be ordered.
     pub(crate) fn owned(lo: Version, hi: Version) -> Span<'static> {
         Span {
             lo: Cow::Owned(lo),
@@ -223,13 +217,16 @@ impl<'a> Span<'a> {
         }
     }
 
-    /// Compares `version` against this [`Span`] at full resolution, rendering a
-    /// nine-way [`Placement`] verdict.
+    /// Compares `version` against this [`Span`] at full resolution, returning a
+    /// [`Placement`] verdict.
     ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_place.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
+    ///
+    /// A point span produced by [`Span::at`] requires one causal comparison
+    /// with its endpoint.
     ///
     /// # Example
     ///
@@ -245,18 +242,13 @@ impl<'a> Span<'a> {
     /// let span = Span::new(&a1, &a3).unwrap();
     /// assert_eq!(span.place(&a1), Placement::At(Endpoint::Start));
     /// assert_eq!(span.place(&a2), Placement::Between);
-    /// // A concurrent version is beside the span, not within it.
+    /// // A concurrent version is not within the span.
     /// assert_eq!(span.place(&b1), Placement::Concurrent(Endpoint::Both));
     /// ```
     pub fn place(&self, version: &Version) -> Placement {
-        // The coincident span collapses placement to pairwise
-        // comparison — the `degenerate_span_place_is_partial_cmp` law
-        // in [`laws`](crate::testing::laws) — and clone identity certifies
-        // `lo == hi` in `O(1)`: a coincident span built by the hull
-        // constructors or the wire decode stores one buffer twice, so the
-        // fused three-stream walk would read that buffer twice where
-        // one pair sweep answers. Coincident endpoints in distinct
-        // buffers still take the fused walk below.
+        // Shared storage proves that the endpoints are equal without reading
+        // them, so one comparison determines placement. Equal endpoints in
+        // separate allocations take the general path below.
         if self.lo.ptr_eq(&self.hi) {
             return match version.partial_cmp(self.lo()) {
                 Some(Ordering::Less) => Placement::Before,
@@ -287,6 +279,9 @@ impl<'a> Span<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_dominance.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
+    /// A point span produced by [`Span::at`] requires one causal comparison
+    /// with its endpoint.
+    ///
     /// # Example
     ///
     /// ```
@@ -303,20 +298,12 @@ impl<'a> Span<'a> {
     /// assert_eq!(span.dominance(&a1), Dominance::Before);
     /// ```
     pub fn dominance(&self, version: &Version) -> Dominance {
-        // The coincident span collapses the dominance question to one
-        // containment: on `lo == hi` the `After` bucket is exactly `hi <=
-        // probe` and everything else is `Before` (`Between` needs the endpoints
-        // to differ).
-        //
-        // Clone identity certifies the coincidence in `O(1)` so one
-        // single-bound placement (each stream decoded once) answers where the
-        // fused walk would read the shared buffer twice.
-        //
-        // This is the compressed-subtree classification fast path: a node whose
-        // version bounds coincide is classified against one stream, not two.
+        // For the point span [v, v], `Between` is impossible: the answer is
+        // `After` exactly when v <= version, and `Before` otherwise. Shared
+        // storage identifies this case without comparing the endpoints.
         if self.lo.ptr_eq(&self.hi) {
-            // `hi <= probe` is exactly membership in the probe's causal
-            // past (`causally::before(probe).contains(hi)`).
+            // `hi <= version` asks whether the point lies in the version's
+            // causal past.
             return if matches!(
                 self.hi().partial_cmp(version),
                 Some(Ordering::Less | Ordering::Equal)
@@ -348,6 +335,9 @@ impl<'a> Span<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_precedence.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
+    /// A point span produced by [`Span::at`] requires one causal comparison
+    /// with its endpoint.
+    ///
     /// # Example
     ///
     /// ```
@@ -364,21 +354,12 @@ impl<'a> Span<'a> {
     /// assert_eq!(span.precedence(&a3), Precedence::After);
     /// ```
     pub fn precedence(&self, version: &Version) -> Precedence {
-        // The coincident span collapses the precedence question to one
-        // containment: on `lo == hi` the `Before` bucket is exactly `probe <=
-        // lo` and everything else is `After` (`Between` needs the endpoints to
-        // differ).
-        //
-        // Clone identity certifies the coincidence in `O(1)` so one
-        // single-bound placement (each stream decoded once) answers where the
-        // fused walk would read the shared buffer twice.
-        //
-        // This is the compressed-subtree classification fast path, mirrored: a
-        // node whose version bounds coincide is classified against one stream,
-        // not two.
+        // For the point span [v, v], `Between` is impossible: the answer is
+        // `Before` exactly when version <= v, and `After` otherwise. Shared
+        // storage identifies this case without comparing the endpoints.
         if self.lo.ptr_eq(&self.hi) {
-            // `probe <= lo` is exactly membership in the probe's causal
-            // future (`causally::after(probe).contains(lo)`).
+            // `version <= lo` asks whether the point lies in the version's
+            // causal future.
             return if matches!(
                 version.partial_cmp(self.lo()),
                 Some(Ordering::Less | Ordering::Equal)
@@ -395,20 +376,21 @@ impl<'a> Span<'a> {
     /// membership `lo <= v <= hi` for a [`Version`], and `lo <= other.lo()
     /// && other.hi() <= hi` for a whole [`Span`].
     ///
-    /// The argument is anything [`Into`] a [`Span`]: a borrowed or owned
-    /// [`Version`], or a borrowed or owned [`Span`].
+    /// The argument may be a borrowed or owned [`Version`] or [`Span`].
     ///
     /// # Complexity
     ///
-    /// A [`Version`] requires only a single fused walk across `lo`, `v`, and
-    /// `hi` together:
+    /// A [`Version`] is classified in one linear pass over the two endpoints
+    /// and the version:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_contains.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
-    /// A [`Span`] requires two causal comparisons: one to compare the two `lo`
-    /// endpoints and a second to compare the two `hi` endpoint, where seach
-    /// comparison costs:
+    /// Testing a [`Version`] against a point span produced by [`Span::at`]
+    /// compares it once with the endpoint.
+    ///
+    /// A [`Span`] requires two causal comparisons: one for its lower endpoints
+    /// and one for its upper endpoints. Each comparison costs:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
     #[cfg_attr(
@@ -444,20 +426,13 @@ impl<'a> Span<'a> {
     /// ```
     pub fn contains<'b>(&self, other: impl Into<Span<'b>>) -> bool {
         let other = other.into();
-        // A coincident argument is a membership probe: `lo <= v && v <= hi`
-        // in one fused walk over the three streams, each decoded once, where
-        // the endpoint comparisons below would decode the probe twice. Clone
-        // identity certifies the argument's coincidence in `O(1)` (the
-        // version conversions store one buffer twice), and coincident endpoints in
-        // distinct buffers still answer correctly through the general arm.
-        if other.is_coincident() {
-            let version = other.lo();
-            // The coincident receiver collapses membership further, to
-            // equality: on `lo == hi` the segment is one version, and
-            // equality of canonical streams is byte equality — one compare,
-            // no walk.
-            if self.lo.ptr_eq(&self.hi) {
-                return version == self.lo();
+        // A point span asks whether `lo <= v <= hi`. Recognizing shared
+        // endpoints avoids reading v once for each endpoint comparison.
+        if let Some(version) = other.shared_endpoint() {
+            // One point span contains another exactly when their versions are
+            // equal.
+            if let Some(endpoint) = self.shared_endpoint() {
+                return version == endpoint;
             }
             return place::contains(version, &self.lo, &self.hi);
         }
@@ -539,15 +514,13 @@ impl<'a> Span<'a> {
         &self.lo
     }
 
-    /// Whether both endpoints read one shared stored buffer: the coincident
-    /// span's `O(1)` certificate.
+    /// The endpoint when both bounds share the same version storage.
     ///
-    /// The hull constructors, the wire decode, and the algebra's point combines all
-    /// store a coincident span's one stream twice (clones share the buffer), so
-    /// clone identity certifies `lo == hi` without a walk. Coincident endpoints
-    /// in distinct buffers are still equal — they just take the general walks.
-    fn is_coincident(&self) -> bool {
-        self.lo.ptr_eq(&self.hi)
+    /// This recognizes point spans without comparing their versions. Equal
+    /// endpoints in separate allocations return `None` and take the general
+    /// path.
+    fn shared_endpoint(&self) -> Option<&Version> {
+        self.lo.ptr_eq(&self.hi).then(|| self.lo())
     }
 
     /// Destructures this span into its owned `(lo, hi)` endpoints.
@@ -570,7 +543,7 @@ impl<'a> Span<'a> {
         (self.lo.into_owned(), self.hi.into_owned())
     }
 
-    /// Settles this span onto owned endpoints, erasing the borrow lifetime.
+    /// Returns an equivalent span with owned endpoints.
     ///
     /// # Complexity
     ///
@@ -598,8 +571,7 @@ impl<'a> Span<'a> {
     }
 }
 
-/// Lends this version to a [`Cow`]-accepting callsite, providing automatic
-/// reference lifting for methods on [`Span`]s which take [`Version`]s.
+/// Borrows a version as a [`Cow`].
 ///
 /// # Complexity
 ///
@@ -610,8 +582,7 @@ impl<'a> From<&'a Version> for Cow<'a, Version> {
     }
 }
 
-/// Moves this version into a [`Cow`]-accepting callsite, dually to the lending
-/// lift.
+/// Moves a version into a [`Cow`].
 ///
 /// # Complexity
 ///
@@ -622,7 +593,7 @@ impl From<Version> for Cow<'_, Version> {
     }
 }
 
-/// The coincident span `[version, version]`, identical to [`Span::at`].
+/// The point span `[version, version]`, identical to [`Span::at`].
 ///
 /// # Complexity
 ///
@@ -642,7 +613,7 @@ impl From<Version> for Span<'static> {
     }
 }
 
-/// The coincident span at a borrowed version, identical to [`Span::at`].
+/// The point span at a borrowed version, identical to [`Span::at`].
 ///
 /// # Complexity
 ///
@@ -663,11 +634,7 @@ impl<'a> From<&'a Version> for Span<'a> {
     }
 }
 
-/// The borrowing view of a span, identical to [`Span::reborrow`].
-///
-/// This is the conversion that lets `impl Into<Span>` arguments (e.g.
-/// [`contains`](Span::contains), [`Query::coverage`](crate::causally::Query::coverage))
-/// accept `&Span` beside owned spans and versions.
+/// A borrowed view of a span, identical to [`Span::reborrow`].
 ///
 /// # Complexity
 ///

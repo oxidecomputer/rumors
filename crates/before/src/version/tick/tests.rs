@@ -1647,7 +1647,7 @@ mod prescan_raise_shapes {
         lf(ev, 0);
         lf(ev, 0); // wrapper floor
     }
-    /// Seal a built construction-language stream (the meter `Encoding` form).
+    /// Seal test-built bits as the meter's `Encoding` form.
     fn pk(bits: BitsWriter) -> Encoding {
         let live = bits.len();
         Encoding {

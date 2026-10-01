@@ -202,6 +202,11 @@ impl Version {
 
     /// Advances this version by one event for `party`.
     ///
+    /// The result strictly dominates the previous version. The new event
+    /// changes history only within `party`'s region; projecting onto any
+    /// disjoint party gives the same history as before. Consequently, ticking
+    /// two disjoint parties from the same version produces distinct versions.
+    ///
     /// Dealing directly with a [`Party`] and a [`Version`] permits one version
     /// to be [`tick`](Version::tick)ed by many parties, or one [`Party`] to
     /// [`tick`](Party::tick) many [`Version`]s; this is in contrast to a
@@ -467,8 +472,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
-    /// The result's stored representation is no larger than the two operands'
-    /// representations together.
+    /// The result's canonical encoding is no longer than the two operands'
+    /// encodings together.
     ///
     /// # Example
     ///
@@ -548,8 +553,8 @@ impl Version {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
-    /// The result's stored representation is no larger than the two operands'
-    /// representations together.
+    /// The result's canonical encoding is no longer than the two operands'
+    /// encodings together.
     ///
     /// # Example
     ///

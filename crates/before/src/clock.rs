@@ -89,6 +89,11 @@ impl Clock {
     /// Advances this [`Clock`] by one event for its own [`Party`], returning
     /// the new [`Version`].
     ///
+    /// The result strictly dominates the previous version. The new event
+    /// changes history only within this clock's party; projecting onto any
+    /// disjoint party gives the same history as before. Consequently, ticking
+    /// two disjoint clocks from the same version produces distinct versions.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_tick.html")))]

@@ -343,6 +343,20 @@ laws! {
         !p.is_disjoint(q) || ((v / p).to_version() & (v / q).to_version()).is_empty()
     }
 
+    /// Ticking two disjoint parties from the same version produces different
+    /// versions: each event advances history in a region the other does not
+    /// own.
+    fn disjoint_ticks_produce_distinct_versions {
+        if !p.is_disjoint(q) {
+            return true;
+        }
+        let mut vp = v.clone();
+        vp.tick(p);
+        let mut vq = v.clone();
+        vq.tick(q);
+        vp != vq
+    }
+
     /// Projection is additive over any without-carved decomposition of a
     /// region: for `r = p \ q` and `inner = p \ r`, the two remainders
     /// partition `p`'s region and `(v/r) | (v/inner) == v / p`.

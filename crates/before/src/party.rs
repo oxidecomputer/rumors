@@ -169,11 +169,7 @@ impl Party {
         // The seed party is exactly the 2-bit terminal tag `00` (the whole
         // interval, owned), marker-padded to the one static byte
         // `0b0010_0000`: construction allocates nothing, and every seed
-        // shares the one static buffer. A `static`, not a `const`: a
-        // const's promoted allocation has no guaranteed unique address,
-        // and the cross-call sharing claim rests on one. Encoding
-        // round-trips and text laws pin the constant against the parsed
-        // form.
+        // shares the one static buffer.
         static SEED_STREAM: &[u8] = &[0b0010_0000];
         Party::from_canonical(Bits::from_canonical(bytes::Bytes::from_static(SEED_STREAM)))
     }
@@ -204,6 +200,11 @@ impl Party {
     }
 
     /// Advances `version` by one event for this party.
+    ///
+    /// The result strictly dominates the previous version. The new event
+    /// changes history only within this party's region; projecting onto any
+    /// disjoint party gives the same history as before. Consequently, ticking
+    /// two disjoint parties from the same version produces distinct versions.
     ///
     /// Dealing directly with a [`Party`] and a [`Version`] permits one version
     /// to be [`tick`](Version::tick)ed by many parties, or one [`Party`] to

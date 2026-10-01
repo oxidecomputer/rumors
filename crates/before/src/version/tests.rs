@@ -2321,7 +2321,6 @@ fn deep_spine_marginal_cost_is_three_bits_per_level() {
     assert_eq!(
         large - small,
         3 * 1_000,
-        "the deep spine's marginal level cost moved off 3 bits: re-derive \
-         the query depth-guard size prose from the new grammar"
+        "the deep spine's marginal level cost moved off 3 bits"
     );
 }

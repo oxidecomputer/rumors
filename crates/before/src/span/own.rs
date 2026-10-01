@@ -1,4 +1,7 @@
-//! The [`Span`]-equivalent of [`OwnVersion`].
+//! Lazy projection of a [`Span`] onto one [`Party`]'s region.
+//!
+//! [`OwnSpan`] compares against the projected endpoints without first building
+//! them. Callers materialize an owned projected span only when they need one.
 
 use std::cmp::Ordering;
 use std::ops::Div;
@@ -23,7 +26,7 @@ use crate::{
 /// let span = a1.span(&both);
 ///
 /// // Alice's view of the span drops bob's contribution: a1 already
-/// // dominates everything alice owns of it — no projection is built.
+/// // dominates everything Alice owns of it.
 /// assert_eq!((&span / alice.party()).dominance(&a1), Dominance::After);
 /// // Against the unprojected span, a1 dominates only the start.
 /// assert_eq!(span.dominance(&a1), Dominance::Between);
@@ -38,7 +41,7 @@ pub struct OwnSpan<'a> {
 }
 
 impl<'a> OwnSpan<'a> {
-    /// The view's low endpoint, projected: `span.lo() / party`,
+    /// The view's lower endpoint, projected: `span.lo() / party`,
     /// as the lazy [`OwnVersion`] view.
     ///
     /// # Complexity
@@ -62,7 +65,7 @@ impl<'a> OwnSpan<'a> {
         self.span.lo() / self.party
     }
 
-    /// The view's high endpoint, projected: `span.hi() / party`,
+    /// The view's upper endpoint, projected: `span.hi() / party`,
     /// dually to [`lo`](Self::lo).
     ///
     /// # Complexity
@@ -86,9 +89,9 @@ impl<'a> OwnSpan<'a> {
         self.span.hi() / self.party
     }
 
-    /// Compares `version` against this [`OwnSpan`] at full resolution,
-    /// rendering a nine-way [`Placement`] verdict: [`Span::place`], against the
-    /// projected endpoints, without materializing the projection.
+    /// Compares `version` with the projected span, returning the same detailed
+    /// [`Placement`] verdict as [`Span::place`] without materializing the
+    /// endpoints.
     ///
     /// # Complexity
     ///
@@ -266,13 +269,10 @@ impl<'a> OwnSpan<'a> {
         )
     }
 
-    /// Materializes the projected span: the explicit, eager form of
-    /// this view.
+    /// Materializes this view as an owned projected span.
     ///
-    /// One [`OwnVersion::to_version`] per endpoint; the projection is
-    /// monotone (the type's docs carry the argument), so the
-    /// projected pair is ordered and the construction revalidates
-    /// nothing.
+    /// Projection preserves causal order, so the projected endpoints remain a
+    /// valid span.
     ///
     /// # Complexity
     ///

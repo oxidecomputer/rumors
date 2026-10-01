@@ -512,9 +512,9 @@ fn arb_gamma_stream() -> impl Strategy<Value = (BitsWriter, usize)> {
 proptest! {
     /// The word-wise encoder is byte-identical to the per-bit emitter.
     ///
-    /// Holds for every value — `u64`-range codes (the `store_be` path) and
-    /// spilled wide values alike — even appending at an unaligned mid-stream
-    /// position; and the windowed decoder reads its output back exactly.
+    /// Holds for values that fit a `u64` and for wider values, even when
+    /// appending at an unaligned position. The windowed decoder also reads the
+    /// result back exactly.
     #[test]
     fn gamma_word_encode_matches_bit_encode(
         prefix in proptest::collection::vec(any::<bool>(), 0..17),

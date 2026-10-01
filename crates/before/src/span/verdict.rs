@@ -1,26 +1,25 @@
-//! The placement verdict vocabulary: where a version sits relative to a
-//! span, at full resolution and in each coarsening a consumer reads.
+//! Relations between a version and a span.
+//!
+//! [`Placement`] gives the detailed relation. [`Dominance`] and [`Precedence`]
+//! answer the two corresponding directional questions more coarsely.
 
-/// A [`Span`](crate::Span) endpoint, as a verdict payload.
-///
-/// *Which* endpoint does a verdict speak about, or does it speak of both?
+/// Which [`Span`](crate::Span) endpoint a verdict concerns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Endpoint {
     /// The span's lower endpoint, `lo`.
     Start,
     /// The span's upper endpoint, `hi`.
     End,
-    /// Both endpoints at once. What that means is the carrying
-    /// verdict's: see [`Placement::At`] and [`Placement::Concurrent`].
+    /// Both endpoints at once; see [`Placement::At`] and
+    /// [`Placement::Concurrent`].
     Both,
 }
 
 /// Where a version sits relative to a [`Span`](crate::Span), at the finest possible
 /// resolution.
 ///
-/// In a partial order, a point sits in exactly one of nine regions relative to
-/// a span: below, within, above, at either or both endpoints, or beside it in
-/// one of three ways distinguished by which endpoint still bounds it.
+/// A version may be below, within, or above the span; equal to an endpoint; or
+/// concurrent with one or both endpoints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Placement {
     /// Strictly below the whole span: `v < lo`, hence `v < hi`.
@@ -30,13 +29,13 @@ pub enum Placement {
     /// - `At(Start)`: `v == lo < hi`.
     /// - `At(End)`: `lo < v == hi`.
     /// - `At(Both)`: `v == lo == hi`. Equality to one endpoint of a
-    ///   coincident span is equality to both, so on `lo == hi`
+    ///   point span is equality to both, so on `lo == hi`
     ///   every at-endpoint verdict is `At(Both)`.
     At(Endpoint),
     /// Strictly inside: `lo < v < hi`.
     Between,
-    /// Beside the span: incomparable to the endpoint(s) the payload
-    /// names, with the opposite relation forced by `lo <= hi`:
+    /// Concurrent with the endpoint(s) named by the variant. The opposite
+    /// relation follows from `lo <= hi`:
     ///
     /// - `Concurrent(Start)`: `v ∥ lo`, forcing `v < hi` (at or above
     ///   `hi` would put `v` above `lo`).
@@ -68,18 +67,18 @@ pub enum Dominance {
 
 /// How much of a [`Span`](crate::Span) a [`Version`](crate::Version) precedes.
 ///
-/// This is [`Placement`] coarsened to the precedence question, "is the probe
+/// This is [`Placement`] coarsened to the precedence question, "is the version
 /// causally at or before the span's content?" ([`Dominance`] renders the
 /// mirrored verdict over the other direction of the order.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Precedence {
-    /// The version precedes the whole span: `p <= lo`, and with it
+    /// The version precedes the whole span: `v <= lo`, and with it
     /// every version the span covers.
     Before,
-    /// The version precedes the end but not the whole: `p <= hi`,
-    /// while `lo` is below or beside the version.
+    /// The version precedes the end but not the whole: `v <= hi`,
+    /// while `lo` is below or concurrent with the version.
     Between,
     /// The version does not precede even the end: `hi` is below or
-    /// beside the probe (and with it `lo`).
+    /// concurrent with the version (and with it `lo`).
     After,
 }

@@ -1,16 +1,20 @@
-//! The wire form: [`Span`]'s canonical byte encoding and its strict decode.
+//! [`Span`]'s canonical byte encoding and strict decoder.
 //!
 //! The composite is the two endpoints' canonical encodings concatenated —
 //! each byte-aligned, independently canonical, and self-delimiting, so no
-//! length prefix exists — and the decode proves the pair ordered in the
-//! same pass that parses it. The public wire-form contract lives on
-//! [`Span`]; this module is its implementation.
+//! length prefix is needed. Decoding validates both component encodings and
+//! their order before constructing the span.
+//!
+//! Decoding the lower endpoint first reveals the byte boundary between them.
+//! The upper endpoint is then validated and compared with the lower endpoint
+//! in one pass. Accepted endpoints retain slices of the input buffer; equal
+//! endpoints share the lower endpoint's slice.
 
-use std::borrow::Cow;
 use std::io::{self, Read, Write};
 
 use crate::bits::{BitRead, Bits, BitsReader};
 use crate::error::Decode;
+use crate::version::io::validate::{self, Admission};
 use crate::Version;
 
 use super::Span;
@@ -19,9 +23,8 @@ impl<'a> Span<'a> {
     /// Encodes this [`Span`] as canonical bytes.
     ///
     /// Each endpoint is byte-aligned, independently canonical, and
-    /// self-delimiting, so the two concatenate with no length prefix ([`Span`]'s
-    /// docs carry the wire form). Byte equality on these composites is exactly
-    /// span equality.
+    /// self-delimiting, so the two concatenate without a length prefix. Byte
+    /// equality of the resulting encoding is exactly span equality.
     ///
     /// # Complexity
     ///
@@ -36,7 +39,7 @@ impl<'a> Span<'a> {
     /// let older = clock.tick().clone();
     /// let newer = clock.tick().clone();
     /// let span = Span::new(&older, &newer).unwrap();
-    /// // The framing: the meet's bytes, then the join's.
+    /// // The lower endpoint's bytes precede the upper endpoint's.
     /// assert_eq!(span.encode(), [older.encode(), newer.encode()].concat());
     /// assert_eq!(Span::decode(&span.encode()[..]).unwrap(), span);
     /// ```
@@ -50,7 +53,7 @@ impl<'a> Span<'a> {
     ///
     /// # Errors
     ///
-    /// Whatever the writer itself reports; the encoding side is infallible.
+    /// Returns any error reported by the writer.
     ///
     /// # Complexity
     ///
@@ -80,18 +83,15 @@ impl<'a> Span<'a> {
     ///
     /// # Errors
     ///
-    /// - [`Decode::Truncated`]: the bytes end before the composite does —
-    ///   inside either version's tree, ahead of a component's final
-    ///   padding byte, or with the second component missing entirely.
-    /// - [`Decode::TrailingBits`]: live bits past a component's
-    ///   complete tree, or nonzero padding.
-    /// - [`Decode::NotCanonical`]: a non-canonical component, or a
-    ///   pair that no [`Span`] encodes — crossed or concurrent — the
-    ///   canonical spelling of no value.
+    /// - [`Decode::Truncated`]: either version is incomplete or the upper
+    ///   endpoint is missing.
+    /// - [`Decode::TrailingBits`]: a component has malformed padding or bytes
+    ///   follow the span.
+    /// - [`Decode::NotCanonical`]: a component is non-canonical or the
+    ///   endpoints are reversed or incomparable.
     /// - [`Decode::Io`]: the reader itself fails.
     ///
-    /// On an input defective several ways at once, the components'
-    /// structural genres win.
+    /// Structural encoding errors take precedence over endpoint ordering.
     ///
     /// # Complexity
     ///
@@ -128,38 +128,37 @@ impl<'a> Span<'a> {
     /// Validates an owned canonical encoding and shares its storage between
     /// the endpoints.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Span<'static>, Decode> {
-        let (lo, lo_bytes, admission) = {
-            let lo_end = crate::version::io::validate::prefix(BitsReader::from_bytes(&buf))?;
-            let lo_bytes = (lo_end + 1).div_ceil(8);
-            if lo_bytes > buf.len() as u64 {
-                return Err(Decode::Truncated);
-            }
-            let lo_bytes =
-                usize::try_from(lo_bytes).expect("the meet's prefix ends within the read buffer");
-            Bits::validate_padding(&buf[..lo_bytes], lo_end)?;
-            let lo = Version::from_canonical(Bits::from_canonical(buf.slice(..lo_bytes)));
-            let tail = &buf[lo_bytes..];
-            let mut cursor = BitsReader::from_bytes(tail);
-            let admission = crate::version::io::validate::dominating_from(&lo, &mut cursor)?;
-            let hi_end = cursor.position();
-            Bits::validate_padding(tail, hi_end)?;
-            if admission == crate::version::io::validate::Admission::Refuted {
-                return Err(Decode::NotCanonical);
-            }
-            (lo, lo_bytes, admission)
+        // A version tree is self-delimiting at the bit level. Validate the
+        // first tree, then include its marker and padding to find the byte at
+        // which the upper endpoint starts.
+        let lo_end = validate::prefix(BitsReader::from_bytes(&buf))?;
+        let lo_bytes = (lo_end + 1).div_ceil(8);
+        if lo_bytes > buf.len() as u64 {
+            return Err(Decode::Truncated);
+        }
+        let lo_bytes = usize::try_from(lo_bytes)
+            .expect("the lower endpoint ends within the owned input buffer");
+        Bits::validate_padding(&buf[..lo_bytes], lo_end)?;
+        let lo = Version::from_canonical(Bits::from_canonical(buf.slice(..lo_bytes)));
+
+        // The lower endpoint is now known to be canonical. That lets the
+        // admission walk validate the upper endpoint while deciding whether it
+        // equals, dominates, or fails to dominate the lower endpoint. A span
+        // accepts only the first two relations.
+        let hi_bytes = buf.slice(lo_bytes..);
+        let mut hi_reader = BitsReader::from_bytes(&hi_bytes);
+        let relation = validate::dominating_from(&lo, &mut hi_reader)?;
+
+        // Check the upper endpoint's marker and padding before acting on the
+        // relation. Thus malformed or trailing bytes remain structural errors,
+        // even when the values seen so far are crossed or equal.
+        Bits::validate_padding(&hi_bytes, hi_reader.position())?;
+
+        let hi = match relation {
+            Admission::Refuted => return Err(Decode::NotCanonical),
+            Admission::Equal => lo.clone(),
+            Admission::Dominates => Version::from_canonical(Bits::from_canonical(hi_bytes)),
         };
-        let hi = match admission {
-            crate::version::io::validate::Admission::Equal => lo.clone(),
-            crate::version::io::validate::Admission::Dominates => {
-                Version::from_canonical(Bits::from_canonical(buf.slice(lo_bytes..)))
-            }
-            crate::version::io::validate::Admission::Refuted => {
-                unreachable!("refuted admissions rejected above")
-            }
-        };
-        Ok(Span {
-            lo: Cow::Owned(lo),
-            hi: Cow::Owned(hi),
-        })
+        Ok(Span::owned(lo, hi))
     }
 }

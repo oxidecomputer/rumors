@@ -180,9 +180,8 @@ proptest! {
 }
 
 proptest! {
-    /// The clock observers match the oracle's: `has_seen` is `msg <= version`,
-    /// `happens_before` is the strict causal order, and `concurrent_with` is
-    /// incomparability.
+    /// Message containment, strict causal order, and concurrency agree with
+    /// the recursive oracle.
     #[test]
     fn clock_observers_match_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -604,14 +603,12 @@ fn deep_tree_stack_safety() {
     // meet (GLB) is the older `early`, their join (LUB) the newer current
     // version. The operands are distinct and non-empty, so neither the
     // ``==`` nor the empty-operand fast path fires — the
-    // full-length sweep is genuinely exercised, not skipped.
+    // full-length sweep is exercised rather than skipped.
     let current = clock.version().clone();
     assert!(early.clone() & current.clone() == early);
     assert!(early | current.clone() == current);
 
-    // Observers over a deep clock and a deep message do not overflow:
-    // `has_seen` lowers to a deep `partial_cmp` against the version, and the
-    // clock-vs-clock observers compare two deep versions.
+    // Causal comparisons over a deep clock and message do not overflow.
     let sent = clock.send().clone();
     assert!(clock.version() >= sent);
     assert_ne!(

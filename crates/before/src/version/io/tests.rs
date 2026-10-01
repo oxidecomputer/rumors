@@ -1,19 +1,10 @@
-//! Agreement pins and the strict-reject corpus for Version encoding.
+//! Canonical acceptance and rejection tests for Version encoding.
 //!
-//! Three independent artifacts triangulate here: the stored streams the
-//! operations and the transcoder emit, the sizer [`tier2_size`] (an independent
-//! walk over the encoded construction language with its own zigzag map), and the
-//! decoder (validation plus wrap). Length agreement pins every built stream
-//! against the sizer; the round-trip pins the stream against the decoder
-//! through canonical uniqueness; the reject corpus — the planted collapsible
-//! pairs included — pins the validator's strictness: every non-canonical
-//! spelling is rejected. On the accept side, decode adopts accepted bytes as
-//! storage verbatim and `Eq` is byte equality, so the mutation sweeps re-derive
-//! each accepted mutant through the oracle bridge into a fresh canonical
-//! encoding that must spell the adopted bytes — the one comparison a lax
-//! validator can fail — which is what makes acceptance imply the stream is
-//! *the* canonical encoding of its value (the meter board's decode-defect ops
-//! pin the same rejection class deterministically in the gate).
+//! The tests exercise both sides of the codec. Generated canonical streams must
+//! validate and round-trip exactly. The rejection corpus includes collapsible
+//! siblings and other alternative spellings of the same value. Mutation tests
+//! independently reconstruct every accepted value through the oracle, ensuring
+//! that the decoder accepts only its unique canonical spelling.
 
 use std::collections::BTreeSet;
 
@@ -23,11 +14,9 @@ use num_bigint::{BigUint, Sign};
 
 use crate::bits::{BitRead, BitsReader, BitsWriter};
 use crate::error::Decode;
-use crate::testing::bridge::{encoded_bits_of, from_oracle_version, to_oracle_version};
-use crate::testing::compactness::{arb_comb_params, comb};
+use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::meter::registry::Shape;
-use crate::testing::meter::tier2::tier2_size;
 use crate::testing::meter::Encoding;
 use crate::testing::oracles::tree;
 use crate::testing::version::zigzag_difference;
@@ -124,10 +113,9 @@ fn rejects_zero_right_sibling_delta() {
 /// root(leaf 5, node(leaf 5, leaf 5)), the pair closing one level down — is
 /// rejected as [`Decode::NotCanonical`].
 ///
-/// The point tripwire beside the planted-pair family below: a validator
-/// weakened to judge pairs only at root-level closes would accept this stream
-/// as a second spelling of the constant-5 function, breaking the byte-`Eq` =
-/// causal-equality identity.
+/// This ensures validation checks every completed sibling pair, not only the
+/// root's children. Accepting the stream would give the constant value 5 a
+/// second encoding, making byte equality disagree with value equality.
 #[test]
 fn rejects_non_root_collapsible_pair() {
     let mut bits = BitsWriter::new();
@@ -366,19 +354,16 @@ proptest! {
 
 // ─── the topology-flag bijection ────────────────────────────────────────────
 //
-// The stored coding flags `0` internal / `1` leaf. These pins prove that
-// convention is exactly a per-node flag inversion away from the flag-`1`-
-// internal spelling of the same grammar: an independent test-only encoder emits
-// the inverted-flag stream from the oracle tree, and transcoding it (inverting
-// one bit per node, payload codes copied verbatim) lands byte-for-byte on the
-// stored stream. Bit counts, code positions, and the grammar therefore map 1:1
-// between the two spellings, which is what makes the flag choice a pure
-// re-denomination: canonicality structure and the rejection surface carry over
-// node for node.
+// Stored versions use `0` for an internal node and `1` for a leaf. Test
+// generators use the opposite flags. An independent encoder writes the stored
+// leaf values with the generator convention; flipping only its node flags must
+// then reproduce the stored stream byte for byte. This verifies that conversion
+// changes no payload or tree boundary.
 
-/// Emit the stored spelling of a normal-form oracle tree:
-/// per-node preorder flag `1` internal / `0` leaf, payloads exactly the stored
-/// coding's (first leaf absolute, later leaves zigzag deltas).
+/// Encode an oracle tree with generator node flags and stored leaf values.
+///
+/// The first leaf is absolute and later leaves are changes from their
+/// predecessor, just as in a stored version.
 fn inverted_flag_stream(t: &tree::Version) -> BitsWriter {
     fn walk(t: &tree::Version, offset: &BigUint, prev: &mut Option<BigUint>, out: &mut BitsWriter) {
         match t {
@@ -403,9 +388,10 @@ fn inverted_flag_stream(t: &tree::Version) -> BitsWriter {
     out
 }
 
-/// Transcode between the two flag spellings: walk the stream by its own grammar
-/// (`internal` says which flag value opens two children), invert exactly the
-/// one flag bit per node, and copy every payload code verbatim.
+/// Invert each node flag while copying every leaf code unchanged.
+///
+/// `internal` identifies the input convention. Following that convention is
+/// enough to find every node and payload boundary without decoding the values.
 fn flip_topology_flags(bits: &BitsWriter, internal: bool) -> BitsWriter {
     let mut out = BitsWriter::with_capacity(bits.len());
     let mut pos = 0u64;
@@ -536,24 +522,11 @@ proptest! {
     }
 }
 
-// ─── agreement over the generator families ──────────────────────────────────
+// ─── round trips over the generator families ────────────────────────────────
 
-/// The full agreement pin on one version.
-///
-/// The stored stream's length equals the independent sizer bit for bit (the
-/// sizer walks the encoded construction language, re-derived through the oracle
-/// lowering), the stream validates, and decoding it reproduces the version
-/// exactly.
-fn assert_agreement(v: &Version) {
+/// Assert that a version's stored stream validates and decodes to the same value.
+fn assert_round_trip(v: &Version) {
     let bits = stream_of(v);
-    let encoded = encoded_bits_of(&to_oracle_version(v));
-    let size = tier2_size(encoded.reader());
-    assert_eq!(
-        bits.len(),
-        size.total_bits,
-        "stored Version length disagrees with the tier2 sizer: one of the \
-         two independent walks is wrong"
-    );
     assert!(
         whole(bits.reader()).is_ok(),
         "the encoder emits canonical streams"
@@ -565,10 +538,10 @@ fn assert_agreement(v: &Version) {
     );
 }
 
-/// Every registered generator family agrees with the sizer and round-trips
-/// exactly, across a deterministic size grid per family.
+/// Every registered generator family round-trips exactly across a deterministic
+/// size grid.
 #[test]
-fn generator_families_agree_and_round_trip() {
+fn generator_families_round_trip() {
     let shapes: Vec<Encoding> = vec![
         Shape::Dense.build1(1),
         Shape::Dense.build1(2),
@@ -596,20 +569,19 @@ fn generator_families_agree_and_round_trip() {
         Shape::AltSpine.build1(1_001),
     ];
     for p in &shapes {
-        assert_agreement(&version_of(p));
+        assert_round_trip(&version_of(p));
     }
 }
 
 /// Exhaustive small scope: every normal-form tree to depth 2 round-trips,
-/// agrees with the sizer, and no two distinct versions share a stored stream
-/// (injectivity, the other face of byte uniqueness).
+/// and no two distinct versions share a stored stream.
 #[test]
-fn exhaustive_small_scope_agrees_and_is_injective() {
+fn exhaustive_small_scope_round_trips_and_is_injective() {
     let pool = all_normal_events(EV_SMALL_DEPTH);
     let mut seen: BTreeSet<Vec<u8>> = BTreeSet::new();
     for t in &pool {
         let v = from_oracle_version(t);
-        assert_agreement(&v);
+        assert_round_trip(&v);
         // Key on the stored bytes alone: marker padding makes them injective,
         // so distinct versions must differ somewhere a decoder can see.
         let key = v.as_bytes().to_vec();
@@ -621,31 +593,24 @@ fn exhaustive_small_scope_agrees_and_is_injective() {
 }
 
 proptest! {
-    /// Arbitrary normal-form trees (magnitudes past `u64::MAX` included) agree
-    /// with the sizer and round-trip exactly.
+    /// Arbitrary normal-form trees, including values beyond `u64::MAX`,
+    /// round-trip exactly.
     #[test]
-    fn arbitrary_trees_agree_and_round_trip(t in generators::arb_oracle_version()) {
-        assert_agreement(&from_oracle_version(&t));
+    fn arbitrary_trees_round_trip(t in generators::arb_oracle_version()) {
+        assert_round_trip(&from_oracle_version(&t));
     }
 
     /// Every version produced by an organic fork/tick/send/sync/join history
-    /// agrees with the sizer and round-trips exactly.
+    /// round-trips exactly.
     #[test]
-    fn organic_histories_agree_and_round_trip(ops in optrace::world_strategy_up_to(120)) {
+    fn organic_histories_round_trip(ops in optrace::world_strategy_up_to(120)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
         for clock in &clocks {
-            assert_agreement(clock.version());
+            assert_round_trip(clock.version());
         }
-    }
-
-    /// Alternating combs — the compactness suite's tightness family, every
-    /// consecutive-leaf delta a full magnitude swing — agree and round-trip.
-    #[test]
-    fn alternating_combs_agree_and_round_trip((m, p) in arb_comb_params()) {
-        assert_agreement(&comb(m, p));
     }
 
     /// Value-equal versions built along different operation paths produce

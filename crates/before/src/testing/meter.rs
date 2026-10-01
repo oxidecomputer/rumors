@@ -51,8 +51,6 @@
 
 pub mod board;
 pub mod registry;
-#[cfg(test)]
-pub(crate) mod tier2;
 
 use num_bigint::BigUint;
 

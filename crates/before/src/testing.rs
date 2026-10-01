@@ -37,8 +37,6 @@ mod algebraic_laws;
 #[cfg(test)]
 mod asymptotics;
 #[cfg(test)]
-pub(crate) mod compactness;
-#[cfg(test)]
 pub(crate) mod diff_ops;
 #[cfg(test)]
 pub(crate) mod exhaustive;

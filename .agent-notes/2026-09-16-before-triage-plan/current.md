@@ -1,7 +1,23 @@
 # Current triage state
 
-Work proceeds directly on `main`. The completed foundation and fuzz-fit
-consolidation run through `9bf3a7d1`.
+Work proceeds directly on `main`. The completed foundation, fuzz-fit
+consolidation, and approved API run through `e5fb65c1`.
+
+Four uncommitted consolidation diffs are isolated for separate owner review:
+
+- `codex/before-fuzz-consolidation` owns libFuzzer and seed replay.
+- `codex/before-wasm32-consolidation` owns the direct 32-bit suite.
+- `codex/before-gate-ci-consolidation` owns shared gate and CI orchestration.
+- `codex/before-deps-assets-consolidation` owns dependency and generated-asset
+  pruning after the other three settle.
+
+No consolidation branch commits before explicit owner approval. Documentation
+and final finding reconciliation continue independently on `main`.
+
+The uncommitted `main` increment closes the remaining public contract wording
+and clarifies the `Span` implementation and tests. Join/meet encoding-size
+coverage lives in the main lattice differential, where oracle and adversarial
+families check the exact bit-length bound alongside value and canonicality.
 
 ## Completed foundation
 

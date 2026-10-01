@@ -1,19 +1,15 @@
-//! Differential pins for Version merging against three witnesses.
+//! Independent checks for version join and meet.
 //!
-//! The recursive oracle's join and meet (through the bridge) are the byte-level
-//! value witness, a three-cursor overlay walk re-derives every output plateau
-//! pointwise, and the lattice laws are asserted on the emitted streams
-//! themselves. The fused hull sweep rides every oracle comparison: on each
-//! witnessed pair it must reproduce both single-op outputs byte for byte from
-//! its one walk.
+//! Each generated pair is checked three ways. A recursive tree model supplies
+//! the expected whole value. A separate interval walk checks that every part of
+//! the output is the pointwise maximum or minimum of the inputs. Lattice-law
+//! tests then check the relationships among operations without relying on
+//! either model. The combined hull operation must produce the same join and
+//! meet as the individual operations.
 //!
-//! Canonical uniqueness is what makes the oracle differential total: the
-//! emitted stream must equal the oracle's encoded result *byte for byte*, so a
-//! silent side-switch misread cannot hide behind an equivalent-but-different
-//! spelling. The pointwise walk is the second independent witness, sharing
-//! nothing with the oracle's recursion either: it re-materializes absolute
-//! heights (test-only) and checks `max`/`min` on every elementary interval of
-//! the three-stream overlay.
+//! Equality of canonical versions is byte equality, so matching the recursive
+//! model also checks the exact emitted representation. Every output must
+//! validate and fit within the inputs' combined bit length.
 
 use proptest::prelude::*;
 use rayon::prelude::*;
@@ -35,13 +31,8 @@ fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
-/// Assert both emitters against the recursive oracle on one pair, in both
-/// operand orders, and run the pointwise overlay witness on each emitted
-/// stream.
-///
-/// The fused hull sweep rides the same comparison: it must reproduce both
-/// single-op outputs byte for byte from its one walk, and its carried relation
-/// must match the oracle's lattice reading of the pair ([`oracle_relation`]).
+/// Check join, meet, and hull against both independent models in both operand
+/// orders.
 fn assert_emits(a: &Version, b: &Version) {
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
     let joined = from_oracle_version(&(ta.clone() | tb.clone()));
@@ -50,35 +41,48 @@ fn assert_emits(a: &Version, b: &Version) {
         let out = x.join(y);
         assert_eq!(out, joined, "join must match the oracle: {a:?} vs {b:?}");
         validate(&out).expect("an emitted join is canonical");
+        assert_output_fits_inputs("join", x, y, &out);
         assert_pointwise(x, y, &out, false);
         let out = x.meet(y);
         assert_eq!(out, met, "meet must match the oracle: {a:?} vs {b:?}");
         validate(&out).expect("an emitted meet is canonical");
+        assert_output_fits_inputs("meet", x, y, &out);
         assert_pointwise(x, y, &out, true);
         let hulled = x.hull_bits(y);
         assert_eq!(
             hulled.relation,
             oracle_relation(&met, x, y),
-            "the fused verdict must match the oracle's lattice reading: {a:?} vs {b:?}"
+            "the hull relation must match the oracle: {a:?} vs {b:?}"
         );
         assert_eq!(
             hulled.lo, met,
-            "the fused hull's meet must match: {a:?} vs {b:?}"
+            "the hull's lower endpoint must be the meet: {a:?} vs {b:?}"
         );
         assert_eq!(
             hulled.hi, joined,
-            "the fused hull's join must match: {a:?} vs {b:?}"
+            "the hull's upper endpoint must be the join: {a:?} vs {b:?}"
         );
     }
 }
 
-/// The pair's causal order, read off the oracle's meet by the lattice laws
-/// alone: `x <= y` iff `x ∧ y = x`, and canonical uniqueness makes that one
-/// byte comparison per direction.
+/// Assert the encoding-size bound required by balanced joins and meets.
 ///
-/// Independent of the sweep under test on both faces — the meet comes from the
-/// recursive oracle, the reading from the order-theoretic definition — so the
-/// fused verdict differential shares nothing with the fold it checks.
+/// Checking live bits is stronger than comparing padded byte lengths. Running
+/// this inside the main differential applies the bound to every adversarial
+/// family that also checks the operation's value and canonical encoding.
+fn assert_output_fits_inputs(name: &str, a: &Version, b: &Version, out: &Version) {
+    let input_bits = a.encoded_bits() + b.encoded_bits();
+    assert!(
+        out.encoded_bits() <= input_bits,
+        "{name} output uses {} bits, exceeding its inputs' {input_bits} bits",
+        out.encoded_bits(),
+    );
+}
+
+/// Derive the pair's causal order from the oracle meet.
+///
+/// By the lattice law, `x <= y` exactly when `x & y == x`. This determines the
+/// expected hull relation without using the production comparison algorithm.
 fn oracle_relation(met: &Version, x: &Version, y: &Version) -> Option<core::cmp::Ordering> {
     match (met == x, met == y) {
         (true, true) => Some(core::cmp::Ordering::Equal),
@@ -88,14 +92,11 @@ fn oracle_relation(met: &Version, x: &Version, y: &Version) -> Option<core::cmp:
     }
 }
 
-/// Walk the three-stream overlay and check the output height is the pointwise
-/// `max` (or `min` when `meet`) of the input heights on every elementary
-/// interval.
+/// Check every interval where any input or output changes.
 ///
-/// Materializes absolute running heights (test-only; the emitter never does)
-/// with one signed accumulator per stream pair, advancing whichever cursors'
-/// plateaus end first — the deepest cursors step, per the nesting rule the
-/// sweeps rest on.
+/// On each interval, the output must equal the inputs' pointwise maximum for a
+/// join or minimum for a meet. Signed differences let the test compare those
+/// heights without sharing the production emitter's selection logic.
 fn assert_pointwise(a: &Version, b: &Version, out: &Version, meet: bool) {
     let (mut ca, ha) = VersionRegionReader::open(a);
     let (mut cb, hb) = VersionRegionReader::open(b);
@@ -209,6 +210,7 @@ fn family_pool() -> Vec<Version> {
         version_of(&Shape::CancellingChain.build2(16, 8)),
         version_of(&Shape::AltSpine.build1(3)),
         version_of(&Shape::AltSpine.build1(64)),
+        version_of(&Shape::Staircase.build1(16)),
         version_of(&Shape::Harmonic.build1(16)),
     ]
 }
@@ -299,44 +301,17 @@ fn reanchor_join_scan_is_linear_per_input_bit() {
 /// small-scope depth emits join and meet byte-identically to the recursive
 /// oracle.
 ///
-/// Brute force reaches every boundary case — aligned ties, flush-right ties,
-/// plateau consumption, switches at and across zero deltas, collapse cascades —
-/// deterministically rather than by sampling.
+/// Brute force reaches exact equalities, changes at subtree boundaries, sign
+/// changes, and canonical collapses deterministically rather than by sampling.
 #[test]
 fn exhaustive_small_scope_emits_identically() {
-    let pool: Vec<(crate::testing::oracles::tree::Version, Version)> =
-        all_normal_events(EV_SMALL_DEPTH)
-            .iter()
-            .map(|t| {
-                let v = from_oracle_version(t);
-                (t.clone(), v)
-            })
-            .collect();
-    pool.par_iter().for_each(|(ta, va)| {
-        for (tb, vb) in &pool {
-            let joined = from_oracle_version(&(ta.clone() | tb.clone()));
-            let met = from_oracle_version(&(ta.clone() & tb.clone()));
-            assert_eq!(
-                va.join(vb),
-                joined,
-                "join must match the oracle: {va:?} vs {vb:?}"
-            );
-            assert_eq!(
-                va.meet(vb),
-                met,
-                "meet must match the oracle: {va:?} vs {vb:?}"
-            );
-            let hulled = va.hull_bits(vb);
-            assert_eq!(
-                hulled.relation,
-                oracle_relation(&met, va, vb),
-                "the fused verdict must match the oracle's lattice reading: {va:?} vs {vb:?}"
-            );
-            assert_eq!(
-                (hulled.lo, hulled.hi),
-                (met, joined),
-                "the fused hull must match both single-op outputs: {va:?} vs {vb:?}"
-            );
+    let pool: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
+        .iter()
+        .map(from_oracle_version)
+        .collect();
+    pool.par_iter().for_each(|a| {
+        for b in &pool {
+            assert_emits(a, b);
         }
     });
 }
@@ -345,7 +320,7 @@ fn exhaustive_small_scope_emits_identically() {
 /// pool: commutativity, idempotence, and absorption for both operators, as byte
 /// equality of canonical streams.
 #[test]
-fn family_lattice_laws_hold_on_the_kernel() {
+fn family_lattice_laws_hold() {
     let pool = family_pool();
     for a in &pool {
         assert_eq!(a.join(a), *a, "join is idempotent");
@@ -420,35 +395,9 @@ proptest! {
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(crate::testing::oracles::tree::Version, &Version)> = clocks
-            .iter()
-            .map(|c| (to_oracle_version(c.version()), c.version()))
-            .collect();
-        for (ta, va) in &pool {
-            for (tb, vb) in &pool {
-                let joined = from_oracle_version(&(ta.clone() | tb.clone()));
-                let met = from_oracle_version(&(ta.clone() & tb.clone()));
-                prop_assert_eq!(
-                    va.join(vb),
-                    joined.clone(),
-                    "join must match the oracle: {:?} vs {:?}", va, vb
-                );
-                prop_assert_eq!(
-                    va.meet(vb),
-                    met.clone(),
-                    "meet must match the oracle: {:?} vs {:?}", va, vb
-                );
-                let hulled = va.hull_bits(vb);
-                prop_assert_eq!(
-                    hulled.relation,
-                    oracle_relation(&met, va, vb),
-                    "the fused verdict must match the oracle's lattice reading: {:?} vs {:?}", va, vb
-                );
-                prop_assert_eq!(
-                    (hulled.lo, hulled.hi),
-                    (met, joined),
-                    "the fused hull must match both single-op outputs: {:?} vs {:?}", va, vb
-                );
+        for a in &clocks {
+            for b in &clocks {
+                assert_emits(a.version(), b.version());
             }
         }
     }
@@ -465,11 +414,11 @@ proptest! {
     fn wide_grid_pairs_emit_identically(
         ma in prop_oneof![1usize..=8, 29usize..=34, 60usize..=68, 190usize..=200],
         mb in prop_oneof![1usize..=8, 29usize..=34, 60usize..=68, 190usize..=200],
-        pa in prop_oneof![Just(1usize), Just(2), Just(4)],
-        pb in prop_oneof![Just(1usize), Just(2), Just(4)],
+        pa in prop_oneof![Just(1usize), Just(2), Just(4), Just(8), Just(16)],
+        pb in prop_oneof![Just(1usize), Just(2), Just(4), Just(8), Just(16)],
         phase in 0usize..=3,
     ) {
-        const CELLS: usize = 16;
+        const CELLS: usize = 32;
         let high = |bits: usize| (BigUint::from(1u8) << u32::try_from(bits).expect("width fits")) - &BigUint::from(1u8);
         let (high_a, high_b) = (high(ma), high(mb));
         let a: Vec<BigUint> = (0..CELLS)
@@ -477,6 +426,30 @@ proptest! {
             .collect();
         let b: Vec<BigUint> = (0..CELLS)
             .map(|i| if ((i + phase) / pb) % 2 == 0 { BigUint::ZERO } else { high_b.clone() })
+            .collect();
+        assert_emits(&grid_version(&a), &grid_version(&b));
+    }
+
+    /// Staircases crossing a power-of-two boundary exercise joins and meets
+    /// where nearly every adjacent delta changes encoded width.
+    #[test]
+    fn cliff_staircase_pairs_emit_identically(
+        exponent in prop_oneof![8usize..=10, 62usize..=66, 190usize..=194],
+        shift in 1usize..=4,
+        descending in any::<bool>(),
+    ) {
+        const CELLS: usize = 16;
+        let floor = (BigUint::from(1u8)
+            << u32::try_from(exponent).expect("test exponent fits u32"))
+            - BigUint::from((CELLS / 2) as u8);
+        let a: Vec<BigUint> = (0..CELLS)
+            .map(|i| &floor + BigUint::from(i as u64))
+            .collect();
+        let b: Vec<BigUint> = (0..CELLS)
+            .map(|i| {
+                let step = if descending { CELLS - 1 - i } else { i + shift };
+                &floor + BigUint::from(step as u64)
+            })
             .collect();
         assert_emits(&grid_version(&a), &grid_version(&b));
     }

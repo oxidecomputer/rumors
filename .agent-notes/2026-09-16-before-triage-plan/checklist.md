@@ -385,7 +385,7 @@ into otherwise small feature increments.
 - [x] Implement and verify the approved text and serialization surface while
       preserving every existing binary wire encoding.
 
-- [ ] Put each required value, size, and cost guarantee at the public method
+- [x] Put each required value, size, and cost guarantee at the public method
       that owns it, stated as a general `before` contract without naming
       downstream consumers.
       Sources: `rumors-dependence-1`, `rumors-dependence-2`,

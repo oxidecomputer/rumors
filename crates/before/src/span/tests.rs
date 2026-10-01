@@ -21,9 +21,9 @@ fn span_fixtures() -> ([Version; 5], Version) {
 
 /// Every one of the nine [`Placement`] verdicts on a constructed witness.
 ///
-/// The five chain regions land on `[a2, a4]`, the coincident `At(Both)` on
-/// `[a2, a2]`, and all three `Concurrent` payloads on spans whose endpoints
-/// straddle the divergent line.
+/// The chain exercises every ordered position around `[a2, a4]`. A point span
+/// exercises `At(Both)`, and spans crossing the second clock's history exercise
+/// all three concurrent cases.
 #[test]
 fn span_place_places_every_witness() {
     let ([a1, a2, a3, a4, a5], b1) = span_fixtures();
@@ -40,10 +40,10 @@ fn span_place_places_every_witness() {
     // Concurrent to both endpoints of the same span.
     assert_eq!(span.place(&b1), Placement::Concurrent(Endpoint::Both));
 
-    // Equality to one endpoint of a coincident span is equality to both: always
+    // A point has only one endpoint value: equality is always
     // `At(Both)`, never `At(Start)` or `At(End)`.
-    let coincident = Span::new(&a2, &a2).unwrap();
-    assert_eq!(coincident.place(&a2), Placement::At(Endpoint::Both));
+    let point = Span::new(&a2, &a2).unwrap();
+    assert_eq!(point.place(&a2), Placement::At(Endpoint::Both));
 
     // Concurrent to the start only: `hi = a2 | b1` dominates both lines, so `b1
     // ∥ a2` while `b1 < hi`.
@@ -60,18 +60,17 @@ fn span_place_places_every_witness() {
     assert_eq!(sideways.place(&a2), Placement::Concurrent(Endpoint::End));
 }
 
-/// Every [`Dominance`] verdict on the nine placement witnesses: the
-/// coarsening's three fibers, each exercised through all its members.
+/// Every detailed placement maps to the expected [`Dominance`] verdict.
 #[test]
 fn span_dominance_coarsens_every_witness() {
     let ([a1, a2, a3, a4, a5], b1) = span_fixtures();
 
     let span = Span::new(&a2, &a4).unwrap();
-    // After: At(End), Placement::After, and the coincident At(Both).
+    // After: At(End), Placement::After, and a point's At(Both).
     assert_eq!(span.dominance(&a4), Dominance::After);
     assert_eq!(span.dominance(&a5), Dominance::After);
-    let coincident = Span::new(&a2, &a2).unwrap();
-    assert_eq!(coincident.dominance(&a2), Dominance::After);
+    let point = Span::new(&a2, &a2).unwrap();
+    assert_eq!(point.dominance(&a2), Dominance::After);
     // Between: At(Start), Placement::Between, Concurrent(End).
     assert_eq!(span.dominance(&a2), Dominance::Between);
     assert_eq!(span.dominance(&a3), Dominance::Between);
@@ -86,19 +85,17 @@ fn span_dominance_coarsens_every_witness() {
     assert_eq!(span.dominance(&b1), Dominance::Before);
 }
 
-/// Every [`Precedence`] verdict on the nine placement witnesses: the
-/// coarsening's three fibers — [`Dominance`]'s, mirrored — each
-/// exercised through all its members.
+/// Every detailed placement maps to the expected [`Precedence`] verdict.
 #[test]
 fn span_precedence_coarsens_every_witness() {
     let ([a1, a2, a3, a4, a5], b1) = span_fixtures();
 
     let span = Span::new(&a2, &a4).unwrap();
-    // Before: Placement::Before, At(Start), and the coincident At(Both).
+    // Before: Placement::Before, At(Start), and a point's At(Both).
     assert_eq!(span.precedence(&a1), Precedence::Before);
     assert_eq!(span.precedence(&a2), Precedence::Before);
-    let coincident = Span::new(&a2, &a2).unwrap();
-    assert_eq!(coincident.precedence(&a2), Precedence::Before);
+    let point = Span::new(&a2, &a2).unwrap();
+    assert_eq!(point.precedence(&a2), Precedence::Before);
     // Between: At(End), Placement::Between, Concurrent(Start).
     assert_eq!(span.precedence(&a4), Precedence::Between);
     assert_eq!(span.precedence(&a3), Precedence::Between);
@@ -126,31 +123,30 @@ fn span_contains_admits_every_witness() {
     // Outside on the chain: below and above.
     assert!(!span.contains(&a1));
     assert!(!span.contains(&a5));
-    // Beside: concurrent to both endpoints.
+    // Concurrent with both endpoints.
     assert!(!span.contains(&b1));
-    // Beside one endpoint only: concurrent to the start, and to the end.
+    // Concurrent with one endpoint only: first the start, then the end.
     let top = &a2 | &b1;
     let straddling = Span::new(&a2, &top).unwrap();
     assert!(!straddling.contains(&b1));
     let side_top = &a1 | &b1;
     let sideways = Span::new(&a1, &side_top).unwrap();
     assert!(!sideways.contains(&a2));
-    // The coincident segment is one version: membership is equality.
-    let coincident = Span::new(&a2, &a2).unwrap();
-    assert!(coincident.contains(&a2));
-    assert!(!coincident.contains(&a1));
-    assert!(!coincident.contains(&a3));
-    assert!(!coincident.contains(&b1));
+    // A point span contains exactly its version.
+    let point = Span::new(&a2, &a2).unwrap();
+    assert!(point.contains(&a2));
+    assert!(!point.contains(&a1));
+    assert!(!point.contains(&a3));
+    assert!(!point.contains(&b1));
 }
 
-/// The validating entry point admits exactly the ordered pairs: `lo <= hi` composes
-/// (coincident included), while reversed and incomparable pairs are rejected
-/// with `Crossed`.
+/// The validating constructor accepts exactly ordered endpoint pairs, including
+/// equal endpoints, and rejects reversed or incomparable pairs.
 #[test]
 fn span_new_rejects_unordered_pairs() {
     let ([_, a2, _, a4, _], b1) = span_fixtures();
     assert!(Span::new(&a2, &a4).is_ok());
-    assert!(Span::new(&a2, &a2).is_ok(), "coincident is ordered");
+    assert!(Span::new(&a2, &a2).is_ok(), "equal endpoints are ordered");
     assert_eq!(Span::new(&a4, &a2), Err(Crossed), "reversed crosses");
     assert_eq!(
         Span::new(&a2, &b1),
@@ -172,34 +168,34 @@ fn span_constructors_accept_owned_and_borrowed_endpoints() {
     assert_eq!(mixed, borrowed);
 }
 
-/// The coincident constructors build the span `[v, v]`, equal to the singleton
-/// hull `v.span(&v)`.
+/// Every point-span constructor builds `[v, v]`, equal to `v.span(&v)`.
 ///
-/// `Span::at` on an owned or borrowed version and both `From` spellings agree:
-/// both endpoints are the version, and the pair is clone-identity certified
-/// coincident.
+/// The endpoints also share storage, which enables the point fast path.
 #[test]
-fn at_builds_the_coincident_span() {
+fn at_builds_a_point_span_with_shared_storage() {
     let ([_, a2, ..], _) = span_fixtures();
     let point: Span<'static> = Span::at(a2.clone());
     assert_eq!((point.lo(), point.hi()), (&a2, &a2));
-    assert!(point.is_coincident(), "clone identity certifies the point");
+    assert!(
+        point.shared_endpoint().is_some(),
+        "the point shares storage"
+    );
     assert_eq!(point, a2.span(&a2), "the singleton hull, exactly");
 
     let lent = Span::at(&a2);
-    assert!(lent.is_coincident(), "a lent pair reads one buffer");
+    assert!(lent.shared_endpoint().is_some(), "the point shares storage");
     assert_eq!(lent, point);
 
     let consumed = Span::from(a2.clone());
     let borrowed = Span::from(&a2);
-    assert!(consumed.is_coincident() && borrowed.is_coincident());
+    assert!(consumed.shared_endpoint().is_some() && borrowed.shared_endpoint().is_some());
     assert_eq!(consumed, point);
     assert_eq!(borrowed, point);
 }
 
 /// Binary and iterator construction produce the tightest containing span.
 ///
-/// An empty iterator's hull is the coincident `[self, self]`; a comparable
+/// An empty iterator's hull is the point `[self, self]`; a comparable
 /// pair's is its validated span from either operand order (binary and n-ary
 /// alike); a concurrent pair's is a hull whose fresh endpoints strictly bracket
 /// both inputs; and owned items behave like references in the multi-input form.
@@ -207,7 +203,7 @@ fn at_builds_the_coincident_span() {
 fn span_derives_the_hull() {
     let ([a1, a2, _, _, _], b1) = span_fixtures();
 
-    // The empty iterator: the receiver alone, the coincident span.
+    // The empty iterator contains only the receiver.
     assert_eq!(
         a1.span_all(Vec::<&Version>::new()),
         Span::new(&a1, &a1).unwrap()
@@ -243,7 +239,7 @@ fn span_decode_rejects_each_malformed_input_class() {
     let mut bob = alice.fork();
     let older = alice.tick().clone();
     let newer = alice.tick().clone();
-    let beside = bob.tick().clone(); // concurrent to alice's whole line
+    let concurrent = bob.tick().clone();
     let bytes = Span::new(&older, &newer).unwrap().encode();
     let lo_len = older.encode().len();
 
@@ -261,7 +257,7 @@ fn span_decode_rejects_each_malformed_input_class() {
     );
 
     // Concurrent: neither component bounds the other, in both orders.
-    for (a, b) in [(&older, &beside), (&beside, &older)] {
+    for (a, b) in [(&older, &concurrent), (&concurrent, &older)] {
         let concurrent = [a.encode(), b.encode()].concat();
         assert!(
             matches!(Span::decode(&concurrent[..]), Err(Decode::NotCanonical)),
@@ -324,7 +320,7 @@ fn span_decode_rejects_each_malformed_input_class() {
     // whose two leaf children carry height 0 and delta 0 — the collapsible
     // sibling pair minimal topology forbids. As a *join* it denotes the empty
     // version, so it dominates an empty meet and only canonicality can reject
-    // it — which is exactly the check the fused walk must not lose.
+    // it. This ensures the combined decoder still validates each component.
     let collapsible: Vec<u8> = vec![0b0111_1000];
     assert!(
         matches!(Version::decode(&collapsible[..]), Err(Decode::NotCanonical)),
@@ -343,7 +339,7 @@ fn span_decode_rejects_each_malformed_input_class() {
     );
 }
 
-/// Exhaustive short pairs make fused span decoding match separate decoding.
+/// Exhaustive short pairs make direct span decoding match composition.
 ///
 /// Each normal-form pair is decoded both as a composite and as two versions
 /// passed to `Span::new`. The value or rejection must agree.
@@ -360,18 +356,18 @@ fn span_decode_verdict_matches_the_composed_form_exhaustively() {
     for (lo, lo_bytes) in corpus.iter().zip(&encodings) {
         for (hi, hi_bytes) in corpus.iter().zip(&encodings) {
             let composite = [lo_bytes.as_slice(), hi_bytes.as_slice()].concat();
-            let fused = Span::decode(&composite[..]);
+            let direct = Span::decode(&composite[..]);
             match Span::new(lo, hi) {
                 Ok(span) => {
                     accepted += 1;
-                    match fused {
+                    match direct {
                         Ok(decoded) => assert_eq!(
                             decoded, span,
-                            "the fused decode's accept is the composed span"
+                            "direct decoding agrees with the composed span"
                         ),
                         Err(e) => {
                             panic!(
-                                "fused decode must accept the ordered pair [{lo:?}, {hi:?}]: {e}"
+                                "direct decoding must accept the ordered pair [{lo:?}, {hi:?}]: {e}"
                             )
                         }
                     }
@@ -379,8 +375,8 @@ fn span_decode_verdict_matches_the_composed_form_exhaustively() {
                 Err(Crossed) => {
                     rejected += 1;
                     assert!(
-                        matches!(fused, Err(Decode::NotCanonical)),
-                        "fused decode must reject the unordered pair [{lo:?}, {hi:?}] as NotCanonical"
+                        matches!(direct, Err(Decode::NotCanonical)),
+                        "direct decoding must reject the unordered pair [{lo:?}, {hi:?}] as NotCanonical"
                     );
                 }
             }
@@ -392,9 +388,7 @@ fn span_decode_verdict_matches_the_composed_form_exhaustively() {
 }
 
 proptest! {
-    /// FUSED-VALIDATE VERDICT IDENTITY over arbitrary pairs.
-    ///
-    /// The fused wire decode of `a.encode() ++ b.encode()` agrees with the
+    /// Direct decoding of `a.encode() ++ b.encode()` agrees with the
     /// composed form (decode each component, then `Span::new`) on both
     /// verdicts, and on every accept the two forms produce the same span.
     #[test]
@@ -406,20 +400,20 @@ proptest! {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
         let composite = [a.encode(), b.encode()].concat();
-        let fused = Span::decode(&composite[..]);
+        let direct = Span::decode(&composite[..]);
         match Span::new(&a, &b) {
-            Ok(span) => match fused {
+            Ok(span) => match direct {
                 Ok(decoded) => prop_assert_eq!(
                     decoded, span,
-                    "the fused decode's accept is the composed span"
+                    "direct decoding agrees with the composed span"
                 ),
                 Err(e) => return Err(TestCaseError::fail(format!(
-                    "fused decode must accept the ordered pair [{a:?}, {b:?}]: {e}"
+                    "direct decoding must accept the ordered pair [{a:?}, {b:?}]: {e}"
                 ))),
             },
             Err(Crossed) => prop_assert!(
-                matches!(fused, Err(Decode::NotCanonical)),
-                "fused decode must reject the unordered pair [{a:?}, {b:?}] as NotCanonical"
+                matches!(direct, Err(Decode::NotCanonical)),
+                "direct decoding must reject the unordered pair [{a:?}, {b:?}] as NotCanonical"
             ),
         }
     }
@@ -436,9 +430,9 @@ proptest! {
 /// negative-height join rejects `NotCanonical` (the same error the standalone
 /// validator gives those bytes), and a negative-height join that is *also*
 /// truncated rejects `Truncated` — the one deliberate divergence from
-/// component-wise decoding, which reports the height dip it meets first; the
-/// fused walk carries no height accumulator, so the whole-parse rule decides
-/// instead.
+/// component-wise decoding, which reports the height dip it meets first. The
+/// combined decoder must finish validating the whole component before it can
+/// decide the endpoint relation.
 #[test]
 fn span_decode_structural_errors_outrank_the_pair_verdict() {
     use crate::error::Decode;
@@ -525,18 +519,14 @@ fn span_decode_structural_errors_outrank_the_pair_verdict() {
     );
 }
 
-/// Structural errors outrank the coincident-pair verdict: a composite whose
-/// join stream byte-equals its meet still rejects by its structural defect,
-/// never silently dedups.
+/// Structural errors take precedence even when the endpoint encodings are
+/// byte-identical.
 ///
-/// The admission walk's `Equal` verdict is what dispatches the coincident
-/// span's storage dedup, and it is pronounced only after the join's padding
-/// check — so a coincident composite carrying a set padding bit or a spurious
-/// trailing zero byte is `TrailingBits`, and one whose byte-equal join is cut
-/// mid-tree is `Truncated`: the same precedence the crossed-pair witnesses pin,
-/// exercised through the dedup-dispatching arm.
+/// Equal endpoints share storage only after both components have validated. A
+/// bad padding bit or trailing byte therefore remains `TrailingBits`, and a
+/// cut second endpoint remains `Truncated`.
 #[test]
-fn span_decode_structural_errors_outrank_the_coincident_verdict() {
+fn span_decode_validates_equal_components_before_sharing_storage() {
     use crate::error::Decode;
     let mut main = Clock::seed();
     let mut other = main.fork();
@@ -550,26 +540,26 @@ fn span_decode_structural_errors_outrank_the_coincident_verdict() {
         "the witness needs a multi-byte stream with live padding bits"
     );
 
-    // The clean coincident composite accepts (the dedup baseline).
-    let coincident = [bytes.clone(), bytes.clone()].concat();
-    let span = Span::decode(&coincident[..]).expect("the coincident composite decodes");
+    // The valid point span establishes the storage-sharing baseline.
+    let point = [bytes.clone(), bytes.clone()].concat();
+    let span = Span::decode(&point[..]).expect("the point span decodes");
     assert!(span.lo().ptr_eq(span.hi()));
 
     // A set padding bit in the byte-equal join's final byte: the padding defect
     // wins over the Equal verdict.
-    let mut padded = coincident.clone();
+    let mut padded = point.clone();
     *padded.last_mut().expect("nonempty") |= 0x01;
     assert!(
         matches!(Span::decode(&padded[..]), Err(Decode::TrailingBits)),
-        "malformed padding outranks the coincident verdict"
+        "malformed padding is not hidden by equal endpoints"
     );
 
     // A spurious all-zero byte after the byte-equal join: the same trailing
     // error.
-    let trailing = [coincident.clone(), vec![0x00]].concat();
+    let trailing = [point.clone(), vec![0x00]].concat();
     assert!(
         matches!(Span::decode(&trailing[..]), Err(Decode::TrailingBits)),
-        "a trailing zero byte outranks the coincident verdict"
+        "a trailing zero byte is not hidden by equal endpoints"
     );
 
     // The byte-equal join cut mid-tree: truncation wins, though every
@@ -577,11 +567,11 @@ fn span_decode_structural_errors_outrank_the_coincident_verdict() {
     let truncated = [bytes.clone(), bytes[..bytes.len() - 1].to_vec()].concat();
     assert!(
         matches!(Span::decode(&truncated[..]), Err(Decode::Truncated)),
-        "truncation outranks the coincident verdict"
+        "truncation is not hidden by equal endpoints"
     );
 }
 
-/// Deep, wide, and large-height pairs make fused decoding match composition.
+/// Deep, wide, and large-height pairs make direct decoding match composition.
 ///
 /// These cases extend the exhaustive short-pair check across iterative depth,
 /// broad trees, payloads beyond one machine word, and zigzag sign boundaries.
@@ -602,8 +592,8 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
         let lo_bytes = lo.encode();
         let boundary = lo_bytes.len();
         let composite = [lo_bytes, hi.encode()].concat();
-        let fused = Span::decode(&composite[..]);
-        match (fused, composed(&composite, boundary)) {
+        let direct = Span::decode(&composite[..]);
+        match (direct, composed(&composite, boundary)) {
             (Ok(f), Ok(c)) => {
                 assert_eq!(f, c, "accept identity for [{lo:?}, {hi:?}]");
                 assert_eq!(f.encode(), composite, "re-encode identity");
@@ -611,9 +601,9 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
             (Err(ef), Err(ec)) => assert_eq!(
                 std::mem::discriminant(&ef),
                 std::mem::discriminant(&ec),
-                "error identity for [{lo:?}, {hi:?}]: fused {ef:?}, composed {ec:?}"
+                "error identity for [{lo:?}, {hi:?}]: direct {ef:?}, composed {ec:?}"
             ),
-            (f, c) => panic!("verdict mismatch for [{lo:?}, {hi:?}]: fused {f:?}, composed {c:?}"),
+            (f, c) => panic!("verdict mismatch for [{lo:?}, {hi:?}]: direct {f:?}, composed {c:?}"),
         }
     }
 
@@ -651,7 +641,7 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
             tree::Version::leaf(1u64),
         )
     };
-    // One height at a chosen bit edge beside a zero leaf.
+    // One height at a chosen bit boundary next to a zero leaf.
     let bit_edge =
         |h: u64| tree::Version::node(0u64, tree::Version::leaf(h), tree::Version::leaf(0u64));
 
@@ -674,7 +664,7 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
     for a in &versions {
         for b in &versions {
             // The raw pair (ordered, crossed, or concurrent), the hull against
-            // each operand (always ordered), and the coincident span.
+            // each operand (always ordered), and the point span.
             check_identity(a, b);
             let hull = a.span(b);
             check_identity(a, hull.hi());
@@ -729,16 +719,15 @@ proptest! {
     }
 }
 
-// ─────────────────── the coincident span's storage dedup ───────────────────
+// ───────────────────── point-span storage sharing ──────────────────────────
 
-/// A wire-loaded coincident span stores one buffer twice.
+/// Decoding a point span shares one endpoint buffer.
 ///
-/// The admission walk detects `hi == lo` in the pass that proves dominance, so
-/// the decoded endpoints share storage (clone identity holds) exactly as a
-/// computed coincident hull's do — and the span still re-encodes
-/// byte-identically and equals the computed form.
+/// Decoding detects equal endpoints while validating their order. The result
+/// therefore has the same storage sharing as a computed point span, while
+/// remaining byte-identical on re-encoding.
 #[test]
-fn decoded_coincident_span_shares_one_buffer() {
+fn decoded_point_span_shares_one_buffer() {
     let mut clock = Clock::seed();
     for _ in 0..12 {
         clock.tick();
@@ -747,7 +736,7 @@ fn decoded_coincident_span_shares_one_buffer() {
     let computed = v.span(&v);
     assert!(
         computed.lo().ptr_eq(computed.hi()),
-        "a computed coincident hull stores one buffer twice"
+        "a computed point span shares its endpoint buffer"
     );
 
     let bytes = computed.encode();
@@ -756,13 +745,12 @@ fn decoded_coincident_span_shares_one_buffer() {
     assert_eq!(decoded.encode(), bytes, "re-encoding is byte-identical");
     assert!(
         decoded.lo().ptr_eq(decoded.hi()),
-        "the decode-fused equality must dedup the coincident span's storage: \
-         wire-loaded spans hit the ptr_eq ladder exactly like computed ones"
+        "a decoded point span should share its endpoint buffer"
     );
 }
 
 /// A strictly-dominating wire span keeps two distinct endpoint streams: the
-/// dedup fires only on coincidence.
+/// sharing applies only when the endpoints are equal.
 ///
 /// Both endpoints adopt slices of the one read buffer (no per-endpoint copy),
 /// observable as the decode reproducing both components byte-for-byte.
@@ -782,17 +770,15 @@ fn decoded_strict_span_keeps_distinct_endpoints() {
 }
 
 proptest! {
-    /// The coincident span's fast rungs agree with the fused walk across buffer
-    /// identity.
+    /// Point-span classification is independent of whether equal endpoints
+    /// share storage.
     ///
     /// `place`, `dominance`, `precedence`, and `contains` against `[v, v]`
-    /// return identical verdicts whether the endpoints share one buffer (the
-    /// clone-identity rung: hull entry points, wire decode) or sit in distinct
-    /// byte-equal buffers (the fused three-stream walk), and place transcribes
-    /// `probe.partial_cmp(v)` exactly — the
-    /// `degenerate_span_place_is_partial_cmp` law's table.
+    /// Equal endpoints may share one buffer or occupy separate byte-equal
+    /// buffers. Every public classification must agree in both cases, and
+    /// placement must match direct comparison with the point.
     #[test]
-    fn coincident_span_rungs_agree_across_buffer_identity(
+    fn point_span_classification_ignores_buffer_identity(
         ov in arb_oracle_version(),
         op in arb_oracle_version(),
     ) {
@@ -837,20 +823,20 @@ fn containment_operators_on_chain_witnesses() {
     assert_eq!(&mid * &tail, Some(mid.clone()));
     // Disjoint segments share no version.
     assert_eq!(&head * &Span::new(&a3, &a4).unwrap(), None);
-    // A concurrent point beside the chain still has a union (the hull)
+    // A point concurrent with the chain still has a union (the hull)
     // and an empty intersection.
-    let beside = Span::new(&b1, &b1).unwrap();
-    let hull = &mid + &beside;
+    let concurrent = Span::new(&b1, &b1).unwrap();
+    let hull = &mid + &concurrent;
     assert_eq!(*hull.lo(), &a2 & &b1);
     assert_eq!(*hull.hi(), &a3 | &b1);
-    assert_eq!(&mid * &beside, None);
+    assert_eq!(&mid * &concurrent, None);
 }
 
-/// The pointwise operators restrict to the version operators on coincident
-/// spans, and their point results stay coincident with one shared buffer.
+/// On point spans, pointwise operators agree with the corresponding version
+/// operators and return another point with shared storage.
 ///
-/// The fused point-combine's `O(1)` certificate rides into the output, so a
-/// fold over points stays on the fused path.
+/// The result's endpoints share storage, so folding point results continues to
+/// use one lattice operation per combine.
 #[test]
 fn pointwise_operators_restrict_to_versions_on_points() {
     let ([a1, _, _, _, _], b1) = span_fixtures();
@@ -860,24 +846,30 @@ fn pointwise_operators_restrict_to_versions_on_points() {
 
     let joined = &pa | &pb;
     assert_eq!(*joined.lo(), &a1 | &b1);
-    assert!(joined.is_coincident(), "a point join shares one buffer");
+    assert!(
+        joined.shared_endpoint().is_some(),
+        "a point join shares storage"
+    );
 
     let met = &pa & &pb;
     assert_eq!(*met.lo(), &a1 & &b1);
-    assert!(met.is_coincident(), "a point meet shares one buffer");
+    assert!(
+        met.shared_endpoint().is_some(),
+        "a point meet shares storage"
+    );
 
     // The union of two points is their hull — strictly wider than
     // either on concurrent points.
     let hull = &pa + &pb;
-    assert!(!hull.is_coincident());
+    assert!(hull.shared_endpoint().is_none());
     assert_eq!(hull, a1.span(&b1));
 }
 
-/// The multi-input operations settle the receiver on an empty iterator — owned endpoints,
-/// value unchanged — and `intersect_all`'s `None` means an empty intersection,
-/// never an empty input.
+/// With no additional inputs, every multi-input operation returns an owned copy
+/// of the receiver. `intersect_all` returns `None` only for an empty
+/// intersection, not for an empty iterator.
 #[test]
-fn multi_input_operations_settle_the_receiver_on_empty_input() {
+fn multi_input_operations_copy_the_receiver_on_empty_input() {
     let ([a1, a2, _, _, _], _) = span_fixtures();
     let span = Span::new(&a1, &a2).unwrap();
     let none: [Span; 0] = [];
@@ -887,8 +879,8 @@ fn multi_input_operations_settle_the_receiver_on_empty_input() {
     assert_eq!(span.meet_all(none.iter()), span);
 }
 
-/// One mixed n-ary fold per entry point — coincident and wide inputs together, so the
-/// point and wide combine arms both fire — equals the sequential binary fold.
+/// Multi-input operations agree with sequential binary folds on a mixture of
+/// point and non-point spans.
 ///
 /// The laws quantify this over arities and rotations; the witness pins one
 /// readable instance.
@@ -936,7 +928,7 @@ fn multi_input_operations_match_sequential_folds_on_a_mixed_family() {
 /// transcription arms are its negative space. This witness constructs them —
 /// sibling forks inside the masking party's region (concurrent to the start,
 /// below the end), a foreign line (concurrent to both), and a start-dominating
-/// probe beside only the end — and pins the dominance and precedence
+/// version concurrent only with the end — and pins the dominance and precedence
 /// coarsenings (and the non-membership) of each.
 #[test]
 fn own_span_place_reaches_every_concurrent_corner() {
@@ -970,13 +962,13 @@ fn own_span_place_reaches_every_concurrent_corner() {
     assert_eq!(view.place(&vb), Placement::Concurrent(Endpoint::Both));
     assert_eq!(view.dominance(&vb), Dominance::Before);
     assert_eq!(view.precedence(&vb), Precedence::After);
-    // Above the start, beside the end.
+    // Above the start and concurrent with the end.
     let probe = &vl | &vb;
     assert_eq!(view.place(&probe), Placement::Concurrent(Endpoint::End));
     assert_eq!(view.dominance(&probe), Dominance::Between);
     assert_eq!(view.precedence(&probe), Precedence::After);
     // Every corner transcribes the eagerly projected span's verdict —
-    // and a concurrent probe is beside the segment, never within it.
+    // and a concurrent version is never within the span.
     for probe in [&vr, &vb, &probe] {
         assert_eq!(view.place(probe), eager.place(probe));
         assert_eq!(view.dominance(probe), eager.dominance(probe));
@@ -1013,8 +1005,7 @@ fn own_span_projects_both_endpoints() {
     // …and the unprojected join itself lies beyond the view's segment.
     assert!(span.contains(&both));
     assert!(!view.contains(&both));
-    // Materialization is the eagerly projected span (the owned endpoints ride
-    // straight into the entry point: no borrow, no settle).
+    // Materialization equals eagerly projecting both endpoints.
     let eager = Span::new(
         (&a1 / alice.party()).to_version(),
         (&both / alice.party()).to_version(),
