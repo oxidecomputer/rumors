@@ -7,7 +7,7 @@
 
 use std::{fmt, sync::Arc, time::Instant};
 
-use before::{Party, Ticks};
+use before::{Count, Party};
 use futures::StreamExt;
 use futures::{Stream, future::BoxFuture};
 use serde::{Serialize, de::DeserializeOwned};
@@ -868,7 +868,7 @@ enum RemoteRole {
         /// The local peer's network.
         local_network: Network,
         /// The local greeting frontier's event floor, for diagnostics.
-        local_min_events: Ticks,
+        local_min_events: Count,
     },
 }
 
@@ -982,7 +982,7 @@ enum SessionDefect {
     #[error("bootstrap claimant declared history (at least {claimed_min_events} events)")]
     BootstrapHistory {
         /// Lower bound derived from the claimant's version.
-        claimed_min_events: crate::Ticks,
+        claimed_min_events: crate::Count,
     },
     /// A complete closing item differs from the protocol's marker.
     #[error("invalid completion marker: {0:02x?}")]

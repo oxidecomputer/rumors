@@ -11,7 +11,7 @@ use crate::bits::BitsWriter;
 use crate::testing::meter::registry::{FamilyId, Shape};
 use num_bigint::BigUint;
 
-use crate::{Clock, Party, Rank, Ticks, Version};
+use crate::{Clock, Count, Party, Rank, Version};
 
 use super::operand::value_content_bytes;
 
@@ -169,7 +169,7 @@ const ASCEND_CLIFF_BASE: usize = 992;
 /// scale-down.
 const DOMINATED_UNDERCUT_BASE: usize = 160;
 
-/// Ticks behind the integer rank paired with each family-derived rank.
+/// Event count behind the integer rank paired with each family-derived rank.
 ///
 /// Keeping this operand small makes the pair rows measure the other operand's
 /// exponent and numerator width.
@@ -442,7 +442,7 @@ fn wide_query_probe(population: usize) -> QueryProbe {
     let mut first = Party::seed();
     let mut second = first.fork();
     let third = second.fork();
-    let on = |party: &Party, count: Ticks| {
+    let on = |party: &Party, count: Count| {
         let mut version = Version::new();
         version.ticks(party, count);
         version
@@ -455,7 +455,7 @@ fn wide_query_probe(population: usize) -> QueryProbe {
                 .encode()
         })
         .collect();
-    let wide = Ticks((BigUint::from(1u8) << width) - 1u8);
+    let wide = Count((BigUint::from(1u8) << width) - 1u8);
     let middle = u64::try_from(count + 1).expect("an allocated population count fits u64");
     let membership =
         on(&first, wide.clone()) | on(&second, middle.into()) | on(&third, wide.clone());

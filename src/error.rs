@@ -25,7 +25,7 @@
 use std::fmt;
 
 use crate::{
-    Network, Protocol, Ticks,
+    Count, Network, Protocol,
     bookmark::{Bookmark, BookmarkIo, NoBookmark},
     observe::SessionErrorKind,
     tree::mirror::preamble,
@@ -67,11 +67,11 @@ pub enum Mismatch {
         /// The network identifier this side advertised.
         local_network: Network,
         /// The event bound this side advertised for its own universe.
-        local_min_events: Ticks,
+        local_min_events: Count,
         /// The network identifier advertised by the peer.
         remote_network: Network,
         /// A lower bound on events recorded in the remote universe.
-        remote_min_events: Ticks,
+        remote_min_events: Count,
     },
 
     /// The peers have different payload depth limits. Align

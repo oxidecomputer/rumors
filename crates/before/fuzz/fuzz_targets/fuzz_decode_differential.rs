@@ -87,6 +87,7 @@ fn genre(error: &Decode) -> Genre {
         Decode::TrailingBits => Genre::TrailingBits,
         Decode::NotCanonical => Genre::NotCanonical,
         Decode::Io(source) => unreachable!("slice reads never fail: {source}"),
+        _ => unreachable!("new Decode variant is not classified by the fuzz oracle"),
     }
 }
 

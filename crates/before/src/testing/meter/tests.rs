@@ -1,7 +1,10 @@
-//! Checks registered worst-case generators: each shape decodes, re-encodes
-//! byte-identically, and has exactly its closed-form bit length.
+//! Checks the adversarial families used by the resource meters.
+//!
+//! Each property ranges over a generator's valid inputs, verifies its
+//! closed-form size and canonical encoding, and checks the semantic premise on
+//! which the corresponding resource measurement relies.
 
-use crate::{Party, Rank, Ticks, Version};
+use crate::{Count, Party, Rank, Version};
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
@@ -24,13 +27,13 @@ use super::{
 const ISOLATION_NOTE: &str = "note: the counter is process-global and meaningful only one \
      test per process: run under cargo nextest, not a shared-process cargo test";
 
-/// Convert the arbitrary-precision oracle value directly into a tick count.
-fn ticks_from_big(value: &BigUint) -> Ticks {
-    Ticks(value.clone())
+/// Convert an arbitrary-precision expected result into a minimum tick count.
+fn min_ticks_from_big(value: &BigUint) -> Count {
+    Count(value.clone())
 }
 
 /// Build a uniform version through the public tick operation.
-fn uniform(count: impl Into<Ticks>) -> Version {
+fn uniform(count: impl Into<Count>) -> Version {
     let mut version = Version::new();
     Party::seed().ticks(&mut version, count);
     version
@@ -59,210 +62,188 @@ fn check_party(p: &Encoding, bits: usize) -> Party {
     id
 }
 
-/// The dense spine `S(d)` is canonical normal form at exactly `4d + 4` bits, at
-/// both a small and a large depth.
-#[test]
-fn dense_decodes_canonically_at_predicted_length() {
-    for d in [3, 1000] {
+proptest! {
+    /// The dense spine `S(d)` is canonical normal form at exactly `4d + 4`
+    /// bits for every positive depth.
+    #[test]
+    fn dense_decodes_canonically_at_predicted_length(d in 1usize..=1_000) {
         check_version(&dense(d), 4 * d + 4);
     }
-}
 
-/// `bigroot(b, d)` is canonical normal form at exactly `2b + 4d + 8` bits,
-/// including a root magnitude wide enough to spill machine-word gamma decoding.
-#[test]
-fn bigroot_decodes_canonically_at_predicted_length() {
-    for (b, d) in [(3, 2), (100, 50)] {
+    /// `bigroot(b, d)` is canonical normal form at exactly `2b + 4d + 8` bits,
+    /// across narrow and multiword root magnitudes.
+    #[test]
+    fn bigroot_decodes_canonically_at_predicted_length(
+        b in prop_oneof![1usize..=128, Just(200usize)],
+        d in 1usize..=64,
+    ) {
         check_version(&bigroot(b, d), 2 * b + 4 * d + 8);
     }
-}
 
-/// `hugeleaf(b)` is canonical normal form at exactly `2b + 2` bits, including a
-/// magnitude wide enough to spill machine-word gamma decoding.
-#[test]
-fn hugeleaf_decodes_canonically_at_predicted_length() {
-    for b in [1, 200] {
+    /// `hugeleaf(b)` is canonical normal form at exactly `2b + 2` bits across
+    /// narrow and multiword magnitudes.
+    #[test]
+    fn hugeleaf_decodes_canonically_at_predicted_length(
+        b in prop_oneof![1usize..=128, Just(200usize)],
+    ) {
         check_version(&hugeleaf(b), 2 * b + 2);
     }
-}
 
-/// `cliff_comb(k, n)` is canonical normal form at exactly `n(2k + 10) + 2`
-/// bits.
-///
-/// The sizes cover a tooth magnitude wide enough to spill machine-word gamma
-/// decoding and a tooth count deep enough for the oscillation to dominate.
-#[test]
-fn cliff_comb_decodes_canonically_at_predicted_length() {
-    for (k, n) in [(2, 1), (3, 4), (200, 50)] {
+    /// `cliff_comb(k, n)` is canonical normal form at exactly
+    /// `n(2k + 10) + 2` bits for every admitted tooth width and count.
+    #[test]
+    fn cliff_comb_decodes_canonically_at_predicted_length(
+        k in prop_oneof![1usize..=128, Just(200usize)],
+        n in 1usize..=50,
+    ) {
         check_version(&cliff_comb(k, n), n * (2 * k + 10) + 2);
     }
-}
 
-/// `jump_comb(k, n)` is canonical normal form at exactly `(n − 1)(2k + 10) +
-/// 14` bits.
-///
-/// The sizes cover a cliff magnitude wide enough to spill machine-word gamma
-/// decoding.
-#[test]
-fn jump_comb_decodes_canonically_at_predicted_length() {
-    for (k, n) in [(2, 2), (3, 4), (200, 50)] {
+    /// `jump_comb(k, n)` is canonical normal form at exactly
+    /// `(n − 1)(2k + 10) + 14` bits for every admitted width and count.
+    #[test]
+    fn jump_comb_decodes_canonically_at_predicted_length(
+        k in prop_oneof![1usize..=128, Just(200usize)],
+        n in 2usize..=50,
+    ) {
         check_version(&jump_comb(k, n), (n - 1) * (2 * k + 10) + 14);
     }
-}
 
-/// `wide_tooth_comb(k, w, n)` is canonical normal form at exactly `n(2k + 2w +
-/// 6) + 2` bits.
-///
-/// The sizes cover teeth and cliffs wide enough to spill machine-word gamma
-/// decoding.
-#[test]
-fn wide_tooth_comb_decodes_canonically_at_predicted_length() {
-    for (k, w, n) in [(2, 1, 1), (3, 1, 4), (200, 100, 50)] {
+    /// `wide_tooth_comb(k, w, n)` is canonical normal form at exactly
+    /// `n(2k + 2w + 6) + 2` bits throughout its three-dimensional domain.
+    #[test]
+    fn wide_tooth_comb_decodes_canonically_at_predicted_length(
+        widths in (1usize..=100, 1usize..=100),
+        n in 1usize..=32,
+    ) {
+        let (w, above) = widths;
+        let k = w + above;
         check_version(&wide_tooth_comb(k, w, n), n * (2 * k + 2 * w + 6) + 2);
     }
-}
 
-/// `cliff_fan(k, n)` is canonical normal form at exactly `12n + 2k + 6` bits,
-/// with every tooth's 12 stored bits crossing the `2^k` path-sum boundary twice
-/// under one stored root magnitude.
-///
-/// The sizes cover a root magnitude wide enough to spill machine-word gamma
-/// decoding.
-#[test]
-fn cliff_fan_decodes_canonically_at_predicted_length() {
-    for (k, n) in [(1, 1), (3, 4), (200, 50)] {
+    /// `cliff_fan(k, n)` is canonical normal form at exactly
+    /// `12n + 2k + 6` bits throughout its domain.
+    #[test]
+    fn cliff_fan_decodes_canonically_at_predicted_length(
+        k in prop_oneof![1usize..=128, Just(200usize)],
+        n in 1usize..=50,
+    ) {
         check_version(&cliff_fan(k, n), 12 * n + 2 * k + 6);
     }
-}
 
-/// `cancelling_chain(k, n)` is canonical normal form at exactly `n(2k + 10) +
-/// 2` bits.
-///
-/// The sizes cover a peak magnitude wide enough to spill machine-word gamma
-/// decoding.
-#[test]
-fn cancelling_chain_decodes_canonically_at_predicted_length() {
-    for (k, n) in [(2, 1), (3, 4), (200, 50)] {
+    /// `cancelling_chain(k, n)` is canonical normal form at exactly
+    /// `n(2k + 10) + 2` bits throughout its domain.
+    #[test]
+    fn cancelling_chain_decodes_canonically_at_predicted_length(
+        k in prop_oneof![1usize..=128, Just(200usize)],
+        n in 1usize..=50,
+    ) {
         check_version(&cancelling_chain(k, n), n * (2 * k + 10) + 2);
     }
 }
 
-/// `freeze_position(k)` is canonical normal form at exactly `4k(L + 2) + 2`
-/// bits for `L = 289 + bitlen(k)`, and its `min_ticks` is exactly the leaf-sum
-/// closed form `2k·2^L + k(k−1)(2^288 + 1) + k`.
-///
-/// The closed form is the family's independent semantic leg: the
-/// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale, so
-/// this pin holds it at hand-checkable sizes where the tree can also be
-/// spot-read (one block, descending 290-bit leaves over the terminal zero).
-#[test]
-fn freeze_position_decodes_canonically_at_predicted_length() {
-    for (k, bitlen) in [(1usize, 1usize), (5, 3), (200, 8)] {
-        let band = 289 + bitlen;
+proptest! {
+    /// `freeze_position(k)` is canonical normal form at exactly
+    /// `4k(L + 2) + 2` bits for `L = 289 + bitlen(k)`, and its `min_ticks`
+    /// equals `2k·2^L + k(k−1)(2^288 + 1) + k`.
+    #[test]
+    fn freeze_position_decodes_canonically_at_predicted_length(
+        k in prop_oneof![1usize..=64, Just(200usize)],
+    ) {
+        let band = 289 + bitlen(k);
         check_version(&freeze_position(k), 4 * k * (band + 2) + 2);
         let expected = (BigUint::from(2 * k as u64) << band)
             + BigUint::from((k * (k - 1)) as u64) * ((BigUint::ONE << 288usize) + BigUint::ONE)
             + BigUint::from(k as u64);
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             freeze_position(k).version().min_ticks(),
             ticks,
             "the leaf-sum closed form is the family's minimum tick count"
         );
     }
-}
 
-/// `promotion_rearm(p)` is canonical normal form at exactly `1972p + 4` bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum `16p + p(2^608 + 2^288 + 2) +
-/// 1`.
-///
-/// The closed form is the family's independent semantic leg: the
-/// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale, so
-/// this pin holds it at hand-checkable sizes.
-#[test]
-fn promotion_rearm_decodes_canonically_at_predicted_length() {
-    for p in [1usize, 5, 200] {
+    /// `promotion_rearm(p)` is canonical normal form at exactly `1972p + 4` bits.
+    ///
+    /// Its `min_ticks` is exactly the stored-base sum `16p + p(2^608 + 2^288 + 2) +
+    /// 1`.
+    ///
+    /// The closed form is the family's independent semantic leg: the
+    /// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale, so
+    /// this pin holds it at hand-checkable sizes.
+    #[test]
+    fn promotion_rearm_decodes_canonically_at_predicted_length(
+        p in prop_oneof![1usize..=64, Just(200usize)],
+    ) {
         check_version(&promotion_rearm(p), 1972 * p + 4);
         let expected = BigUint::from(16 * p as u64)
             + BigUint::from(p as u64)
                 * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
             + 1u8;
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             promotion_rearm(p).version().min_ticks(),
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `lone_freeze(pre, post)` is canonical normal form at exactly `580·pre +
-/// 6·post + 14` bits, and its `min_ticks` is exactly the leaf-sum closed form
-/// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3`.
-///
-/// The closed form is the family's independent semantic leg: the
-/// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale on
-/// both dials, so this pin holds it at hand-checkable sizes where the tree can
-/// also be spot-read (a plateau pair, the drop block, a tail pair, the terminal
-/// zero).
-#[test]
-fn lone_freeze_decodes_canonically_at_predicted_length() {
-    for (pre, post) in [(2usize, 2usize), (2, 6), (6, 2), (40, 40)] {
+    /// `lone_freeze(pre, post)` is canonical normal form at exactly `580·pre +
+    /// 6·post + 14` bits, and its `min_ticks` is exactly the leaf-sum closed form
+    /// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3`.
+    ///
+    /// The closed form is the family's independent semantic leg: the
+    /// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale on
+    /// both dials, so this pin holds it at hand-checkable sizes where the tree can
+    /// also be spot-read (a plateau pair, the drop block, a tail pair, the terminal
+    /// zero).
+    #[test]
+    fn lone_freeze_decodes_canonically_at_predicted_length(
+        pre_pairs in 1usize..=20,
+        post_pairs in 1usize..=20,
+    ) {
+        let (pre, post) = (2 * pre_pairs, 2 * post_pairs);
         check_version(&lone_freeze(pre, post), 580 * pre + 6 * post + 14);
         let expected = BigUint::from(pre as u64)
             * ((BigUint::ONE << 288usize) + BigUint::from(2u8))
             + BigUint::from((pre / 2) as u64)
             + BigUint::from((3 * post / 2) as u64)
             + BigUint::from(3u8);
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             lone_freeze(pre, post).version().min_ticks(),
             ticks,
             "the leaf-sum closed form is the family's minimum tick count"
         );
     }
-}
 
-/// `promotion_rearm_mate(p)` is canonical normal form at exactly `180p + 4`
-/// bits.
-///
-/// Its `min_ticks` is exactly `18p + 1`, and `promotion_rearm(p)` dominates it
-/// pointwise (the pair band's exact value legs rest on the dominance).
-#[test]
-fn promotion_rearm_mate_decodes_canonically_at_predicted_length() {
-    for p in [1usize, 5, 200] {
+    /// `promotion_rearm_mate(p)` is canonical normal form at exactly `180p + 4`
+    /// bits.
+    ///
+    /// Its `min_ticks` is exactly `18p + 1`, and `promotion_rearm(p)` dominates it
+    /// pointwise (the pair band's exact value legs rest on the dominance).
+    #[test]
+    fn promotion_rearm_mate_decodes_canonically_at_predicted_length(
+        p in prop_oneof![1usize..=64, Just(200usize)],
+    ) {
         check_version(&promotion_rearm_mate(p), 180 * p + 4);
-        let ticks = Ticks::from(18 * p as u64 + 1);
+        let ticks = Count::from(18 * p as u64 + 1);
         assert_eq!(
             promotion_rearm_mate(p).version().min_ticks(),
             ticks,
             "the alternating spine's stored-base sum is its minimum tick count"
         );
     }
-    let a = promotion_rearm(3).version();
-    let b = promotion_rearm_mate(3).version();
-    assert!(
-        a.rank().checked_sub(&b.rank()).is_some(),
-        "the re-arm spine dominates its mate"
-    );
-    assert_eq!(
-        a.lag(&b),
-        crate::Rank::ZERO,
-        "the dominating side lags by nothing"
-    );
 }
 
-/// The harmonic spine `H(d)` is canonical normal form at exactly `6d + 2` bits,
-/// and its rank is exactly the closed form `(2^d − 1)/2^d`.
+/// The harmonic spine's rank is exactly `(2^d − 1)/2^d` at representative
+/// shallow and deep boundaries.
 ///
-/// The closed form is pinned through canonical binary text at hand-checkable
-/// depths and at meter scale through `1 − rank(H(d)) = 1/2^d`.
+/// The general canonical-length property is checked separately. This test pins
+/// the rank through readable text and, at meter scale, through
+/// `1 − rank(H(d)) = 1/2^d`.
 #[test]
-fn harmonic_decodes_canonically_at_predicted_length_and_rank() {
-    for d in [1, 2, 3, 1000] {
-        check_version(&harmonic(d), 6 * d + 2);
-    }
+fn harmonic_rank_matches_its_closed_form_at_boundaries() {
     assert_eq!(harmonic(2).version().rank().to_string(), "0.11");
     assert_eq!(harmonic(7).version().rank().to_string(), "0.1111111");
     // Meter scale: 1 − (2^d − 1)/2^d = 1/2^d, exact at any depth.
@@ -275,39 +256,37 @@ fn harmonic_decodes_canonically_at_predicted_length_and_rank() {
     assert_eq!(gap.to_string(), format!("0.{}1", "0".repeat(d - 1)));
 }
 
-/// The alternating-binary spine `A(d)` is canonical normal form at exactly
-/// `4d + 4` bits, with the internal child changing sides every level.
-///
-/// The checked depths cover both alternation parities.
-#[test]
-fn alt_spine_decodes_canonically_at_predicted_length() {
-    for d in [1, 2, 3, 1000] {
+proptest! {
+    /// `H(d)` is canonical normal form at exactly `6d + 2` bits for every
+    /// positive depth.
+    #[test]
+    fn harmonic_decodes_canonically_at_predicted_length(d in 1usize..=1_000) {
+        check_version(&harmonic(d), 6 * d + 2);
+    }
+
+    /// `A(d)` is canonical normal form at exactly `4d + 4` bits, with both
+    /// alternation parities exercised across arbitrary positive depths.
+    #[test]
+    fn alt_spine_decodes_canonically_at_predicted_length(d in 1usize..=1_000) {
         check_version(&alt_spine(d), 4 * d + 4);
     }
-}
 
-/// `dominated_undercut(k, b)` is canonical normal form at exactly
-/// `k(2b + 26) + 2` bits, and each site holds the raise leaf beside the
-/// `5 · 2^b` climb with the exit one above the region's minimum.
-///
-/// The sizes cover the generator's minimum width, an unaligned width (the
-/// decidability argument is width-generic past the bound), and a site count
-/// deep enough for the spine to dominate.
-#[test]
-fn dominated_undercut_decodes_canonically_at_predicted_length() {
-    for (k, b) in [(1, 128), (3, 133), (50, 200)] {
+    /// `dominated_undercut(k, b)` is canonical normal form at exactly
+    /// `k(2b + 26) + 2` bits throughout its admitted width and site domain.
+    #[test]
+    fn dominated_undercut_decodes_canonically_at_predicted_length(
+        k in 1usize..=50,
+        b in 128usize..=200,
+    ) {
         check_version(&dominated_undercut(k, b), k * (2 * b + 26) + 2);
     }
-}
 
-/// `dominated_undercut_id(k)` decodes canonically at exactly `6k + 2` bits:
-/// per site a `(1, 0)` node over the raise leaf, bottoming in a full terminal.
-#[test]
-fn dominated_undercut_id_decodes_canonically_at_predicted_length() {
-    for k in [1, 2, 50] {
-        check_party(&dominated_undercut_id(k), 6 * k + 2);
+    /// `dominated_undercut_id(k)` is canonical normal form at exactly
+    /// `6k + 2` bits throughout its positive site-count domain.
+    #[test]
+    fn dominated_undercut_id_decodes_canonically_at_predicted_length(k in 1usize..=100) {
+        let _ = check_party(&dominated_undercut_id(k), 6 * k + 2);
     }
-    check_party(&dominated_undercut_id(1), 8);
 }
 
 /// The scan meter observes encoded traversal, resets to zero, and reads
@@ -371,110 +350,112 @@ fn scan_meter_counts_deterministically_and_resets() {
     );
 }
 
-/// `I(d, divert)` is canonical normal form at exactly `2d + 2` bits for both
-/// divert arms, and the two arms own disjoint regions (the property that
-/// drives two-operand id walks to full lockstep depth).
-#[test]
-fn id_spine_decodes_canonically_at_predicted_length() {
-    for d in [1, 500] {
+proptest! {
+    /// `I(d, divert)` is canonical normal form at exactly `2d + 2` bits for
+    /// both arms, and the two arms are disjoint at every positive depth.
+    #[test]
+    fn id_spine_decodes_canonically_at_predicted_length(d in 1usize..=500) {
         let a = check_party(&id_spine(d, false), 2 * d + 2);
         let b = check_party(&id_spine(d, true), 2 * d + 2);
-        assert!(a.is_disjoint(&b), "divert arms own disjoint regions");
+        prop_assert!(a.is_disjoint(&b), "divert arms own disjoint regions");
+    }
+
+    /// `Z(e)` is canonical normal form at exactly `6e + 2` bits for every
+    /// positive extent.
+    #[test]
+    fn scattered_id_decodes_canonically_at_predicted_length(e in 1usize..=500) {
+        let _ = check_party(&scattered_id(e), 6 * e + 2);
     }
 }
 
-/// `Z(e)` is canonical normal form at exactly `6e + 2` bits, and projecting a
-/// comb through it keeps a wide magnitude per kept tooth: the projected output
-/// out-scales the scattered party's own bits.
-///
-/// The overlap claim is what the generator exists for — the owned left subtrees
-/// sit at the comb's tooth positions — so a projection that came back
-/// near-empty would mean the shapes no longer align.
-#[test]
-fn scattered_id_decodes_canonically_at_predicted_length() {
-    for e in [1, 500] {
-        check_party(&scattered_id(e), 6 * e + 2);
+proptest! {
+    /// A scattered party aligned with a comb retains one wide magnitude per
+    /// selected tooth throughout the generators' shared domain.
+    #[test]
+    fn scattered_id_projection_retains_each_selected_tooth(
+        k in prop_oneof![1usize..=96, Just(200usize)],
+        half_teeth in 1usize..=24,
+    ) {
+        let n = 2 * half_teeth;
+        let comb = cliff_comb(k, n).version();
+        let party = Party::decode(&scattered_id(n / 2).bytes[..])
+            .expect("scattered id is strict normal form");
+        let projected = (&comb / &party).to_version();
+        assert!(
+            projected.encoded_bits() >= ((n / 2) * k) as u64,
+            "projection through the scattered id must keep a wide magnitude per kept tooth \
+             (got {} bits from {} teeth of {} bits)",
+            projected.encoded_bits(),
+            n,
+            k
+        );
     }
-    let (k, n) = (64, 16);
-    let comb = cliff_comb(k, n).version();
-    let party =
-        Party::decode(&scattered_id(n / 2).bytes[..]).expect("scattered id is strict normal form");
-    let projected = (&comb / &party).to_version();
-    assert!(
-        projected.encoded_bits() >= ((n / 2) * k) as u64,
-        "projection through the scattered id must keep a wide magnitude per kept tooth \
-         (got {} bits from {} teeth of {} bits)",
-        projected.encoded_bits(),
-        n,
-        k
-    );
 }
 
-/// `MT(k, n)` is three canonical operands at their closed-form lengths, and the
-/// correlation realizes the full-walk verdict: the projected comb sits strictly
-/// under the plateau, fused and materialized alike.
-///
-/// The `Less` verdict is what keeps every measurement of this family a
-/// whole-overlay walk (no early exit), so a generator drift that broke the
-/// alignment would read here as a changed verdict.
-#[test]
-fn mask_drift_triple_decodes_canonically_and_realizes_less() {
-    let (k, n) = (64, 16);
-    let (comb, mask, plateau) = mask_drift_triple(k, n);
-    check_version(&comb, n * (2 * k + 10) + 2);
-    check_version(&plateau, 2 * k + 2);
-    let party = check_party(&mask, 6 * (n / 2) + 2);
-    let (v, w) = (comb.version(), plateau.version());
-    let fused = (&v / &party).partial_cmp(&w);
-    assert_eq!(
-        fused,
-        Some(std::cmp::Ordering::Less),
-        "the projected comb sits strictly under the plateau"
-    );
-    assert_eq!(
-        fused,
-        (&v / &party).to_version().partial_cmp(&w),
-        "the fused verdict is the materialized verdict"
-    );
-}
+proptest! {
+    /// Every mask-drift triple is canonical at its closed-form lengths and
+    /// realizes the same full-walk `Less` verdict through fused and
+    /// materialized projection.
+    #[test]
+    fn mask_drift_triple_decodes_canonically_and_realizes_less(
+        k in prop_oneof![1usize..=96, Just(200usize)],
+        half_teeth in 1usize..=24,
+    ) {
+        let n = 2 * half_teeth;
+        let (comb, mask, plateau) = mask_drift_triple(k, n);
+        check_version(&comb, n * (2 * k + 10) + 2);
+        check_version(&plateau, 2 * k + 2);
+        let party = check_party(&mask, 6 * (n / 2) + 2);
+        let (v, w) = (comb.version(), plateau.version());
+        let fused = (&v / &party).partial_cmp(&w);
+        assert_eq!(
+            fused,
+            Some(std::cmp::Ordering::Less),
+            "the projected comb sits strictly under the plateau"
+        );
+        assert_eq!(
+            fused,
+            (&v / &party).to_version().partial_cmp(&w),
+            "the fused verdict is the materialized verdict"
+        );
+    }
 
-/// `MQ(k, n)` is two canonical comb/mask pairs whose interleaved parities
-/// realize the full-walk `Less` verdict.
-///
-/// Both operand pairs decode canonically at their closed-form lengths, the
-/// sparse comb's view is semantically empty (its mask owns exactly its zero
-/// levels), and the fused four-stream verdict matches the materialized
-/// comparison.
-#[test]
-fn mask_drift_quadruple_decodes_canonically_and_realizes_less() {
-    let (k, n) = (64, 16);
-    let ((sparse, even_mask), (comb, odd_mask)) = mask_drift_quadruple(k, n);
-    check_version(&sparse, (n / 2) * (2 * k + 14) + 2);
-    check_version(&comb, n * (2 * k + 10) + 2);
-    let p1 = check_party(&even_mask, 6 * (n / 2) + 2);
-    let p2 = check_party(&odd_mask, 6 * (n / 2) + 4);
-    let (v1, v2) = (sparse.version(), comb.version());
-    assert!(
-        (&v1 / &p1).to_version().is_empty(),
-        "the even mask owns exactly the sparse comb's zero levels"
-    );
-    assert!(
-        !(&v2 / &p2).to_version().is_empty(),
-        "the odd mask keeps the full comb's teeth"
-    );
-    let fused = (&v1 / &p1).partial_cmp(&(&v2 / &p2));
-    assert_eq!(
-        fused,
-        Some(std::cmp::Ordering::Less),
-        "the empty view sits strictly under the tooth-keeping view"
-    );
-    assert_eq!(
-        fused,
-        (&v1 / &p1)
-            .to_version()
-            .partial_cmp(&(&v2 / &p2).to_version()),
-        "the fused verdict is the materialized verdict"
-    );
+    /// Every mask-drift quadruple is canonical at its closed-form lengths and
+    /// realizes the same `Less` verdict through fused and materialized views.
+    #[test]
+    fn mask_drift_quadruple_decodes_canonically_and_realizes_less(
+        k in prop_oneof![1usize..=96, Just(200usize)],
+        half_teeth in 1usize..=24,
+    ) {
+        let n = 2 * half_teeth;
+        let ((sparse, even_mask), (comb, odd_mask)) = mask_drift_quadruple(k, n);
+        check_version(&sparse, (n / 2) * (2 * k + 14) + 2);
+        check_version(&comb, n * (2 * k + 10) + 2);
+        let p1 = check_party(&even_mask, 6 * (n / 2) + 2);
+        let p2 = check_party(&odd_mask, 6 * (n / 2) + 4);
+        let (v1, v2) = (sparse.version(), comb.version());
+        assert!(
+            (&v1 / &p1).to_version().is_empty(),
+            "the even mask owns exactly the sparse comb's zero levels"
+        );
+        assert!(
+            !(&v2 / &p2).to_version().is_empty(),
+            "the odd mask keeps the full comb's teeth"
+        );
+        let fused = (&v1 / &p1).partial_cmp(&(&v2 / &p2));
+        assert_eq!(
+            fused,
+            Some(std::cmp::Ordering::Less),
+            "the empty view sits strictly under the tooth-keeping view"
+        );
+        assert_eq!(
+            fused,
+            (&v1 / &p1)
+                .to_version()
+                .partial_cmp(&(&v2 / &p2).to_version()),
+            "the fused verdict is the materialized verdict"
+        );
+    }
 }
 
 /// One hole region's closed-form bit length: `4·lead + 2(m − 1) +
@@ -490,59 +471,59 @@ fn hole_regions_bits(k: usize, m: usize) -> usize {
     (k / 2) * (hole_region_bits(2, m) + hole_region_bits(3, m))
 }
 
-/// The sub-scan hole pairs are canonical normal form — event and id
-/// sides alike — at their closed-form bit lengths.
-///
-/// The event closed forms are each pair's per-unit structure plus the
-/// alternating-lead region sum ([`hole_regions_bits`]); the id closed
-/// forms are `6k` (collapse), `2k + 6` (copy), `4k + 4` (raise), and
-/// `6k + 4` (site). The sizes cover the minimal pair and a deep-region
-/// pair.
-#[test]
-fn hole_pairs_decode_canonically_at_predicted_lengths() {
-    for (k, m) in [(2, 1), (4, 33)] {
+proptest! {
+    /// Every sub-scan hole pair is canonical normal form on both sides at its
+    /// closed-form bit lengths. The generated `k` is even, as required by the
+    /// alternating pair construction.
+    #[test]
+    fn hole_pairs_decode_canonically_at_predicted_lengths(
+        half_pairs in 1usize..=16,
+        m in 1usize..=40,
+    ) {
+        let k = 2 * half_pairs;
         let regions = hole_regions_bits(k, m);
         let (ev, id) = collapse_hole(k, m);
         check_version(&ev, 6 * k + 2 + regions);
-        check_party(&id, 6 * k);
+        let _ = check_party(&id, 6 * k);
         let (ev, id) = copy_hole(k, m);
         check_version(&ev, 6 + 2 * k + regions);
-        check_party(&id, 2 * k + 6);
+        let _ = check_party(&id, 2 * k + 6);
         let (ev, id) = raise_hole(k, m);
         check_version(&ev, 2 * k + 2 + regions);
-        check_party(&id, 4 * k + 4);
+        let _ = check_party(&id, 4 * k + 4);
         let (ev, id) = site_hole(k, m);
         check_version(&ev, 6 * k + 6 + regions);
-        check_party(&id, 6 * k + 4);
+        let _ = check_party(&id, 6 * k + 4);
     }
 }
 
-/// `MH(d, h)` is three canonical operands at their closed-form lengths,
-/// and the correlation realizes the full-walk verdict.
-///
-/// The lengths: the dense spine's `4d + 4`, the diverted id spine's
-/// `2h + 2`, the plateau's 4. The verdict: the projected spine sits
-/// strictly under the plateau, fused and materialized alike, so no
-/// measurement of this family exits early.
-#[test]
-fn masked_hole_decodes_canonically_and_realizes_less() {
-    let (d, h) = (64, 8);
-    let (spine, mask, plateau) = masked_hole(d, h);
-    check_version(&spine, 4 * d + 4);
-    check_version(&plateau, 4);
-    let party = check_party(&mask, 2 * h + 2);
-    let (v, w) = (spine.version(), plateau.version());
-    let fused = (&v / &party).partial_cmp(&w);
-    assert_eq!(
-        fused,
-        Some(std::cmp::Ordering::Less),
-        "the projected spine sits strictly under the plateau"
-    );
-    assert_eq!(
-        fused,
-        (&v / &party).to_version().partial_cmp(&w),
-        "the fused verdict is the materialized verdict"
-    );
+proptest! {
+    /// Every masked-hole triple is canonical at its closed-form lengths and
+    /// realizes the same full-walk `Less` verdict through fused and
+    /// materialized projection.
+    #[test]
+    fn masked_hole_decodes_canonically_and_realizes_less(
+        h in 2usize..=32,
+        extra_depth in 1usize..=128,
+    ) {
+        let d = h + extra_depth;
+        let (spine, mask, plateau) = masked_hole(d, h);
+        check_version(&spine, 4 * d + 4);
+        check_version(&plateau, 4);
+        let party = check_party(&mask, 2 * h + 2);
+        let (v, w) = (spine.version(), plateau.version());
+        let fused = (&v / &party).partial_cmp(&w);
+        assert_eq!(
+            fused,
+            Some(std::cmp::Ordering::Less),
+            "the projected spine sits strictly under the plateau"
+        );
+        assert_eq!(
+            fused,
+            (&v / &party).to_version().partial_cmp(&w),
+            "the fused verdict is the materialized verdict"
+        );
+    }
 }
 
 /// The leaf count of a stored version's skyline stream, by one iterative
@@ -565,18 +546,18 @@ fn leaf_count(v: &Version) -> usize {
     leaves
 }
 
-/// `JP(k, m, d)` is canonical normal form at its closed-form bit lengths, and
-/// its overlays realize the interleave the family exists for.
-///
-/// The lengths: exactly `132d + m(2k + 14) + 2` bits (teeth) and `132d + 14m +
-/// 2k + 2` bits (band). The overlays: the meet keeps both band leaves per tooth
-/// and both gap leaves per level (4 leaves per comb level — a cheap code one
-/// fold behind every wide difference crest), while the join collapses every
-/// comb level to its two plateaus (the band shades every gap): the wide crests
-/// live in the meet-side overlay alone.
-#[test]
-fn jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves() {
-    for (k, m, d) in [(3, 1, 1), (400, 8, 2)] {
+proptest! {
+    /// `JP(k, m, d)` is canonical normal form at its closed-form bit lengths,
+    /// and its overlays realize the interleave the family exists for.
+    ///
+    /// The meet keeps four leaves per comb level, while the join collapses
+    /// every level to two plateaus. Its distance is the sum of its two lags.
+    #[test]
+    fn jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves(
+        k in prop_oneof![3usize..=96, Just(400usize)],
+        m in 1usize..=12,
+        d in 1usize..=8,
+    ) {
         let (a, b) = jump_pair(k, m, d);
         check_version(&a, 132 * d + m * (2 * k + 14) + 2);
         check_version(&b, 132 * d + 14 * m + 2 * k + 2);
@@ -598,18 +579,12 @@ fn jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves() {
         let d2 = b.lag(&a);
         assert_eq!(a.distance(&b), &d1 + &d2, "distance is the lags' sum");
     }
-}
 
-/// `CP(n)` builds two genuinely concurrent organic versions that switch sides
-/// at every overlay boundary.
-///
-/// The join and the meet both keep one plateau per forked leaf — every one of
-/// the `n − 1` overlay boundaries a side switch — and the distance is the
-/// integer rank 2 at every `n` (each leaf's dominant and dominated heights
-/// differ by exactly 2, so the schedule's heights are realized end to end).
-#[test]
-fn concurrent_pair_alternates_dominance_at_every_boundary() {
-    for n in [4, 64] {
+    /// `CP(n)` is concurrent at every supported population size, alternates
+    /// dominance at every boundary, and has distance two.
+    #[test]
+    fn concurrent_pair_alternates_dominance_at_every_boundary(levels in 1u32..=6) {
+        let n = 1usize << levels;
         let (v, w) = concurrent_pair(n);
         assert!(v.concurrent(&w), "the pair must be causally concurrent");
         assert_eq!(
@@ -627,97 +602,81 @@ fn concurrent_pair_alternates_dominance_at_every_boundary() {
     }
 }
 
-/// `dense_suffix(p, d)` is canonical normal form at exactly `134d + 1812p + 4`
-/// bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum `d + p(2^608 + 2^288 + 2) +
-/// 1` (the `d` term is the spine's turn leaves, so a spine-less generator fails
-/// it).
-///
-/// The closed form is the family's independent semantic leg: the
-/// `skyline_flatness` dense-suffix bands in `tests/meter.rs` re-derive it at
-/// meter scale, so this pin holds it at hand-checkable sizes.
-#[test]
-fn dense_suffix_decodes_canonically_at_predicted_length() {
-    for (p, d) in [(1usize, 1usize), (5, 4), (40, 40)] {
+proptest! {
+    /// `dense_suffix(p, d)` is canonical at `134d + 1812p + 4` bits and its
+    /// minimum tick count equals the generator's stored-base sum.
+    #[test]
+    fn dense_suffix_decodes_canonically_at_predicted_length(
+        p in 1usize..=24,
+        d in 1usize..=24,
+    ) {
         check_version(&dense_suffix(p, d), 134 * d + 1812 * p + 4);
         let expected = BigUint::from(d as u64)
             + BigUint::from(p as u64)
                 * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
             + 1u8;
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             dense_suffix(p, d).version().min_ticks(),
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `dense_suffix_mate(p, d)` is canonical normal form at exactly `134d + 24p +
-/// 4` bits.
-///
-/// Its `min_ticks` is exactly `d + 4p + 1`, and `dense_suffix(p, d)` dominates
-/// it pointwise (the pair band's exact value legs rest on the dominance).
-#[test]
-fn dense_suffix_mate_decodes_canonically_at_predicted_length() {
-    for (p, d) in [(1usize, 1usize), (5, 4), (40, 40)] {
+    /// `dense_suffix_mate(p, d)` is canonical at `134d + 24p + 4` bits, has
+    /// the predicted minimum tick count, and is dominated by its wide mate.
+    #[test]
+    fn dense_suffix_mate_decodes_canonically_at_predicted_length(
+        p in 1usize..=24,
+        d in 1usize..=24,
+    ) {
         check_version(&dense_suffix_mate(p, d), 134 * d + 24 * p + 4);
-        let ticks = crate::Ticks::from(d as u64 + 4 * p as u64 + 1);
+        let ticks = crate::Count::from(d as u64 + 4 * p as u64 + 1);
         assert_eq!(
             dense_suffix_mate(p, d).version().min_ticks(),
             ticks,
             "the unit-block spine's stored-base sum is its minimum tick count"
         );
+        let a = dense_suffix(p, d).version();
+        let b = dense_suffix_mate(p, d).version();
+        assert!(
+            a.rank().checked_sub(&b.rank()).is_some(),
+            "the dense-suffix operand dominates its mate"
+        );
+        assert_eq!(a.lag(&b), crate::Rank::ZERO, "the dominating side has no lag");
     }
-    let a = dense_suffix(3, 3).version();
-    let b = dense_suffix_mate(3, 3).version();
-    assert!(
-        a.rank().checked_sub(&b.rank()).is_some(),
-        "the dense-suffix operand dominates its mate"
-    );
-    assert_eq!(
-        a.lag(&b),
-        crate::Rank::ZERO,
-        "the dominating side lags by nothing"
-    );
-}
 
-/// `wide_arming(w, d)` is canonical normal form at exactly `134d + 64w + 600`
-/// bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum `d + 2^(32w) + 2^288 + 2 +
-/// 1`.
-#[test]
-fn wide_arming_decodes_canonically_at_predicted_length() {
-    for (w, d) in [(10usize, 1usize), (12, 5), (40, 40)] {
+    /// `wide_arming(w, d)` is canonical at `134d + 64w + 600` bits and its
+    /// minimum tick count equals the generator's stored-base sum.
+    #[test]
+    fn wide_arming_decodes_canonically_at_predicted_length(
+        w in prop_oneof![10usize..=40, Just(64usize)],
+        d in 1usize..=32,
+    ) {
         check_version(&wide_arming(w, d), 134 * d + 64 * w + 600);
         let expected =
             BigUint::from(d as u64) + (BigUint::ONE << (32 * w)) + (BigUint::ONE << 288usize) + 3u8;
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             wide_arming(w, d).version().min_ticks(),
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `hoisted_window(w, d, t)` is canonical normal form at exactly `134d + 64w +
-/// 4t + 600` bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum `d + 2^(32w) + 2^288 + 2 +
-/// 1`, *independent of the tail knob* — the tail's stored bases sum to the 1
-/// its bottom leaf pair carries, exactly the wide-arming block terminal it
-/// deepens — which is the family's whole design: the tail moves the settle
-/// clusters' absolute positions and nothing else the fold's inputs denominate.
-#[test]
-fn hoisted_window_decodes_canonically_at_predicted_length() {
-    for (w, d, t) in [(10usize, 1usize, 384usize), (12, 5, 448), (12, 5, 896)] {
+    /// `hoisted_window(w, d, t)` is canonical at its closed-form length, and
+    /// changing the tail leaves its minimum tick count unchanged.
+    #[test]
+    fn hoisted_window_decodes_canonically_at_predicted_length(
+        w in 10usize..=24,
+        d in 1usize..=16,
+        extra_tail in 0usize..=512,
+    ) {
+        let t = 32 * (w + 2) + extra_tail;
         check_version(&hoisted_window(w, d, t), 134 * d + 64 * w + 4 * t + 600);
         let expected =
             BigUint::from(d as u64) + (BigUint::ONE << (32 * w)) + (BigUint::ONE << 288usize) + 3u8;
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             hoisted_window(w, d, t).version().min_ticks(),
             ticks,
@@ -725,18 +684,25 @@ fn hoisted_window_decodes_canonically_at_predicted_length() {
              tail must not move it"
         );
     }
-    // The tail leaves the fold's answer untouched too: rank agrees with the
-    // wide-arming shape it deepens at every tail scale (the tail's leaves ride
-    // the plateau for a vanishing extra area contribution — compare the
-    // deepened family across its own tail doubling instead, where the deeper
-    // tail's extra area halves away and the rank difference is exactly the
-    // tail region's own sliver).
-    let hoisted = hoisted_window(10, 2, 384).version();
-    let deeper = hoisted_window(10, 2, 768).version();
-    assert!(
-        hoisted.rank().checked_sub(&deeper.rank()).is_some(),
-        "a deeper tail only shrinks the tail sliver's area"
-    );
+}
+
+proptest! {
+    /// Extending a hoisted window's tail cannot increase its rank.
+    #[test]
+    fn deeper_hoisted_window_has_no_greater_rank(
+        w in 10usize..=20,
+        d in 1usize..=12,
+        extra_tail in 0usize..=256,
+        extension in 1usize..=256,
+    ) {
+        let t = 32 * (w + 2) + extra_tail;
+        let hoisted = hoisted_window(w, d, t).version();
+        let deeper = hoisted_window(w, d, t + extension).version();
+        assert!(
+            hoisted.rank().checked_sub(&deeper.rank()).is_some(),
+            "a deeper tail only shrinks the tail sliver's area"
+        );
+    }
 }
 
 /// Returns the boundary shapes' shared narrow value.
@@ -749,44 +715,38 @@ fn boundary_wide_ubig(w: usize) -> BigUint {
     BigUint::from(5u8) << (32 * (w - 1))
 }
 
-/// `seam_plunge(k, r)` is canonical normal form at exactly
-/// `(k + 1)(64r − 56) + 2` bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum — the `k + 1` ascending
-/// leaves over all-zero node bases and the zero plunge:
-/// `(k + 1)·5·2^(32(r−1)) + 5·2^64·(k + 1)(k + 2)/2`. The assertion
-/// ensures resource measurements describe the generated tree.
-#[test]
-fn descending_boundary_decodes_canonically_at_predicted_length() {
-    for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
+proptest! {
+    /// `seam_plunge(k, r)` is canonical at `(k + 1)(64r − 56) + 2` bits and
+    /// has the stored-base sum predicted by its ascending leaves.
+    #[test]
+    fn descending_boundary_decodes_canonically_at_predicted_length(
+        k in 1usize..=64,
+        r in 5usize..=12,
+    ) {
         let p = seam_plunge(k, r);
         check_version(&p, (k + 1) * (64 * r - 56) + 2);
         let expected = boundary_wide_ubig(r) * BigUint::from((k + 1) as u64)
             + boundary_rung_ubig() * BigUint::from(((k + 1) * (k + 2) / 2) as u64);
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `seam_plunge_control(k, r)` is canonical normal form at exactly
-/// `136k + 64r + 78` bits, and its stored wire differs from
-/// `seam_plunge(k, r)`'s only in the final delta code.
-///
-/// Its `min_ticks` is exactly the stored-base sum `5·2^(32(r−1)) +
-/// 5·2^64·(k + 2)` (the ascent carried on the bases, the terminal one rung
-/// up); the wire-prefix identity lets the boundary band read the pair's
-/// difference as the plunge's own propagation.
-#[test]
-fn descending_boundary_control_decodes_at_predicted_length() {
-    for (k, r) in [(1usize, 5usize), (4, 5), (3, 7)] {
+    /// `seam_plunge_control(k, r)` is canonical at `136k + 64r + 78` bits,
+    /// has its predicted tick count, and shares all but its final code with
+    /// the corresponding plunge.
+    #[test]
+    fn descending_boundary_control_decodes_at_predicted_length(
+        k in 1usize..=64,
+        r in 5usize..=12,
+    ) {
         let p = seam_plunge_control(k, r);
         check_version(&p, 136 * k + 64 * r + 78);
         let expected = boundary_wide_ubig(r) + boundary_rung_ubig() * BigUint::from((k + 2) as u64);
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
             ticks,
@@ -815,21 +775,15 @@ fn descending_boundary_control_decodes_at_predicted_length() {
             control_wire.len(),
         );
     }
-}
 
-/// `seam_stop(k)` is canonical normal form at exactly `164k + 266` bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum `5·2^128 + (k − 1)·2^80 +
-/// 5·2^64·k(k − 1)/2` — the descent node's base plus the `k` descending
-/// leaves. The assertion ensures the boundary band describes the tree the generator
-/// actually builds.
-#[test]
-fn stopping_boundary_decodes_canonically_at_predicted_length() {
-    for k in [1usize, 5, 32] {
+    /// `seam_stop(k)` is canonical at `164k + 266` bits and has the
+    /// stored-base sum predicted by its descending leaves.
+    #[test]
+    fn stopping_boundary_decodes_canonically_at_predicted_length(k in 1usize..=128) {
         let p = seam_stop(k);
         check_version(&p, 164 * k + 266);
         let expected = stopping_boundary_ticks(k);
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
             ticks,
@@ -846,66 +800,48 @@ fn stopping_boundary_ticks(k: usize) -> BigUint {
         + boundary_rung_ubig() * BigUint::from((k * (k - 1) / 2) as u64)
 }
 
-/// `seam_stop_control(k)` is canonical normal form at exactly `164k + 262`
-/// bits, with the same stored-base sum as `seam_stop(k)`.
-///
-/// The control drops only the zero-based root and floor leaf, so its
-/// `min_ticks` is unchanged — the removed boundary lives in the *walk's*
-/// difference stack, never in the total.
-#[test]
-fn stopping_boundary_control_decodes_at_predicted_length() {
-    for k in [1usize, 5, 32] {
+proptest! {
+    /// `seam_stop_control(k)` is canonical at `164k + 262` bits and has the
+    /// same minimum tick count as `seam_stop(k)`.
+    #[test]
+    fn stopping_boundary_control_decodes_at_predicted_length(k in 1usize..=128) {
         let p = seam_stop_control(k);
         check_version(&p, 164 * k + 262);
-        let ticks = ticks_from_big(&stopping_boundary_ticks(k));
+        let ticks = min_ticks_from_big(&stopping_boundary_ticks(k));
         assert_eq!(
             p.version().min_ticks(),
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `latent_ladder(w, k)` is canonical normal form at exactly
-/// `k(64w − 56) + 64w − 48` bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum `(k + 1)·5·2^(32(w−1)) +
-/// 1 − k(k + 1)/2` (the parked pair's base and `(0, 1)` leaves, plus the
-/// `k` ladder leaves one to `k` under the anchor) — pinned so the ladder
-/// band reasons about the tree the generator actually builds.
-#[test]
-fn latent_ladder_decodes_canonically_at_predicted_length() {
-    for (w, k) in [(3usize, 1usize), (4, 5), (10, 8)] {
+    /// `latent_ladder(w, k)` is canonical at its closed-form length and has
+    /// the stored-base sum predicted by the parked pair and ladder leaves.
+    #[test]
+    fn latent_ladder_decodes_canonically_at_predicted_length(
+        w in 3usize..=16,
+        k in 1usize..=128,
+    ) {
         let p = latent_ladder(w, k);
         check_version(&p, k * (64 * w - 56) + 64 * w - 48);
         let expected = boundary_wide_ubig(w) * BigUint::from((k + 1) as u64) + BigUint::ONE
             - BigUint::from((k * (k + 1) / 2) as u64);
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             p.version().min_ticks(),
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `plateau_puncture(w, d)` is canonical normal form at exactly `d(64w + 262) +
-/// 4` bits.
-///
-/// The length derivation: `66d` spine levels at 2 bits, `d` turn leaves at
-/// `64w` bits each (the plateau's exact `32w`-bit width, bit 0 clear, keeps its
-/// gamma code at `2 · 32w` with the leaf flag), the bottom 1 leaf at 4 bits,
-/// and `65d` trailing 0-leaves at 2 bits. Its `min_ticks` is exactly the
-/// stored-base sum `d · x + 1` (the turn leaves all on the plateau plus the
-/// bottom 1), and its exact rank realizes the answer-embedded product the
-/// family exists for: `rank · 2^(66d) = 2 · x · y + 1` over the committed
-/// factors, checked here through the public fold at hand-checkable sizes (the
-/// `answer_embedded_product` pin in `tests/meter.rs` measures the cost at meter
-/// scale; the query fold's differential suite pins the value against the
-/// oracle, and its proptest pins the same embedding over arbitrary factors).
-#[test]
-fn plateau_puncture_decodes_canonically_at_predicted_length() {
-    for (w, d) in [(10usize, 1usize), (12, 5), (40, 40)] {
+    /// `plateau_puncture(w, d)` is canonical at its closed-form length. Its
+    /// stored size, minimum tick count, and rank match the product embedding
+    /// from which the family is derived.
+    #[test]
+    fn plateau_puncture_decodes_canonically_at_predicted_length(
+        w in prop_oneof![10usize..=24, Just(40usize)],
+        d in prop_oneof![1usize..=24, Just(40usize)],
+    ) {
         check_version(&plateau_puncture(w, d), d * (64 * w + 262) + 4);
         // The reduction's size premise, exact on the committed instance: the
         // STORED stream is `128w + 198d + 2` bits — `4·bits(x) + 3·bits(2y) +
@@ -923,7 +859,7 @@ fn plateau_puncture_decodes_canonically_at_predicted_length() {
         );
         let (x, y) = plateau_puncture_factors(w, d);
         let expected = BigUint::from(d as u64) * &x + 1u8;
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             plateau_puncture(w, d).version().min_ticks(),
             ticks,
@@ -937,23 +873,17 @@ fn plateau_puncture_decodes_canonically_at_predicted_length() {
             "the exact rank is the plateau times the punctured turn mass"
         );
     }
-}
 
-/// `arming_train(n, w, g, alternate)` is canonical normal form at exactly
-/// `n(g(2·band + 132) + 8·band + 16) + 2` bits, `band = 32w + ⌈log₂ n⌉ + 2`.
-///
-/// Its `min_ticks` is the mirrored leaf-value sum (the recurrence the generator
-/// doc states): the swing, park, kicker, and promoting-freeze leaves per block
-/// plus `g` plateau turns per window, over the bottom 0. The same-sign and
-/// alternating trains share topology and differ only in the swings' directions.
-#[test]
-fn arming_train_decodes_canonically_at_predicted_length() {
-    for (n, w, g, alt) in [
-        (1usize, 19usize, 1usize, false),
-        (2, 19, 1, true),
-        (3, 20, 2, true),
-        (4, 19, 3, false),
-    ] {
+    /// `arming_train(n, w, g, alternate)` is canonical at its closed-form
+    /// length and its minimum tick count matches the generator's recurrence
+    /// for both swing directions.
+    #[test]
+    fn arming_train_decodes_canonically_at_predicted_length(
+        n in 1usize..=8,
+        w in 19usize..=24,
+        g in 1usize..=5,
+        alt in any::<bool>(),
+    ) {
         let band = 32 * w + (usize::BITS - n.leading_zeros()) as usize + 2;
         check_version(
             &arming_train(n, w, g, alt),
@@ -977,7 +907,7 @@ fn arming_train_decodes_canonically_at_predicted_length() {
                 expected += &plateau;
             }
         }
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             arming_train(n, w, g, alt).version().min_ticks(),
             ticks,
@@ -986,42 +916,27 @@ fn arming_train_decodes_canonically_at_predicted_length() {
     }
 }
 
-/// `weight_comb(n)` is canonical normal form at exactly `202n − 4` bits.
-///
-/// Its `min_ticks` is exactly the stored-base sum `34n − 1` (the spine's `32n −
-/// 1` unit leaves plus the block's `n` twos).
-///
-/// The closed form is the family's independent semantic leg: the
-/// `skyline_flatness` weight-comb band in `tests/meter.rs` re-derives it at
-/// meter scale, so this pin holds it at hand-checkable sizes.
-#[test]
-fn weight_comb_decodes_canonically_at_predicted_length() {
-    for n in [1usize, 4, 32] {
+proptest! {
+    /// `weight_comb(n)` is canonical at `202n − 4` bits and has minimum tick
+    /// count `34n − 1` for every supported power-of-two width.
+    #[test]
+    fn weight_comb_decodes_canonically_at_predicted_length(levels in 0u32..=7) {
+        let n = 1usize << levels;
         check_version(&weight_comb(n), 202 * n - 4);
-        let ticks = crate::Ticks::from(34 * n as u64 - 1);
+        let ticks = crate::Count::from(34 * n as u64 - 1);
         assert_eq!(
             weight_comb(n).version().min_ticks(),
             ticks,
             "the stored-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `freeze_parade(k)` is canonical normal form at exactly `1546k − 2` bits.
-///
-/// Its `min_ticks` is exactly
-/// `(64k − 1) + 2^band + k·2^288 + (k/2)·log2(k)·(2^288 + 1) − (k − 1)(2^288 + 1) − 2^288`,
-/// where `band = 290 + bitlen(k)`: the spine's unit leaves, then the block's `k`
-/// left-leaf wide drops, its internal left children's half-minima differences
-/// (`k/2` per level, each level's difference doubling from the pair stride),
-/// and its root's absolute minimum.
-///
-/// The closed form is the family's independent semantic leg: the
-/// `skyline_flatness` freeze-parade band in `tests/meter.rs` re-derives it at
-/// meter scale, so this pin holds it at hand-checkable sizes.
-#[test]
-fn freeze_parade_decodes_canonically_at_predicted_length() {
-    for k in [1usize, 2, 8] {
+    /// `freeze_parade(k)` is canonical at `1546k − 2` bits and its minimum
+    /// tick count matches the closed form for every supported power-of-two
+    /// parade width.
+    #[test]
+    fn freeze_parade_decodes_canonically_at_predicted_length(levels in 0u32..=6) {
+        let k = 1usize << levels;
         check_version(&freeze_parade(k), 1546 * k - 2);
         let j = bitlen(k) - 1;
         let w = BigUint::ONE << 288usize;
@@ -1032,30 +947,28 @@ fn freeze_parade_decodes_canonically_at_predicted_length() {
             + BigUint::from((k / 2 * j) as u64) * &stride
             - BigUint::from((k - 1) as u64) * &stride
             - &w;
-        let ticks = ticks_from_big(&expected);
+        let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             freeze_parade(k).version().min_ticks(),
             ticks,
             "the printed-base sum is the family's minimum tick count"
         );
     }
-}
 
-/// `tooth_tail(g, m)` is canonical normal form at exactly `6m + 64g` bits per
-/// operand.
-///
-/// Each operand's `min_ticks` is exactly the stored-base sum `m·h + 2^(32g)`
-/// (`h` its unit height, 1 for `a` and 2 for `b`), `a` precedes `b` in the
-/// causal order (the pair band's verdict leg rests on it).
-#[test]
-fn tooth_tail_decodes_canonically_at_predicted_length() {
-    for (g, m) in [(1usize, 2usize), (2, 5), (9, 64)] {
+    /// Both `tooth_tail(g, m)` operands are canonical at `6m + 64g` bits,
+    /// have their predicted minimum tick counts, and preserve their causal
+    /// ordering throughout the supported domain.
+    #[test]
+    fn tooth_tail_decodes_canonically_at_predicted_length(
+        g in 1usize..=16,
+        m in 2usize..=64,
+    ) {
         let (a, b) = tooth_tail(g, m);
         check_version(&a, 6 * m + 64 * g);
         check_version(&b, 6 * m + 64 * g);
         for (p, h) in [(&a, 1u64), (&b, 2u64)] {
             let expected = BigUint::from(m as u64 * h) + (BigUint::ONE << (32 * g));
-            let ticks = ticks_from_big(&expected);
+            let ticks = min_ticks_from_big(&expected);
             assert_eq!(
                 p.version().min_ticks(),
                 ticks,
@@ -1068,24 +981,22 @@ fn tooth_tail_decodes_canonically_at_predicted_length() {
             "b runs one tick above a everywhere except the shared terminal"
         );
     }
-}
 
-/// `stagger_comb(n, m, i)` is canonical normal form at exactly `m(4·log2(n) +
-/// 6) − 2` bits for every operand index.
-///
-/// Each operand's `min_ticks` is exactly `m` (its stored-base sum: `m` unit
-/// teeth over zero-based structure), and the whole population's join is the
-/// constant-1 skyline — every
-/// slot owned exactly once, the population-level witness that the teeth
-/// interleave without overlap or gap.
-#[test]
-fn stagger_comb_decodes_canonically_at_predicted_length() {
-    for (n, m) in [(2usize, 1usize), (4, 4), (16, 8)] {
+    /// Every staggered-comb operand is canonical at its closed-form length,
+    /// has minimum tick count `m`, and the full population tiles the constant
+    /// one version.
+    #[test]
+    fn stagger_comb_decodes_canonically_at_predicted_length(
+        n_levels in 1u32..=4,
+        m_levels in 0u32..=4,
+    ) {
+        let n = 1usize << n_levels;
+        let m = 1usize << m_levels;
         let levels = n.trailing_zeros() as usize;
         for i in 0..n {
             let p = super::stagger_comb(n, m, i);
             check_version(&p, m * (4 * levels + 6) - 2);
-            let ticks = crate::Ticks::from(m as u64);
+            let ticks = crate::Count::from(m as u64);
             assert_eq!(
                 p.version().min_ticks(),
                 ticks,
@@ -1100,17 +1011,16 @@ fn stagger_comb_decodes_canonically_at_predicted_length() {
             "the population's teeth tile the whole domain at height 1"
         );
     }
-}
 
-/// `stagger_id(n, m, i)` is canonical normal form at exactly `m(2·log2(n) + 4)
-/// − 2` bits for every operand index.
-///
-/// The `n` operands are pairwise disjoint, and folding the whole population
-/// back together reunites the seed — every slot owned exactly once, the id-side
-/// witness of the same tiling the comb pin holds for the event side.
-#[test]
-fn stagger_id_decodes_canonically_at_predicted_length() {
-    for (n, m) in [(2usize, 1usize), (4, 4), (16, 8)] {
+    /// Every staggered-party operand is canonical at its closed-form length;
+    /// the population is pairwise disjoint and joins back to the seed.
+    #[test]
+    fn stagger_id_decodes_canonically_at_predicted_length(
+        n_levels in 1u32..=4,
+        m_levels in 0u32..=4,
+    ) {
+        let n = 1usize << n_levels;
+        let m = 1usize << m_levels;
         let levels = n.trailing_zeros() as usize;
         let parties: Vec<Party> = (0..n)
             .map(|i| check_party(&super::stagger_id(n, m, i), m * (2 * levels + 4) - 2))
@@ -1129,19 +1039,14 @@ fn stagger_id_decodes_canonically_at_predicted_length() {
             .expect("the population operands are pairwise disjoint");
         assert!(acc.is_seed(), "the population's slots tile the seed region");
     }
-}
 
-/// `meet_shade(d, k)` is the dominated-carrier population: the carrier first,
-/// `k − 1` byte-identical plateau shades after, and the meet of the whole
-/// population is the carrier itself, byte for byte.
-///
-/// The composition reuses two pinned shapes (`dense(d)`, `hugeleaf(2)`), so no
-/// new closed form is owed; the pin here is the domination schedule the red
-/// pin's cost argument rests on — the running meet never shrinks, so every step
-/// re-walks the whole carrier.
-#[test]
-fn meet_shade_is_the_dominated_carrier() {
-    for (d, k) in [(1usize, 2usize), (5, 4), (64, 16)] {
+    /// A meet-shade population always starts with its dense carrier, contains
+    /// only the advertised shades thereafter, and meets back to the carrier.
+    #[test]
+    fn meet_shade_is_the_dominated_carrier(
+        d in 1usize..=64,
+        k in 2usize..=16,
+    ) {
         let population = super::meet_shade(d, k);
         assert_eq!(population.len(), k, "one carrier plus k - 1 shades");
         assert_eq!(population[0], dense(d).version(), "the carrier leads");

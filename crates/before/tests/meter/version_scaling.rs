@@ -6,7 +6,7 @@
 //! an absolute ceiling, and a liveness floor. It then compares two sizes, so a
 //! live counter must show the operation's claimed per-input scaling.
 
-use super::{ticks_from_big, JUMP_PAIR_MAGNITUDE_BITS};
+use super::{min_ticks_from_big, JUMP_PAIR_MAGNITUDE_BITS};
 use before::testing::meter;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
@@ -67,7 +67,7 @@ fn min_ticks_family_run(encoded: before::testing::meter::Encoding, expected: &Bi
     };
     assert_eq!(
         ticks,
-        ticks_from_big(expected),
+        min_ticks_from_big(expected),
         "min_ticks disagrees with the family's closed form"
     );
     assert!(

@@ -68,7 +68,7 @@ use core::hash::{Hash, Hasher};
 use crate::causally::{self, Coverage, Query};
 use crate::error::Crossed;
 use crate::span::{Dominance, Endpoint, Placement, Precedence, Span};
-use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
+use crate::{Clock, Count, Party, Rank, Ranked, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
 /// hold on every admissible input.

@@ -14,11 +14,11 @@
 //! integration test (the checker), so the two cannot drift from each
 //! other; both build against the public API only.
 
-use before::{Clock, Party, Ranked, Span, Ticks, Version};
+use before::{Clock, Count, Party, Ranked, Span, Version};
 
 /// Returns `2^exponent` as an unbounded tick count.
-fn power_of_two(exponent: u32) -> Ticks {
-    let mut count = Ticks::from(1u8);
+fn power_of_two(exponent: u32) -> Count {
+    let mut count = Count::from(1u8);
     for _ in 0..exponent {
         count = &count + &count;
     }
@@ -26,7 +26,7 @@ fn power_of_two(exponent: u32) -> Ticks {
 }
 
 /// A uniform version at `count`.
-fn uniform(count: impl Into<Ticks>) -> Version {
+fn uniform(count: impl Into<Count>) -> Version {
     let party = Party::seed();
     let mut version = Version::new();
     party.ticks(&mut version, count);
@@ -358,8 +358,8 @@ pub fn seed_set() -> Vec<Seed> {
     let wide_tail = wide_right.fork();
     let mut wide_nested = Version::new();
     let wide_base = power_of_two(64);
-    wide_owner.ticks(&mut wide_nested, &wide_base + Ticks::from(1u8));
-    wide_right.ticks(&mut wide_nested, &wide_base + Ticks::from(2u8));
+    wide_owner.ticks(&mut wide_nested, &wide_base + Count::from(1u8));
+    wide_right.ticks(&mut wide_nested, &wide_base + Count::from(2u8));
     wide_tail.ticks(&mut wide_nested, wide_base);
     let mut quarter_owner = Clock::seed();
     let mut half = quarter_owner.fork();

@@ -373,7 +373,7 @@ proptest! {
     ) {
         use num_bigint::BigUint;
 
-        use crate::{Party, Ticks};
+        use crate::{Party, Count};
 
         const DEMANDS: [Demand; 6] = [
             Demand::After,
@@ -391,25 +391,25 @@ proptest! {
         if !power_of_two {
             wide -= 1u8;
         }
-        let on = |party: &Party, count: Ticks| {
+        let on = |party: &Party, count: Count| {
             let mut version = Version::new();
             version.ticks(party, count);
             version
         };
-        let version = |first_height: Ticks, second_height: u64, third_height: Ticks| {
+        let version = |first_height: Count, second_height: u64, third_height: Count| {
             on(&first, first_height)
                 | on(&second, second_height.into())
                 | on(&third, third_height)
         };
 
         let probe = version(
-            Ticks(wide.clone()),
+            Count(wide.clone()),
             probe_middle,
-            Ticks(wide.clone()),
+            Count(wide.clone()),
         );
-        let lo = version(lower_first.into(), lower_middle, Ticks(wide.clone()));
+        let lo = version(lower_first.into(), lower_middle, Count(wide.clone()));
         let mut hi = Version::new();
-        hi.ticks(&Party::seed(), Ticks(wide));
+        hi.ticks(&Party::seed(), Count(wide));
         let bounds: Vec<_> = cases
             .into_iter()
             .map(|(first, rise, third, demand)| {

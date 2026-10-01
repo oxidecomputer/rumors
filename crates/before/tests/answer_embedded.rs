@@ -25,7 +25,7 @@
 #![cfg(all(feature = "meter", feature = "scan-meter", feature = "touch-meter"))]
 
 use before::testing::meter;
-use before::{Party, Ticks, Version};
+use before::{Count, Party, Version};
 
 fn counters(f: impl FnOnce()) -> (u64, u64) {
     meter::reset_scan_bits();
@@ -55,8 +55,8 @@ fn fork_parties_from(seed: Party, n: usize) -> Vec<Party> {
 }
 
 /// `10^w` as a tick count.
-fn wide(w: usize) -> Ticks {
-    let mut count = Ticks::from(1u8);
+fn wide(w: usize) -> Count {
+    let mut count = Count::from(1u8);
     for _ in 0..w {
         let twice = &count + &count;
         let four = &twice + &twice;
@@ -87,10 +87,10 @@ fn wl(n: usize, w: usize) -> Version {
     let parties = fork_parties(n);
     let mut v = Version::new();
     let base = wide(w);
-    let mut bump = Ticks::ZERO;
+    let mut bump = Count::ZERO;
     for p in &parties {
         v.ticks(p, &base + &bump);
-        bump = &bump + &Ticks::from(1u64);
+        bump = &bump + &Count::from(1u64);
     }
     v
 }

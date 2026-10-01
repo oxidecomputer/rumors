@@ -552,7 +552,10 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "version_hash",
         inputs: Inputs::Operands(&[Operand::Version]),
-        covers: &["Version Eq / Hash (canonical byte compare)"],
+        covers: &[
+            "Version Eq / Hash (canonical byte compare)",
+            "Span Eq / Hash (endpoint composition)",
+        ],
         size_measure: "encoded bytes of the hashed version (std's DefaultHasher \
              over the canonical bytes)",
         variant: "",
@@ -1849,11 +1852,11 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "query_coverage_floor",
         inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
-        covers: &["causally::Query::coverage"],
+        covers: &["causally::Query::coverage", "causally::Floor::coverage"],
         size_measure: "total encoded bytes of the floor bound and the two hull \
-             operands, split uniform three ways (query composed in unmeasured \
-             preparation as after(f) & all(), the span probe as the hull \
-             operands' pair hull; the measured verdict runs the fused \
+             operands, split uniform three ways (the atom is constructed in \
+             the measured call, the span probe as the hull operands' pair \
+             hull; the measured verdict runs the fused \
              two-probe co-walk plus the clamp legs it demands)",
         variant: "floor only",
         contract: "`O(|self| + |span|)`",
@@ -1862,19 +1865,21 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             load_version(g, 2, &inputs[2]);
-            prep(g, "ff_query_floor", &[3, 0]);
             prep(g, "ff_version_span", &[4, 1, 2]);
-            g.call("ff_query_coverage", &[3, 4])
+            g.call("ff_floor_coverage", &[0, 4])
         },
     },
     OpSpec {
         name: "query_coverage_ceiling",
         inputs: Inputs::Operands(&[Operand::Version, Operand::Version, Operand::Version]),
-        covers: &["causally::Query::coverage"],
+        covers: &[
+            "causally::Query::coverage",
+            "causally::Ceiling::coverage",
+        ],
         size_measure: "total encoded bytes of the ceiling bound and the two \
-             hull operands, split uniform three ways (query composed in \
-             unmeasured preparation as before(c) & all(), the span probe as \
-             the hull operands' pair hull; the measured verdict runs the \
+             hull operands, split uniform three ways (the atom is constructed \
+             in the measured call, the span probe as the hull operands' pair \
+             hull; the measured verdict runs the \
              fused two-probe co-walk plus the clamp legs it demands)",
         variant: "ceiling only",
         contract: "`O(|self| + |span|)`",
@@ -1883,9 +1888,8 @@ pub const ROSTER: &[OpSpec] = &[
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             load_version(g, 2, &inputs[2]);
-            prep(g, "ff_query_ceiling", &[3, 0]);
             prep(g, "ff_version_span", &[4, 1, 2]);
-            g.call("ff_query_coverage", &[3, 4])
+            g.call("ff_ceiling_coverage", &[0, 4])
         },
     },
     OpSpec {
@@ -2229,7 +2233,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "consuming form of the balanced drain the clock_forks panel prices",
     ),
     (
-        "iter::Party / iter::Clock (fork iterators and partial-drop conservation)",
+        "iter::PartyForks / iter::ClockForks (fork iterators and partial-drop conservation)",
         "the party_forks and clock_forks panels measure construction and iteration directly",
     ),
     (
@@ -2286,14 +2290,25 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     // ── representation mechanics ──
     (
-        "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
+        "Count ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
         "the opaque count carrier's own arithmetic and text, not a tree walk; its \
          semantics are priced at the min_ticks panel",
     ),
     (
-        "Ticks::limbs",
+        "Count::limbs",
         "a borrowing limb view of the count carrier, not an input walk: \
          construction is O(1) and the drain is one word per stored limb",
+    ),
+    (
+        "Count::checked_sub",
+        "unbounded-count arithmetic rather than a tree walk; the resource board \
+         prices its output allocation and the deterministic numeric fuel suite \
+         checks both successful and underflowing subtraction across widths",
+    ),
+    (
+        "Count::saturating_sub",
+        "the same comparison and subtraction as Count::checked_sub, with \
+         underflow replaced by the constant zero value",
     ),
     (
         "shape iterators (Plateaus / Regions / Overlay / Cells / Limbs: Iterator, FusedIterator, ExactSizeIterator)",
@@ -2301,7 +2316,7 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
          combine panels",
     ),
     (
-        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
+        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Hash, Debug)",
         "value carriers of the shape walks' items: word-scale fields plus one \
          count held at its own width — no encoded-input axis",
     ),

@@ -1,6 +1,6 @@
 //! Count and conservation checks for balanced-fork iterators.
 
-use before::{Clock, Party, Ticks};
+use before::{Clock, Count, Party};
 use proptest::prelude::*;
 
 proptest! {
@@ -10,7 +10,7 @@ proptest! {
     /// the seed party.
     #[test]
     fn party_forks_yield_the_requested_count(k in 0u16..=256) {
-        let count = Ticks::from(k);
+        let count = Count::from(k);
         let mut keeper = Party::seed();
         let mut forks = keeper.forks(count.clone());
         prop_assert_eq!(forks.size_hint(), (usize::from(k), Some(usize::from(k))));
@@ -43,7 +43,7 @@ proptest! {
 /// the one yielded share recovers the seed.
 #[test]
 fn party_forks_accept_an_unbounded_count() {
-    let count = Ticks::from(u128::MAX) + Ticks::from(1u8);
+    let count = Count::from(u128::MAX) + Count::from(1u8);
     let mut keeper = Party::seed();
     let share = {
         let mut forks = keeper.forks(count.clone());
@@ -61,7 +61,7 @@ fn party_forks_accept_an_unbounded_count() {
 /// `Clock::forks` accepts a count above `u128::MAX` and preserves the version.
 #[test]
 fn clock_forks_accept_an_unbounded_count() {
-    let count = Ticks::from(u128::MAX) + Ticks::from(1u8);
+    let count = Count::from(u128::MAX) + Count::from(1u8);
     let mut keeper = Clock::seed();
     let child = {
         let mut forks = keeper.forks(count.clone());

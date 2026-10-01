@@ -4,7 +4,7 @@
 //! returned share with a clone of the parent's version; the consuming array
 //! conversion applies the same pairing to a fixed-size party split.
 
-use crate::{party, Clock, Party, Ticks, Version};
+use crate::{party, Clock, Count, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
 ///
@@ -27,21 +27,22 @@ use crate::{party, Clock, Party, Ticks, Version};
 /// costs `O(|party| + log k)`; the child's version shares the parent's stored
 /// bytes through an `O(1)` clone.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
-pub struct Forks<'a> {
+#[must_use = "`ClockForks` produces no child clocks unless consumed"]
+pub struct ClockForks<'a> {
     /// The lazy partition of party shares.
-    parties: party::Forks<'a>,
+    parties: party::PartyForks<'a>,
     /// The parent version, cloned into every child clock.
     version: &'a Version,
 }
 
-impl<'a> Forks<'a> {
+impl<'a> ClockForks<'a> {
     /// Borrow `clock` and reserve `k` balanced child clocks. The public entry
     /// point is [`Clock::forks`].
-    pub(super) fn new(clock: &'a mut Clock, k: Ticks) -> Self {
+    pub(super) fn new(clock: &'a mut Clock, k: Count) -> Self {
         let Clock { party, version } = clock;
         let version: &Version = version; // the children only read it, to clone
-        Forks {
-            parties: party::Forks::new(party, k),
+        ClockForks {
+            parties: party::PartyForks::new(party, k),
             version,
         }
     }
@@ -52,7 +53,7 @@ impl<'a> Forks<'a> {
     }
 }
 
-impl Iterator for Forks<'_> {
+impl Iterator for ClockForks<'_> {
     type Item = Clock;
     fn next(&mut self) -> Option<Clock> {
         let party = self.parties.next()?;

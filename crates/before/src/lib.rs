@@ -432,6 +432,7 @@
 pub(crate) mod accumulator;
 mod bits;
 mod clock;
+mod count;
 mod fold;
 mod party;
 mod rank;
@@ -442,13 +443,14 @@ mod version;
 
 // The whole public API:
 pub use clock::Clock;
+pub use count::{Count, Limbs};
 pub mod causally;
 pub mod error;
 pub use party::Party;
 pub use rank::Rank;
 pub use ranked::Ranked;
 pub use span::{Dominance, Endpoint, OwnSpan, Placement, Precedence, Span};
-pub use version::{Limbs, OwnVersion, Ticks, Version};
+pub use version::{OwnVersion, Version};
 pub mod iter;
 pub mod shape;
 

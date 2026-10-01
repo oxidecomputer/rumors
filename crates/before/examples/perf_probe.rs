@@ -186,7 +186,7 @@ fn loop_clock_join(budget_ms: u64, a: &Clock, b: &Clock) -> (u64, f64) {
 #[inline(never)]
 fn loop_clock_decode(budget_ms: u64, bytes: &[u8]) -> (u64, f64) {
     time_loop(budget_ms, || {
-        black_box(Clock::decode(bytes).unwrap());
+        let _ = black_box(Clock::decode(bytes).unwrap());
     })
 }
 

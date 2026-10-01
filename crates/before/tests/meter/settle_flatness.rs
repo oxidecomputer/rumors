@@ -14,7 +14,7 @@
 //! the fold's linear work, which it does not: the ×1.25 flatness
 //! convention covers the model's whole admissible growth here.
 
-use super::ticks_from_big;
+use super::min_ticks_from_big;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
 use suanpan::touch_meter;
@@ -97,7 +97,7 @@ fn train_run(n: usize, alternate: bool) -> (u64, u64) {
     }
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's leaf-value sum disagrees with min_ticks: the \
          generator does not build the tree these probes reason about"
     );

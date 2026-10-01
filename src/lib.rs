@@ -286,7 +286,7 @@ pub use batch::Batch;
 // which an inlined copy cannot (its docs come from compiled metadata, and
 // the widget's assets are attached to rustdoc's own view of before only).
 #[doc(no_inline)]
-pub use before::{Ticks, Version, causally};
+pub use before::{Count, Version, causally};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub use bookmark::FileBookmark;

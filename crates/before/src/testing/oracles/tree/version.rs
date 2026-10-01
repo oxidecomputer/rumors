@@ -208,8 +208,8 @@ impl Version {
     /// version: the sum of every base in the event tree, exact at any
     /// magnitude. The reference for
     /// [`Version::min_ticks`](crate::Version::min_ticks).
-    pub fn min_ticks(&self) -> crate::Ticks {
-        crate::Ticks(self.base_total())
+    pub fn min_ticks(&self) -> crate::Count {
+        crate::Count(self.base_total())
     }
 
     /// The sum of every base in the event tree (node bases plus leaf values).
@@ -390,7 +390,7 @@ impl Version {
     /// doc's operating envelope; each differential suite caps the counts
     /// it hands this side, and wide-`n` coverage lives impl-side on
     /// composition laws and closed forms).
-    pub fn ticks(&mut self, party: &Party, n: impl Into<crate::Ticks>) {
+    pub fn ticks(&mut self, party: &Party, n: impl Into<crate::Count>) {
         let mut left = n.into().0;
         let one = BigUint::from(1u8);
         while left != BigUint::ZERO {

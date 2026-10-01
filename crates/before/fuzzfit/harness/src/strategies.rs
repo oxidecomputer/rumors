@@ -146,19 +146,19 @@ pub enum Family {
     DenseSpine {
         /// Fork-chain depth.
         depth: u32,
-        /// Ticks per level (0..=3 adds jitter).
+        /// Events per level (0..=3 adds jitter).
         ticks_per_level: u32,
     },
     /// A large root magnitude over a spine.
     BigRoot {
-        /// Ticks paid at the seed before any fork.
+        /// Events recorded at the seed before any fork.
         root_ticks: u32,
         /// Fork-chain depth below the root.
         depth: u32,
     },
     /// One party, maximal single-leaf magnitude within budget.
     HugeLeaf {
-        /// Ticks paid at the seed.
+        /// Events recorded at the seed.
         ticks: u32,
     },
     /// Sibling teeth oscillating across a power-of-two carry boundary.
@@ -188,7 +188,7 @@ pub enum Family {
     Harmonic {
         /// Spine depth.
         depth: u32,
-        /// Ticks at the top level (level `i` gets `total / (i + 1)`).
+        /// Events at the top level (level `i` gets `total / (i + 1)`).
         total_ticks: u32,
     },
     /// A balanced-forked, once-ticked population folded in shuffled order.
@@ -201,13 +201,13 @@ pub enum Family {
     NestedFull {
         /// Fork-chain depth.
         depth: u32,
-        /// Ticks per side per level.
+        /// Events per side per level.
         ticks: u32,
     },
     /// A deep spine with ticks concentrated at the tail (`tail_ticks = 1`
     /// is the narrow mirror cross; large values the wide one).
     WideTail {
-        /// Ticks at the deepest level.
+        /// Events at the deepest level.
         tail_ticks: u32,
         /// Spine depth.
         depth: u32,

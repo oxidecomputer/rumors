@@ -100,7 +100,7 @@ mod tests;
 /// assert_eq!(span.dominance(&a2), Dominance::Between);
 /// assert_eq!(span.dominance(&b1), Dominance::Before);
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Span<'a> {
     lo: Cow<'a, Version>,

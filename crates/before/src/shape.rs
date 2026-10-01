@@ -50,7 +50,7 @@
 //! left.sync(&mut right).unwrap();
 //! let version = left.version();
 //! // Reconstruct absolute heights from the rises (u64 is enough here;
-//! // `Ticks` itself has no ceiling, and converts out fallibly).
+//! // `Count` itself has no ceiling, and converts out fallibly).
 //! let mut height = 0u64;
 //! let mut heights = Vec::new();
 //! for plateau in version.shape() {
@@ -75,7 +75,7 @@
 use core::iter::FusedIterator;
 
 use crate::version::shape::{advance_refinement, PartyWalk, Refine, VersionWalk};
-use crate::{Clock, Party, Ticks, Version};
+use crate::{Clock, Count, Party, Version};
 
 #[cfg(test)]
 mod tests;
@@ -87,7 +87,7 @@ mod tests;
 /// function. A shape walk yields plateaus left to right; see the
 /// [module docs](self) for how rises and widths reconstruct the
 /// function.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Plateau {
     /// The height change entering this plateau; `None` continues level.
     ///
@@ -107,17 +107,17 @@ pub struct Plateau {
 /// Magnitudes are always nonzero: the level step is spelled once, as
 /// `None` in [`Plateau::rise`], not as a zero rise, so every `Rise` a
 /// walk yields moves the height.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Rise {
     /// The height increases by the contained (nonzero) count.
-    Up(Ticks),
+    Up(Count),
     /// The height decreases by the contained (nonzero) count.
-    Down(Ticks),
+    Down(Count),
 }
 
 /// One constant-ownership region of a party's shape: whether the [`Party`]
 /// owns it, and the dyadic interval it spans.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Region {
     /// Whether the party owns this region's identity space.
     pub owned: bool,
@@ -127,7 +127,7 @@ pub struct Region {
 
 /// One cell of a [`combine`]d walk: the refinement interval, and the rise
 /// entering it from each input.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Cell<const N: usize> {
     /// The cell spans a dyadic interval of width `2^-depth`.
     pub depth: u64,
@@ -146,6 +146,7 @@ pub struct Cell<const N: usize> {
 /// The walk borrows the version and streams its stored form in place.
 /// It is [fused](FusedIterator) but not exact-size: the plateau count is
 /// not known without a full scan.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Plateaus<'a> {
     walk: VersionWalk<'a>,
     finished: bool,
@@ -197,6 +198,7 @@ impl FusedIterator for Plateaus<'_> {}
 /// The walk borrows the party and streams its stored form in place. It
 /// is [fused](FusedIterator) but not exact-size: the region count is not
 /// known without a full scan.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Regions<'a> {
     walk: PartyWalk<'a>,
     finished: bool,
@@ -255,6 +257,7 @@ impl FusedIterator for Regions<'_> {}
 ///
 /// The walk borrows the clock and streams both stored forms in place. It
 /// is [fused](FusedIterator) but not exact-size.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Overlay<'a> {
     version: VersionWalk<'a>,
     party: PartyWalk<'a>,
@@ -357,6 +360,7 @@ pub fn combine<'a, const N: usize>(versions: [&'a Version; N]) -> Cells<'a, N> {
 ///
 /// The walk borrows the versions and streams every stored form in place.
 /// It is [fused](FusedIterator) but not exact-size.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Cells<'a, const N: usize> {
     walks: [VersionWalk<'a>; N],
     finished: bool,

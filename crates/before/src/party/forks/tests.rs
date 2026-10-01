@@ -3,18 +3,18 @@
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use super::{Forks, Party, Plan};
+use super::{Party, PartyForks, Plan};
 use crate::party::io::PartySnapshot;
 use crate::testing::bridge::from_oracle_party;
 use crate::testing::generators::arb_oracle_party_nonempty;
-use crate::Ticks;
+use crate::Count;
 
 /// Arbitrary counts whose representation is wider than a machine word.
-fn arb_wide_count() -> impl Strategy<Value = Ticks> {
+fn arb_wide_count() -> impl Strategy<Value = Count> {
     let minimum_bytes = usize::BITS as usize / 8 + 1;
     prop::collection::vec(any::<u8>(), minimum_bytes..=64).prop_map(|mut bytes| {
         *bytes.last_mut().expect("a wide count has bytes") |= 0x80;
-        Ticks(BigUint::from_bytes_le(&bytes))
+        Count(BigUint::from_bytes_le(&bytes))
     })
 }
 
@@ -131,7 +131,7 @@ fn small_size_hints_are_exact() {
 /// narrowing on construction.
 #[test]
 fn adjacent_wide_count_becomes_exact() {
-    let count = Ticks::from(usize::MAX) + Ticks::from(1u8);
+    let count = Count::from(usize::MAX) + Count::from(1u8);
     let party = Party::seed();
     let mut plan = Plan::new(PartySnapshot::new(&party), count);
 
@@ -144,9 +144,9 @@ fn adjacent_wide_count_becomes_exact() {
 /// when its base-path depth equals the machine-word width.
 #[test]
 fn first_distant_count_handles_word_width_depth() {
-    let count = Ticks(BigUint::from(usize::MAX) * 2u8);
+    let count = Count(BigUint::from(usize::MAX) * 2u8);
     let mut keeper = Party::seed();
-    let forks = Forks::new(&mut keeper, count);
+    let forks = PartyForks::new(&mut keeper, count);
 
     assert_eq!(forks.size_hint(), (usize::MAX, None));
 }
@@ -155,9 +155,9 @@ fn first_distant_count_handles_word_width_depth() {
 /// without narrowing.
 #[test]
 fn two_to_128_count_stays_iterable() {
-    let count = Ticks::from(u128::MAX) + Ticks::from(1u8);
+    let count = Count::from(u128::MAX) + Count::from(1u8);
     let mut keeper = Party::seed();
-    let mut forks = Forks::new(&mut keeper, count);
+    let mut forks = PartyForks::new(&mut keeper, count);
 
     assert_eq!(forks.size_hint(), (usize::MAX, None));
     assert!(forks.next().is_some());
@@ -171,7 +171,7 @@ fn distant_size_hint_stays_sound_near_exhaustion() {
     let depth = u64::from(usize::BITS) + 2;
     let count = BigUint::from(1u8) << depth;
     let party = Party::seed();
-    let mut plan = Plan::new(PartySnapshot::new(&party), Ticks(count.clone()));
+    let mut plan = Plan::new(PartySnapshot::new(&party), Count(count.clone()));
     plan.index = &count - BigUint::from(usize::MAX);
 
     assert_eq!(plan.size_hint(), (usize::MAX, None));

@@ -15,7 +15,7 @@
 //! no operand width and touches no accumulator digit — scales with the
 //! knob instead.
 
-use super::ticks_from_big;
+use super::min_ticks_from_big;
 use before::testing::meter;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
@@ -56,7 +56,7 @@ fn run(t: usize) -> (u64, u64, u64) {
         + 3u8;
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's stored-code sum disagrees with min_ticks: the \
          generator does not build the tree this band reasons about"
     );

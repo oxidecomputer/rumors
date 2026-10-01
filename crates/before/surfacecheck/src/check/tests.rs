@@ -122,10 +122,10 @@ fn item_census_reconciles_both_ways() {
         &[],
         ANCHORS,
         &[],
-        &["Ticks::ZERO"],
+        &["Count::ZERO"],
     );
     assert_eq!(findings.unpinned_items, vec!["Rank::ZERO".to_owned()]);
-    assert_eq!(findings.orphaned_items, vec!["Ticks::ZERO".to_owned()]);
+    assert_eq!(findings.orphaned_items, vec!["Count::ZERO".to_owned()]);
     assert!(!findings.is_clean());
 }
 

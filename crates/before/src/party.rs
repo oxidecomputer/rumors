@@ -18,7 +18,7 @@
 use crate::bits::Bits;
 use crate::error::Decode;
 use crate::party::io::PartyReader;
-use crate::{Ticks, Version};
+use crate::{Count, Version};
 
 mod compare;
 mod fork;
@@ -30,7 +30,7 @@ mod join;
 mod sync;
 mod without;
 
-pub use forks::Forks;
+pub use forks::PartyForks;
 
 #[cfg(test)]
 mod tests;
@@ -55,7 +55,9 @@ mod tests;
 /// disjointness itself.
 ///
 /// Like [`Clock`](crate::Clock), [`Party`] is [`!Clone`](Clone): duplicating a
-/// live party would violate the linearity which interval tree clocks require.
+/// live party would violate the linearity which interval tree clocks require,
+/// while discarding one would lose its identity share. The type is therefore
+/// also `must_use`.
 ///
 /// # Example
 ///
@@ -68,6 +70,7 @@ mod tests;
 /// assert!(whole.is_seed());
 /// ```
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
+#[must_use = "discarding a `Party` loses its share of identity space"]
 pub struct Party(Bits);
 
 // Identity Linearity (the crate docs' second safety rule) is compiler-enforced
@@ -220,7 +223,7 @@ impl Party {
     /// }
     /// assert_eq!(v, w); // one call, same version as three sequential ticks
     /// ```
-    pub fn ticks(&self, version: &mut Version, k: impl Into<Ticks>) {
+    pub fn ticks(&self, version: &mut Version, k: impl Into<Count>) {
         version.ticks(self, k)
     }
 
@@ -264,9 +267,8 @@ impl Party {
     /// A [`Party`] is never empty, so `self` retains one residual share. It also
     /// retains every share the iterator has not returned.
     ///
-    /// `k` may be a [`Ticks`] count or any standard unsigned integer type.
-    /// Suffix integer literals to select an unsigned type, as in `3u64`. The
-    /// iterator type is exported as [`iter::Party`](crate::iter::Party).
+    /// `k` may be a [`Count`] or any standard unsigned integer type.
+    /// Suffix integer literals to select an unsigned type, as in `3u64`.
     ///
     /// To fork a [`Party`] into exactly `N` shares with no residual, see
     /// [`From<Party>`](Party) for `[Party; N]`.
@@ -279,7 +281,8 @@ impl Party {
         doc = "`O(n)` in total input bytes; a full drain costs `O(|self| + k (|self| + log k))`"
     )]
     ///
-    /// Shares are built on demand; see [`Forks`] for the per-step and early-drop costs.
+    /// Shares are built on demand; see [`PartyForks`] for the per-step and
+    /// early-drop costs.
     ///
     /// # Example
     ///
@@ -295,8 +298,8 @@ impl Party {
     /// p.join_all(shares).unwrap();
     /// assert!(p.is_seed());
     /// ```
-    pub fn forks(&mut self, k: impl Into<Ticks>) -> Forks<'_> {
-        Forks::new(self, k.into())
+    pub fn forks(&mut self, k: impl Into<Count>) -> PartyForks<'_> {
+        PartyForks::new(self, k.into())
     }
 
     /// Reunites two disjoint [`Party`]s.

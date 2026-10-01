@@ -17,7 +17,7 @@ use crate::version::io::validate::{dominating_from, Admission};
 use crate::{Clock, Party, Rank, Ranked, Version};
 
 /// Build a version with the same event count everywhere.
-fn uniform(ticks: impl Into<crate::Ticks>) -> Version {
+fn uniform(ticks: impl Into<crate::Count>) -> Version {
     let mut version = Version::new();
     Party::seed().ticks(&mut version, ticks);
     version

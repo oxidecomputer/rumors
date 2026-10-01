@@ -9,7 +9,7 @@
 
 use before::testing::meter::board::MAX_SCALING_EXPONENT;
 use before::testing::meter::registry::Shape;
-use before::{Rank, Ticks, Version};
+use before::{Count, Rank, Version};
 use fuzzfit_harness::fit::fit;
 use fuzzfit_harness::wasm::Guest;
 
@@ -42,16 +42,16 @@ fn load_version(guest: &mut Guest, dst: u32, version: &Version) {
 }
 
 /// Load `2^bits - 1` as a count through the existing wide-leaf fixture.
-fn load_wide_count(guest: &mut Guest, dst: u32, bits: usize) -> Ticks {
+fn load_wide_count(guest: &mut Guest, dst: u32, bits: usize) -> Count {
     let version = Shape::Hugeleaf.build1(bits).version();
     load_version(guest, dst, &version);
-    measure(guest, "ff_ticks_from_version", &[dst, dst]);
+    measure(guest, "ff_count_from_version", &[dst, dst]);
     version.min_ticks()
 }
 
 /// Read a count through decimal rendering for the native/wasm differential.
-fn assert_count(guest: &mut Guest, src: u32, expected: &Ticks) {
-    measure(guest, "ff_ticks_display", &[src]);
+fn assert_count(guest: &mut Guest, src: u32, expected: &Count) {
+    measure(guest, "ff_count_display", &[src]);
     assert_eq!(guest.stage_read(), expected.to_string().as_bytes());
 }
 
@@ -141,8 +141,8 @@ fn rank_precision_prices_only_the_text_written() {
 /// Borrowed addition and in-place addition remain linear as the count width
 /// grows, including a carry through every limb of an all-ones count.
 #[test]
-fn ticks_addition_scales_with_numeric_width() {
-    for kernel in ["ff_ticks_add", "ff_ticks_add_assign"] {
+fn count_addition_scales_with_numeric_width() {
+    for kernel in ["ff_count_add", "ff_count_add_assign"] {
         for carry_only in [false, true] {
             let mut samples = Vec::new();
             for power in 7..=17 {
@@ -150,12 +150,12 @@ fn ticks_addition_scales_with_numeric_width() {
                 let mut guest = Guest::new();
                 let left = load_wide_count(&mut guest, 0, width);
                 let right = if carry_only {
-                    measure(&mut guest, "ff_ticks_from_u32", &[1, 1]);
-                    Ticks::from(1u8)
+                    measure(&mut guest, "ff_count_from_u32", &[1, 1]);
+                    Count::from(1u8)
                 } else {
                     load_wide_count(&mut guest, 1, width)
                 };
-                let (args, result) = if kernel == "ff_ticks_add" {
+                let (args, result) = if kernel == "ff_count_add" {
                     (vec![2, 0, 1], 2)
                 } else {
                     (vec![0, 1], 0)
@@ -173,11 +173,59 @@ fn ticks_addition_scales_with_numeric_width() {
     }
 }
 
+/// Checked subtraction remains linear for a wide result and for underflow
+/// decided only after comparing equal-width counts.
+#[test]
+fn count_subtraction_scales_with_numeric_width() {
+    for underflow in [false, true] {
+        let mut samples = Vec::new();
+        for power in 7..=17 {
+            let width = 1usize << power;
+            let mut guest = Guest::new();
+            load_wide_count(&mut guest, 0, width);
+            measure(&mut guest, "ff_count_from_u32", &[1, 1]);
+
+            // `smaller = larger - 1` keeps the same width and differs in its
+            // least-significant limb, forcing comparison to inspect the full
+            // count before the measured subtraction succeeds or underflows.
+            measure(&mut guest, "ff_count_checked_sub", &[2, 0, 1]);
+            let (a, b) = if underflow { (2, 0) } else { (0, 2) };
+            let result = guest.call("ff_count_checked_sub", &[3, a, b]);
+            assert_eq!(result.ret, if underflow { -2 } else { 0 });
+            if !underflow {
+                assert_count(&mut guest, 3, &Count::from(1u8));
+            }
+            samples.push((width as u64, result.fuel));
+        }
+        check_growth(
+            &format!("ticks checked subtraction, underflow {underflow}"),
+            &samples,
+            MAX_SCALING_EXPONENT,
+        );
+    }
+}
+
+/// Conversion to a machine integer rejects wider counts without work growing
+/// with the discarded high limbs.
+#[test]
+fn count_conversion_rejection_is_width_independent() {
+    let mut fuels = Vec::new();
+    for power in 7..=17 {
+        let width = 1usize << power;
+        let mut guest = Guest::new();
+        load_wide_count(&mut guest, 0, width);
+        let result = guest.call("ff_count_try_u64", &[0]);
+        assert_eq!(result.ret, -2);
+        fuels.push(result.fuel);
+    }
+    assert_eq!(fuels.iter().min(), fuels.iter().max());
+}
+
 /// Sums price every summand, including zeroes, and avoid rescanning a wide
 /// accumulator for each following narrow count. Both ownership forms run.
 #[test]
-fn ticks_sum_scales_with_total_content_and_arity() {
-    for kernel in ["ff_ticks_sum", "ff_ticks_sum_owned"] {
+fn count_sum_scales_with_total_content_and_arity() {
+    for kernel in ["ff_count_sum", "ff_count_sum_owned"] {
         for wide_first in [None, Some(false), Some(true)] {
             let mut samples = Vec::new();
             for power in 7..=12 {
@@ -186,16 +234,16 @@ fn ticks_sum_scales_with_total_content_and_arity() {
                 for reg in 0..n {
                     measure(
                         &mut guest,
-                        "ff_ticks_from_u32",
+                        "ff_count_from_u32",
                         &[reg, u32::from(wide_first.is_some())],
                     );
                 }
                 let (expected, size) = if let Some(first) = wide_first {
                     let width = n as usize * 64;
                     let wide = load_wide_count(&mut guest, if first { 0 } else { n - 1 }, width);
-                    (&wide + Ticks::from(n - 1), width as u64 + n as u64)
+                    (&wide + Count::from(n - 1), width as u64 + n as u64)
                 } else {
-                    (Ticks::ZERO, n as u64)
+                    (Count::ZERO, n as u64)
                 };
                 let fuel = measure(&mut guest, kernel, &[n, 0, n]);
                 assert_count(&mut guest, n, &expected);
@@ -213,13 +261,13 @@ fn ticks_sum_scales_with_total_content_and_arity() {
 /// Decimal rendering stays below quadratic growth across wide counts and
 /// agrees byte-for-byte with native rendering at every measured width.
 #[test]
-fn ticks_decimal_rendering_stays_subquadratic() {
+fn count_decimal_rendering_stays_subquadratic() {
     let mut samples = Vec::new();
     for power in 10..=18 {
         let width = 1usize << power;
         let mut guest = Guest::new();
         let ticks = load_wide_count(&mut guest, 0, width);
-        let fuel = measure(&mut guest, "ff_ticks_display", &[0]);
+        let fuel = measure(&mut guest, "ff_count_display", &[0]);
         assert_eq!(guest.stage_read(), ticks.to_string().as_bytes());
         samples.push((width as u64, fuel));
     }

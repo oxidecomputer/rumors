@@ -8,7 +8,7 @@
 
 use before::testing::meter;
 use before::testing::meter::registry::Shape;
-use before::{Party, Ticks, Version};
+use before::{Count, Party, Version};
 use num_bigint::BigUint;
 use peak_alloc::PeakAlloc;
 
@@ -29,29 +29,29 @@ fn version_of(encoded: &meter::Encoding) -> Version {
     encoded.version()
 }
 
-/// Build a tick count from the source integer's most-significant limb first.
+/// Build an expected minimum tick count from most-significant limb to least.
 ///
-/// `Ticks` deliberately exposes no big-integer backend. Repeated doubling and
+/// `Count` deliberately exposes no big-integer backend. Repeated doubling and
 /// addition reconstruct the same value through its public arithmetic surface;
 /// resource tests call this helper only while preparing their operands.
-fn ticks_from_big(value: &BigUint) -> Ticks {
+fn min_ticks_from_big(value: &BigUint) -> Count {
     let mut digits = value.iter_u64_digits().rev();
     let Some(first) = digits.next() else {
-        return Ticks::ZERO;
+        return Count::ZERO;
     };
-    let mut ticks = Ticks::from(first);
+    let mut ticks = Count::from(first);
     for digit in digits {
         for _ in 0..64 {
             ticks += ticks.clone();
         }
-        ticks += Ticks::from(digit);
+        ticks += Count::from(digit);
     }
     ticks
 }
 
 /// Construct `2^exponent` as an unbounded tick count.
-fn power_of_two(exponent: usize) -> Ticks {
-    let mut ticks = Ticks::from(1u8);
+fn power_of_two(exponent: usize) -> Count {
+    let mut ticks = Count::from(1u8);
     for _ in 0..exponent {
         ticks += ticks.clone();
     }

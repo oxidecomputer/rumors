@@ -1,7 +1,7 @@
 # Current triage state
 
-Work proceeds directly on `main`. The completed foundation runs through
-`8d694730f`.
+Work proceeds directly on `main`. The completed foundation and fuzz-fit
+consolidation run through `9bf3a7d1`.
 
 ## Completed foundation
 
@@ -40,21 +40,21 @@ those types. The query filter bounds retained height differences by their query
 bounds; targeted differential properties cover the accumulator postcondition,
 alternating cancellation, exact order, and the per-bound storage condition.
 
+The approved public surface is recorded in
+[`api-proposal.md`](api-proposal.md). The core-type increment is complete. The
+text and serialization increment follows it.
+
 ## Remaining work
 
-1. **Settle the remaining verification infrastructure.** Reassess fuzz-fit and
-   fuelscape independently, then simplify fuzz replay, the direct 32-bit suite,
-   gate and CI derivation, dependencies, and generated assets while preserving
-   each distinct signal.
-2. **Review the public surface and contracts.** Present the API changes as one
-   coherent owner-reviewed proposal. Apply every approved external change to
-   Before and Rumors together, and put the surviving value, size, and cost
-   guarantees on the methods that own them.
+1. **Finish the approved API.** Implement the approved text and serialization
+   forms without changing existing binary wire encodings.
+2. **Settle the remaining verification infrastructure.** Simplify fuzz replay,
+   the direct 32-bit suite, gate and CI derivation, dependencies, and generated
+   assets while preserving each distinct signal.
 3. **Finish the documentation.** Rewrite the crate page and public item docs at
    caller altitude; correct stale guideposts; finish the maintainer-prose sweep.
 4. **Reconcile and verify.** Re-read every original finding against the final
    tree, run the justified full verification set, and present the integrated
    result for approval.
 
-The next implementation outcome is the first category. Re-evaluate this order
-after every approved commit.
+Re-evaluate this order after every approved commit.

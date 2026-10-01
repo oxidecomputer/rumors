@@ -15,7 +15,7 @@ use num_bigint::{BigInt, Sign};
 
 use crate::party::io::PartyRegionReader;
 use crate::shape::Rise;
-use crate::{Party, Ticks};
+use crate::{Count, Party};
 
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::Version;
@@ -37,7 +37,7 @@ impl<'a> VersionWalk<'a> {
         if sign == Sign::NoSign {
             return None;
         }
-        let ticks = Ticks(magnitude);
+        let ticks = Count(magnitude);
         Some(match sign {
             Sign::Plus => Rise::Up(ticks),
             Sign::Minus => Rise::Down(ticks),

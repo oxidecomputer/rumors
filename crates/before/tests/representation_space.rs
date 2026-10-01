@@ -13,7 +13,7 @@ use std::mem::size_of_val;
 use std::sync::Arc;
 
 use before::testing::oracles::tree as oracle;
-use before::{Clock, Ticks};
+use before::{Clock, Count};
 use num_bigint::BigUint;
 use peak_alloc::PeakAlloc;
 
@@ -83,7 +83,7 @@ fn reunite_oracle(clocks: Vec<oracle::Clock>) -> oracle::Clock {
 
 /// Reunite a production population whose leaf-order counts alternate between
 /// zero and `high`.
-fn alternating_production_clock(parties: usize, high: &Ticks) -> Clock {
+fn alternating_production_clock(parties: usize, high: &Count) -> Clock {
     let mut clocks = production_population(parties);
     if parties == 1 {
         clocks[0].ticks(high.clone());
@@ -150,7 +150,7 @@ fn resident_space_comparison_is_scoped_by_shape() {
         "production retained {production_tree} B; oracle retained {oracle_tree} B"
     );
 
-    let high_ticks = Ticks::from(u64::MAX) + Ticks::from(1u8);
+    let high_ticks = Count::from(u64::MAX) + Count::from(1u8);
     let high_value = BigUint::from(u64::MAX) + 1u8;
     for parties in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512] {
         let production = resident_bytes(|| alternating_production_clock(parties, &high_ticks));

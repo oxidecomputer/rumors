@@ -36,7 +36,7 @@ use std::cmp::Ordering;
 
 use crate::testing::oracles::{function, tree};
 use crate::testing::{bridge, shape_rows};
-use crate::{Party, Rank, Ticks, Version};
+use crate::{Count, Party, Rank, Version};
 use num_bigint::BigUint;
 
 /// One descriptor: its name and the check the drivers run.
@@ -103,8 +103,8 @@ impl Matches<Option<Ordering>> for Option<Ordering> {
     }
 }
 
-impl Matches<Ticks> for Ticks {
-    fn matches(&self, reference: &Ticks) -> bool {
+impl Matches<Count> for Count {
+    fn matches(&self, reference: &Count) -> bool {
         self == reference
     }
 }
@@ -192,8 +192,8 @@ impl FunctionMatches<Option<Ordering>> for Option<Ordering> {
     }
 }
 
-impl FunctionMatches<Ticks> for Ticks {
-    fn function_matches(&self, reference: &Ticks, _grid: u32) -> bool {
+impl FunctionMatches<Count> for Count {
+    fn function_matches(&self, reference: &Count, _grid: u32) -> bool {
         self == reference
     }
 }
@@ -597,7 +597,7 @@ diff_ops! {
     fn version_min_ticks_matches_the_oracle {
         production: a.min_ticks(),
         recursive: a.min_ticks(),
-        function(g): crate::Ticks(function::min_ticks(&a, g)),
+        function(g): crate::Count(function::min_ticks(&a, g)),
     }
 
     /// `shape`: the version's step function as plateau items.

@@ -228,7 +228,7 @@ fn bytes_after_the_frame_stay_untouched() {
         wire.extend_from_slice(b".RUMORS");
 
         let mut cursor = &wire[..];
-        receive(&mut cursor, &SessionHandle::default())
+        let _ = receive(&mut cursor, &SessionHandle::default())
             .await
             .expect("a canonical donation decodes");
         assert_eq!(cursor, b".RUMORS", "bytes after the donation were consumed");

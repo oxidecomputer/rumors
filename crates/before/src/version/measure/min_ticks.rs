@@ -1,6 +1,6 @@
 //! The shortest tick history consistent with a [`Version`].
 //!
-//! Every leaf height counts ticks reaching that leaf. Ticks shared by both
+//! Every leaf height counts events reaching that leaf. Events shared by both
 //! children of an internal node are thereby counted twice, so the node's
 //! subtree minimum must be subtracted once. Repeating this correction through
 //! the tree gives
@@ -17,15 +17,15 @@ use suanpan::Accumulator;
 
 use crate::accumulator::{self, BigIntAccumulator as _};
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
-use crate::{Ticks, Version};
+use crate::{Count, Version};
 
 use super::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
 
 mod minima;
 
-impl Ticks {
+impl Count {
     /// Compute the shortest tick history consistent with `version`.
-    pub(crate) fn minimum_for(version: &Version) -> Ticks {
+    pub(crate) fn min_ticks_for(version: &Version) -> Count {
         let (mut leaves, first_height) = VersionRegionReader::open(version);
 
         // Recent changes stay in one accumulator. Wider, older changes are
@@ -86,6 +86,6 @@ impl Ticks {
             Ordering::Less,
             "a subtree minimum never exceeds the sum of its leaves"
         );
-        Ticks(magnitude)
+        Count(magnitude)
     }
 }

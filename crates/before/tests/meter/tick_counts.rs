@@ -74,7 +74,7 @@ fn ticks_counters(v: &Version, p: &Party, n: u64) -> (u64, u64) {
 /// collapses owned structure and moves `min_ticks` by a
 /// shape-dependent amount, which the committed small-count
 /// differentials pin byte-for-byte against iterated ticks.
-fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64) {
+fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Count) -> (u64, u64) {
     let mut v = v.clone();
     v.tick(p);
     let before_ticks = v.min_ticks();
@@ -163,7 +163,7 @@ fn ticks_wide_count_flatness_holds_the_width_band() {
         ),
     ];
     for (name, v, p) in &cases {
-        let base = ticks_counters_wide(v, p, &before::Ticks::from(TICKS_POINT_LO));
+        let base = ticks_counters_wide(v, p, &before::Count::from(TICKS_POINT_LO));
         let at1 = ticks_counters_wide(v, p, &n1);
         let at2 = ticks_counters_wide(v, p, &n2);
         let spans = [

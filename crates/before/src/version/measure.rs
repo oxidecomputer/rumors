@@ -8,7 +8,7 @@
 //! Each operation has its own module. [`integral`] contains the shared
 //! arithmetic that prevents narrow encoded changes from repeatedly provoking
 //! work over a wide running height. The operation modules construct the final
-//! domain type—[`Rank`](crate::Rank) or [`Ticks`](crate::Ticks)—from Version
+//! domain type—[`Rank`](crate::Rank) or [`Count`](crate::Count)—from Version
 //! readers, so the public methods need no representation-level helper methods.
 //!
 //! Rank, distance, and lag take `O(M(n))` time in `n` input bits, where `M(n)`

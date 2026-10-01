@@ -34,18 +34,18 @@ pub struct Overlap;
 #[error("span endpoints cross: the start is not within the end")]
 pub struct Crossed;
 
-/// A [`Ticks`](crate::Ticks) count exceeded the machine integer it was
-/// converted into.
+/// A [`Count`](crate::Count) exceeded the machine integer it was converted
+/// into.
 ///
 /// Counts have no ceiling, so every conversion out to a fixed-width integer is
 /// fallible. For an infallible way to read the count, examine each `u64` limb
-/// with [`Ticks::limbs`](crate::Ticks::limbs) instead.
+/// with [`Count::limbs`](crate::Count::limbs) instead.
 ///
 /// # Example
 ///
 /// ```
-/// use before::Ticks;
-/// let wide = Ticks::from(u128::MAX);
+/// use before::Count;
+/// let wide = Count::from(u128::MAX);
 /// assert!(u64::try_from(&wide).is_err());
 /// ```
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, thiserror::Error)]
@@ -82,6 +82,7 @@ pub struct ParseRank;
 ///
 /// An input may have more than one defect. Unless a decoder documents a
 /// precedence rule, callers should handle any applicable variant.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Decode {
     /// The input ended before the value did: mid-tree, mid-integer, or cut
@@ -100,11 +101,14 @@ pub enum Decode {
     /// padding arrives is [`Decode::Truncated`] instead.
     #[error("malformed or spurious trailing input")]
     TrailingBits,
-    /// The input is structurally valid but is not canonical for the requested
-    /// value.
+    /// The input is readable but violates the requested type's canonical-form
+    /// or semantic invariants.
     #[error("input is not canonical")]
     NotCanonical,
     /// The underlying reader failed.
     #[error("read error: {0}")]
-    Io(io::Error),
+    Io(#[source] io::Error),
 }
+
+#[cfg(test)]
+mod tests;

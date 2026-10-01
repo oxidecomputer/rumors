@@ -112,6 +112,24 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Ranked::decode", &["ranked_decode"]),
     ("causally::Floor::contains", &["causally_contains"]),
     ("causally::Ceiling::contains", &["causally_contains"]),
+    (
+        "causally::Floor::coverage",
+        &[
+            "query_coverage",
+            "query_coverage_many",
+            "query_coverage_wide_up",
+            "query_coverage_wide_down",
+        ],
+    ),
+    (
+        "causally::Ceiling::coverage",
+        &[
+            "query_coverage",
+            "query_coverage_many",
+            "query_coverage_wide_up",
+            "query_coverage_wide_down",
+        ],
+    ),
     ("causally::since", &["query_single_hole"]),
     ("causally::until", &["query_single_hole"]),
     ("causally::strictly_after", &["query_single_hole"]),
@@ -243,6 +261,10 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "Version Eq / Hash (canonical byte compare)",
         &["version_eq", "version_hash"],
     ),
+    (
+        "Span Eq / Hash (endpoint composition)",
+        &["version_eq", "version_hash"],
+    ),
     ("Party Eq / Hash (canonical byte compare)", &["party_hash"]),
     ("Clock Eq / Hash (canonical byte compare)", &["clock_hash"]),
     (
@@ -304,12 +326,14 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "Ticks ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
-        &["ticks_clone", "ticks_add", "ticks_sum", "ticks_display"],
+        "Count ZERO / From / TryFrom / Display / Add / Sum / Ord / Eq / Hash",
+        &["count_clone", "count_add", "count_sum", "count_display"],
     ),
+    ("Count::checked_sub", &["count_add"]),
+    ("Count::saturating_sub", &["count_add"]),
     (
-        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
-        &["ticks_clone", "ticks_display"],
+        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Hash, Debug)",
+        &["count_clone", "count_display"],
     ),
     (
         "causally ! complement (atom negation into the polar hole)",
@@ -328,7 +352,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         &["clock_split_array"],
     ),
     (
-        "iter::Party / iter::Clock (fork iterators and partial-drop conservation)",
+        "iter::PartyForks / iter::ClockForks (fork iterators and partial-drop conservation)",
         &[
             "party_forks",
             "party_forks_full",
@@ -523,14 +547,14 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          celled at the OwnVersion rows",
     ),
     (
-        "Ticks::limbs",
+        "Count::limbs",
         "a borrowing view of the stored count: word-scale construction, one \
          word per step, no encoded-input axis",
     ),
     (
         "shape iterators (Plateaus / Regions / Overlay / Cells / Limbs: Iterator, FusedIterator, ExactSizeIterator)",
         "iterator traits add no work beyond each item; the shape methods are \
-         measured directly, and Ticks::limbs has its own disposition",
+         measured directly, and Count::limbs has its own disposition",
     ),
     (
         "unbounded depth (beyond the differential grids)",

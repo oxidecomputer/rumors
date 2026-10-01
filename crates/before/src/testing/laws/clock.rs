@@ -91,7 +91,7 @@ laws! {
     /// The clock's `ticks` agrees with the version-level `ticks` on its own
     /// parts, and returns the freshly advanced version.
     fn clock_ticks_matches_version_ticks {
-        let n = Ticks::from(3u64);
+        let n = Count::from(3u64);
         let mut via_clock = c.dangerously_alias();
         let returned = via_clock.ticks(n.clone()).clone();
         let mut expected = c.version().clone();

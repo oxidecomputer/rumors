@@ -567,8 +567,8 @@ fn deep_tree_stack_safety() {
     let decoded = Clock::decode(&bytes[..]).expect("deep id encodes to canonical bytes");
     assert_eq!(decoded.encode(), bytes);
 
-    // Ticks build, then refine, a deep event tree (fill, then the grow fallback,
-    // on the stored stream).
+    // Repeated ticks build, then refine, a deep event tree (fill, then the grow
+    // fallback on the stored stream).
     clock.tick();
     clock.tick();
 
@@ -732,7 +732,7 @@ fn deep_tree_min_ticks_stack_safety() {
     clock.tick();
     let version = clock.version().clone();
 
-    assert_eq!(version.min_ticks(), crate::Ticks::from(1u64));
+    assert_eq!(version.min_ticks(), crate::Count::from(1u64));
 }
 
 proptest! {

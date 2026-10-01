@@ -14,12 +14,14 @@ use std::marker::PhantomData;
 use std::ops::Not;
 
 use super::polarity::{Down, Hole, Up};
-use super::{le, Query, Version};
+use super::{le, Coverage, Query, Version};
+use crate::Span;
 
 /// Built by [`after`]: keeps the versions at or above its bound, `at <= v`.
 ///
-/// Conjoin it with `&`, negate it with `!`, or widen it with
-/// [`or_concurrent`](Self::or_concurrent).
+/// Test a version with [`contains`](Self::contains), classify a span with
+/// [`coverage`](Self::coverage), conjoin it with `&`, negate it with `!`, or
+/// widen it with [`or_concurrent`](Self::or_concurrent).
 #[derive(Clone)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Floor<'a> {
@@ -27,6 +29,10 @@ pub struct Floor<'a> {
 }
 
 /// Built by [`before`]: keeps the versions at or below its bound, `v <= at`.
+///
+/// Test a version with [`contains`](Self::contains), classify a span with
+/// [`coverage`](Self::coverage), conjoin it with `&`, negate it with `!`, or
+/// widen it with [`or_concurrent`](Self::or_concurrent).
 #[derive(Clone)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Ceiling<'a> {
@@ -287,6 +293,22 @@ impl<'a> Floor<'a> {
         le(&self.at, version)
     }
 
+    /// How much of `span` lies at or above this bound.
+    ///
+    /// # Complexity
+    ///
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor.html")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "floor only: `O(n)` in total input bytes; `O(|self| + |span|)`"
+    )]
+    pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
+        Query::from(Floor {
+            at: Cow::Borrowed(self.at.as_ref()),
+        })
+        .coverage(span)
+    }
+
     /// Widens the query to additionally include all concurrent versions.
     pub fn or_concurrent(self) -> Query<'a, Down> {
         Query {
@@ -310,6 +332,22 @@ impl<'a> Ceiling<'a> {
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     pub fn contains(&self, version: &Version) -> bool {
         le(version, &self.at)
+    }
+
+    /// How much of `span` lies at or below this bound.
+    ///
+    /// # Complexity
+    ///
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling.html")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "ceiling only: `O(n)` in total input bytes; `O(|self| + |span|)`"
+    )]
+    pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
+        Query::from(Ceiling {
+            at: Cow::Borrowed(self.at.as_ref()),
+        })
+        .coverage(span)
     }
 
     /// Widens the query to additionally include all concurrent versions.

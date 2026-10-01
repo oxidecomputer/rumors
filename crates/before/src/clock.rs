@@ -7,12 +7,12 @@ use std::io::{Read, Write};
 
 use crate::{
     error::{Decode, Overlap},
-    OwnVersion, Party, Ticks, Version,
+    Count, OwnVersion, Party, Version,
 };
 
 mod forks;
 
-pub use forks::Forks;
+pub use forks::ClockForks;
 
 #[cfg(test)]
 mod tests;
@@ -21,7 +21,8 @@ mod tests;
 ///
 /// This type is `!Clone` to strongly discourage non-linear usage: duplicating a
 /// [`Clock`] is memory-safe but semantically invalid for interval tree clocks,
-/// which require all live clocks in a system to be disjoint.
+/// which require all live clocks in a system to be disjoint. Discarding one
+/// likewise loses its identity share, so the type is `must_use`.
 ///
 /// Causal comparison and merge happen through the [`Version`]; `Clock` is not
 /// itself ordered:
@@ -48,6 +49,7 @@ mod tests;
 /// ```
 #[derive(PartialEq, Eq, Hash)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
+#[must_use = "discarding a `Clock` loses its identity share"]
 pub struct Clock {
     party: Party,
     version: Version,
@@ -110,7 +112,7 @@ impl Clock {
     /// than `n`.
     ///
     /// The count `k` is any unsigned number, since all can be converted into
-    /// [`Ticks`].
+    /// [`Count`].
     ///
     /// # Complexity
     ///
@@ -123,11 +125,11 @@ impl Clock {
     /// # Example
     ///
     /// ```
-    /// use before::Ticks;
+    /// use before::Count;
     /// let mut clock = before::Clock::seed();
-    /// assert_eq!(clock.ticks(1_000_000u64).min_ticks(), Ticks::from(1_000_000u64));
+    /// assert_eq!(clock.ticks(1_000_000u64).min_ticks(), Count::from(1_000_000u64));
     /// ```
-    pub fn ticks(&mut self, k: impl Into<Ticks>) -> &Version {
+    pub fn ticks(&mut self, k: impl Into<Count>) -> &Version {
         self.version.ticks(&self.party, k);
         &self.version
     }
@@ -171,9 +173,8 @@ impl Clock {
     /// party share. It also retains every child party the iterator has not
     /// returned, including when a partial iterator is dropped.
     ///
-    /// `k` may be a [`Ticks`] count or any standard unsigned integer type.
-    /// Suffix integer literals to select an unsigned type, as in `3u64`. The
-    /// iterator type is exported as [`iter::Clock`](crate::iter::Clock).
+    /// `k` may be a [`Count`] or any standard unsigned integer type.
+    /// Suffix integer literals to select an unsigned type, as in `3u64`.
     ///
     /// For the consuming counterpart that forks into exactly `N` clocks, see
     /// [`From<Clock>`](Clock) for `[Clock; N]`.
@@ -186,7 +187,8 @@ impl Clock {
         doc = "`O(n)` in total input bytes; a full drain costs at most `O(|self| + k (|self| + log k))`"
     )]
     ///
-    /// Children are built on demand; see [`Forks`] for the per-step and early-drop costs.
+    /// Children are built on demand; see [`ClockForks`] for the per-step and
+    /// early-drop costs.
     ///
     /// # Example
     ///
@@ -200,8 +202,8 @@ impl Clock {
     ///     assert_eq!(child.version(), parent.version()); // every child copies the version
     /// }
     /// ```
-    pub fn forks(&mut self, k: impl Into<Ticks>) -> Forks<'_> {
-        Forks::new(self, k.into())
+    pub fn forks(&mut self, k: impl Into<Count>) -> ClockForks<'_> {
+        ClockForks::new(self, k.into())
     }
 
     /// Absorbs a *disjoint* [`Clock`]'s [`Party`] and [`Version`], returning
@@ -210,7 +212,7 @@ impl Clock {
     /// # Errors
     ///
     /// If the two clocks' [`Party`]s overlap, `self` is unmodified and `other`
-    /// is handed back in the error.
+    /// is handed back in the error, preserving its identity share.
     ///
     /// # Complexity
     ///
@@ -714,7 +716,7 @@ impl Clock {
     ///
     /// ```
     /// use before::shape::{Plateau, Rise};
-    /// use before::{Clock, Ticks};
+    /// use before::{Clock, Count};
     ///
     /// let mut clock = Clock::seed();
     /// let mut right = clock.fork();
@@ -726,8 +728,8 @@ impl Clock {
     /// assert_eq!(
     ///     overlay,
     ///     vec![
-    ///         (Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 1 }, true),
-    ///         (Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 1 }, false),
+    ///         (Plateau { rise: Some(Rise::Up(Count::from(2u64))), depth: 1 }, true),
+    ///         (Plateau { rise: Some(Rise::Down(Count::from(1u64))), depth: 1 }, false),
     ///     ],
     /// );
     /// ```

@@ -24,7 +24,7 @@
 //! The vocabulary is a subset of the public API, bounded by the generated
 //! construction budgets described in [`strategies`]. The numeric suite
 //! separately calls the same guest over geometric width and arity sweeps:
-//! Rank parsing and formatting, Ticks arithmetic and rendering, and both
+//! Rank parsing and formatting, Count arithmetic and rendering, and both
 //! size dimensions of shape combination. Its wide inputs exceed the program
 //! budgets, and its fits check growth without recalibrating the program pins.
 

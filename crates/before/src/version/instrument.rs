@@ -53,7 +53,7 @@ pub fn rank(version: &Version) -> crate::Rank {
 
 /// Compute the minimum tick count through its streaming fold.
 #[cfg(feature = "meter")]
-pub fn min_ticks(version: &Version) -> crate::Ticks {
+pub fn min_ticks(version: &Version) -> crate::Count {
     version.min_ticks()
 }
 

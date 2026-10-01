@@ -320,11 +320,11 @@ fn laws_seeds_decode_per_framing_and_stay_wide() {
             })
             .collect();
         for position in 0..2 {
-            Party::decode(laws_chunk(data)).unwrap_or_else(|err| {
+            let _ = Party::decode(laws_chunk(data)).unwrap_or_else(|err| {
                 panic!("{}: party chunk {position} fails decode: {err}", seed.name)
             });
         }
-        Clock::decode(laws_chunk(data))
+        let _ = Clock::decode(laws_chunk(data))
             .unwrap_or_else(|err| panic!("{}: clock chunk fails decode: {err}", seed.name));
         let version_arity = laws_script(seed.name, data, 4);
         laws_script(seed.name, data, 3);

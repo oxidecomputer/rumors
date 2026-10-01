@@ -96,7 +96,7 @@ laws! {
     /// empty version (the floor is a sum of nonnegative bases, zero only
     /// when every base is).
     fn min_ticks_zero_iff_empty {
-        (a.min_ticks() == Ticks::ZERO) == a.is_empty()
+        (a.min_ticks() == Count::ZERO) == a.is_empty()
     }
 
     /// The whole-interval party is the projection identity: `a / seed == a`.

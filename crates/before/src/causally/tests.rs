@@ -293,6 +293,32 @@ fn up_query<'a>(
 }
 
 proptest! {
+    /// Atom coverage is exactly the coverage of the equivalent one-bound
+    /// query for arbitrary bounds and spans.
+    #[test]
+    fn atom_coverage_matches_query_coverage(
+        bound in arb_oracle_version(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+    ) {
+        let bound = from_oracle_version(&bound);
+        let a = from_oracle_version(&a);
+        let b = from_oracle_version(&b);
+        let span = a.span(&b);
+
+        let floor = after(&bound);
+        prop_assert_eq!(
+            floor.coverage(span.reborrow()),
+            Query::from(floor).coverage(span.reborrow()),
+        );
+
+        let ceiling = before(&bound);
+        prop_assert_eq!(
+            ceiling.coverage(span.reborrow()),
+            Query::from(ceiling).coverage(span),
+        );
+    }
+
     /// Public query expressions denote the conjunction of their causal
     /// relations, independently of normalization and fused evaluation.
     ///

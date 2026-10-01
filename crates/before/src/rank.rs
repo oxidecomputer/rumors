@@ -181,6 +181,7 @@ impl Rank {
     /// assert_eq!(five.checked_sub(&three).unwrap().to_string(), "10");
     /// assert!(three.checked_sub(&five).is_none()); // 3 - 5 has no nonnegative value
     /// ```
+    #[must_use = "`Rank::checked_sub` does not modify `self` or `other`; discarding its result means that it has no effect"]
     pub fn checked_sub(&self, other: &Rank) -> Option<Rank> {
         // The ordering pre-check rides the class-first comparison, so the
         // `None` and zero arms cost no alignment at all; only a strictly
@@ -235,6 +236,7 @@ impl Rank {
     /// assert_eq!(five.saturating_sub(&three).to_string(), "10");
     /// assert_eq!(three.saturating_sub(&five), Rank::ZERO); // 3 - 5 floors at zero
     /// ```
+    #[must_use = "`Rank::saturating_sub` does not modify `self` or `other`; discarding its result means that it has no effect"]
     pub fn saturating_sub(&self, other: &Rank) -> Rank {
         self.checked_sub(other).unwrap_or(Rank::ZERO)
     }
@@ -332,7 +334,7 @@ impl Rank {
     ///   of its content (bytes past the stream's own, a set bit in the padding,
     ///   or an all-zero final fraction group);
     /// - [`Decode::NotCanonical`] when the integral header declares a mantissa
-    ///   width of `2⁶⁴` or more bits;
+    ///   width outside the format's `u64` range;
     /// - [`Decode::Io`] when the reader itself fails.
     ///
     /// # Complexity

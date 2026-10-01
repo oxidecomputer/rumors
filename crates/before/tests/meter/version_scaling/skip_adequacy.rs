@@ -35,7 +35,7 @@ fn rank_weight_comb_run(n: usize) -> QueryRun {
     let expected = BigUint::from((34 * n - 1) as u64);
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's base sum disagrees with min_ticks: the generator \
          does not build the tree this band reasons about"
     );
@@ -137,7 +137,7 @@ fn rank_freeze_parade_run(k: usize) -> QueryRun {
         - &w;
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's base sum disagrees with min_ticks: the generator \
          does not build the tree this band reasons about"
     );
@@ -307,7 +307,7 @@ fn rank_dense_suffix_run(p: usize) -> QueryRun {
         + 1u8;
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's stored-code sum disagrees with min_ticks: the \
          generator does not build the tree this band reasons about"
     );

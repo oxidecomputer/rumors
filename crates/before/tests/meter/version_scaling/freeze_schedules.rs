@@ -18,7 +18,7 @@ fn rank_freeze_position_run(k: usize) -> QueryRun {
         + BigUint::from(k as u64);
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's leaf sum disagrees with min_ticks: the generator \
          does not build the tree this band reasons about"
     );
@@ -184,7 +184,7 @@ fn rank_promotion_rearm_run(p: usize) -> QueryRun {
         + 1u8;
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's stored-code sum disagrees with min_ticks: the \
          generator does not build the tree this band reasons about"
     );
@@ -265,7 +265,7 @@ fn rank_lone_freeze_run(pre: usize, post: usize) -> QueryRun {
         + BigUint::from(3u8);
     assert_eq!(
         v.min_ticks(),
-        ticks_from_big(&expected),
+        min_ticks_from_big(&expected),
         "the family's leaf sum disagrees with min_ticks: the generator \
          does not build the tree this band reasons about"
     );

@@ -72,7 +72,7 @@ Read-only checks found current code matching several important review
 mechanisms:
 
 - The current fork increment removes the `ExactSizeIterator` contract and the
-  fixed `u64` count. Both public methods accept the existing unbounded `Ticks`
+  fixed `u64` count. Both public methods accept the existing unbounded `Count`
   vocabulary, and a direct wasm32 pin covers the former `2^32` trap.
 - The fill memo's links and query ledger's epochs use vector-native `usize`
   indices. The current Party fold increment removes its auxiliary position

@@ -8,7 +8,7 @@
 //!
 //! [`Plan`] stores that compact plan and a read-only source snapshot. It
 //! composes every fork for one share into a single descent, without constructing
-//! the intermediate regions. [`Forks`] then removes that share from the
+//! the intermediate regions. [`PartyForks`] then removes that share from the
 //! borrowed party in one rebuilding pass. The removal remembers bits per open
 //! ancestor, not a machine word or tree node, so even an arbitrary-width count
 //! cannot turn path depth into disproportionate transient memory. The borrowed
@@ -19,7 +19,7 @@ use num_bigint::BigUint;
 
 use super::Party;
 use crate::party::io::{PartyBranch, PartyNode, PartyReader, PartySnapshot};
-use crate::Ticks;
+use crate::Count;
 
 /// The current share's directions in the party's spatial tree.
 ///
@@ -30,6 +30,7 @@ use crate::Ticks;
 /// and uses any choices remaining below an owned region to create deeper
 /// levels. The resulting path addresses the exact subtree that
 /// [`PartyReader::remove_path`] removes.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 struct SharePath<'a> {
     /// Current source node while the path remains inside the original tree.
     source: PartyReader<'a>,
@@ -156,6 +157,7 @@ impl Remaining {
 }
 
 /// A compact plan that yields one balanced share at a time in preorder.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 struct Plan {
     /// Original party topology retained while the borrowed party changes.
     source: PartySnapshot,
@@ -174,8 +176,8 @@ struct Plan {
 /// Builds and advances the compact balanced-fork plan.
 impl Plan {
     /// Plan a partition of `source` into `k >= 1` shares.
-    fn new(source: PartySnapshot, k: Ticks) -> Self {
-        debug_assert!(k > Ticks::ZERO, "a balanced fork yields at least one share");
+    fn new(source: PartySnapshot, k: Count) -> Self {
+        debug_assert!(k > Count::ZERO, "a balanced fork yields at least one share");
         let remaining = Remaining::new(&k.0);
         let depth = k.0.bits() - 1;
         let mut extra = k.0;
@@ -277,6 +279,7 @@ impl Plan {
 /// order matches [`Plan`]. Unlike `Plan`, it never rescans the original party
 /// from its root for another output: every intermediate party is consumed by
 /// at most one binary fork.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 struct Shares {
     /// Regions still to fork, with the next region last.
     pending: Vec<(Party, usize)>,
@@ -357,7 +360,8 @@ impl Iterator for Plan {
 /// costs `O(|p| + log k)` and dropping the iterator costs `O(1)`, with `|p|`
 /// the borrowed party's size.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
-pub struct Forks<'a> {
+#[must_use = "`PartyForks` produces no child parties unless consumed"]
+pub struct PartyForks<'a> {
     /// The borrowed party, containing the residual and every untaken share.
     rest: &'a mut Party,
     /// The compact plan for shares after the residual.
@@ -365,9 +369,9 @@ pub struct Forks<'a> {
 }
 
 /// Creates a borrowing fork iterator.
-impl<'a> Forks<'a> {
+impl<'a> PartyForks<'a> {
     /// Borrow `party` and plan `k` children after one residual share.
-    pub(crate) fn new(party: &'a mut Party, k: Ticks) -> Self {
+    pub(crate) fn new(party: &'a mut Party, k: Count) -> Self {
         // The first of `k + 1` shares belongs to the borrowed party. Skipping
         // it in the plan leaves the party itself unchanged: until a child is
         // returned, it still owns the entire region.
@@ -375,12 +379,12 @@ impl<'a> Forks<'a> {
         count.0 += 1u32;
         let mut plan = Plan::new(PartySnapshot::new(party), count);
         plan.skip_one();
-        Forks { rest: party, plan }
+        PartyForks { rest: party, plan }
     }
 }
 
 /// Produces one child while leaving every untaken region with the borrower.
-impl Iterator for Forks<'_> {
+impl Iterator for PartyForks<'_> {
     type Item = Party;
 
     fn next(&mut self) -> Option<Party> {

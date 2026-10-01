@@ -42,7 +42,7 @@ fn version_bytes(p: &Encoding) -> Vec<u8> {
 
 /// Encode a generated party and verify that it is canonical.
 fn party_bytes(p: &Encoding) -> Vec<u8> {
-    Party::decode(&p.bytes[..]).expect("meter id families are canonical");
+    let _ = Party::decode(&p.bytes[..]).expect("meter id families are canonical");
     p.bytes.clone()
 }
 

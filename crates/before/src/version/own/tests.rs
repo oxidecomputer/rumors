@@ -11,10 +11,10 @@ use proptest::prelude::*;
 use super::OwnVersion;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
-use crate::{Clock, Party, Ticks, Version};
+use crate::{Clock, Count, Party, Version};
 
 /// Build a uniform version through the public tick operation.
-fn uniform(ticks: impl Into<Ticks>) -> Version {
+fn uniform(ticks: impl Into<Count>) -> Version {
     let mut version = Version::new();
     Party::seed().ticks(&mut version, ticks);
     version

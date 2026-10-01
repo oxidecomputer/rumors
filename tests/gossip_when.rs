@@ -967,7 +967,7 @@ proptest! {
 /// One step of a chaos script: a send or redaction on either side, a tick to
 /// either driver, or an opportunity for the schedulers to make progress.
 ///
-/// Ticks and commits are deliberately decoupled: a tick may arrive with
+/// Clock ticks and commits are deliberately decoupled: a tick may arrive with
 /// nothing new (must suppress), late (covering several commits), or while a
 /// session is already in flight on the same or the opposite side.
 #[derive(Debug, Clone, Copy)]

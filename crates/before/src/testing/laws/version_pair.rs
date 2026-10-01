@@ -177,6 +177,14 @@ laws! {
         a != b || hash_of(a) == hash_of(b)
     }
 
+    /// Equal borrowed and owned spans hash equally, so changing endpoint
+    /// ownership cannot change a span's behavior as a map key.
+    fn span_eq_implies_hash_eq {
+        let borrowed = a.span(b);
+        let owned = borrowed.clone().into_owned();
+        borrowed == owned && hash_of(&borrowed) == hash_of(&owned)
+    }
+
     /// [`Ranked`]'s total order is rank order completed by the version-byte
     /// tiebreak, exactly.
     ///

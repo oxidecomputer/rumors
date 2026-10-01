@@ -22,12 +22,12 @@
 
 use core::cmp::Ordering;
 
-use before::{Clock, Party, Rank, Ranked, Span, Ticks, Version};
+use before::{Clock, Count, Party, Rank, Ranked, Span, Version};
 use borsh::BorshDeserialize;
 use suanpan::Accumulator;
 
 /// A version with the same event count everywhere.
-fn uniform(ticks: impl Into<Ticks>) -> Version {
+fn uniform(ticks: impl Into<Count>) -> Version {
     let mut version = Version::new();
     Party::seed().ticks(&mut version, ticks);
     version
@@ -109,7 +109,7 @@ pub extern "C" fn pin_version_small() -> i64 {
 /// keeper.
 #[no_mangle]
 pub extern "C" fn pin_forks_past_usize(k: u64) -> i64 {
-    let count = Ticks::from(k);
+    let count = Count::from(k);
     let mut party = Party::seed();
     let share = {
         let mut forks = party.forks(count.clone());

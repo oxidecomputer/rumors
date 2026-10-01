@@ -35,7 +35,7 @@ use crate::testing::meter::registry::Shape;
 use crate::testing::meter::Encoding;
 use crate::testing::{generators, optrace};
 use crate::version::instrument::validate;
-use crate::{Clock, Party, Ticks, Version};
+use crate::{Clock, Count, Party, Version};
 
 use super::output::Output;
 use super::probe::RaiseProbe;
@@ -53,7 +53,7 @@ fn party_of(p: &Encoding) -> Party {
 }
 
 /// Build a uniform version through the public tick operation.
-fn uniform(ticks: impl Into<Ticks>) -> Version {
+fn uniform(ticks: impl Into<Count>) -> Version {
     let mut version = Version::new();
     Party::seed().ticks(&mut version, ticks);
     version

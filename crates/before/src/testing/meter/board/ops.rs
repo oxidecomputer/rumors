@@ -19,7 +19,7 @@ use serde::Deserializer;
 
 use crate::causally::{self, Down, Query, Up};
 use crate::error::Decode;
-use crate::{shape, Clock, Party, Rank, Ranked, Span, Ticks, Version};
+use crate::{shape, Clock, Count, Party, Rank, Ranked, Span, Version};
 
 use super::ceilings::{
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
@@ -71,15 +71,15 @@ const MASKED_HOLE_TOUCH_CEILING: f64 = 18.0;
 const NA_HEAP_SHAPE_WALK: &str =
     "paths and rises may share input storage or live inline; heap allocation is not required";
 
-/// Why tick-count arithmetic does not drive the accumulator meter.
-const NA_TOUCH_TICK_COUNT: &str =
-    "tick counts use ordinary big-integer operations, not the skyline accumulator";
+/// Why [`Count`] arithmetic does not drive the accumulator meter.
+const NA_TOUCH_COUNT: &str =
+    "Count uses ordinary big-integer operations, not the skyline accumulator";
 
-/// Why tick-count operations do not drive the encoded-stream meter.
-const NA_SCAN_TICK_COUNT: &str = "tick counts have no encoded stream to walk";
+/// Why [`Count`] operations do not drive the encoded-stream meter.
+const NA_SCAN_COUNT: &str = "Count has no encoded stream to walk";
 
-/// Why formatting a tick count has no representation-independent heap floor.
-const NA_HEAP_TICK_FORMAT: &str =
+/// Why formatting a [`Count`] has no representation-independent heap floor.
+const NA_HEAP_COUNT_FORMAT: &str =
     "decimal digits may be streamed directly: heap allocation is not required";
 
 /// Why cloning a rank has no representation-independent heap floor.
@@ -129,12 +129,12 @@ fn shape_floors(input_bytes: usize, touch: Liveness) -> Floors {
 ///
 /// The iterator need not drain this count. Constructing it exposes whether a
 /// compact count can multiply the resident party bytes by its bit width.
-fn wide_fork_count(input_bytes: usize) -> (Ticks, usize) {
+fn wide_fork_count(input_bytes: usize) -> (Count, usize) {
     let shift = u64::try_from(input_bytes)
         .expect("a resident input byte length fits u64")
         .checked_mul(8)
         .expect("a resident byte buffer cannot exceed one eighth of u64::MAX");
-    let count = Ticks(BigUint::from(1u8) << shift);
+    let count = Count(BigUint::from(1u8) << shift);
     let count_bytes = usize::try_from(count.0.bits().div_ceil(8))
         .expect("the constructed count width came from a usize byte length");
     (count, count_bytes)
@@ -914,60 +914,60 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
-            name: "ticks_clone",
+            name: "count_clone",
             prepare: |f| {
-                let count = tick_counts(f)?
+                let count = counts_for_family(f)?
                     .into_iter()
                     .max_by_key(|count| count.0.bits())?;
-                let n = tick_count_bytes(&count);
+                let n = count_input_bytes(&count);
                 Some(Cell::new(
                     n,
-                    tick_count_floors(tick_count_heap_floor(tick_count_value_bytes(&count))),
+                    count_floors(count_heap_floor(count_value_bytes(&count))),
                     move || (count.clone(), count),
                 ))
             },
         },
         Op {
-            name: "ticks_add",
+            name: "count_add",
             prepare: |f| {
-                let mut counts = tick_counts(f)?.into_iter();
+                let mut counts = counts_for_family(f)?.into_iter();
                 let (a, b) = (counts.next()?, counts.next()?);
-                let n = tick_count_bytes(&a) + tick_count_bytes(&b);
-                let output_bytes = tick_count_value_bytes(&a).max(tick_count_value_bytes(&b));
+                let n = count_input_bytes(&a) + count_input_bytes(&b);
+                let output_bytes = count_value_bytes(&a).max(count_value_bytes(&b));
                 Some(Cell::new(
                     n,
-                    tick_count_floors(tick_count_heap_floor(output_bytes)),
+                    count_floors(count_heap_floor(output_bytes)),
                     move || (&a + &b, a, b),
                 ))
             },
         },
         Op {
-            name: "ticks_sum",
+            name: "count_sum",
             prepare: |f| {
-                let counts = tick_counts(f)?;
-                let n = counts.iter().map(tick_count_bytes).sum();
-                let output_bytes = counts.iter().map(tick_count_value_bytes).max()?;
+                let counts = counts_for_family(f)?;
+                let n = counts.iter().map(count_input_bytes).sum();
+                let output_bytes = counts.iter().map(count_value_bytes).max()?;
                 Some(Cell::new(
                     n,
-                    tick_count_floors(tick_count_heap_floor(output_bytes)),
+                    count_floors(count_heap_floor(output_bytes)),
                     move || {
-                        let sum: Ticks = counts.iter().sum();
+                        let sum: Count = counts.iter().sum();
                         (sum, counts)
                     },
                 ))
             },
         },
         Op {
-            name: "ticks_display",
+            name: "count_display",
             prepare: |f| {
-                let count = tick_counts(f)?
+                let count = counts_for_family(f)?
                     .into_iter()
                     .max_by_key(|count| count.0.bits())?;
-                let n = tick_count_bytes(&count);
+                let n = count_input_bytes(&count);
                 Some(Cell::io(
                     n,
-                    tick_count_floors(na(NA_HEAP_TICK_FORMAT)),
-                    tick_count_text_output_bytes,
+                    count_floors(na(NA_HEAP_COUNT_FORMAT)),
+                    count_text_output_bytes,
                     move || (formatted_len(format_args!("{count}")), count),
                 ))
             },
@@ -2901,58 +2901,58 @@ fn rank_text_output_bytes(result: &dyn std::any::Any) -> usize {
         .len()
 }
 
-/// Tick counts derived from a family's rank or population values.
-fn tick_counts(f: &FamilyData) -> Option<Vec<Ticks>> {
+/// Representative [`Count`] values derived from a family's ranks.
+fn counts_for_family(f: &FamilyData) -> Option<Vec<Count>> {
     if let Some((versions, _)) = &f.population {
         let counts = versions
             .iter()
             .map(|bytes| {
                 let version = decode_version(bytes);
-                Ticks(version.rank().raw_parts().0.clone())
+                Count(version.rank().raw_parts().0.clone())
             })
             .collect::<Vec<_>>();
         return (!counts.is_empty()).then_some(counts);
     }
     let (a, b) = f.rank_pair.as_ref()?;
     Some(vec![
-        Ticks(a.raw_parts().0.clone()),
-        Ticks(b.raw_parts().0.clone()),
+        Count(a.raw_parts().0.clone()),
+        Count(b.raw_parts().0.clone()),
     ])
 }
 
-/// A tick count's numeric width, rounded up to bytes.
-fn tick_count_bytes(count: &Ticks) -> usize {
-    tick_count_value_bytes(count).max(1)
+/// A count's numeric width, rounded up so zero still has an input byte.
+fn count_input_bytes(count: &Count) -> usize {
+    count_value_bytes(count).max(1)
 }
 
-/// Bytes needed to store a tick count's significant bits.
-fn tick_count_value_bytes(count: &Ticks) -> usize {
+/// Bytes needed to store a count's significant bits.
+fn count_value_bytes(count: &Count) -> usize {
     count.0.bits().div_ceil(8) as usize
 }
 
-/// Resource floors shared by operations over decoded tick counts.
-fn tick_count_floors(heap: Liveness) -> Floors {
+/// Resource floors shared by operations over [`Count`] values.
+fn count_floors(heap: Liveness) -> Floors {
     Floors {
         heap,
-        scan: na(NA_SCAN_TICK_COUNT),
-        touch: na(NA_TOUCH_TICK_COUNT),
+        scan: na(NA_SCAN_COUNT),
+        touch: na(NA_TOUCH_COUNT),
     }
 }
 
-/// Heap floor for a tick-count result of `output_bytes` significant bytes.
-fn tick_count_heap_floor(output_bytes: usize) -> Liveness {
+/// Heap floor for a count result of `output_bytes` significant bytes.
+fn count_heap_floor(output_bytes: usize) -> Liveness {
     if output_bytes <= (MACHINE_WORD_MAGNITUDE_BITS / 8) as usize {
-        na("word-sized tick counts may use inline storage")
+        na("word-sized counts may use inline storage")
     } else {
         heap_materializes(output_bytes)
     }
 }
 
-/// Read the rendered text length from a tick-count formatting result.
-fn tick_count_text_output_bytes(result: &dyn std::any::Any) -> usize {
+/// Read the rendered text length from a count-formatting result.
+fn count_text_output_bytes(result: &dyn std::any::Any) -> usize {
     result
-        .downcast_ref::<(usize, Ticks)>()
-        .expect("a tick-count display cell keeps its byte count")
+        .downcast_ref::<(usize, Count)>()
+        .expect("a count display cell keeps its byte count")
         .0
 }
 

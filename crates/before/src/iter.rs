@@ -1,5 +1,4 @@
-//! Lazy balanced-fork iterators: [`iter::Party`](Party) and
-//! [`iter::Clock`](Clock).
+//! Lazy balanced-fork iterators: [`PartyForks`] and [`ClockForks`].
 //!
 //! They hand out `n` shallow shares of a [`Party`](crate::Party) (or
 //! [`Clock`](crate::Clock)) in one balanced split, generating each share on
@@ -11,9 +10,9 @@
 //! ```
 //! use before::{iter, Party};
 //! let mut p = Party::seed();
-//! let forks: iter::Party<'_> = p.forks(3u64);
+//! let forks: iter::PartyForks<'_> = p.forks(3u64);
 //! assert_eq!(forks.size_hint(), (3, Some(3)));
 //! let shares: Vec<Party> = forks.collect();
 //! assert_eq!(shares.len(), 3);
 //! ```
-pub use crate::{clock::Forks as Clock, party::Forks as Party};
+pub use crate::{clock::ClockForks, party::PartyForks};

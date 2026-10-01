@@ -13,7 +13,7 @@
 //! Contract with the harness:
 //!
 //! - Registers are dense indices into a growable file; a slot holds a
-//!   `Version`, `Party`, `Clock`, `Rank`, `Ticks`, `Span`, or an owned causal
+//!   `Version`, `Party`, `Clock`, `Rank`, `Count`, `Span`, or an owned causal
 //!   query. Ops that consume an operand
 //!   (`join`, `without`, fold drains) take it out of its slot — the register
 //!   file is linear exactly where the API is linear, so a generator that
@@ -35,7 +35,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use before::causally::{self, Coverage, Down, Neutral, Query, Up};
 use before::shape::{combine, Rise};
 use before::{
-    Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Ticks, Version,
+    Clock, Count, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };
 
 /// One register-file slot: any value the public surface produces.
@@ -44,7 +44,7 @@ enum Val {
     P(Party),
     C(Clock),
     R(Rank),
-    T(Ticks),
+    T(Count),
     S(Span<'static>),
     Q(StoredQuery),
 }
@@ -174,8 +174,8 @@ fn take_r(src: u32) -> Option<Rank> {
     }
 }
 
-/// Move a `Ticks` count out of `src`.
-fn take_t(src: u32) -> Option<Ticks> {
+/// Move a [`Count`] out of `src`.
+fn take_t(src: u32) -> Option<Count> {
     match take(src) {
         Some(Val::T(t)) => Some(t),
         other => {
@@ -211,8 +211,8 @@ fn with_r<T>(reg: u32, f: impl FnOnce(&Rank) -> T) -> Option<T> {
     })
 }
 
-/// Run `f` with a borrowed `Ticks` count in `reg`.
-fn with_t<T>(reg: u32, f: impl FnOnce(&Ticks) -> T) -> Option<T> {
+/// Run `f` with a borrowed [`Count`] in `reg`.
+fn with_t<T>(reg: u32, f: impl FnOnce(&Count) -> T) -> Option<T> {
     REGS.with_borrow(|regs| match regs.get(reg as usize) {
         Some(Some(Val::T(t))) => Some(f(t)),
         _ => None,
@@ -1380,7 +1380,7 @@ pub extern "C" fn ff_rank_decode(dst: u32) -> i32 {
 
 /// Prepare a count from a version's minimum outside the measured operation.
 #[no_mangle]
-pub extern "C" fn ff_ticks_from_version(dst: u32, src: u32) -> i32 {
+pub extern "C" fn ff_count_from_version(dst: u32, src: u32) -> i32 {
     match with_v(src, Version::min_ticks) {
         Some(ticks) => {
             put(dst, Val::T(ticks));
@@ -1392,14 +1392,14 @@ pub extern "C" fn ff_ticks_from_version(dst: u32, src: u32) -> i32 {
 
 /// Prepare a machine-sized count outside the measured operation.
 #[no_mangle]
-pub extern "C" fn ff_ticks_from_u32(dst: u32, value: u32) -> i32 {
-    put(dst, Val::T(Ticks::from(value)));
+pub extern "C" fn ff_count_from_u32(dst: u32, value: u32) -> i32 {
+    put(dst, Val::T(Count::from(value)));
     OK
 }
 
 /// Add two borrowed counts, retaining the result in `dst`.
 #[no_mangle]
-pub extern "C" fn ff_ticks_add(dst: u32, a: u32, b: u32) -> i32 {
+pub extern "C" fn ff_count_add(dst: u32, a: u32, b: u32) -> i32 {
     match with_t(a, |a| with_t(b, |b| a + b)) {
         Some(Some(sum)) => {
             put(dst, Val::T(sum));
@@ -1411,7 +1411,7 @@ pub extern "C" fn ff_ticks_add(dst: u32, a: u32, b: u32) -> i32 {
 
 /// Add the count in `src` to the count in `dst` in place.
 #[no_mangle]
-pub extern "C" fn ff_ticks_add_assign(dst: u32, src: u32) -> i32 {
+pub extern "C" fn ff_count_add_assign(dst: u32, src: u32) -> i32 {
     let Some(mut count) = take_t(dst) else {
         return ERR_REG;
     };
@@ -1420,10 +1420,33 @@ pub extern "C" fn ff_ticks_add_assign(dst: u32, src: u32) -> i32 {
     code(result.map(|()| OK))
 }
 
+/// Subtract two borrowed counts, retaining the result in `dst` when it exists.
+#[no_mangle]
+pub extern "C" fn ff_count_checked_sub(dst: u32, a: u32, b: u32) -> i32 {
+    match with_t(a, |a| with_t(b, |b| a.checked_sub(b))) {
+        Some(Some(Some(difference))) => {
+            put(dst, Val::T(difference));
+            OK
+        }
+        Some(Some(None)) => ERR_OP,
+        _ => ERR_REG,
+    }
+}
+
+/// Attempt to convert one count to `u64`.
+#[no_mangle]
+pub extern "C" fn ff_count_try_u64(src: u32) -> i32 {
+    match with_t(src, |ticks| u64::try_from(ticks)) {
+        Some(Ok(_)) => OK,
+        Some(Err(_)) => ERR_OP,
+        None => ERR_REG,
+    }
+}
+
 /// Sum the borrowed counts in `src..src + n` into `dst`.
 #[no_mangle]
-pub extern "C" fn ff_ticks_sum(dst: u32, src: u32, n: u32) -> i32 {
-    let sum: Option<Ticks> = REGS.with_borrow(|regs| {
+pub extern "C" fn ff_count_sum(dst: u32, src: u32, n: u32) -> i32 {
+    let sum: Option<Count> = REGS.with_borrow(|regs| {
         (src..src + n)
             .map(|reg| match regs.get(reg as usize) {
                 Some(Some(Val::T(t))) => Some(t),
@@ -1442,8 +1465,8 @@ pub extern "C" fn ff_ticks_sum(dst: u32, src: u32, n: u32) -> i32 {
 
 /// Consume and sum the counts in `src..src + n` into `dst`.
 #[no_mangle]
-pub extern "C" fn ff_ticks_sum_owned(dst: u32, src: u32, n: u32) -> i32 {
-    match (src..src + n).map(take_t).sum::<Option<Ticks>>() {
+pub extern "C" fn ff_count_sum_owned(dst: u32, src: u32, n: u32) -> i32 {
+    match (src..src + n).map(take_t).sum::<Option<Count>>() {
         Some(sum) => {
             put(dst, Val::T(sum));
             OK
@@ -1454,7 +1477,7 @@ pub extern "C" fn ff_ticks_sum_owned(dst: u32, src: u32, n: u32) -> i32 {
 
 /// Render a count as decimal text in the staging buffer.
 #[no_mangle]
-pub extern "C" fn ff_ticks_display(src: u32) -> i32 {
+pub extern "C" fn ff_count_display(src: u32) -> i32 {
     code(with_t(src, |ticks| {
         STAGE.with_borrow_mut(|stage| *stage = ticks.to_string().into_bytes());
         OK
@@ -1974,7 +1997,28 @@ pub extern "C" fn ff_query_contains(q: u32, probe: u32) -> i32 {
 /// on verdicts the walk alone cannot close, the clamp legs.
 #[no_mangle]
 pub extern "C" fn ff_query_coverage(q: u32, s: u32) -> i32 {
-    match with_q(q, |query| with_s(s, |span| query.coverage(span))) {
+    coverage_code(with_q(q, |query| with_s(s, |span| query.coverage(span))))
+}
+
+/// `Floor::coverage` of the span in `s`, using the bound in `bound`.
+#[no_mangle]
+pub extern "C" fn ff_floor_coverage(bound: u32, s: u32) -> i32 {
+    coverage_code(with_v(bound, |bound| {
+        with_s(s, |span| causally::after(bound).coverage(span))
+    }))
+}
+
+/// `Ceiling::coverage` of the span in `s`, using the bound in `bound`.
+#[no_mangle]
+pub extern "C" fn ff_ceiling_coverage(bound: u32, s: u32) -> i32 {
+    coverage_code(with_v(bound, |bound| {
+        with_s(s, |span| causally::before(bound).coverage(span))
+    }))
+}
+
+/// Translate an optional coverage verdict to the guest ABI.
+fn coverage_code(verdict: Option<Option<Coverage>>) -> i32 {
+    match verdict {
         Some(Some(Coverage::Empty)) => 0,
         Some(Some(Coverage::Partial)) => 1,
         Some(Some(Coverage::Full)) => 2,

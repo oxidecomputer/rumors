@@ -166,7 +166,7 @@ triage's dispositions and branches are leads only.
       Sources: all remaining entries in `claims.md` and `dependence.md`.
 
 - [x] Correct method-level false cost claims: Party predicates and shape
-      traversal may allocate, `Ticks::Sum` must price empty summands, and rank
+      traversal may allocate, `Count::Sum` must price empty summands, and rank
       encoding must not promise an optimization it does not implement.
       Source: independent public-contract audit, 2026-09-29.
 
@@ -283,7 +283,7 @@ into otherwise small feature increments.
       public-contract audit, 2026-09-29.
 
 - [x] Cover public numeric and formatting time paths that bypass the board's
-      work counters, including Rank parsing and precision, Ticks arithmetic,
+      work counters, including Rank parsing and precision, Count arithmetic,
       and independently growing shape-combine arity, using the existing fuel
       machinery rather than another instrument.
       Source: independent public-contract audit, 2026-09-29.
@@ -372,11 +372,18 @@ into otherwise small feature increments.
       Sources: prior rulings 85--86, critically reviewed against the current
       code; owner handoff, 2026-09-16.
 
-- [ ] Review `#[must_use]`, fork iterator naming and count type, error source
+- [x] Review `#[must_use]`, fork iterator naming and count type, error source
       chains, error extensibility, missing trait symmetry, and human-readable
       forms as one coherent API proposal before implementation.
       Sources: all entries in `api.md`; approval required for each external
       change.
+
+- [x] Implement and verify the approved core-type surface: linear-value and
+      pure-operation diagnostics, iterator and Count naming, Count arithmetic,
+      decoding errors, value hashing, and causal-atom coverage.
+
+- [ ] Implement and verify the approved text and serialization surface while
+      preserving every existing binary wire encoding.
 
 - [ ] Put each required value, size, and cost guarantee at the public method
       that owns it, stated as a general `before` contract without naming

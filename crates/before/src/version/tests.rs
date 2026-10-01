@@ -17,10 +17,10 @@ use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
 use crate::testing::oracles::function;
-use crate::{Clock, Party, Rank, Ticks};
+use crate::{Clock, Count, Party, Rank};
 
 /// Build a uniform version through the public tick operation.
-fn uniform(ticks: impl Into<Ticks>) -> Version {
+fn uniform(ticks: impl Into<Count>) -> Version {
     let mut version = Version::new();
     Party::seed().ticks(&mut version, ticks);
     version
@@ -522,7 +522,7 @@ proptest! {
         let mut production_ticks = from_oracle_version(&version);
         production_ticks.ticks(&production_party, count);
         let mut recursive_ticks = version;
-        recursive_ticks.ticks(&party, Ticks::from(count));
+        recursive_ticks.ticks(&party, Count::from(count));
         prop_assert_eq!(to_oracle_version(&production_ticks), recursive_ticks);
     }
 }
@@ -663,15 +663,15 @@ fn trace_ticks(ops: &[Op]) -> u64 {
 /// value), and two concurrent peaks (forced above their tallest path of `1`).
 #[test]
 fn min_ticks_known_values() {
-    assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
-    assert_eq!(uniform(5u8).min_ticks(), Ticks::from(5u64));
+    assert_eq!(Version::new().min_ticks(), Count::ZERO);
+    assert_eq!(uniform(5u8).min_ticks(), Count::from(5u64));
     use crate::testing::oracles::tree::Version as V;
     let peaks = from_oracle_version(&V::node(
         0u8,
         V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
         V::node(0u8, V::leaf(0u8), V::leaf(1u8)),
     ));
-    assert_eq!(peaks.min_ticks(), Ticks::from(2u64));
+    assert_eq!(peaks.min_ticks(), Count::from(2u64));
 }
 
 proptest! {
@@ -695,7 +695,7 @@ proptest! {
             prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
             // And that minimum never exceeds the ticks the history performed.
             prop_assert!(
-                v.min_ticks() <= Ticks::from(total),
+                v.min_ticks() <= Count::from(total),
                 "min_ticks {} exceeded the {} ticks performed",
                 v.min_ticks(),
                 total,
@@ -733,7 +733,7 @@ fn no_maximum_tick_count() {
         assert_eq!(v, &uniform(1u8), "n={n}: rejoins to leaf 1");
         assert_eq!(
             v.min_ticks(),
-            Ticks::from(1u64),
+            Count::from(1u64),
             "n={n}: {n} ticks collapse to the floor 1"
         );
     }
@@ -2103,11 +2103,11 @@ fn div_can_fragment_and_raise_min_ticks() {
     let comb = q0.party();
 
     let v = uniform(1u8);
-    assert_eq!(v.min_ticks(), Ticks::from(1u64)); // one tick covers the whole interval
+    assert_eq!(v.min_ticks(), Count::from(1u64)); // one tick covers the whole interval
 
     let frag = (&v / comb).to_version();
     assert!(frag <= v); // still a sub-version
-    assert_eq!(frag.min_ticks(), Ticks::from(2u64)); // but now two concurrent peaks
+    assert_eq!(frag.min_ticks(), Count::from(2u64)); // but now two concurrent peaks
 }
 
 /// The at-rest form is exactly the wire bytes' refcounted handle.

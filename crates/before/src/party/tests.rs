@@ -436,7 +436,7 @@ mod sync_constructed {
             crate::testing::instrument::scan::reset();
             let mut joined = party(a);
             if joined.join(party(b)).is_ok() {
-                joined.fork();
+                let _ = joined.fork();
             }
             let composed = crate::testing::instrument::scan::scan_bits();
             assert!(

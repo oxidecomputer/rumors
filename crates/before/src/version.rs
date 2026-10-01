@@ -11,7 +11,7 @@ use std::io::{Read, Result as IoResult, Write};
 use crate::bits::Bits;
 use crate::error::Decode;
 use crate::span::Span;
-use crate::Party;
+use crate::{Count, Party};
 
 #[cfg(any(test, feature = "meter"))]
 pub(crate) mod instrument;
@@ -26,10 +26,8 @@ mod projection;
 mod range_minima;
 pub(crate) mod shape;
 pub(crate) mod tick;
-mod ticks;
 
 pub use own::OwnVersion;
-pub use ticks::{Limbs, Ticks};
 
 use crate::{Rank, Ranked};
 
@@ -222,7 +220,7 @@ impl Version {
     /// }
     /// assert_eq!(v, w); // one call, same version as five sequential ticks
     /// ```
-    pub fn ticks(&mut self, party: &Party, k: impl Into<Ticks>) {
+    pub fn ticks(&mut self, party: &Party, k: impl Into<Count>) {
         let k = k.into();
         // The empty run is the identity, settled without re-freezing the stream.
         if k.0.bits() == 0 {
@@ -253,7 +251,7 @@ impl Version {
     }
 
     /// The minimum number of [`tick`](Self::tick)s that could have produced
-    /// this [`Version`], as an exact [`Ticks`] count at any magnitude.
+    /// this [`Version`], as an exact [`Count`] at any magnitude.
     ///
     /// This is a floor over all causal histories: every sequence of
     /// [`fork`](crate::Clock::fork), `tick`, and [`join`](crate::Clock::join)
@@ -273,22 +271,22 @@ impl Version {
     /// # Example
     ///
     /// ```
-    /// use before::{Party, Ticks, Version};
-    /// assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
+    /// use before::{Party, Count, Version};
+    /// assert_eq!(Version::new().min_ticks(), Count::ZERO);
     /// let mut p = Party::seed();
     /// let mut v = Version::new();
     /// v.ticks(&p, 5u64);
-    /// assert_eq!(v.min_ticks(), Ticks::from(5u64));
+    /// assert_eq!(v.min_ticks(), Count::from(5u64));
     /// let mut q = p.fork();
     /// let _ = p.fork();
     /// let r = q.fork();
     /// let mut peaks = Version::new();
     /// peaks.tick(&p);
     /// peaks.tick(&r);
-    /// assert_eq!(peaks.min_ticks(), Ticks::from(2u64));
+    /// assert_eq!(peaks.min_ticks(), Count::from(2u64));
     /// ```
-    pub fn min_ticks(&self) -> Ticks {
-        Ticks::minimum_for(self)
+    pub fn min_ticks(&self) -> Count {
+        Count::min_ticks_for(self)
     }
 
     /// This [`Version`]'s exact causal [`Rank`]: `v < w` implies `v.rank() <
@@ -454,6 +452,7 @@ impl Version {
     /// assert_eq!(merged, &va | &vb); // the operator spelling agrees
     /// assert!(merged >= va && merged >= vb);
     /// ```
+    #[must_use = "`Version::join` does not modify `self` or `other`; discarding its result means that it has no effect"]
     pub fn join(&self, other: &Version) -> Version {
         if other.is_empty() {
             return self.clone();
@@ -497,6 +496,7 @@ impl Version {
     /// assert!(all >= va && all >= vb);
     /// assert_eq!(va.join_all(Vec::<Version>::new()), va); // nothing to add
     /// ```
+    #[must_use = "`Version::join_all` does not modify `self`; discarding its result means that it has no effect"]
     pub fn join_all<I>(&self, iter: I) -> Version
     where
         I: IntoIterator,
@@ -533,6 +533,7 @@ impl Version {
     /// assert_eq!(common, &va & &vb); // the operator spelling agrees
     /// assert!(common <= va && common <= vb);
     /// ```
+    #[must_use = "`Version::meet` does not modify `self` or `other`; discarding its result means that it has no effect"]
     pub fn meet(&self, other: &Version) -> Version {
         if self.is_empty() {
             return self.clone();
@@ -580,6 +581,7 @@ impl Version {
     /// assert!(common <= va && common <= vb);
     /// assert_eq!(va.meet_all(Vec::<Version>::new()), va); // nothing to share
     /// ```
+    #[must_use = "`Version::meet_all` does not modify `self`; discarding its result means that it has no effect"]
     pub fn meet_all<I>(&self, iter: I) -> Version
     where
         I: IntoIterator,
@@ -780,19 +782,19 @@ impl Version {
     /// each plateau costs `O(1)` plus its own rise's bit width, and
     /// the walk itself performs no arithmetic.
     ///
-    /// Arithmetic *you* do with the [`Ticks`] is priced separately. [`Ticks`]
+    /// Arithmetic *you* do with the [`Count`] is priced separately. [`Count`]
     /// addition costs the operands' widths, so folding the rises into a
     /// running absolute height can cost each step the running value's full width,
     /// inherently quadratic over the drain in the worst case. Typically, this is
     /// not an issue, however, because realistically reachable [`Version`]s have
-    /// [`Ticks`] which are bounded by a machine word, and are therefore effectively
+    /// [`Count`] which are bounded by a machine word, and are therefore effectively
     /// constant-time.
     ///
     /// # Example
     ///
     /// ```
     /// use before::shape::{Plateau, Rise};
-    /// use before::{Clock, Ticks};
+    /// use before::{Clock, Count};
     ///
     /// let mut left = Clock::seed();
     /// let mut right = left.fork();
@@ -806,9 +808,9 @@ impl Version {
     ///     plateaus,
     ///     vec![
     ///         // The left half is at height 2; the first rise is absolute.
-    ///         Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 1 },
+    ///         Plateau { rise: Some(Rise::Up(Count::from(2u64))), depth: 1 },
     ///         // The right half is at height 1.
-    ///         Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 1 },
+    ///         Plateau { rise: Some(Rise::Down(Count::from(1u64))), depth: 1 },
     ///     ],
     /// );
     /// // Widths tile the unit interval: 1/2 + 1/2 = 1.
@@ -1113,6 +1115,7 @@ impl Version {
 /// `last` holds a **clone** of the last yielded item's version, not a raw
 /// address: the clone keeps the run's buffer alive, so no freed allocation can
 /// be reused at the same address mid-iteration and masquerade as a duplicate.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 struct DedupRuns<I, F> {
     inner: I,
     /// Projects each item to the version it contributes.
