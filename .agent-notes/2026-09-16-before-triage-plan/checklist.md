@@ -401,8 +401,9 @@ into otherwise small feature increments.
 - [x] Independently review the simplified Party and Version-tick internals for
       pedagogical commentary, with particular attention to the lookahead scan.
 
-- [ ] Simplify module boundaries after behavioral work settles, and keep the
-      guideposts accurate.
+- [x] Simplify production module boundaries so Party, Version, Span, bit IO,
+      stacks, test support, meters, oracles, and suanpan are organized by the
+      responsibility and invariants each module owns.
       Sources: `module-graph-*`, structural entries in `simplification.md`.
 
 ## 12. Finish and reconcile

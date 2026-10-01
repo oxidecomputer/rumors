@@ -1,7 +1,7 @@
 # Current triage state
 
-Work proceeds directly on `main`. Resource verification is consolidated through
-`193a1474`.
+Work proceeds directly on `main`. The completed foundation runs through
+`2bce9edb`.
 
 ## Completed foundation
 
@@ -24,27 +24,33 @@ claims, direct amplification-board gaps, numeric fuel gaps, balanced-fold
 premise, and crate-headline disposition have each been resolved or assigned to
 the owner's deferred crate-page rewrite.
 
-## Current increment
-
 Party and Version decoding and canonical-byte adoption live on their domain
 types through one `from_canonical` boundary, and writers finish directly into
-those types. Adaptation façades are absent where callers can state the operation
-directly; algorithm-specific helpers belong to the state that owns their
-invariants. Genuine module laws remain detached.
+those types. The query filter bounds retained height differences by their query
+bounds; targeted differential properties cover the accumulator postcondition,
+alternating cancellation, exact order, and the per-bound storage condition.
 
-The query filter retains an exact height difference only while its storage is
-bounded by the corresponding query bound. Wider comparisons compact shared
-accumulators without normalization; each refusal strictly reduces retained
-width, so the work is amortized and the comparison loop terminates. Targeted
-differential properties cover the accumulator postcondition, alternating
-cancellation, exact order, and the per-bound storage condition. The discovered
-alternating-cancellation witness is pinned as a proptest regression.
+## Remaining work
 
-## Next outcome
+1. **Consolidate semantic verification.** Give the recursive oracle,
+   function-space oracle, algebraic laws, sampled differentials, exhaustive
+   small scope, and deep traversal tests distinct jobs. Consolidate the Party,
+   Clock, Version, Span, Rank, projection, and query properties without losing
+   a failure class. Then retire redundant operation registries, surface scans,
+   copied drivers, and decorative generator controls.
+2. **Settle the remaining verification infrastructure.** Reassess fuzz-fit and
+   fuelscape independently, then simplify fuzz replay, the direct 32-bit suite,
+   gate and CI derivation, dependencies, and generated assets while preserving
+   each distinct signal.
+3. **Review the public surface and contracts.** Present the API changes as one
+   coherent owner-reviewed proposal. Apply every approved external change to
+   Before and Rumors together, and put the surviving value, size, and cost
+   guarantees on the methods that own them.
+4. **Finish the documentation.** Rewrite the crate page and public item docs at
+   caller altitude; correct stale guideposts; finish the maintainer-prose sweep.
+5. **Reconcile and verify.** Re-read every original finding against the final
+   tree, run the justified full verification set, and present the integrated
+   result for approval.
 
-Consolidate semantic verification. Distinguish the recursive oracle,
-function-space oracle, algebraic laws, property tests, and exhaustive small
-scope by the failure class each uniquely detects; remove overlapping rosters,
-copied helpers, and decorative case-count machinery without losing behavioral
-coverage. Re-evaluate priorities after that increment before entering fuzz-fit,
-fuelscape, or public-surface work.
+The next implementation outcome is the first category. Re-evaluate this order
+after every approved commit.
