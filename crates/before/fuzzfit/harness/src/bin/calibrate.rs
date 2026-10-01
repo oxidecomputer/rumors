@@ -11,18 +11,11 @@
 //! are fitted and pinned separately from success paths, so a regression in
 //! either arm is judged against its own law.
 //!
-//! Alongside the pins, the sweep prints (to stderr) the measurements the
-//! committed judgment constants are pinned from: the corpus's maximum
-//! healthy within-case slope excess (the shape leg's `SLOPE_ALLOWANCE`),
-//! the prefix-refit-vs-pin line divergence (the staleness check's
-//! `REFIT_TOLERANCE`), the band keys the prefix leaves uncovered
-//! (the complement of the generated `REFIT_COVERAGE` list), the
-//! narrowest floor-vs-nop gap (the liveness margin
-//! `ENFORCE_MARGIN_BELOW`'s claim that a dead meter reads below every
-//! effective floor), and the enforcement replays' worst ceiling excess
-//! (the calibration-vs-enforcement gap the ceiling margin
-//! `ENFORCE_MARGIN` absorbs) — so a re-pin re-derives the constants'
-//! evidence instead of trusting last time's.
+//! The sweep reports within-program slope excess, prefix-refit divergence,
+//! floor distance from a no-op, and fixed escalation replays' ceiling excess.
+//! Review these measurements against the committed enforcement tolerances
+//! when re-pinning. Every fitted key must also be refittable from the prefix
+//! with the same constant-or-linear classification.
 //!
 //! Usage: `calibrate [programs]` (default 4096, the corpus of record; the
 //! committed pins state their corpus size per band).
@@ -31,9 +24,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use fuzzfit_harness::bands::{
-    Band, ENFORCE_MARGIN, ENFORCE_MARGIN_BELOW, REFIT_PREFIX_PROGRAMS, SMALL_BAND_KERNELS,
-};
+use fuzzfit_harness::bands::{Band, ENFORCE_MARGIN, ENFORCE_MARGIN_BELOW, REFIT_PREFIX_PROGRAMS};
 use fuzzfit_harness::curve::{local_slope_excess, MIN_BUCKETS, MIN_PER_BUCKET, SHAPE_EXEMPT};
 use fuzzfit_harness::drive::{
     for_each_bootstrap_program, for_each_deterministic_program, run_program,
@@ -58,19 +49,17 @@ fn band_of(kernel: &'static str, rejected: bool, f: &Fit) -> Band {
     }
 }
 
+/// Fits the deterministic corpora and writes the reviewed band snapshot.
 fn main() {
     let programs: usize = std::env::args()
         .nth(1)
         .map(|s| s.parse().expect("programs must be a number"))
         .unwrap_or(4096);
 
+    /// An operation and its success or rejection outcome.
     type Key = (&'static str, bool);
     let mut by_key: BTreeMap<Key, Vec<(u64, u64)>> = BTreeMap::new();
     let mut prefix_by_key: BTreeMap<Key, Vec<(u64, u64)>> = BTreeMap::new();
-    // Sub-floor samples of the small-band kernels (success arm): the
-    // small bands' calibration input, pooled from the main corpus here
-    // and the deterministic bootstrap stream below.
-    let mut small_by_kernel: BTreeMap<&'static str, Vec<(u64, u64)>> = BTreeMap::new();
     // Per-case sample groups big enough to possibly carry shape evidence
     // — (case, family, key, samples) — held back so the shape
     // diagnostic can judge them against the *new* fits once those exist.
@@ -89,15 +78,6 @@ fn main() {
                     .or_default()
                     .push((s.denom_bits, s.fuel));
             }
-            if s.denom_bits < FIT_FLOOR_BITS
-                && !s.rejected
-                && SMALL_BAND_KERNELS.contains(&s.kernel)
-            {
-                small_by_kernel
-                    .entry(s.kernel)
-                    .or_default()
-                    .push((s.denom_bits, s.fuel));
-            }
             case_keys
                 .entry(key)
                 .or_default()
@@ -110,23 +90,6 @@ fn main() {
         }
         if (case + 1) % 32 == 0 {
             eprintln!("… {}/{programs} programs, {total_steps} samples", case + 1);
-        }
-    });
-
-    // The deterministic bootstrap stream: dense sub-floor coverage of the
-    // small-band kernels. Its samples feed only the small fits — folding
-    // them into the main fits would change the pinned size-law lines.
-    for_each_bootstrap_program(|_, samples| {
-        for s in samples {
-            if s.denom_bits < FIT_FLOOR_BITS
-                && !s.rejected
-                && SMALL_BAND_KERNELS.contains(&s.kernel)
-            {
-                small_by_kernel
-                    .entry(s.kernel)
-                    .or_default()
-                    .push((s.denom_bits, s.fuel));
-            }
         }
     });
 
@@ -168,19 +131,33 @@ fn main() {
         .expect("String write cannot fail");
     }
 
-    // The small-operand bands: one constant fit per rostered kernel over
-    // the pooled sub-floor samples. A kernel the pooled corpus never
-    // sampled sub-floor is a generator regression and fails the pin here
-    // rather than shipping a silent coverage hole.
+    // Bootstrap steps below their main fit's floor determine which success
+    // paths need a small band. Pool their main-corpus sub-floor samples with
+    // this separate stream; bootstrap samples never enter the main fits.
+    let mut small_by_kernel: BTreeMap<&'static str, Vec<(u64, u64)>> = BTreeMap::new();
+    for_each_bootstrap_program(|_, samples| {
+        for s in samples {
+            let key = (s.kernel, s.rejected);
+            if s.denom_bits < fits[&key].min_denom {
+                assert!(!s.rejected, "bootstrap small bands cover success paths");
+                assert!(
+                    s.denom_bits < FIT_FLOOR_BITS,
+                    "bootstrap operand reaches the fit floor"
+                );
+                let pooled = small_by_kernel.entry(s.kernel).or_insert_with(|| {
+                    by_key[&key]
+                        .iter()
+                        .copied()
+                        .filter(|&(denom, _)| denom < FIT_FLOOR_BITS)
+                        .collect()
+                });
+                pooled.push((s.denom_bits, s.fuel));
+            }
+        }
+    });
     let mut small_rows = String::new();
     let mut small_fits: BTreeMap<&'static str, Fit> = BTreeMap::new();
-    for &kernel in SMALL_BAND_KERNELS {
-        let samples = small_by_kernel.get(kernel).unwrap_or_else(|| {
-            panic!(
-                "no sub-floor samples for small-band kernel {kernel}: the corpus \
-                    and the bootstrap stream both missed it"
-            )
-        });
+    for (&kernel, samples) in &small_by_kernel {
         let f = fit_constant(samples)
             .unwrap_or_else(|| panic!("small-band kernel {kernel} needs >= 2 sub-floor samples"));
         writeln!(
@@ -235,40 +212,27 @@ fn main() {
         ),
         None => eprintln!("shape-leg evidence: no case met the evidence requirements"),
     }
-    // The staleness check's evidence: prefix refit vs the new pin, and the
-    // committed coverage list (the keys whose prefix classification matches
-    // the pin's; everything else is printed as uncovered for review).
+    // A pin must remain refittable by the enforcement prefix; compare every
+    // fitted key directly instead of maintaining another coverage list.
     let mut refit_max: Option<(f64, Key)> = None;
-    let mut coverage = String::new();
-    let mut covered = 0usize;
     for (&(kernel, rejected), f) in &fits {
-        let flip = match prefix_by_key.get(&(kernel, rejected)).and_then(|s| fit(s)) {
-            Some(pf) if pf.constant == f.constant => {
-                let d = line_divergence(&pf, &band_of(kernel, rejected, f));
-                if refit_max.as_ref().is_none_or(|(m, _)| d > *m) {
-                    refit_max = Some((d, (kernel, rejected)));
-                }
-                writeln!(coverage, "    (\"{kernel}\", {rejected}),")
-                    .expect("String write cannot fail");
-                covered += 1;
-                continue;
-            }
-            Some(_) => "classification flip",
-            None => "too few prefix samples",
-        };
-        eprintln!(
-            "refit coverage: {kernel}{} UNCOVERED ({flip})",
-            if rejected { " [err]" } else { "" }
+        let prefix = prefix_by_key
+            .get(&(kernel, rejected))
+            .and_then(|samples| fit(samples))
+            .unwrap_or_else(|| panic!("{kernel} (rejected={rejected}): too few prefix samples"));
+        assert_eq!(
+            prefix.constant, f.constant,
+            "{kernel} (rejected={rejected}): prefix classification differs from the full fit"
         );
+        let divergence = line_divergence(&prefix, &band_of(kernel, rejected, f));
+        if refit_max.as_ref().is_none_or(|(max, _)| divergence > *max) {
+            refit_max = Some((divergence, (kernel, rejected)));
+        }
     }
-    match &refit_max {
-        Some((d, (kernel, rejected))) => eprintln!(
-            "refit evidence: prefix ({REFIT_PREFIX_PROGRAMS} programs) vs pin, \
-             max line divergence {d:.3} ({kernel}{}), {covered} of {} band keys covered",
-            if *rejected { " [err]" } else { "" },
-            fits.len()
-        ),
-        None => eprintln!("refit evidence: prefix covered no band keys"),
+    if let Some((divergence, (kernel, rejected))) = refit_max {
+        eprintln!(
+            "refit evidence: prefix ({REFIT_PREFIX_PROGRAMS} programs) vs pin, maximum divergence {divergence:.3} ({kernel}, rejected={rejected})"
+        );
     }
     // The liveness margin's evidence: the narrowest gap, over every band
     // key, between the effective floor (line − width_below −
@@ -375,9 +339,8 @@ pub const PINNED_RUSTC: &str = \"{rustc}\";
 pub const BANDS: &[Band] = &[
 {rows}];
 
-/// The pinned small-operand bands: one constant-classified band per
-/// [`SMALL_BAND_KERNELS`] entry (success arm), judged below the fit
-/// floor over each band's own calibrated span.
+/// Bootstrap success paths below their main bands' floors, selected from the
+/// executed bootstrap corpus and judged over each band's calibrated span.
 ///
 /// Generated by `just fuzzfit-calibrate` alongside [`BANDS`], from the
 /// pooled sub-floor samples of the calibration corpus and the
@@ -386,20 +349,6 @@ pub const BANDS: &[Band] = &[
 pub const SMALL_BANDS: &[Band] = &[
 {small_rows}];
 
-/// The band keys the pin-time prefix refit covered: the staleness
-/// cross-check's committed expectation list.
-///
-/// Generated by `just fuzzfit-calibrate` alongside [`BANDS`]: every key
-/// listed here had, at pin time, a prefix refit whose classification
-/// matched its pin. The enforcement suite requires each listed key to
-/// still fit, still match its pin's classification, and still agree
-/// within [`REFIT_TOLERANCE`] — so coverage decay, a classification flip
-/// (the reach-regression tell), and line drift each fail by name instead
-/// of hollowing the check out silently. Keys not listed are outside the
-/// staleness detector's reach at pin time; calibration prints them for
-/// the re-pinner to review.
-pub const REFIT_COVERAGE: &[(&str, bool)] = &[
-{coverage}];
 "
     );
     let tmp = bands_path.with_extension("rs.tmp");

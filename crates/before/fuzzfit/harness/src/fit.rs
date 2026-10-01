@@ -1,7 +1,7 @@
 //! Log-log regression over (denominator, fuel) samples: the calibration
 //! leg's fitter.
 //!
-//! Each public operation gets one fitted line of `log₁₀ fuel` against
+//! Each measured operation gets one fitted line of `log₁₀ fuel` against
 //! `log₁₀ denom_bits`, with two *residual widths* — the maximum positive
 //! residual (the ceiling's distance from the line) and the maximum
 //! negative residual magnitude (the floor's) — recorded alongside. The
@@ -68,19 +68,12 @@ pub struct Fit {
     pub constant: bool,
 }
 
-/// The fit floor: samples below this denominator are excluded from both
-/// the fit and the committed judgment range (`Fit::min_denom` never sits
-/// below it when floored samples exist).
+/// Preferred lower operand size for fitting a size-dependent fuel law.
 ///
-/// Below ~16 bytes of operands, per-call constant overhead (register
-/// dispatch, allocator fixed costs) dominates fuel, and a log-log line
-/// through that regime mixes overhead decay into the asymptotic slope —
-/// the bucket medians rise from the overhead knee and then settle onto the
-/// true law only above it. The floor is also the enforcement-side size
-/// floor: below it the shrinker would converge on small-n noise, not
-/// genuine violations. The sub-floor region is not unjudged wholesale:
-/// the small-operand bands ([`crate::bands::SMALL_BAND_KERNELS`]) price
-/// it as the constant-overhead regime it is, via [`fit_constant`].
+/// When at least two samples reach this floor, [`fit`] excludes smaller
+/// operands so constant call overhead does not dominate the slope. Otherwise
+/// it fits the available samples. Selected bootstrap operations also have
+/// [`crate::bands::SMALL_BANDS`], fitted separately with [`fit_constant`].
 pub const FIT_FLOOR_BITS: u64 = 128;
 
 /// Minimum denominator decades a slope estimate needs; narrower clouds
@@ -89,11 +82,8 @@ const MIN_DECADES: f64 = 1.0;
 
 /// Buckets per decade of denominator (bucket medians are the fit's inputs).
 ///
-/// The half-decade bucket geometry is a convention three consumers share —
-/// the fitter here, the shape leg's within-case buckets ([`crate::curve`]),
-/// and `bin/diag`'s median tables — so it is one exported constant: the
-/// diagnostics must bucket exactly the way the fit does, or their medians
-/// stop describing the fit's inputs.
+/// The fitter and the within-program trend check ([`crate::curve`]) use the
+/// same bucket geometry so their slopes describe the same size intervals.
 pub const BUCKETS_PER_DECADE: f64 = 2.0;
 
 /// Minimum populated buckets a slope estimate needs.

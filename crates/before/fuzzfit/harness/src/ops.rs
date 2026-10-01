@@ -1,10 +1,10 @@
 //! The program vocabulary, the native mirror, and the denomination rules.
 //!
-//! A *program* is a sequence of [`Op`]s over a register file, one op per
-//! public `before` operation, mirroring the guest ABI one-to-one. Programs
-//! are the harness's only unit of execution: strategies generate them,
-//! the mirror executes them natively, and the driver replays them in the
-//! guest under fuel metering.
+//! A *program* is a sequence of [`Op`]s over a register file. Each operation
+//! calls one guest export; the vocabulary covers a subset of the public API.
+//! Strategies generate programs, the mirror executes them natively, and the
+//! driver replays them in the guest under fuel metering. The numeric suite
+//! and fuelscape also call guest exports directly.
 //!
 //! # Denomination
 //!
@@ -38,7 +38,7 @@ use before::{Clock, Party, Rank, Version};
 /// A register index in both the mirror's and the guest's file.
 pub type Reg = u32;
 
-/// One public operation over registers; the harness's program alphabet.
+/// One measured operation over registers; the harness's program alphabet.
 ///
 /// Field conventions mirror the guest ABI: `dst` slots are written, plain
 /// operand slots are read, and operands documented as consumed follow the
@@ -265,10 +265,10 @@ impl Step {
     /// metric over equal versions — mirrored here by the same predicate
     /// the fast path dispatches on.
     ///
-    /// Identity steps are measured for the differential but never
-    /// sampled: their cost is `O(1)` by mechanism, not a size law, and
-    /// fitting them alongside the walked cloud makes both bands
-    /// decoration-wide (the driver's sampling carries the argument).
+    /// These steps still receive the native/guest differential check but are
+    /// excluded from fuel fits: equality shortcuts do not exercise the walk
+    /// whose size law is being fitted. Shared buffers can compare in constant
+    /// time; equal bytes in distinct buffers can require a linear comparison.
     pub fn identity(&self) -> bool {
         self.identity
     }

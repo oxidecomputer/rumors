@@ -1,47 +1,32 @@
 //! Checks generated programs against their pinned fuel bounds.
 //!
-//! Each case generates one single-universe program, replays it natively and
-//! in the wasm guest, and checks two properties. Every operation's fuel must
-//! remain inside the committed band for its operation and outcome at that
-//! operand size. Within a case, each operation's bucket-median trend must
-//! also remain below its pinned slope. The trend check catches growth that
-//! a wide pointwise band could hide. Fuel is deterministic, so proptest can
-//! shrink failures to a reproducible program; every resulting seed file
-//! must be committed.
+//! Generated programs, the deterministic calibration prefix, and fixed deep
+//! replays receive the same pointwise and within-program trend checks. The
+//! bootstrap corpus separately exercises the small-operand pins. Measurements
+//! below a main band's floor are judged only where a small band applies.
 //!
-//! The deterministic corpus prefix rides the same judgment, program by
-//! program, every run: the random draws probe novelty, and the prefix
-//! leg makes every kernel × size-decade region the corpus reaches an
-//! enforced verdict rather than a sampled one. A region drawn with
-//! probability `q` still escapes `n` random cases with probability
-//! `(1 − q)^n`; the deterministic prefix removes that uncertainty for the
-//! regions it covers.
-//!
-//! Standing self-checks ride along: the meter's liveness (`ff_nop`), the
-//! detection path's adequacy (a deliberately quadratic guest burner must
-//! read ABOVE a linear band), the pin's provenance (the building toolchain
-//! must match the pinning one), the pin's staleness (a fresh refit of the
-//! deterministic corpus prefix must agree with the committed lines on
-//! every covered band key), and the escalated regime itself (two fixed
-//! reach-family programs — mid-depth and the depth cap, distinct seeds —
-//! replay on every run, so the deep rejection and overlap cases do not
-//! depend on rare escalation draws).
+//! The prefix must refit every pinned operation/outcome pair, preserving its
+//! classification and staying within the line-divergence tolerance. Additional
+//! tests check compiler provenance, fresh-instance fuel determinism, no-op
+//! overhead, and detection of a deliberately quadratic guest operation.
 //!
 //! The property test runs proptest's default case count, raised with
 //! `PROPTEST_CASES`; the calibration corpus is the big sweep.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use before::Clock;
 use proptest::prelude::*;
 
 use fuzzfit_harness::bands::{
-    band_for, judge_against, judge_small, Verdict, BANDS, PINNED_RUSTC, REFIT_COVERAGE,
-    REFIT_PREFIX_PROGRAMS, REFIT_TOLERANCE, SMALL_BANDS, SMALL_BAND_KERNELS,
+    band_for, judge_against, judge_small, Band, Verdict, BANDS, PINNED_RUSTC,
+    REFIT_PREFIX_PROGRAMS, REFIT_TOLERANCE, SMALL_BANDS,
 };
 use fuzzfit_harness::curve::{local_slope_excess, SHAPE_EXEMPT, SLOPE_ALLOWANCE};
 use fuzzfit_harness::drive::{
     for_each_bootstrap_program, for_each_deterministic_program, run_program, Sample,
 };
+use fuzzfit_harness::fit::{fit, line_divergence, FIT_FLOOR_BITS};
 use fuzzfit_harness::strategies::{any_program, build, Family, ESCALATION_REPLAYS};
 use fuzzfit_harness::wasm::Guest;
 
@@ -60,10 +45,9 @@ fn judge(samples: &[Sample]) {
         let arm = if s.rejected { " [err]" } else { "" };
         match judge_against(band, s.denom_bits, s.fuel) {
             Verdict::InBand => {}
-            // Below the size-law floor, the small-operand roster takes
-            // over where it prices the key: sub-floor steps of the
-            // bootstrap-hot kernels are judged against their constant
-            // band instead of skipped.
+            // Below the size-law floor, an applicable small band takes over.
+            // The bootstrap test requires one for every operation that its
+            // small-input corpus reaches below the main floor.
             Verdict::BelowFloor => {
                 if let Some((small, verdict)) =
                     judge_small(s.kernel, s.rejected, s.denom_bits, s.fuel)
@@ -147,94 +131,50 @@ fn judge(samples: &[Sample]) {
     }
 }
 
-/// The pinned bands must exist before enforcement means anything: an empty
-/// roster would let every program "pass" vacuously.
-#[test]
-fn bands_are_pinned() {
-    assert!(
-        !BANDS.is_empty(),
-        "no pinned bands: run `just fuzzfit-calibrate` and commit src/bands.rs"
-    );
-}
-
-/// The small-operand roster is pinned exactly: one constant-classified
-/// band per [`SMALL_BAND_KERNELS`] entry (success arm).
-///
-/// Each band judges strictly below the size-law fit floor, and no
-/// small band prices a kernel off the roster.
-///
-/// The roster is the committed expectation list: a calibration that
-/// drops a kernel's small band (a generator regression starving the
-/// sub-floor samples) fails here by name instead of silently reopening
-/// the sub-floor blind spot the bands exist to close.
-#[test]
-fn small_bands_are_pinned_for_the_bootstrap_kernels() {
-    for &kernel in SMALL_BAND_KERNELS {
-        let band = SMALL_BANDS
-            .iter()
-            .find(|b| b.kernel == kernel && !b.rejected)
-            .unwrap_or_else(|| {
-                panic!(
-                    "{kernel} has no pinned small-operand band: re-run \
-                     `just fuzzfit-calibrate` and commit src/bands.rs"
-                )
-            });
-        assert!(
-            band.constant,
-            "{kernel}: a small band is constant-classified"
-        );
-        assert!(
-            band.max_denom < fuzzfit_harness::fit::FIT_FLOOR_BITS,
-            "{kernel}: a small band judges strictly below the fit floor"
-        );
-    }
-    for band in SMALL_BANDS {
-        assert!(
-            SMALL_BAND_KERNELS.contains(&band.kernel) && !band.rejected,
-            "small band {} prices no rostered kernel: a stale pin; re-run \
-             `just fuzzfit-calibrate` or extend SMALL_BAND_KERNELS",
-            band.kernel
-        );
-    }
-}
-
-/// The deterministic bootstrap corpus lands every step in its band,
-/// and each rostered kernel is actually judged sub-floor at least
-/// once.
-///
-/// The sub-floor steps of the rostered kernels judge against their
-/// small bands, everything else against the main roster; the
-/// at-least-once demand is the leg's own liveness floor (a small band
-/// no program ever lands in is decoration).
-///
-/// This is the deterministic verdict over rumors' production-hot
-/// operand region: bootstrap and per-message stamping live below the
-/// size-law fit floor, where the point, shape, and refit legs are all
-/// structurally out of range, so this replay is the region's only
-/// total judgment.
+/// Every bootstrap sample is judged by a main or small band, and every small
+/// band receives a bootstrap sample within its calibrated range.
 #[test]
 fn the_bootstrap_regime_stays_in_the_pinned_small_bands() {
-    let mut judged_small: BTreeMap<&'static str, usize> = BTreeMap::new();
+    assert!(
+        !SMALL_BANDS.is_empty(),
+        "no bootstrap fuel bands are pinned"
+    );
+    let mut judged_small = BTreeSet::new();
     for_each_bootstrap_program(|_, samples| {
         judge(samples);
         for s in samples {
-            if !s.rejected && judge_small(s.kernel, s.rejected, s.denom_bits, s.fuel).is_some() {
-                *judged_small.entry(s.kernel).or_default() += 1;
+            let main = band_for(s.kernel, s.rejected).expect("judged main key");
+            if s.denom_bits < main.min_denom {
+                let (_, verdict) = judge_small(s.kernel, s.rejected, s.denom_bits, s.fuel)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{} at {} bits has no applicable bootstrap band",
+                            s.kernel, s.denom_bits
+                        )
+                    });
+                assert_eq!(verdict, Verdict::InBand, "{} bootstrap fuel", s.kernel);
+                judged_small.insert((s.kernel, s.rejected));
             }
         }
     });
-    for &kernel in SMALL_BAND_KERNELS {
+    for band in SMALL_BANDS {
+        let kernel = band.kernel;
         assert!(
-            judged_small.get(kernel).copied().unwrap_or(0) > 0,
-            "{kernel}: the bootstrap corpus never landed a step inside its small \
-             band's calibrated span — the leg is decoration for this kernel; \
-             re-derive the corpus or the band"
+            band.constant && !band.rejected,
+            "{kernel}: expected a constant success band"
+        );
+        assert!(
+            band.max_denom < FIT_FLOOR_BITS,
+            "{kernel}: small band reaches the fit floor"
+        );
+        assert!(
+            judged_small.contains(&(kernel, band.rejected)),
+            "{kernel}: the bootstrap corpus never exercised its small band"
         );
     }
 }
 
-/// The fuel meter itself is alive: an empty kernel call costs a small,
-/// positive, exact amount.
+/// An empty guest call consumes positive fuel below the overhead ceiling.
 ///
 /// A zero here means fuel accounting is off (every ceiling would pass
 /// vacuously); a large value means call overhead has grown into the
@@ -251,18 +191,48 @@ fn fuel_metering_is_live() {
     );
 }
 
-/// The detection path is live end to end: a genuinely superlinear
-/// mechanism must read ABOVE through the same judge the real kernels face.
+/// A version tick after a fixed exchange has identical fuel and result bytes
+/// in fresh guest instances, including the input codecs and no-op overhead.
+#[test]
+fn version_tick_fuel_is_deterministic_across_fresh_guests() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let mut carol = bob.fork();
+    for _ in 0..100 {
+        alice.tick();
+        carol.tick();
+        bob.recv(alice.send());
+    }
+    let (party, mut version) = bob.into_parts();
+    let version_bytes = version.encode();
+    let party_bytes = party.encode();
+    party.tick(&mut version);
+    let expected = version.encode();
+
+    let run = || {
+        let mut guest = Guest::new();
+        let nop = guest.call("ff_nop", &[]);
+        guest.stage_write(&version_bytes);
+        let decode_version = guest.call("ff_version_decode", &[0]);
+        guest.stage_write(&party_bytes);
+        let decode_party = guest.call("ff_party_decode", &[1]);
+        let tick = guest.call("ff_version_tick", &[0, 1]);
+        let encode = guest.call("ff_version_encode", &[0]);
+        let calls = [nop, decode_version, decode_party, tick, encode];
+        for call in calls {
+            assert_eq!(call.ret, 0, "guest call failed");
+        }
+        assert_eq!(guest.stage_read(), expected, "guest/native tick mismatch");
+        calls
+    };
+    assert_eq!(run(), run(), "fresh guests measured different fuel");
+}
+
+/// A quadratic guest loop exceeds a linear band, and a stalled reading falls
+/// below it, exercising execution, fuel metering, and judgment together.
 ///
-/// The guest ships a deliberately quadratic self-test burner (not a
-/// kernel: no `before` operation runs in it and no strategy emits it; its
-/// loop is `black_box`-pinned so codegen cannot strength-reduce it into a
-/// closed form). A slope-1 band anchored on its small-input cost must
-/// judge its at-scale cost Above, and a stalled reading Below. This
-/// proves the wasm-execution → fuel-metering → judgment path can flag a
-/// quadratic at all; whether the *generators* place real kernels where a
-/// regression must flag is the reach families' and the demonstrations
-/// ledger's business, not this check's.
+/// The loop must also retain superlinear growth after compilation. This checks
+/// the measurement path; it does not establish the generators' input coverage.
 #[test]
 fn a_live_quadratic_reads_above_a_linear_band() {
     let mut guest = Guest::new();
@@ -277,7 +247,7 @@ fn a_live_quadratic_reads_above_a_linear_band() {
     );
     // The most charitable linear law the anchor supports: slope 1 through
     // the mid reading, with a generous width.
-    let band = fuzzfit_harness::bands::Band {
+    let band = Band {
         kernel: "ff_selftest_quadratic",
         rejected: false,
         slope: 1.0,
@@ -319,18 +289,19 @@ fn building_toolchain_matches_the_pin() {
     );
 }
 
-/// Ensures the deterministic corpus fits every covered pinned band.
+/// The deterministic prefix exercises and refits every main pinned band.
 ///
 /// Every step in the first [`REFIT_PREFIX_PROGRAMS`] programs receives the
 /// same pointwise and trend checks as a generated case. This makes the
 /// corpus's operation-by-size coverage deterministic while generated cases
 /// continue exploring new shapes.
 ///
-/// The test also refits the corpus. Every key in [`REFIT_COVERAGE`] must
+/// The test also refits the corpus. Every key in [`BANDS`] must
 /// remain measurable, retain its constant-or-linear classification, and
 /// agree with its pinned line within [`REFIT_TOLERANCE`].
 #[test]
-fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
+fn the_deterministic_prefix_exercises_every_band_and_matches_the_pin() {
+    assert!(!BANDS.is_empty(), "no operation fuel bands are pinned");
     let mut by_key: BTreeMap<(&'static str, bool), Vec<(u64, u64)>> = BTreeMap::new();
     for_each_deterministic_program(REFIT_PREFIX_PROGRAMS, |_, _, samples| {
         judge(samples);
@@ -341,11 +312,12 @@ fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
                 .push((s.denom_bits, s.fuel));
         }
     });
-    for &(kernel, rejected) in REFIT_COVERAGE {
+    for band in BANDS {
+        let (kernel, rejected) = (band.kernel, band.rejected);
         let arm = if rejected { " [err]" } else { "" };
         let f = by_key
             .get(&(kernel, rejected))
-            .and_then(|samples| fuzzfit_harness::fit::fit(samples))
+            .and_then(|samples| fit(samples))
             .unwrap_or_else(|| {
                 panic!(
                     "STALE PIN (coverage decay): {kernel}{arm} no longer fits in the \
@@ -353,8 +325,6 @@ fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
                      annotate the movement"
                 )
             });
-        let band = band_for(kernel, rejected)
-            .unwrap_or_else(|| panic!("{kernel}{arm} is covered but has no pinned band"));
         assert_eq!(
             f.constant, band.constant,
             "STALE PIN (classification flip): {kernel}{arm}'s prefix refit reads \
@@ -362,7 +332,7 @@ fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
              with `just fuzzfit-calibrate` and annotate the movement",
             f.constant, band.constant,
         );
-        let d = fuzzfit_harness::fit::line_divergence(&f, band);
+        let d = line_divergence(&f, band);
         assert!(
             d <= REFIT_TOLERANCE,
             "STALE PIN: {kernel}{arm}'s prefix refit diverges from its pin by {d:.3} \
@@ -372,37 +342,21 @@ fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
     }
 }
 
-/// Ensures a fixed mid-depth escalation program satisfies every fuel bound.
-///
-/// Generated cases select this family only about once in 137 draws. The
-/// fixed replay deterministically exercises the family's large operands,
-/// rejection outcomes, and overlap scans.
+/// Every fixed escalation replay satisfies the applicable fuel bounds,
+/// covering the mid-depth and depth-cap inputs with distinct seeds.
 #[test]
 fn the_escalated_regime_stays_in_the_pinned_bands() {
-    let (depth, seed) = ESCALATION_REPLAYS[0];
-    let program = build(&Family::Escalation { depth }, seed);
-    let samples = run_program(&program)
-        .unwrap_or_else(|m| panic!("malformed escalation program at {}", m.op));
-    judge(&samples);
-}
-
-/// Ensures a fixed depth-cap escalation program satisfies every fuel bound.
-///
-/// This second replay covers the deepest constructible spine with a
-/// different seed, complementing the mid-depth replay above.
-#[test]
-fn the_escalation_depth_cap_stays_in_the_pinned_bands() {
-    let (depth, seed) = ESCALATION_REPLAYS[1];
-    let program = build(&Family::Escalation { depth }, seed);
-    let samples = run_program(&program)
-        .unwrap_or_else(|m| panic!("malformed escalation program at {}", m.op));
-    judge(&samples);
+    for (depth, seed) in ESCALATION_REPLAYS {
+        let program = build(&Family::Escalation { depth }, seed);
+        let samples = run_program(&program)
+            .unwrap_or_else(|m| panic!("malformed escalation program at {}", m.op));
+        judge(&samples);
+    }
 }
 
 proptest! {
-    /// Every public operation stays inside its pinned fuel band on
-    /// shapes nobody chose, and no band key's within-case cost trend
-    /// out-climbs its pinned slope.
+    /// Generated operations satisfy the applicable pointwise fuel bounds
+    /// and within-program trend limits on randomly chosen shapes.
     ///
     /// Cases draw random programs over the whole vocabulary within one
     /// universe. Success and rejection outcomes are checked against their

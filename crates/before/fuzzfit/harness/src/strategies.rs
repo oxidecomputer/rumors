@@ -7,15 +7,12 @@
 //!
 //! # Budgets
 //!
-//! Every generator runs under a [`Budget`]: hard caps on emitted ops, ticks,
-//! forks, and fold width, enforced by the builder no matter what parameters
-//! the strategy draws. The caps bound total constructed size a priori
-//! (encoded growth per public op is amortized constant per tick/fork), which
-//! keeps iterated joins from compounding exponentially and bounds composed
-//! cases: a program's total denominated work is
-//! within a constant of its op budget. Most families run under [`BUDGET`];
-//! the reach family ([`Family::Escalation`]) runs under
-//! [`ESCALATION_BUDGET`] — see [`budget_for`].
+//! Every generator caps emitted operations, explicit ticks, forks, and fold
+//! width through [`Budget`]. A request that exceeds a cap is skipped, so family
+//! dimensions describe requested construction rather than guaranteed reach.
+//! Coverage is established by the executed samples, not by the family name.
+//! Most families use [`BUDGET`]; [`Family::Escalation`] uses
+//! [`ESCALATION_BUDGET`].
 //!
 //! # Scope: what the generators deliberately never construct
 //!
@@ -70,10 +67,8 @@ pub const BUDGET: Budget = Budget {
 
 /// The reach family's budget.
 ///
-/// Sized to admit the family's full depth draw (256..=1792 spine forks)
-/// plus its operation sequence. Every measured kernel therefore sees inputs
-/// much larger than the ordinary families, so the fitted slope carries the
-/// asymptotic judgment.
+/// Allows the family's deep fork chains and measurement sequence. The
+/// enforcement suite replays fixed mid-depth and depth-cap constructions.
 /// Construction cost is quadratic in the reach (every op pays the
 /// current size), which is why this budget belongs to one low-weighted
 /// family instead of every generated program.
@@ -257,13 +252,12 @@ pub enum Family {
         /// Walk length.
         ops: u32,
     },
-    /// The small-operand family: one universe held at seed scale,
-    /// cycling rumors' bootstrap hot path.
+    /// Small clocks measured while one fork chain grows.
     ///
-    /// The path is tick, a fork rejoined (the success join), and the
-    /// clock codec round-trip — so the four small-band kernels
-    /// ([`crate::bands::SMALL_BAND_KERNELS`]) sample densely below the
-    /// fit floor, where every size-law leg is out of range by design.
+    /// Each round forks a child, ticks both clocks, joins the child into a
+    /// separate sink, and round-trips the clock codec. Every step below its
+    /// main band's floor receives a small-operand fuel bound in
+    /// [`crate::bands::SMALL_BANDS`].
     ///
     /// This family is enumerated deterministically by
     /// [`for_each_bootstrap_program`] for calibration and enforcement. It is

@@ -1,55 +1,32 @@
-//! The fuzz-fit asymptotics harness: fuel-metered fits of `before`'s public
-//! operations over fuzzed shapes.
+//! Fuel-metered resource checks over generated `before` programs.
 //!
-//! The board checks resource use on chosen input families with per-currency
-//! meters. This harness also observes work outside those counters and samples
-//! shapes outside the chosen families. The kernels run compiled to
-//! wasm32-unknown-unknown under wasmtime *fuel* metering — fuel decrements per executed wasm
-//! instruction, so a reading is deterministic, host-independent, and
-//! byte-reproducible under any machine load. Wall time and hardware counters
-//! are never read. Constants differ from native codegen; *slopes* are what
-//! the instrument fits and enforces.
+//! The resource board measures chosen input families with per-currency
+//! counters. This harness adds instruction-cost observations and randomized
+//! shapes. It runs the selected operations in [`ops`] as a release Wasm guest
+//! under Wasmtime fuel metering. Fuel is deterministic for fixed guest bytes,
+//! call sequences, and payloads; it measures Wasm work, not native elapsed time.
 //!
-//! Two legs, sharing one program vocabulary ([`ops`]):
+//! Calibration fits fuel against operand size over a deterministic corpus
+//! and commits the results in [`bands`]. Enforcement compares new samples with
+//! those pins instead of recalibrating them. Pointwise bounds catch extra work
+//! or implausibly low readings; [`curve`] checks within-program trends that a
+//! wide pointwise band could hide. A deterministic prefix must exercise and
+//! refit every main band, and fixed deep replays cover large operands. The
+//! separate bootstrap corpus must price every step through a main or small
+//! band and exercise every small-operand pin.
 //!
-//! - **Calibration** (`bin/calibrate`): size-stratified random sampling per
-//!   public operation, log-log regression of fuel against the operation's
-//!   denominated size, producing pinned bands (slope, intercept, residual
-//!   width) committed in [`bands`], one per band key — kernel × outcome,
-//!   so an operation's rejection arm is priced separately from its success
-//!   path. The fit is never recomputed inside the enforcement leg:
-//!   refitting on every run would mask drift.
-//! - **Enforcement** (`tests/enforce.rs`): a proptest family draws random
-//!   programs from [`strategies`], executes them step-by-step in the guest,
-//!   and judges on two legs with different failure modes — every measured
-//!   step's fuel must land inside the pinned band for its key at its size
-//!   (the point leg: above-band is a regression flag; below-band is a
-//!   liveness flag, since a band a dead measurement passes is decoration),
-//!   and every key's within-case bucket-median trend must not out-climb
-//!   its pinned slope ([`curve`], the shape leg: a mechanism that tilts
-//!   into a wide band keeps its point residuals small, and only the trend
-//!   sees it). The same judgment also runs over the whole deterministic
-//!   calibration-stream prefix, program by program, every run: the
-//!   random draws probe shapes nobody chose, and the prefix leg makes
-//!   every kernel × size-decade region the corpus reaches a total,
-//!   deterministic verdict instead of a sampled one. A staleness
-//!   cross-check refits the same prefix and compares lines against the
-//!   pin on every covered key, so calibration drift fails loud instead
-//!   of silently widening the gap between pin and reality. Fuel
-//!   determinism makes replay exact, so a failure shrinks to a minimal
-//!   out-of-band shape and rides along as a committed proptest seed.
+//! Programs execute natively and in the guest. The native mirror supplies
+//! operand sizes and expected return values; final live-register encodings
+//! must agree byte for byte. Equality shortcuts receive this differential
+//! check but are excluded from the fuel fits. Samples below a main band's
+//! floor receive a pointwise check only where a small band applies.
 //!
-//! Every program executes twice: natively (the mirror, which computes each
-//! step's denominator from real operand sizes and the expected result bytes)
-//! and in the guest (which supplies fuel). The mirror doubles as a
-//! wasm-vs-native differential oracle: result encodings must byte-match.
-//!
-//! The numeric suite directly calls this same guest over geometric width and
-//! arity sweeps. It checks Rank parsing and formatting, Ticks arithmetic and
-//! decimal rendering, and both size dimensions of shape combination. These
-//! inputs include wide values beyond the operation-program budget. Their fits
-//! detect growth beyond each path's contract on these finite sweeps without
-//! recalibrating the program bands.
+//! The vocabulary is a subset of the public API, bounded by the generated
+//! construction budgets described in [`strategies`]. The numeric suite
+//! separately calls the same guest over geometric width and arity sweeps:
+//! Rank parsing and formatting, Ticks arithmetic and rendering, and both
+//! size dimensions of shape combination. Its wide inputs exceed the program
+//! budgets, and its fits check growth without recalibrating the program pins.
 
 pub mod bands;
 pub mod curve;

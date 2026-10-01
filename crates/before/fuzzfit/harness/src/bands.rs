@@ -1,4 +1,4 @@
-//! Committed fuel bounds for public `before` operations.
+//! Committed fuel bounds for the operations in [`crate::ops`].
 //!
 //! `bin/calibrate` generates [`BANDS`] from a fixed corpus. Tests then judge
 //! fresh programs against the committed values rather than fitting new ones,
@@ -18,20 +18,20 @@
 //!
 //! The fitted bands apply from `min_denom` upward. Bootstrap operations below
 //! that floor use [`SMALL_BANDS`], whose costs are approximately constant over
-//! their narrow ranges. A high result flags extra work; a low result flags a
+//! their narrow ranges. Other sub-floor samples receive no pointwise fuel
+//! judgment. A high result flags extra work; a low result flags a
 //! dead meter or an unexpectedly constant implementation. [`crate::fit`]
 //! explains how the asymmetric widths are fitted.
 //!
-//! Identity fast paths are excluded because their cost is constant by design;
-//! `before`'s `identity_fast_paths` pins them directly. Empty `meet_all` is also
-//! unpriced because it has no operand from which to derive a size. All other
-//! public operation outcomes are represented here.
+//! [`crate::ops::Step::identity`] explains which equality shortcuts are excluded
+//! from the fits. The vocabulary covers a subset of the public API; it does not
+//! measure malformed decoding or empty folds. See [`crate::strategies`] for
+//! the generated inputs and their limits.
 //!
 //! The pin uses the release Wasm guest, the toolchain in [`PINNED_RUSTC`], and
-//! Wasmtime fuel. Calibration also checks fixed reach programs, verifies that
-//! the measured floor remains above a no-op, and records which bands the
-//! deterministic prefix can refit. These checks keep the tolerances tied to
-//! observed behavior without duplicating calibration during every test run.
+//! Wasmtime fuel. Calibration reports the fixed reach programs' ceiling excess,
+//! the measured floors' distance from a no-op, and prefix-refit divergence.
+//! Review these measurements against the enforcement tolerances when re-pinning.
 
 /// One pinned band (see the module doc for the membership predicate).
 #[derive(Debug, Clone, Copy)]
@@ -57,34 +57,30 @@ pub struct Band {
     pub max_denom: u64,
     /// Calibration corpus size behind this band.
     pub samples: usize,
-    /// Whether the band was constant-classified (slope pinned at 0).
+    /// Whether the samples had too little size variation to fit a slope.
+    /// Such bands use slope zero; a fitted zero slope need not have this
+    /// classification.
     pub constant: bool,
 }
 
 /// Slack beyond each band's fitted ceiling, in `log₁₀` units.
 ///
-/// This absorbs ordinary differences between calibration and enforcement
-/// contexts. Calibration checks the fixed reach programs against this margin,
-/// while keeping the ceiling tight enough to detect added work.
+/// This allows differences between calibration and enforcement contexts.
+/// Calibration reports the fixed reach programs' ceiling excess for comparison
+/// with this margin.
 pub const ENFORCE_MARGIN: f64 = 0.2;
 
 /// Slack beyond each band's fitted floor, in `log₁₀` units.
 ///
 /// The floor distinguishes a live measurement from a no-op while allowing
 /// fresh programs to be cheaper than the calibration corpus. Calibration
-/// verifies that every fitted floor still clears the no-op level after this
-/// margin is subtracted.
+/// reports the narrowest main-band floor's distance from a no-op after this
+/// margin is subtracted; review that distance when re-pinning.
 pub const ENFORCE_MARGIN_BELOW: f64 = 0.8;
 
-/// The staleness cross-check's prefix length.
+/// Programs in the deterministic prefix used to check each main band's fit.
 ///
-/// The enforcement suite refits the first `REFIT_PREFIX_PROGRAMS`
-/// programs of the deterministic calibration stream
-/// (`drive::for_each_deterministic_program`) and compares each covered
-/// band key's fresh line against its pin, so a pin the current code would
-/// no longer produce fails loud instead of silently drifting. A prefix,
-/// because a full-corpus refit would duplicate the calibration sweep
-/// inside every suite run.
+/// Reusing a prefix keeps the check smaller than a full calibration sweep.
 pub const REFIT_PREFIX_PROGRAMS: usize = 256;
 
 /// Largest allowed [`crate::fit::line_divergence`] between the prefix
@@ -134,23 +130,6 @@ pub fn judge_against(band: &Band, denom_bits: u64, fuel: u64) -> Verdict {
         Verdict::InBand
     }
 }
-
-/// Kernels with success bands for operands below the general fit floor.
-///
-/// The size-law legs are structurally out of range below
-/// [`crate::fit::FIT_FLOOR_BITS`] — the point leg returns
-/// [`Verdict::BelowFloor`], the shape leg buckets only floored samples,
-/// and the refit fitter drops sub-floor samples. This list keeps those small
-/// operand sizes under an explicit judgment.
-/// The committed expectation list is this constant: a calibration that
-/// stops producing a small band for any kernel here fails the
-/// enforcement suite by name.
-pub const SMALL_BAND_KERNELS: &[&str] = &[
-    "ff_clock_tick",
-    "ff_clock_join",
-    "ff_clock_encode",
-    "ff_clock_decode",
-];
 
 /// Look up the pinned small-operand band for one band key.
 pub fn small_band_for(kernel: &str, rejected: bool) -> Option<&'static Band> {
@@ -739,9 +718,8 @@ pub const BANDS: &[Band] = &[
     },
 ];
 
-/// The pinned small-operand bands: one constant-classified band per
-/// [`SMALL_BAND_KERNELS`] entry (success arm), judged below the fit
-/// floor over each band's own calibrated span.
+/// Bootstrap success paths below their main bands' floors, selected from the
+/// executed bootstrap corpus and judged over each band's calibrated span.
 ///
 /// Generated by `just fuzzfit-calibrate` alongside [`BANDS`], from the
 /// pooled sub-floor samples of the calibration corpus and the
@@ -796,64 +774,16 @@ pub const SMALL_BANDS: &[Band] = &[
         samples: 6361,
         constant: true,
     },
-];
-
-/// The band keys the pin-time prefix refit covered: the staleness
-/// cross-check's committed expectation list.
-///
-/// Generated by `just fuzzfit-calibrate` alongside [`BANDS`]: every key
-/// listed here had, at pin time, a prefix refit whose classification
-/// matched its pin. The enforcement suite requires each listed key to
-/// still fit, still match its pin's classification, and still agree
-/// within [`REFIT_TOLERANCE`] — so coverage decay, a classification flip
-/// (the reach-regression tell), and line drift each fail by name instead
-/// of hollowing the check out silently. Keys not listed are outside the
-/// staleness detector's reach at pin time; calibration prints them for
-/// the re-pinner to review.
-pub const REFIT_COVERAGE: &[(&str, bool)] = &[
-    ("ff_clock_decode", false),
-    ("ff_clock_encode", false),
-    ("ff_clock_fork", false),
-    ("ff_clock_from_parts", false),
-    ("ff_clock_into_parts", false),
-    ("ff_clock_join", false),
-    ("ff_clock_join", true),
-    ("ff_clock_own_version", false),
-    ("ff_clock_recv", false),
-    ("ff_clock_seed", false),
-    ("ff_clock_send", false),
-    ("ff_clock_sync", false),
-    ("ff_clock_sync", true),
-    ("ff_clock_tick", false),
-    ("ff_clock_version", false),
-    ("ff_party_covers", false),
-    ("ff_party_decode", false),
-    ("ff_party_encode", false),
-    ("ff_party_fork", false),
-    ("ff_party_forks", false),
-    ("ff_party_is_disjoint", false),
-    ("ff_party_join", false),
-    ("ff_party_join", true),
-    ("ff_party_seed", false),
-    ("ff_party_without", false),
-    ("ff_party_without", true),
-    ("ff_rank_add", false),
-    ("ff_rank_checked_sub", false),
-    ("ff_rank_checked_sub", true),
-    ("ff_rank_cmp", false),
-    ("ff_rank_display", false),
-    ("ff_version_cmp", false),
-    ("ff_version_concurrent", false),
-    ("ff_version_decode", false),
-    ("ff_version_distance", false),
-    ("ff_version_encode", false),
-    ("ff_version_join", false),
-    ("ff_version_join_all", false),
-    ("ff_version_lag", false),
-    ("ff_version_meet", false),
-    ("ff_version_meet_all", false),
-    ("ff_version_min_ticks", false),
-    ("ff_version_project", false),
-    ("ff_version_rank", false),
-    ("ff_version_tick", false),
+    Band {
+        kernel: "ff_clock_fork",
+        rejected: false,
+        slope: 0.000000,
+        intercept: 3.297508,
+        width_above: 0.251372,
+        width_below: 0.219414,
+        min_denom: 10,
+        max_denom: 127,
+        samples: 207147,
+        constant: true,
+    },
 ];

@@ -327,13 +327,15 @@ into otherwise small feature increments.
       Sources: `benches-examples-*`, `tests-other-*`, `suite-economics-*`,
       `tools-*`.
 
-- [ ] Reassess fuzz-fit and fuelscape separately. Retain fuelscape's rustdoc
-      panels as explanatory views of cost distributions and edge families;
-      simplify their refresh pipeline where possible. Retain fuzz-fit
-      enforcement that catches unchosen worst-case shapes, while removing
-      copied vocabulary and generated artifacts that add no distinct signal.
-      Sources: `fuzzfit-strategies-*`, `fuzzfit-bands-*`,
-      `fuelscape-pipeline-*`, `fuelscape-render-*`.
+- [x] Retain fuelscape's rustdoc panels as explanatory views of cost
+      distributions and edge families, with deterministic measurement,
+      replay, regeneration, and documentation integration.
+      Sources: `fuelscape-pipeline-*`, `fuelscape-render-*`; owner review.
+
+- [x] Retain fuzz-fit enforcement that catches unchosen worst-case shapes,
+      while removing copied vocabulary, rosters, and artifacts that add no
+      distinct signal.
+      Sources: `fuzzfit-strategies-*`, `fuzzfit-bands-*`; owner approval.
 
 ## 09. Fuzzing, platform pins, gate, and dependencies
 
@@ -347,10 +349,14 @@ into otherwise small feature increments.
       dependency footprint.
       Sources: `fuzz-guests-pins-*`, `deps-*`, width findings in section 02.
 
-- [ ] Make gate and CI recipes derive their inputs, run at their documented
-      cadence, and stay green on an unchanged tree. Retire mutation, coverage,
-      and citation machinery that only checks rosters rather than behavior.
-      Sources: `gate-legs-*`, `deps-*`, `tools-*`, `surface-roster-*`.
+- [x] Retire mutation and citation machinery that checked copied rosters rather
+      than behavior; keep the compiler-derived public surface check and the
+      kernel-coverage pin for their distinct signals.
+      Sources: `gate-legs-*`, `tools-*`, `surface-roster-*`.
+
+- [ ] Make the remaining gate and CI recipes derive their inputs, run at their
+      documented cadence, and stay green on an unchanged tree.
+      Sources: `gate-legs-*`, `deps-*`, `tools-*`.
 
 - [ ] Prune unused dependencies and generated assets after instrument
       consolidation; verify each supported feature combination.
