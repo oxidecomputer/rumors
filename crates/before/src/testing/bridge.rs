@@ -90,7 +90,7 @@ pub(crate) fn from_oracle_party(t: &tree::Party) -> Party {
 pub(crate) fn from_oracle_version(t: &tree::Version) -> Version {
     let mut bits = BitsWriter::new();
     emit_ev(&mut bits, t);
-    crate::version::io::finish(crate::version::io::encode::encode_bits(bits.reader()))
+    crate::testing::version::from_tree_stream(bits.reader())
 }
 
 /// Build the impl `Clock` mirroring an oracle clock.

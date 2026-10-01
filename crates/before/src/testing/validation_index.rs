@@ -68,35 +68,32 @@
 //!
 //! # The resource instruments
 //!
-//! Cost claims are guarded by four instruments in a deliberate layering:
-//! deterministic counters for enforcement breadth, process-isolated
-//! envelopes for the enforced per-operation record, wall time only where
-//! no counter can see the class, and fuel where no family was chosen at
-//! all.
+//! Cost claims are guarded by three complementary instruments: a global board
+//! over chosen adversarial families, deterministic fuel over generated
+//! programs, and a population atlas for inspecting the broader distribution.
+//! A small focused suite remains for independent axes the board cannot vary.
 //!
 //! **The amplification board** (`crate::testing::meter::board`; rendered by
 //! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
 //! worst-case family, a four-size measurement ladder per cell, judged on
-//! deterministic counters only (heap, stack segments, scan bits, and digit
-//! touches) against one fitted exponent trend per currency, per-size
+//! deterministic counters only (heap, scan bits, and digit touches) against
+//! one fitted exponent trend per currency, per-size
 //! constants, liveness floors, and owner-declared models. What
 //! it alone catches: **structural blindness** — a resource regression on
 //! a shape × operation pairing nobody thought to pin, and meter vacuity
 //! (a counter that stopped watching reads a floor trip, not a green).
 //! Red means untriaged, nothing else: every persistent contradiction
 //! resolves to a cure or a declared model, and any red cell fails the
-//! gate's board leg outright. The board
-//! asserts breadth, not records: its readings are indicative, the
-//! enforcement lives in the envelope suite.
+//! gate's board leg outright. It is the enforced per-operation record: every
+//! compatible family reaches every compatible operation, and its shared
+//! limits ratchet both growth and constant factors.
 //!
-//! **The resource-envelope suite** (`tests/meter.rs`). The enforced
-//! per-operation record: process-isolated scenarios (nextest, one
-//! process per test) pinning exact counter envelopes with ×1.25 slack,
-//! flatness bands over doubling schedules, and liveness floors. What it alone
-//! catches: **constant-factor regressions and cure backslides** — the board's
-//! ceilings are class-scale and would forgive a doubled constant; the envelope
-//! pins move only through a reviewed diff.
+//! **The focused resource checks** (`tests/meter.rs`). These vary an axis the
+//! board deliberately holds fixed: an operation argument at fixed operands, a
+//! paired control's marginal cost, the retained densification counter, or an
+//! exact early-exit relationship. What they alone catch: **orthogonal cost
+//! growth** that cannot be represented by scaling a board family's operands.
 //!
 //! **The fuzz-fit bands** (the `fuzzfit` workspace under this crate).
 //! Public operations compiled to wasm and metered in wasmtime *fuel*
@@ -118,8 +115,8 @@
 //! operation, so early-exit strata and log-factor banding are visible
 //! to the eye. It enforces nothing (its committed checks are sampler
 //! correctness and coverage parity against `crate::testing::surface`);
-//! enforcement stays in the envelopes and bands, which is why it may
-//! read the roster but never create a threshold.
+//! enforcement stays in the board and fuel bands, which is why it may read the
+//! roster but never create a threshold.
 //!
 //! # The documentation instruments
 //!
@@ -151,7 +148,7 @@
 //!
 //! - a differential or law fails → the answer is wrong; shrink it,
 //!   commit the seed, fix production (never the oracle to match).
-//! - a board cell or envelope pin fails → the cost moved; measure at
+//! - a board cell or focused resource check fails → the cost moved; measure at
 //!   the parent commit before attributing, then either cure or bring
 //!   the owner a declared-model case with the derivation.
 //! - a liveness floor or band floor fails → a meter stopped watching,

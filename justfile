@@ -92,17 +92,17 @@ default:
 # ── inner loop ───────────────────────────────────────────────────────────────
 
 # Type-check every host target: libs, tests, benches, examples. A target
-# with `required-features` (the before envelope suite) is skipped here and
+# with `required-features` (the focused before resource suite) is skipped here and
 # type-checked by `just test` and the gate's all-features legs instead.
 check:
     cargo check --workspace --all-targets
 
 # Run the test suites; pass a filter to narrow (`just test mirror`). The
-# envelope suite (crates/before/tests/meter.rs) builds only with its touch
+# focused resource suite (crates/before/tests/meter.rs) builds only with its touch
 # and scan meters (`required-features` on its test target), so the inner
 # loop lights them for that package. One `--workspace` build unifies
 # features, so this compiles the before lib with both meters for every
-# dependent and runs every before suite gated on them (the envelope
+# dependent and runs every before suite gated on them (the focused resource
 # suite, the fold and coincident-span suites, the touch-meter unit tests);
 # the other packages' own features stay default.
 test *args:
@@ -655,7 +655,7 @@ wasm32-pins: wasm32-pins-build
 # decoders' accept sets, chi-square uniformity, codec round-trips — plus
 # a tiny end-to-end pipeline smoke (sample, measure fuel in the fuzz-fit
 # guest, render), which is why the guest builds first. Audit-only by
-# design: nothing here enforces a fuel number — the envelope suite and
+# design: nothing here enforces a fuel number — the amplification board and
 # the fuzz-fit bands own enforcement.
 
 # Lint and test the fuelscape: sampler adequacy pins plus the pipeline smoke.

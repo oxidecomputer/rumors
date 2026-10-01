@@ -30,11 +30,11 @@ use crate::testing::meter::registry::Shape;
 use crate::testing::meter::tier2::tier2_size;
 use crate::testing::meter::Encoding;
 use crate::testing::oracles::tree;
+use crate::testing::version::zigzag_difference;
 use crate::testing::{generators, optrace};
 use crate::{Clock, Version};
 
 use crate::version::io::regions::PayloadKind;
-use crate::version::io::{decode, encode};
 
 /// Decode one payload code from mutable test storage.
 fn decode_gamma(bits: &BitsWriter, position: u64) -> (BigUint, u64) {
@@ -44,6 +44,12 @@ fn decode_gamma(bits: &BitsWriter, position: u64) -> (BigUint, u64) {
     (value, reader.position())
 }
 use crate::version::io::validate::whole;
+
+/// Validate one live bit stream and adopt it as canonical Version storage.
+fn decode_stream(bits: BitsWriter) -> Result<Version, Decode> {
+    whole(bits.reader())?;
+    Ok(crate::version::io::finish(bits))
+}
 
 /// Lift a meter-generated encoded shape into a [`Version`].
 fn version_of(p: &Encoding) -> Version {
@@ -66,7 +72,7 @@ fn empty_version_is_the_two_bit_stream() {
     assert_eq!(bits.len(), 2);
     assert!(bits.bit(0), "a leaf's topology flag is 1");
     assert!(bits.bit(1), "gamma(0) is the single bit 1");
-    assert_eq!(decode::writer(bits).expect("canonical"), v);
+    assert_eq!(decode_stream(bits).expect("canonical"), v);
 }
 
 /// One fork `(1, 0, 2)` codes as hand-derived: 3 topology bits, `gamma(1)` for
@@ -91,7 +97,7 @@ fn one_fork_matches_hand_derivation() {
         (0..bits.len()).map(|i| bits.bit(i)).collect::<Vec<_>>(),
         expected
     );
-    assert_eq!(decode::writer(bits).expect("canonical"), v);
+    assert_eq!(decode_stream(bits).expect("canonical"), v);
 }
 
 // ─── the strict-reject corpus ───────────────────────────────────────────────
@@ -204,7 +210,7 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
     push_leaf(&mut bits, 2); // leaf 1: zigzag(+1) = 2
     push_leaf(&mut bits, 0); // leaf 1 again: zigzag(0) = 0, non-sibling
     assert!(whole(bits.reader()).is_ok());
-    assert_eq!(decode::writer(bits.clone()).expect("canonical"), expected);
+    assert_eq!(decode_stream(bits.clone()).expect("canonical"), expected);
     assert_eq!(stream_of(&expected), bits);
 }
 
@@ -309,7 +315,7 @@ fn zigzag_is_a_bijection_without_negative_zero() {
         } else {
             (BigUint::ZERO, BigUint::from(mag))
         };
-        assert_eq!(encode::zigzag_difference(&prev, &cur), BigUint::from(m));
+        assert_eq!(zigzag_difference(&prev, &cur), BigUint::from(m));
     }
 }
 
@@ -354,7 +360,7 @@ proptest! {
         } else {
             (BigUint::ZERO, magnitude)
         };
-        prop_assert_eq!(encode::zigzag_difference(&previous, &current), code);
+        prop_assert_eq!(zigzag_difference(&previous, &current), code);
     }
 }
 
@@ -381,7 +387,7 @@ fn inverted_flag_stream(t: &tree::Version) -> BitsWriter {
                 let height = offset + n;
                 match prev.replace(height.clone()) {
                     None => out.write_gamma(&height),
-                    Some(p) => out.write_gamma(&encode::zigzag_difference(&p, &height)),
+                    Some(p) => out.write_gamma(&zigzag_difference(&p, &height)),
                 }
             }
             tree::Version::Node(n, l, r) => {
@@ -482,7 +488,7 @@ fn assert_mutation_never_aliases(v: &Version, bits: &BitsWriter, flip: u64) {
     let mut mutated = bits.clone();
     let old = mutated.bit(flip);
     mutated.patch_bit(flip, !old);
-    match decode::writer(mutated.clone()) {
+    match decode_stream(mutated.clone()) {
         Err(_) => {}
         Ok(w) => {
             assert_ne!(
@@ -552,7 +558,7 @@ fn assert_agreement(v: &Version) {
         whole(bits.reader()).is_ok(),
         "the encoder emits canonical streams"
     );
-    let back = decode::writer(bits).expect("a canonical stream decodes");
+    let back = decode_stream(bits).expect("a canonical stream decodes");
     assert_eq!(
         &back, v,
         "the Version round-trip reproduces the version exactly"

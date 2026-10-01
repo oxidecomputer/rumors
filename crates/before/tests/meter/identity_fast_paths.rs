@@ -1,4 +1,4 @@
-//! Scan-liveness checks for clone-identity fast paths.
+//! Resource checks for identity fast paths.
 //!
 //! The at-rest form's refcounted backing store makes clone identity
 //! observable (`ptr_eq`), and the identity-law fast paths dispatch on it:
@@ -10,7 +10,20 @@
 //! the walked path stays covered.
 
 use before::testing::meter;
+use before::testing::meter::registry::Shape;
 use before::{Clock, Version};
+
+/// Peak heap allowed for `join_all`'s fixed-size fold bookkeeping.
+const EQUAL_JOIN_PEAK_HEAP: usize = 440;
+
+/// Measure peak heap above the storage already live at entry.
+fn peak_heap<T>(f: impl FnOnce() -> T) -> (usize, T) {
+    super::HEAP.reset_peak_usage();
+    let baseline = super::HEAP.current_usage();
+    let value = f();
+    let peak = super::HEAP.peak_usage().saturating_sub(baseline);
+    (peak, value)
+}
 
 /// Scan bits of one closure run, on a fresh counter.
 fn scanned(f: impl FnOnce()) -> u64 {
@@ -44,6 +57,37 @@ fn fixture() -> (Version, Version, Version) {
     assert!(v.concurrent(&w), "the walking legs need a real walk");
     let redecoded = Version::decode(&v.encode()[..]).expect("a stored stream re-decodes");
     (v, redecoded, w)
+}
+
+/// Joining byte-equal versions returns shared storage without copying either
+/// operand.
+///
+/// The operands are decoded independently, so pointer identity cannot take
+/// the shortcut. Growing both streams fourfold must leave the fold's peak heap
+/// unchanged: only fixed-size bookkeeping may be allocated before the
+/// byte-equality check returns a clone.
+#[test]
+fn equal_join_all_has_fixed_heap_cost() {
+    let run = |depth: usize| {
+        let encoded = Shape::Dense.build1(depth);
+        let a = super::version_of(&encoded);
+        let b = super::version_of(&encoded);
+        let (peak, out) = peak_heap(|| a.join_all([&b]));
+        assert_eq!(out, a, "joining equal versions preserves their value");
+        assert!(
+            peak <= EQUAL_JOIN_PEAK_HEAP,
+            "join_all over equal versions used {peak} transient bytes; the fixed-size \
+             bookkeeping ceiling is {EQUAL_JOIN_PEAK_HEAP} bytes"
+        );
+        peak
+    };
+
+    let small = run(1_000);
+    let large = run(4_000);
+    assert_eq!(
+        small, large,
+        "growing equal operands must not increase join_all's transient heap"
+    );
 }
 
 /// Clone operands answer every identity-law fast path without a

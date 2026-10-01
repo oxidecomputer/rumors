@@ -20,6 +20,7 @@ use super::{
 /// Appended to the counter-comparison failures: the first cause to rule out is
 /// a shared-process test runner, under which the process-global counters bleed
 /// other tests' work into the reading being compared.
+#[cfg(feature = "scan-meter")]
 const ISOLATION_NOTE: &str = "note: the counter is process-global and meaningful only one \
      test per process: run under cargo nextest, not a shared-process cargo test";
 
@@ -309,70 +310,6 @@ fn dominated_undercut_id_decodes_canonically_at_predicted_length() {
     check_party(&dominated_undercut_id(1), 8);
 }
 
-/// The stack-segment meter observes deep guarded recursion, resets to zero,
-/// counts deterministically, and reads zero over a deep tick walk.
-///
-/// Determinism — the same count for the same descent repeated at the same call
-/// depth — is what makes the meter envelope-able; the deep tick reads zero
-/// because its explicit stacks put depth on the heap instead.
-///
-/// Every library walk is iterative, so the meter's liveness needs its own
-/// witness: a test-local descent routed through `recurse::descend!` (the same
-/// guard the test-only oracle bridge walks use) deep enough to outrun the
-/// thread stack. Without that leg, the boards' all-zero segments column could
-/// be a dead counter instead of a measured fact.
-///
-/// The counter is process-global, so the repeat-run comparison is meaningful
-/// under nextest's one-test-per-process isolation (this workspace's runner).
-#[test]
-fn stack_segment_meter_counts_deterministically_and_resets() {
-    use crate::recurse::descend;
-    /// A guarded descent to `floor`, each frame holding a small
-    /// stack-resident payload so its size is explicit.
-    fn dive(depth: usize, floor: usize) -> u64 {
-        if depth == floor {
-            return 1;
-        }
-        let pad = [depth as u64; 8];
-        let below = descend!(depth + 1, dive(depth + 1, floor));
-        below + core::hint::black_box(pad)[0]
-    }
-    const FLOOR: usize = 200_000;
-    super::reset_stack_segments();
-    core::hint::black_box(dive(0, FLOOR));
-    let first = super::stack_segments();
-    assert!(
-        first > 0,
-        "a depth-200000 guarded descent must grow the stack"
-    );
-    super::reset_stack_segments();
-    assert_eq!(
-        super::stack_segments(),
-        0,
-        "reset returns the meter to zero: {ISOLATION_NOTE}"
-    );
-    core::hint::black_box(dive(0, FLOOR));
-    assert_eq!(
-        super::stack_segments(),
-        first,
-        "identical descents at identical call depth grow identical segments: {ISOLATION_NOTE}"
-    );
-
-    // The conversion ratchet: the tick walk pairs a deep spine on BOTH
-    // sides — exactly the descent that once grew the stack — and must now
-    // read zero, its depth on explicit heap stacks the heap meter prices.
-    let v = dense(50_000).version();
-    let id = Party::decode(&id_spine(50_000, false).bytes[..]).expect("id spine decodes");
-    super::reset_stack_segments();
-    let mut t = v.clone();
-    t.tick(&id);
-    assert_eq!(
-        super::stack_segments(),
-        0,
-        "the iterative tick walk grows no stack segments: {ISOLATION_NOTE}"
-    );
-}
-
 /// The scan meter observes encoded traversal, resets to zero, and reads
 /// the same count for the same operation repeated.
 ///
@@ -431,77 +368,6 @@ fn scan_meter_counts_deterministically_and_resets() {
         "a join that wrote {} output bits recorded only {joined} scan bits: \
          the id builder is not recording its writes: {ISOLATION_NOTE}",
         a.encoded_bits(),
-    );
-}
-
-/// The span-traffic counters classify one constructed witness per rung arm, and
-/// reset to zero.
-///
-/// One witness pair per rung — byte-equal streams in distinct buffers, an empty
-/// operand, a ticked chain (comparable), a forked divergence (concurrent) —
-/// read as the full four-cell snapshot, so a miswired rung shows as the wrong
-/// cell moving, not merely a total. The empty and comparable rungs classify
-/// each operand order in its own match arm, so those rungs are witnessed in
-/// both orders: a miswire of either arm alone moves its cell. The counter is
-/// process-global, so the per-call readings are meaningful under nextest's
-/// one-test-per-process isolation (this workspace's runner).
-#[test]
-fn span_traffic_classifies_each_rung() {
-    use crate::Clock;
-    let mut main = Clock::seed();
-    let mut other = main.fork();
-    main.tick();
-    let v = main.version().clone();
-    main.tick();
-    let w = main.version().clone();
-    other.tick();
-    let d = other.version().clone();
-    let v_copy = Version::decode(&v.encode()[..]).expect("a version re-decodes");
-
-    let cells = |a: &Version, b: &Version| {
-        super::reset_span_traffic();
-        let _ = a.span(b);
-        let read = super::span_traffic();
-        (read.equal, read.empty, read.comparable, read.concurrent)
-    };
-
-    assert_eq!(
-        cells(&v, &v_copy),
-        (1, 0, 0, 0),
-        "byte-equal operands answer at the equal rung: {ISOLATION_NOTE}"
-    );
-    assert_eq!(
-        cells(&Version::new(), &v),
-        (0, 1, 0, 0),
-        "an empty first operand answers at the empty rung: {ISOLATION_NOTE}"
-    );
-    assert_eq!(
-        cells(&v, &Version::new()),
-        (0, 1, 0, 0),
-        "an empty second operand answers at the empty rung: {ISOLATION_NOTE}"
-    );
-    assert_eq!(
-        cells(&w, &v),
-        (0, 0, 1, 0),
-        "a dominating first operand answers at the comparable rung: {ISOLATION_NOTE}"
-    );
-    assert_eq!(
-        cells(&v, &w),
-        (0, 0, 1, 0),
-        "a dominated first operand answers at the comparable rung: {ISOLATION_NOTE}"
-    );
-    assert_eq!(
-        cells(&v, &d),
-        (0, 0, 0, 1),
-        "a forked divergence reaches the emitting walk: {ISOLATION_NOTE}"
-    );
-
-    super::reset_span_traffic();
-    let zero = super::span_traffic();
-    assert_eq!(
-        (zero.equal, zero.empty, zero.comparable, zero.concurrent),
-        (0, 0, 0, 0),
-        "reset returns every rung to zero: {ISOLATION_NOTE}"
     );
 }
 

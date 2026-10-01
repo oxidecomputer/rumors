@@ -74,6 +74,3 @@ pub fn densified_digits() -> u64 {
 pub fn reset_densified_digits() {
     super::measure::integral::reset_densified_digits();
 }
-
-/// Transcode a meter generator's construction stream into a version stream.
-pub(crate) use super::io::encode::encode_bits;

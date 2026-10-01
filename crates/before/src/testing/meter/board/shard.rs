@@ -35,8 +35,8 @@
 //! byte-for-byte the one it commissioned, an unknown operation or family name,
 //! a cell outside the child's slice, a duplicate cell, a count that
 //! disagrees with the lines received, or a merged grid whose per-family
-//! cell counts differ from the reach the registry's `Coverage::Board`
-//! declarations commit (the one check on the *union*, so a child that
+//! cell counts differ from the reach each registered family declares
+//! (the one check on the *union*, so a child that
 //! silently under-measures is refused even when every capture is
 //! self-consistent). The protocol is internal to the runner
 //! (parent and children are the same binary), not a stable format.
@@ -77,7 +77,7 @@ use super::measure::{HeapMeter, Model, Sample};
 use super::ops::ops;
 use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
 use super::worst::{check_with, render_map};
-use crate::testing::meter::registry::{Coverage, FamilyId};
+use crate::testing::meter::registry::FamilyId;
 
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
@@ -506,7 +506,7 @@ fn merge_samples(
         );
     }
     // The completeness refusal: the merged grid must realize, family by
-    // family, exactly the cell count the registry's `Coverage::Board`
+    // family, exactly the cell count the registry
     // declaration commits that family to. Every per-shard check above
     // validates one capture against itself, so a child that silently
     // measures fewer cells (an applicability arm regressing to `None`)
@@ -514,9 +514,7 @@ fn merge_samples(
     // union against the declared reach, and being merge-layer it fires at
     // every scale, the acceptance ladder of record included.
     for (family_position, family) in FamilyId::board().enumerate() {
-        let Coverage::Board { cells: declared } = family.spec().coverage else {
-            unreachable!("FamilyId::board() filters on the Board coverage answer")
-        };
+        let declared = family.spec().cells;
         let merged = cells
             .keys()
             .filter(|(_, position)| *position == family_position)
@@ -525,7 +523,7 @@ fn merge_samples(
             merged,
             declared,
             "amp-board shard merge: family {name} merged {merged} cells but the registry \
-             declares {declared}: the sweep lost or grew cells against its Coverage::Board reach",
+             declares {declared}: the sweep lost or grew cells against its declared reach",
             name = family.name()
         );
     }

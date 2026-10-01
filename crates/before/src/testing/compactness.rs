@@ -157,8 +157,7 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     }
     // The comb is hand-built in the min-lifted encoded construction
     // language; the transcoding bridge lifts it into the stored coding.
-    let version =
-        crate::version::io::finish(crate::version::io::encode::encode_bits(bits.reader()));
+    let version = crate::testing::version::from_tree_stream(bits.reader());
 
     // Self-check: the built stream is canonical and round-trips the wire.
     let decoded = Version::decode(version.encode().as_slice())

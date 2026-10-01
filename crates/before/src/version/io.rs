@@ -95,10 +95,6 @@ impl<'a> PayloadRange<'a> {
     }
 }
 
-#[cfg(test)]
-pub mod decode;
-#[cfg(any(test, feature = "meter"))]
-pub mod encode;
 pub mod regions;
 pub mod splice;
 pub mod tree;

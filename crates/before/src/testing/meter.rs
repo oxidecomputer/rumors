@@ -2,19 +2,15 @@
 //!
 //! Available only through the `meter` feature. The generators construct
 //! canonical binary inputs chosen to exercise worst-case time and transient
-//! memory. The counters observe peak heap, stack growth, encoded traversal,
-//! accumulator work, and a few focused internal events.
+//! memory. The counters observe peak heap, encoded traversal, accumulator
+//! work, and the one focused internal event retained for densification.
 //!
 //! The generators themselves are private: every instrument constructs its shapes
 //! through the family registry ([`registry`]), whose roster is the single
-//! source of truth for adversarial families — the registry module doc states
-//! the invariant and the compiler ties that hold it. A shape lands in one of
-//! two enforcement homes, and most take only one: every shape gets its envelope
-//! rows in `tests/meter.rs` — the enforced per-operation record — and a shape
-//! additionally earns a column on the amplification board ([`board`]) only when
-//! it is a whole-surface adversary rather than a kernel-seam probe (the
-//! criterion, each family's coverage answer, and the luck-proof touch list sit
-//! on the registry's [`FamilyId`](crate::testing::meter::registry::FamilyId)).
+//! source of truth for adversarial families. The amplification board ([`board`])
+//! applies every family to every compatible public operation. Focused tests in
+//! `tests/meter.rs` remain only for claims the board cannot express, such as
+//! changing an operation argument while holding the encoded operands fixed.
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
@@ -51,8 +47,7 @@
 //! ([`Shape::ToothTail`](crate::testing::meter::registry::Shape::ToothTail) is the form
 //! of record), never two parallel generators whose coupling is maintained by
 //! keeping their bodies in sync by hand. Existing paired generators keep their
-//! committed shapes as-is: migrating them would churn pinned envelopes and
-//! provenance for no behavioral gain; the convention binds new families.
+//! committed shapes as-is; the convention binds new families.
 
 pub mod board;
 pub mod registry;
@@ -61,20 +56,12 @@ pub(crate) mod tier2;
 
 use num_bigint::BigUint;
 
-/// Version-operation entry points used by the resource-envelope suite.
+/// Version-operation entry points used by resource measurements.
 pub mod version {
     pub use crate::version::instrument::{
         causal_cmp, equal, join, meet, min_ticks, project, rank, validate,
     };
 }
-
-/// The pair-hull rung snapshot, re-exported beside its readers
-/// ([`span_traffic`]/[`reset_span_traffic`]).
-pub use crate::testing::instrument::span_hull::SpanTraffic;
-
-/// The range-minimum stack's leading-digit decisions, re-exported beside its
-/// readers ([`emit_traffic`]/[`reset_emit_traffic`]).
-pub use crate::testing::instrument::range_minima::EmitTraffic;
 
 use crate::bits::{BitsReader, BitsWriter};
 
@@ -112,7 +99,7 @@ impl Encoding {
     /// transcoding the construction language (a min-lifted preorder
     /// stream) into the canonical encoding the Version stores.
     pub fn version(&self) -> crate::Version {
-        crate::version::io::finish(crate::version::instrument::encode_bits(self.reader()))
+        crate::testing::version::from_tree_stream(self.reader())
     }
 }
 
@@ -392,8 +379,8 @@ fn cliff_fan(k: usize, n: usize) -> Encoding {
 /// input code, so the family prices deep sign scans against the wide writes
 /// that immediately precede them. It does not exercise the collapse: a scan
 /// funded by an adjacent write is linear whether or not the fold rewrites what
-/// it scanned. The accumulator envelope suite separately checks repeated reads
-/// of one cancelling prefix.
+/// it scanned. Focused resource checks separately detect repeated reads of one
+/// cancelling prefix.
 ///
 /// Layout per tooth: `"11"` (spine node, `gamma(0)`), `"1" · gamma(1)`
 /// (tooth node), `"0" · gamma(2^k − 1)` (leaf `2^k − 1`), `"01"` (leaf 0);
@@ -751,8 +738,8 @@ fn hole_region(bits: &mut BitsWriter, lead: usize, m: usize) {
 /// pre-scan, and no covering left-full site exists anywhere. The pair
 /// that concentrates `FillWalk::scan_max_consuming`'s routing at the
 /// descend arm on deep ranges, where the committed tick families feed it
-/// only leaf-scale ones (the `tick_collapse_hole` envelope pins the
-/// readings); [`raise_hole`] is its ascend-arm dual.
+/// only leaf-scale ones. The amplification board measures the pair directly;
+/// [`raise_hole`] is its ascend-arm dual.
 ///
 /// Event layout, per unit: `1 · γ(0)` (spine node), `1 · γ(0)` (site
 /// node), the hole region, `0 · γ(0)` (the absent-side sibling leaf);
@@ -802,10 +789,9 @@ fn collapse_hole(k: usize, m: usize) -> (Encoding, Encoding) {
 /// over one tail leaf. Per unit the pre-scan copies the untouched range
 /// once — its virtual emissions are the recorded currency — so the pair
 /// concentrates `PreScan::copy_range` on deep ranges (the walk's own copy
-/// of the same ranges rides the block regime the `tick_ownership_hole`
-/// envelope already pins; the `tick_copy_hole` envelope pins this pair's
-/// readings). The fill here is the identity, so the tick is the walk plus
-/// one grow splice.
+/// of the same ranges uses the block path). The amplification board measures
+/// this correlated pair directly. The fill here is the identity, so the tick
+/// is the walk plus one grow splice.
 ///
 /// Event layout: `1 · γ(0) · 0 · γ(0)` (the root site and its collapsed
 /// leaf), then per unit `1 · γ(0)` (spine node) and the hole region as its
@@ -856,7 +842,7 @@ fn copy_hole(k: usize, m: usize) -> (Encoding, Encoding) {
 /// deep range exactly once — no left-full site exists anywhere, so no
 /// pre-scan runs and nothing else reads the regions. The pair that
 /// concentrates `FillWalk::scan_max_consuming`'s routing at the ascend
-/// arm on deep ranges (the `tick_raise_hole` envelope pins the readings);
+/// arm on deep ranges. The amplification board measures the pair directly;
 /// [`collapse_hole`] is its descend-arm dual.
 ///
 /// Event layout: `k` × (`1 · γ(0)`) (the left chain), `0 · γ(0)` (the
@@ -914,7 +900,7 @@ fn raise_hole(k: usize, m: usize) -> (Encoding, Encoding) {
 /// and the walk's own consuming max scan crosses it once more at the
 /// site's consume. The pair that concentrates the pre-scan's collapse
 /// skip on deep ranges, where the committed tick families feed it only
-/// leaf-scale ones (the `tick_site_hole` envelope pins the readings);
+/// leaf-scale ones. The amplification board measures the pair directly;
 /// [`copy_hole`] is its untouched-range dual.
 ///
 /// Event layout: `1 · γ(0) · 0 · γ(0)` (the root site and its collapsed
@@ -3351,8 +3337,8 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
 /// deltas — and the zero-check `sign(h_plateau)` on unowned intervals. An
 /// integrator that materializes either read pays `Θ(k)` word operations per 3-bit
 /// code; the balanced signed-digit accumulator answers both in amortized O(1)
-/// touches (the envelope rows and the flatness band in `tests/meter.rs` hold it
-/// there). The verdict is `Less` — the projected comb sits under the plateau
+/// touches (the board measures the correlated triple, while the focused suite
+/// checks the independent-width axis). The verdict is `Less` — the projected comb sits under the plateau
 /// everywhere and strictly under it outside the mask — so the walk never exits
 /// early and the measurement prices the whole overlay.
 ///
@@ -3391,8 +3377,8 @@ fn mask_drift_triple(k: usize, n: usize) -> (Encoding, Encoding, Encoding) {
 /// climb and drop funded by its own wide codes — and odd-level teeth read
 /// `sign(h₂)` mid-oscillation across the carry boundary. The projected verdict
 /// is `Less` (view₁ is semantically empty; view₂ keeps its teeth), so the walk
-/// never exits early. The envelope rows and the flatness band in
-/// `tests/meter.rs` hold the composition linear.
+/// never exits early. The board measures the correlated quadruple, while the
+/// focused suite checks the independent-width axis.
 ///
 /// # Panics
 ///
@@ -3479,9 +3465,8 @@ fn scattered_id_offset(e: usize) -> Encoding {
 /// function of `h` alone, however deep the spine grows. The plateau
 /// strictly dominates every spine height, so the projected verdict is
 /// `Less` at every elementary interval and the walk never exits early. The
-/// `masked_cmp_hole` envelope and the `masked_cmp_hole_depth_band` band in
-/// `tests/meter.rs` pin the flatness across a spine-depth doubling — the
-/// reading a per-boundary walk cannot reproduce.
+/// board measures this correlated triple under a fixed touch ceiling across a
+/// spine-depth ladder — the bound a per-boundary walk cannot satisfy.
 ///
 /// # Panics
 ///
@@ -3509,24 +3494,6 @@ fn pow2(b: usize) -> BigUint {
     BigUint::from(1u8) << b
 }
 
-/// The number of heap stack segments the deep traversals have grown since the
-/// last [`reset_stack_segments`].
-///
-/// The deterministic stand-in for recursion-driven stack consumption: the
-/// segments the stack guard allocates never pass through the global allocator,
-/// so no heap meter can see them; this reads the counter bumped at the one
-/// place a segment is created. Process-global — meaningful per scenario only
-/// under one-scenario-per-process isolation (nextest's model) or a
-/// single-threaded caller.
-pub fn stack_segments() -> u64 {
-    crate::recurse::segments_grown()
-}
-
-/// Reset the grown-segment counter behind [`stack_segments`] to zero.
-pub fn reset_stack_segments() {
-    crate::recurse::reset_segments_grown()
-}
-
 /// The settle's densified-image digits zero-filled since the last
 /// [`reset_densified_digits`].
 ///
@@ -3539,8 +3506,7 @@ pub fn reset_stack_segments() {
 /// cluster's span — so span-priced densification counts linearly in the
 /// settle's cluster spans, and a densification sized by cluster *positions*
 /// counts by those positions instead (the axis the hoisted-window family
-/// isolates). Process-global, same isolation requirement as
-/// [`stack_segments`].
+/// isolates). Process-global, so each measurement must run alone.
 #[cfg(feature = "meter")]
 pub fn densified_digits() -> u64 {
     crate::version::instrument::densified_digits()
@@ -3558,8 +3524,7 @@ pub fn reset_densified_digits() {
 /// rides the accumulator's quick register, so an algorithm that folds per leaf
 /// separates from one that folds per block. Delegates to
 /// `suanpan`'s own counter (`suanpan::touch_meter`), which the `touch-meter`
-/// feature compiles in. Process-global, same isolation requirement as
-/// [`stack_segments`].
+/// feature compiles in. Process-global, so each measurement must run alone.
 #[cfg(feature = "touch-meter")]
 pub fn touch_ops() -> u64 {
     suanpan::touch_meter::touches()
@@ -3569,51 +3534,6 @@ pub fn touch_ops() -> u64 {
 #[cfg(feature = "touch-meter")]
 pub fn reset_touch_ops() {
     suanpan::touch_meter::reset()
-}
-
-/// The pair-hull ladder's rung counters since the last
-/// [`reset_span_traffic`]: how many span constructions each fast path answered,
-/// and how many reached the emitting walk.
-///
-/// The deterministic stand-in for a *consumer's* traffic mix, which no
-/// per-operation envelope can see: whether a workload's pair hulls are mostly
-/// comparable (hand-back at one comparison sweep) or mostly concurrent (the
-/// emitting walk) is a property of the caller's pairs, and it decides which
-/// kernel regime the consumer actually pays. Counts every pair-hull
-/// construction: every [`Version::span`](crate::Version::span), every leaf
-/// combine of `span_all`, and every point-combine of the span union entry points
-/// (`Span | Span` and [`Span::union_all`](crate::Span::union_all) on coincident
-/// operands), which derive their hull through the same kernel. Process-global,
-/// same isolation requirement as [`stack_segments`].
-pub fn span_traffic() -> SpanTraffic {
-    crate::testing::instrument::span_hull::snapshot()
-}
-
-/// Reset the rung counters behind [`span_traffic`] to zero.
-pub fn reset_span_traffic() {
-    crate::testing::instrument::span_hull::reset()
-}
-
-/// The tick walk's priced-offset domination decisions since the last
-/// [`reset_emit_traffic`]: how many word-scale emissions each of the
-/// range-minimum stack's no-fold arms answered, and how many fell back to the
-/// fold path.
-///
-/// The deterministic stand-in for emission-arm *liveness*, which no cost
-/// meter can see: the dominated arms and the fold path compute the same
-/// values at nearby costs, so a routing change that quietly re-routes a
-/// family's emissions off a fast arm leaves every differential green and
-/// every cost band near its pin while the arm goes undriven — exactly the
-/// regression this counter's committed floors catch (the
-/// `dominated-undercut` family's band in `tests/meter.rs`).
-/// Process-global, same isolation requirement as [`stack_segments`].
-pub fn emit_traffic() -> EmitTraffic {
-    crate::testing::instrument::range_minima::snapshot()
-}
-
-/// Reset the decision counters behind [`emit_traffic`] to zero.
-pub fn reset_emit_traffic() {
-    crate::testing::instrument::range_minima::reset()
 }
 
 /// The encoded bits scanned and written since the last
@@ -3626,8 +3546,7 @@ pub fn reset_emit_traffic() {
 /// this counter records exactly those, at the encoded
 /// primitives (id tag reads and skip steps, id-builder bit writes and splice
 /// lengths, event topology cursor advances and gamma code-skips, every
-/// sequential decoder/validator bit read). Unit: bits. Process-global, same
-/// isolation requirement as [`stack_segments`]; only compiled under the
+/// sequential decoder/validator bit read). Unit: bits. Process-global; only compiled under the
 /// `scan-meter` feature, which adds the counting to the primitives themselves.
 #[cfg(feature = "scan-meter")]
 pub fn scan_bits() -> u64 {

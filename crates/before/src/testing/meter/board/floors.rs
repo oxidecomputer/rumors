@@ -29,9 +29,7 @@
 //!   decode) land every *nonzero* stored delta of their one stream
 //!   in the running accumulator, at least one digit touch per nonzero
 //!   delta code — a zero delta decodes but folds nothing, so a
-//!   plateau-heavy stream legitimately reads near zero — the same
-//!   one-per-nonzero-delta floor the envelope suite's flatness
-//!   pins commit. The pair walks (the comparison sweep and the merge
+//!   plateau-heavy stream legitimately reads near zero. The pair walks (the comparison sweep and the merge
 //!   emitters and pair queries riding it) land every *nonzero* stored
 //!   delta of either operand in the single running difference — a
 //!   boundary both operands step lands both codes in one fold, so the

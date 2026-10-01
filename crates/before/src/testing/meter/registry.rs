@@ -501,12 +501,7 @@ impl Shape {
 
 // ─── the family roster ───────────────────────────────────────────────────────
 
-/// One adversarial input family: the roster every instrument's family
-/// axis derives from.
-///
-/// A family forms a board column whenever its operands can exercise public
-/// operations. A narrower internal probe remains envelope-only when it cannot
-/// supply such operands, as recorded by [`Coverage::EnvelopeOnly`].
+/// One adversarial input family on the amplification board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FamilyId {
     /// The dense event spine `S(d)`: node count and depth maximizer.
@@ -557,6 +552,12 @@ pub enum FamilyId {
     /// feed forecloses the adjacent-slot coalescing luck index order would hand
     /// the counter.
     Stagger,
+    /// The staggered population with growing operand count and fixed operand
+    /// size, isolating the balanced fold's arity axis.
+    StaggerArity,
+    /// The staggered population with fixed operand count and growing operand
+    /// size, isolating the balanced fold's per-operand size axis.
+    StaggerSize,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
     ///
     /// Every level a right-full shortcut site, the deepest stacking of the
@@ -631,13 +632,9 @@ pub enum FamilyId {
     /// Each of `s` raise sites re-arms the range-minimum stack at the top of a
     /// `5·2^s`-scale climb and then emits its copied region's block minimum
     /// from one word above it — a no-latent, word-scale-offset emission
-    /// against a wide-negative anchor gap, the one shape that routes the
-    /// range-minimum tracker's post-sign dominated-undercut arm
-    /// (`meter::emit_traffic`'s
-    /// undercut decision) on every site. The band's committed floor on that
-    /// counter is the arm's liveness pin: correct values survive a re-route
-    /// onto the fold path, so only the decision count can prove the arm
-    /// still fires. The designated cross of the two tick rows.
+    /// against a wide-negative anchor gap. The board charges the resulting
+    /// arithmetic and traversal work to the family's input. The designated
+    /// cross of the two tick rows.
     DominatedUndercut,
     /// The two-operand jump comb `jump_pair(k, m, d)`: wide height-difference
     /// crests over a dense-position spine.
@@ -823,23 +820,14 @@ pub enum FamilyId {
     /// The arming-train family `AT(n, w, g, alternate)`: the product tree's
     /// level-ratio probe, three fixed-width points in two sign schedules.
     ArmingTrain,
-    /// The sub-scan hole pairs `CH(k, m)` / `CO(k, m)` / `RH(k, m)`: deep
-    /// collapse and absent-child ranges each crossed by exactly one
-    /// sub-scan.
-    ///
-    /// The fused fill's sub-scans route each range on its first descent's
-    /// depth: per-leaf below depth 2, one block summary at or above it. On
-    /// every committed tick family those ranges are leaf-scale, so the
-    /// routing is invisible there; these pairs make a single sub-scan
-    /// cross deep descending staircase regions (leads alternating across
-    /// the depth-2 boundary), undiluted by any second crossing, so the
-    /// block summary is the only reading that fits under the pinned
-    /// envelopes and any reroute of the boundary moves a committed column.
-    /// The collapse and raise pairs concentrate the walk's consuming max
-    /// scan at its two arms (descend-site collapse, ascend-site raise;
-    /// neither launches a pre-scan); the copy pair concentrates the
-    /// pre-scan's untouched-range copy under one covering scan.
-    ScanHole,
+    /// A deep collapsing range crossed by one tick traversal.
+    CollapseHole,
+    /// A deep unchanged range copied by one tick traversal.
+    CopyHole,
+    /// A deep range whose accumulated value is raised by one tick traversal.
+    RaiseHole,
+    /// A deep party site crossed by one tick traversal.
+    SiteHole,
     /// The masked-hole triple `MH(d, h)`: a deep dense spine under a
     /// shallow diverted mask against a dominating plateau.
     ///
@@ -912,67 +900,12 @@ pub enum FamilyId {
 /// from.
 #[derive(Debug, Clone, Copy)]
 pub struct FamilySpec {
-    /// The name used by the board, bands, and pins.
+    /// The name used in board output.
     pub name: &'static str,
-    /// The registered constructors that build this family's operands.
-    ///
-    /// Empty exactly for the populations built organically from the public API
-    /// (scatter, weave, benign), whose construction lives in the board's family
-    /// module.
+    /// Constructors that belong to this family.
     pub shapes: &'static [Shape],
-    /// The board answer: a column with its declared bundle reach, or the dated
-    /// reason this family earns no column.
-    pub coverage: Coverage,
-    /// The envelope-band answer: the committed band roster in `tests/meter.rs`,
-    /// or the dated reason no band exists.
-    pub bands: Bands,
-    /// The denominator of record: what this family's priced readings are
-    /// charged against.
-    pub denominator: &'static str,
-    /// The closed-form hook, where one exists: the quantity computable two ways
-    /// and the pin that compares them.
-    pub closed_form: Option<&'static str>,
-}
-
-/// A family's board answer.
-#[derive(Debug, Clone, Copy)]
-pub enum Coverage {
-    /// A board column: the whole-surface product prices this family on every
-    /// operation row its operand bundle supplies.
-    ///
-    /// `cells` is the declared bundle reach — how many operation rows the
-    /// bundle feeds, scale-independent — which the board smoke suite holds the
-    /// rendered matrix to, so a bundle slot gained or lost without a deliberate
-    /// re-declaration fails there.
-    Board {
-        /// The declared number of cells this bundle produces. The smoke suite
-        /// checks the merged board against it.
-        cells: usize,
-    },
-    /// No board column: a kernel-seam probe (or an operand-tuple pairing) whose
-    /// enforcement home is the envelope suite alone, with the dated ruling.
-    EnvelopeOnly {
-        /// Why this family earns no column (the board-roster criterion answer).
-        reason: &'static str,
-        /// The date of the ruling of record.
-        decided: &'static str,
-    },
-}
-
-/// A family's envelope-band answer.
-#[derive(Debug, Clone, Copy)]
-pub enum Bands {
-    /// The committed flatness/adequacy bands in `tests/meter.rs` that price
-    /// this family, by test name.
-    Priced(&'static [&'static str]),
-    /// No band, with the dated reason (which instrument prices the family
-    /// instead).
-    Unbanded {
-        /// Why no two-point band exists for this family.
-        reason: &'static str,
-        /// The date of the ruling of record.
-        decided: &'static str,
-    },
+    /// Number of operation rows reached by this family's operand bundle.
+    pub cells: usize,
 }
 
 /// Optional deserialization rows reached by each available encoded value.
@@ -997,24 +930,9 @@ const POPULATION_BUNDLE_CELLS: usize = 25;
 /// Board rows reached by scatter, including correlated query witnesses.
 const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
-/// The default denominator: input bytes.
-const INPUT_BYTES: &str = "input bytes";
-
-/// The date the registry's rulings were ratified as the rows of record.
-const REGISTRY_RATIFIED: &str = "2026-07-29";
-
-/// The fold populations' shared denominator note.
-const FOLD_DENOM: &str = "input bytes, judged under the declared O(D log k) fold model";
-
-/// The adversarial crosses' shared no-band reason.
-const CROSS_UNBANDED: &str =
-    "the board applies this adversarial cross to every compatible public operation";
-
 impl FamilyId {
-    /// Every registered family, in the roster order of record: the
-    /// board columns first, in render order, then the envelope-only
-    /// probe families.
-    pub const ALL: [FamilyId; 52] = [
+    /// Every registered family in board render order.
+    pub const ALL: [FamilyId; 57] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1025,6 +943,8 @@ impl FamilyId {
         FamilyId::Scatter,
         FamilyId::Weave,
         FamilyId::Stagger,
+        FamilyId::StaggerArity,
+        FamilyId::StaggerSize,
         FamilyId::NestedFull,
         FamilyId::NestedWide,
         FamilyId::MirrorWide,
@@ -1062,7 +982,10 @@ impl FamilyId {
         FamilyId::MaskDrift,
         FamilyId::MeetShade,
         FamilyId::ArmingTrain,
-        FamilyId::ScanHole,
+        FamilyId::CollapseHole,
+        FamilyId::CopyHole,
+        FamilyId::RaiseHole,
+        FamilyId::SiteHole,
         FamilyId::MaskedHole,
         FamilyId::HoistedWindow,
         FamilyId::PropagateSeam,
@@ -1073,68 +996,12 @@ impl FamilyId {
     /// registry tests hold against the array, so a variant cannot be declared
     /// without joining the roster at a committed position.
     pub const fn index(self) -> usize {
-        match self {
-            FamilyId::Dense => 0,
-            FamilyId::Bigroot => 1,
-            FamilyId::Hugeleaf => 2,
-            FamilyId::Cliff => 3,
-            FamilyId::IdPair => 4,
-            FamilyId::CombScatter => 5,
-            FamilyId::Harmonic => 6,
-            FamilyId::Scatter => 7,
-            FamilyId::Weave => 8,
-            FamilyId::Stagger => 9,
-            FamilyId::NestedFull => 10,
-            FamilyId::NestedWide => 11,
-            FamilyId::MirrorWide => 12,
-            FamilyId::MirrorNarrow => 13,
-            FamilyId::Staircase => 14,
-            FamilyId::RevealComb => 15,
-            FamilyId::RevealHifloor => 16,
-            FamilyId::PureComb => 17,
-            FamilyId::AscendCliff => 18,
-            FamilyId::AscendPlateau => 19,
-            FamilyId::DominatedUndercut => 20,
-            FamilyId::JumpPair => 21,
-            FamilyId::FreezePos => 22,
-            FamilyId::PromoRearm => 23,
-            FamilyId::WeightComb => 24,
-            FamilyId::FreezeParade => 25,
-            FamilyId::DenseSuffix => 26,
-            FamilyId::WideArming => 27,
-            FamilyId::PlateauPuncture => 28,
-            FamilyId::LoneFreeze => 29,
-            FamilyId::ConcurrentPair => 30,
-            FamilyId::ToothTail => 31,
-            FamilyId::Benign => 32,
-            FamilyId::WideToothComb => 33,
-            FamilyId::JumpComb => 34,
-            FamilyId::CliffFan => 35,
-            FamilyId::CancellingChain => 36,
-            FamilyId::AltSpine => 37,
-            FamilyId::MemoChain => 38,
-            FamilyId::MemoComb => 39,
-            FamilyId::MemoFanout => 40,
-            FamilyId::MemoOscillating => 41,
-            FamilyId::MemoChurn => 42,
-            FamilyId::DescendingRaises => 43,
-            FamilyId::MaskDrift => 44,
-            FamilyId::MeetShade => 45,
-            FamilyId::ArmingTrain => 46,
-            FamilyId::ScanHole => 47,
-            FamilyId::MaskedHole => 48,
-            FamilyId::HoistedWindow => 49,
-            FamilyId::PropagateSeam => 50,
-            FamilyId::LatentLadder => 51,
-        }
+        self as usize
     }
 
-    /// The amplification board's family axis, in render order: the roster
-    /// filtered on each variant's committed coverage answer.
+    /// The amplification board's family axis, in render order.
     pub fn board() -> impl Iterator<Item = FamilyId> {
-        FamilyId::ALL
-            .into_iter()
-            .filter(|f| matches!(f.spec().coverage, Coverage::Board { .. }))
+        FamilyId::ALL.into_iter()
     }
 
     /// The family name of record (the spec's `name`).
@@ -1148,133 +1015,47 @@ impl FamilyId {
             FamilyId::Dense => FamilySpec {
                 name: "dense",
                 shapes: &[Shape::Dense],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "depth/node maximizer; absolute envelope rows carry it, no \
-                             committed two-point flatness claim",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: Some(
-                    "4d + 4 bits for 2d + 1 nodes at depth d; the meter suite pins the \
-                     size closed form",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::Bigroot => FamilySpec {
                 name: "bigroot",
                 shapes: &[Shape::Bigroot],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "magnitude-over-depth shape; absolute envelope rows carry it",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::Hugeleaf => FamilySpec {
                 name: "hugeleaf",
                 shapes: &[Shape::Hugeleaf],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "single-node magnitude maximizer; absolute envelope rows carry it",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::Cliff => FamilySpec {
                 name: "cliff",
                 shapes: &[Shape::CliffComb],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&[
-                    "skyline_validate_cliff_cost_is_flat_per_unit",
-                    "skyline_cmp_cliff_cost_is_flat_per_unit",
-                    "skyline_join_cliff_cost_is_flat_per_unit",
-                ]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::IdPair => FamilySpec {
                 name: "id-pair",
                 shapes: &[Shape::IdSpine],
-                coverage: Coverage::Board {
-                    cells: PARTY_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "party-only bundle; the flatness bands price version measures and \
-                             comparison kernels",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: PARTY_BUNDLE_CELLS,
             },
             FamilyId::CombScatter => FamilySpec {
                 name: "comb-scatter",
                 shapes: &[Shape::CliffComb, Shape::ScatteredId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "the output-domination cross; its projection rows are \
-                             I/O-denominated",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: "value content bytes for exponents (the flat-denominator \
-                              shape); encoded I/O on the projection rows",
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::Harmonic => FamilySpec {
                 name: "harmonic",
                 shapes: &[Shape::Harmonic],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "the rank fold's wide-numerator adversary; the board's harmonic \
-                             tripwire column and its envelope rows carry it",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: Some(
-                    "rank telescopes to (2^d − 1)/2^d; the meter suite pins the closed \
-                     form against the fold",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::Scatter => FamilySpec {
                 name: "scatter",
                 shapes: &[],
-                coverage: Coverage::Board {
-                    cells: SCATTER_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "the board prices the population's folds and derived multi-hole \
-                             queries under their declared models",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: FOLD_DENOM,
-                closed_form: None,
+                cells: SCATTER_BUNDLE_CELLS,
             },
             FamilyId::Weave => FamilySpec {
                 name: "weave",
                 shapes: &[],
-                coverage: Coverage::Board {
-                    cells: POPULATION_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "the board prices the population's folds and derived multi-hole \
-                             queries under their declared models",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: FOLD_DENOM,
-                closed_form: None,
+                cells: POPULATION_BUNDLE_CELLS,
             },
             FamilyId::Stagger => FamilySpec {
                 name: "stagger",
@@ -1283,575 +1064,232 @@ impl FamilyId {
                     Shape::StaggerComb,
                     Shape::StaggerId,
                 ],
-                coverage: Coverage::Board {
-                    cells: POPULATION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&[
-                    "fold_version_stagger_arity_axis_is_flat_per_unit",
-                    "fold_version_stagger_size_axis_is_flat_per_unit",
-                    "fold_party_stagger_arity_axis_is_flat_per_unit",
-                    "fold_party_stagger_size_axis_is_flat_per_unit",
-                ]),
-                denominator: FOLD_DENOM,
-                closed_form: None,
+                cells: POPULATION_BUNDLE_CELLS,
+            },
+            FamilyId::StaggerArity => FamilySpec {
+                name: "stagger-arity",
+                shapes: &[Shape::StaggerPopulation],
+                cells: POPULATION_BUNDLE_CELLS,
+            },
+            FamilyId::StaggerSize => FamilySpec {
+                name: "stagger-size",
+                shapes: &[Shape::StaggerPopulation],
+                cells: POPULATION_BUNDLE_CELLS,
             },
             FamilyId::NestedFull => FamilySpec {
                 name: "nested-full",
                 shapes: &[Shape::Dense, Shape::NestedFullId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::NestedWide => FamilySpec {
                 name: "nested-wide",
                 shapes: &[Shape::Bigroot, Shape::NestedFullId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MirrorWide => FamilySpec {
                 name: "mirror-wide",
                 shapes: &[Shape::WideTail, Shape::NestedLeftFullId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MirrorNarrow => FamilySpec {
                 name: "mirror-narrow",
                 shapes: &[Shape::WideTail, Shape::NestedLeftFullId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::Staircase => FamilySpec {
                 name: "staircase",
                 shapes: &[Shape::Staircase, Shape::IdSpine],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::RevealComb => FamilySpec {
                 name: "reveal-comb",
                 shapes: &[Shape::RevealComb, Shape::RevealCombId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["skyline_min_ticks_reveal_comb_is_flat_per_unit"]),
-                denominator: "input bytes; total I/O on the output-dominated \
-                              projection rows",
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::RevealHifloor => FamilySpec {
                 name: "reveal-hifloor",
                 shapes: &[Shape::RevealCombHifloor, Shape::RevealCombId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["reveal_comb_hifloor_control_is_flat_per_unit"]),
-                denominator: "input bytes; total I/O on the output-dominated \
-                              projection rows",
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::PureComb => FamilySpec {
                 name: "pure-comb",
                 shapes: &[Shape::PureComb, Shape::PureCombId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["skyline_min_ticks_pure_comb_is_flat_per_unit"]),
-                denominator: "input bytes; total I/O on the output-dominated \
-                              projection rows",
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::AscendCliff => FamilySpec {
                 name: "ascend-cliff",
                 shapes: &[Shape::AscendCliff, Shape::AscendCliffId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "the cascade's red-direction driver; its leveled control \
-                             (ascend-plateau) carries the committed flatness band",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::AscendPlateau => FamilySpec {
                 name: "ascend-plateau",
                 shapes: &[Shape::AscendCliffPlateau, Shape::AscendCliffId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["ascend_cliff_plateau_control_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::DominatedUndercut => FamilySpec {
                 name: "dominated-undercut",
                 shapes: &[Shape::DominatedUndercut, Shape::DominatedUndercutId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["tick_dominated_undercut_arm_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: Some(
-                    "k(2b + 26) + 2 construction bits, one dominated-undercut decision \
-                     per site; the meter suite pins the size closed form and the band \
-                     pins the per-site decision count",
-                ),
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::JumpPair => FamilySpec {
                 name: "jump-pair",
                 shapes: &[Shape::JumpPair],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["skyline_distance_jump_pair_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::FreezePos => FamilySpec {
                 name: "freeze-pos",
                 shapes: &[Shape::FreezePosition],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&[
-                    "skyline_rank_freeze_position_is_flat_per_unit",
-                    "skyline_min_ticks_freeze_position_is_flat_per_unit",
-                    "skyline_distance_freeze_position_is_flat_per_unit",
-                ]),
-                denominator: INPUT_BYTES,
-                closed_form: Some(
-                    "rank exponent 2s − 1 (one trailing zero strips): the remainder-\
-                     alignment derivation on the family's board base constant",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::PromoRearm => FamilySpec {
                 name: "promo-rearm",
                 shapes: &[Shape::PromotionRearm, Shape::PromotionRearmMate],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&[
-                    "skyline_rank_promotion_rearm_is_flat_per_unit",
-                    "skyline_min_ticks_promotion_rearm_is_flat_per_unit",
-                    "skyline_distance_promotion_rearm_is_flat_per_unit",
-                ]),
-                denominator: INPUT_BYTES,
-                closed_form: Some(
-                    "rank exponent 36s: the remainder-alignment derivation on the \
-                     family's board base constant",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::WeightComb => FamilySpec {
                 name: "weight-comb",
                 shapes: &[Shape::WeightComb],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["skyline_rank_weight_comb_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::FreezeParade => FamilySpec {
                 name: "freeze-parade",
                 shapes: &[Shape::FreezeParade],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["skyline_rank_freeze_parade_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::DenseSuffix => FamilySpec {
                 name: "dense-suffix",
                 shapes: &[Shape::DenseSuffix, Shape::DenseSuffixMate],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&[
-                    "skyline_rank_dense_suffix_is_flat_per_unit",
-                    "skyline_distance_dense_suffix_is_flat_per_unit",
-                ]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::WideArming => FamilySpec {
                 name: "wide-arming",
                 shapes: &[Shape::WideArming],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["rank_wide_arming_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: Some(
-                    "rank exponent 32s (remainder 0 at every knob): the derivation on \
-                     the family's board base constant",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::PlateauPuncture => FamilySpec {
                 name: "plateau-puncture",
                 shapes: &[Shape::PlateauPuncture, Shape::PunctureProduct],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["rank_plateau_puncture_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: Some(
-                    "the exact rank embeds the integer product 2·x·y + 1 of the committed \
-                     factors (plateau_puncture_factors); the rank suite pins the \
-                     embedding against the backend's own multiply",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::LoneFreeze => FamilySpec {
                 name: "lone-freeze",
                 shapes: &[Shape::LoneFreeze],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&[
-                    "skyline_rank_lone_freeze_late_is_flat_per_unit",
-                    "skyline_rank_lone_freeze_tail_is_flat_per_unit",
-                ]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::ConcurrentPair => FamilySpec {
                 name: "concurrent-pair",
                 shapes: &[Shape::ConcurrentPair],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "the switch-density pair; absolute envelope pair-measure rows \
-                             carry it",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::ToothTail => FamilySpec {
                 name: "tooth-tail",
                 shapes: &[Shape::ToothTail],
-                coverage: Coverage::Board {
-                    cells: VERSION_BUNDLE_CELLS,
-                },
-                bands: Bands::Priced(&["skyline_cmp_tooth_tail_is_flat_per_unit"]),
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::Benign => FamilySpec {
                 name: "benign",
                 shapes: &[],
-                coverage: Coverage::Board {
-                    cells: FULL_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: "the organic control population; flatness bands price \
-                             adversarial constructions",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: "input bytes (the organic control)",
-                closed_form: None,
+                cells: FULL_BUNDLE_CELLS,
             },
             FamilyId::WideToothComb => FamilySpec {
                 name: "wide-tooth-comb",
                 shapes: &[Shape::WideToothComb],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe measured through the internal skyline \
-                             entries, which the board's public-operation rows cannot host \
-                             — a deliberate, documented internal-entry decision at the \
-                             band's citation site",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Priced(&["skyline_rank_wide_tooth_freeze_band"]),
-                denominator: "input bytes, through the internal skyline rank entry",
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::JumpComb => FamilySpec {
                 name: "jump-comb",
                 shapes: &[Shape::JumpComb],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe measured through the internal skyline \
-                             entries — a deliberate, documented internal-entry decision at \
-                             the band's citation site; its whole-surface lift is the \
-                             jump-pair family",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Priced(&["skyline_rank_jump_eviction_is_flat_per_unit"]),
-                denominator: "input bytes, through the internal skyline rank entry",
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::CliffFan => FamilySpec {
                 name: "cliff-fan",
                 shapes: &[Shape::CliffFan],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe: sibling carry excursions funded by one \
-                             stored magnitude, priced by the in-crate skyline and tier2 \
-                             suites' pinned envelopes",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Unbanded {
-                    reason: "its pins are absolute envelopes in the in-crate skyline and \
-                             tier2 suites, not two-point bands in tests/meter.rs",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::CancellingChain => FamilySpec {
                 name: "cancelling-chain",
                 shapes: &[Shape::CancellingChain],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe: deep sign scans funded by adjacent wide \
-                             writes, priced by the in-crate skyline suites' pinned \
-                             envelopes",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Unbanded {
-                    reason: "its pins are absolute envelopes in the in-crate skyline and \
-                             tier2 suites, not two-point bands in tests/meter.rs",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::AltSpine => FamilySpec {
                 name: "alt-spine",
                 shapes: &[Shape::AltSpine],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe: the frame-count adversary for iterative \
-                             walks; its envelope rows in tests/meter.rs and the in-crate \
-                             skyline suites price it",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Unbanded {
-                    reason: "its pins are absolute envelope rows, not two-point bands",
-                    decided: REGISTRY_RATIFIED,
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::MemoChain => FamilySpec {
                 name: "memo-chain",
                 shapes: &[Shape::MemoChain, Shape::MemoChainId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: "2026-09-17",
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MemoComb => FamilySpec {
                 name: "memo-comb",
                 shapes: &[Shape::MemoComb, Shape::MemoCombId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: "2026-09-17",
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MemoFanout => FamilySpec {
                 name: "memo-fanout",
                 shapes: &[Shape::MemoFanout],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: "2026-09-17",
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MemoOscillating => FamilySpec {
                 name: "memo-oscillating",
                 shapes: &[Shape::MemoOscillating],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: "2026-09-17",
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MemoChurn => FamilySpec {
                 name: "memo-churn",
                 shapes: &[Shape::MemoChurn, Shape::MemoChurnId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: "2026-09-17",
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::DescendingRaises => FamilySpec {
                 name: "descending-raises",
                 shapes: &[Shape::DescendingRaises, Shape::DescendingRaisesId],
-                coverage: Coverage::Board {
-                    cells: CROSS_BUNDLE_CELLS,
-                },
-                bands: Bands::Unbanded {
-                    reason: CROSS_UNBANDED,
-                    decided: "2026-09-17",
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MaskDrift => FamilySpec {
                 name: "mask-drift",
                 shapes: &[Shape::MaskDriftTriple, Shape::MaskDriftQuadruple],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "operand tuples correlated for the fused three- and \
-                             four-stream comparisons alone, which the own_version_cmp rows \
-                             run on every board family; a tuple built for one row \
-                             signature is a pairing probe, not a shape",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Priced(&[
-                    "masked_cmp_drift_cost_is_flat_per_unit",
-                    "masked_pair_cmp_drift_cost_is_flat_per_unit",
-                ]),
-                denominator: "combined encoded tuple bytes",
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::MeetShade => FamilySpec {
                 name: "meet-shade",
                 shapes: &[Shape::MeetShade],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "an envelope-suite fold wedge by the board-roster criterion; \
-                             the version_meet_all row prices the fold on the rostered \
-                             fold populations",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Priced(&["meet_all_shade_is_flat_per_unit"]),
-                denominator: "input bytes of the population",
-                closed_form: None,
+                cells: POPULATION_BUNDLE_CELLS,
             },
             FamilyId::ArmingTrain => FamilySpec {
                 name: "arming-train",
                 shapes: &[Shape::ArmingTrain],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "the trains isolate the product tree's level ratio: a \
-                             three-point fixed-width design in two sign schedules the \
-                             board's single-knob two-scale fit cannot express; the \
-                             multi-arming ledger settle itself is board-priced on the \
-                             promo-rearm and dense-suffix columns",
-                    decided: REGISTRY_RATIFIED,
-                },
-                bands: Bands::Priced(&[
-                    "arming_trains_is_flat_per_unit",
-                    "pair_plateau_train_is_flat_per_unit",
-                ]),
-                denominator: "input bytes; three fixed-width points (level ratio, \
-                              not a two-scale fit)",
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
-            FamilyId::ScanHole => FamilySpec {
-                name: "scan-hole",
-                shapes: &[
-                    Shape::CollapseHole,
-                    Shape::CopyHole,
-                    Shape::RaiseHole,
-                    Shape::SiteHole,
-                ],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam engagement probes for the fused fill's sub-scan \
-                             block routing; their enforcement home is the absolute tick \
-                             envelope rows, whose ceilings sit below the per-leaf \
-                             mechanism's readings",
-                    decided: "2026-08-10",
-                },
-                bands: Bands::Unbanded {
-                    reason: "absolute tick envelope rows in tests/meter.rs pin the block \
-                             scans engaging; no two-point flatness claim is committed",
-                    decided: "2026-08-10",
-                },
-                denominator: INPUT_BYTES,
-                closed_form: None,
+            FamilyId::CollapseHole => FamilySpec {
+                name: "collapse-hole",
+                shapes: &[Shape::CollapseHole],
+                cells: CROSS_BUNDLE_CELLS,
+            },
+            FamilyId::CopyHole => FamilySpec {
+                name: "copy-hole",
+                shapes: &[Shape::CopyHole],
+                cells: CROSS_BUNDLE_CELLS,
+            },
+            FamilyId::RaiseHole => FamilySpec {
+                name: "raise-hole",
+                shapes: &[Shape::RaiseHole],
+                cells: CROSS_BUNDLE_CELLS,
+            },
+            FamilyId::SiteHole => FamilySpec {
+                name: "site-hole",
+                shapes: &[Shape::SiteHole],
+                cells: CROSS_BUNDLE_CELLS,
             },
             FamilyId::MaskedHole => FamilySpec {
                 name: "masked-hole",
                 shapes: &[Shape::MaskedHoleTriple],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "an operand tuple correlated for the fused three-stream \
-                             comparison alone, as the mask-drift tuples; a tuple built \
-                             for one row signature is a pairing probe, not a shape",
-                    decided: "2026-08-10",
-                },
-                bands: Bands::Priced(&["masked_cmp_hole_depth_band"]),
-                denominator: "combined encoded tuple bytes (the depth band's flat ceiling \
-                              is absolute: the block skip makes the reading a function \
-                              of the mask depth alone)",
-                closed_form: None,
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::HoistedWindow => FamilySpec {
                 name: "hoisted-window",
                 shapes: &[Shape::HoistedWindow],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam engagement probe for the settle's densified-image \
-                             span: the tail knob moves only the settle clusters' absolute \
-                             digit positions, an axis no public-operation column \
-                             denominates; the wide × dense settle genre itself is \
-                             board-priced on the wide-arming column",
-                    decided: "2026-08-11",
-                },
-                bands: Bands::Priced(&[
-                    "rank_hoisted_window_is_flat_per_unit",
-                    "rank_hoisted_window_densify_span_band",
-                ]),
-                denominator: "input bytes for the walk columns; the densify column \
-                              is judged absolute across the tail doubling (span-priced \
-                              work is position-free by construction)",
-                closed_form: Some(
-                    "min_ticks(HW(w, d, t)) = d + 2^(32w) + 2^288 + 3, independent of \
-                     the tail knob (the meter module's tests pin it beside the bit \
-                     length)",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::PropagateSeam => FamilySpec {
                 name: "propagate-seam",
@@ -1861,66 +1299,13 @@ impl FamilyId {
                     Shape::SeamStop,
                     Shape::SeamStopControl,
                 ],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe for the range-minimum tracker's wide-hop \
-                             domination \
-                             guards at their clearance line: the knobs move only which \
-                             side of the decision boundary each propagation hop sits on, \
-                             an axis no public-operation column denominates; the undercut \
-                             cascade genre itself is board-priced on the ascending-cliff \
-                             column",
-                    decided: "2026-08-11",
-                },
-                bands: Bands::Priced(&[
-                    "skyline_min_ticks_descending_boundary_is_flat_per_unit",
-                    "skyline_min_ticks_descending_boundary_clearance_band",
-                    "skyline_min_ticks_stopping_boundary_is_flat_per_unit",
-                ]),
-                denominator: "input bytes; each control-paired leg is judged as \
-                              the run difference against its wire-near-identical control",
-                closed_form: Some(
-                    "min_ticks is each shape's stored-base sum, closed-form in the knobs \
-                     (the meter module's tests pin each beside the bit length)",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
             FamilyId::LatentLadder => FamilySpec {
                 name: "latent-ladder",
                 shapes: &[Shape::LatentLadder],
-                coverage: Coverage::EnvelopeOnly {
-                    reason: "kernel-seam probe for the parked-latent undercut decision's \
-                             O(1) claim: the width knob moves only the parked operand the \
-                             decision must not read across, an axis no public-operation \
-                             column denominates",
-                    decided: "2026-08-11",
-                },
-                bands: Bands::Priced(&["skyline_min_ticks_latent_ladder_is_flat_per_unit"]),
-                denominator: "input bytes; the decision leg is judged as the \
-                              k-marginal at fixed width across a width doubling",
-                closed_form: Some(
-                    "min_ticks(LL(w, k)) = (k + 1)·5·2^(32(w−1)) + 1 − k(k + 1)/2 (the \
-                     meter module's tests pin it beside the bit length)",
-                ),
+                cells: VERSION_BUNDLE_CELLS,
             },
         }
     }
 }
-
-/// Bands that price an operation-argument axis or an API seam rather than a
-/// registered shape, each with its dated disposition: the registry's answer for
-/// band names no family row can carry.
-///
-/// The board smoke suite's band-name scan (the named parity survivor in the
-/// module doc) accepts a scanned band exactly when some family's [`Bands`]
-/// roster or this table cites it.
-pub const AXIS_BANDS: &[(&str, &str)] = &[
-    (
-        "ticks_flatness_holds_the_log_band",
-        "prices the ticks count axis across three rostered families: an \
-         operation-argument axis, not a shape of its own — registry answer of record",
-    ),
-    (
-        "ticks_wide_count_flatness_holds_the_width_band",
-        "prices the ticks count-width axis across the same three rostered families: an \
-         operation-argument axis, not a shape of its own — registry answer of record",
-    ),
-];

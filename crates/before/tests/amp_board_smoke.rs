@@ -1,27 +1,14 @@
 //! Smoke coverage for the amplification board (`before::testing::meter::board`).
 //!
-//! The board is the campaign's dashboard, not its enforcement: this test
-//! only pins that the whole sweep keeps compiling and running — every
-//! operation row prepares, measures at both of its window's sizes, and
-//! renders. It
-//! deliberately asserts no colors: verdicts of record belong to the
-//! release-profile board runs the gate's board leg consumes (any red
-//! cell there fails it), and the enforced resource record is the
-//! process-isolated envelope suite in `tests/meter.rs`.
-//!
-//! This binary also holds the registry's band-name parity survivor (the
-//! `before::testing::meter::registry` module doc names it): the envelope suite's
-//! band-named tests live in a separate test binary, where test function
-//! names are strings the compiler cannot resolve, so the scan below
-//! holds them equal, name for name, to the registry's committed band
-//! citations.
+//! The tests drive every board cell, exercise shard merging, and pin the
+//! operation and family coverage maps. Verdicts of record belong to the
+//! release-profile board run consumed by the gate.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use before::testing::meter::board::{self, HeapMeter, BOARD_PRICED};
-use before::testing::meter::registry::{Bands, Coverage, FamilyId, AXIS_BANDS};
+use before::testing::meter::registry::FamilyId;
 use peak_alloc::PeakAlloc;
 
 #[global_allocator]
@@ -105,15 +92,10 @@ fn retaining_results_does_not_allocate_measured_heap() {
 /// row added to or dropped from the operation table moves every reach it
 /// touches, a shape whose bundle gains or loses a slot moves its own, and
 /// either drift fails against the registry's committed answer until the
-/// variant's `Coverage::Board` declaration is deliberately re-stated.
+/// family specification is deliberately re-stated.
 fn expected_cells_per_family() -> BTreeMap<&'static str, usize> {
     FamilyId::board()
-        .map(|family| {
-            let Coverage::Board { cells } = family.spec().coverage else {
-                unreachable!("FamilyId::board() filters on the Board coverage answer")
-            };
-            (family.name(), cells)
-        })
+        .map(|family| (family.name(), family.spec().cells))
         .collect()
 }
 
@@ -152,7 +134,7 @@ fn board_runs_to_completion() {
         per_family, expected,
         "the board's per-family cell counts drifted from the registry's declared \
          bundle reach: rows were added or lost without re-stating the variant's \
-         Coverage::Board answer"
+         declared reach"
     );
     let cells = summary.green + summary.red;
     let total: usize = expected.values().sum();
@@ -349,113 +331,6 @@ fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
         assert!(
             message.contains(family),
             "the refusal must name the shorted family {family}: {message}"
-        );
-    }
-}
-
-// ─── the band-name parity survivor ──────────────────────────────────────────
-
-/// The envelope suite's flatness/adequacy band tests: every
-/// `#[test]`-attributed function in the meter suite whose name carries
-/// the band convention (`_is_flat_per_unit` anywhere, or the `_band`
-/// suffix).
-///
-/// Attribute-gated so helpers and run harnesses never count; a scan
-/// that silently matches nothing fails the parity test on every
-/// registry-cited name, so the scanner cannot rot into a clean sweep.
-fn band_test_names(source: &str) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    let mut armed = false;
-    for line in source.lines() {
-        let t = line.trim();
-        if t == "#[test]" {
-            armed = true;
-            continue;
-        }
-        if t.starts_with("#[") || t.is_empty() {
-            // cfg or other attributes between `#[test]` and the fn keep
-            // the arming; anything else below drops it.
-            continue;
-        }
-        if armed {
-            if let Some(rest) = t.strip_prefix("fn ") {
-                if let Some(name) = rest.split('(').next() {
-                    if name.contains("_is_flat_per_unit") || name.ends_with("_band") {
-                        names.insert(name.to_string());
-                    }
-                }
-            }
-            armed = false;
-        }
-    }
-    names
-}
-
-/// Add the band tests from every Rust source beneath `path`.
-fn collect_band_test_names(path: &Path, names: &mut BTreeSet<String>) {
-    if path.is_dir() {
-        let entries = std::fs::read_dir(path)
-            .unwrap_or_else(|err| panic!("reading {} failed: {err}", path.display()));
-        for entry in entries {
-            let entry = entry.unwrap_or_else(|err| {
-                panic!("reading an entry beneath {} failed: {err}", path.display())
-            });
-            collect_band_test_names(&entry.path(), names);
-        }
-        return;
-    }
-    if path.extension().is_some_and(|extension| extension == "rs") {
-        let source = std::fs::read_to_string(path)
-            .unwrap_or_else(|err| panic!("reading {} failed: {err}", path.display()));
-        names.extend(band_test_names(&source));
-    }
-}
-
-/// The envelope suite's band-named tests and the registry's band
-/// citations name each other, name for name, and each failure names the
-/// missing side.
-///
-/// This is the registry's named parity survivor for band names (the
-/// `before::testing::meter::registry` module doc): the bands live in this crate's
-/// separate test binary, where test function names are not items the
-/// compiler can resolve, so the seam is pinned here — every band-named
-/// test is cited by exactly one family's `Bands::Priced` roster or by
-/// `AXIS_BANDS`, and every citation resolves to a live test. Citation
-/// uniqueness itself is pinned by the registry's own tests; the
-/// band-to-family *construction* link needs no pin at all, because a
-/// band can only mint its operands through `registry::Shape`.
-#[test]
-fn band_tests_and_registry_citations_stay_paired() {
-    let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-    let mut scanned = BTreeSet::new();
-    collect_band_test_names(&tests.join("meter.rs"), &mut scanned);
-    collect_band_test_names(&tests.join("meter"), &mut scanned);
-
-    let mut cited: BTreeMap<&str, &str> = BTreeMap::new();
-    for family in FamilyId::ALL {
-        if let Bands::Priced(bands) = family.spec().bands {
-            for band in bands {
-                cited.insert(band, family.name());
-            }
-        }
-    }
-    for (band, _) in AXIS_BANDS {
-        cited.insert(band, "AXIS_BANDS");
-    }
-
-    for band in &scanned {
-        assert!(
-            cited.contains_key(band.as_str()),
-            "the envelope band `{band}` has no registry answer: cite it on its \
-             family's spec (Bands::Priced) or, if it prices an operation-argument \
-             axis rather than a shape, in registry::AXIS_BANDS"
-        );
-    }
-    for (band, owner) in &cited {
-        assert!(
-            scanned.contains(*band),
-            "the registry ({owner}) cites band `{band}` but the envelope suite \
-             declares no such test: restore the band or drop the citation"
         );
     }
 }

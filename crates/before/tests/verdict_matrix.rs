@@ -84,6 +84,9 @@ fn benign_pair() -> (Version, Version) {
 /// operand stays tens to hundreds of bytes while keeping its
 /// family's distinguishing structure.
 fn matrix_operands(family: FamilyId) -> MatrixOperands {
+    let correlated_pair = |(version, party): (Encoding, Encoding)| {
+        (vec![version.version()], vec![decode_party(&party)])
+    };
     let (versions, masks): (Vec<Version>, Vec<Party>) = match family {
         // The dense event spine: node-count and depth maximizer.
         FamilyId::Dense => (vec![Shape::Dense.build1(8).version()], vec![]),
@@ -119,7 +122,7 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             (vec![a, b], vec![])
         }
         // The staggered fold population, teeth in every other operand's gaps.
-        FamilyId::Stagger => {
+        FamilyId::Stagger | FamilyId::StaggerArity | FamilyId::StaggerSize => {
             let (combs, ids) = Shape::StaggerPopulation.population(4, 4);
             (
                 vec![combs[0].version(), combs[1].version()],
@@ -300,17 +303,11 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             ],
             vec![],
         ),
-        // The scan-hole crosses: the collapse and copy holes' coupled
-        // (event, id) pairs fill both caps; the raise and site holes are
-        // the yields past them.
-        FamilyId::ScanHole => {
-            let (collapse_ev, collapse_id) = Shape::CollapseHole.build_pair(4, 4);
-            let (copy_ev, copy_id) = Shape::CopyHole.build_pair(4, 4);
-            (
-                vec![collapse_ev.version(), copy_ev.version()],
-                vec![decode_party(&collapse_id), decode_party(&copy_id)],
-            )
-        }
+        // Each scan-hole family preserves its correlated version and party.
+        FamilyId::CollapseHole => correlated_pair(Shape::CollapseHole.build_pair(4, 4)),
+        FamilyId::CopyHole => correlated_pair(Shape::CopyHole.build_pair(4, 4)),
+        FamilyId::RaiseHole => correlated_pair(Shape::RaiseHole.build_pair(4, 4)),
+        FamilyId::SiteHole => correlated_pair(Shape::SiteHole.build_pair(4, 4)),
         // The masked-hole triple: a deep spine under a shallow diverted mask.
         FamilyId::MaskedHole => {
             let (spine, mask, plateau) = Shape::MaskedHoleTriple.build_triple(6, 2);

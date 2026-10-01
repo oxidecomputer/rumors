@@ -160,7 +160,7 @@ triage's dispositions and branches are leads only.
       judgment.
       Source: owner resource-surface audit, 2026-09-17.
 
-- [ ] Recheck every remaining public complexity and allocation claim against
+- [x] Recheck every remaining public complexity and allocation claim against
       its implementation; meet it, correct it, or bring an unattainable bound
       to the owner.
       Sources: all remaining entries in `claims.md` and `dependence.md`.
@@ -298,7 +298,7 @@ into otherwise small feature increments.
       Sources: `meter-core-*`, `inventory-*`, `module-graph-*`;
       resource-instrumentation findings.
 
-- [ ] Remove dead stack accounting and allocation-experiment branches; narrow
+- [x] Remove dead stack accounting and allocation-experiment branches; narrow
       or retire traffic counters that do not protect a semantic or resource
       contract. Preserve scan and arithmetic-work counters, and retain the
       densification observation until equivalent coverage exists.
@@ -309,7 +309,7 @@ into otherwise small feature increments.
       work cannot read green merely because scan and touch do not observe it.
       Source: independent resource-surface audit, 2026-09-17.
 
-- [ ] Consolidate resource amplification into the board. Model each family as
+- [x] Consolidate resource amplification into the board. Model each family as
       valid operands, derive every bundle those operands support, and apply it
       to every compatible public operation rather than only the operation that
       motivated the family. Promote useful envelope-only families, and preserve

@@ -100,10 +100,8 @@
 //!
 //! Atoms and named constructors are `O(1)`.
 //!
-//! With `k` bounds, evaluation takes `O(k·n)` time and `O(n)` auxiliary space
-//! for `n` input bytes. More precisely, if `i` is the number of intervals in
-//! the streams' common tree overlay and `p` is the probe payloads' total size
-//! in bytes, time is `O(n + k·(i + p))`. A verdict may stop earlier.
+//! With `k` bounds and `n` total operand bytes, evaluation takes `O(k·n)` time
+//! and `O(n + k)` auxiliary space. A verdict may stop earlier.
 //!
 //! # Examples
 //!

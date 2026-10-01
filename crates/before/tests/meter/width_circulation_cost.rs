@@ -119,46 +119,22 @@ const REVEAL_COMB_TOUCH_CEILING: u64 = 77_120;
 /// re-pin.
 const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 46_272;
 
-/// Absolute touch ceiling on the pure comb's larger run: the
-/// measured record ×1.25, rounded up (the record and every
-/// re-pin's movement live in the pin commits).
+/// Touch ceiling on the pure comb's larger run: the measured dev-profile
+/// reading with 25% headroom, rounded up.
 ///
-/// The record's regime is the at-height arm's no-fold move: the
-/// accumulator's quick register folds the comb's narrow values in
-/// its register, so the ceiling sits close over the derived floor
-/// below.
+/// The accumulator handles each narrow step in its inline state, so widening
+/// the one plateau should add only the work needed to read that plateau.
 const PURE_COMB_TOUCH_CEILING: u64 = 2_714;
 
-/// Touch liveness floor on the pure comb's larger run, derived from
-/// the cycle's irreducible work — never from a measured basis.
+/// Widening a pure comb's one plateau does not multiply the work at every site.
 ///
-/// Each of the comb's k − 1 close-reveal cycles pays two touches the
-/// arm-recycle mechanism cannot avoid: the recycle's fold of the
-/// arriving offset with the parked latent boundary (a fold of an
-/// accumulator operand touches at least one digit, a fresh zero
-/// included) and the merged boundary's sign read deciding the push
-/// trichotomy.
-/// The wide plateau's own code folds into the running height once,
-/// at one touch per 64-bit limb. At (k, b) = (1,000, 2,048):
-/// 2·(k − 1) + b/64 = 1,998 + 32. A design that honestly does less
-/// is a floor-premise finding — re-derive the premise before
-/// trusting the trip.
-const PURE_COMB_TOUCH_FLOOR: u64 = 2_030;
-
-/// The pure comb's arm-move + close-pop cycle is flat in the
-/// range-minimum tracker alone — at most ×1.15 per-byte touch growth
-/// across a width doubling at fixed site count, under an absolute
-/// band on the larger run.
-///
-/// The signature is a flat touch
-/// count that the widening input divides, so per-byte cost falls
-/// across the width doubling: each wide leaf's frame closes its
-/// width-`b` boundary into the latent register by move and the
-/// next arm recycles it at the zero inter-site offset — no memo,
-/// no pre-scan, and no site consume anywhere, so this family pins
-/// the base stack's own cycle in isolation from the frame ledger.
+/// The site count stays fixed while the plateau width doubles. A correct walk
+/// moves the wide boundary once and handles each zero offset in constant work;
+/// rereading the plateau at every site would make touches per input byte grow.
+/// The shared [`tick_run`] floor independently proves that the touch counter is
+/// live.
 #[test]
-fn pure_comb_width_cycle_reads_width_scaled() {
+fn pure_comb_cost_is_independent_of_value_width() {
     let small = tick_run(
         Shape::PureComb.build2(1_000, 1_024),
         Shape::PureCombId.build1(1_000),
@@ -186,13 +162,6 @@ fn pure_comb_width_cycle_reads_width_scaled() {
         large.touches <= PURE_COMB_TOUCH_CEILING,
         "pure_comb: {} touches at (k, b) = (1,000, 2,048) exceed the pinned \
          ceiling {PURE_COMB_TOUCH_CEILING}",
-        large.touches,
-    );
-    assert!(
-        large.touches >= PURE_COMB_TOUCH_FLOOR,
-        "pure_comb: {} touches read below the {PURE_COMB_TOUCH_FLOOR} \
-         liveness floor (the cycle's derived irreducible work): the \
-         cycle's work left the metered representation",
         large.touches,
     );
 }

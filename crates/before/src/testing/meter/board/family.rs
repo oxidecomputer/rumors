@@ -175,6 +175,51 @@ const DOMINATED_UNDERCUT_BASE: usize = 160;
 /// exponent and numerator width.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
+/// Wide-tooth magnitude, tooth width, and tooth count at scale 1.0.
+const WIDE_TOOTH_BASE_MAGNITUDE: usize = 9_600;
+const WIDE_TOOTH_BASE_WIDTH: usize = 300;
+const WIDE_TOOTH_BASE_TEETH: usize = 64;
+
+/// Jump-comb magnitude and tooth count at scale 1.0.
+const JUMP_COMB_BASE_MAGNITUDE: usize = 512;
+const JUMP_COMB_BASE_TEETH: usize = 128;
+
+/// Cliff-fan and cancelling-chain dimensions at scale 1.0.
+const CLIFF_FAN_BASE: usize = 256;
+const CANCELLING_CHAIN_BASE: usize = 256;
+
+/// Alternating-spine depth at scale 1.0.
+const ALT_SPINE_BASE_DEPTH: usize = 8_000;
+
+/// Correlated masked-comparison dimensions at scale 1.0.
+const MASK_DRIFT_BASE_MAGNITUDE: usize = 512;
+const MASK_DRIFT_BASE_TEETH: usize = 256;
+const MASKED_HOLE_BASE_DEPTH: usize = 2_000;
+const MASKED_HOLE_MASK_DEPTH: usize = 8;
+
+/// Meet-shade carrier depth and population size at scale 1.0.
+const MEET_SHADE_BASE: usize = 128;
+
+/// Arming-train dimensions at scale 1.0.
+const ARMING_TRAIN_BASE_BLOCKS: usize = 64;
+const ARMING_TRAIN_BASE_WIDTH: usize = 32;
+const ARMING_TRAIN_BASE_GAPS: usize = 32;
+
+/// Scan-hole unit and per-hole depths at scale 1.0.
+const SCAN_HOLE_BASE_UNITS: usize = 64;
+const SCAN_HOLE_BASE_STEPS: usize = 256;
+
+/// Hoisted-window dimensions at scale 1.0.
+const HOISTED_WINDOW_WIDTH: usize = 12;
+const HOISTED_WINDOW_GAPS: usize = 40;
+const HOISTED_WINDOW_BASE_TAIL: usize = 81_920;
+
+/// Propagation-seam and latent-ladder dimensions at scale 1.0.
+const PROPAGATE_SEAM_BASE_DEPTH: usize = 512;
+const PROPAGATE_SEAM_CLEARANCE: usize = 5;
+const LATENT_LADDER_BASE_WIDTH: usize = 64;
+const LATENT_LADDER_BASE_LEAVES: usize = 512;
+
 /// Two-operand jump-comb teeth at scale 1.0 (pair size ~35 KiB, the teeth
 /// operand's per-level wide codes dominating).
 ///
@@ -486,6 +531,34 @@ pub(super) struct FamilyData {
     /// operation preparation does not include the version fold being measured
     /// elsewhere.
     pub(super) rank_pair: Option<(Rank, Rank)>,
+    /// A projected version compared with an unprojected version.
+    pub(super) masked_against: Option<MaskedAgainst>,
+    /// Two projected versions compared with each other.
+    pub(super) masked_pair: Option<MaskedPair>,
+}
+
+/// One version together with the party that selects its visible regions.
+pub(super) struct MaskedVersion {
+    /// Canonical version bytes.
+    pub(super) version: Vec<u8>,
+    /// Canonical party bytes.
+    pub(super) mask: Vec<u8>,
+}
+
+/// Correlated operands for comparing a projected version with another version.
+pub(super) struct MaskedAgainst {
+    /// The version and party whose projection is compared.
+    pub(super) projected: MaskedVersion,
+    /// The unprojected comparison operand.
+    pub(super) other: Vec<u8>,
+}
+
+/// Correlated operands for comparing two projected versions.
+pub(super) struct MaskedPair {
+    /// The first projected operand.
+    pub(super) left: MaskedVersion,
+    /// The second projected operand.
+    pub(super) right: MaskedVersion,
 }
 
 impl FamilyData {
@@ -505,6 +578,8 @@ impl FamilyData {
             query_probe: None,
             overlap: None,
             rank_pair: None,
+            masked_against: None,
+            masked_pair: None,
         }
     }
 
@@ -588,7 +663,18 @@ impl FamilyData {
             FamilyId::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
             FamilyId::Weave => Self::weave(size(WEAVE_BASE_LEAVES)),
             FamilyId::Stagger => Self::stagger(
+                kind,
                 size(STAGGER_BASE_OPERANDS).next_power_of_two(),
+                size(STAGGER_BASE_BLOCKS).next_power_of_two(),
+            ),
+            FamilyId::StaggerArity => Self::stagger(
+                kind,
+                size(STAGGER_BASE_OPERANDS).next_power_of_two(),
+                STAGGER_BASE_BLOCKS,
+            ),
+            FamilyId::StaggerSize => Self::stagger(
+                kind,
+                STAGGER_BASE_OPERANDS,
                 size(STAGGER_BASE_BLOCKS).next_power_of_two(),
             ),
             FamilyId::NestedFull => {
@@ -850,21 +936,164 @@ impl FamilyData {
                 data
             }
             FamilyId::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
-            FamilyId::WideToothComb
-            | FamilyId::JumpComb
-            | FamilyId::CliffFan
-            | FamilyId::CancellingChain
-            | FamilyId::AltSpine
-            | FamilyId::MaskDrift
-            | FamilyId::MeetShade
-            | FamilyId::ArmingTrain
-            | FamilyId::ScanHole
-            | FamilyId::MaskedHole
-            | FamilyId::HoistedWindow
-            | FamilyId::PropagateSeam
-            | FamilyId::LatentLadder => unreachable!(
-                "{kind:?} is envelope-only in the registry: it has no operand bundle, \
-                 and the board sweeps FamilyId::board() alone"
+            FamilyId::WideToothComb => Self::event(
+                kind,
+                Shape::WideToothComb
+                    .build3(
+                        size(WIDE_TOOTH_BASE_MAGNITUDE),
+                        size(WIDE_TOOTH_BASE_WIDTH),
+                        size(WIDE_TOOTH_BASE_TEETH),
+                    )
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::JumpComb => Self::event(
+                kind,
+                Shape::JumpComb
+                    .build2(size(JUMP_COMB_BASE_MAGNITUDE), size(JUMP_COMB_BASE_TEETH))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::CliffFan => Self::event(
+                kind,
+                Shape::CliffFan
+                    .build2(size(CLIFF_FAN_BASE), size(CLIFF_FAN_BASE))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::CancellingChain => Self::event(
+                kind,
+                Shape::CancellingChain
+                    .build2(size(CANCELLING_CHAIN_BASE), size(CANCELLING_CHAIN_BASE))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::AltSpine => Self::event(
+                kind,
+                Shape::AltSpine
+                    .build1(size(ALT_SPINE_BASE_DEPTH))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::MaskDrift => {
+                let teeth = size(MASK_DRIFT_BASE_TEETH).max(2) & !1;
+                let (v, p, w) =
+                    Shape::MaskDriftTriple.build_triple(size(MASK_DRIFT_BASE_MAGNITUDE), teeth);
+                let ((v1, p1), (v2, p2)) = Shape::MaskDriftQuadruple
+                    .build_quadruple(size(MASK_DRIFT_BASE_MAGNITUDE), teeth);
+                let v = v.version().encode();
+                let w = w.version().encode();
+                let v1 = v1.version().encode();
+                let v2 = v2.version().encode();
+                let mut data = Self::event(kind, v.clone());
+                data.masked_against = Some(MaskedAgainst {
+                    projected: MaskedVersion {
+                        version: v,
+                        mask: p.bytes,
+                    },
+                    other: w,
+                });
+                data.masked_pair = Some(MaskedPair {
+                    left: MaskedVersion {
+                        version: v1,
+                        mask: p1.bytes,
+                    },
+                    right: MaskedVersion {
+                        version: v2,
+                        mask: p2.bytes,
+                    },
+                });
+                data
+            }
+            FamilyId::MeetShade => {
+                let n = size(MEET_SHADE_BASE);
+                let versions = Shape::MeetShade.versions(n, n);
+                Self::population(kind, versions)
+            }
+            FamilyId::ArmingTrain => Self::event(
+                kind,
+                Shape::ArmingTrain
+                    .build_train(
+                        size(ARMING_TRAIN_BASE_BLOCKS),
+                        ARMING_TRAIN_BASE_WIDTH,
+                        ARMING_TRAIN_BASE_GAPS,
+                        true,
+                    )
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::CollapseHole => {
+                let (v, p) = Shape::CollapseHole
+                    .build_pair(size(SCAN_HOLE_BASE_UNITS), size(SCAN_HOLE_BASE_STEPS));
+                Self::cross_family(kind, v.version().encode(), p.bytes)
+            }
+            FamilyId::CopyHole => {
+                let (v, p) = Shape::CopyHole
+                    .build_pair(size(SCAN_HOLE_BASE_UNITS), size(SCAN_HOLE_BASE_STEPS));
+                Self::cross_family(kind, v.version().encode(), p.bytes)
+            }
+            FamilyId::RaiseHole => {
+                let (v, p) = Shape::RaiseHole
+                    .build_pair(size(SCAN_HOLE_BASE_UNITS), size(SCAN_HOLE_BASE_STEPS));
+                Self::cross_family(kind, v.version().encode(), p.bytes)
+            }
+            FamilyId::SiteHole => {
+                let (v, p) = Shape::SiteHole
+                    .build_pair(size(SCAN_HOLE_BASE_UNITS), size(SCAN_HOLE_BASE_STEPS));
+                Self::cross_family(kind, v.version().encode(), p.bytes)
+            }
+            FamilyId::MaskedHole => {
+                let (v, p, w) = Shape::MaskedHoleTriple
+                    .build_triple(size(MASKED_HOLE_BASE_DEPTH), MASKED_HOLE_MASK_DEPTH);
+                let v = v.version().encode();
+                let w = w.version().encode();
+                let mut data = Self::event(kind, v.clone());
+                data.masked_against = Some(MaskedAgainst {
+                    projected: MaskedVersion {
+                        version: v,
+                        mask: p.bytes,
+                    },
+                    other: w,
+                });
+                data
+            }
+            FamilyId::HoistedWindow => Self::event(
+                kind,
+                Shape::HoistedWindow
+                    .build3(
+                        HOISTED_WINDOW_WIDTH,
+                        HOISTED_WINDOW_GAPS,
+                        size(HOISTED_WINDOW_BASE_TAIL),
+                    )
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::PropagateSeam => {
+                let k = size(PROPAGATE_SEAM_BASE_DEPTH);
+                let mut data = Self::event(
+                    kind,
+                    Shape::SeamPlunge
+                        .build2(k, PROPAGATE_SEAM_CLEARANCE)
+                        .version()
+                        .encode(),
+                );
+                data.version2 = Some(
+                    Shape::SeamPlungeControl
+                        .build2(k, PROPAGATE_SEAM_CLEARANCE)
+                        .version()
+                        .encode(),
+                );
+                data
+            }
+            FamilyId::LatentLadder => Self::event(
+                kind,
+                Shape::LatentLadder
+                    .build2(
+                        size(LATENT_LADDER_BASE_WIDTH),
+                        size(LATENT_LADDER_BASE_LEAVES),
+                    )
+                    .version()
+                    .encode(),
             ),
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
@@ -877,7 +1106,9 @@ impl FamilyData {
         // (shape-derived rank against a small integer rank, the pair whose
         // exponent mismatch the rank rows price).
         if let Some(bytes) = &data.version {
-            let v = decode_version(bytes);
+            let v = Version::decode(&bytes[..]).unwrap_or_else(|error| {
+                panic!("{} generated an invalid version: {error}", data.name)
+            });
             if data.version2.is_none() {
                 let mut w = v.clone();
                 w.tick(&Party::seed());
@@ -1024,12 +1255,34 @@ impl FamilyData {
     ///
     /// Fed in bit-reversed order ([`Shape::StaggerPopulation`]'s constructor
     /// carries both the construction and the feed order's derivation).
-    fn stagger(n: usize, m: usize) -> FamilyData {
+    fn stagger(kind: FamilyId, n: usize, m: usize) -> FamilyData {
         let (versions, ids) = Shape::StaggerPopulation.population(n, m);
-        let mut data = Self::bare(FamilyId::Stagger);
+        let mut data = Self::bare(kind);
         data.population = Some((
             versions.iter().map(|p| p.version().encode()).collect(),
             ids.into_iter().map(|p| p.bytes).collect(),
+        ));
+        data
+    }
+
+    /// Pair an adversarial version population with equally many disjoint
+    /// parties so every population-consuming row can exercise it.
+    fn population(kind: FamilyId, versions: Vec<Version>) -> FamilyData {
+        let mut parties = vec![Party::seed()];
+        while parties.len() < versions.len() {
+            let mut next = Vec::with_capacity(parties.len() * 2);
+            for mut party in parties {
+                let other = party.fork();
+                next.push(party);
+                next.push(other);
+            }
+            parties = next;
+        }
+        parties.truncate(versions.len());
+        let mut data = Self::bare(kind);
+        data.population = Some((
+            versions.into_iter().map(|v| v.encode()).collect(),
+            parties.into_iter().map(|p| p.encode()).collect(),
         ));
         data
     }

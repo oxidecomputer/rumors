@@ -432,7 +432,8 @@ fn left_spike(depth: usize) -> Version {
 ///
 /// The regimes: a deep expansion chain (unary id spine over one leaf) and a
 /// deep two-cursor descent mixing into an id-only expansion where the id
-/// outruns the event, all long before the resource envelopes notice.
+/// outruns the event. These cases directly establish stack safety beyond the
+/// sizes sampled by the resource board.
 ///
 /// The recursive oracle walks on native frames, so the value witnesses here are
 /// closed forms, derived per case: the deep unary id over the empty version

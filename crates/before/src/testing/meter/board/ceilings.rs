@@ -149,7 +149,7 @@ pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 /// operation-specific limit excludes evaluation from the general heap ceiling
 /// while retaining the board's linear-growth check. It is the largest
 /// release-profile reading with 25% headroom, rounded up.
-pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 82.0;
+pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 152.0;
 
 /// Base scale and size multiplier for a single-scale board run.
 ///

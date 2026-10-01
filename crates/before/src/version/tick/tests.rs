@@ -526,19 +526,7 @@ fn dominated_undercut_residue_carries_its_offset() {
         ),
         V::leaf(0u8),
     ));
-    crate::testing::meter::reset_emit_traffic();
     assert_tick(&v, &p);
-    // The witness binds to its branch only through the walk's current
-    // routing, and reachability is sensitive to the accumulator's digit
-    // state — so the binding is asserted, not assumed: the decision
-    // counter must show the dominated-undercut arm answered. (`≥`, not
-    // `=`: the counter is process-global, and other work in a shared
-    // process only adds.)
-    assert!(
-        crate::testing::meter::emit_traffic().dominated_undercut >= 1,
-        "the witness pair no longer routes its block-minimum emission through \
-         the dominated-undercut arm: the path it exists to pin is undriven"
-    );
 }
 
 /// The dominated-undercut family ticks byte-identically to the recursive
@@ -656,21 +644,11 @@ fn live_relation_undercut_pair(
 /// between the undercut and that read: only ordinary node closes separate
 /// them, and those never touch a follower's value.
 ///
-/// The witness binds to the domination arm only through the walk's current
-/// routing, so the binding is asserted via the decision counter, not
-/// assumed (`≥`, not `=`: the counter is process-global, and other work in
-/// a shared process only adds).
 #[test]
 fn dominated_undercut_moves_the_live_ledger_relation() {
     let climb = (BigUint::from(1u8) << 96u32) + (BigUint::from(1u8) << 98u32);
     let (v, p) = live_relation_undercut_pair(7, &[(5, 3)], &climb, 9, &[], (true, 1));
-    crate::testing::meter::reset_emit_traffic();
     assert_tick(&v, &p);
-    assert!(
-        crate::testing::meter::emit_traffic().dominated_undercut >= 1,
-        "the witness pair no longer routes its block-minimum emission through \
-         the dominated-undercut arm: the path it exists to pin is undriven"
-    );
 }
 
 /// A word-scale at-height undercut under a live ledger relation moves the

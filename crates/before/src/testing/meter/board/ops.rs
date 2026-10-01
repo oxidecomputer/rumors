@@ -53,6 +53,20 @@ use crate::testing::meter::registry::FamilyId;
 /// Arity used to exercise the public const-generic array operations.
 const ARRAY_ARITY: usize = 16;
 
+/// Scan ceiling for read-only Party comparisons.
+///
+/// A full traversal reads eight bits per input byte. The extra quarter admits
+/// boundary and padding effects while ensuring that a second pass cannot hide
+/// beneath the board's broader multi-pass ceiling.
+const PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE: f64 = 10.0;
+
+/// Touch ceiling for comparing through a fixed-depth ownership mask.
+///
+/// `MaskedHole` grows the version beneath one unowned mask region while the
+/// mask itself stays fixed. The comparison must skip that region as a block,
+/// so its arithmetic work cannot grow with the hidden version.
+const MASKED_HOLE_TOUCH_CEILING: f64 = 18.0;
+
 /// Why shape iteration has no representation-independent heap floor.
 const NA_HEAP_SHAPE_WALK: &str =
     "paths and rises may share input storage or live inline; heap allocation is not required";
@@ -1296,7 +1310,25 @@ pub(super) fn ops() -> Vec<Op> {
                 // every shape — the output-domination crosses included,
                 // which is the point: comparing a projection never pays
                 // its materialization.
-                let (v, p, w, n) = if let Some((v, p, np)) = f.cross() {
+                let (v, p, w, n) = if let Some(masked) = &f.masked_against {
+                    (
+                        Version::decode(&masked.projected.version[..]).unwrap_or_else(|error| {
+                            panic!("{} generated an invalid masked version: {error}", f.name)
+                        }),
+                        Party::decode(&masked.projected.mask[..]).unwrap_or_else(|error| {
+                            panic!("{} generated an invalid mask: {error}", f.name)
+                        }),
+                        Version::decode(&masked.other[..]).unwrap_or_else(|error| {
+                            panic!(
+                                "{} generated an invalid comparison version: {error}",
+                                f.name
+                            )
+                        }),
+                        masked.projected.version.len()
+                            + masked.projected.mask.len()
+                            + masked.other.len(),
+                    )
+                } else if let Some((v, p, np)) = f.cross() {
                     let (_, w, _) = f.version_pair()?;
                     let nw = f.version2.as_ref()?.len();
                     (v, p, w, np + nw)
@@ -1316,10 +1348,15 @@ pub(super) fn ops() -> Vec<Op> {
                     (v, a, w, n)
                 };
                 let floors = masked_cmp_floors(&(&v / &p).partial_cmp(&w), &v, &w, n);
-                Some(Cell::new(n, floors, move || {
+                let cell = Cell::new(n, floors, move || {
                     let ord = (&v / &p).partial_cmp(&w);
                     (ord, v, p, w)
-                }))
+                });
+                Some(if matches!(f.kind, FamilyId::MaskedHole) {
+                    cell.with_model(Currency::Touch, ModelSpec::fixed(MASKED_HOLE_TOUCH_CEILING))
+                } else {
+                    cell
+                })
             },
         },
         Op {
@@ -1327,30 +1364,57 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 // The fused four-stream comparison `(v/a) ⋚ (w/b)`:
                 // input-denominated everywhere, as the three-stream row.
-                let (v, a, w, b, n) = match (f.parties.is_some(), f.version.is_some()) {
-                    (true, true) => {
-                        let (a, b, np) = f.party_pair()?;
-                        let (v, w, nv) = f.version_pair()?;
-                        (v, a, w, b, np + nv)
+                let (v, a, w, b, n) = if let Some(masked) = &f.masked_pair {
+                    (
+                        Version::decode(&masked.left.version[..]).unwrap_or_else(|error| {
+                            panic!(
+                                "{} generated an invalid first masked version: {error}",
+                                f.name
+                            )
+                        }),
+                        Party::decode(&masked.left.mask[..]).unwrap_or_else(|error| {
+                            panic!("{} generated an invalid first mask: {error}", f.name)
+                        }),
+                        Version::decode(&masked.right.version[..]).unwrap_or_else(|error| {
+                            panic!(
+                                "{} generated an invalid second masked version: {error}",
+                                f.name
+                            )
+                        }),
+                        Party::decode(&masked.right.mask[..]).unwrap_or_else(|error| {
+                            panic!("{} generated an invalid second mask: {error}", f.name)
+                        }),
+                        masked.left.version.len()
+                            + masked.left.mask.len()
+                            + masked.right.version.len()
+                            + masked.right.mask.len(),
+                    )
+                } else {
+                    match (f.parties.is_some(), f.version.is_some()) {
+                        (true, true) => {
+                            let (a, b, np) = f.party_pair()?;
+                            let (v, w, nv) = f.version_pair()?;
+                            (v, a, w, b, np + nv)
+                        }
+                        (false, true) => {
+                            // Seed fork halves around the shape's version pair.
+                            let (v, w, nv) = f.version_pair()?;
+                            let mut a = Party::seed();
+                            let b = a.fork();
+                            (v, a, w, b, nv + 2)
+                        }
+                        (true, false) => {
+                            // The party pair's own single-tick histories.
+                            let (a, b, np) = f.party_pair()?;
+                            let mut v = Version::new();
+                            v.tick(&a);
+                            let mut w = Version::new();
+                            w.tick(&b);
+                            let n = np + v.encode().len() + w.encode().len();
+                            (v, a, w, b, n)
+                        }
+                        (false, false) => return None,
                     }
-                    (false, true) => {
-                        // Seed fork halves around the shape's version pair.
-                        let (v, w, nv) = f.version_pair()?;
-                        let mut a = Party::seed();
-                        let b = a.fork();
-                        (v, a, w, b, nv + 2)
-                    }
-                    (true, false) => {
-                        // The party pair's own single-tick histories.
-                        let (a, b, np) = f.party_pair()?;
-                        let mut v = Version::new();
-                        v.tick(&a);
-                        let mut w = Version::new();
-                        w.tick(&b);
-                        let n = np + v.encode().len() + w.encode().len();
-                        (v, a, w, b, n)
-                    }
-                    (false, false) => return None,
                 };
                 let floors = masked_cmp_floors(&(&v / &a).partial_cmp(&(&w / &b)), &v, &w, n);
                 Some(Cell::new(n, floors, move || {
@@ -2029,7 +2093,12 @@ pub(super) fn ops() -> Vec<Op> {
                     scan: scan_touch(),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
-                Some(Cell::new(n, floors, move || (a.covers(&b), a, b)))
+                Some(
+                    Cell::new(n, floors, move || (a.covers(&b), a, b)).with_model(
+                        Currency::Scan,
+                        ModelSpec::ceiling(PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE),
+                    ),
+                )
             },
         },
         Op {
@@ -2041,7 +2110,12 @@ pub(super) fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
-                Some(Cell::new(n, floors, move || (a.is_disjoint(&b), a, b)))
+                Some(
+                    Cell::new(n, floors, move || (a.is_disjoint(&b), a, b)).with_model(
+                        Currency::Scan,
+                        ModelSpec::ceiling(PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE),
+                    ),
+                )
             },
         },
         Op {

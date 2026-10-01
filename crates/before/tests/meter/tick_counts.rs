@@ -12,7 +12,7 @@ use super::*;
 /// column may move beyond a word of slack. An implementation iterating
 /// any fraction of the count moves every column by ~8x here and cannot
 /// hide in a constant; a dead meter reads zero movement AND a zero
-/// point, which the envelope rows' improvement tripwires already reject.
+/// point, which the amplification board's growth checks already reject.
 #[test]
 fn ticks_flatness_holds_the_log_band() {
     let cases: Vec<(&str, Version, Party)> = vec![

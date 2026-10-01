@@ -11,7 +11,6 @@ use std::io::{Read, Result as IoResult, Write};
 use crate::bits::Bits;
 use crate::error::Decode;
 use crate::span::Span;
-use crate::testing::instrument::span_hull;
 use crate::Party;
 
 #[cfg(any(test, feature = "meter"))]
@@ -883,27 +882,21 @@ impl Version {
     /// complete walk then builds the meet and join together, decoding each
     /// input once for both outputs.
     pub(crate) fn hull(&self, other: &Version) -> (Version, Version) {
-        use span_hull::Rung;
         if self == other {
-            span_hull::record(Rung::Equal);
             return (self.clone(), self.clone());
         }
         if self.is_empty() {
             // The empty version is the meet and the other version is the join.
-            span_hull::record(Rung::Empty);
             return (self.clone(), other.clone());
         }
         if other.is_empty() {
-            span_hull::record(Rung::Empty);
             return (Version::new(), self.clone());
         }
         match self.partial_cmp(other) {
             Some(Ordering::Less) => {
-                span_hull::record(Rung::Comparable);
                 return (self.clone(), other.clone());
             }
             Some(Ordering::Greater) => {
-                span_hull::record(Rung::Comparable);
                 return (other.clone(), self.clone());
             }
             Some(Ordering::Equal) => unreachable!(
@@ -911,7 +904,6 @@ impl Version {
             ),
             None => {}
         }
-        span_hull::record(Rung::Concurrent);
         let hull = self.hull_bits(other);
         // The emitting walk also computes causal order from comparisons needed
         // for its outputs, providing an independent check of the earlier result.

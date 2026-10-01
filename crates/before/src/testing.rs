@@ -20,6 +20,9 @@ pub mod oracles;
 #[cfg(any(test, feature = "meter"))]
 pub mod surface;
 
+#[cfg(any(test, feature = "meter"))]
+pub(crate) mod version;
+
 #[cfg(test)]
 pub(crate) mod bridge;
 #[cfg(test)]

@@ -9,10 +9,8 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
-use crate::testing::instrument::range_minima as traffic;
-
 use super::RangeMinima;
+use crate::accumulator::BigIntAccumulator as _;
 
 /// Track emitted minima and client differences when boundaries need no payload.
 impl RangeMinima<()> {
@@ -67,13 +65,11 @@ impl RangeMinima<()> {
             return false;
         }
         let Some(sign) = self.anchor.gap_dominates_word() else {
-            traffic::record(traffic::Decision::Undecided);
             return false;
         };
         match sign {
-            Ordering::Greater => traffic::record(traffic::Decision::DominatedAbove),
+            Ordering::Greater => {}
             Ordering::Less => {
-                traffic::record(traffic::Decision::DominatedUndercut);
                 let decrease = self.anchor.undercut_offset(offset);
                 self.propagate_drop(decrease, &mut (), |(), _| ());
                 self.anchor.set_gap_below_offset(offset);
