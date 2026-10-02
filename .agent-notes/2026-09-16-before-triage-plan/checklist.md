@@ -339,12 +339,12 @@ into otherwise small feature increments.
 
 ## 09. Fuzzing, platform pins, gate, and dependencies
 
-- [ ] Give fuzz targets and seed replay a clear cadence and unique purpose;
+- [x] Give fuzz targets and seed replay a clear cadence and unique purpose;
       preserve all committed seeds and remove duplicate framing and roster
       machinery.
       Sources: `fuzz-guests-pins-*`, `tests-other-*`, `gate-legs-*`.
 
-- [ ] Keep a direct 32-bit boundary suite if it catches behavior ordinary host
+- [x] Keep a direct 32-bit boundary suite if it catches behavior ordinary host
       tests cannot; simplify its guest, harness, terminal vocabulary, and
       dependency footprint.
       Sources: `fuzz-guests-pins-*`, `deps-*`, width findings in section 02.
@@ -354,11 +354,11 @@ into otherwise small feature increments.
       kernel-coverage pin for their distinct signals.
       Sources: `gate-legs-*`, `tools-*`, `surface-roster-*`.
 
-- [ ] Make the remaining gate and CI recipes derive their inputs, run at their
+- [x] Make the remaining gate and CI recipes derive their inputs, run at their
       documented cadence, and stay green on an unchanged tree.
       Sources: `gate-legs-*`, `deps-*`, `tools-*`.
 
-- [ ] Prune unused dependencies and generated assets after instrument
+- [x] Prune unused dependencies and generated assets after instrument
       consolidation; verify each supported feature combination.
       Sources: `deps-*`, `inventory-*`, `module-graph-*`.
 
