@@ -11,6 +11,7 @@
 //! recursive-oracle populations or production state after each step.
 
 use proptest::prelude::*;
+use proptest::sample::Index;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
@@ -190,34 +191,37 @@ impl TraceModel for FunctionSpace {
     }
 }
 
-/// One step of a seed-derived execution. Indices are reduced modulo the live
-/// population, so any index is valid and every member descends from one seed via
-/// fork/join/sync — keeping all parties pairwise disjoint.
+/// One step of a seed-derived execution.
+///
+/// [`Index`] maps each operand across the entire live population at the moment
+/// the step runs. Thus clocks appended by earlier forks remain eligible for
+/// later operations. Every member descends from one seed through fork, join,
+/// and sync, keeping all live parties pairwise disjoint.
 #[derive(Clone, Debug)]
 pub(crate) enum Op {
     /// Advance member `i`.
-    Tick(usize),
+    Tick(Index),
     /// Advance member `i` by `n` events in one fused call (small `n`:
     /// the oracle applier iterates it literally).
-    Ticks(usize, u8),
+    Ticks(Index, u8),
     /// Split member `i`, appending the child.
-    Fork(usize),
+    Fork(Index),
     /// `i` sends (ticks, emits its version); `j` receives it.
-    Send(usize, usize),
+    Send(Index, Index),
     /// Reconcile `i` and `j` (join then re-split).
-    Sync(usize, usize),
+    Sync(Index, Index),
     /// Join `j` into `i`, removing `j`.
-    Join(usize, usize),
+    Join(Index, Index),
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
-        (0usize..8).prop_map(Op::Tick),
-        (0usize..8, 0u8..=6).prop_map(|(i, n)| Op::Ticks(i, n)),
-        (0usize..8).prop_map(Op::Fork),
-        (0usize..8, 0usize..8).prop_map(|(a, b)| Op::Send(a, b)),
-        (0usize..8, 0usize..8).prop_map(|(a, b)| Op::Sync(a, b)),
-        (0usize..8, 0usize..8).prop_map(|(a, b)| Op::Join(a, b)),
+        any::<Index>().prop_map(Op::Tick),
+        (any::<Index>(), 0u8..=6).prop_map(|(i, n)| Op::Ticks(i, n)),
+        any::<Index>().prop_map(Op::Fork),
+        (any::<Index>(), any::<Index>()).prop_map(|(a, b)| Op::Send(a, b)),
+        (any::<Index>(), any::<Index>()).prop_map(|(a, b)| Op::Sync(a, b)),
+        (any::<Index>(), any::<Index>()).prop_map(|(a, b)| Op::Join(a, b)),
     ]
 }
 
@@ -265,19 +269,19 @@ fn apply<M: TraceModel>(
 ) {
     let n = clocks.len();
     match *op {
-        Op::Tick(i) => M::tick(&mut clocks[i % n], rng),
-        Op::Ticks(i, count) => M::ticks(&mut clocks[i % n], count, rng),
+        Op::Tick(i) => M::tick(&mut clocks[i.index(n)], rng),
+        Op::Ticks(i, count) => M::ticks(&mut clocks[i.index(n)], count, rng),
         Op::Fork(i) => {
-            let child = M::fork(&mut clocks[i % n], rng);
+            let child = M::fork(&mut clocks[i.index(n)], rng);
             clocks.push(child);
         }
         Op::Send(i, j) => {
-            let (i, j) = (i % n, j % n);
+            let (i, j) = (i.index(n), j.index(n));
             let message = M::send(&mut clocks[i], rng);
             M::receive(&mut clocks[j], message, rng);
         }
         Op::Sync(i, j) => {
-            let (i, j) = (i % n, j % n);
+            let (i, j) = (i.index(n), j.index(n));
             if i != j {
                 let (lo, hi) = (i.min(j), i.max(j));
                 let (left, right) = clocks.split_at_mut(hi);
@@ -286,7 +290,7 @@ fn apply<M: TraceModel>(
         }
         Op::Join(i, j) => {
             if n > 1 {
-                let (i, j) = (i % n, j % n);
+                let (i, j) = (i.index(n), j.index(n));
                 if i != j {
                     let other = clocks.remove(j);
                     let receiver = if j < i { i - 1 } else { i };
@@ -352,3 +356,6 @@ pub(crate) fn versions(cs: &[tree::Clock]) -> Vec<tree::Version> {
 pub(crate) fn leq(a: &tree::Version, b: &tree::Version) -> bool {
     a <= b
 }
+
+#[cfg(test)]
+mod tests;

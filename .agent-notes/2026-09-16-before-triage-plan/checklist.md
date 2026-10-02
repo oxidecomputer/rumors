@@ -255,7 +255,7 @@ into otherwise small feature increments.
       cost helper.
       Source: `oracle-laws-4`.
 
-- [ ] Let operation traces address every member they create rather than only
+- [x] Let operation traces address every member they create rather than only
       the first eight.
       Source: `testing-diff-gen-15`.
 
@@ -290,8 +290,9 @@ into otherwise small feature increments.
       their complete canonical storage, including marker padding.
       Sources: `board-families-floors-judge-27`, `board-frame-15`.
 
-- [ ] Make the truncation family remove exactly the last byte, so it reaches
-      the latest possible truncation boundary under the current decoder.
+- [x] Declined: changing the truncation family to remove exactly the last byte
+      duplicates the existing late-rejection coverage while introducing a
+      marker-alignment discontinuity into the growth fit.
       Source: `board-frame-21`.
 
 - [x] Directly cover Party, Version, and Clock shape walks and arity-dependent

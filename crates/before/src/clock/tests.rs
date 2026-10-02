@@ -219,12 +219,12 @@ proptest! {
             let n = ora.len();
             match *op {
                 Op::Tick(i) => {
-                    let i = i % n;
+                    let i = i.index(n);
                     ora[i].tick();
                     imp[i].tick();
                 }
                 Op::Ticks(i, k) => {
-                    let i = i % n;
+                    let i = i.index(n);
                     // The oracle iterates; the impl's one fused call must
                     // land on the same structure.
                     for _ in 0..k {
@@ -233,21 +233,21 @@ proptest! {
                     imp[i].ticks(u64::from(k));
                 }
                 Op::Fork(i) => {
-                    let i = i % n;
+                    let i = i.index(n);
                     let oc = ora[i].fork();
                     let ic = imp[i].fork();
                     ora.push(oc);
                     imp.push(ic);
                 }
                 Op::Send(i, j) => {
-                    let (i, j) = (i % n, j % n);
+                    let (i, j) = (i.index(n), j.index(n));
                     let om = ora[i].send();
                     let im = imp[i].send().clone();
                     ora[j].receive(om);
                     imp[j].recv(&im);
                 }
                 Op::Sync(i, j) => {
-                    let (i, j) = (i % n, j % n);
+                    let (i, j) = (i.index(n), j.index(n));
                     if i != j {
                         let hi = i.max(j);
                         let lo = i.min(j);
@@ -263,7 +263,7 @@ proptest! {
                 }
                 Op::Join(i, j) => {
                     if n > 1 {
-                        let (i, j) = (i % n, j % n);
+                        let (i, j) = (i.index(n), j.index(n));
                         if i != j {
                             let ov = ora.remove(j);
                             let iv = imp.remove(j);

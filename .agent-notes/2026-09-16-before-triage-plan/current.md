@@ -54,12 +54,10 @@ increments are complete.
 
 The final finding reconciliation left this priority order:
 
-1. Correct the truncation adversary.
-2. Let generated operation traces address every member they create.
-3. Enforce the oracle bridge's normal-form assumptions.
-4. Close the remaining substantive production prose and local simplification
+1. Enforce the oracle bridge's normal-form assumptions.
+2. Close the remaining substantive production prose and local simplification
    batch recorded in checklist section 06.
-5. Run the final integrated verification and reconcile the checklist.
+3. Run the final integrated verification and reconcile the checklist.
 
 The fuelscape dump-accretion and provenance proposals are declined. The public
 crate page remains reserved for the owner's later rewrite.
