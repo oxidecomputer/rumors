@@ -4,7 +4,6 @@
 //! hashes, or either reconciliation implementation. It grounds `Tree::join` as
 //! the oracle used by the wire tests.
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::prelude::*;
@@ -54,11 +53,8 @@ fn survivors<const N: usize>(roots: &[Root; N]) -> BTreeSet<Vec<u8>> {
         .into_iter()
         .filter(|(key, version)| {
             roots.iter().zip(&live).all(|(root, live)| {
-                live.contains(key)
-                    || !matches!(
-                        version.partial_cmp(&root.ceiling),
-                        Some(Ordering::Less | Ordering::Equal)
-                    )
+                let dominated = version <= root.ceiling;
+                live.contains(key) || !dominated
             })
         })
         .map(|(key, _)| key)

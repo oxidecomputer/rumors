@@ -227,16 +227,6 @@ macro_rules! laws {
     };
 }
 
-/// Returns whether `a` causally precedes or equals `b`.
-fn le(a: &Version, b: &Version) -> bool {
-    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
-}
-
-/// Returns causal `<=` for any pair of comparable version views.
-fn le_by<L: PartialOrd<R>, R>(a: &L, b: &R) -> bool {
-    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
-}
-
 /// Hashes one value for laws that check `Eq` and `Hash` coherence.
 fn hash_of<T: Hash>(value: &T) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();

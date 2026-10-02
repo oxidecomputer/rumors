@@ -8,8 +8,9 @@ use std::marker::PhantomData;
 
 use super::forms::{after, before, Ceiling, Floor};
 use super::polarity::{Neutral, Polarity};
-use super::{Query, Version};
+use super::Query;
 use crate::span::Span;
+use crate::Version;
 
 /// A bare floor is a neutral query (no holes), which conjoins into either
 /// polarity.

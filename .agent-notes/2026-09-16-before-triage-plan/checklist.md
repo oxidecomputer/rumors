@@ -91,6 +91,13 @@ triage's dispositions and branches are leads only.
 
 ## 05. Time and auxiliary-space contracts
 
+- [x] Route one-direction causal comparisons through the comparison walk's
+      one-direction early exit, including causal atoms and Span fast paths.
+      Preserve full comparison only where the caller needs the complete
+      relation. Give full, directional, and equality comparisons separate
+      fuelscape panels so their different stopping conditions remain visible.
+      Source: `span-causally-26`.
+
 - [x] Restore `Version::join`'s bound on wide-leaf/deep-spine combinations.
       Sources: `skyline-coding-9`; Rumors dependence ledger.
 
@@ -189,6 +196,12 @@ triage's dispositions and branches are leads only.
 
 ## 06. Production structure and local simplification
 
+- [ ] Close the remaining substantive cleanup: state the causal-actor
+      obligation of dangerous aliases accurately, correct the Span algebra
+      identities, state `BitStack` costs precisely and delete impossible
+      branches, and narrow `BitsWriter`'s capacity promise.
+      Sources: final finding reconciliation.
+
 - [x] Simplify Party traversal, fork, join, sync, difference, and fold paths
       while preserving their direct properties and costs. Align internal names
       with the public operations, attach behavior to the type that owns it, and
@@ -238,6 +251,17 @@ triage's dispositions and branches are leads only.
 Broad test-suite cleanup follows the behavioral and API work; do not mix it
 into otherwise small feature increments.
 
+- [ ] Make the recursive oracle's route cost independent of the production
+      cost helper.
+      Source: `oracle-laws-4`.
+
+- [ ] Let operation traces address every member they create rather than only
+      the first eight.
+      Source: `testing-diff-gen-15`.
+
+- [ ] Enforce the normal-form assumptions at the oracle-to-production bridge.
+      Source: `testing-oracles-4`.
+
 - [x] Drive every public suanpan operation through one differential proptest
       against an arbitrary-precision integer oracle. Deliberately generate the
       small/digit transition, carry and limb boundaries, sparse high shifts,
@@ -261,6 +285,14 @@ into otherwise small feature increments.
       and the old triage's later findings.
 
 ## 08. Resource instrumentation
+
+- [ ] Denominate Version output bytes by the complete canonical encoding,
+      including its marker byte.
+      Sources: `board-families-floors-judge-27`, `board-frame-15`.
+
+- [ ] Make the truncation family remove exactly the last byte, so it reaches
+      the latest possible truncation boundary under the current decoder.
+      Source: `board-frame-21`.
 
 - [x] Directly cover Party, Version, and Clock shape walks and arity-dependent
       `shape::combine` bookkeeping on the global amplification board.
@@ -421,8 +453,10 @@ into otherwise small feature increments.
 
 ## 12. Finish and reconcile
 
-- [ ] Re-read every original finding against the integrated branch; assign any
-      surviving issue to an open outcome or record an explicit disposition.
+- [x] Re-read every original finding against the integrated branch and assign
+      each consequential survivor to the open outcomes above. Fuelscape dump
+      accretion and provenance enforcement are declined; the crate-page claims
+      remain owner-deferred.
 
 - [ ] Verify the complete branch with `just gate`, the justified slower checks,
       feature combinations, doctests, generated-document checks, and Rumors.

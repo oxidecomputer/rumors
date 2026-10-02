@@ -36,7 +36,6 @@
 //! therefore requires an explicit [`Span::at`].
 
 use std::borrow::Borrow;
-use std::cmp::Ordering;
 use std::iter::{Product, Sum};
 use std::ops::{Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, Mul};
 
@@ -166,9 +165,10 @@ impl<'a> Span<'a> {
         let mut hi = self.hi().clone();
         lo |= other.lo();
         hi &= other.hi();
-        match lo.partial_cmp(&hi) {
-            Some(Ordering::Less | Ordering::Equal) => Some(Span::owned(lo, hi)),
-            Some(Ordering::Greater) | None => None,
+        if lo <= hi {
+            Some(Span::owned(lo, hi))
+        } else {
+            None
         }
     }
 
@@ -212,9 +212,10 @@ impl<'a> Span<'a> {
         I::Item: Borrow<Span<'s>>,
     {
         let (lo, hi) = self.fold_endpoints(iter, &INTERSECT_OPS);
-        match lo.partial_cmp(&hi) {
-            Some(Ordering::Less | Ordering::Equal) => Some(Span::owned(lo, hi)),
-            Some(Ordering::Greater) | None => None,
+        if lo <= hi {
+            Some(Span::owned(lo, hi))
+        } else {
+            None
         }
     }
 

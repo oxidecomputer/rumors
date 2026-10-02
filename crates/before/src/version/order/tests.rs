@@ -5,8 +5,8 @@
 //! families, arbitrary trees, organic histories, and the exhaustive small scope
 //! — it shares no cursor, no delta, and no accumulator with the sweep.
 //!
-//! Every assertion runs all four entry points, so a bookkeeping error that
-//! misreads a direction (rather than panicking) has four chances to separate
+//! Every assertion runs the full comparison and each narrower verdict, so a
+//! bookkeeping error that misreads a direction has several chances to separate
 //! from the oracle on each pair, in both operand orders.
 
 use core::cmp::Ordering;
@@ -32,7 +32,7 @@ fn cmp_enc(a: &Version, b: &Version) -> Option<Ordering> {
     a.partial_cmp(b)
 }
 
-/// Assert all four entry points agree with the recursive oracle's
+/// Assert every comparison entry point agrees with the recursive oracle's
 /// comparison on one pair, in both operand orders.
 fn assert_verdicts(a: &Version, b: &Version) {
     let want = to_oracle_version(a).partial_cmp(&to_oracle_version(b));
@@ -55,14 +55,24 @@ fn assert_verdicts(a: &Version, b: &Version) {
         "concurrent disagrees: {a:?} vs {b:?}"
     );
     assert_eq!(
-        a.walk_le(b),
+        a <= b,
         matches!(want, Some(Ordering::Less | Ordering::Equal)),
-        "le disagrees: {a:?} vs {b:?}"
+        "<= disagrees: {a:?} vs {b:?}"
     );
     assert_eq!(
-        b.walk_le(a),
+        b <= a,
         matches!(want, Some(Ordering::Greater | Ordering::Equal)),
-        "le disagrees: {b:?} vs {a:?}"
+        "<= disagrees: {b:?} vs {a:?}"
+    );
+    assert_eq!(
+        a < b,
+        want == Some(Ordering::Less),
+        "< disagrees: {a:?} vs {b:?}"
+    );
+    assert_eq!(
+        b < a,
+        want == Some(Ordering::Greater),
+        "< disagrees: {b:?} vs {a:?}"
     );
 }
 
@@ -121,6 +131,70 @@ fn deep_versus_empty_agrees() {
     ] {
         assert_verdicts(&deep, &Version::new());
     }
+}
+
+/// A directed comparison stops once its requested ordering is impossible,
+/// while a full comparison continues far enough to distinguish `Greater` from
+/// `Concurrent`.
+///
+/// This is a relational scan pin rather than a fixed budget: it proves that
+/// the public operators and their point-span and query fast paths retain the
+/// early exit without coupling the test to a particular encoding cost.
+#[cfg(feature = "scan-meter")]
+#[test]
+fn directed_comparisons_stop_before_full_comparison() {
+    use crate::causally::after;
+    use crate::testing::meter::{reset_scan_bits, scan_bits};
+    use crate::{Dominance, Party, Span};
+
+    let later = version_of(&Shape::AltSpine.build1(1_000));
+    let empty = Version::new();
+    let point = Span::at(&later);
+    let floor = after(&later);
+    let seed = Party::seed();
+    let projection = &later / &seed;
+    assert_eq!(later.partial_cmp(&empty), Some(Ordering::Greater));
+
+    let measure = |f: &dyn Fn()| {
+        reset_scan_bits();
+        f();
+        scan_bits()
+    };
+    let directed = measure(&|| {
+        let ordered = later <= empty;
+        assert!(!ordered);
+    });
+    let full = measure(&|| {
+        assert_eq!(later.partial_cmp(&empty), Some(Ordering::Greater));
+    });
+    assert!(
+        directed < full,
+        "the directed verdict scanned {directed} bits, versus {full} for the full relation"
+    );
+
+    let point_scan = measure(&|| assert_eq!(point.dominance(&empty), Dominance::Before));
+    assert!(
+        point_scan < full,
+        "point-span dominance scanned {point_scan} bits, versus {full} for the full relation"
+    );
+    let query_scan = measure(&|| assert!(!floor.contains(&empty)));
+    assert!(
+        query_scan < full,
+        "the atomic query scanned {query_scan} bits, versus {full} for the full relation"
+    );
+
+    let projected_directed = measure(&|| {
+        let ordered = projection <= empty;
+        assert!(!ordered);
+    });
+    let projected_full = measure(&|| {
+        assert_eq!(projection.partial_cmp(&empty), Some(Ordering::Greater));
+    });
+    assert!(
+        projected_directed < projected_full,
+        "the projected directed verdict scanned {projected_directed} bits, versus \
+         {projected_full} for the full projected relation"
+    );
 }
 
 /// Every ordered pair drawn from the registered families yields identical
@@ -194,9 +268,14 @@ fn exhaustive_small_scope_agrees() {
                 "concurrent disagrees: {va:?} vs {vb:?}"
             );
             assert_eq!(
-                va.walk_le(vb),
+                va <= vb,
                 matches!(want, Some(Ordering::Less | Ordering::Equal)),
                 "le disagrees: {va:?} vs {vb:?}"
+            );
+            assert_eq!(
+                va < vb,
+                want == Some(Ordering::Less),
+                "lt disagrees: {va:?} vs {vb:?}"
             );
         }
     });
@@ -248,9 +327,14 @@ proptest! {
                     "concurrent disagrees: {:?} vs {:?}", va, vb
                 );
                 prop_assert_eq!(
-                    va.walk_le(vb),
+                    va <= vb,
                     matches!(want, Some(Ordering::Less | Ordering::Equal)),
                     "le disagrees: {:?} vs {:?}", va, vb
+                );
+                prop_assert_eq!(
+                    va < vb,
+                    want == Some(Ordering::Less),
+                    "lt disagrees: {:?} vs {:?}", va, vb
                 );
             }
         }

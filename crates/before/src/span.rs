@@ -100,10 +100,10 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_order.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "comparison: `O(n)` in total input bytes; `O(|a| + |b|)`"
+        doc = "directional (`<=`): `O(n)` in total input bytes; `O(|a| + |b|)`; stops when this direction is disproved"
     )]
     ///
     /// # Errors
@@ -131,9 +131,10 @@ impl<'a> Span<'a> {
         hi: impl Into<Cow<'a, Version>>,
     ) -> Result<Self, Crossed> {
         let (lo, hi) = (lo.into(), hi.into());
-        match lo.as_ref().partial_cmp(hi.as_ref()) {
-            Some(Ordering::Less | Ordering::Equal) => Ok(Self { lo, hi }),
-            Some(Ordering::Greater) | None => Err(Crossed),
+        if lo.as_ref() <= hi.as_ref() {
+            Ok(Self { lo, hi })
+        } else {
+            Err(Crossed)
         }
     }
 
@@ -292,10 +293,7 @@ impl<'a> Span<'a> {
         if self.lo.ptr_eq(&self.hi) {
             // `hi <= version` asks whether the point lies in the version's
             // causal past.
-            return if matches!(
-                self.hi().partial_cmp(version),
-                Some(Ordering::Less | Ordering::Equal)
-            ) {
+            return if self.hi() <= version {
                 Dominance::After
             } else {
                 Dominance::Before
@@ -348,10 +346,7 @@ impl<'a> Span<'a> {
         if self.lo.ptr_eq(&self.hi) {
             // `version <= lo` asks whether the point lies in the version's
             // causal future.
-            return if matches!(
-                version.partial_cmp(self.lo()),
-                Some(Ordering::Less | Ordering::Equal)
-            ) {
+            return if version <= self.lo() {
                 Precedence::Before
             } else {
                 Precedence::After
@@ -380,10 +375,10 @@ impl<'a> Span<'a> {
     /// A [`Span`] requires two causal comparisons: one for its lower endpoints
     /// and one for its upper endpoints. Each comparison costs:
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_order.html")))]
     #[cfg_attr(
         not(doc),
-        doc = "comparison: `O(n)` in total input bytes; `O(|a| + |b|)`"
+        doc = "directional (`<=`): `O(n)` in total input bytes; `O(|a| + |b|)`; stops when this direction is disproved"
     )]
     ///
     /// # Example
@@ -426,13 +421,7 @@ impl<'a> Span<'a> {
         }
         // A span is contained iff both its endpoints are: every version
         // between them lies within `self` by transitivity of the bounds.
-        matches!(
-            self.lo().partial_cmp(other.lo()),
-            Some(Ordering::Less | Ordering::Equal)
-        ) && matches!(
-            other.hi().partial_cmp(self.hi()),
-            Some(Ordering::Less | Ordering::Equal)
-        )
+        self.lo() <= other.lo() && other.hi() <= self.hi()
     }
 
     /// The part of this [`Span`] wholly owned by a [`Party`], as a lazy

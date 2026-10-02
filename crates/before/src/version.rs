@@ -64,14 +64,24 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// Ordering is one causal comparison sweep over the two streams; equality
-/// is a canonical byte compare (each version has one byte representation, so
-/// byte equality is exactly causal equality):
+/// All comparisons are linear in the combined input size, but they need not
+/// read the same amount. [`partial_cmp`](PartialOrd::partial_cmp) must
+/// distinguish all four outcomes — less, equal, greater, or concurrent — so
+/// it continues until the full causal relation is known. A directional
+/// operator such as `<=` asks only whether one history is contained in the
+/// other and stops at the first counterexample. Equality compares the
+/// canonical bytes and stops at the first difference (each version has one
+/// byte representation, so byte equality is exactly causal equality):
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "comparison: `O(n)` in total input bytes; `O(|a| + |b|)`"
+    doc = "full relation: `O(n)` in total input bytes; `O(|a| + |b|)`"
+)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_order.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "directional (`<=`): `O(n)` in total input bytes; `O(|a| + |b|)`; stops when this direction is disproved"
 )]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_eq.html")))]
 #[cfg_attr(
@@ -1624,11 +1634,43 @@ impl PartialOrd<&Version> for Version {
     fn partial_cmp(&self, other: &&Version) -> Option<Ordering> {
         self.partial_cmp(*other)
     }
+
+    fn lt(&self, other: &&Version) -> bool {
+        self.causal_lt(other)
+    }
+
+    fn le(&self, other: &&Version) -> bool {
+        self.causal_le(other)
+    }
+
+    fn gt(&self, other: &&Version) -> bool {
+        other.causal_lt(self)
+    }
+
+    fn ge(&self, other: &&Version) -> bool {
+        other.causal_le(self)
+    }
 }
 
 /// Applies the canonical causal comparison to a borrowed left operand.
 impl PartialOrd<Version> for &Version {
     fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
         (*self).partial_cmp(other)
+    }
+
+    fn lt(&self, other: &Version) -> bool {
+        self.causal_lt(other)
+    }
+
+    fn le(&self, other: &Version) -> bool {
+        self.causal_le(other)
+    }
+
+    fn gt(&self, other: &Version) -> bool {
+        other.causal_lt(self)
+    }
+
+    fn ge(&self, other: &Version) -> bool {
+        other.causal_le(self)
     }
 }

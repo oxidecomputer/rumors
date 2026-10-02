@@ -30,7 +30,6 @@ use rumors_testkit::common;
 #[path = "bookmark_causality/concurrent.rs"]
 mod concurrent;
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
@@ -120,19 +119,13 @@ impl EmissionLog {
             };
             // A recycle is `later <= earlier` in the causal (partial) order;
             // genuinely concurrent versions compare `None` and are fine.
+            let recycled = later.version <= earlier.version;
             assert!(
-                !matches!(
-                    later.version.partial_cmp(&earlier.version),
-                    Some(Ordering::Less | Ordering::Equal)
-                ),
+                !recycled,
                 "causality violation in network {:?}: durable emission #{} \
                  (version {:?}) is dominated by or equal to earlier durable \
                  emission #{} (version {:?}) — a recycled version identifier",
-                emission.network,
-                later.seq,
-                later.version,
-                earlier.seq,
-                earlier.version,
+                emission.network, later.seq, later.version, earlier.seq, earlier.version,
             );
         }
         peers.push(emission);

@@ -20,18 +20,49 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// The comparisons never materialize a projection; view construction
-/// itself is `O(1)`:
+/// These comparisons read the projected history through its [`Party`]; they
+/// never materialize the projection. This preserves an input-linear comparison
+/// cost even when the materialized projection would be much larger. View
+/// construction itself is `O(1)`.
+///
+/// [`partial_cmp`](PartialOrd::partial_cmp) reads until it knows the complete
+/// causal relation. A directional operator stops at the first counterexample,
+/// and equality stops at the first difference:
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_cmp.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "vs `Version`: `O(n)` in total input bytes; `O(|self| + |other|)`"
+    doc = "vs `Version`: full relation: `O(n)` in total input bytes; `O(|self| + |other|)`"
+)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_order.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`OwnVersion <= Version`: `O(n)` in total input bytes; `O(|self| + |other|)`; stops when this direction is disproved"
+)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_own_order.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`Version <= OwnVersion`: `O(n)` in total input bytes; `O(|self| + |other|)`; stops when this direction is disproved"
+)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_eq.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`OwnVersion == Version`: `O(n)` in total input bytes; `O(|self| + |other|)`; stops at the first difference"
 )]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_cmp.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "vs `OwnVersion`: `O(n)` in total input bytes; `O(|self| + |other|)`"
+    doc = "vs `OwnVersion`: full relation: `O(n)` in total input bytes; `O(|self| + |other|)`"
+)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_order.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`OwnVersion <= OwnVersion`: `O(n)` in total input bytes; `O(|self| + |other|)`; stops when this direction is disproved"
+)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_eq.html")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`OwnVersion == OwnVersion`: `O(n)` in total input bytes; `O(|self| + |other|)`; stops at the first difference"
 )]
 ///
 /// # Example
@@ -94,49 +125,6 @@ impl OwnVersion<'_> {
             VersionWriter::project(self)
         }
     }
-
-    /// Compare this projection with a materialized version without building it.
-    fn cmp_version(&self, other: &Version) -> Option<Ordering> {
-        super::projection::Comparison::order(self.version, Some(self.party), other, None)
-    }
-
-    /// Test equality with a materialized version without building this projection.
-    fn eq_version(&self, other: &Version) -> bool {
-        super::projection::Comparison::equal(self.version, Some(self.party), other, None)
-    }
-
-    /// Compare two projected versions without materializing either one.
-    fn cmp_own(&self, other: &OwnVersion<'_>) -> Option<Ordering> {
-        super::projection::Comparison::order(
-            self.version,
-            Some(self.party),
-            other.version,
-            Some(other.party),
-        )
-    }
-
-    /// Test two projected versions for equality without materializing either.
-    fn eq_own(&self, other: &OwnVersion<'_>) -> bool {
-        super::projection::Comparison::equal(
-            self.version,
-            Some(self.party),
-            other.version,
-            Some(other.party),
-        )
-    }
-}
-
-impl Version {
-    /// Compare this version with a projection, applying the party mask to the
-    /// second operand while reading both version streams.
-    fn cmp_own(&self, other: &OwnVersion<'_>) -> Option<Ordering> {
-        super::projection::Comparison::order(self, None, other.version, Some(other.party))
-    }
-
-    /// Test equality with a projection without materializing it.
-    fn eq_own(&self, other: &OwnVersion<'_>) -> bool {
-        super::projection::Comparison::equal(self, None, other.version, Some(other.party))
-    }
 }
 
 /// Materializes the projection, as [`to_version`](OwnVersion::to_version).
@@ -167,50 +155,61 @@ impl From<OwnVersion<'_>> for Version {
 // The view's causal comparison matrix, mirroring `Version`'s: every cell of
 // `PartialEq`/`PartialOrd` between `OwnVersion` and `Version` (both directions)
 // and between two `OwnVersion`s, over owned and borrowed operands. Every
-// heterogeneous cell is the fused three-stream co-walk, every homogeneous cell
-// the four-stream one; no cell materializes a projection. The macro takes the
-// two comparison bodies per (lhs, rhs) pair and fans out the reference
-// combinations (`&L vs &R` comes from std's blanket forwarding over `L:
-// PartialEq<R>`).
+// method compares through the projected streams and never materializes a
+// projection. The macro generates the operand and reference combinations;
+// `&L == &R` comes from the standard library's forwarding implementation once
+// `L: PartialEq<R>` exists.
 macro_rules! view_cmp_impls {
-    ($($lhs:ty, $rhs:ty, $eq:expr, $cmp:expr, ($($lt:lifetime),*));* $(;)?) => {
+    ($($lhs:ty, $rhs:ty, ($($lt:lifetime),*));* $(;)?) => {
         $(
             impl<$($lt),*> PartialEq<$rhs> for $lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    $eq(self, o)
+                    super::projection::Comparison::equal(self, o)
                 }
             }
             impl<$($lt),*> PartialOrd<$rhs> for $lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    $cmp(self, o)
+                    super::projection::Comparison::order(self, o)
                 }
+                fn lt(&self, o: &$rhs) -> bool { super::projection::Comparison::lt(self, o) }
+                fn le(&self, o: &$rhs) -> bool { super::projection::Comparison::le(self, o) }
+                fn gt(&self, o: &$rhs) -> bool { super::projection::Comparison::lt(o, self) }
+                fn ge(&self, o: &$rhs) -> bool { super::projection::Comparison::le(o, self) }
             }
             impl<$($lt),*> PartialEq<$rhs> for &$lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    $eq(*self, o)
+                    super::projection::Comparison::equal(*self, o)
                 }
             }
             impl<$($lt),*> PartialOrd<$rhs> for &$lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    $cmp(*self, o)
+                    super::projection::Comparison::order(*self, o)
                 }
+                fn lt(&self, o: &$rhs) -> bool { super::projection::Comparison::lt(*self, o) }
+                fn le(&self, o: &$rhs) -> bool { super::projection::Comparison::le(*self, o) }
+                fn gt(&self, o: &$rhs) -> bool { super::projection::Comparison::lt(o, *self) }
+                fn ge(&self, o: &$rhs) -> bool { super::projection::Comparison::le(o, *self) }
             }
             impl<$($lt),*> PartialEq<&$rhs> for $lhs {
                 fn eq(&self, o: &&$rhs) -> bool {
-                    $eq(self, *o)
+                    super::projection::Comparison::equal(self, *o)
                 }
             }
             impl<$($lt),*> PartialOrd<&$rhs> for $lhs {
                 fn partial_cmp(&self, o: &&$rhs) -> Option<Ordering> {
-                    $cmp(self, *o)
+                    super::projection::Comparison::order(self, *o)
                 }
+                fn lt(&self, o: &&$rhs) -> bool { super::projection::Comparison::lt(self, *o) }
+                fn le(&self, o: &&$rhs) -> bool { super::projection::Comparison::le(self, *o) }
+                fn gt(&self, o: &&$rhs) -> bool { super::projection::Comparison::lt(*o, self) }
+                fn ge(&self, o: &&$rhs) -> bool { super::projection::Comparison::le(*o, self) }
             }
         )*
     };
 }
 
 view_cmp_impls! {
-    OwnVersion<'a>, Version, OwnVersion::eq_version, OwnVersion::cmp_version, ('a);
-    Version, OwnVersion<'a>, Version::eq_own, Version::cmp_own, ('a);
-    OwnVersion<'a>, OwnVersion<'b>, OwnVersion::eq_own, OwnVersion::cmp_own, ('a, 'b);
+    OwnVersion<'a>, Version, ('a);
+    Version, OwnVersion<'a>, ('a);
+    OwnVersion<'a>, OwnVersion<'b>, ('a, 'b);
 }

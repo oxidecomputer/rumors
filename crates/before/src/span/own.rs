@@ -170,19 +170,14 @@ impl<'a> OwnSpan<'a> {
     /// assert_eq!(span.dominance(&a1), Dominance::Between);
     /// ```
     pub fn dominance(&self, version: &Version) -> Dominance {
-        if !matches!(
-            version.partial_cmp(&self.lo()),
-            Some(Ordering::Greater | Ordering::Equal)
-        ) {
-            return Dominance::Before;
-        }
-        if matches!(
-            version.partial_cmp(&self.hi()),
-            Some(Ordering::Greater | Ordering::Equal)
-        ) {
-            Dominance::After
+        if version >= self.lo() {
+            if version >= self.hi() {
+                Dominance::After
+            } else {
+                Dominance::Between
+            }
         } else {
-            Dominance::Between
+            Dominance::Before
         }
     }
 
@@ -222,19 +217,14 @@ impl<'a> OwnSpan<'a> {
     /// assert_eq!((&span / alice.party()).precedence(&b1), Precedence::After);
     /// ```
     pub fn precedence(&self, version: &Version) -> Precedence {
-        if !matches!(
-            version.partial_cmp(&self.hi()),
-            Some(Ordering::Less | Ordering::Equal)
-        ) {
-            return Precedence::After;
-        }
-        if matches!(
-            version.partial_cmp(&self.lo()),
-            Some(Ordering::Less | Ordering::Equal)
-        ) {
-            Precedence::Before
+        if version <= self.hi() {
+            if version <= self.lo() {
+                Precedence::Before
+            } else {
+                Precedence::Between
+            }
         } else {
-            Precedence::Between
+            Precedence::After
         }
     }
 
@@ -260,13 +250,7 @@ impl<'a> OwnSpan<'a> {
     /// assert!(!(&span / alice.party()).contains(&both));
     /// ```
     pub fn contains(&self, version: &Version) -> bool {
-        matches!(
-            version.partial_cmp(&self.lo()),
-            Some(Ordering::Greater | Ordering::Equal)
-        ) && matches!(
-            version.partial_cmp(&self.hi()),
-            Some(Ordering::Less | Ordering::Equal)
-        )
+        version >= self.lo() && version <= self.hi()
     }
 
     /// Materializes this view as an owned projected span.

@@ -34,14 +34,14 @@ laws! {
     /// `|` to the causal order.
     fn merge_is_upper_bound {
         let ab = a | b;
-        le(a, &ab) && le(b, &ab)
+        a <= ab && b <= ab
     }
 
     /// The meet is a lower bound: `a & b <= a` and `a & b <= b`, the dual of
     /// [`merge_is_upper_bound`].
     fn meet_is_lower_bound {
         let ab = a & b;
-        le(&ab, a) && le(&ab, b)
+        ab <= a && ab <= b
     }
 
     /// Absorption ties `&` and `|` into a lattice: `a & (a | b) == a` and
@@ -81,12 +81,13 @@ laws! {
     /// Antisymmetry: `a <= b && b <= a ⟹ a == b` (mutually dominating versions
     /// denote the same history, so their canonical bytes coincide).
     fn order_antisymmetric {
-        !(le(a, b) && le(b, a)) || a == b
+        !(a <= b && b <= a) || a == b
     }
 
     /// Domination absorbs: `a <= b ⟹ a | b == b && a & b == a`.
     fn order_absorbing {
-        !le(a, b) || ((a | b) == *b && (a & b) == *a)
+        let ordered = a <= b;
+        !ordered || ((a | b) == *b && (a & b) == *a)
     }
 
     /// `Eq` and the order agree: `a == b ⟺ partial_cmp == Some(Equal)`.
@@ -115,7 +116,8 @@ laws! {
     /// `rank` is strictly monotone on the causal order: `a <= b ⟹ rank(a) <=
     /// rank(b)`, strictly when `a != b`.
     fn rank_strictly_monotone {
-        !le(a, b) || (a.rank() <= b.rank() && (a == b || a.rank() < b.rank()))
+        let ordered = a <= b;
+        !ordered || (a.rank() <= b.rank() && (a == b || a.rank() < b.rank()))
     }
 
     /// The metric symmetry law: `d(a, b) == d(b, a)`.
@@ -143,7 +145,7 @@ laws! {
     /// `lag` vanishes exactly when there is nothing left to learn:
     /// `a.lag(b) == 0 ⟺ b <= a`.
     fn lag_zero_iff_dominated {
-        (a.lag(b) == Rank::ZERO) == le(b, a)
+        (a.lag(b) == Rank::ZERO) == (b <= a)
     }
 
     /// `lag` is the valuation gap up to the join: `a.lag(b) == rank(a|b) -
@@ -228,8 +230,11 @@ laws! {
     /// admitted span's endpoints are byte-identical to the arguments.
     fn span_gate_admits_exactly_the_ordered {
         match Span::new(a, b) {
-            Ok(span) => le(a, b) && span.lo() == a && span.hi() == b,
-            Err(Crossed) => !le(a, b),
+            Ok(span) => a <= b && span.lo() == a && span.hi() == b,
+            Err(Crossed) => {
+                let ordered = a <= b;
+                !ordered
+            }
         }
     }
 

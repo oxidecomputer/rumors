@@ -20,7 +20,7 @@ laws! {
     fn tick_strictly_advances {
         let mut ticked = a.clone();
         ticked.tick(p);
-        le(a, &ticked) && !le(&ticked, a) && *a != ticked
+        a < ticked
     }
 
     /// `tick` inflates only within the party's region (§4: `e' = e + f·i`, zero
@@ -40,7 +40,7 @@ laws! {
     fn tick_advances_within_the_region {
         let mut ticked = a.clone();
         ticked.tick(p);
-        (a / p).partial_cmp(&(&ticked / p)) == Some(Ordering::Less)
+        (a / p) < (&ticked / p)
     }
 
     /// The two `tick` entry points agree: `version.tick(&party)` and
@@ -109,7 +109,7 @@ laws! {
 
     /// Projection keeps at most the history it is given: `a / p <= a`.
     fn projection_is_sub_version {
-        le_by(&(a / p), a)
+        (a / p) <= *a
     }
 
     /// Projection is idempotent: `(a / p) / p == a / p`.
@@ -188,8 +188,9 @@ laws! {
     /// the inputs happen to compare directly, so do their projections.
     fn projection_monotone_in_version {
         let ab = a | b;
-        let constructed = le_by(&(a / p), &(&ab / p));
-        let incidental = !le(a, b) || le_by(&(a / p), &(b / p));
+        let constructed = (a / p) <= (&ab / p);
+        let ordered = a <= b;
+        let incidental = !ordered || (a / p) <= (b / p);
         constructed && incidental
     }
 
@@ -219,9 +220,18 @@ laws! {
         let materialized = view.to_version();
         let cmp_agrees = view.partial_cmp(b) == materialized.partial_cmp(b);
         let cmp_reversed_agrees = b.partial_cmp(&view) == b.partial_cmp(&materialized);
+        let directions_agree = (view < *b, view <= *b, view > *b, view >= *b)
+            == (materialized < *b, materialized <= *b, materialized > *b, materialized >= *b);
+        let reversed_directions_agree = (*b < view, *b <= view, *b > view, *b >= view)
+            == (*b < materialized, *b <= materialized, *b > materialized, *b >= materialized);
         let eq_agrees = (view == *b) == (materialized == *b);
         let eq_reversed_agrees = (*b == view) == (*b == materialized);
-        cmp_agrees && cmp_reversed_agrees && eq_agrees && eq_reversed_agrees
+        cmp_agrees
+            && cmp_reversed_agrees
+            && directions_agree
+            && reversed_directions_agree
+            && eq_agrees
+            && eq_reversed_agrees
     }
 
     /// A heterogeneous comparison is the homogeneous comparison against the
@@ -332,8 +342,8 @@ laws! {
     fn projection_monotone_in_region {
         let mut keeper = p.dangerously_alias();
         let child = keeper.fork();
-        let constructed = le_by(&(v / &child), &(v / p));
-        let incidental = !p.covers(q) || le_by(&(v / q), &(v / p));
+        let constructed = (v / &child) <= (v / p);
+        let incidental = !p.covers(q) || (v / q) <= (v / p);
         constructed && incidental
     }
 
@@ -402,7 +412,10 @@ laws! {
     fn own_version_pair_cmp_matches_materialized {
         let (va, vb) = (a / p, b / q);
         let (ma, mb) = (va.to_version(), vb.to_version());
-        va.partial_cmp(&vb) == ma.partial_cmp(&mb) && (va == vb) == (ma == mb)
+        va.partial_cmp(&vb) == ma.partial_cmp(&mb)
+            && (va < vb, va <= vb, va > vb, va >= vb)
+                == (ma < mb, ma <= mb, ma > mb, ma >= mb)
+            && (va == vb) == (ma == mb)
     }
 }
 

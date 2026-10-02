@@ -44,8 +44,9 @@
 //! Thus each version change is decoded once and updates only the quantities a
 //! later ownership case can inspect.
 //!
-//! Ordering stops after finding evidence against both causal directions.
-//! Equality stops at the first unequal interval.
+//! Full ordering stops after finding evidence against both causal directions.
+//! A directional operator stops as soon as its requested direction is
+//! impossible, and equality stops at the first unequal interval.
 //!
 //! # Cost
 //!
@@ -73,6 +74,24 @@ use super::overlay::{advance, advance_set, Crossed, CursorSet, OpenedPair, Side}
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::version::io::writer::VersionWriter;
 use crate::Version;
+
+/// One operand of a comparison, optionally restricted to a party.
+pub trait Operand {
+    /// The stored version and the party whose region remains visible.
+    fn comparison_parts(&self) -> (&Version, Option<&Party>);
+}
+
+impl Operand for Version {
+    fn comparison_parts(&self) -> (&Version, Option<&Party>) {
+        (self, None)
+    }
+}
+
+impl Operand for OwnVersion<'_> {
+    fn comparison_parts(&self) -> (&Version, Option<&Party>) {
+        (self.version, Some(self.party))
+    }
+}
 
 impl VersionWriter {
     /// Materialize a lazy projection as one canonical Version stream.
@@ -193,22 +212,14 @@ impl Comparison<'_> {
 
 impl<'a> Comparison<'a> {
     /// Return the causal order after restricting either version to a party.
-    pub fn order(
-        a: &'a Version,
-        a_party: Option<&'a Party>,
-        b: &'a Version,
-        b_party: Option<&'a Party>,
-    ) -> Option<Ordering> {
+    pub fn order(a: &'a impl Operand, b: &'a impl Operand) -> Option<Ordering> {
+        let ((a, a_party), (b, b_party)) = (a.comparison_parts(), b.comparison_parts());
         Self::open(a, a_party, b, b_party).resolve(OrderState::exit_order, OrderState::relation)
     }
 
     /// Test equality after restricting either version to a party.
-    pub fn equal(
-        a: &'a Version,
-        a_party: Option<&'a Party>,
-        b: &'a Version,
-        b_party: Option<&'a Party>,
-    ) -> bool {
+    pub fn equal(a: &'a impl Operand, b: &'a impl Operand) -> bool {
+        let ((a, a_party), (b, b_party)) = (a.comparison_parts(), b.comparison_parts());
         Self::open(a, a_party, b, b_party).resolve(OrderState::exit_equality, |state| {
             debug_assert!(
                 state.is_equal(),
@@ -216,6 +227,18 @@ impl<'a> Comparison<'a> {
             );
             true
         })
+    }
+
+    /// Test `a <= b` after restricting either version to a party.
+    pub fn le(a: &'a impl Operand, b: &'a impl Operand) -> bool {
+        let ((a, a_party), (b, b_party)) = (a.comparison_parts(), b.comparison_parts());
+        Self::open(a, a_party, b, b_party).resolve(OrderState::exit_le, OrderState::allows_le)
+    }
+
+    /// Test `a < b` after restricting either version to a party.
+    pub fn lt(a: &'a impl Operand, b: &'a impl Operand) -> bool {
+        let ((a, a_party), (b, b_party)) = (a.comparison_parts(), b.comparison_parts());
+        Self::open(a, a_party, b, b_party).resolve(OrderState::exit_le, OrderState::is_lt)
     }
 
     /// Open every operand stream at its first leaf or region and seed the

@@ -631,7 +631,7 @@ proptest! {
         for (cand, _) in all_inflations(&id, &e) {
             let cand = cand.normalized_for_test();
             let above_e = leq(&e, &cand);
-            let strictly_below = cand.partial_cmp(&eprime) == Some(Ordering::Less);
+            let strictly_below = cand < eprime;
             prop_assert!(
                 !(above_e && strictly_below),
                 "an inflation candidate sits strictly between e and e': \

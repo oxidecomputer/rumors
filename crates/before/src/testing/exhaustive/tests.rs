@@ -39,11 +39,6 @@ use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::oracles::tree;
 use crate::{Party, Version};
 
-/// `a <= b` under the impl event causal order (concurrency is not-`<=`).
-fn ev_le(a: &Version, b: &Version) -> bool {
-    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
-}
-
 /// Run `body(i, j)` for every ordered pair `(i, j)` in `0..n × 0..n`, with the outer index
 /// parallelized across the `rayon` pool. The diagonal (`i == j`) is included — the reflexive
 /// cases are deliberate coverage.
@@ -294,8 +289,8 @@ fn check_tick(ids: &[tree::Party], imp_ids: &[Party], evs: &[tree::Version], imp
             // Metamorphic minimality on the impl: no candidate `x` with `e ≤ x < e'`.
             for (cand, _) in all_inflations(op, ov) {
                 let cand_v = from_oracle_version(&cand.normalized_for_test());
-                let above_e = ev_le(e, &cand_v);
-                let strictly_below = cand_v.partial_cmp(&eprime) == Some(Ordering::Less);
+                let above_e = e <= cand_v;
+                let strictly_below = cand_v < eprime;
                 assert!(
                     !(above_e && strictly_below),
                     "an inflation candidate sits strictly between e and e' for {op:?} on {ov:?}",

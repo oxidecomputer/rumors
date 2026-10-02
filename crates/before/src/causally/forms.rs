@@ -11,8 +11,8 @@ use std::marker::PhantomData;
 use std::ops::Not;
 
 use super::polarity::{Down, Hole, Up};
-use super::{le, Coverage, Query, Version};
-use crate::Span;
+use super::{Coverage, Query};
+use crate::{Span, Version};
 
 /// Built by [`after`]: keeps the versions at or above its bound, `at <= v`.
 ///
@@ -287,7 +287,7 @@ impl<'a> Floor<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/floor_contains.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     pub fn contains(&self, version: &Version) -> bool {
-        le(&self.at, version)
+        self.at.as_ref() <= version
     }
 
     /// How much of `span` lies at or above this bound.
@@ -328,7 +328,7 @@ impl<'a> Ceiling<'a> {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ceiling_contains.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     pub fn contains(&self, version: &Version) -> bool {
-        le(version, &self.at)
+        version <= self.at.as_ref()
     }
 
     /// How much of `span` lies at or below this bound.

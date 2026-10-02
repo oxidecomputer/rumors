@@ -9,9 +9,9 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use super::polarity::{Hole, Neutral, Polarity};
-use super::{le, Version};
 use crate::span::Span;
 use crate::version::place::filter::{self, Demand};
+use crate::Version;
 
 /// A causal predicate over [`Version`]s and [`Span`]s.
 ///
@@ -235,16 +235,17 @@ impl<'a, P: Polarity> Query<'a, P> {
             Some(ceiling) => Cow::Owned(hi & ceiling),
             None => Cow::Borrowed(hi),
         };
-        if !le(&clamped_lo, &clamped_hi) {
-            return Coverage::Empty;
-        }
-        if self.holes.is_empty() {
-            return Coverage::Partial;
-        }
+        if clamped_lo <= clamped_hi {
+            if self.holes.is_empty() {
+                return Coverage::Partial;
+            }
 
-        let endpoint = P::covering_endpoint(&clamped_lo, &clamped_hi);
-        if filter::admits(endpoint, Self::hole_demands(&self.holes)) {
-            Coverage::Partial
+            let endpoint = P::covering_endpoint(&clamped_lo, &clamped_hi);
+            if filter::admits(endpoint, Self::hole_demands(&self.holes)) {
+                Coverage::Partial
+            } else {
+                Coverage::Empty
+            }
         } else {
             Coverage::Empty
         }

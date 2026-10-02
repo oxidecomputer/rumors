@@ -42,11 +42,6 @@ fn peaks() -> Version {
     ))
 }
 
-/// `a <= b` under the impl causal order.
-fn le(a: &Version, b: &Version) -> bool {
-    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
-}
-
 // ───────────────────────────── causal order ─────────────────────────────
 
 // The order laws (reflexivity, antisymmetry, transitivity, `==` ⟺
@@ -59,7 +54,8 @@ fn le(a: &Version, b: &Version) -> bool {
 /// Assert one comparison-matrix cell agrees with `expected`.
 ///
 /// Checks its `partial_cmp` (`PartialOrd`) and `==`/`!=` (`PartialEq`), plus
-/// the four ordering operators `partial_cmp` derives. Generic over the operand
+/// the four ordering operators supplied by the same [`PartialOrd`] impl.
+/// Generic over the operand
 /// types, so each call resolves to exactly the impl for `(L, R)` —
 /// `assert_cmp_cell(&a, b, ..)` exercises the `&Lhs`/`Rhs` cell,
 /// `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&` the std blanket
@@ -583,8 +579,8 @@ proptest! {
         for (cand, _) in all_inflations(&op, &ov) {
             let cand_norm = cand.normalized_for_test();
             let cand_v = from_oracle_version(&cand_norm);
-            let above_e = le(&e, &cand_v);
-            let strictly_below = cand_v.partial_cmp(&eprime) == Some(Ordering::Less);
+            let above_e = e <= cand_v;
+            let strictly_below = cand_v < eprime;
             prop_assert!(
                 !(above_e && strictly_below),
                 "an inflation candidate sits strictly between e and e' on the impl",

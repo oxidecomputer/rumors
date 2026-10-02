@@ -497,7 +497,7 @@ pub(super) fn membership_floors(v: &Version, w: &Version, input_bytes: usize) ->
             touch: na(NA_TOUCH_EQUAL_PAIR),
         };
     }
-    if v.partial_cmp(w) == Some(Ordering::Greater) {
+    if v > w {
         walk_floors(input_bytes, touch_pair_fold(v, w))
     } else {
         Floors {

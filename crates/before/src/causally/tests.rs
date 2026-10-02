@@ -1,7 +1,7 @@
 use super::*;
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::arb_oracle_version;
-use crate::{Clock, Span};
+use crate::{Clock, Span, Version};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
@@ -98,8 +98,8 @@ impl BoundClause {
     /// Evaluates this clause directly from the causal order.
     fn admits(&self, probe: &Version, grid: &[Version]) -> bool {
         match *self {
-            Self::After(at) => le(selected(grid, at), probe),
-            Self::Before(at) => le(probe, selected(grid, at)),
+            Self::After(at) => selected(grid, at) <= probe,
+            Self::Before(at) => probe <= selected(grid, at),
         }
     }
 }
@@ -135,11 +135,18 @@ impl DownClause {
     /// Evaluates this clause directly from the causal order.
     fn admits(&self, probe: &Version, grid: &[Version]) -> bool {
         match *self {
-            Self::Since(at) => !le(probe, selected(grid, at)),
-            Self::StrictlyAfter(at) => lt(selected(grid, at), probe),
-            Self::AfterOrConcurrent(at) => !lt(probe, selected(grid, at)),
+            Self::Since(at) => {
+                let at_or_before = probe <= selected(grid, at);
+                !at_or_before
+            }
+            Self::StrictlyAfter(at) => selected(grid, at) < probe,
+            Self::AfterOrConcurrent(at) => {
+                let strictly_before = probe < selected(grid, at);
+                !strictly_before
+            }
             Self::Delta(start, end) => {
-                !le(probe, selected(grid, start)) && le(probe, selected(grid, end))
+                let at_or_before_start = probe <= selected(grid, start);
+                !at_or_before_start && probe <= selected(grid, end)
             }
         }
     }
@@ -178,11 +185,18 @@ impl UpClause {
     /// Evaluates this clause directly from the causal order.
     fn admits(&self, probe: &Version, grid: &[Version]) -> bool {
         match *self {
-            Self::Until(at) => !le(selected(grid, at), probe),
-            Self::StrictlyBefore(at) => lt(probe, selected(grid, at)),
-            Self::BeforeOrConcurrent(at) => !lt(selected(grid, at), probe),
+            Self::Until(at) => {
+                let at_or_after = selected(grid, at) <= probe;
+                !at_or_after
+            }
+            Self::StrictlyBefore(at) => probe < selected(grid, at),
+            Self::BeforeOrConcurrent(at) => {
+                let strictly_after = selected(grid, at) < probe;
+                !strictly_after
+            }
             Self::Toward(start, end) => {
-                le(selected(grid, start), probe) && !le(selected(grid, end), probe)
+                let at_or_after_end = selected(grid, end) <= probe;
+                selected(grid, start) <= probe && !at_or_after_end
             }
         }
     }
@@ -222,7 +236,7 @@ fn assert_denotes<P: Polarity>(
             };
             let mut admitted = grid
                 .iter()
-                .filter(|probe| le(lo, probe) && le(probe, hi))
+                .filter(|probe| lo <= *probe && *probe <= hi)
                 .map(&admits);
             let first = admitted
                 .next()
@@ -643,7 +657,7 @@ fn coverage_is_exact_on_the_two_party_grid() {
         hi: &Version,
         grid: &[Version],
     ) -> Coverage {
-        let covered: Vec<&Version> = grid.iter().filter(|v| le(lo, v) && le(v, hi)).collect();
+        let covered: Vec<&Version> = grid.iter().filter(|v| lo <= *v && *v <= hi).collect();
         let admitted = covered.iter().filter(|v| q.contains(v)).count();
         if admitted == covered.len() {
             Coverage::Full
@@ -718,7 +732,7 @@ fn conversions_denote() {
     for v in [&w.bottom, &w.a1, &w.a2, &w.a3, &w.b1, &w.joined] {
         assert_eq!(
             segment.contains(v),
-            le(&w.a1, v) && le(v, &w.a3),
+            w.a1 <= v && v <= w.a3,
             "segment membership at {v:?}"
         );
         assert_eq!(

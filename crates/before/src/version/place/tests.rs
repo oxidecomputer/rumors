@@ -71,18 +71,25 @@ fn composed_contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
 /// The composed pairwise spelling of one demand's verdict: the filter walks'
 /// stream-level oracle, per bound.
 fn demand_admits(probe: &Version, bound: &Version, demand: Demand) -> bool {
-    let rel = probe.partial_cmp(bound);
-    let le = matches!(rel, Some(Ordering::Less | Ordering::Equal));
-    let lt = rel == Some(Ordering::Less);
-    let ge = matches!(rel, Some(Ordering::Greater | Ordering::Equal));
-    let gt = rel == Some(Ordering::Greater);
     match demand {
-        Demand::After => ge,
-        Demand::Before => le,
-        Demand::NotBefore => !le,
-        Demand::NotStrictlyBefore => !lt,
-        Demand::NotAfter => !ge,
-        Demand::NotStrictlyAfter => !gt,
+        Demand::After => probe >= bound,
+        Demand::Before => probe <= bound,
+        Demand::NotBefore => {
+            let at_or_before = probe <= bound;
+            !at_or_before
+        }
+        Demand::NotStrictlyBefore => {
+            let strictly_before = probe < bound;
+            !strictly_before
+        }
+        Demand::NotAfter => {
+            let at_or_after = probe >= bound;
+            !at_or_after
+        }
+        Demand::NotStrictlyAfter => {
+            let strictly_after = probe > bound;
+            !strictly_after
+        }
     }
 }
 
@@ -92,16 +99,10 @@ fn demand_admits(probe: &Version, bound: &Version, demand: Demand) -> bool {
 fn composed_coverage(lo: &Version, hi: &Version, bounds: &[(&Version, Demand)]) -> Coverage {
     let mut full = true;
     for &(bound, demand) in bounds {
-        let le =
-            |p: &Version| matches!(p.partial_cmp(bound), Some(Ordering::Less | Ordering::Equal));
-        let lt = |p: &Version| p.partial_cmp(bound) == Some(Ordering::Less);
-        let ge = |p: &Version| {
-            matches!(
-                p.partial_cmp(bound),
-                Some(Ordering::Greater | Ordering::Equal)
-            )
-        };
-        let gt = |p: &Version| p.partial_cmp(bound) == Some(Ordering::Greater);
+        let le = |p: &Version| p <= bound;
+        let lt = |p: &Version| p < bound;
+        let ge = |p: &Version| p >= bound;
+        let gt = |p: &Version| p > bound;
         let (empties, admits_all) = match demand {
             Demand::After => (!ge(hi), ge(lo)),
             Demand::Before => (!le(lo), le(hi)),
@@ -463,10 +464,7 @@ proptest! {
             (&meet, &join),
             (&meet, &meet),
         ];
-        if matches!(
-            b.partial_cmp(&c),
-            Some(Ordering::Less | Ordering::Equal)
-        ) {
+        if b <= c {
             pairs.push((&b, &c));
         }
 
@@ -549,10 +547,7 @@ proptest! {
             (&meet, &join),
             (&meet, &meet),
         ];
-        if matches!(
-            a.partial_cmp(&b),
-            Some(Ordering::Less | Ordering::Equal)
-        ) {
+        if a <= b {
             segments.push((&a, &b));
         }
 

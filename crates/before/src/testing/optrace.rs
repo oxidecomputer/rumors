@@ -10,8 +10,6 @@
 //! [`run`] and [`step_impl`] are the narrower adapters used by tests that need
 //! recursive-oracle populations or production state after each step.
 
-use std::cmp::Ordering;
-
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -352,5 +350,5 @@ pub(crate) fn versions(cs: &[tree::Clock]) -> Vec<tree::Version> {
 
 /// `a <= b` under the oracle causal order (treating concurrency as not-`<=`).
 pub(crate) fn leq(a: &tree::Version, b: &tree::Version) -> bool {
-    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
+    a <= b
 }

@@ -569,6 +569,18 @@ pub extern "C" fn ff_version_cmp(a: u32, b: u32) -> i32 {
     }
 }
 
+/// Directional causal comparison on versions: returns whether `a <= b`.
+///
+/// Unlike [`ff_version_cmp`], this can stop as soon as one region disproves
+/// the requested direction.
+#[no_mangle]
+pub extern "C" fn ff_version_le(a: u32, b: u32) -> i32 {
+    match with_v(a, |va| with_v(b, |vb| va <= vb)) {
+        Some(Some(ordered)) => i32::from(ordered),
+        _ => ERR_REG,
+    }
+}
+
 /// `Version::concurrent`.
 #[no_mangle]
 pub extern "C" fn ff_version_concurrent(a: u32, b: u32) -> i32 {
@@ -917,6 +929,45 @@ pub extern "C" fn ff_own_version_cmp(v: u32, p: u32, w: u32) -> i32 {
     }
 }
 
+/// Directional masked comparison `(v / p) <= w`, without materializing the
+/// projection.
+#[no_mangle]
+pub extern "C" fn ff_own_version_le(v: u32, p: u32, w: u32) -> i32 {
+    let r = with_v(v, |ver| {
+        with_p(p, |party| with_v(w, |other| (ver / party) <= other))
+    });
+    match r {
+        Some(Some(Some(ordered))) => i32::from(ordered),
+        _ => ERR_REG,
+    }
+}
+
+/// The reverse directional masked comparison `w <= (v / p)`, without
+/// materializing the projection.
+#[no_mangle]
+pub extern "C" fn ff_version_le_own(w: u32, v: u32, p: u32) -> i32 {
+    let r = with_v(w, |other| {
+        with_v(v, |ver| with_p(p, |party| other <= (ver / party)))
+    });
+    match r {
+        Some(Some(Some(ordered))) => i32::from(ordered),
+        _ => ERR_REG,
+    }
+}
+
+/// Equality between a masked version and a materialized version, without
+/// materializing the projection.
+#[no_mangle]
+pub extern "C" fn ff_own_version_eq(v: u32, p: u32, w: u32) -> i32 {
+    let r = with_v(v, |ver| {
+        with_p(p, |party| with_v(w, |other| (ver / party) == other))
+    });
+    match r {
+        Some(Some(Some(equal))) => i32::from(equal),
+        _ => ERR_REG,
+    }
+}
+
 /// The fused four-stream masked comparison `(v₁ / p₁) ⋚ (v₂ / p₂)`, no
 /// materialization: returns 0 `Less`, 1 `Equal`, 2 `Greater`,
 /// 3 concurrent (no ordering).
@@ -934,6 +985,36 @@ pub extern "C" fn ff_own_version_pair_cmp(v1: u32, p1: u32, v2: u32, p2: u32) ->
             Some(Ordering::Greater) => 2,
             None => 3,
         },
+        _ => ERR_REG,
+    }
+}
+
+/// Directional comparison `(v1 / p1) <= (v2 / p2)`, without materializing
+/// either projection.
+#[no_mangle]
+pub extern "C" fn ff_own_version_pair_le(v1: u32, p1: u32, v2: u32, p2: u32) -> i32 {
+    let r = with_v(v1, |va| {
+        with_p(p1, |pa| {
+            with_v(v2, |vb| with_p(p2, |pb| (va / pa) <= (vb / pb)))
+        })
+    });
+    match r {
+        Some(Some(Some(Some(ordered)))) => i32::from(ordered),
+        _ => ERR_REG,
+    }
+}
+
+/// Equality between two masked versions, without materializing either
+/// projection.
+#[no_mangle]
+pub extern "C" fn ff_own_version_pair_eq(v1: u32, p1: u32, v2: u32, p2: u32) -> i32 {
+    let r = with_v(v1, |va| {
+        with_p(p1, |pa| {
+            with_v(v2, |vb| with_p(p2, |pb| (va / pa) == (vb / pb)))
+        })
+    });
+    match r {
+        Some(Some(Some(Some(equal)))) => i32::from(equal),
         _ => ERR_REG,
     }
 }

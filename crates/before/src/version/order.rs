@@ -52,21 +52,21 @@ impl Version {
         self.partial_cmp(other).is_none()
     }
 
-    /// Test causal domination with the single-direction early exit.
-    #[cfg(test)]
-    pub(crate) fn walk_le(&self, other: &Version) -> bool {
-        compare(
-            self,
-            other,
-            |state| {
-                if state.allows_le() {
-                    ControlFlow::Continue(())
-                } else {
-                    ControlFlow::Break(false)
-                }
-            },
-            OrderState::allows_le,
-        )
+    /// Whether `self <= other`, stopping at the first region that disproves it.
+    pub(crate) fn causal_le(&self, other: &Version) -> bool {
+        if self.ptr_eq(other) {
+            return true;
+        }
+        compare(self, other, OrderState::exit_le, OrderState::allows_le)
+    }
+
+    /// Whether `self < other`, stopping at the first region that disproves
+    /// `self <= other`.
+    pub(crate) fn causal_lt(&self, other: &Version) -> bool {
+        if self.ptr_eq(other) {
+            return false;
+        }
+        compare(self, other, OrderState::exit_le, OrderState::is_lt)
     }
 }
 
@@ -82,6 +82,22 @@ impl PartialOrd<Version> for Version {
             return Some(Ordering::Equal);
         }
         compare(self, other, OrderState::exit_order, OrderState::relation)
+    }
+
+    fn lt(&self, other: &Version) -> bool {
+        self.causal_lt(other)
+    }
+
+    fn le(&self, other: &Version) -> bool {
+        self.causal_le(other)
+    }
+
+    fn gt(&self, other: &Version) -> bool {
+        other.causal_lt(self)
+    }
+
+    fn ge(&self, other: &Version) -> bool {
+        other.causal_le(self)
     }
 }
 
@@ -155,6 +171,20 @@ impl OrderState {
     /// Whether visited regions have refuted both causal directions.
     pub fn is_concurrent(self) -> bool {
         self == OrderState::Concurrent
+    }
+
+    /// Whether exhaustion establishes strict `a < b`.
+    pub fn is_lt(self) -> bool {
+        self == OrderState::LessOrEqual
+    }
+
+    /// Stop once a visited region disproves `a <= b`.
+    pub fn exit_le(self) -> ControlFlow<bool> {
+        if self.allows_le() {
+            ControlFlow::Continue(())
+        } else {
+            ControlFlow::Break(false)
+        }
     }
 
     /// Stop a full comparison once both causal directions have been refuted.

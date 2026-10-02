@@ -34,7 +34,7 @@ laws! {
 
     /// `Version::new()` is the lattice bottom: below every version.
     fn new_is_the_bottom {
-        le(&Version::new(), a)
+        Version::new() <= a
     }
 
     /// The bottom is the join identity: `new | a == a`.

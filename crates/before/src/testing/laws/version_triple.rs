@@ -37,7 +37,7 @@ laws! {
     fn merge_is_least_upper_bound {
         let ab = a | b;
         let upper = &ab | c;
-        le(a, &upper) && le(b, &upper) && le(&ab, &upper)
+        a <= upper && b <= upper && ab <= upper
     }
 
     /// The meet is the *greatest* lower bound: the constructed common lower
@@ -46,7 +46,7 @@ laws! {
     fn meet_is_greatest_lower_bound {
         let ab = a & b;
         let lower = &ab & c;
-        le(&lower, a) && le(&lower, b) && le(&lower, &ab)
+        lower <= a && lower <= b && lower <= ab
     }
 
     /// Meet distributes over join: `a & (b | c) == (a & b) | (a & c)`. The
@@ -69,13 +69,13 @@ laws! {
     fn order_transitive_constructed {
         let mid = a | b;
         let hi = &mid | c;
-        le(a, &mid) && le(&mid, &hi) && le(a, &hi)
+        a <= mid && mid <= hi && a <= hi
     }
 
     /// Transitivity, incidental: whenever three arbitrary versions happen to
     /// chain (`a <= b` and `b <= c`), the endpoints must too.
     fn order_transitive_incidental {
-        !(le(a, b) && le(b, c)) || le(a, c)
+        !(a <= b && b <= c) || a <= c
     }
 
     /// The triangle inequality: `d(a, c) <= d(a, b) + d(b, c)` — the defining
@@ -105,7 +105,8 @@ laws! {
     /// the rank valuation.
     fn lag_monotone_in_the_message {
         let constructed = a.lag(b) <= a.lag(&(b | c));
-        let incidental = !le(b, c) || a.lag(b) <= a.lag(c);
+        let ordered = b <= c;
+        let incidental = !ordered || a.lag(b) <= a.lag(c);
         constructed && incidental
     }
 
@@ -118,7 +119,8 @@ laws! {
     /// dominates `a`, so the gap can only shrink).
     fn lag_antitone_in_the_receiver {
         let constructed = (a | c).lag(b) <= a.lag(b);
-        let incidental = !le(a, c) || c.lag(b) <= a.lag(b);
+        let ordered = a <= c;
+        let incidental = !ordered || c.lag(b) <= a.lag(b);
         constructed && incidental
     }
 
@@ -836,7 +838,7 @@ fn up_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a, causally::Up>
 fn span_candidates(b: &Version, c: &Version) -> Vec<(Version, Version)> {
     let (meet, join) = (b & c, b | c);
     let mut out = vec![(meet.clone(), join), (meet.clone(), meet)];
-    if le(b, c) {
+    if b <= c {
         out.push((b.clone(), c.clone()));
     }
     out

@@ -29,7 +29,6 @@ mod sealed {
 
     use core::cmp::Ordering;
 
-    use super::super::{le, lt};
     use super::{Hole, Version};
     use crate::version::place::filter::Demand;
 
@@ -70,9 +69,9 @@ mod sealed {
 
         fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool {
             if hole.strict {
-                lt(probe, &hole.at)
+                probe < hole.at.as_ref()
             } else {
-                le(probe, &hole.at)
+                probe <= hole.at.as_ref()
             }
         }
 
@@ -88,9 +87,9 @@ mod sealed {
             match floor {
                 Some(floor) => {
                     if hole.strict {
-                        lt(floor, &hole.at)
+                        floor < hole.at.as_ref()
                     } else {
-                        le(floor, &hole.at)
+                        floor <= hole.at.as_ref()
                     }
                 }
                 None => true,
@@ -128,9 +127,9 @@ mod sealed {
 
         fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool {
             if hole.strict {
-                lt(&hole.at, probe)
+                hole.at.as_ref() < probe
             } else {
-                le(&hole.at, probe)
+                hole.at.as_ref() <= probe
             }
         }
 
@@ -146,9 +145,9 @@ mod sealed {
             match ceiling {
                 Some(ceiling) => {
                     if hole.strict {
-                        lt(&hole.at, ceiling)
+                        hole.at.as_ref() < ceiling
                     } else {
-                        le(&hole.at, ceiling)
+                        hole.at.as_ref() <= ceiling
                     }
                 }
                 None => true,

@@ -1,8 +1,9 @@
 # Current triage state
 
 Work proceeds directly on `main`. The completed foundation, approved API,
-contract cleanup, and verification consolidation run through `0e5ec518`.
-The production-documentation increment is active and uncommitted.
+contract cleanup, verification consolidation, and production-documentation
+pass run through `a138d294`. Directional causal comparisons now use their
+one-direction early exits throughout `before` and Rumors.
 
 ## Completed foundation
 
@@ -47,10 +48,18 @@ increments are complete.
 
 ## Remaining work
 
-1. **Owner crate-page rewrite.** The public items, guideposts, and maintainer
-   prose are triaged; the owner has reserved the crate page for a later rewrite.
-2. **Reconcile and verify.** Re-read every original finding against the final
-   tree, run the justified full verification set, and present the integrated
-   result for approval.
+The final finding reconciliation left this priority order:
+
+1. Correct the board's Version-output byte denomination.
+2. Correct the truncation adversary.
+3. Remove the recursive oracle's dependence on the production route cost.
+4. Let generated operation traces address every member they create.
+5. Enforce the oracle bridge's normal-form assumptions.
+6. Close the remaining substantive production prose and local simplification
+   batch recorded in checklist section 06.
+7. Run the final integrated verification and reconcile the checklist.
+
+The fuelscape dump-accretion and provenance proposals are declined. The public
+crate page remains reserved for the owner's later rewrite.
 
 Re-evaluate this order after every approved commit.

@@ -72,7 +72,7 @@ laws! {
     fn clock_tick_advances_and_fixes_party {
         let mut ticked = c.dangerously_alias();
         ticked.tick();
-        le(c.version(), ticked.version())
+        c.version() <= ticked.version()
             && c.version() != ticked.version()
             && ticked.party() == c.party()
     }
@@ -105,7 +105,7 @@ laws! {
     fn send_advances_and_returns_the_version {
         let mut sender = c.dangerously_alias();
         let sent = sender.send().clone();
-        sent == *sender.version() && le(c.version(), &sent) && *c.version() != sent
+        sent == *sender.version() && c.version() <= sent && *c.version() != sent
     }
 
     /// `sync` (join then fork) reconciles a fork: after two concurrent ticks,
@@ -218,7 +218,7 @@ laws! {
         let returned = receiver.recv(msg).clone();
         let now = receiver.version().clone();
         let lub = &old | msg;
-        returned == now && le(&lub, &now) && lub != now
+        returned == now && lub <= now && lub != now
     }
 
     /// `recv` never changes the party: message reception is an anonymous join.
@@ -343,7 +343,7 @@ laws! {
                 !pairwise_disjoint
                     && !returned.is_empty()
                     && acc.party().covers(c.party())
-                    && le(c.version(), acc.version())
+                    && c.version() <= acc.version()
             }
         }
     }
@@ -395,10 +395,10 @@ laws! {
                     history = &history | &version;
                 }
                 union.covers(c.party())
-                    && le(c.version(), &history)
+                    && c.version() <= history
                     && items
                         .iter()
-                        .all(|item| union.covers(item.party()) && le(item.version(), &history))
+                        .all(|item| union.covers(item.party()) && item.version() <= history)
             }
         }
     }

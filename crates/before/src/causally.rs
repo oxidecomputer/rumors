@@ -1,11 +1,11 @@
-//! Composable causal queries over [`Version`]s.
+//! Composable causal queries over [`Version`](crate::Version)s.
 //!
-//! A range over totally ordered values is an interval. [`Version`]s are only
+//! A range over totally ordered values is an interval. [`Version`](crate::Version)s are only
 //! partially ordered, so a causal *query* generalizes the idea of an interval
 //! into an optional *floor* and *ceiling*, minus a set of *holes*.
 //!
 //! Queries may be constructed by composing atomic queries, and resolved against
-//! [`Version`]s and [`Span`]s to answer questions of
+//! [`Version`](crate::Version)s and [`Span`]s to answer questions of
 //! [`contains`](Query::contains) and [`coverage`](Query::coverage).
 //!
 //! # Constructing [`Query`]s
@@ -17,7 +17,7 @@
 //! | [`after(p)`](after)   | `p <= v`      |
 //! | [`before(e)`](before) | `v <= e`      |
 //!
-//! Both atoms drop versions [`concurrent`](Version::concurrent) to their bound
+//! Both atoms drop versions [`concurrent`](crate::Version::concurrent) to their bound
 //! (which we will write `∥` for brevity below).
 //!
 //! Concurrency enters through negation; the complement of "comparable, on this
@@ -52,13 +52,13 @@
 //! in *things you can ask them about*. While every [`Span`] `lo <= hi` is
 //! convertible [`into`](Into::into) the [`Query`] `after(lo) & before(hi)`, the
 //! converse is not true; a [`Query`] can articulate a large number of
-//! predicates on [`Version`]s which are not expressible as a [`Span`], because
+//! predicates on [`Version`](crate::Version)s which are not expressible as a [`Span`], because
 //! they do not take the form `lo <= v <= hi`.
 //!
 //! Additionally, the expressive limitations (and thereby representational
 //! simplicity) of a [`Span`]s grant them a stable canonical wire format and a
 //! much wider variety of meaningful operations beyond merely the analogues of
-//! [`Query`]'s predicates over [`Version`]s. Over an arbitrary pair of
+//! [`Query`]'s predicates over [`Version`](crate::Version)s. Over an arbitrary pair of
 //! [`Span`]s, we can compute the [`union`](crate::Span::union),
 //! [`intersect`](crate::Span::intersect), [`join`](crate::Span::join), and
 //! [`meet`](crate::Span::meet); we can [`project`](crate::Span::project) them over a
@@ -67,7 +67,7 @@
 //! So, in short:
 //!
 //! - Do you want a flexible and idiomatic language which can answer whether a
-//!   [`Query`] [`contains`](Query::contains) a [`Version`], or how much
+//!   [`Query`] [`contains`](Query::contains) a [`Version`](crate::Version), or how much
 //!   [`coverage`](Query::coverage) it has of a [`Span`]?
 //! - Or do you want a richer algebraic [`Span`] which can be serialized,
 //!   manipulated, and interrogated in a more fine-grained manner, but which
@@ -126,8 +126,6 @@
 //!
 //! [`Span`]: crate::Span
 
-use std::cmp::Ordering;
-
 mod conjunction;
 mod convert;
 mod forms;
@@ -143,15 +141,3 @@ pub use forms::{
 };
 pub use polarity::{Down, Neutral, Polarity, Up};
 pub use query::{Coverage, Query};
-
-use crate::Version;
-
-/// `a <= b` under the causal order.
-fn le(a: &Version, b: &Version) -> bool {
-    matches!(a.partial_cmp(b), Some(Ordering::Less | Ordering::Equal))
-}
-
-/// `a < b` under the causal order.
-fn lt(a: &Version, b: &Version) -> bool {
-    a.partial_cmp(b) == Some(Ordering::Less)
-}

@@ -22,9 +22,10 @@
 //! implementation for review. The exemption reasons are the reviewed
 //! artifact; membership is enforced, never remembered.
 //!
-//! The causal comparison is `PartialOrd` (`ff_version_cmp`) — the crate
-//! exposes no separate comparison entry point — with `concurrent` as its
-//! own row since it is a distinct public operation. Clock rows compose
+//! Causal comparison has separate panels for the complete [`PartialOrd`]
+//! relation and for a directional operator such as `<=`: the latter can stop
+//! as soon as that direction is disproved. `concurrent` has its own row since
+//! it is a distinct public operation. Clock rows compose
 //! their operand from a sampled party and version (`Clock::from_parts`
 //! in unmeasured preparation); a clock's canonical encoding is exactly
 //! its party's bytes followed by its version's, so the constituents'
@@ -147,6 +148,17 @@ const TICKS_COUNT: u32 = 1_000_000_000;
 /// The cost shared by operations that compute or verify an exact rank.
 const RANK_CONTRACT: &str = "`O(M(n))` time and `O(n)` space for `n` input \
     bytes; `M(n)` is the cost of multiplying `n`-bit integers";
+
+/// The board inventory entry shared by the panels for Version comparisons.
+const VERSION_COMPARISONS: &str = "Version PartialOrd (the comparison matrix, owned and borrowed)";
+
+/// The board inventory entry shared by projected/materialized comparisons.
+const OWN_VERSION_COMPARISONS: &str =
+    "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)";
+
+/// The board inventory entry shared by comparisons between two projections.
+const OWN_VERSION_PAIR_COMPARISONS: &str =
+    "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)";
 
 /// How a panel initially compensates its measured growth.
 #[derive(Clone, Copy)]
@@ -489,14 +501,12 @@ pub const ROSTER: &[OpSpec] = &[
     OpSpec {
         name: "own_version_cmp",
         inputs: Inputs::Operands(&[Operand::Version, Operand::Party, Operand::Version]),
-        covers: &[
-            "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
-        ],
+        covers: &[OWN_VERSION_COMPARISONS],
         size_measure: "total encoded bytes of the projected version, its masking party, \
              and the compared version, split uniform three ways (the fused \
-             three-stream co-walk, no materialization; view construction is O(1) \
-             preparation, and the equality entry runs the same fused mechanism)",
-        variant: "vs `Version`",
+             three-stream walk, no materialization; view construction is O(1) \
+             preparation)",
+        variant: "vs `Version`: full relation",
         contract: "`O(|self| + |other|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
@@ -507,6 +517,54 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "own_version_order",
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Party, Operand::Version]),
+        covers: &[OWN_VERSION_COMPARISONS],
+        size_measure: "total encoded bytes of the projected version, its masking party, \
+             and the compared version, split uniform three ways",
+        variant: "`OwnVersion <= Version`",
+        contract: "`O(|self| + |other|)`; stops when this direction is disproved",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            g.call("ff_own_version_le", &[0, 1, 2])
+        },
+    },
+    OpSpec {
+        name: "version_own_order",
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Party, Operand::Version]),
+        covers: &[OWN_VERSION_COMPARISONS],
+        size_measure: "total encoded bytes of the projected version, its masking party, \
+             and the compared version, split uniform three ways",
+        variant: "`Version <= OwnVersion`",
+        contract: "`O(|self| + |other|)`; stops when this direction is disproved",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            g.call("ff_version_le_own", &[2, 0, 1])
+        },
+    },
+    OpSpec {
+        name: "own_version_eq",
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Party, Operand::Version]),
+        covers: &[OWN_VERSION_COMPARISONS],
+        size_measure: "total encoded bytes of the projected version, its masking party, \
+             and the compared version, split uniform three ways",
+        variant: "`OwnVersion == Version`",
+        contract: "`O(|self| + |other|)`; stops at the first difference",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            g.call("ff_own_version_eq", &[0, 1, 2])
+        },
+    },
+    OpSpec {
         name: "own_version_pair_cmp",
         inputs: Inputs::Operands(&[
             Operand::Version,
@@ -514,12 +572,11 @@ pub const ROSTER: &[OpSpec] = &[
             Operand::Version,
             Operand::Party,
         ]),
-        covers: &["OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)"],
+        covers: &[OWN_VERSION_PAIR_COMPARISONS],
         size_measure: "total encoded bytes of the two views' versions and masking \
-             parties, split uniform four ways (the fused four-stream co-walk, no \
-             materialization; view construction is O(1) preparation, and the equality \
-             entry runs the same fused mechanism)",
-        variant: "vs `OwnVersion`",
+             parties, split uniform four ways (the fused four-stream walk, no \
+             materialization; view construction is O(1) preparation)",
+        variant: "vs `OwnVersion`: full relation",
         contract: "`O(|self| + |other|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
@@ -531,17 +588,75 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     OpSpec {
+        name: "own_version_pair_order",
+        inputs: Inputs::Operands(&[
+            Operand::Version,
+            Operand::Party,
+            Operand::Version,
+            Operand::Party,
+        ]),
+        covers: &[OWN_VERSION_PAIR_COMPARISONS],
+        size_measure: "total encoded bytes of the two views' versions and masking \
+             parties, split uniform four ways",
+        variant: "`OwnVersion <= OwnVersion`",
+        contract: "`O(|self| + |other|)`; stops when this direction is disproved",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_party(g, 3, &inputs[3]);
+            g.call("ff_own_version_pair_le", &[0, 1, 2, 3])
+        },
+    },
+    OpSpec {
+        name: "own_version_pair_eq",
+        inputs: Inputs::Operands(&[
+            Operand::Version,
+            Operand::Party,
+            Operand::Version,
+            Operand::Party,
+        ]),
+        covers: &[OWN_VERSION_PAIR_COMPARISONS],
+        size_measure: "total encoded bytes of the two views' versions and masking \
+             parties, split uniform four ways",
+        variant: "`OwnVersion == OwnVersion`",
+        contract: "`O(|self| + |other|)`; stops at the first difference",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_party(g, 1, &inputs[1]);
+            load_version(g, 2, &inputs[2]);
+            load_party(g, 3, &inputs[3]);
+            g.call("ff_own_version_pair_eq", &[0, 1, 2, 3])
+        },
+    },
+    OpSpec {
         name: "version_cmp",
         inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
-        covers: &["Version PartialOrd (the comparison matrix, owned and borrowed)"],
+        covers: &[VERSION_COMPARISONS],
         size_measure: M_BINARY,
-        variant: "comparison",
+        variant: "full relation",
         contract: "`O(|a| + |b|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             load_version(g, 1, &inputs[1]);
             g.call("ff_version_cmp", &[0, 1])
+        },
+    },
+    OpSpec {
+        name: "version_order",
+        inputs: Inputs::Operands(&[Operand::Version, Operand::Version]),
+        covers: &[VERSION_COMPARISONS],
+        size_measure: M_BINARY,
+        variant: "directional (`<=`)",
+        contract: "`O(|a| + |b|)`; stops when this direction is disproved",
+        compensation: Compensation::Claim("n"),
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            load_version(g, 1, &inputs[1]);
+            g.call("ff_version_le", &[0, 1])
         },
     },
     OpSpec {

@@ -47,8 +47,8 @@ fn collapsible_sibling_pair_sweeps_without_panicking() {
     let good = Version::from_test_bits(good);
     // Both entry points, both operand positions: each call must return. The
     // verdicts are unspecified and deliberately unpinned.
-    let _ = Comparison::order(&bad, None, &good, None);
-    let _ = Comparison::order(&good, None, &bad, None);
-    let _ = Comparison::equal(&bad, None, &good, None);
-    let _ = Comparison::equal(&good, None, &bad, None);
+    let _ = Comparison::order(&bad, &good);
+    let _ = Comparison::order(&good, &bad);
+    let _ = Comparison::equal(&bad, &good);
+    let _ = Comparison::equal(&good, &bad);
 }
