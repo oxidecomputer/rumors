@@ -4,19 +4,15 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 
-# A cdylib so `cargo build --target wasm32-unknown-unknown` emits a plain wasm
-# module (no wasm-bindgen: the ABI is hand-written i64 exports, one per pinned
-# boundary case, and the interesting inputs are synthesized inside the guest —
-# nothing bulk ever crosses the host boundary).
+# A cdylib makes the single typed check function directly callable by wasmtime.
+# Inputs are synthesized inside the guest, so no bulk data crosses the host
+# boundary and all size arithmetic uses wasm32's `usize`.
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-# The borsh feature enables the composite streaming operations
-# (`Ranked`/`Span::deserialize_reader`), whose walk boundaries the guest
-# pins beside the byte operations; the borsh crate itself names the trait the
-# exports drive. The meter feature lights the instrument surface: the
-# exact-bit-length observation (`encoded_bits`) the pins report through.
-before = { path = "../..", features = ["borsh", "meter"] }
-borsh = "1"
+# The meter feature exposes exact live bit lengths, which distinguish crossing
+# a bit-position boundary from merely allocating a buffer of nearby size.
+before = { path = "../..", features = ["meter"] }
 suanpan = { path = "../../../suanpan" }
+wasm32-pins-protocol = { path = "../protocol" }

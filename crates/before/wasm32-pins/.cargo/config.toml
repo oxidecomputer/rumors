@@ -1,0 +1,4 @@
+# Keep generated build-script sources outside `crates/`, where the repository's
+# documentation checks would otherwise mistake them for maintained source.
+[build]
+target-dir = "../../../target/wasm32-pins"
