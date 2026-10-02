@@ -4,7 +4,7 @@ use crate::bits::stack::{BitStack, PackedU64Stack};
 use crate::party::io::{PartyBranch, PartyNode, PartyReader};
 
 use super::frames::Position;
-use super::route::{Cost, Route};
+use super::route::{Cost, Distance, Route};
 
 /// The cheapest raise route computed alongside simplification.
 pub struct RaiseProbe {
@@ -38,14 +38,11 @@ impl RaiseProbe {
     /// route selection is deterministic.
     pub fn join(&mut self, key: u64, left: Cost, right: Cost) -> Cost {
         if !self.live {
-            return Cost::MAX;
+            return Cost::INFEASIBLE;
         }
         let (choice, cheaper) = Cost::prefer(left, right);
         self.route().record(key, choice);
-        Cost {
-            expansions: cheaper.expansions,
-            depth: Cost::deepen(cheaper.depth, Cost::CEILING),
-        }
+        cheaper.descend(Cost::CEILING)
     }
 
     /// Price expanding one version leaf across the party branch at `key`.
@@ -61,24 +58,21 @@ impl RaiseProbe {
             if branch.has_right_child() {
                 party.skip();
             }
-            return Cost::MAX;
+            return Cost::INFEASIBLE;
         }
         let left_cost = if branch.has_left_child() {
             self.expand_subtree(party, Cost::CEILING)
         } else {
-            Cost::MAX
+            Cost::INFEASIBLE
         };
         let right_cost = if branch.has_right_child() {
             self.expand_subtree(party, Cost::CEILING)
         } else {
-            Cost::MAX
+            Cost::INFEASIBLE
         };
         let (choice, cheaper) = Cost::prefer(left_cost, right_cost);
         self.route().record(key, choice);
-        Cost {
-            expansions: Cost::deepen(cheaper.expansions, Cost::CEILING),
-            depth: Cost::deepen(cheaper.depth, Cost::CEILING),
-        }
+        cheaper.expand(Cost::CEILING)
     }
 
     /// Finish route selection.
@@ -103,9 +97,9 @@ impl RaiseProbe {
     /// The traversal is an iterative post-order fold. Each frame retains
     /// whether its right child exists and, after the left child completes, the
     /// left distance. When both distances are known, the nearer child is
-    /// recorded and its distance is increased for the parent. Feasible
-    /// distances saturate below [`Cost::INFEASIBLE`], so even an extremely deep
-    /// path cannot be mistaken for an absent child.
+    /// recorded and its distance is increased for the parent. [`None`] denotes
+    /// an absent child; feasible distances retain a nonzero packed value, so
+    /// the two cases cannot collide.
     ///
     /// # Panics
     ///
@@ -121,7 +115,7 @@ impl RaiseProbe {
         loop {
             let key = party.offset();
             let mut distance = match party.read() {
-                PartyNode::Owned => 0,
+                PartyNode::Owned => Some(Distance::ZERO),
                 PartyNode::Branch(branch) => {
                     keys.push(&mut values, key);
                     phase.push(false);
@@ -129,7 +123,7 @@ impl RaiseProbe {
                     if branch.has_left_child() {
                         continue;
                     }
-                    Cost::INFEASIBLE
+                    None
                 }
             };
 
@@ -138,34 +132,27 @@ impl RaiseProbe {
             loop {
                 match phase.last() {
                     None => {
-                        assert_ne!(
-                            distance,
-                            Cost::INFEASIBLE,
-                            "an internal node in normal form has a present child"
-                        );
-                        return Cost {
-                            expansions: distance,
-                            depth: distance,
-                        };
+                        let distance =
+                            distance.expect("an internal node in normal form has a present child");
+                        return Cost::expansion_path(distance);
                     }
                     Some(false) => {
                         phase.set_last(true);
-                        values.push(Cost::encode_component(distance));
+                        values.push(distance.map_or(0, Distance::stack_word));
                         if right_present.last().expect("one presence bit per frame") {
                             break;
                         }
-                        distance = Cost::INFEASIBLE;
+                        distance = None;
                     }
                     Some(true) => {
                         phase.pop();
                         right_present.pop();
-                        let left_distance = Cost::decode_component(values.pop());
+                        let left_distance = Distance::from_stack_word(values.pop());
                         let right_distance = distance;
                         let key = keys.pop(&mut values);
-                        let (choice, nearer) =
-                            Cost::prefer_component(left_distance, right_distance);
+                        let (choice, nearer) = Distance::prefer(left_distance, right_distance);
                         self.route().record(key, choice);
-                        distance = Cost::deepen(nearer, ceiling);
+                        distance = nearer.map(|distance| distance.deepen(ceiling));
                     }
                 }
             }

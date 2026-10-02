@@ -334,7 +334,7 @@ impl TickWalk<'_> {
                         self.minima.open(1);
                         self.copy_subtree(depth + 1);
                         self.minima.close();
-                        break self.probe.join(key, Cost::FREE, Cost::MAX);
+                        break self.probe.join(key, Cost::FREE, Cost::INFEASIBLE);
                     }
                     let outermost = self.pos() >= self.memo.covered_until;
                     debug_assert_eq!(
@@ -377,7 +377,7 @@ impl TickWalk<'_> {
                 }
                 // An unowned left child remains unchanged and cannot be raised.
                 self.copy_subtree(depth);
-                break Cost::MAX;
+                break Cost::INFEASIBLE;
             };
             // Ascend: fold the completed subtree's cost upward until a
             // suspended node still has a child to walk (or the root completes).
@@ -430,7 +430,7 @@ impl TickWalk<'_> {
                             self.copy_subtree(depth + 1);
                             self.minima.close();
                             let key = frames.pop_await_left();
-                            cost = self.probe.join(key, cost, Cost::MAX);
+                            cost = self.probe.join(key, cost, Cost::INFEASIBLE);
                         }
                     }
                     // A node's right child finished: fold both children.

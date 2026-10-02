@@ -26,16 +26,7 @@
 
 use std::sync::Arc;
 
-use crate::testing::oracles::tree;
-
-/// The inflation cost the paper assigns: `(expansions, depth)`, lexicographic.
-///
-/// Matches the oracle's `Cost` and the impl's `grow::Cost` component width.
-/// Deliberately unchecked exact arithmetic, no saturation and no infeasible
-/// sentinel: infeasibility is structural here (an empty enumeration /
-/// [`None`]), and depths are bounded by the enumerated test trees, so the
-/// brute force stays an independent witness of the DPs' saturating folds.
-pub(crate) type GrowCost = (u64, u64);
+use crate::testing::oracles::tree::{self, Cost};
 
 /// Every feasible single-region inflation of `(id, e)`, each paired with its true
 /// `(expansions, depth)` cost.
@@ -45,10 +36,7 @@ pub(crate) type GrowCost = (u64, u64);
 /// inflated). Trees are raw (un-normalized), exactly as the paper's `grow` builds them;
 /// callers normalize before comparing to `event`'s output. Recursive over a bounded test
 /// tree (the impl's own traversals are iterative).
-pub(crate) fn all_inflations(
-    id: &tree::Party,
-    e: &tree::Version,
-) -> Vec<(tree::Version, GrowCost)> {
+pub(crate) fn all_inflations(id: &tree::Party, e: &tree::Version) -> Vec<(tree::Version, Cost)> {
     use tree::Party as P;
     use tree::Version as V;
     match (id, e) {
@@ -108,7 +96,7 @@ pub(crate) fn all_inflations(
 /// The globally minimal inflation cost over the full search space, or `None` if
 /// the id owns nothing. Independent of `grow`'s DP: a flat minimum over
 /// [`all_inflations`].
-pub(crate) fn min_inflation_cost(id: &tree::Party, e: &tree::Version) -> Option<GrowCost> {
+pub(crate) fn min_inflation_cost(id: &tree::Party, e: &tree::Version) -> Option<Cost> {
     all_inflations(id, e).into_iter().map(|(_, c)| c).min()
 }
 
@@ -126,10 +114,7 @@ pub(crate) fn min_inflation_cost(id: &tree::Party, e: &tree::Version) -> Option<
 /// right-favoring rule is the paper's: descend left iff the left child's
 /// minimum is strictly cheaper than the right's (`cl < cr`), else descend
 /// right.
-pub(crate) fn best_inflation(
-    id: &tree::Party,
-    e: &tree::Version,
-) -> Option<(tree::Version, GrowCost)> {
+pub(crate) fn best_inflation(id: &tree::Party, e: &tree::Version) -> Option<(tree::Version, Cost)> {
     use tree::Party as P;
     use tree::Version as V;
     match (id, e) {

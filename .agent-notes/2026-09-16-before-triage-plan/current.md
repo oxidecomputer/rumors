@@ -5,6 +5,9 @@ contract cleanup, verification consolidation, and production-documentation
 pass run through `a138d294`. Directional causal comparisons now use their
 one-direction early exits throughout `before` and Rumors.
 
+The board byte-accounting repair is approved as `3103a06b` on
+`codex/before-marker-board` and awaits integration into `main`.
+
 ## Completed foundation
 
 Party and Version algorithms now operate through their domain readers, writers,
@@ -50,14 +53,12 @@ increments are complete.
 
 The final finding reconciliation left this priority order:
 
-1. Correct the board's Version-output byte denomination.
-2. Correct the truncation adversary.
-3. Remove the recursive oracle's dependence on the production route cost.
-4. Let generated operation traces address every member they create.
-5. Enforce the oracle bridge's normal-form assumptions.
-6. Close the remaining substantive production prose and local simplification
+1. Correct the truncation adversary.
+2. Let generated operation traces address every member they create.
+3. Enforce the oracle bridge's normal-form assumptions.
+4. Close the remaining substantive production prose and local simplification
    batch recorded in checklist section 06.
-7. Run the final integrated verification and reconcile the checklist.
+5. Run the final integrated verification and reconcile the checklist.
 
 The fuelscape dump-accretion and provenance proposals are declined. The public
 crate page remains reserved for the owner's later rewrite.

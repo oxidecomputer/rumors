@@ -52,4 +52,6 @@ mod version;
 
 pub use clock::Clock;
 pub use party::Party;
+#[cfg(test)]
+pub(crate) use version::Cost;
 pub use version::Version;

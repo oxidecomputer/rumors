@@ -117,8 +117,9 @@ impl Frames {
             "only a branch waiting for its left child can advance"
         );
         self.phase.set_last(true);
-        self.values.push(Cost::encode_component(left.expansions));
-        self.values.push(Cost::encode_component(left.depth));
+        let (expansions, depth) = left.stack_words();
+        self.values.push(expansions);
+        self.values.push(depth);
     }
 
     /// Close a branch and restore its route position.
@@ -136,9 +137,9 @@ impl Frames {
 
     /// Close a branch after both children have completed.
     pub fn pop_await_right(&mut self) -> (u64, Cost) {
-        let depth = Cost::decode_component(self.values.pop());
-        let expansions = Cost::decode_component(self.values.pop());
-        (self.pop_key(), Cost { expansions, depth })
+        let depth = self.values.pop();
+        let expansions = self.values.pop();
+        (self.pop_key(), Cost::from_stack_words(expansions, depth))
     }
 
     /// Close a pre-scanned lookahead.

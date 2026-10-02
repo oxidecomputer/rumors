@@ -84,7 +84,9 @@ fn assert_grow(v: &Version, p: &Party) -> bool {
     match assert_grow_depth_safe(v, p) {
         None => false,
         Some(out) => {
-            let (raw, _) = to_oracle_version(v).grow_for_test(&to_oracle_party(p));
+            let (raw, _) = to_oracle_version(v)
+                .grow_for_test(&to_oracle_party(p))
+                .expect("the nonempty party owns a region");
             assert_eq!(
                 out,
                 from_oracle_version(&raw.normalized_for_test()),
@@ -162,7 +164,7 @@ fn rec(
             if !ev_zero {
                 ev.skip_subtree();
             }
-            Cost::MAX
+            Cost::INFEASIBLE
         }
         RefId::Full => {
             if ev_zero {
@@ -203,8 +205,8 @@ fn rec(
 /// expansion and one depth per expansion-chain level, one depth otherwise —
 /// exactly as the fused walk's fold does.
 ///
-/// Component steps included ([`Cost::deepen`]: infeasibility propagates,
-/// feasible components saturate strictly below the infeasible sentinel).
+/// Infeasibility propagates; feasible components remain in the shifted,
+/// saturating representation used by the production walk.
 fn combine(route: &mut Route, expand: bool, key: u64, left: Cost, right: Cost) -> Cost {
     let left_chosen = left < right;
     route.record(
@@ -217,15 +219,9 @@ fn combine(route: &mut Route, expand: bool, key: u64, left: Cost, right: Cost) -
     );
     let m = if left_chosen { left } else { right };
     if expand {
-        Cost {
-            expansions: Cost::deepen(m.expansions, Cost::CEILING),
-            depth: Cost::deepen(m.depth, Cost::CEILING),
-        }
+        m.expand(Cost::CEILING)
     } else {
-        Cost {
-            expansions: m.expansions,
-            depth: Cost::deepen(m.depth, Cost::CEILING),
-        }
+        m.descend(Cost::CEILING)
     }
 }
 
@@ -338,7 +334,9 @@ fn exhaustive_small_scope_grows_identically() {
         for p in &parties {
             if let Some(out) = assert_grow_depth_safe(v, p) {
                 taken.fetch_add(1, Ordering::Relaxed);
-                let (raw, _) = to_oracle_version(v).grow_for_test(&to_oracle_party(p));
+                let (raw, _) = to_oracle_version(v)
+                    .grow_for_test(&to_oracle_party(p))
+                    .expect("the nonempty party owns a region");
                 assert_eq!(
                     out,
                     from_oracle_version(&raw.normalized_for_test()),

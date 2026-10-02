@@ -4,21 +4,34 @@ use std::cmp::Ordering;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 use std::sync::Arc;
 
-use crate::version::tick::Cost as RouteCost;
 use num_bigint::BigUint;
 
 use super::Party;
 
-type Cost = (u64, u64); // (#expansions, depth), lexicographic
-
-/// One more path level for a cost component, exactly the route DP's step
-/// ([`RouteCost::deepen`] at the production ceiling).
+/// A feasible inflation's `(expansions, depth)` cost, ordered lexicographically.
 ///
-/// Infeasibility propagates, and feasible components saturate strictly below
-/// the [`RouteCost::INFEASIBLE`] sentinel, so a feasible chain of any depth
-/// stays feasible in every implementation of the fold at once.
-fn deepen(component: u64) -> u64 {
-    RouteCost::deepen(component, RouteCost::CEILING)
+/// The bounded recursive oracle uses exact arithmetic. An absent route is
+/// represented structurally by [`None`], independently of production's packed
+/// and saturating representation.
+pub(crate) type Cost = (u64, u64);
+
+/// Add one enclosing branch to a feasible cost.
+fn descend((expansions, depth): Cost) -> Cost {
+    (expansions, depth + 1)
+}
+
+/// Account for turning an event leaf into the branch the recursion just walked.
+fn add_expansion((expansions, depth): Cost) -> Cost {
+    (expansions + 1, depth)
+}
+
+/// Choose the cheaper feasible child, favoring right on a tie.
+fn left_is_cheaper(left: Option<Cost>, right: Option<Cost>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left < right,
+        (Some(_), None) => true,
+        (None, _) => false,
+    }
 }
 
 /// Event component.
@@ -265,63 +278,75 @@ impl Version {
         }
     }
 
-    /// `grow(id, self)` → (tree, cost).
-    fn grow(&self, id: &Party) -> (Version, Cost) {
+    /// `grow(id, self)` → an inflated tree and its cost, if `id` owns a region.
+    fn grow(&self, id: &Party) -> Option<(Version, Cost)> {
         match (id, self) {
-            (Party::Leaf(true), Version::Leaf(n)) => (Version::Leaf(n + 1u64), (0, 0)),
+            (Party::Leaf(true), Version::Leaf(n)) => Some((Version::Leaf(n + 1u64), (0, 0))),
             (Party::Leaf(true), Version::Node(n, el, er)) => {
-                let (el2, cl) = el.grow(&Party::Leaf(true));
-                let (er2, cr) = er.grow(&Party::Leaf(true));
-                if cl < cr {
-                    (
+                let left = el.grow(&Party::Leaf(true));
+                let right = er.grow(&Party::Leaf(true));
+                if left_is_cheaper(
+                    left.as_ref().map(|(_, cost)| *cost),
+                    right.as_ref().map(|(_, cost)| *cost),
+                ) {
+                    let (el2, cost) = left.expect("a full party owns the left child");
+                    Some((
                         Version::Node(n.clone(), Arc::new(el2), er.clone()),
-                        (cl.0, deepen(cl.1)),
-                    )
+                        descend(cost),
+                    ))
                 } else {
-                    (
+                    let (er2, cost) = right.expect("a full party owns the right child");
+                    Some((
                         Version::Node(n.clone(), el.clone(), Arc::new(er2)),
-                        (cr.0, deepen(cr.1)),
-                    )
+                        descend(cost),
+                    ))
                 }
             }
-            (Party::Leaf(false), _) => {
-                (self.clone(), (RouteCost::INFEASIBLE, RouteCost::INFEASIBLE))
-            }
+            (Party::Leaf(false), _) => None,
             (Party::Node(..), Version::Leaf(n)) => {
                 let expanded = Version::Node(
                     n.clone(),
                     Arc::new(Version::leaf(0u64)),
                     Arc::new(Version::leaf(0u64)),
                 );
-                let (e2, c) = expanded.grow(id);
-                (e2, (deepen(c.0), c.1))
+                expanded
+                    .grow(id)
+                    .map(|(version, cost)| (version, add_expansion(cost)))
             }
             (Party::Node(il, ir), Version::Node(n, el, er)) => {
                 if il.is_empty() {
-                    let (er2, cr) = er.grow(ir);
-                    (
-                        Version::Node(n.clone(), el.clone(), Arc::new(er2)),
-                        (cr.0, deepen(cr.1)),
-                    )
-                } else if ir.is_empty() {
-                    let (el2, cl) = el.grow(il);
-                    (
-                        Version::Node(n.clone(), Arc::new(el2), er.clone()),
-                        (cl.0, deepen(cl.1)),
-                    )
-                } else {
-                    let (el2, cl) = el.grow(il);
-                    let (er2, cr) = er.grow(ir);
-                    if cl < cr {
-                        (
-                            Version::Node(n.clone(), Arc::new(el2), er.clone()),
-                            (cl.0, deepen(cl.1)),
-                        )
-                    } else {
+                    er.grow(ir).map(|(er2, cost)| {
                         (
                             Version::Node(n.clone(), el.clone(), Arc::new(er2)),
-                            (cr.0, deepen(cr.1)),
+                            descend(cost),
                         )
+                    })
+                } else if ir.is_empty() {
+                    el.grow(il).map(|(el2, cost)| {
+                        (
+                            Version::Node(n.clone(), Arc::new(el2), er.clone()),
+                            descend(cost),
+                        )
+                    })
+                } else {
+                    let left = el.grow(il);
+                    let right = er.grow(ir);
+                    if left_is_cheaper(
+                        left.as_ref().map(|(_, cost)| *cost),
+                        right.as_ref().map(|(_, cost)| *cost),
+                    ) {
+                        let (el2, cost) = left.expect("the chosen left route is feasible");
+                        Some((
+                            Version::Node(n.clone(), Arc::new(el2), er.clone()),
+                            descend(cost),
+                        ))
+                    } else {
+                        let (er2, cost) =
+                            right.expect("a normal nonempty party has a feasible child");
+                        Some((
+                            Version::Node(n.clone(), el.clone(), Arc::new(er2)),
+                            descend(cost),
+                        ))
                     }
                 }
             }
@@ -333,7 +358,9 @@ impl Version {
         if filled != *self {
             filled
         } else {
-            let (grown, _) = self.grow(id);
+            let (grown, _) = self
+                .grow(id)
+                .expect("a nonempty party always owns a region to grow");
             grown.normalized()
         }
     }
@@ -346,13 +373,14 @@ impl Version {
         self.fill(id)
     }
 
-    /// `grow(id, self)` → (raw tree, cost).
+    /// `grow(id, self)` → a raw tree and cost, or [`None`] when `id` owns no
+    /// region.
     ///
     /// `pub(crate)` so the grow-optimality tests can compare the DP's chosen
     /// inflation and its reported cost against the brute-force search
     /// (`testing::grow_brute_force::best_inflation`/`min_inflation_cost`).
     #[cfg(test)]
-    pub(crate) fn grow_for_test(&self, id: &Party) -> (Version, (u64, u64)) {
+    pub(crate) fn grow_for_test(&self, id: &Party) -> Option<(Version, Cost)> {
         self.grow(id)
     }
 

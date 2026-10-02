@@ -251,7 +251,7 @@ triage's dispositions and branches are leads only.
 Broad test-suite cleanup follows the behavioral and API work; do not mix it
 into otherwise small feature increments.
 
-- [ ] Make the recursive oracle's route cost independent of the production
+- [x] Make the recursive oracle's route cost independent of the production
       cost helper.
       Source: `oracle-laws-4`.
 

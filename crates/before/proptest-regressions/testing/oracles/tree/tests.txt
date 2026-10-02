@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f1315cbdd1cd569eeaad8deb4fbb03c6d70bf05c888cd10a8173a56c237c559c # shrinks to id = Node(Leaf(false), Leaf(true)), e = Leaf(0)
+cc 1a0a565365a85ef24c6461c6ff6717cd9e71b8fd09ca38e27275a4771a4e2b44 # shrinks to id = Node(Node(Leaf(false), Leaf(true)), Leaf(false)), e = Leaf(0)

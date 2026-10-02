@@ -557,7 +557,7 @@ proptest! {
         id in arb_oracle_party_nonempty(),
         e in arb_oracle_version(),
     ) {
-        let (_, dp_cost) = e.grow_for_test(&id);
+        let (_, dp_cost) = e.grow_for_test(&id).expect("non-empty id always has an inflation");
         let brute = min_inflation_cost(&id, &e).expect("non-empty id always has an inflation");
         prop_assert_eq!(dp_cost, brute, "grow's cost is not the global minimum");
     }
@@ -576,7 +576,7 @@ proptest! {
         id in arb_oracle_party_nonempty(),
         e in arb_oracle_version(),
     ) {
-        let dp = e.grow_for_test(&id);
+        let dp = e.grow_for_test(&id).expect("non-empty id always has an inflation");
         let brute = best_inflation(&id, &e).expect("non-empty id always has an inflation");
         prop_assert_eq!(dp, brute);
     }
@@ -626,7 +626,7 @@ proptest! {
         id in arb_oracle_party_nonempty(),
         e in arb_oracle_version(),
     ) {
-        let (eprime, _) = e.grow_for_test(&id);
+        let (eprime, _) = e.grow_for_test(&id).expect("non-empty id always has an inflation");
         let eprime = eprime.normalized_for_test();
         for (cand, _) in all_inflations(&id, &e) {
             let cand = cand.normalized_for_test();

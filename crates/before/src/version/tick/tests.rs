@@ -1262,13 +1262,12 @@ fn tick_deep_orbits_stay_banded() {
 
 // ───────────── the route DP's saturation ceiling ─────────────
 //
-// The expansion DP saturates feasible distances at a ceiling strictly below
-// the infeasible sentinel (`Cost::CEILING` < `Cost::INFEASIBLE`), so a
-// feasible chain of any length still compares feasible and the recorded route
-// always turns into a present child. The ceiling is a parameter of the rise
-// loop exactly so these tests can scale it into constructible range: reaching
-// the production ceiling would take more party levels than any physical
-// encoding can hold.
+// The expansion DP stores each feasible distance as `n + 1`, reserving zero
+// for an absent path. Saturating `n` at `u64::MAX - 1` keeps the shifted value
+// representable. The ceiling is a parameter of the expansion loop so these
+// tests can exercise saturation with constructible inputs: reaching the
+// production ceiling would take more party levels than any physical encoding
+// can hold.
 
 /// The party owning exactly the region at the end of `path`: one internal party
 /// node per direction (the off-path sibling absent), a full terminal below.
@@ -1282,15 +1281,12 @@ fn direction_chain(path: &[bool]) -> Party {
 /// Run the expansion DP over `path`'s direction chain at `ceiling` and assert
 /// the saturation contract.
 ///
-/// The cost must be the chain's distance saturated at the ceiling — strictly
-/// feasible, never [`Cost::MAX`] — and the route must turn into the present
-/// child at every level.
+/// The cost must be the chain's distance saturated at the ceiling and remain
+/// feasible, and the route must turn into the present child at every level.
 ///
-/// A rise loop that saturated feasible distances *into* the infeasible
-/// sentinel would instead compare the chain equal to its absent sibling,
-/// record the tie to the right, and send the splice emit into the absent
-/// child (a debug panic, a party-cursor desync in release) — the corner the
-/// strict sub-sentinel ceiling closes by construction.
+/// If the shifted distance wrapped to zero, the chain would instead look
+/// absent, send the route into the missing sibling, and desynchronize the
+/// party cursor. Saturation prevents that collision by construction.
 fn assert_chain_saturation(path: &[bool], ceiling: u64) {
     let p = direction_chain(path);
     let mut probe = RaiseProbe::new(p.stored_len());
@@ -1302,17 +1298,14 @@ fn assert_chain_saturation(path: &[bool], ceiling: u64) {
         "the DP consumes exactly the subtree"
     );
     assert!(
-        cost < Cost::MAX,
+        cost.is_feasible(),
         "a feasible chain must never read infeasible (depth {}, ceiling {ceiling})",
         path.len(),
     );
     let distance = (path.len() as u64).min(ceiling);
     assert_eq!(
         cost,
-        Cost {
-            expansions: distance,
-            depth: distance,
-        },
+        Cost::feasible(distance, distance),
         "the chain's distance saturates at the ceiling, feasibly",
     );
     let route = probe.take_route();
@@ -1329,9 +1322,8 @@ fn assert_chain_saturation(path: &[bool], ceiling: u64) {
     }
 }
 
-/// The scaled-sentinel witness: at a rise-loop ceiling of 7, a feasible
-/// left-only chain one past the bound (distance 8) saturates to 7 and stays
-/// feasible.
+/// At a rise-loop ceiling of 7, a feasible left-only chain one past the bound
+/// (distance 8) saturates to 7 and stays feasible.
 ///
 /// The route turns into the present child at every level, and chains around
 /// that distance tick byte-identically to the oracle at the production
@@ -1349,8 +1341,8 @@ fn chain_one_past_the_ceiling_stays_feasible() {
 }
 
 proptest! {
-    /// Feasible expansion chains never alias into the infeasible sentinel at
-    /// any rise-loop ceiling.
+    /// Feasible expansion chains remain distinct from absent paths at every
+    /// rise-loop ceiling.
     ///
     /// Direction chains of arbitrary depth and orientation, crossed with
     /// ceilings the chains can reach and pass: the DP's cost is the distance
