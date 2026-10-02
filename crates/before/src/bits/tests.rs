@@ -803,7 +803,7 @@ proptest! {
 
 // ───────────────────────── decode rejection of non-canonical input ─────────────────────────
 
-/// The only collapsible id node representable in the pruned encoding is `(1,
+/// The only collapsible Party node representable in the pruned encoding is `(1,
 /// 1)` — a node with two terminal children — which must be rejected as
 /// `NotCanonical` (it collapses to `1`).
 ///
@@ -812,35 +812,37 @@ proptest! {
 /// is `0`.
 #[test]
 fn reject_noncanonical_id() {
-    use tree::Party::{Leaf, Node};
-    let denormal = Node(Arc::new(Leaf(true)), Arc::new(Leaf(true)));
-    let bytes = from_oracle_party(&denormal).encode();
+    // Branch `11`, followed by two owned terminals `00`. This spelling is
+    // structurally complete but reducible to the single terminal `00`.
+    let bytes = bits_writer![1, 1, 0, 0, 0, 0].into_padded_bytes();
     assert!(
         matches!(Party::decode(&bytes[..]), Err(Decode::NotCanonical)),
-        "collapsible id node (1, 1) must be rejected as NotCanonical",
+        "a Party branch with two owned children must be rejected as NotCanonical",
     );
 }
 
-/// The id validator runs bottom-up by recursion, so a collapsible `(v, v)` node
-/// buried under deep, otherwise-canonical nesting must still be caught.
+/// The Party validator catches a collapsible node buried under deep,
+/// otherwise-canonical nesting.
 ///
-/// The `NotCanonical` check fires when *any* node completes, not only at the
-/// root. Build a left-leaning spine `(((… (1,1) …, 0), 0), 0)` whose deepest
-/// node is the denormal `(1, 1)`, exercising the validator's recursion past a
-/// single byte.
+/// The `NotCanonical` check must fire when any node completes, not only at the
+/// root. A left-leaning spine `(((… (1,1) …, 0), 0), 0)` places the reducible
+/// pair beyond the first byte.
 #[test]
 fn reject_deep_nested_denormal_id() {
-    use tree::Party::{Leaf, Node};
-
-    // Innermost collapsible node, then 16 layers of canonical `(_, 0)`
-    // wrapping. Each wrapper is itself normal (a node child paired with a `0`
-    // leaf), so the only non-canonical node is the buried `(1, 1)`.
     const DEPTH: usize = 16;
-    let mut tree = Node(Arc::new(Leaf(true)), Arc::new(Leaf(true)));
+    let mut bits = BitsWriter::new();
+
+    // Each `10` branch has only a left child, so every outer node is normal.
     for _ in 0..DEPTH {
-        tree = Node(Arc::new(tree), Arc::new(Leaf(false)));
+        bits.push(true);
+        bits.push(false);
     }
-    let bytes = from_oracle_party(&tree).encode();
+    // The deepest branch `11` has two owned terminal children `00`, making it
+    // the sole reducible node.
+    for bit in [true, true, false, false, false, false] {
+        bits.push(bit);
+    }
+    let bytes = bits.into_padded_bytes();
 
     // The encoding spans several bytes, so this drives the stack-based
     // validator well past the trivial single-node case.
@@ -936,20 +938,23 @@ fn version_and_clock_decoding_rejects_intra_byte_padding() {
 fn transcoding_normalizes_noncanonical_event() {
     use tree::Version::{Leaf, Node};
 
-    // No child has base 0: unspellable on the wire — the transcoding
-    // quotients the spelling onto the normalized tree's stream.
-    let no_zero = Node(
-        0u64.into(),
-        Arc::new(Leaf(1u64.into())),
-        Arc::new(Leaf(2u64.into())),
-    );
+    // Build the raw preorder tree `(0, 1, 2)` directly. Neither child has base
+    // zero, so the tree is not min-lifted and cannot be a canonical oracle
+    // value. The transcoder should still map it to the canonical skyline.
+    let mut stream = BitsWriter::new();
+    stream.push(true);
+    stream.write_gamma(&BigUint::ZERO);
+    stream.push(false);
+    stream.write_gamma(&BigUint::from(1u8));
+    stream.push(false);
+    stream.write_gamma(&BigUint::from(2u8));
     let normalized = Node(
         1u64.into(),
         Arc::new(Leaf(0u64.into())),
         Arc::new(Leaf(1u64.into())),
     );
     assert_eq!(
-        from_oracle_version(&no_zero).encode(),
+        crate::testing::version::from_tree_stream(stream.reader()).encode(),
         from_oracle_version(&normalized).encode(),
         "the wire coding admits exactly one spelling per value",
     );

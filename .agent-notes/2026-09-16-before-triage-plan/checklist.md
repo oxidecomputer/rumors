@@ -259,7 +259,7 @@ into otherwise small feature increments.
       the first eight.
       Source: `testing-diff-gen-15`.
 
-- [ ] Enforce the normal-form assumptions at the oracle-to-production bridge.
+- [x] Enforce the normal-form assumptions at the oracle-to-production bridge.
       Source: `testing-oracles-4`.
 
 - [x] Drive every public suanpan operation through one differential proptest

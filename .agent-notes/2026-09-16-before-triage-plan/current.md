@@ -2,7 +2,7 @@
 
 Work proceeds directly on `main`. The completed foundation, approved API,
 contract cleanup, verification consolidation, and production-documentation
-pass run through `a138d294`. Directional causal comparisons now use their
+pass are integrated. Directional causal comparisons now use their
 one-direction early exits throughout `before` and Rumors.
 
 The amplification board reads canonical stored lengths directly for Version
@@ -34,6 +34,9 @@ Semantic verification now has one shared operation vocabulary across the
 production implementation, recursive oracle, and function-space oracle.
 Sampled and exhaustive schedules use the same differential driver, while
 algebraic laws and focused deep-traversal tests retain their distinct roles.
+Generated schedules can address every clock they create, and the
+oracle-to-production bridge rejects empty or non-normal oracle trees at its
+boundary.
 The compiler-derived surface check directly holds the resource tables against
 the public API, replacing copied source rosters and scanners. Shared generators
 now construct nonempty and nonzero inputs directly, reuse the conditional
@@ -54,10 +57,9 @@ increments are complete.
 
 The final finding reconciliation left this priority order:
 
-1. Enforce the oracle bridge's normal-form assumptions.
-2. Close the remaining substantive production prose and local simplification
+1. Close the remaining substantive production prose and local simplification
    batch recorded in checklist section 06.
-3. Run the final integrated verification and reconcile the checklist.
+2. Run the final integrated verification and reconcile the checklist.
 
 The fuelscape dump-accretion and provenance proposals are declined. The public
 crate page remains reserved for the owner's later rewrite.

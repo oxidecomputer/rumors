@@ -3,12 +3,15 @@
 //! [`from_oracle_party`]/[`from_oracle_version`] build an impl value by
 //! emitting its canonical stored bits from an oracle tree directly (NOT via the
 //! public codec), keeping algorithm correctness decoupled from codec
-//! correctness. The inverse `to_oracle_*` rebuild the oracle's tree shape from
-//! the impl's *internal* stored bits — the party bits, the version's skyline
-//! stream — so a differential test can compare structures with `==` without
-//! round-tripping the byte codec (which is exercised separately). Both forms
-//! are normalized, so structural `==` ⇔ semantic equality. Recursive over
-//! bounded test trees (the impl's own traversals are iterative).
+//! correctness. These conversions require normal-form oracle trees, and a
+//! [`Party`] must also be nonempty because production has no anonymous party.
+//! The inverse `to_oracle_*` rebuilds the oracle's tree shape from the impl's
+//! internal stored bits — the party bits and the version's skyline stream — so
+//! a differential test can compare structures with `==` without
+//! round-tripping the byte codec (which is exercised separately). The checked
+//! inputs and reconstructed outputs are normalized, so structural `==` is
+//! semantic equality. Recursive over bounded test trees (the impl's own
+//! traversals are iterative).
 
 use std::sync::Arc;
 
@@ -23,8 +26,7 @@ use crate::{Clock, Party, Version};
 
 // ───────────────────────────── oracle → impl ─────────────────────────────
 
-/// Whether an oracle id subtree is the empty `0` region. In normal form that is
-/// exactly the `Leaf(false)`; the bridge only ever emits normalized oracle trees.
+/// Whether a subtree of a checked normal-form oracle party is the empty region.
 fn id_is_zero(t: &tree::Party) -> bool {
     matches!(t, tree::Party::Leaf(false))
 }
@@ -62,9 +64,16 @@ fn emit_ev(out: &mut BitsWriter, t: &tree::Version) {
     }
 }
 
-/// Build the impl `Party` whose canonical bits encode `t`. Recursive over a bounded
-/// oracle tree (test-only; the impl's own traversals are iterative).
+/// Build the impl `Party` whose canonical bits encode `t`.
+///
+/// Recursive over a bounded oracle tree (test-only; the impl's own traversals
+/// are iterative). Panics if `t` is not normal or is empty: neither form has a
+/// valid production representation.
 pub(crate) fn from_oracle_party(t: &tree::Party) -> Party {
+    assert!(
+        t.is_normal(),
+        "an oracle Party must be normal before conversion"
+    );
     assert!(
         !t.is_empty(),
         "the production Party type represents nonempty ownership"
@@ -78,8 +87,13 @@ pub(crate) fn from_oracle_party(t: &tree::Party) -> Party {
 ///
 /// Recursive over a bounded oracle tree (test-only; the impl's own
 /// traversals are iterative): emits the min-lifted preorder stream,
-/// then transcodes it into the skyline coding the version stores.
+/// then transcodes it into the skyline coding the version stores. Panics if
+/// `t` is not normal because the production representation is canonical.
 pub(crate) fn from_oracle_version(t: &tree::Version) -> Version {
+    assert!(
+        t.is_normal(),
+        "an oracle Version must be normal before conversion"
+    );
     let mut bits = BitsWriter::new();
     emit_ev(&mut bits, t);
     crate::testing::version::from_tree_stream(bits.reader())
@@ -168,3 +182,6 @@ pub(crate) fn to_oracle_version(v: &Version) -> tree::Version {
 pub(crate) fn to_oracle_clock(c: &Clock) -> (tree::Party, tree::Version) {
     (to_oracle_party(c.party()), to_oracle_version(c.version()))
 }
+
+#[cfg(test)]
+mod tests;
