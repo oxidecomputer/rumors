@@ -895,14 +895,17 @@ impl Clock {
     ///
     /// # Warning
     ///
-    /// [`Clock`] is [`!Clone`](Clone) because two live handles to one [`Clock`]
-    /// break disjointness of the underlying [`Party`], so if both copies (or
-    /// any of their [`fork`](Clock::fork)s) go on to [`tick`](Clock::tick) or
-    /// [`join`](Clock::join), causal history can be corrupted arbitrarily.
+    /// [`Clock`] is [`!Clone`](Clone) because two handles to the same
+    /// underlying [`Party`] could record different events under the same
+    /// identity. Forking either copy only subdivides it; clocks forked from one
+    /// copy can still overlap clocks forked from the other.
     ///
-    /// The caller must ensure that at most one of the two copies is ever
-    /// treated as live; the other must be dropped without further use. The same
-    /// rule applies to any [`Party`] extracted from such a clock.
+    /// Events may be recorded through only one of the two copies and the
+    /// clocks forked from that copy. Both copies may be inspected, compared,
+    /// or retained as read-only witnesses, but before one copy or a clock
+    /// forked from it [`ticks`](Clock::tick), every overlapping clock derived
+    /// from the other copy must be discarded or kept permanently read-only.
+    /// The same rule applies to any [`Party`] extracted from either clock.
     ///
     /// This method exists for handing a clock across a boundary where ownership
     /// transfers to exactly one side based on an outcome not known at the time

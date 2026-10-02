@@ -65,7 +65,8 @@ mod tests;
 /// same identity share; conversely, discarding one makes that share unavailable
 /// forever. [`Party`] is therefore neither [`Clone`] nor [`Copy`], and it is
 /// `must_use`. Decoding and [`dangerously_alias`](Party::dangerously_alias) are
-/// explicit escape hatches; callers must preserve disjointness when using them.
+/// explicit escape hatches; callers must ensure that overlapping copies never
+/// record events independently.
 ///
 /// # Example
 ///
@@ -576,14 +577,16 @@ impl Party {
     ///
     /// # Warning
     ///
-    /// [`Party`] is [`!Clone`](Clone) because two live handles to one [`Party`]
-    /// break disjointness, so if both copies (or any of their
-    /// [`fork`](Party::fork)s) go on to [`tick`](Party::tick) or
-    /// [`join`](Party::join), causal history can be corrupted arbitrarily.
+    /// [`Party`] is [`!Clone`](Clone) because two handles to the same identity
+    /// region could advance [`Version`]s independently. Forking either copy
+    /// only subdivides it; parties forked from one copy can still overlap
+    /// parties forked from the other.
     ///
-    /// The caller must ensure that at most one of the two copies is ever
-    /// treated as live; the other must be dropped without further use. The same
-    /// rule applies to any [`Clock`](crate::Clock) built from such a party.
+    /// Events may be recorded through only one of the two copies and the
+    /// parties forked from that copy. Both copies may be inspected, compared,
+    /// or retained as read-only witnesses, but before one copy or a party
+    /// forked from it [`ticks`](Party::tick), every overlapping party derived
+    /// from the other copy must be discarded or kept permanently read-only.
     ///
     /// This method exists for handing a clock across a boundary where ownership
     /// transfers to exactly one side based on an outcome not known at the time

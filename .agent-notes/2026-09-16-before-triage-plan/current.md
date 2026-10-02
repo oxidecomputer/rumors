@@ -55,11 +55,8 @@ increments are complete.
 
 ## Remaining work
 
-The final finding reconciliation left this priority order:
-
-1. Close the remaining substantive production prose and local simplification
-   batch recorded in checklist section 06.
-2. Run the final integrated verification and reconcile the checklist.
+The remaining work is the final integrated verification and checklist
+reconciliation.
 
 The fuelscape dump-accretion and provenance proposals are declined. The public
 crate page remains reserved for the owner's later rewrite.

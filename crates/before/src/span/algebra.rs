@@ -976,12 +976,12 @@ span_assign_matrix! {
 /// its point span) yields their union (the fold of `+`) through the same
 /// balanced n-ary fold as [`Span::union_all`].
 ///
-/// The receiver is [`Option`] because union has no identity: the version
-/// lattice has no top, so an empty iterator has no non-empty hull. `None`
-/// means exactly "no spans came", never an empty union. Rust's coherence
-/// rules prevent a blanket `impl<T: Into<Span>> Sum<T> for Option<Span>`:
-/// its header has no local type (`Option` is foreign and `T` is uncovered).
-/// The macro therefore emits the concrete owned and borrowed forms.
+/// The receiver is [`Option`] because union has no identity [`Span`]: its
+/// identity would represent the empty set of versions, but every span is
+/// nonempty. `None` means exactly "no spans came", not an empty span. Rust's
+/// coherence rules prevent a blanket `impl<T: Into<Span>> Sum<T> for
+/// Option<Span>`: its header has no local type (`Option` is foreign and `T` is
+/// uncovered). The macro therefore emits the concrete owned and borrowed forms.
 macro_rules! span_union_fold {
     ($(#[$doc:meta])* ($($lt:lifetime),*) $Item:ty) => {
         $(#[$doc])*
@@ -1084,11 +1084,12 @@ span_union_fold! {
 /// multiplying out an iterator of spans yields their intersection — the fold
 /// of `*` — through the same balanced n-ary fold as [`Span::intersect_all`].
 ///
-/// [`None`] covers both an empty iterator (intersection has no identity: the
-/// version lattice has no top, so no span is covered by every span) and a
-/// nonempty family sharing no version — the two ways there is no product.
-/// Items are true [`Span`]s rather than implicitly widened versions: a point
-/// item would otherwise empty the product unless every input contained it.
+/// [`None`] covers both an empty iterator and a nonempty family sharing no
+/// version — the two ways there is no product. Intersection has no identity:
+/// that identity would be a span covering every span, from the bottom version
+/// to a top element, and the version lattice has no top. Items are true
+/// [`Span`]s rather than implicitly widened versions: a point item would
+/// otherwise empty the product unless every input contained it.
 macro_rules! span_intersect_fold {
     ($(#[$doc:meta])* ($($lt:lifetime),*) $Item:ty) => {
         $(#[$doc])*

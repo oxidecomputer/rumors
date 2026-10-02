@@ -49,11 +49,12 @@ impl BitsWriter {
 
     /// An empty buffer with room for `bits` bits before reallocation.
     ///
-    /// The capacity is a hint: a request past the target's address space
-    /// allocates nothing up front, and the buffer still grows to whatever
-    /// the pushes actually demand. A positive hint includes room for the
-    /// stream's mandatory marker byte, so finalizing a byte-aligned stream at
-    /// the hinted size does not reallocate.
+    /// The hint is ignored when its byte count does not fit [`usize`];
+    /// otherwise allocation has the same failure behavior as
+    /// [`Vec::with_capacity`]. Callers derive hints from the live inputs they
+    /// will copy. A positive hint includes room for the stream's mandatory
+    /// marker byte, so finalizing a byte-aligned stream at the hinted size does
+    /// not reallocate.
     pub(crate) fn with_capacity(bits: u64) -> Self {
         let bytes = if bits == 0 {
             0

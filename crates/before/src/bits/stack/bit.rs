@@ -7,7 +7,8 @@ mod tests;
 ///
 /// The newest bit lives at the low end of the top register; a filled register
 /// spills whole into the word vector and refills on the pop that crosses back.
-/// Every operation is O(1) with no bit-addressing arithmetic.
+/// Push, pop, and access to the newest bit are `O(1)`. Operations that inspect
+/// a run or the whole stack state their scan cost individually.
 #[derive(Default)]
 pub(crate) struct BitStack {
     /// Completed 64-bit groups below the top register, oldest first.
@@ -50,14 +51,11 @@ impl BitStack {
     /// returns them newest-first, exactly as `len` single pushes of the value's
     /// bits from high to low.
     pub(crate) fn push_bits(&mut self, value: u64, len: u32) {
-        debug_assert!(len <= 63 && (len == 64 || value >> len == 0));
+        debug_assert!(len <= 63);
+        debug_assert!(value >> len == 0);
         let total = self.top_len + len;
         if total <= 64 {
-            self.top = if len == 64 {
-                value
-            } else {
-                (self.top << len) | value
-            };
+            self.top = (self.top << len) | value;
             self.top_len = total;
             return;
         }
@@ -86,9 +84,12 @@ impl BitStack {
         let low_len = self.top_len;
         let low = self.top;
         let rest = len - low_len;
+        // Spilled words are always full, so one refill contains the entire
+        // remainder of this at-most-63-bit pop.
         self.top = self.words.pop().expect("bit stack underflow");
-        self.top_len = 64;
-        let high = self.pop_bits(rest);
+        let high = self.top & ((1u64 << rest) - 1);
+        self.top >>= rest;
+        self.top_len = 64 - rest;
         (high << low_len) | low
     }
 
@@ -165,6 +166,8 @@ impl BitStack {
     }
 
     /// Whether every held bit is set (vacuously true when empty).
+    ///
+    /// Runs in `O(1 + n / 64)` for a stack of `n` bits.
     pub(crate) fn all_set(&self) -> bool {
         let top_all = match self.top_len {
             0 => true,

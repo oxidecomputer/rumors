@@ -196,7 +196,7 @@ triage's dispositions and branches are leads only.
 
 ## 06. Production structure and local simplification
 
-- [ ] Close the remaining substantive cleanup: state the causal-actor
+- [x] Close the remaining substantive cleanup: state the causal-actor
       obligation of dangerous aliases accurately, correct the Span algebra
       identities, state `BitStack` costs precisely and delete impossible
       branches, and narrow `BitsWriter`'s capacity promise.
