@@ -35,7 +35,7 @@ fn linear_fit() -> Fit {
 }
 
 /// Against a pin that transcribes the fit, the divergence is zero: the
-/// comparator cannot false-flag an honest pin.
+/// comparator cannot flag a matching pin.
 #[test]
 fn agreeing_pin_reads_zero() {
     let f = linear_fit();

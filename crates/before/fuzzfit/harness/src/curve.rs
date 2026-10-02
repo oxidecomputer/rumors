@@ -41,7 +41,7 @@ use crate::fit::BUCKETS_PER_DECADE;
 /// log factor along the fold-*width* axis (`Version::join_all`'s balanced
 /// reduction passes every input through O(log n) joins), so a
 /// within-case width ladder trends above the pooled pinned slope for the
-/// honest mechanism too — a flag here would read the factor, not a
+/// intended implementation too — a flag here would read the factor, not a
 /// regression. The point leg owns these rows instead: the generators'
 /// width ladder puts a degenerate (left-fold) reduction's excess, which
 /// grows as n / log n, far past the pinned ceiling inside the reachable

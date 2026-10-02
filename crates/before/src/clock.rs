@@ -17,25 +17,33 @@ pub use forks::ClockForks;
 #[cfg(test)]
 mod tests;
 
-/// A [`Party`] and its [`Version`].
+/// A [`Party`] paired with the causal [`Version`] it has observed.
 ///
-/// This type is `!Clone` to strongly discourage non-linear usage: duplicating a
-/// [`Clock`] is memory-safe but semantically invalid for interval tree clocks,
-/// which require all live clocks in a system to be disjoint. Discarding one
-/// likewise loses its identity share, so the type is `must_use`.
+/// [`Clock::tick`] records a local event, [`fork`](Clock::fork) creates a
+/// disjoint clock with the same history, and [`send`](Clock::send) and
+/// [`recv`](Clock::recv) exchange causal history. [`Clock::join`]
+/// reunites two disjoint clocks; [`sync`](Clock::sync) first combines their
+/// histories and then redistributes their joined party.
 ///
-/// Causal comparison and merge happen through the [`Version`]; `Clock` is not
-/// itself ordered:
+/// | Operation                                                        | Meaning                                                   |
+/// |------------------------------------------------------------------|-----------------------------------------------------------|
+/// | [`Clock::seed()`]                                                | create the initial clock                                  |
+/// | [`clock.tick()`](Clock::tick)/[`clock.ticks(k)`](Clock::ticks)   | record one event, or `k` events, for this clock           |
+/// | [`clock.fork()`](Clock::fork)/[`clock.forks(k)`](Clock::forks)   | create one disjoint child, or `k` balanced children       |
+/// | [`clock.send()`](Clock::send)/[`clock.recv(v)`](Clock::recv)     | send or receive causal history                            |
+/// | [`clock.join(other)`](Clock::join)                               | consume and reunite a disjoint clock                      |
+/// | [`clock.sync(other)`](Clock::sync)                               | reconcile two disjoint clocks while keeping both alive    |
+/// | `clock \| v`, `clock \|= v`                                      | join a received version into this clock                   |
+/// | `clock.version()` compared with another version                  | compare causal histories                                  |
 ///
-/// | Operation                                                                                                                           | Meaning                                                  |
-/// |-------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
-/// | `a.version()` (`<`, `<=`, `==`) `b.version()`                                                                                       | compare causal histories (the order lives on [`Version`])|
-/// | [`a.version().concurrent(b.version())`](Version::concurrent)                                                                        | the two clocks' histories are incomparable               |
-/// | `clock \| v`, `clock \|= v`                                                                                                         | join a received [`Version`] `v` into this clock          |
-/// | [`tick`](Clock::tick)/[`ticks`](Clock::ticks)/[`fork`](Clock::fork)/[`join`](Clock::join)/[`sync`](Clock::sync)/[`send`](Clock::send)/[`recv`](Clock::recv) | advance, fork, and reunite clocks             |
+/// Causal comparison belongs to [`Version`], so [`Clock`] itself is not ordered.
+/// There is no `Clock | Clock`: combining whole clocks must also verify that
+/// their parties are disjoint, which makes [`join`](Clock::join) fallible.
 ///
-/// There is deliberately no `Clock | Clock`: merging two whole clocks is the
-/// fallible [`join`](Clock::join), which must verify the parties are disjoint.
+/// A clock is a linear value because it owns a party. Duplicating one would
+/// let two clocks record events for the same identity share, while discarding
+/// one makes that share unavailable. [`Clock`] is therefore neither [`Clone`]
+/// nor [`Copy`], and it is `must_use`.
 ///
 /// # Example
 ///
@@ -257,8 +265,9 @@ impl Clock {
     /// dropping either. Returned clocks may be unions of inputs. Once an
     /// overlap is found, later inputs may be returned without being tested.
     ///
-    /// Unreachable for clocks descended from one [`seed`](Clock::seed): their
-    /// parties are pairwise disjoint.
+    /// [`Clock`]s used linearly from one [`Clock::seed`] remain pairwise
+    /// disjoint. An error therefore indicates aliased clocks or clocks from
+    /// different seeds.
     ///
     /// # Complexity
     ///
@@ -347,17 +356,19 @@ impl Clock {
     /// Reconciles this [`Clock`] with every *disjoint* clock in `others`,
     /// keeping all alive.
     ///
-    /// Prefer this to iteratively calling [`sync`](Clock::sync), as this is
-    /// more efficient, and re-forks the inner [`Party`] of each [`Clock`] to
-    /// be maximally balanced, and therefore minimally large.
+    /// Prefer this to repeatedly calling [`sync`](Clock::sync). It joins the
+    /// participants once, then redistributes the combined party into balanced
+    /// shares instead of progressively unbalancing them through pairwise
+    /// synchronization.
     ///
     /// # Errors
     ///
     /// If any two participants' [`Party`]s overlap, an error is returned and
     /// every clock is left unmodified.
     ///
-    /// Unreachable for clocks descended from one [`seed`](Clock::seed):
-    /// their parties are pairwise disjoint.
+    /// [`Clock`]s used linearly from one [`Clock::seed`] remain pairwise
+    /// disjoint. An error therefore indicates aliased clocks or clocks from
+    /// different seeds.
     ///
     /// # Complexity
     ///
@@ -444,8 +455,6 @@ impl Clock {
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_send.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
-    ///
-    /// Exactly as [`tick`](Clock::tick).
     ///
     /// # Example
     ///
@@ -770,6 +779,10 @@ impl Clock {
 
     /// Encodes this [`Clock`]'s canonical bytes to an arbitrary writer.
     ///
+    /// # Errors
+    ///
+    /// Returns any error reported by the writer.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html")))]
@@ -853,10 +866,9 @@ impl Clock {
     /// this is the byte-aligned party length plus the version's own bit
     /// length.
     ///
-    /// Instrument surface, public under the `meter` feature: the resource
-    /// meters, coverage suites, and boundary pins denominate readings in
-    /// exact encoded bit lengths. Applications measure wire cost as
-    /// `encode().len()` — the byte length actually shipped.
+    /// This method is available under the `meter` feature for exact
+    /// representation measurements. Applications ordinarily want
+    /// `encode().len()`, the number of bytes written to the wire.
     ///
     /// # Complexity
     ///

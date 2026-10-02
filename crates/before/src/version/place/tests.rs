@@ -235,7 +235,7 @@ fn precedence_walk_verdicts_organic_witnesses() {
 }
 
 /// Every membership-walk hook path on an organic witness set: the start-side
-/// and end-side bails (comparable and concurrent genres of each), and the
+/// and end-side exits (comparable and concurrent cases for each), and the
 /// exhaustion confirmations at and between the endpoints.
 #[test]
 fn contains_walk_verdicts_organic_witnesses() {

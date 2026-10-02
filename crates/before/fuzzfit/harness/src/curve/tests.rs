@@ -55,7 +55,7 @@ fn quadratic_readings_exceed_the_allowance() {
     );
 }
 
-/// An honest linear mechanism, even under 2x multiplicative noise, stays
+/// A linear mechanism, even under 2x multiplicative noise, stays
 /// inside the allowance: the leg flags trends, not spread.
 #[test]
 fn noisy_linear_readings_stay_inside_the_allowance() {

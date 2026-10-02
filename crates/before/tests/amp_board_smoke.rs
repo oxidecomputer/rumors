@@ -262,8 +262,8 @@ fn worst_map_covers_every_operation_row() {
 fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
     let _guard = measurement_guard();
     let heap = heap_meter();
-    let honest = in_process_spawn(1, &heap)(SMOKE_SCALE).expect("in-process capture succeeds");
-    let text = String::from_utf8(honest[0].clone()).expect("shard captures are UTF-8");
+    let captures = in_process_spawn(1, &heap)(SMOKE_SCALE).expect("in-process capture succeeds");
+    let text = String::from_utf8(captures[0].clone()).expect("shard captures are UTF-8");
     let lines: Vec<&str> = text.lines().collect();
     let declared: usize = lines
         .last()

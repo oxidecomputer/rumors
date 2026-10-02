@@ -14,7 +14,7 @@ laws! {
     /// n-way fork's two forms agree, `tick`/`send` advance strictly and fix
     /// the party, `ticks` agrees with the version entry point, peeks are
     /// stable, an own-message receive is a bare tick, an absorb is the
-    /// anonymous join with no event minted, `sync` reconciles a fork,
+    /// anonymous join without recording an event, `sync` reconciles a fork,
     /// `own_version` is the projection, and the parts/codec/text
     /// round-trips.
     pub static CLOCK_SOLO: (c: &Clock);
@@ -287,7 +287,7 @@ laws! {
             && version_clock == clock_version
     }
 
-    /// `absorb` is the anonymous join with no event minted: the version
+    /// `absorb` is the anonymous join without recording an event: the version
     /// becomes exactly `old | msg`, the party never moves, and the returned
     /// reference is the clock's new version.
     ///

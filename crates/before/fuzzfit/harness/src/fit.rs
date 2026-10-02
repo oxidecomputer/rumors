@@ -17,7 +17,7 @@
 //! unmeasured path). Pricing them separately matters because the residual
 //! cloud is one-sidedly heavy: at every size, fast-path steps (an early
 //! comparison exit, a join whose operand shapes coalesce) undercut the
-//! median law by decades, while honest work sits near it. A single
+//! median law by decades, while full-path work sits near it. A single
 //! symmetric max-|residual| width would let that cheap mass inflate the
 //! *ceiling* — pricing the regression flag off the fast paths — until a
 //! superlinear mechanism's whole in-range excess fits inside it.
@@ -37,7 +37,7 @@
 //! Operations whose sampled denominators span less than a decade, or fewer
 //! than three buckets, cannot support a slope estimate; they classify as
 //! *constant* bands — slope 0, centered on the mean log-fuel — which is
-//! also the honest reading for genuinely O(1) rows.
+//! also the expected reading for genuinely O(1) rows.
 
 use std::collections::BTreeMap;
 

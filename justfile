@@ -581,7 +581,7 @@ fuzzfit-build:
 
 # Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
 # and shape-leg tripwires, the quadratic-burner adequacy check, the
-# toolchain-pin and staleness cross-checks, and the enforcement sentry
+# toolchain-pin and staleness cross-checks, and the enforcement check
 # (48 generated programs against the pinned bands, point and trend checks,
 # plus the whole 256-program deterministic prefix judged step by step).
 # A failure
@@ -869,7 +869,7 @@ surface-totality: surface-json
 # X" mechanically: for every operation x currency it takes the argmax over
 # the family roster of the board's own normalized constants (each cell's
 # reading over its own denominator of record), with the runner-up and the
-# margin beside it. Honest scope: the maximum over the committed roster --
+# margin beside it. Scope: the maximum over the committed roster --
 # the claim that this is the true worst case is carried by the rustdoc
 # complexity sections and the asymptotics liveness pins, not by this
 # table. Runs at release, the board's profile of record, one table per

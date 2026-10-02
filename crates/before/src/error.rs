@@ -1,8 +1,8 @@
-//! What could possibly go wrong?
+//! Errors returned by the public API.
 
 use std::io;
 
-/// Two parties were not disjoint during [`Clock::sync`](crate::Clock::sync).
+/// Parties overlapped where an operation required disjoint identity shares.
 ///
 /// # Example
 ///

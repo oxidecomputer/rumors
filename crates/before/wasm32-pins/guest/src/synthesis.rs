@@ -99,8 +99,8 @@ pub fn rank(exp: u64) -> Result<Vec<u8>, Failure> {
 
 /// Encodes the same rank family with its final bit one position earlier.
 ///
-/// This value exceeds [`rank`] by exactly `2^-exp`, giving the exponent-seam
-/// check an exact algebraic witness for the final bit.
+/// This value exceeds [`rank`] by exactly `2^-exp`, giving the boundary check
+/// an exact algebraic witness for the final bit.
 pub fn rank_with_penultimate(exp: u64) -> Result<Vec<u8>, Failure> {
     if exp < 128 || !exp.is_multiple_of(8) {
         return Err(Failure::InvalidArguments);

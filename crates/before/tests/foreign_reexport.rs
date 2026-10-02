@@ -104,6 +104,6 @@ fn dependency_reexports_match_the_committed_roster() {
         found, expected,
         "dependency re-exports drifted from the roster: a re-exported foreign \
          type's methods are public before API that the surface-totality \
-         pincer structurally cannot see, so every occurrence is pinned here"
+         structural check cannot see, so every occurrence is pinned here"
     );
 }

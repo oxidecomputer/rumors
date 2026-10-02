@@ -269,8 +269,10 @@ impl Extremum {
         }
     }
 
-    /// Fold one consumed leaf-to-leaf step; the arming first call
-    /// folds nothing.
+    /// Fold one consumed leaf-to-leaf step.
+    ///
+    /// The first call establishes the starting leaf and therefore has no
+    /// transition to fold.
     pub fn fold(&mut self, delta: &BigInt) {
         if !self.armed {
             self.armed = true;

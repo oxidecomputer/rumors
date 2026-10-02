@@ -1,22 +1,12 @@
 //! The shape of a [`Version`], [`Party`], or [`Clock`]: its step function
-//! over the unit id interval, walked as a sequence of constant runs.
+//! over the unit id interval, walked as canonical constant intervals.
 //!
 //! A [`Version`] *is* a step function from the unit interval `[0, 1)` of
 //! ids to event counts, and a [`Party`] is a 0/1-valued function over the
-//! same interval (which ids it owns). This module is the vocabulary for
-//! walking those functions directly — for renderers, analysis tooling,
-//! and debuggers that want to draw or inspect a value rather than compare it:
-//!
-//! - [`Version::shape`] yields one [`Plateau`] per maximal constant run
-//!   of the version: the height change entering the run ([`Rise`]), and
-//!   the dyadic interval it spans.
-//! - [`Party::shape`] yields one [`Region`] per maximal constant run of
-//!   the party: whether the party owns it, and the interval it spans.
-//! - [`Clock::shape`] yields the clock's version plateaus overlaid with
-//!   its party's ownership — the pair most renderers actually draw.
-//! - [`combine`] walks any number of versions as one iterator over the
-//!   coarsest common refinement of their shapes' intervals, for
-//!   consumers that compare or aggregate several versions pointwise.
+//! same interval (which ids it owns). Shape iterators expose these functions
+//! directly as dyadic constant intervals. A [`Clock`]'s shape combines heights
+//! with ownership, while [`combine`] aligns several [`Version`]s so that each
+//! yielded interval is constant in every input.
 //!
 //! Every walk borrows its value and streams in place: nothing is materialized
 //! up front, and draining is linear in the value's size.
@@ -30,7 +20,7 @@
 //! consumer that wants coordinates accumulates them (widths sum to
 //! exactly 1 over any complete walk).
 //!
-//! Version heights travel as *rises* — the signed change entering each
+//! [`Version`] heights travel as *rises* — the signed change entering each
 //! plateau — rather than absolute values: heights are event counts with
 //! no ceiling, so a delta stream is what keeps the walk linear in the
 //! value's size rather than in the magnitudes it reaches. The
@@ -83,10 +73,11 @@ mod tests;
 /// One plateau of a version's shape: the height change entering it, and
 /// the dyadic interval it spans.
 ///
-/// A *plateau* is one maximal constant run of the version's step
-/// function. A shape walk yields plateaus left to right; see the
-/// [module docs](self) for how rises and widths reconstruct the
-/// function.
+/// A plateau is one interval in the version's canonical dyadic partition on
+/// which its height is constant. Adjacent plateaus may have the same height
+/// when the canonical partition retains a boundary between them. A shape walk
+/// yields plateaus left to right; see the [module docs](self) for how rises and
+/// widths reconstruct the function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Plateau {
     /// The height change entering this plateau; `None` continues level.
@@ -102,7 +93,7 @@ pub struct Plateau {
 
 /// A nonzero vertical move of a shape.
 ///
-/// The sign is notated by the variant; the magnitude is in the payload.
+/// The variant gives the direction and its [`Count`] gives the magnitude.
 ///
 /// Magnitudes are always nonzero: the level step is spelled once, as
 /// `None` in [`Plateau::rise`], not as a zero rise, so every `Rise` a
@@ -115,8 +106,8 @@ pub enum Rise {
     Down(Count),
 }
 
-/// One constant-ownership region of a party's shape: whether the [`Party`]
-/// owns it, and the dyadic interval it spans.
+/// One interval in a party's canonical dyadic partition: whether the [`Party`]
+/// owns it, and the interval's depth.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Region {
     /// Whether the party owns this region's identity space.
@@ -247,13 +238,10 @@ impl FusedIterator for Regions<'_> {}
 /// An iterator over a clock's version plateaus overlaid with its party's
 /// ownership; see [`Clock::shape`].
 ///
-/// Items are `(Plateau, bool)`: one fragment of the version's shape, and
-/// whether the clock's party owns that fragment's interval. Where the
-/// party subdivides a version plateau the plateau is split: the first
-/// fragment carries the plateau's rise, later fragments continue level
-/// (`rise: None`). Therefore, this stream is a *refinement* of the version's
-/// shape, not a transliteration of it; the exact walk-is-the-value
-/// correspondence lives on [`Version::shape`] and [`Party::shape`].
+/// Items are `(Plateau, bool)`: one interval on which both the version height
+/// and party ownership are constant. If an ownership boundary divides a
+/// version plateau, the first resulting item carries its rise and later items
+/// continue at the same height (`rise: None`).
 ///
 /// The walk borrows the clock and streams both stored forms in place. It
 /// is [fused](FusedIterator) but not exact-size.
@@ -265,7 +253,7 @@ pub struct Overlay<'a> {
 }
 
 impl<'a> Overlay<'a> {
-    /// Open a clock's overlay walk at its first fragment.
+    /// Open a clock's shape at its first interval.
     pub(crate) fn of_clock(clock: &'a Clock) -> Self {
         Overlay {
             version: VersionWalk::open(clock.version()),

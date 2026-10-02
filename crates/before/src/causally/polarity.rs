@@ -211,21 +211,20 @@ mod sealed {
 
 /// A query's polarity: which complement family it may subtract.
 ///
-/// Queries are limited to one polarity because arbitrary negation can encode
-/// Boolean satisfiability when deciding exact [`Span`](crate::Span) overlap.
-/// One polarity avoids searching combinations of opposing holes.
+/// Restricting every hole to one direction lets
+/// [`Query::coverage`](crate::causally::Query::coverage) remain exact without
+/// searching combinations of opposing holes.
 ///
-/// The space of query polarity comprises three markers: [`Down`], [`Up`], and
-/// [`Neutral`]:
+/// The marker types describe which holes a query may contain:
 ///
-/// - A [`Neutral`] query has no "holes" subtracted from it; it is a pure causal
+/// - A [`Neutral`] query has no holes; it is a pure causal
 ///   range.
-/// - A [`Down`] query has one or more "holes" subtracted from it which are
+/// - A [`Down`] query has one or more holes which are
 ///   *down-sets* (sets of versions with a common upper-bound).
-/// - An [`Up`] query has one or more "holes" subtracted from it which are
+/// - An [`Up`] query has one or more holes which are
 ///   *up-sets* (sets of versions with a common lower-bound).
 ///
-/// It is statically impermissible to combine queries of opposite polarity.
+/// Queries of opposite polarity cannot be combined.
 pub trait Polarity: sealed::Sealed + Send + Sync + 'static {}
 
 /// Holes in a [`Query<'_, Down>`](crate::causally::Query) subtract sets of [`Version`]s

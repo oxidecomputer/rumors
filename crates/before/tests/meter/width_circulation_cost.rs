@@ -250,7 +250,7 @@ const ASCEND_CLIFF_TOUCH_CEILING: u64 = 18_560;
 /// penetrates every boundary. The wide
 /// cliff code folds into the running height once, at one touch per
 /// 64-bit limb. At (k, b) = (2,000, 4,096):
-/// 4·(k − 1) + b/64 = 7,996 + 64. A design that honestly does less
+/// 4·(k − 1) + b/64 = 7,996 + 64. A design that validly does less
 /// is a floor-premise finding — re-derive the premise before
 /// trusting the trip.
 const ASCEND_CLIFF_TOUCH_FLOOR: u64 = 8_060;

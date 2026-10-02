@@ -82,7 +82,7 @@ pub enum EngineError {
     ///
     /// The budget bounds replay cost at teaching scale, and the fragment
     /// codec enforces the same bound on the wire, so every fragment the
-    /// engine mints reloads.
+    /// engine produces reloads.
     TooManyOps(usize),
 }
 
@@ -229,9 +229,9 @@ impl Engine {
 /// Replay a log into a fresh arena (seed at index 0, then each op's outputs).
 fn build(log: &[Op]) -> Result<Vec<Node>, EngineError> {
     // The op budget guards every entry — the wire decoder, `load`, and
-    // `apply` all replay through here — so no path can mint a log the
-    // fragment codec refuses to round-trip, and no caller can commission a
-    // replay past teaching scale.
+    // `apply` all replay through here — so no path can produce a log the
+    // fragment codec refuses to round-trip, and no caller can request a replay
+    // past teaching scale.
     if log.len() > MAX_OPS {
         return Err(EngineError::TooManyOps(log.len()));
     }

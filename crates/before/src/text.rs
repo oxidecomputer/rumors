@@ -1,7 +1,8 @@
 //! Shared mechanics for the public textual forms.
 //!
-//! Party and version bytes use strict hexadecimal text. This module keeps that
-//! shared policy in one place while leaving the byte validation to each type.
+//! [`Party`](crate::Party) and [`Version`](crate::Version) bytes use strict
+//! hexadecimal text. This module keeps that shared policy in one place while
+//! leaving byte validation to each type.
 
 use core::fmt;
 

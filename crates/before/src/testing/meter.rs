@@ -894,7 +894,7 @@ fn raise_hole(k: usize, m: usize) -> (Encoding, Encoding) {
 /// site over a deep [`hole_region`] (leads alternating 2, 3) with its
 /// right sibling absent, so the pre-scan consumes each deep range through
 /// `PreScan::skip_collapse` — the height movement is the only quantity
-/// the range owes the scan (an absent sibling records no ledger link) —
+/// the range owes the scan (an absent sibling records no memo difference) —
 /// and the walk's own consuming max scan crosses it once more at the
 /// site's consume. The pair that concentrates the pre-scan's collapse
 /// skip on deep ranges, where the committed tick families feed it only
@@ -1116,8 +1116,8 @@ fn memo_comb_id(d: usize) -> Encoding {
 /// width exactly once (unlike [`memo_oscillating`], whose input re-pays it per
 /// site). Crossed with [`memo_chain_id`], the sites all share the wide minimum
 /// while the covering site's own minimum is the zero terminal: the sibling
-/// links are all zero (unstored) and exactly one ledger quantity (the first
-/// site's deferred link against the covering minimum) carries the width — paid
+/// memo differences are all zero (and therefore unstored), while only the first
+/// site's deferred difference from the covering minimum carries the width — paid
 /// once, independent of `k`. A recording discipline that anchors each site to
 /// the covering floor instead materializes `k` wide records; the pinned
 /// absolute touch ceiling is what such a fan-out blows. Normal form: leaf pairs
@@ -1152,7 +1152,7 @@ fn memo_fanout(k: usize, b: usize) -> Encoding {
 /// minima alternating `1` and `2^b − 1`, `~(13k + kb + 9)` bits.
 ///
 /// Layout: [`memo_chain`]'s exactly, with `v_j = 2^b − 1` for odd `j` and `1`
-/// for even. Crossed with [`memo_chain_id`], every sibling ledger link is wide
+/// for even. Crossed with [`memo_chain_id`], every sibling memo difference is wide
 /// — but each site's range leaf codes the same width in the input, so the links
 /// are funded one-for-one by the oscillation the input already paid for: the
 /// control for the funding argument (flat touches per input byte, unlike the
@@ -1191,7 +1191,7 @@ fn memo_oscillating(k: usize, b: usize) -> Encoding {
 /// then per level `i = 1..=d` the nested carrier `1 · γ(0)` over the site `1 ·
 /// γ(0) · 0 · γ(0) · 0 · γ(i + 1)` (minimum `i + 1`), bottoming in
 /// [`staircase`]`(2d)`'s subtree (preorder heights `2d, 2d − 1, …, 0`). Crossed
-/// with [`memo_churn_id`], each site's record is live on the ledger head while
+/// with [`memo_churn_id`], each site's record is live in the active memo reference while
 /// the run's every leaf undercuts every open range — `~2d` full-penetration
 /// minimum drops with `d` recorded minima in flight. One live head follows them
 /// at one fold per drop; a discipline that keeps one live record per open level
@@ -1274,7 +1274,7 @@ fn memo_churn_id(d: usize) -> Encoding {
 /// then `1 · γ(0)` whose left leaf `0 · γ(d + 2)` arms the frame high before
 /// any site, over the [`memo_chain`]-style spine with `v_j = d + 2 − j` — so
 /// every site's raise lands BELOW the frame's minimum at its own consume, and
-/// each consume's arm moves the tracked minimum the ledger relation must
+/// each consume's arm moves the tracked minimum the memo reference must
 /// survive. The one family whose raises exercise the decide-then-emit ordering:
 /// a relation read after the raise emission is stale by exactly the arm's
 /// delta, and the oracle differential catches the wrong values. Normal form:
@@ -1476,7 +1476,7 @@ fn reveal_comb_id(k: usize) -> Encoding {
 /// no site consume: each wide leaf is walked in its own leaf-under-internal-id
 /// frame, whose first emission arms it `2^b` above the floor and whose close
 /// pops the width-`b` boundary difference back — the range-minimum stack's own
-/// arm-move + close-pop cycle, isolated from the pre-scan's frame ledger.
+/// arm-move + close-pop cycle, without involving the pre-scan memo.
 /// Normal form: every comb node's subtree minimum is 0 via the floor, and no
 /// two sibling leaves are equal (`2^b` pairs with an internal node or the
 /// floor).
@@ -1620,7 +1620,7 @@ const FREEZE_POSITION_DROP_BITS: usize = 288;
 /// Each block's wide drop re-arms live drift over the numeric folds' freeze
 /// allowance and the following unit code fires the freeze, so a numeric fold
 /// freezes `Θ(k)` times, at stream positions whose written span grows with
-/// every block — the many-freezes genre: an accounting that reads an absolute
+/// every block. Any accounting that reads an absolute
 /// position (or re-reads any whole-history state) per freeze goes quadratic
 /// here, while every committed comb fires O(1) freezes. The descent consumes
 /// `k(2^288 + 1) < 2^L`, so every leaf shares the one `(L + 1)`-bit width and
@@ -1658,15 +1658,15 @@ fn bitlen(k: usize) -> usize {
     (usize::BITS - k.leading_zeros()) as usize
 }
 
-/// The promotion re-arm arming exponent in [`promotion_rearm`].
+/// The wide-height exponent in [`promotion_rearm`].
 ///
 /// `2^608` spans 20 base-2^32 digits: more than the numeric folds' eight-digit
 /// freeze allowance above the settling drop's ten
 /// ([`PROMOTION_REARM_SETTLE_BITS`]), so every block's second freeze finds the
-/// parked component over-wide and promotes it.
+/// parked component wider than the incoming changes and defers it.
 const PROMOTION_REARM_ARM_BITS: usize = 608;
 
-/// The promotion re-arm settling exponent in [`promotion_rearm`].
+/// The narrow-change exponent in [`promotion_rearm`].
 ///
 /// `2^288` spans 10 digits: wide enough that the following unit code trips the
 /// freeze trigger (10 > 1 + 8), narrow enough that the parked arming drift
@@ -1678,7 +1678,7 @@ const PROMOTION_REARM_SETTLE_BITS: usize = 288;
 /// blocks then re-arm across, at ~5 stored bits per level.
 const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 
-/// The promotion re-arm spine `PR(p)`: `32p` span-building levels down a right
+/// The deferral re-arm spine `PR(p)`: `32p` span-building levels down a right
 /// spine, then `p` four-node re-arm blocks, over a terminal 1 leaf.
 ///
 /// Exactly `1972p + 4` bits. Layout: `32p` spine nodes `(0, 1, ·)` / `(0, 0,
@@ -1688,14 +1688,13 @@ const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 /// ±1 oscillation never freezes while its interval masses' depths grow the
 /// consumed span one digit per 32 levels, and its running range minima are all
 /// zero, so the min-ticks range tracker keeps the whole prefix as one compressed zero run
-/// (an ascending prefix would instead arm `Θ(p)` distinct nested minima — the
-/// ascend-cliff heap genre, deliberately avoided: this family's adversarial
-/// payload is the promotion schedule, not the minima). Each block's `2^608` climb
+/// (an ascending prefix would instead arm `Θ(p)` distinct nested minima, testing
+/// minimum storage rather than this family's deferral schedule). Each block's `2^608` climb
 /// re-arms parked drift over the numeric folds' freeze allowance (the following
 /// unit fires the freeze that parks it), and its `2^288` climb re-freezes at a
 /// drift the parked component exceeds by more than the allowance — one
-/// promotion per block, `Θ(p)` promotions at O(1) stored codes each, so any
-/// promotion accounting that re-reads whole-history state per arming goes
+/// deferral per block, `Θ(p)` deferrals at O(1) stored codes each, so any
+/// deferral accounting that re-reads whole-history state per block goes
 /// quadratic here while the family's suffix masses compact to O(1) balanced
 /// terms. Every stored code is a delta the fold must consume, and
 /// `min_ticks(PR(p)) = Σ bases = 16p + p(2^608 + 2^288 + 2) + 1` is the
@@ -1707,10 +1706,7 @@ const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 ///
 /// Panics if `p == 0`.
 fn promotion_rearm(p: usize) -> Encoding {
-    assert!(
-        p >= 1,
-        "the promotion re-arm spine needs at least one block"
-    );
+    assert!(p >= 1, "the deferral re-arm spine needs at least one block");
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
     let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
     let zero = BigUint::ZERO;
@@ -1732,15 +1728,15 @@ fn promotion_rearm(p: usize) -> Encoding {
     Encoding::from_bits(bits)
 }
 
-/// The promotion re-arm mate `PRM(p)`: the small twin of [`promotion_rearm`] —
+/// The deferral re-arm mate `PRM(p)`: the small twin of [`promotion_rearm`] —
 /// the same `36p`-node right-spine topology with the 1, 0, 1, 0, … leaf
 /// alternation running the whole spine.
 ///
 /// Exactly `180p + 4` bits, and `min_ticks(PRM(p)) = 18p + 1`. Overlaid against
-/// `PR(p)` it is the two-operand re-arm genre: the heights agree leaf for leaf
+/// `PR(p)` it exercises two-operand re-arming: the heights agree leaf for leaf
 /// along the whole span-building prefix (the difference folds to zero, boundary
 /// by boundary), and every block boundary folds a unit from this operand
-/// against the other's wide climb — so the co-sweep's freezes and promotions
+/// against the other's wide climb — so the co-sweep's freezes and deferrals
 /// fire at boundaries where this operand's cheap codes set the funded width,
 /// moving drift only the other operand's wide codes deposited. `PR(p)`
 /// dominates it pointwise (equal on the prefix, `≥ 2^608` against `≤ 1` in the
@@ -1787,12 +1783,12 @@ const DENSE_SUFFIX_DIGIT_STRIDE: usize = 33;
 /// derivation): the interval mass behind every block, `Θ(d)` balanced digits
 /// however it is assembled. Each block is [`promotion_rearm`]'s verbatim — a
 /// `2^608` climb, a unit (the freeze that parks the wide drift), a `2^288`
-/// climb, and a unit (the freeze whose promotion arms the numeric folds' ledger)
-/// — one promotion per block at O(1) stored codes, so `Θ(p)` armings all owe
-/// their debt across the same `Θ(d)`-dense trailing mass: a ledger settle that
-/// walks the suffix once per arming (or re-reads a promoted prefix once per
-/// window) goes quadratic here, and the balanced product-tree settle reads
-/// flat. `min_ticks(DS(p, d)) = Σ bases = d + p(2^608 + 2^288 + 2) + 1` is the
+/// climb, and a unit (the freeze that defers the older wide height). There is
+/// one deferral per block at O(1) stored codes, and every deferred height
+/// applies across the same `Θ(d)`-dense trailing mass. Re-reading the suffix
+/// once per height is quadratic; the balanced reduction combines all of them
+/// within the claimed bound. `min_ticks(DS(p, d)) = Σ bases = d +
+/// p(2^608 + 2^288 + 2) + 1` is the
 /// closed-form semantic leg (the `d` term is the turn leaves, so a spine-less
 /// generator fails it). Normal form: every spine node reaches its subtree
 /// minimum 0 through a trailing 0-leaf, every block node's minimum is its own
@@ -1830,8 +1826,8 @@ fn dense_suffix(p: usize, d: usize) -> Encoding {
 /// Overlaid against `DS(p, d)`, heights agree leaf for leaf along the spine and
 /// the trailing run (the difference folds to zero) and every block boundary
 /// folds this operand's unit codes against the other's wide climbs, so the
-/// co-sweep's freezes and promotions fire on drift only the wide operand
-/// deposited — and the ledger's every arming owes its debt across the same
+/// co-sweep's freezes and deferrals act on drift only the wide operand
+/// deposited, and every deferred height applies across the same
 /// dense trailing mass. `DS(p, d)` dominates it pointwise (equal outside the
 /// blocks, `≥ 2^608` against `≤ 4p` inside), so the pair measures collapse to
 /// exact rank identities. Normal form: as [`dense_suffix`]'s.
@@ -1860,17 +1856,17 @@ fn dense_suffix_mate(p: usize, d: usize) -> Encoding {
 /// The wide-arming family `WA(w, d)`: the gap spine of [`dense_suffix`] over a
 /// *single* re-arm block whose arming climb is `2^(32w)`.
 ///
-/// One promotion whose parked mass is as wide as the input, owing its debt
+/// One deferral whose parked height is as wide as the input, owing its contribution
 /// across a trailing mass as dense as the input. Exactly `134d + 64w + 600`
 /// bits. The one block climbs `2^(32w)` (parked at its unit), climbs `2^288`
-/// (whose unit's freeze finds the parked component over-wide and promotes it —
-/// the one ledger arming), and the sweep then consumes the `Θ(d)`-dense
-/// trailing mass and descends, cancelling the plateau only after the ledger
-/// entry is sealed. The exact debt embeds one `Θ(w)`-digit × `Θ(d)`-digit
+/// (whose unit's freeze finds the parked component much wider and defers it),
+/// and the sweep then consumes the `Θ(d)`-dense trailing mass and descends,
+/// cancelling the plateau only after the deferred entry is recorded. The exact
+/// contribution embeds one `Θ(w)`-digit × `Θ(d)`-digit
 /// product whose factors the input funds separately (`w` digits of arming code,
-/// `d` spine turns), and the cancelling descent lands outside the ledger, so no
-/// seam cancellation can dodge it: the settle's one aggregate product is the
-/// ledger's wide × dense multiplication genre at its purest, priced at the
+/// `d` spine turns), and the cancelling descent lands outside that entry, so no
+/// cancellation outside the final segment can avoid it: the deferred
+/// reduction performs one wide × dense multiplication, priced at the
 /// multiplication bound. A per-digit schoolbook charge instead pays `Θ(w · d)`
 /// digit work against a `Θ(w + d)`-bit operand and is quadratic at `w = d`.
 /// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^288 + 2 + 1` is the closed-form
@@ -2016,11 +2012,11 @@ fn parked_unit_spine(bits: &mut BitsWriter, s: usize) {
 /// above the spine's parked unit — for O(1) stored bits per leaf, the position
 /// weight being topology, not code. Every even-numbered block leaf cancels the
 /// digit and the accumulator's top must settle back across the never-written
-/// gap; every odd-numbered leaf re-raises it in one write — the many-jumps
-/// genre: a settlement scan that steps the gap digit by digit pays `Θ(n)`
+/// gap; every odd-numbered leaf re-raises it in one write. A settlement scan
+/// that steps the gap digit by digit pays `Θ(n)`
 /// unfunded touches per event (`Θ(n²)` on linear input), and the parked digit-0
 /// unit forecloses value-emptiness and write-watermark shortcuts, so consuming
-/// one zero-run certificate per jumped run is what holds the cost flat (the
+/// one recorded zero range per jump is what holds the cost flat (the
 /// `skyline_flatness` weight-comb band in `tests/meter.rs` carries both
 /// readings). `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's
 /// `32n − 1` unit leaves plus the block's `n` twos). Normal form: the innermost
@@ -2154,7 +2150,7 @@ const LONE_FREEZE_PLATEAU_BITS: usize = 288;
 ///   against O(1) funded wide codes.
 ///
 /// Exactly one freeze fires (the tail's oscillation never re-trips the trigger)
-/// and no promotion ever does (nothing is parked before the one freeze), so the
+/// and no deferral occurs (nothing is parked before the one freeze), so the
 /// family also pins the settle's smallest nonempty configuration: one parked
 /// drift against one final segment. `min_ticks(LF(pre, post))` is the leaf sum
 /// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3` (every node minimum is 0 via the
@@ -2387,7 +2383,7 @@ pub fn plateau_puncture_factors(w: usize, d: usize) -> (BigUint, BigUint) {
 /// instance of [`puncture_product`] — `V(x, y)` at the
 /// [`plateau_puncture_factors`] content.
 ///
-/// The answer-embedded-product family: the exact rank is `(2·x·y + 1) /
+/// The exact rank is `(2·x·y + 1) /
 /// 2^(66d)` — a `Θ(w)`-digit × `Θ(d)`-term integer product whose factors the
 /// input funds separately (`64w` bits of plateau code, `Θ(d)` topology bits),
 /// with both factors' *content* incompressible under the settle's own balanced
@@ -2400,7 +2396,7 @@ pub fn plateau_puncture_factors(w: usize, d: usize) -> (BigUint, BigUint) {
 /// bits (the encoded construction spells the plateau per turn, but the deltas
 /// the version stores collapse to one climb and one plunge). The fold's cost on
 /// this family is the close-time settle `P · segment` — parked `−(x − 1)`
-/// against the punctured trailing mass — with no promotion ever firing: the
+/// against the punctured trailing mass — with no deferral ever firing: the
 /// arming-free instance of the width × density residual. `min_ticks(PP(w, d)) =
 /// d · x + 1` is the closed-form semantic leg. Exactly `d(64w + 262) + 4` bits.
 /// Normal form: [`puncture_product`]'s.
@@ -2424,16 +2420,16 @@ fn plateau_puncture(w: usize, d: usize) -> Encoding {
 /// The armings alternate sign when `alternate` and all climb otherwise; the
 /// blocks ride one plateau band over the trailing 0-leaves.
 ///
-/// The multi-arming ledger family the single-block shapes cannot reach: `n`
-/// promotions whose parked masses are `Θ(w)` digits wide, with a `Θ(g)`-digit
+/// This reaches a case the single-block shapes cannot: `n` deferred heights,
+/// each `Θ(w)` digits wide, with a `Θ(g)`-digit
 /// incompressible interval mass banked *between* every consecutive pair of
 /// armings (each gap's turn leaves sit at the running plateau, zero deltas, so
 /// the windows are bought with topology alone). Every block spells `±2^(32w),
 /// +1, +2^288, +1` in leaf absolutes: the wide swing parks at its unit, the
-/// kicker's unit fires the freeze whose promotion arms the ledger — one entry
-/// per block, sign following the swing — and the sweep closes with one funded
+/// kicker's unit fires the freeze that defers the older height — one entry per
+/// block, sign following the swing — and the sweep closes with one funded
 /// plunge whose parked width settles against the trailing run. With
-/// `alternate`, consecutive entries cancel digit-wise inside the product tree's
+/// `alternate`, consecutive entries cancel digit-wise inside the reduction's
 /// parked sums; without it, every aggregate keeps the full arming width against
 /// every dense window to its right. All wide leaves live in one gamma band
 /// (`band = 32w + ⌈log₂ n⌉ + 2` headroom bits over the swings and kickers), so
@@ -2447,7 +2443,7 @@ fn plateau_puncture(w: usize, d: usize) -> Encoding {
 ///
 /// Panics if `n == 0` or `g == 0`, or if `w < 19` (an arming must
 /// out-span the `2^288` kicker drift by more than the freeze
-/// allowance, or promotion never fires).
+/// allowance, or deferral never occurs).
 fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
     assert!(n >= 1, "the arming train needs at least one block");
     assert!(g >= 1, "the arming train needs at least one gap per window");
@@ -2565,8 +2561,8 @@ const DOMINATED_UNDERCUT_EXIT_RISE: u64 = 1;
 /// `5·2^b − 1` at `b ≥ 128` has its top digit at base-`2^32` index at least 4,
 /// and the sign fold's running partial reaches the domination bound at or
 /// above index 3 — one digit of descent at most — which is `cmp_zero_stable_under`
-/// floor `1` (the word bound) plus the two-digit clearance the certificate
-/// requires. Normal form: every node's child minima meet 0 (each site's raise
+/// floor `1` (the word bound) plus the two-digit clearance required by the
+/// sign bound. Normal form: every node's child minima meet 0 (each site's raise
 /// leaf and the wide leaf's zero sibling), and no sibling leaves are equal.
 ///
 /// # Panics
@@ -2653,7 +2649,7 @@ fn seam_rung() -> BigUint {
 ///
 /// The top digit of 5 makes every domination read a closed form: the sign
 /// fold's running partial reaches the decision bound (magnitude 3) at the top
-/// digit itself, so `cmp_zero_stable_under` decides — or honestly refuses — on
+/// digit itself, so `cmp_zero_stable_under` decides, or returns `None`, based on
 /// the digit-index clearance alone, with no descent, in one digit touch
 /// (suanpan's witness `decision_bound_top_decides_on_the_first_touch`).
 fn seam_wide(w: usize) -> BigUint {
@@ -3326,7 +3322,7 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
 /// [`scattered_id`]`(n / 2)` (the mask, whose owned fragments sit exactly at
 /// the comb's even tooth positions), and a single-leaf plateau at `2^k` (the
 /// unmasked right operand, `2k + 2` bits). The correlation is the point — every
-/// operand is a certified-linear genre by itself (the comb, the scattered id, a
+/// operand is independently linear (the comb, the scattered id, a
 /// hugeleaf-class plateau), and the heat exists only in the composition:
 /// comparing `(comb / mask) ⋚ plateau` toggles ownership at every tooth
 /// boundary, so the walk alternates between reading the difference `D = h_comb

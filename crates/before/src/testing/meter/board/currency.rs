@@ -76,7 +76,7 @@ pub enum Liveness {
     /// The counter must read at least `min`; `why` is the semantic derivation
     /// (or the documented deterministic-liveness rationale).
     Floor {
-        /// The least count a watching meter can honestly read.
+        /// The least count a functioning meter can read.
         min: u64,
         /// Why every valid implementation must produce at least `min`.
         why: &'static str,

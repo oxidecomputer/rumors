@@ -18,61 +18,49 @@ pub use verdict::{Dominance, Endpoint, Placement, Precedence};
 #[cfg(test)]
 mod tests;
 
-/// A causal span: an ordered pair of [`Version`]s `lo <= hi`.
+/// An inclusive causal interval with ordered endpoints `lo <= hi`.
 ///
-/// A [`Span`] can be used to efficiently answer where a [`Version`] falls
-/// relative to its causal interval: [`place`](Span::place) at the finest
-/// granularity, with cheaper coarsenings of its verdict computed by
-/// [`precedence`](Span::precedence), [`dominance`](Span::dominance), and
-/// [`contains`](Span::contains).
+/// [`Span::new`] checks this ordering; [`Span::at`] creates the point span
+/// `v <= v`. [`Span::place`] gives the complete relation between a [`Version`]
+/// and the endpoints. [`Span::contains`],
+/// [`dominance`](Span::dominance), and [`precedence`](Span::precedence) answer
+/// coarser questions without computing more detail than they return.
 ///
-/// | Operation                                             | Meaning                                                             |
-/// |-------------------------------------------------------|---------------------------------------------------------------------|
-/// | `v ^ w`, [`v.span(&w)`](Version::span)                | the tightest span containing `v` and `w`                            |
-/// | [`Version::span_all`]                                 | …containing a whole collection                                     |
-/// | [`Span::new`]`(lo, hi)`                               | the span `lo <= hi`; errors unless `lo <= hi`                       |
-/// | [`Span::at`]`(v)`                                     | the singleton span `v <= v`                                         |
-/// | [`s.place(&v)`](Span::place)                          | `v` against the bounds, finest granularity ([`Placement`])          |
-/// | [`s.dominance(&v)`](Span::dominance)                  | three-way verdict: is `v` past the span? ([`Dominance`])            |
-/// | [`s.precedence(&v)`](Span::precedence)                | three-way verdict: is `v` before it? ([`Precedence`])               |
-/// | [`s.contains(&v)`](Span::contains)                    | membership of `v`; a span argument asks whole-span containment      |
-/// | `a \| b`, `a & b`                                     | the *pointwise* lattice: `\|`/`&` on each endpoint pair             |
-/// | `a + b`                                               | the *union*: the tightest span covering both                        |
-/// | `a * b`                                               | the *intersection*: the largest common part; `None` if disjoint     |
-/// | `a \|= b`, `a &= b`, `a += b`                         | the total operators' assigning forms (`*` is partial: no `*=`)      |
-/// | `s + v`, `v + s`, `s \| v`, `v & s`, …               | a `Version` operand is its point span (`*` takes true spans only)   |
-/// | `&s / &p`, [`s.project(&p)`](Span::project)           | the lazy projection view ([`OwnSpan`])                              |
-/// | [`encode`](Span::encode) / [`decode`](Span::decode)   | the canonical wire form                                             |
+/// | Operation                                           | Meaning                                                         |
+/// |-----------------------------------------------------|-----------------------------------------------------------------|
+/// | `v ^ w`, [`v.span(&w)`](Version::span)              | the tightest span containing `v` and `w`                        |
+/// | [`Version::span_all`]                               | the tightest span containing a collection                       |
+/// | [`Span::new(lo, hi)`](Span::new)                    | construct `lo <= hi`, rejecting reversed or concurrent endpoints|
+/// | [`Span::at(v)`](Span::at)                           | the point span `v <= v`                                         |
+/// | [`s.place(&v)`](Span::place)                        | the complete relation between `v` and both endpoints            |
+/// | [`s.contains(&v)`](Span::contains)                  | whether `v` lies within the span                                |
+/// | `a \| b`, `a & b`                                   | pointwise join or meet of matching endpoints                    |
+/// | `a + b`, `a * b`                                    | containment union or optional intersection                      |
+/// | [`s.project(&p)`](Span::project), `&s / &p`         | a lazy view of both endpoints projected onto [`Party`] `p`      |
+/// | [`s.encode()`](Span::encode)/[`Span::decode`]       | encode or decode the canonical wire form                        |
 ///
 /// # The span algebra
 ///
-/// [`Span`] participates in two distinct lattice structures:
+/// Spans support two related algebras:
 ///
-/// - The **pointwise** lattice borrows the version lattice's own symbols and
-///   lifts them to each endpoint of the [`Span`]:
+/// - The **pointwise** operations apply the [`Version`] lattice to matching
+///   endpoints:
 ///   - `a | b` ([`join`](Span::join)) has endpoints `lo_a | lo_b <= hi_a | hi_b`;
 ///   - `a & b` ([`meet`](Span::meet)) has endpoints `lo_a & lo_b <= hi_a & hi_b`.
 ///
-/// - The **containment** lattice uses arithmetic symbols to treat [`Span`]s as sets of
-///   [`Version`]s under union and intersection:
+/// - The **containment** operations treat spans as sets of versions:
 ///   - `a + b` ([`union`](Span::union)) has endpoints `lo_a & lo_b <= hi_a | hi_b`;
 ///   - `a * b` ([`intersect`](Span::intersect)) has endpoints `lo_a | lo_b <= hi_a & hi_b`,
 ///     or [`None`] when the spans are non-overlapping.
 ///
-/// All operators have a variadic extension ([`join_all`](Span::join_all),
-/// [`meet_all`](Span::meet_all), [`union_all`](Span::union_all),
-/// [`intersect_all`](Span::intersect_all)), each one a balanced fold.
+/// The assigning operators exist for the three total operations. Intersection
+/// is partial and therefore has no `*=` form. Each operation also has an
+/// `_all` form for a collection.
 ///
-/// Projection applies [`Version::project`] pointwise to the lower and upper ends
-/// of the span: for a given [`Span`] `s`, `s / &p` yields the span `(lo / &p)
-/// <= (hi / &p)`.
-///
-/// # The wire form
-///
-/// A [`Span`] has a canonical
-/// [`encode`](Span::encode)/[`decode`](Span::decode): the concatenation of its
-/// `lo` [`Version`] followed by its `hi` [`Version`] with no additional
-/// delimitation.
+/// [`Span::project`] applies [`Version::project`] to both endpoints.
+/// [`Span::encode`] concatenates the two self-delimiting endpoint encodings;
+/// [`Span::decode`] validates both endpoints and their
+/// ordering.
 ///
 /// # Example
 ///

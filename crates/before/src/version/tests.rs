@@ -1748,7 +1748,7 @@ fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
 /// sits at opposite ends of the interval, so the signed co-sweep's running
 /// difference swings through every level's magnitude before the exact total
 /// cancels — the widest cancellation an 800-level walk can force through the
-/// freeze and promotion machinery, handing the mirror pair's verdict to the
+/// freeze and deferral machinery, handing the mirror pair's verdict to the
 /// version-byte tiebreak. Splitting one mirror's core step then moves the total
 /// by `2⁻⁸⁰³` alone: every level above still cancels, and the verdict's sign
 /// rests entirely on the deepest contribution. Each verdict is checked against

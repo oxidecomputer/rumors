@@ -6,7 +6,7 @@
 //! result lowers the outer minimum too, by `d - b`.
 //!
 //! A surviving wide value must not be scanned for every small decrease. Width
-//! certificates decide well-separated values first; subtraction then reads
+//! leading-digit comparisons decide well-separated values first; subtraction then reads
 //! the smaller operand. Comparable widths need one ordinary subtraction.
 
 use core::cmp::Ordering;
@@ -96,8 +96,8 @@ impl Boundary {
     /// Compare wide values before choosing which one to subtract from the other.
     ///
     /// Two base-2^32 digits are the first separation at which Accumulator's
-    /// redundant representation can certify domination. If a certificate
-    /// fails, the values are close enough in stored width that subtracting
+    /// redundant representation can prove domination. If that comparison
+    /// cannot decide, the values are close enough in stored width that subtracting
     /// once costs no more than processing comparable operands.
     fn lower_wide(mut boundary: Accumulator, mut decrease: Accumulator) -> Remainder {
         if decrease.stored_digit_count() >= boundary.stored_digit_count() + 2 {

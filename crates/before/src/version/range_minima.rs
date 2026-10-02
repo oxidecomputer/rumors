@@ -1,9 +1,10 @@
 //! Minima of properly nested ranges in a stream of values.
 //!
-//! A Version walk opens subtree ranges, emits heights in leaf order, and closes
-//! ranges from inner to outer. [`RangeMinima`] maintains the minimum emitted
-//! inside each open range. A range is *pending* until its first emission, then
-//! *armed* until it closes; pending ranges are always inside all armed ranges.
+//! A [`Version`](crate::Version) walk opens subtree ranges, emits heights in
+//! leaf order, and closes ranges from inner to outer. [`RangeMinima`] maintains
+//! the minimum emitted inside each open range. A range is *pending* until its
+//! first emission, then *armed* until it closes; pending ranges are always
+//! inside all armed ranges.
 //!
 //! # Store differences, not repeated absolute minima
 //!

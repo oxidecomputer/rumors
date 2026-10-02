@@ -178,10 +178,9 @@ where
 
     /// Close out the whole tree at exhaustion.
     ///
-    /// The final leaf's trailing ancestors close only here — the walk never
-    /// steps past it — so their collapsible-pair checks run at this seam or not
-    /// at all: a stream whose *last* two leaves are a collapsible pair is
-    /// rejected by this close-out.
+    /// The final leaf's trailing ancestors close only here because the walk
+    /// never advances beyond it. Closing them here is what rejects a stream
+    /// whose final two leaves form a collapsible pair.
     fn finish(mut self) -> Result<(), Decode> {
         debug_assert!(self.done(), "finish closes out a completed tree");
         let mut is_leaf = true;

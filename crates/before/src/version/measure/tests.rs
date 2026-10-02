@@ -71,7 +71,7 @@ fn assert_projection(v: &Version, p: &Party) {
 /// The signed co-sweep rides every pairing too: `rank_cmp` is pinned against
 /// the oracle's rank order in both operand orders — the one fold whose total
 /// carries a sign, and whose `Equal` answer demands the signed settle cancel
-/// exactly through whatever parked/promoted state the pair arms (the
+/// exactly through whatever parked or deferred state the pair creates (the
 /// nonnegative measures never need that answer: their totals are monotone
 /// differences, debug-asserted nonnegative at the fold).
 fn assert_pair(a: &Version, b: &Version) {
@@ -192,17 +192,15 @@ fn families_agree_with_the_encodings() {
     }
 }
 
-/// The promoting family pool: every shape whose sweep parks, promotes, or
-/// settles wide drift, at hand-checkable sizes.
+/// Shapes whose sweeps park, defer, or settle wide drift, at hand-checkable
+/// sizes.
 ///
 /// The other pools stay under the freeze allowance almost everywhere: a
 /// unit-funded fold freezes only past 9 digits (288 bits) of live drift, and
-/// `arb_magnitude` tops out near 2^128, under half of that — so the promotion
-/// ledger and its product-tree settle would run differentially unwitnessed
-/// without this pool: these shapes are the only ones that arm it, and the
-/// arming trains are the only ones that arm it more than once per sweep or with
-/// mixed signs.
-fn promoting_pool() -> Vec<Version> {
+/// `arb_magnitude` tops out near 2^128, under half of that, so arbitrary trees
+/// do not reach the deferred-height reduction. These shapes do, and the arming
+/// trains create multiple entries with both uniform and alternating signs.
+fn deferral_pool() -> Vec<Version> {
     vec![
         version_of(&Shape::PromotionRearm.build1(1)),
         version_of(&Shape::PromotionRearm.build1(3)),
@@ -225,7 +223,7 @@ fn promoting_pool() -> Vec<Version> {
         version_of(&Shape::LoneFreeze.build2(2, 6)),
         // The multi-arming trains: same-sign and alternating, so the settle's
         // parked sums are exercised both accumulating and cancelling across
-        // aggregate seams.
+        // aggregate merge boundaries.
         version_of(&Shape::ArmingTrain.build_train(1, 19, 1, false)),
         version_of(&Shape::ArmingTrain.build_train(3, 19, 1, false)),
         version_of(&Shape::ArmingTrain.build_train(4, 19, 2, true)),
@@ -233,20 +231,20 @@ fn promoting_pool() -> Vec<Version> {
     ]
 }
 
-/// Every promoting family shape agrees with the tree-fold oracle on rank and
+/// Every deferred-height family shape agrees with the tree-fold oracle on rank and
 /// min_ticks, and every ordered pair agrees on distance and lag against both
 /// the oracle and the composed forms.
 ///
 /// The settle's value witness at the shapes the flatness bands and red pins
 /// price: single and repeated armings, mixed-sign armings whose parked sums
-/// cancel digit-wise inside the product tree's aggregates, dense windows
+/// cancel digit-wise inside the balanced reduction's aggregates, dense windows
 /// between armings, and the arming-free close-time settle (the plateau-puncture
 /// family). The pair sweep crosses wide operands with wide operands — both
-/// sides promoting, orientation flips inside wide plateaus — which the meter
+/// sides deferring, orientation flips inside wide plateaus — which the meter
 /// bands' unit-twin mates never reach.
 #[test]
-fn promoting_families_agree_with_the_oracle() {
-    let pool = promoting_pool();
+fn deferral_families_agree_with_the_oracle() {
+    let pool = deferral_pool();
     for v in &pool {
         assert_single(v);
     }
@@ -277,7 +275,7 @@ fn spine_of(heights: &[BigUint]) -> Version {
 /// `−2^(32(p−1))`. Those terms cancel although the accumulator retains high
 /// positive and negative digits. A fourth freeze follows a climb to `2^(32q)`
 /// and return to the small drift `s`; it settles a segment against the
-/// zero-valued parked component and promotes it into the skip-arming reset.
+/// zero-valued parked component before resetting the deferred state.
 fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
     let x = BigUint::from(1u8) << (32 * p);
     let t = BigUint::from(1u8) << (32 * (p - 1));
@@ -317,19 +315,19 @@ fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
 /// The worked point of the cancellation family, with the freeze tap proving
 /// the schedule really parks.
 ///
-/// Four freezes fire, the fourth settling and promoting against a parked
+/// Four freezes fire, the fourth settling and attempting to defer a parked
 /// component whose buffered positive and negative terms cancel. The cheap
 /// `is_known_zero` check cannot detect that cancellation, and every fold
 /// stays exact against the tree oracle.
 #[test]
-fn parked_cancellation_settles_and_promotes_exactly() {
+fn parked_cancellation_settles_and_defers_exactly() {
     let v = spine_of(&parked_cancellation_heights(11, 9, 5));
     let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
     assert_single(&v);
     assert!(
         super::integral::FREEZE_HITS.with(|hits| hits.get()) >= hits_before + 4,
         "the cancellation schedule no longer parks four drifts: the zero-valued \
-         settle and promote arms it exists to drive are undriven"
+         settlement and deferral paths it exists to drive are undriven"
     );
 }
 
@@ -339,8 +337,8 @@ proptest! {
     /// narrow drift.
     ///
     /// A parked component whose terms cancel must charge nothing at later
-    /// settles. A promotion triggered after a large climb returns to a narrow
-    /// drift, skips arming on that zero component, and still resets. Any
+    /// settlements. A deferral considered after a large climb returns to a
+    /// narrow drift, skips the cancelled component, and still resets. Any
     /// misaccounting in either zero case changes the exact totals.
     #[test]
     fn parked_cancellation_family_agrees(p in 11u32..=14, q in 9u32..=12, s in 1u64..=6) {
@@ -365,20 +363,20 @@ proptest! {
     }
 }
 
-/// `rank_cmp` agrees with the oracle rank order across the promoting pool and
-/// reads `Equal` on a mirrored equal-rank promoting pair, with the freeze tap
+/// `rank_cmp` agrees with the oracle rank order across the deferral pool and
+/// reads `Equal` on a mirrored equal-rank pair, with the freeze tap
 /// proving both legs actually park drift.
 ///
-/// The signed co-sweep's value witness in the freeze/promotion regime, with
-/// its liveness floors: the promoting-pool cross pins the sign against the
-/// oracle's rank order in both operand orders where the sweeps park, promote,
-/// and settle wide drift, and the mirrored pair — one promoting shape hung on
+/// The signed co-sweep's value witness in the freeze-and-deferral regime, with
+/// its liveness floors: the pool cross pins the sign against the oracle's rank
+/// order in both operand orders where the sweeps park, defer, and settle wide
+/// drift, and the mirrored pair — one deferring shape hung on
 /// each side of a fresh root fork, two distinct streams of exactly equal
 /// rank — pins the `Equal` answer, which demands that the signed settle cancel
-/// to zero through the whole parked/promoted/settled pipeline. The
+/// to zero through the whole parked, deferred, and settled pipeline. The
 /// [`FREEZE_HITS`](super::integral::FREEZE_HITS) floors make the regime claim
 /// non-vacuous: a pool or pair that never froze would pass any value pin
-/// while exercising none of the ledger.
+/// while exercising none of the deferred reduction.
 #[test]
 fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
     let assert_cmp = |a: &Version, b: &Version| {
@@ -393,7 +391,7 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
         );
     };
     let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
-    let pool = promoting_pool();
+    let pool = deferral_pool();
     for a in &pool {
         for b in &pool {
             assert_cmp(a, b);
@@ -402,7 +400,7 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
     let pool_hits = super::integral::FREEZE_HITS.with(|hits| hits.get());
     assert!(
         pool_hits > hits_before,
-        "liveness: the promoting-pool cross must run freezes under rank_cmp"
+        "liveness: the deferral-pool cross must run freezes under rank_cmp"
     );
     let t = to_oracle_version(&version_of(
         &Shape::ArmingTrain.build_train(3, 19, 1, false),
@@ -583,14 +581,14 @@ proptest! {
     }
 
     /// Arming trains at arbitrary dimensions agree with the oracle on every
-    /// measure fold, singly and as a promoting × promoting pair.
+    /// measure fold, singly and as a deferring pair.
     ///
-    /// The dimensions cover arming counts across several product-tree shapes (a
+    /// The dimensions cover entry counts across several reduction shapes (a
     /// lone entry, a full level, an odd drain), both sign schedules, and window
     /// densities from trivial to multi-digit, beyond `arb_magnitude`'s
     /// 128-bit ceiling keeps the arbitrary-tree sweep from ever arming. The
     /// pair leg crosses the train against its opposite-schedule twin, so the
-    /// co-sweep promotes on both operands with the difference's orientation
+    /// co-sweep defers on both operands with the difference's orientation
     /// flipping inside wide plateaus.
     #[test]
     fn arbitrary_arming_trains_agree(
@@ -611,7 +609,7 @@ proptest! {
     ///
     /// The `Equal` generator arm of the signed co-sweep's freeze-regime
     /// coverage: over the train dimensions, the signed settle must cancel to
-    /// zero through the parked/promoted/settled pipeline — the one
+    /// zero through the parked, deferred, and settled pipeline — the one
     /// answer the nonnegative pair measures can never exercise (their totals
     /// are monotone differences), and one no organically drawn pair reaches
     /// at freezing scale. Every train in the sampled box parks drift under the

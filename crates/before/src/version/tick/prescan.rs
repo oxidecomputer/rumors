@@ -387,7 +387,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         let mut relation = self
             .entry_net
             .take()
-            .expect("the entry net lives until the first arming");
+            .expect("the entry net is retained until the first minimum");
         if let Some(offset) = offset {
             relation.add_bigint(offset);
         }

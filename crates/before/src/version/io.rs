@@ -14,7 +14,7 @@
 //! height below zero, and never retain equal sibling leaves: such siblings
 //! collapse into their parent. The writer performs those collapses as it emits
 //! leaves. Validation proves the same invariants before decoded bytes become a
-//! Version. Both walks are iterative and retain only compact path state.
+//! [`Version`]. Both walks are iterative and retain only compact path state.
 
 use core::ops::Range;
 

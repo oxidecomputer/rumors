@@ -653,7 +653,7 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 // The composite emission over the pair's hull (built at
                 // prepare, outside measurement): one byte copy per
-                // endpoint — the codec emission genre, denominated by
+                // endpoint, denominated by
                 // the span's own size, which is exactly the output.
                 let (v, w, _) = f.version_pair()?;
                 let span = v.span(&w);
@@ -859,7 +859,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // spines), built at family construction, outside
                 // measurement. I/O-denominated: value content in, the
                 // actual canonical bytes out (the `cell` module doc's
-                // rank denomination), with the emission's honesty
+                // rank denomination), with the output bound
                 // asserted here — a canonical encoding is at most
                 // `9⁄8 · ‖r‖ + O(log ‖r‖)` bits, so padding the output
                 // side of the denominator trips the run instead of
@@ -875,7 +875,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let encoded_len = a.encode().len();
                 assert!(
                     (encoded_len as u64) * 8 <= content + content / 8 + 64,
-                    "output honesty: a canonical rank encoding is at most \
+                    "output bound: a canonical rank encoding is at most \
                      9/8 content + O(log) bits"
                 );
                 let floors = Floors {
@@ -1091,7 +1091,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // byte, and the version tail is exactly the encoded
                 // input again (asserted here, so the bound is enforced
                 // at every family and scale), which makes input bytes
-                // the honest, harder denominator — the codec rows'
+                // the stricter denominator — the codec rows'
                 // rule — and lets the flat-denominator shape's content
                 // exponent govern exactly as on the version_rank cell
                 // this row extends.
@@ -1099,7 +1099,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let encoded_len = Ranked::from(&v).encode().len();
                 assert!(
                     encoded_len <= 2 * n + 1,
-                    "output honesty: a composite ranked key is the rank emission \
+                    "output bound: a composite ranked key is the rank emission \
                      (within the encoded input plus one byte) plus the version's \
                      encoded bytes"
                 );
@@ -1119,7 +1119,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // the provenance pin bounds the output within the
                 // encoded input (asserted here, so the bound is
                 // enforced at every family and scale), which makes
-                // input bytes the honest, harder denominator — the
+                // input bytes the stricter denominator — the
                 // codec rows' rule — and lets the flat-denominator
                 // shape's content exponent govern exactly as on the
                 // version_rank cell this row extends.
@@ -1127,7 +1127,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let encoded_len = Ranked::from(&v).encode_rank().len();
                 assert!(
                     encoded_len <= n + 1,
-                    "output honesty: a version-derived rank encodes within its \
+                    "output bound: a version-derived rank encodes within its \
                      version's encoded bytes"
                 );
                 let floors = Floors {
@@ -1584,7 +1584,7 @@ pub(super) fn ops() -> Vec<Op> {
         // coincidence rung cannot collapse the walk; and the probe always
         // lies within its own pair's hull, so the verdict is confirming
         // — full examination of all three streams is forced, and the
-        // full-examination scan floor is honest on every family. The
+        // full-examination scan floor applies to every family. The
         // precedence row's probe re-decodes the meet instead: its watched
         // directions are the mirror pair (probe at-or-below each bound),
         // so only a probe at the span's own floor confirms both and
@@ -2775,11 +2775,10 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "span_decode_crossed",
             prepare: |f| {
-                // The genre the span decode mints: the reversed
-                // composite — join first — is well-formed
-                // component-wise but the canonical spelling of no
-                // span. The hull of a distinct pair is strictly
-                // ordered, so the reversal is genuinely crossed.
+                // Reverse the canonical endpoints. The resulting composite is
+                // well-formed component-wise but does not encode a span. The
+                // hull of a distinct pair is strictly ordered, so reversing it
+                // crosses the endpoints.
                 let (v, w, _) = f.version_pair()?;
                 let (lo, hi) = v.span(&w).into_parts();
                 assert_ne!(lo, hi, "a crossed witness needs a strictly ordered hull");

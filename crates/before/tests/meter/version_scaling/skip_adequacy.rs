@@ -4,24 +4,17 @@ use super::*;
 
 // ── the accumulator skip mechanisms' before-level adequacy bands ──
 //
-// Three families, one per skip/extent mechanism inside the
-// accumulator (`suanpan`), each constructed so that the mechanism's
-// *absence* — scans stepping digit by digit instead of consuming a
-// zero-run certificate; scaled reads starting at digit 0 instead of
-// the write watermark; loop bounds and fold starts reading the
-// buffer's high water instead of the settled top — turns one public
-// `before` operation superlinear while the family's input stays
-// linear (demonstrated by disabling exactly one mechanism in a
-// local probe build, value-identical by the full differential
-// suite; the probe readings live in the pin commits). On the
-// shipped accumulator all three read flat; each band is the
-// before-level witness that its mechanism is load-bearing, priced
-// through the public API rather than through `suanpan`'s own entry
-// points (whose row witnesses,
+// Three families exercise the accumulator's independent ways of avoiding
+// scans across known zeroes: recorded zero ranges, the lowest position ever
+// written, and the highest position whose value is nonzero. Without the
+// corresponding shortcut, each family makes one public `before` operation
+// superlinear while its input remains linear. These bands establish the same
+// properties through `before`'s public API that the following `suanpan` tests
+// establish at the accumulator boundary:
+//
 // `alternating_shifted_writes_cost_the_operand_not_the_gap`,
 // `scaled_read_costs_the_written_span`, and
-// `held_width_rows_cost_the_held_digits`, pin the same three
-// mechanisms crate-locally).
+// `held_width_rows_cost_the_held_digits`.
 
 /// One `Version::rank` run over the weight-comb family `WC(n)`
 /// (`meter::weight_comb`), both counters over the rank body alone,
@@ -67,11 +60,9 @@ fn rank_weight_comb_run(n: usize) -> QueryRun {
 ///
 /// Flat per encoded byte across the doubling: this family never
 /// freezes, so no segment feed deposits, and its wide cycling pays
-/// one spill each time the quick register is re-entered. With certificate
-/// consumption disabled (a local probe build whose scans step
-/// digit by digit), the reading goes quadratic — `n² + O(n)`
-/// touches — and fails the band, so this band is the before-level
-/// adequacy witness for the zero-run ledger.
+/// one spill each time the inline accumulator is re-entered. A scan that steps
+/// through the zero gap digit by digit takes `n² + O(n)` touches and exceeds
+/// these ceilings; skipping each recorded zero range keeps the reading linear.
 const RANK_WEIGHT_COMB_CEILINGS: [u64; 2] = [6_414, 12_814];
 
 /// Block pairs of the weight-comb band's small run.
@@ -88,8 +79,8 @@ const RANK_WEIGHT_COMB_SMALL: usize = 512;
 /// across the never-written gap: a settlement that walks the gap
 /// pays `Θ(n)` unfunded touches per event (`Θ(n²)` on linear
 /// input), and the parked digit-0 unit forecloses value-emptiness
-/// and write-watermark shortcuts — one certificate per jumped run,
-/// consumed whole, is what holds this band flat. This is the
+/// and write-watermark shortcuts. Skipping each recorded zero range in one
+/// step is what holds this band flat. This is the
 /// public-API lift of the accumulator's own row witness
 /// (`alternating_shifted_writes_cost_the_operand_not_the_gap`):
 /// there the shift is a free parameter; here the stream buys the
@@ -270,7 +261,7 @@ const CMP_TOOTH_TAIL_SMALL: usize = 4_096;
 /// the spike's own code paid once and would otherwise be re-paid
 /// per boundary forever. The public-API lift of
 /// `held_width_rows_cost_the_held_digits`: reads price the settled
-/// width, and the settlement (with its certificate skip) is what
+/// width, and settlement skipping the recorded zero range is what
 /// keeps the settled width accurate after a cancellation.
 #[test]
 fn skyline_cmp_tooth_tail_is_flat_per_unit() {
@@ -347,10 +338,10 @@ const RANK_DENSE_SUFFIX_CEILINGS: [u64; 2] = [224_705, 448_907];
 /// ×1.25 across a block-count doubling, under absolute two-scale
 /// ceilings.
 ///
-/// `DS(p, p)` fires one promotion per block against a trailing
+/// `DS(p, p)` creates one deferral per block against a trailing
 /// interval mass the gap spine holds at Θ(p) balanced digits — the
 /// shape on which any settle that walks the suffix once per arming
-/// (or re-reads a promoted prefix once per window) goes quadratic.
+/// (or re-reads a deferred prefix once per window) goes quadratic.
 /// The mass-balanced product tree charges every arming-window
 /// cross term inside exactly one aggregate product and rewrites
 /// any window's digits once per tree level, so the declared model
@@ -382,9 +373,9 @@ fn skyline_rank_dense_suffix_is_flat_per_unit() {
 /// pair's input bytes as the per-byte denominator.
 ///
 /// The mate is `DS(p, p)`'s unit-block twin, so the co-sweep's
-/// freezes and promotions fire at boundaries where the mate's
+/// freezes and deferrals occur at boundaries where the mate's
 /// cheap codes set the funded width while the drift being parked
-/// and promoted was deposited by the wide operand — and every
+/// and deferred was deposited by the wide operand — and every
 /// arming owes its debt across the same dense trailing mass.
 /// Value legs anchor all three measures before the counters
 /// return: `DS` dominates its mate pointwise, so

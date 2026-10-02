@@ -340,7 +340,7 @@ impl TickWalk<'_> {
                     debug_assert_eq!(
                         outermost,
                         matches!(self.memo_reference, MemoReference::None),
-                        "a fresh scan starts exactly where no ledger relation is live"
+                        "a fresh scan starts exactly where no memo reference is live"
                     );
                     if outermost {
                         // One fresh pre-scan records this minimum and every

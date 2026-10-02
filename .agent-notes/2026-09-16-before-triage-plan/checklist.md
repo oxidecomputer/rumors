@@ -17,7 +17,7 @@ triage's dispositions and branches are leads only.
       Sources: `envelopes-a-*`, `envelopes-b-*`, `meter-adequacy-*`,
       `tests-other-*`; aborted-triage changes.
 
-- [ ] Correct crate guideposts and prose that still name missing modules or
+- [x] Correct crate guideposts and prose that still name missing modules or
       stale verification architecture, including the removed `implementation`,
       `version/skyline`, and `codec` paths.
       Sources: `crate-root-*`, `module-graph-*`, `prose-hygiene-*`;
@@ -401,11 +401,11 @@ into otherwise small feature increments.
       and correct examples; ground or remove every quantitative headline.
       Sources: `crate-root-*`, `paper-fidelity-*`, `fresh-eyes-*`.
 
-- [ ] Rewrite public item docs around caller-visible contracts, errors, panics,
+- [x] Rewrite public item docs around caller-visible contracts, errors, panics,
       and attainable bounds; remove internal vocabulary and copied mechanism.
       Sources: `documentation.md`, `claims.md`, `api.md`.
 
-- [ ] Simplify maintainer docs and comments across touched modules, removing
+- [x] Simplify maintainer docs and comments across touched modules, removing
       stale references, invented jargon, rosters, history, and contorted
       phrasing.
       Sources: `documentation.md`, `simplification.md`,

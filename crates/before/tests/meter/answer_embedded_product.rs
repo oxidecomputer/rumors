@@ -1,18 +1,16 @@
 //! A rank family whose exact answer requires wide multiplication.
 //!
-//! The close-time settle's wide × dense case — and the floor under
-//! every settle. The plateau-puncture family `PP(w, d)`
-//! (`meter::plateau_puncture`) embeds its excess in the exact answer,
-//! not in any ledger accounting: every turn leaf sits on one
+//! The close-time settlement's wide × dense case. The plateau-puncture family
+//! `PP(w, d)` (`meter::plateau_puncture`) embeds its cost in the exact answer:
+//! every turn leaf sits on one
 //! incompressible pseudorandom plateau `x` of `w` digits, the turn
 //! positions spell a jittered mass `y` of `d` isolated digits, and
 //! the rank numerator is exactly `2·x·y + 1` — a Θ(w)-digit ×
 //! Θ(d)-term integer product bought with Θ(w + d) input bits, both
 //! factors' content beyond the settle's own balanced-digit compaction
-//! (`mul_bound_embedding_is_alive` pins exactly that). No promotion
-//! ever fires (the one wide plunge parks once and no later freeze
-//! arrives), so the cost sits in the close-time settle `P · segment`,
-//! outside the promotion ledger and its product tree entirely:
+//! (`mul_bound_embedding_is_alive` pins exactly that). No deferral occurs (the
+//! one wide plunge parks once and no later freeze arrives), so the cost sits in
+//! the close-time product `P · segment`, outside the deferred reduction:
 //! computing the answer *is* one wide × dense multiplication, which
 //! the shipped settle delegates whole to the backend at its
 //! multiplication bound `M(|v|)`. The floor is a reduction, not a

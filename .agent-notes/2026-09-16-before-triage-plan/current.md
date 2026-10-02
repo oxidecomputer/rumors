@@ -1,8 +1,8 @@
 # Current triage state
 
 Work proceeds directly on `main`. The completed foundation, approved API,
-contract cleanup, and verification consolidation run through `604d140c`.
-There is no active code increment.
+contract cleanup, and verification consolidation run through `0e5ec518`.
+The production-documentation increment is active and uncommitted.
 
 ## Completed foundation
 
@@ -47,8 +47,8 @@ increments are complete.
 
 ## Remaining work
 
-1. **Finish the documentation.** Rewrite the crate page and public item docs at
-   caller altitude; correct stale guideposts; finish the maintainer-prose sweep.
+1. **Owner crate-page rewrite.** The public items, guideposts, and maintainer
+   prose are triaged; the owner has reserved the crate page for a later rewrite.
 2. **Reconcile and verify.** Re-read every original finding against the final
    tree, run the justified full verification set, and present the integrated
    result for approval.

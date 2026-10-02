@@ -273,7 +273,7 @@ fn judge_window(
         }
     }
     // The liveness floors bind in this same pass, at both sizes: a counter
-    // reading below the least a watching meter could honestly read means the
+    // reading below the least a functioning meter could read means the
     // meter is not watching the work the ceilings claim to bound.
     for (c, _) in scores.each() {
         let trip = match c {

@@ -1,4 +1,4 @@
-//! The unbounded-count vocabulary: [`Count`].
+//! Arbitrary-precision nonnegative counts.
 //!
 //! The public contract lives on the type. This module is private.
 
@@ -26,8 +26,8 @@ use crate::error::{ParseValue, TooWide};
 ///
 /// # Complexity
 ///
-/// A count's *numeric size* `‖n‖` is its bit width; cloning costs as
-/// comparison and hashing do. For a [`Sum`] of `k` counts, `N` is their total
+/// A count's *numeric size* `‖n‖` is its bit width. Cloning, comparison, and
+/// hashing cost `O(‖n‖)`. For a [`Sum`] of `k` counts, `N` is their total
 /// numeric size.
 ///
 /// Construction and conversion to a fixed-width integer are `O(1)`; comparison
@@ -269,6 +269,11 @@ impl fmt::Display for Count {
 
 /// Parses the canonical decimal form produced by [`Display`](fmt::Display).
 /// Signs, leading zeroes, and whitespace are not accepted.
+///
+/// # Errors
+///
+/// Returns [`ParseValue::InvalidSyntax`] unless the input is one or more
+/// decimal digits with no redundant leading zero.
 ///
 /// Parsing `d` decimal digits takes `O(d²)` time and `O(d)` space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/count_parse.html")))]

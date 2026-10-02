@@ -238,7 +238,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             touch: na(PROBE_NA),
         }
     }
-    /// The committed walk convention with the touch column honestly undeclared:
+    /// The committed walk convention with no touch floor declared:
     /// the probe folds no accumulator, and the leg under test is the scan
     /// floor.
     fn probe_walk_floors(stored_bytes: usize) -> Floors {

@@ -17,38 +17,30 @@
 //! because it controls the query walk's per-bound cache; it is not part of
 //! Version arithmetic itself.
 //!
-//! The walk advances by the overlay-advance law ([`advance_set`]), and the
-//! verdict hooks are branch-only.
+//! [`advance_set`] moves all streams that reach the next shared interval
+//! boundary. Verdict handling only examines the accumulated comparison state;
+//! it never performs another traversal.
 //!
 //! # Early exit
 //!
-//! A refuted direction is permanent, so every verdict acts at the earliest
-//! interval its lattice allows:
+//! Once a causal direction is refuted, later intervals cannot restore it. The
+//! two public questions can therefore stop as soon as their answer is fixed:
 //!
-//! - [`admits`]: a floor or ceiling *requires* its direction — the
-//!   first interval refuting it returns `false`, the membership walk's
-//!   earliest bail. A hole is satisfied by a refutation — its stream is
-//!   dropped and never scanned further — and a walk left holding only
-//!   satisfied holes returns `true` without exhausting the probe.
-//!   Subtractions and dominations confirm only at exhaustion, exactly
-//!   as in the pair sweep.
-//! - [`coverage`]: a floor refuting `floor <= hi` (or a ceiling
-//!   refuting `lo <= ceiling`) proves no covered version is admitted —
-//!   [`Coverage::Empty`] at the refuting interval, the verdict a
-//!   pruning tree walk consumes. A hole whose subtraction is refuted at
-//!   both endpoints is settled and drops its stream, a probe endpoint
-//!   whose every pair is settled drops its own cursor, and a walk left
-//!   holding only settled holes returns [`Coverage::Full`] without
-//!   exhausting anything. `Partial` alone always confirms at
-//!   exhaustion: refuting `Full` mid-walk takes a required bound, and
-//!   a required bound keeps `Empty` possible to the last interval.
+//! - [`admits`] returns `false` when a floor or ceiling first fails. A hole
+//!   whose excluded relation fails can be discarded; if only discarded holes
+//!   remain, the answer is `true`.
+//! - [`coverage`] returns [`Coverage::Empty`] when a required bound excludes
+//!   the whole span. A hole that excludes neither endpoint can be discarded;
+//!   if only discarded holes remain, the answer is [`Coverage::Full`].
+//!   [`Coverage::Partial`] requires the complete walk because a required bound
+//!   can continue to leave `Empty` possible until the final interval.
 //!
 //! # Cost
 //!
 //! Every topology bit is read once and every leaf payload is decoded once. Let
-//! `k` be the number of bounds, `i` the number of intervals in the streams'
-//! common overlay, `p` the payload bytes in the probe stream or streams, and
-//! `n` all input bytes. Topology work is
+//! `k` be the number of bounds, `i` the number of constant intervals obtained
+//! by combining every stream's boundaries, `p` the payload bytes in the probe
+//! stream or streams, and `n` all input bytes. Topology work is
 //! `O(n + k·i)`; numeric work is `O(n + k·p)` because a probe delta may feed
 //! every live exact difference. The total is therefore `O(n + k·(i + p))`, or
 //! `O(k·n)` using bytes alone.

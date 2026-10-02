@@ -2,8 +2,8 @@
 //!
 //! A [`Party`] is a non-empty set of subintervals of `[0, 1)`, stored as a
 //! canonical party tree: the part of the unit interval its holder may
-//! [`tick`](Party::tick) against. [`fork`](Party::fork) splits a share in two;
-//! [`join`](Party::join) reunites disjoint shares and refuses overlapping ones,
+//! [`tick`](Party::tick) against. [`Party::fork`] splits a share in two;
+//! [`Party::join`] reunites disjoint shares and refuses overlapping ones,
 //! because everything ITCs guarantee rests on disjointness (see the [crate
 //! docs](crate)' safety rules).
 //!
@@ -35,33 +35,37 @@ pub use forks::PartyForks;
 #[cfg(test)]
 mod tests;
 
-/// A causal party: a disjoint share of the unit interval `[0, 1)`.
+/// A disjoint share of the identity space used to record events.
 ///
-/// A party is primarily manipulated by these operations:
+/// [`Party::seed`] creates the whole identity space; [`fork`](Party::fork)
+/// divides a party into two disjoint parties, while [`join`](Party::join)
+/// reunites disjoint parties and rejects overlap. A party records events by
+/// advancing a [`Version`] with [`tick`](Party::tick) or
+/// [`ticks`](Party::ticks).
 ///
 /// | Operation                                              | Meaning                                                                   |
 /// |--------------------------------------------------------|---------------------------------------------------------------------------|
-/// | [`Party::seed()`]                                      | create the initial [`Party`] which owns all of `[0, 1)`                   |
-/// | [`p.tick(v)`](Party::tick)                             | advance the [`Version`] `v` for this [`Party`]                            |
-/// | [`p.ticks(v, n)`](Party::ticks)                        | advance the [`Version`] `v` by `n` events for this [`Party`], in one pass |
-/// | [`p.fork()`](Party::fork)/[`p.forks(n)`](Party::forks) | fork off one disjoint child from `p` (or `n` disjoint children)           |
-/// | [`p.join(b)`](Party::join)                             | reunite two *disjoint* parties into the one owning both regions; fallible |
-/// | [`p.is_disjoint(&b)`](Party::is_disjoint)              | whether `p` and `q` share no region, hence may safely interact            |
-/// | `p == q`                                               | whether `p` is exactly the same [`Party`] as `q`                          |
+/// | [`Party::seed()`]                                      | create the initial [`Party`], which owns all of `[0, 1)`                  |
+/// | [`p.tick(v)`](Party::tick)                             | advance [`Version`] `v` for [`Party`] `p`                                |
+/// | [`p.ticks(v, k)`](Party::ticks)                        | advance `v` by `k` events for `p` in one pass                            |
+/// | [`p.fork()`](Party::fork)/[`p.forks(k)`](Party::forks) | fork off one disjoint child, or `k` balanced children                     |
+/// | [`p.join(q)`](Party::join)                             | reunite disjoint [`Party`]s; return `q` unchanged if they overlap         |
+/// | [`p.is_disjoint(&q)`](Party::is_disjoint)              | test whether the [`Party`]s share no identity region                      |
+/// | `p == q`                                               | test whether both values represent the same party                         |
 ///
-/// A [`Party`] is not ordered. Use [`is_disjoint`](Party::is_disjoint) to tell
-/// whether two parties may [`join`](Party::join). There is likewise no `Party |
-/// Party`: reuniting is the fallible [`join`](Party::join), which verifies
-/// disjointness itself.
+/// Parties are not ordered, and overlap has no meaningful ordering. Use
+/// [`Party::is_disjoint`] before operations that require separate
+/// identity shares; [`join`](Party::join) performs this check itself.
 ///
 /// [`Display`](core::fmt::Display) and [`FromStr`](core::str::FromStr) use the
 /// lowercase hexadecimal form of the canonical bytes. Parsing also accepts
 /// uppercase hexadecimal letters.
 ///
-/// Like [`Clock`](crate::Clock), [`Party`] is [`!Clone`](Clone): duplicating a
-/// live party would violate the linearity which interval tree clocks require,
-/// while discarding one would lose its identity share. The type is therefore
-/// also `must_use`.
+/// A party is a linear value: duplicating one would let two writers use the
+/// same identity share; conversely, discarding one makes that share unavailable
+/// forever. [`Party`] is therefore neither [`Clone`] nor [`Copy`], and it is
+/// `must_use`. Decoding and [`dangerously_alias`](Party::dangerously_alias) are
+/// explicit escape hatches; callers must preserve disjointness when using them.
 ///
 /// # Example
 ///
@@ -92,6 +96,12 @@ impl core::fmt::Display for Party {
 /// Hexadecimal letters may use either case; prefixes and whitespace are not
 /// accepted.
 ///
+/// # Errors
+///
+/// Returns [`ParseValue::InvalidSyntax`] for malformed hexadecimal and
+/// [`ParseValue::InvalidEncoding`] when the decoded bytes are not a canonical
+/// [`Party`].
+///
 /// Takes `O(n)` time and `O(n)` space for `n` text bytes.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_parse.html")))]
 #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` in text bytes")]
@@ -113,8 +123,8 @@ static_assertions::assert_not_impl_any!(Party: Clone, Copy);
 
 // Equality and hashing are byte-level over the stored stream's raw bytes plus
 // its live length, resting on the canonical-raw-slice invariant: the build
-// buffer keeps its dead bits zero and `from_bits` seals the marker at every
-// storage seam, so raw-byte equality is exactly bit equality (see
+// buffer keeps its dead bits zero and `from_bits` seals the marker whenever
+// storage is finalized, so raw-byte equality is exactly bit equality (see
 // `Bits::eq` for the argument and the measurement). The two impls
 // read the same pair, so `Eq`/`Hash` consistency holds by construction.
 impl PartialEq for Party {
@@ -141,7 +151,8 @@ impl core::hash::Hash for Party {
 }
 
 impl Party {
-    /// Adopt a canonical Party representation produced or validated by its I/O boundary.
+    /// Adopt a canonical [`Party`] representation produced or validated by its
+    /// I/O boundary.
     pub(crate) fn from_canonical(bits: Bits) -> Self {
         Party(bits)
     }
@@ -375,8 +386,9 @@ impl Party {
     /// any region. Returned parties may be unions of inputs. Once an overlap is
     /// found, later inputs may be returned without being tested.
     ///
-    /// Unreachable for parties descended from one [`seed`](Party::seed): they
-    /// are definitionally pairwise-disjoint.
+    /// [`Party`]s used linearly from one [`Party::seed`] remain pairwise
+    /// disjoint. An error therefore indicates aliased parties or parties from
+    /// different seeds.
     ///
     /// # Complexity
     ///
@@ -416,7 +428,7 @@ impl Party {
 
     /// Tests whether `self` and `other` are *disjoint*.
     ///
-    /// All live descendants of a single [`seed`](Party::seed), evolved by
+    /// All live descendants of a single [`Party::seed`], evolved by
     /// linear [`fork`](Party::fork) and [`join`](Party::join), are pairwise
     /// disjoint. The converse *does not hold*: just because two parties are
     /// disjoint, it does not mean they descended from the same seed, or that
@@ -523,8 +535,9 @@ impl Party {
     /// interval `[0, 1)` as an iterator of [`Region`](crate::shape::Region)s,
     /// left to right.
     ///
-    /// One item per maximal constant run: whether the party owns it and
-    /// the dyadic interval it spans.
+    /// Each item describes one interval in the party's canonical dyadic
+    /// partition. Adjacent items may have the same ownership when the
+    /// canonical partition retains a boundary between them.
     ///
     /// # Complexity
     ///
@@ -615,6 +628,10 @@ impl Party {
 
     /// Encodes this [`Party`] to an arbitrary writer.
     ///
+    /// # Errors
+    ///
+    /// Returns any error reported by the writer.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html")))]
@@ -636,11 +653,10 @@ impl Party {
     /// padding — the marker bit and zero-pad to the byte boundary, so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
-    /// Instrument surface, public under the `meter` feature: the resource
-    /// meters, coverage suites, and boundary pins denominate readings in
-    /// exact encoded bit lengths. Applications measure wire cost as
-    /// `encode().len()` or [`as_bytes`](Self::as_bytes)`.len()` — the byte
-    /// length actually shipped.
+    /// This method is available under the `meter` feature for exact
+    /// representation measurements. Applications ordinarily want
+    /// [`as_bytes`](Self::as_bytes)`.len()`, the number of bytes written to the
+    /// wire.
     ///
     /// # Complexity
     ///

@@ -70,6 +70,9 @@ const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
 #[path = "meter/answer_embedded_product.rs"]
 mod answer_embedded_product;
 #[cfg(feature = "touch-meter")]
+#[path = "meter/deferred_wide_arming.rs"]
+mod deferred_wide_arming;
+#[cfg(feature = "touch-meter")]
 #[path = "meter/eq_early_exit.rs"]
 mod eq_early_exit;
 #[cfg(feature = "touch-meter")]
@@ -78,9 +81,6 @@ mod hoisted_window;
 #[cfg(feature = "scan-meter")]
 #[path = "meter/identity_fast_paths.rs"]
 mod identity_fast_paths;
-#[cfg(feature = "touch-meter")]
-#[path = "meter/ledger_wide_arming.rs"]
-mod ledger_wide_arming;
 #[cfg(feature = "scan-meter")]
 #[path = "meter/placement.rs"]
 mod placement;

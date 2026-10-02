@@ -386,7 +386,7 @@ impl Version {
     ///
     /// The paper has no fused form, so the reference for
     /// [`Version::ticks`](crate::Version::ticks) is the definitionally
-    /// honest loop — `O(n · tree)`, fit for small `n` only (the module
+    /// direct loop — `O(n · tree)`, fit for small `n` only (the module
     /// doc's operating envelope; each differential suite caps the counts
     /// it hands this side, and wide-`n` coverage lives impl-side on
     /// composition laws and closed forms).

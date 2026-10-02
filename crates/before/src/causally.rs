@@ -75,26 +75,16 @@
 //!
 //! # Polarity
 //!
-//! Allowing `&` between arbitrary queries would make exact
-//! [`coverage`](Query::coverage) consider combinations of opposing holes. That
-//! problem can encode Boolean satisfiability, so its worst case requires
-//! combinatorial search.
+//! Exact coverage for unrestricted mixtures of exclusions can require testing
+//! combinations of exclusions. Queries avoid that cost by giving every hole
+//! one *polarity*:
 //!
-//! Instead, we restrict queries to a uniform *polarity*, which permits exact
-//! verdicts without combinatorial search. We say a [`Query`] has a [`Neutral`]
-//! polarity if it is a pure causal range (optional lower bound + optional upper
-//! bound) with no other holes; it has a [`Down`] polarity if it excludes sets
-//! of versions each defined by their shared *upper* bound; it has an [`Up`]
-//! polarity if it excludes sets of versions each defined by their shared
-//! *lower* bound.
+//! - [`Neutral`] has no holes;
+//! - [`Down`] excludes sets with upper bounds;
+//! - [`Up`] excludes sets with lower bounds.
 //!
-//! Queries with opposing polarities statically are prohibited from conjunction,
-//! which rules out compositions like `!after(v) & !before(w)`, which would
-//! define something like "all versions not in the [`Span`] with lower-bound `v`
-//! and upper-bound `w`". If you have need in your application of such queries,
-//! observe that the verdict returned by such a hypothetical [`Query`] is the
-//! same as the logical-`&&` of its expressible components; you can just ask
-//! both questions in sequence and branch on both verdicts.
+//! The type system permits conjunction only when these polarities are
+//! compatible.
 //!
 //! # Complexity
 //!
@@ -129,9 +119,9 @@
 //! assert!(!delta.contains(&b1));
 //!
 //! // Concurrent bound versions are a meaningful query:
-//! let anti_entropy = causally::delta(&a1, &b1);
-//! assert!(anti_entropy.contains(&b1));
-//! assert!(!anti_entropy.contains(&a1));
+//! let difference = causally::delta(&a1, &b1);
+//! assert!(difference.contains(&b1));
+//! assert!(!difference.contains(&a1));
 //! ```
 //!
 //! [`Span`]: crate::Span

@@ -10,7 +10,7 @@
 //!   raise over the whole id space, then `n` forked parties tick once
 //!   each on alternating leaves. Every leaf height and every subtree
 //!   minimum embeds the wide answer; the fold must not re-touch the
-//!   wide component per leaf (the freeze/epoch-ledger discipline's
+//!   wide component per leaf (the freeze and deferred-reduction discipline's
 //!   funding claim, attacked at its answer-embedded corner).
 //! - **wide ladder** `WL(n, w)`: `n` forked parties each tick
 //!   `10^w + i` — near-equal wide subtree minima, forcing the min web

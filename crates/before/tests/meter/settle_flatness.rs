@@ -2,9 +2,9 @@
 //!
 //! The multi-arming and pair legs of the settle's bound, held flat per
 //! byte. The single-arming wide × dense cases carry their own bands
-//! (`ledger_wide_arming`, `answer_embedded_product`); the probes here
+//! (`deferred_wide_arming`, `answer_embedded_product`); the probes here
 //! hold the shapes only arming *count* can reach: trains of wide
-//! armings whose ledger settles through the full mass-balanced product
+//! deferrals settled through the full data-balanced reduction
 //! tree, and a pair driving both settle sites through one co-sweep.
 //! The tree rewrites a window's digits once per level and the mass
 //! balance keeps levels logarithmic in the arming count, so the
@@ -148,7 +148,7 @@ const PAIR_PLATEAU_TRAIN_CEILINGS: [u64; 2] = [507_805, 1_019_693];
 /// The pair drives both settle cases in one co-sweep — the
 /// plateau side parks one wide drift whose final segment stays
 /// dense (the close-time answer-embedded product) while the train
-/// side arms the promotion ledger repeatedly (the aggregate
+/// side creates deferred-height entries repeatedly (the aggregate
 /// products) — so a pair-only regression in either site, or in
 /// their interaction through the shared difference integrator,
 /// reads here even while every rank-only probe stays green.

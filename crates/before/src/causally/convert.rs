@@ -1,5 +1,8 @@
-//! `From` conversions into [`Query`]: atoms, spans, versions, and borrowed
-//! queries, so `impl Into<Query>` APIs accept a wider vocabulary.
+//! Conversions into a query's normal form.
+//!
+//! Conversions preserve borrowed versions where possible, so APIs accepting a
+//! [`Query`] through [`Into`] do not need a parallel set of borrowing
+//! overloads.
 
 use std::marker::PhantomData;
 
@@ -34,8 +37,8 @@ impl<'a> From<Ceiling<'a>> for Query<'a, Neutral> {
 }
 
 /// A borrowed query converts in `O(k)` time and space for `k` stored bounds.
-/// Each bound shares its version buffer, so APIs taking `impl Into<Query>` can
-/// accept a held query without copying its encoded versions.
+/// Each bound shares its version buffer, so APIs accepting [`Query`] through
+/// [`Into`] can take a held query without copying its versions.
 impl<'a, P: Polarity> From<&Query<'a, P>> for Query<'a, P> {
     fn from(query: &Query<'a, P>) -> Query<'a, P> {
         query.clone()

@@ -15,38 +15,26 @@
 //! whether `bound <= probe` is still possible. A probe step updates both
 //! differences; a bound step updates only its own.
 //!
-//! # Verdict closures
+//! # Answering each question
 //!
-//! Each public question needs a different portion of those four facts. Hooks
-//! may return a final verdict, continue a bound, or drop a bound whose remaining
-//! input cannot affect the answer. A refuted ordering can never become true
-//! later, which makes these early exits sound.
+//! The walk tracks both possible orderings between the probe and each endpoint.
+//! Once evidence disproves an ordering, later regions cannot restore it. Each
+//! operation therefore stops reading an endpoint as soon as its remaining
+//! regions cannot change the answer:
 //!
-//! - [`span`], the nine-way [`Placement`] verdict: no single
-//!   concurrency is the whole verdict — `Concurrent(Start)` vs
-//!   `Concurrent(Both)` needs the other endpoint's relation — so a
-//!   concurrency-decided side is dropped, and the walk returns early
-//!   only when both endpoints have refuted, with
-//!   [`Placement::Concurrent`]`(Both)` at the second deciding interval.
-//! - [`dominance`], the three-way [`Dominance`] verdict: the
-//!   verdict reads only the bound-at-or-below-probe directions, so a
-//!   *single* refuted direction acts — `lo <= probe` refuted returns
-//!   [`Dominance::Before`] at the refuting interval, the earliest
-//!   bail in the placement family, and `hi <= probe` refuted drops the
-//!   end cursor while the start relation still decides
-//!   [`Between`](Dominance::Between) vs
-//!   [`Before`](Dominance::Before).
-//! - [`precedence`], the three-way [`Precedence`] verdict:
-//!   [`dominance`] mirrored — the verdict reads only the
-//!   probe-at-or-below-bound directions, so `probe <= hi` refuted
-//!   returns [`Precedence::After`] at the refuting interval, and
-//!   `probe <= lo` refuted drops the start cursor while the end
-//!   relation still decides [`Between`](Precedence::Between) vs
-//!   [`After`](Precedence::After).
-//! - [`contains`], the membership verdict `lo <= probe <= hi`: both
-//!   watched directions are required, so either side's refutation is
-//!   the whole verdict — `false` at the refuting interval — and `true`
-//!   confirms only at exhaustion.
+//! - [`span`] needs the complete [`Placement`] relation. If the probe is known
+//!   to be concurrent with one endpoint, that endpoint can be dropped, but the
+//!   other still distinguishes concurrency with one endpoint from concurrency
+//!   with both.
+//! - [`dominance`] asks only whether `lo <= probe` and `hi <= probe`. Failure of
+//!   the first condition decides [`Dominance::Before`] immediately. Failure of
+//!   the second drops `hi`; `lo` then distinguishes
+//!   [`Dominance::Between`] from [`Dominance::Before`].
+//! - [`precedence`] is the mirror image: it asks whether `probe <= hi` and
+//!   `probe <= lo`, and can drop whichever endpoint no longer affects that
+//!   distinction.
+//! - [`contains`] requires both `lo <= probe` and `probe <= hi`. Either failure
+//!   returns `false`; success is known only after both comparisons finish.
 //!
 //! # Cost
 //!

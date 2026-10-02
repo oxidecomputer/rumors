@@ -570,13 +570,13 @@ fn dominated_undercut_family_ticks_identically() {
 
 /// Build an undercut-under-a-live-relation pair: a chain of covered left-full
 /// sites around a party-absent region whose block-minimum emission undercuts the
-/// tracked minimum while the ledger relation rides its follower slot.
+/// tracked minimum while the memo reference uses its follower slot.
 ///
 /// The walk order, under one outermost site whose fresh pre-scan covers the
 /// whole chain: the root site's raise declines and reproduces its single-leaf
 /// collapse range, so the walk enters the chain verbatim. Each `pre` site's
 /// multi-leaf collapse (peak `z`, over a sibling leaf `y`) diverges the walk,
-/// and its close re-anchors the ledger relation onto the minimum tracker's
+/// and its close re-anchors the memo reference onto the minimum tracker's
 /// follower slot (`pop_lookahead`). The party-absent region then arms the
 /// tracker at its `climb` leaf
 /// and drops back to a minimum sitting `exit_rise` above the region's exit,
@@ -630,7 +630,7 @@ fn live_relation_undercut_pair(
     (from_oracle_version(&root), from_oracle_party(&root_id))
 }
 
-/// A dominated undercut under a live ledger relation moves the relation's
+/// A dominated undercut under a live memo reference moves the reference's
 /// follower by exactly its residue: a later covered site's raise decision
 /// reads the follower, and the tick matches the oracle.
 ///
@@ -645,13 +645,13 @@ fn live_relation_undercut_pair(
 /// them, and those never touch a follower's value.
 ///
 #[test]
-fn dominated_undercut_moves_the_live_ledger_relation() {
+fn dominated_undercut_moves_the_live_memo_reference() {
     let climb = (BigUint::from(1u8) << 96u32) + (BigUint::from(1u8) << 98u32);
     let (v, p) = live_relation_undercut_pair(7, &[(5, 3)], &climb, 9, &[], (true, 1));
     assert_tick(&v, &p);
 }
 
-/// A word-scale at-height undercut under a live ledger relation moves the
+/// A word-scale at-height undercut under a live memo reference moves the
 /// relation's follower by exactly its residue: the terminal site's raise
 /// decision reads the follower, and the tick matches the oracle.
 ///
@@ -665,7 +665,7 @@ fn dominated_undercut_moves_the_live_ledger_relation() {
 /// polarity error, kept as a worked point so the narrow arm stays pinned
 /// independently of the generator.
 #[test]
-fn narrow_undercut_moves_the_live_ledger_relation() {
+fn narrow_undercut_moves_the_live_memo_reference() {
     let (v, p) = live_relation_undercut_pair(0, &[(1, 0)], &BigUint::from(1u8), 0, &[], (true, 1));
     assert_tick(&v, &p);
 }
@@ -747,7 +747,7 @@ proptest! {
     /// decision boundary.
     ///
     /// Top digits of 1 and 2 leave the width guard's domination read
-    /// honestly undecided (the fall-through total fold carries the drop), 3
+    /// unable to decide (the fall-through total fold carries the drop), 3
     /// and above certify and take the dominated arm, and the surviving
     /// boundary's shrunk difference feeds the enclosing minimum the root
     /// raise reads — so a wrong direction on either side of the guard lands
@@ -849,7 +849,7 @@ fn latent_ladder_pair(bases: &[BigUint], tip: &BigUint, peak: &BigUint) -> (Vers
     (from_oracle_version(&root), from_oracle_party(&ip))
 }
 
-/// `5 · 2^96`: a ladder operand past the `2^97` certificate line.
+/// `5 · 2^96`: a ladder operand past the `2^97` domination threshold.
 fn five_p96() -> BigUint {
     (BigUint::from(1u8) << 96u32) + (BigUint::from(1u8) << 98u32)
 }
@@ -925,7 +925,7 @@ fn comparable_scales_collapse_under_the_true_minimum() {
 }
 
 /// The dominating side of a scale-disparate ladder case: `[5·2^96, 2^100)`,
-/// past the `2^97` certificate line in both accumulator representations.
+/// past the `2^97` domination threshold in both accumulator representations.
 ///
 /// The register certifies from `3·2^(32·(floor+1))`; the digit fold from a
 /// partial of `3` at digit index `floor + 2` — here index 3 against
@@ -1008,7 +1008,7 @@ proptest! {
     /// The generalized family behind the four worked witnesses above: spine
     /// depth sweeps the park chain (one new record plus up to two merges), the
     /// dominating sides draw from `[5·2^96, 2^100)` so the domination
-    /// certificate fires in either accumulator representation, and the
+    /// comparison decides in either accumulator representation, and the
     /// comparable arm draws both operands at top digit index 3 so neither
     /// ever certifies. Every case funnels the parked latent into a raise
     /// decision and its emission, where a polarity error in the ladder's
@@ -1267,7 +1267,7 @@ fn tick_deep_orbits_stay_banded() {
 // feasible chain of any length still compares feasible and the recorded route
 // always turns into a present child. The ceiling is a parameter of the rise
 // loop exactly so these tests can scale it into constructible range: reaching
-// the production ceiling honestly would take more party levels than any physical
+// the production ceiling would take more party levels than any physical
 // encoding can hold.
 
 /// The party owning exactly the region at the end of `path`: one internal party

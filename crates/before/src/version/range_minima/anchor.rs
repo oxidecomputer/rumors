@@ -133,7 +133,7 @@ impl Anchor {
     /// Order two positive distances by leading digits before attempting a fold.
     ///
     /// Here `h < A`. A dominating deferred distance places `h` above `m`; a
-    /// dominating negative gap places it below. If neither certificate holds,
+    /// dominating negative gap places it below. If neither comparison decides,
     /// their widths are comparable: consume the deferred state once and read
     /// the sign of the resulting `h - m`.
     fn compare_below_anchor(&mut self) -> Ordering {
@@ -143,7 +143,7 @@ impl Anchor {
             .as_mut()
             .expect("the minimum is below the anchor");
         // Sign normalization removes cancelling leading digits before the
-        // digit counts are used as width certificates.
+        // digit counts are used as evidence of domination.
         let sign = deferred.cmp_zero();
         debug_assert_eq!(sign, Ordering::Greater, "the deferred distance is positive");
         if deferred.cmp_zero_stable_under(gap_bits).is_some() {

@@ -1,8 +1,8 @@
 //! Evaluation of causal queries.
 //!
 //! A [`Query`] is a causal interval minus a same-polarity antichain of holes.
-//! Evaluation compiles those bounds into [`Demand`]s for the skyline filter.
-//! One fused walk shares the probe traversal across every bound.
+//! Evaluation turns those bounds into [`Demand`]s and checks them in one
+//! synchronized traversal of the probe and every bound.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -13,8 +13,7 @@ use super::{le, Version};
 use crate::span::Span;
 use crate::version::place::filter::{self, Demand};
 
-/// A causal filter on [`Version`]s and [`Span`]s within a restricted [`Query`]
-/// language.
+/// A causal predicate over [`Version`]s and [`Span`]s.
 ///
 /// Queries are composed from the atomic queries in this module, which may be
 /// negated with `!` and combined with `&`.
@@ -25,9 +24,9 @@ use crate::version::place::filter::{self, Demand};
 /// search.
 ///
 /// Queries intentionally have no structural equality. Construction order and
-/// inert holes can produce different stored forms for the same predicate; use
-/// [`contains`](Self::contains) or [`coverage`](Self::coverage) to compare
-/// behavior.
+/// redundant exclusions can produce different stored forms for the same
+/// predicate; use [`contains`](Self::contains) or [`coverage`](Self::coverage)
+/// to compare behavior.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Query<'a, P: Polarity = Neutral> {
     pub(super) floor: Option<Cow<'a, Version>>,

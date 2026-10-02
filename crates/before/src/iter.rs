@@ -1,11 +1,8 @@
-//! Lazy balanced-fork iterators: [`PartyForks`] and [`ClockForks`].
-//!
-//! They hand out `n` shallow shares of a [`Party`](crate::Party) (or
-//! [`Clock`](crate::Clock)) in one balanced split, generating each share on
-//! demand.
-//!
-//! See [`Party::forks`](crate::Party::forks) and
+//! Lazy iterators returned by [`Party::forks`](crate::Party::forks) and
 //! [`Clock::forks`](crate::Clock::forks).
+//!
+//! Each iterator divides one party into balanced shares and constructs those
+//! shares on demand.
 //!
 //! ```
 //! use before::{iter, Party};

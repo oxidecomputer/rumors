@@ -136,9 +136,9 @@ pub enum Shape {
     LatentLadder,
     /// The freeze-position spine `FP(k)`: [`Shape::build1`]`(k)`.
     FreezePosition,
-    /// The promotion re-arm spine `PR(p)`: [`Shape::build1`]`(p)`.
+    /// The deferral re-arm spine `PR(p)`: [`Shape::build1`]`(p)`.
     PromotionRearm,
-    /// The promotion re-arm mate `PRM(p)`, the small twin:
+    /// The deferral re-arm mate `PRM(p)`, the small twin:
     /// [`Shape::build1`]`(p)`.
     PromotionRearmMate,
     /// The dense-suffix re-arm family `DS(p, d)`:
@@ -532,7 +532,7 @@ pub enum FamilyId {
     /// shared upper skeleton is both-present in every operand pair, so the
     /// fold's per-node costs that scale with the *other* operand (the overlap
     /// test against the accumulator, the join merges over interleaved trees)
-    /// dominate. Scatter cannot reach this genre (its operands are single
+    /// dominate. Scatter cannot reach this case (its operands are single
     /// leaves) and benign reaches it only diluted; the arity is fixed so the
     /// scaling axis is both-present richness alone.
     Weave,
@@ -608,7 +608,7 @@ pub enum FamilyId {
     ///
     /// The reveal comb's cycle with no left-full site anywhere — no memo, no
     /// pre-scan, no site consume: the range-minimum stack's own arm-move +
-    /// close-pop width circulation, isolated from the frame ledger. The
+    /// close-pop width circulation, without involving the pre-scan memo. The
     /// designated cross of the two tick rows.
     PureComb,
     /// The ascending-cliff cross: `ascend_cliff(s, s)` × its own id.
@@ -659,17 +659,14 @@ pub enum FamilyId {
     /// freeze-position band requires the anchored-segment implementation to
     /// remain flat. Designed against the numeric-measure rows.
     FreezePos,
-    /// The promotion re-arm spine `promotion_rearm(s)`: the many-armings
-    /// sentinel.
+    /// The re-arm spine `promotion_rearm(s)`, which forces many deferrals.
     ///
     /// `32s` span-building levels grow the consumed mass's written span, then
-    /// `s` four-node blocks each park a wide drift and promote it at a narrow
-    /// one — `Θ(s)` numeric-fold promotions at O(1) stored codes each, where
-    /// every comb promotes never and the freeze-position spine's parked drift
-    /// is monotone. Any promotion accounting that re-reads whole-history state
-    /// per arming goes quadratic here while the family's suffix masses compact
-    /// to O(1) balanced terms. The promotion re-arm bands require the ledger's
-    /// cost to remain flat. Designed against the numeric-measure rows.
+    /// `s` four-node blocks each park a wide drift and defer it when a narrower
+    /// change arrives: `Θ(s)` deferrals at O(1) stored codes each. Re-reading
+    /// all prior state per deferral is quadratic, while the family's suffix
+    /// widths remain compact. The focused bands require the deferred reduction
+    /// to remain within its bound. Designed against the numeric-measure rows.
     PromoRearm,
     /// The weight-comb spine `weight_comb(n)`: the many-jumps sentinel.
     ///
@@ -679,9 +676,8 @@ pub enum FamilyId {
     /// event — the position weight is topology, so no code funds the gap — and
     /// every cancellation makes the accumulator's top settle back across the
     /// never-written run. A settlement scan that steps the gap digit by digit
-    /// goes quadratic here (demonstrated by a probe build with certificate
-    /// consumption disabled); consuming one
-    /// zero-run certificate per jumped run reads flat (the `skyline_flatness`
+    /// goes quadratic here; consuming one recorded zero range per jump reads
+    /// flat (the `skyline_flatness`
     /// weight-comb band). Designed against the numeric-measure rows.
     WeightComb,
     /// The freeze-parade spine `freeze_parade(k)`: the deep-segment freeze
@@ -703,12 +699,11 @@ pub enum FamilyId {
     /// sentinel.
     ///
     /// A gap spine holds the trailing interval mass at `Θ(p)` balanced digits,
-    /// then `p` re-arm blocks each park a wide drift and promote it at O(1)
-    /// stored codes — `Θ(p)` ledger armings all owing their debt across the
-    /// same `Θ(p)`-dense trailing mass, so a settle that walks the suffix once
-    /// per arming (or re-reads a promoted prefix once per window) goes
-    /// quadratic here while the mass-balanced product tree charges every
-    /// arming-window cross term inside one aggregate product and reads flat.
+    /// then `p` re-arm blocks each park a wide drift and defer it at O(1)
+    /// stored codes. All `Θ(p)` deferred heights apply across the same
+    /// `Θ(p)`-dense trailing width, so walking the suffix once per height is
+    /// quadratic. The balanced reduction accounts for the cross terms without
+    /// repeating those suffix walks.
     /// The mate is the same topology at unit bases, and the wide operand dominates
     /// it pointwise, so the pair rows run the co-sweep whose freezes and
     /// promotions fire on drift only the wide operand deposited (the
@@ -720,14 +715,14 @@ pub enum FamilyId {
     /// Both grow linearly with `s`, exposing implementations that repeatedly
     /// process the wide value for every suffix element.
     WideArming,
-    /// The plateau-puncture family `plateau_puncture(s, s)`: the
-    /// answer-embedded-product sentinel, and the floor under every settle.
+    /// The plateau-puncture family `plateau_puncture(s, s)`: an exact rank
+    /// whose numerator requires multiplying two independently growing factors.
     ///
     /// Every turn leaf sits on one incompressible pseudorandom plateau `x` of
     /// `Θ(s)` digits and the turn positions spell a jittered punctured mass `y`
     /// of `Θ(s)` isolated digits, so the exact rank embeds the integer product
     /// `2·x·y + 1` — bought with `Θ(s)` input bits, both factors' content
-    /// beyond the settle's own balanced-digit compaction. No promotion ever
+    /// beyond the settle's own balanced-digit compaction. No deferral
     /// fires; the cost is the close-time settle, one wide × dense
     /// multiplication run inside the backend at its bound `M(|v|)` — and
     /// because the same constructor embeds the product of arbitrary factors,
@@ -744,7 +739,7 @@ pub enum FamilyId {
     /// the settle machinery made before drift exists to settle scales with the
     /// prefix, and a segment feed or close read that is not amortized O(1) per
     /// interval scales with the tail, while the family's funded wide codes stay
-    /// O(1). Exactly one freeze and no promotion ever fires, so the column also
+    /// O(1). Exactly one freeze and no deferral occurs, so the column also
     /// prices the settle's smallest nonempty configuration. The
     /// `skyline_flatness` lone-freeze bands isolate each axis at the generator
     /// minimum and carry the enforcement; the column scales both together.
@@ -769,7 +764,7 @@ pub enum FamilyId {
     /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the
     /// `skyline_flatness` tooth-tail band carries both readings). Every overlay
     /// boundary is shared by both operands and almost every stored delta is
-    /// zero, so the pair is also the touch floor's honest-less-work witness
+    /// zero, so the pair also witnesses the lowest required touch count
     /// (the board floor module's `touch_pair_fold`): a conforming sweep is
     /// forced to fold only the three nonzero deltas per operand, and the
     /// measured per-boundary sign-read traffic sits far above that floor as
@@ -841,7 +836,7 @@ pub enum FamilyId {
     /// The hoisted-window family `HW(w, d, t)`: the wide-arming close with a
     /// dense tail hoisting the settle clusters' absolute positions.
     ///
-    /// The settle's densify seam routes each balanced-digit cluster through
+    /// The settlement's densification step routes each balanced-digit cluster through
     /// two zero-filled byte images sized by the cluster's *span*; the worst
     /// artifact green on every width and touch counter is an image sized by
     /// the cluster's absolute digit *position* — zero fill that scales with
@@ -854,8 +849,9 @@ pub enum FamilyId {
     /// `hoisted_window` band in `tests/meter.rs` prices the family). Designed
     /// against the pair-integral settle's densified cluster allocation.
     HoistedWindow,
-    /// The propagate-seam family: the range-minimum tracker's wide-hop domination
-    /// guards at their clearance line, both arms.
+    /// The propagate-seam family exercises the range-minimum tracker's
+    /// wide-hop domination checks at their minimum clearance, in both
+    /// directions.
     ///
     /// An undercut's residue penetrates the difference stack by top-index
     /// domination: a hop with two digits of clearance is decided before any

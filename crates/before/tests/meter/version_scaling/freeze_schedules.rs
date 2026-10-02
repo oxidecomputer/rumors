@@ -168,7 +168,7 @@ fn skyline_distance_freeze_position_is_flat_per_unit() {
     );
 }
 
-/// One public `Version::rank` run over the promotion re-arm spine
+/// One public `Version::rank` run over the deferral re-arm spine
 /// `PR(p)` (`meter::promotion_rearm`), both counters over the rank
 /// body alone.
 ///
@@ -204,33 +204,28 @@ fn rank_promotion_rearm_run(p: usize) -> QueryRun {
     run
 }
 
-/// Blocks of the promotion re-arm bands' small runs (the large runs
+/// Blocks of the deferral re-arm bands' small runs (the large runs
 /// double the count).
 const PROMOTION_REARM_SMALL: usize = 1_000;
 
 /// Absolute two-scale touch ceilings for rank on the
-/// promotion re-arm spine, measured ×1.25 (the record and every
+/// deferral re-arm spine, measured ×1.25 (the record and every
 /// re-pin's movement and attribution live in the pin commits).
 ///
-/// The cluster-delegated settle reads flat per encoded byte across
-/// the doubling, with the settle's window-digit traffic metered;
-/// rereading the position accumulator's whole written span at every
-/// promotion would exceed these ceilings.
+/// The deferred reduction reads flat per encoded byte across the doubling,
+/// with its width-processing work metered. Re-reading the complete accumulated
+/// width for every deferral would exceed these ceilings.
 const RANK_PROMOTION_REARM_CEILINGS: [u64; 2] = [443_187, 886_544];
 
-/// rank is linear on the promotion re-arm spine: per-byte touch work stays
+/// Rank is linear on the deferral re-arm spine: per-byte touch work stays
 /// flat (×1.25) across a block-count doubling, under
 /// absolute two-scale ceilings.
 ///
-/// `PR(p)` fires one promotion per block at O(1) stored codes,
-/// after a `32p`-level climb keeps the consumed mass's written span
-/// growing — every committed comb promotes never, and the
-/// freeze-position spine's parked drift is monotone — so any
-/// promotion accounting that re-reads whole-history state per
-/// arming goes quadratic here while the family's suffix masses
-/// compact to O(1) balanced terms. The promotion ledger records
-/// each arming at funded widths and settles once at the sweep's close, so
-/// the flatness bound holds.
+/// `PR(p)` creates one deferral per block from O(1) stored codes after a
+/// `32p`-level prefix grows the accumulated width. Re-reading all preceding
+/// state for every deferral is quadratic, while the family's suffix widths
+/// remain compact. The reduction records each deferral at the boundary where
+/// it begins to apply and settles them together, so the flatness bound holds.
 #[test]
 fn skyline_rank_promotion_rearm_is_flat_per_unit() {
     let small = rank_promotion_rearm_run(PROMOTION_REARM_SMALL);
@@ -419,7 +414,7 @@ fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
 }
 
 /// Absolute touch ceilings at two scales for min_ticks on the
-/// promotion re-arm spine, measured ×1.25 (the record lives in the
+/// deferral re-arm spine, measured ×1.25 (the record lives in the
 /// pin commit).
 ///
 /// Flat per encoded byte across the doubling: `Θ(p)` wide-drift
@@ -427,7 +422,7 @@ fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
 /// each.
 const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [645_075, 1_290_075];
 
-/// min_ticks is linear on the promotion re-arm spine: per-byte
+/// `min_ticks` is linear on the deferral re-arm spine: per-byte
 /// touch work stays flat (×1.25) across a block-count
 /// doubling, under absolute two-scale ceilings.
 ///
@@ -437,9 +432,9 @@ const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [645_075, 1_290_075];
 /// they were observed, so settlement charges every wide component once at its
 /// funded width. Re-reading the whole prefix history for each component would
 /// go quadratic.
-/// The rank-side band prices this schedule through the promotion
-/// ledger; min_ticks has no promotion ledger — the prefix-height accounting is
-/// its entire frozen-component accounting, and this band covers many freezes.
+/// Rank handles this schedule through its deferred reduction. `min_ticks` uses
+/// different prefix-height accounting, so this separate band checks the same
+/// many-freeze schedule directly.
 #[test]
 fn skyline_min_ticks_promotion_rearm_is_flat_per_unit() {
     let expected = |p: usize| {
@@ -465,19 +460,18 @@ fn skyline_min_ticks_promotion_rearm_is_flat_per_unit() {
     );
 }
 
-/// One public distance-and-lag run over the two-operand promotion
+/// One public distance-and-lag run over the two-operand deferral
 /// re-arm analogue `(PR(p), PRM(p))`: both counters over the three
 /// query bodies together, with the pair's input bytes as the
 /// per-byte denominator.
 ///
 /// The mate is `PR(p)`'s unit-climb twin (same topology, every base
-/// 1), so the co-sweep's freezes and promotions fire at boundaries
+/// 1), so the co-sweep's freezes and deferrals occur at boundaries
 /// where the mate's cheap codes set the funded width while the
-/// drift being parked and promoted was deposited by the re-arm
+/// drift being parked and deferred was deposited by the re-arm
 /// operand's wide codes — the two-operand arming case the
 /// freeze-position analogue's monotone mate cannot reach (its own
-/// doc records that promotion never fires there; the committed
-/// span-promotion pair tripwire proves it fires here). Value legs
+/// doc records that no deferral occurs there). Value legs
 /// anchor all three measures before the counters return: `PR(p)`
 /// dominates its mate pointwise, so `distance = rank(a) − rank(b)`,
 /// `lag(a, b) = 0`, and `lag(b, a) = distance`.
@@ -515,7 +509,7 @@ fn distance_promotion_rearm_run(p: usize) -> QueryRun {
 }
 
 /// Absolute touch ceilings at two scales for the distance/lag
-/// triple on the promotion re-arm analogue, measured ×1.25 (the
+/// triple on the deferral re-arm analogue, measured ×1.25 (the
 /// record and every re-pin's movement and attribution live in the
 /// pin commits).
 ///
@@ -524,16 +518,15 @@ fn distance_promotion_rearm_run(p: usize) -> QueryRun {
 /// the settle's window-digit traffic.
 const DISTANCE_PROMOTION_REARM_CEILINGS: [u64; 2] = [1_165_230, 2_330_635];
 
-/// Distance and lag are linear on the promotion re-arm analogue:
+/// Distance and lag are linear on the deferral re-arm analogue:
 /// the two-operand arming case reads flat (×1.25) per encoded byte
 /// across a block-count doubling, under absolute two-scale
 /// ceilings.
 ///
-/// One operand's cheap codes fire freezes and promotions of drift
-/// only the other operand's wide codes deposited — the promotion
-/// ledger records each arming at funded widths and settles once,
-/// so no charge reads an absolute position and the flatness bound
-/// holds.
+/// One operand's cheap codes trigger freezes and deferrals of drift deposited
+/// by the other operand's wide codes. The reduction records each deferred
+/// height with the relative widths it covers and settles the entries together,
+/// so no charge reads an absolute position and the flatness bound holds.
 #[test]
 fn skyline_distance_promotion_rearm_is_flat_per_unit() {
     let small = distance_promotion_rearm_run(PROMOTION_REARM_SMALL);

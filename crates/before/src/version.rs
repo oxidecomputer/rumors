@@ -34,22 +34,25 @@ use crate::{Rank, Ranked};
 #[cfg(test)]
 mod tests;
 
-/// A causal version: a timestamp from a [`Party`]'s history.
+/// A timestamp representing causal history.
 ///
-/// Comparison and the lattice operations [`join`](Version::join) (`|`) and
-/// [`meet`](Version::meet) (`&`) are what give versions meaning in relation to
-/// one another; [`tick`](Version::tick) and [`ticks`](Version::ticks) record
-/// *new* history (a join or meet only combines histories already recorded).
+/// [`Version::tick`] and [`ticks`](Version::ticks) record new events for
+/// a [`Party`]. Comparison asks whether one [`Version`] contains all events in
+/// another: `a < b` means every event in `a` is present in `b`, while
+/// [`Version::concurrent`] means neither contains the other.
+/// [`Version::join`] (`|`) combines histories, and
+/// [`meet`](Version::meet) (`&`) retains only their common history. Neither
+/// lattice operation records a new event.
 ///
-/// | Operation                                 | Meaning                                                        |
-/// |-------------------------------------------|----------------------------------------------------------------|
-/// | `a == b`                                  | identical causal history                                       |
-/// | `a < b`, `a <= b`                         | `a` is causally dominated by `b`: every event in `a` is in `b` |
-/// | [`a.concurrent(b)`](Version::concurrent)  | incomparable: neither dominates the other                      |
-/// | `a \| b`, `a \|= b`                       | the *join* (least upper bound): the combined history of both   |
-/// | `a & b`, `a &= b`                         | the *meet* (greatest lower bound): the history common to both  |
-/// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                         |
-/// | [`a.ticks(&p, k)`](Version::ticks)        | record `k` new events for [`Party`] `p`, in one pass           |
+/// | Operation                                | Meaning                                                        |
+/// |------------------------------------------|----------------------------------------------------------------|
+/// | `a == b`                                 | identical causal history                                       |
+/// | `a < b`, `a <= b`                        | every event in `a` is present in `b`                            |
+/// | [`a.concurrent(b)`](Version::concurrent) | neither version contains the other                              |
+/// | `a \| b`, `a \|= b`                      | join: the least version containing both histories               |
+/// | `a & b`, `a &= b`                        | meet: the greatest history common to both                       |
+/// | [`a.tick(&p)`](Version::tick)            | record one event for [`Party`] `p`                              |
+/// | [`a.ticks(&p, k)`](Version::ticks)       | record `k` events for `p` in one pass                           |
 ///
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`, `a ==
@@ -118,6 +121,12 @@ impl core::fmt::Display for Version {
 /// Hexadecimal letters may use either case; prefixes and whitespace are not
 /// accepted.
 ///
+/// # Errors
+///
+/// Returns [`ParseValue::InvalidSyntax`] for malformed hexadecimal and
+/// [`ParseValue::InvalidEncoding`] when the decoded bytes are not a canonical
+/// [`Version`].
+///
 /// Takes `O(n)` time and `O(n)` space for `n` text bytes.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_parse.html")))]
 #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` in text bytes")]
@@ -145,7 +154,8 @@ impl Hash for Version {
 }
 
 impl Version {
-    /// Adopt a canonical Version representation produced or validated by its I/O boundary.
+    /// Adopt a canonical [`Version`] representation produced or validated by
+    /// its I/O boundary.
     pub(crate) fn from_canonical(bits: Bits) -> Self {
         Version(bits)
     }
@@ -648,7 +658,7 @@ impl Version {
     /// let mut b = a.fork();
     /// let va = a.tick().clone();
     /// let va2 = a.tick().clone();
-    /// let vb = b.tick().clone(); // concurrent to alice's line
+    /// let vb = b.tick().clone(); // concurrent with `a`'s line
     ///
     /// // Comparable versions:
     /// assert_eq!(va2.span(&va), Span::new(&va, &va2).unwrap());
@@ -670,8 +680,8 @@ impl Version {
     /// This computes the tightest [`Span`] which encloses all [`Version`]s `v`
     /// such that `self.meet_all(iter) <= v <= self.join_all(iter)`.
     ///
-    /// Prefer this to iteratively [`span`](Version::meet)ing [`Version`]s
-    /// one-at-a-time, as it is more efficient.
+    /// Prefer this to repeatedly calling [`span`](Version::span) one pair at a
+    /// time, as it is more efficient.
     ///
     /// # Complexity
     ///
@@ -817,13 +827,10 @@ impl Version {
     /// each plateau costs `O(1)` plus its own rise's bit width, and
     /// the walk itself performs no arithmetic.
     ///
-    /// Arithmetic *you* do with the [`Count`] is priced separately. [`Count`]
-    /// addition costs the operands' widths, so folding the rises into a
-    /// running absolute height can cost each step the running value's full width,
-    /// inherently quadratic over the drain in the worst case. Typically, this is
-    /// not an issue, however, because realistically reachable [`Version`]s have
-    /// [`Count`] which are bounded by a machine word, and are therefore effectively
-    /// constant-time.
+    /// Arithmetic performed by the caller is separate from the cost of the
+    /// walk. [`Count`] addition costs the operands' widths, so reconstructing
+    /// every absolute height by repeatedly adding rises can be quadratic in the
+    /// worst case even though draining the iterator itself is linear.
     ///
     /// # Example
     ///
@@ -939,7 +946,7 @@ impl Version {
                 return (other.clone(), self.clone());
             }
             Some(Ordering::Equal) => unreachable!(
-                "equal versions have byte-equal canonical streams, settled by the first rung"
+                "equal versions have byte-equal canonical streams, handled by the initial equality check"
             ),
             None => {}
         }
@@ -948,7 +955,7 @@ impl Version {
         // for its outputs, providing an independent check of the earlier result.
         debug_assert!(
             hull.relation.is_none(),
-            "the comparison rung admits only concurrent pairs to the emitting walk"
+            "only concurrent pairs reach the endpoint-building walk"
         );
         (hull.lo, hull.hi)
     }
@@ -975,6 +982,10 @@ impl Version {
     }
 
     /// Encodes this [`Version`] to an arbitrary writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error reported by the writer.
     ///
     /// # Complexity
     ///
@@ -1023,6 +1034,10 @@ impl Version {
     /// `self.ranked().encode_rank_to(writer)`.
     /// The encoded output is written incrementally rather than buffered in
     /// full.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error reported by the writer.
     ///
     /// # Complexity
     ///
@@ -1085,11 +1100,10 @@ impl Version {
     /// padding — the marker bit and zero-pad to the byte boundary, so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
-    /// Instrument surface, public under the `meter` feature: the resource
-    /// meters, coverage suites, and boundary pins denominate readings in
-    /// exact encoded bit lengths. Applications measure wire cost as
-    /// `encode().len()` or [`as_bytes`](Self::as_bytes)`.len()` — the byte
-    /// length actually shipped.
+    /// This method is available under the `meter` feature for exact
+    /// representation measurements. Applications ordinarily want
+    /// [`as_bytes`](Self::as_bytes)`.len()`, the number of bytes written to the
+    /// wire.
     ///
     /// # Complexity
     ///
@@ -1138,14 +1152,11 @@ impl Version {
 /// An iterator adapter collapsing adjacent runs of one shared stored buffer
 /// before a lattice fold reads them.
 ///
-/// A run of clones is one operand under idempotence — the `merge_idempotent`
-/// and `meet_idempotent` laws in [`laws`](crate::testing::laws) (both at once for the
-/// hull fold, whose accumulator carries one endpoint per direction) — and clone
-/// identity (`Bits::ptr_eq`, through the items' views) certifies the
-/// duplication in `O(1)` without reading either stream. Only *adjacent*
-/// duplicates collapse: the window is one item, so the collapse costs `O(1)`
-/// state and the fold stays single-pass; scattered duplicates still fold —
-/// correctly, at the combine's own equality rung.
+/// Join and meet are idempotent, so a run of clones contributes only one
+/// operand. Shared storage identifies such a clone in `O(1)` without reading
+/// either stream. Only adjacent duplicates collapse: retaining one previous
+/// item keeps the adapter single-pass with `O(1)` state. Scattered duplicates
+/// remain for the combining operation to handle normally.
 ///
 /// `last` holds a **clone** of the last yielded item's version, not a raw
 /// address: the clone keeps the run's buffer alive, so no freed allocation can
@@ -1193,14 +1204,12 @@ where
     }
 }
 
-/// One group in [`Version::balanced_fold`]'s counter: an input exactly as the
-/// caller supplied it (owned or borrowed through [`Borrow`], never cloned on
-/// entry), or the owned version a combine produced.
+/// One entry in [`Version::balanced_fold`]: either an untouched input or an
+/// owned intermediate result.
 ///
-/// Weight-0 counter entries are always lone [`Input`](Group::Input)s and every
-/// combine's output is [`Merged`](Group::Merged), so the distinction lets each
-/// combine pick the operand form its combiner needs — in place for borrowed
-/// inputs, by view-fold for owned groups.
+/// Untouched inputs retain the caller's owned or borrowed form. Combined
+/// entries own their result, allowing later steps to update that allocation in
+/// place.
 enum Group<B> {
     /// An input the fold has not yet combined, still in the caller's form.
     Input(B),
@@ -1208,8 +1217,7 @@ enum Group<B> {
     Merged(Version),
 }
 
-/// One raw input to a receiver-seeded fold ([`Version::join_all`],
-/// [`Version::meet_all`], [`Version::span_all`]).
+/// One input to a receiver-seeded fold.
 ///
 /// The receiver rides by borrow, the caller's items in their own form
 /// (owned or borrowed through [`Borrow`], never cloned on entry).
@@ -1239,9 +1247,10 @@ impl<B: Borrow<Version>> Borrow<Version> for FoldInput<'_, B> {
     }
 }
 
-/// One group in [`Version::span_all`]'s counter: [`Group`]'s shape with the
-/// two-sided hull accumulator, so one balanced fold carries both lattice
-/// directions.
+/// One entry in [`Version::span_all`]'s balanced fold.
+///
+/// Intermediate entries carry both endpoints so one reduction computes the
+/// meet and join together.
 enum Hull<'r, B> {
     /// An input the fold has not yet combined.
     Input(FoldInput<'r, B>),
@@ -1503,7 +1512,7 @@ binop_matrix! {
 // b, a | b]`. Unlike the join and meet matrices above, the result leaves the
 // operand type — a `Span`, not a `Version` — so the family has no assigning
 // form (nothing of the receiver's type to assign back) and no owned-operand
-// strategy: every cell reads both operands in place and mints the endpoints
+// strategy: every cell reads both operands in place and constructs the endpoints
 // owned, exactly as the named method does.
 
 /// Generates the span (`^`) matrix over owned and borrowed `Version`
@@ -1546,18 +1555,16 @@ span_matrix! {
 // `&v / &p` names `p`'s contribution to `v`: the value wherever `p` owns
 // the region, zero everywhere else. The operator borrows both operands
 // (never consuming or cloning the linear `Party`) and builds the
-// [`OwnVersion`] in O(1); comparisons operate on it directly,
-// directly, and only the explicit [`OwnVersion::to_version`] pays the
+// [`OwnVersion`] in O(1); comparisons operate on it directly, and only the
+// explicit [`OwnVersion::to_version`] pays the
 // projection's product-growth materialization.
 //
-// Algebraic shape (exercised by `crate::testing::laws`' projection laws): the
-// projection is a sub-version (`v/p <= v`) and idempotent
-// (`(v/p)/p == v/p`). It is additive across a fork
-// (`v/p == v/p_left | v/p_right` for disjoint halves), and so a
-// homomorphism of both join and meet (`(a|b)/p == a/p | b/p`,
-// `(a&b)/p == a/p & b/p`); the whole-interval party leaves `v` unchanged.
-// Projection can still raise `min_ticks` (carving one broad tick into
-// disjoint peaks), so it is not monotone under `<=`.
+// Projection preserves causal order and distributes over join and meet. It is
+// also additive across a party split: projecting onto two disjoint children
+// and joining the results recovers the projection onto their parent. These
+// properties make the lower and upper projections of a Span remain ordered.
+// Projection may nevertheless raise `min_ticks`, because carving one broad
+// event into disjoint peaks can require more events to explain.
 
 /// `&v / &p`: the part of the [`Version`] `v` contributed within
 /// the region owned by [`Party`] `p` (zero everywhere else), as a lazy

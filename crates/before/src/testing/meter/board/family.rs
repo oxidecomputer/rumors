@@ -64,13 +64,13 @@ const SCATTER_BASE_CLOCKS: usize = 1_024;
 
 /// Nested-full-sibling depth at scale 1.0 (pair size ~1.5 KiB).
 ///
-/// Deep enough that a per-level re-scan genre reads its exponent across the
+/// Deep enough that a per-level re-scan exposes its exponent across the
 /// level doubling, small enough that the quadratic pin stays inside the board's
 /// runtime budget at the acceptance scale.
 const NESTED_BASE_DEPTH: usize = 1_500;
 
 /// Nested-wide depth and root-magnitude bits at scale 1.0 (equal, so the
-/// doubling scales width and depth together — the cross's cost genre is their
+/// doubling scales width and depth together — the cross's cost is their
 /// product; pair size ~1.5 KiB).
 ///
 /// Small enough that even a width × depth kernel stays inside the
@@ -118,7 +118,7 @@ const STAIRCASE_BASE_DEPTH: usize = 1_500;
 /// (equal; pair size ~1 KiB).
 ///
 /// One parameter drives both, so the doubling scales the site count and the
-/// circulated width together — the cycle's cost genre is their product. The
+/// circulated width together — the cycle's cost is their product. The
 /// close-reveal cycle's per-site cost is steeper than the mirror families'
 /// chains, so the base sits at the mirror-wide level.
 const REVEAL_COMB_BASE: usize = 500;
@@ -133,18 +133,18 @@ const PURE_COMB_BASE: usize = 1_000;
 
 /// Ascending-cliff spine length and leaf-magnitude bits at scale 1.0 (equal, so
 /// the doubling scales the hop count and the residue width together — the
-/// cascade's cost genre is their product; pair size ~1 KiB).
+/// cascade's cost is their product; pair size ~1 KiB).
 ///
 /// The cascade runs at ~4 touches per input byte on the cured fold direction —
 /// the leveled control's constant — so the base sits at the pure-comb level for
 /// comparable work. The base is a multiple of 32 deliberately (992 = 31 ×
 /// 32): the family's rank exponent is `s − 1`, and `rank_sum` lands its small
-/// summands at bit remainder `exp mod 32` (an honest amortized-O(1) constant
+/// summands at bit remainder `exp mod 32` (an amortized-O(1) constant
 /// that flips with the remainder — the freeze-position base's derivation
 /// carries the mechanism); `32 | s` pins the remainder at 31 at every ladder
 /// point, so the exponent trend compares like against like across the whole
 /// ladder. Among the multiples of 32 the base sits just below the 1024-bit
-/// magnitude boundary: the tick walk's certificate buffers round their
+/// magnitude boundary: the tick walk's retained-value buffers round their
 /// capacity at powers of two, the ×2 ladder preserves the base's position
 /// inside that period at every point, and the position just below a boundary
 /// samples the rounding at its efficient edge — a base just above one
@@ -160,7 +160,7 @@ const ASCEND_CLIFF_BASE: usize = 992;
 ///
 /// The base is a multiple of 32 deliberately: the family's dominant rank
 /// summand rides the `5 · 2^s` climb, and `rank_sum` lands its small summands
-/// at bit remainder `exp mod 32` (an honest amortized-O(1) constant that
+/// at bit remainder `exp mod 32` (an amortized-O(1) constant that
 /// flips with the remainder — the freeze-position base's derivation carries
 /// the mechanism); `32 | s` keeps the remainder fixed across the level
 /// doubling, so the exponent leg compares like against like. The build arm
@@ -255,20 +255,20 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// 1` (one trailing zero strips — exactly one leaf term, the odd `2^L + 1` at
 /// weight `2^1`, has 2-adic valuation one), and `rank_sum` lands each small
 /// summand at bit remainder `exp mod 32`, where a remainder near the digit top
-/// makes most landings span two digits instead of one — an honest
+/// makes most landings span two digits instead of one — an
 /// amortized-O(1) constant, but one that flips with the remainder, and an
 /// exponent fitted across two scales with different remainders reads the flip
 /// as growth. `16 | s` keeps `2s ≡ 0 (mod 32)`, so every doubling
 /// preserves the remainder and the exponent leg compares like against like.
 const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 
-/// Promotion re-arm blocks at scale 1.0 (stored version ~128 KiB, the per-block
+/// Deferral re-arm blocks at scale 1.0 (stored version ~128 KiB, the per-block
 /// wide arming codes dominating).
 ///
-/// Half the promotion re-arm band's small run, so the board's default pair
+/// Half the deferral re-arm band's small run, so the board's default pair
 /// spans the regime the family is designed to test. The base is
 /// a multiple of 8 deliberately: the family's rank exponent is `36s`, and
-/// `rank_sum` lands its small summands at bit remainder `exp mod 32` (an honest
+/// `rank_sum` lands its small summands at bit remainder `exp mod 32` (an
 /// amortized-O(1) constant that flips with the remainder — the freeze-position
 /// base's derivation carries the mechanism); `8 | s` keeps `36s ≡ 0 (mod 32)`,
 /// so every doubling compares like against like.
@@ -279,10 +279,9 @@ const PROMO_REARM_BASE_BLOCKS: usize = 512;
 ///
 /// The rounding is the complete-subtree relation's call-site repair, and the
 /// level doubling then doubles the rounded count exactly. The base is the scale
-/// of the `skyline_flatness` weight-comb band's small run: with certificate
-/// consumption disabled, rank reads ×1.93 per-byte growth across this regime's
-/// doubling (the band ceiling doc's committed probe-build measurement), so the
-/// board's default pair straddles exactly what the family exists to catch.
+/// of the `skyline_flatness` weight-comb band's small run, so the board's
+/// default pair spans the zero-range skipping behavior the family exists to
+/// check.
 /// Power-of-two `n` keeps the spine depth `32n ≡ 0 (mod 32)`, so `rank_sum`
 /// lands its small summands at the same bit remainder at both scales and the
 /// exponent leg compares like against like (the freeze-position base's
@@ -316,7 +315,7 @@ const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 /// This is the small size used by the `skyline_flatness` dense-suffix bands.
 /// The base is a multiple of 32 deliberately: the family's rank exponent is linear in the
 /// knob, and `rank_sum` lands its small summands at bit remainder `exp mod 32`
-/// (an honest amortized-O(1) constant that flips with the remainder — the
+/// (an amortized-O(1) constant that flips with the remainder — the
 /// freeze-position base's derivation carries the mechanism); `32 | s` keeps any
 /// integer-linear exponent's remainder fixed across the level doubling, so the
 /// exponent leg compares like against like.
@@ -358,7 +357,7 @@ const LONE_FREEZE_BASE_PAIRS: usize = 2_048;
 ///
 /// The committed flatness band's `g = m/64` ratio, so the board prices the same
 /// spike-to-tail proportion the envelope band holds flat (a spike a few wide
-/// digits under thousands of post-cancellation sign reads — the exact-top genre
+/// digits under thousands of post-cancellation sign reads — the exact-top case
 /// needs the tail to dominate the spike).
 const TOOTH_TAIL_SPIKE_DIVISOR: usize = 64;
 
@@ -490,14 +489,14 @@ pub(super) struct FamilyData {
     /// the shape was constructed around and the post-pass leaves in place.
     pub(super) version2: Option<Vec<u8>>,
     /// A disjoint encoded party pair within one universe: natural for the id
-    /// pair and the benign halves, minted by the disjoint-mount adapter from a
+    /// pair and the benign halves, constructed by the disjoint-mount adapter from a
     /// cross shape's id side.
     pub(super) parties: Option<(Vec<u8>, Vec<u8>)>,
     /// The designated encoded (event version, id party) cross: the pairing the
     /// shape was built around, driving the tick rows' walk floors and the clock
     /// rows' operand choice.
     ///
-    /// Each cross shape's variant doc states the arm and cost genre its cross
+    /// Each cross shape's variant doc states the operation and cost pattern its cross
     /// drives.
     pub(super) cross: Option<(Vec<u8>, Vec<u8>)>,
     /// Whether the cross's mandatory projection output dominates its input (the
@@ -521,7 +520,7 @@ pub(super) struct FamilyData {
     /// An overlapping encoded party pair within one universe: the rejection
     /// rows' operands.
     ///
-    /// Minted by the overlap-mount adapter from the same id source as
+    /// Constructed by the overlap-mount adapter from the same id source as
     /// `parties` (the post-pass); semantically void by design — see
     /// [`overlap_mounted_pair`].
     pub(super) overlap: Option<(Vec<u8>, Vec<u8>)>,
@@ -563,7 +562,7 @@ pub(super) struct MaskedPair {
 
 impl FamilyData {
     /// A bundle with every slot empty, for a build arm to fill with what the
-    /// shape honestly has; the name is the registry's name of record.
+    /// shape actually has; the name is the registry's name of record.
     fn bare(kind: FamilyId) -> FamilyData {
         FamilyData {
             kind,
@@ -1126,7 +1125,7 @@ impl FamilyData {
                 data.parties = Some(disjoint_mounted_pair(id));
             }
         }
-        // Every id source also mints an overlapping pair through the
+        // Every id source also produces an overlapping pair through the
         // overlap-mount adapter, for the rejection rows: the cross id where the
         // shape has one, the first natural party otherwise.
         if data.overlap.is_none() {
@@ -1156,7 +1155,7 @@ impl FamilyData {
             }
             parties = next;
         }
-        // Dropping the tail keeps `n` honest at non-power-of-two scales; a
+        // Dropping the tail preserves the requested `n` at non-power-of-two scales; a
         // dropped party's region simply goes unowned.
         parties.truncate(n);
         let scatter_order = |v: Vec<Vec<u8>>| -> Vec<Vec<u8>> {
@@ -1194,7 +1193,7 @@ impl FamilyData {
     /// Dealing leaf `i` to group `i % WEAVE_GROUPS` puts leaves of every group
     /// under every skeleton node above the last `log2(WEAVE_GROUPS)` levels, so
     /// each operand pair is both-present at the whole shared skeleton — the
-    /// correlated-population genre — while each group on its own is an ordinary
+    /// correlated-population case — while each group on its own is an ordinary
     /// scattered region set.
     fn weave(leaves: usize) -> FamilyData {
         let leaves = leaves.next_power_of_two().max(WEAVE_GROUPS * 2);
@@ -1440,7 +1439,7 @@ impl FamilyData {
 /// (linearity of parties is the invariant everything rests on — the crate docs'
 /// safety rules). Each half is the shape itself one level deeper, so party
 /// cells on a mounted shape measure the shape plus one root tag. Runs at bundle
-/// build, outside any measurement, and asserts the disjointness it mints.
+/// build, outside any measurement, and asserts the result is disjoint.
 fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let shape = decode_party(id);
     let mount = |left: bool| -> Vec<u8> {
@@ -1454,7 +1453,7 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let (a, b) = (mount(true), mount(false));
     assert!(
         decode_party(&a).is_disjoint(&decode_party(&b)),
-        "the disjoint-mount adapter must mint a disjoint pair"
+        "the disjoint-mount adapter must produce a disjoint pair"
     );
     (a, b)
 }
@@ -1476,7 +1475,7 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
 /// purpose because the crate's cost claims are total — the rejection rows price
 /// what rejecting such a pair costs, and nothing downstream treats the pair as
 /// meaningful. Runs at bundle build, outside any measurement, and asserts the
-/// overlap it mints (both halves decode canonically on the way).
+/// resulting overlap (both halves decode canonically on the way).
 pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let shape = decode_party(id);
     let bits = crate::party::instrument::bits(&shape);
@@ -1504,7 +1503,7 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let (a, b) = (a.into_padded_bytes(), b.into_padded_bytes());
     assert!(
         !decode_party(&a).is_disjoint(&decode_party(&b)),
-        "the overlap-mount adapter must mint an overlapping pair"
+        "the overlap-mount adapter must produce an overlapping pair"
     );
     (a, b)
 }

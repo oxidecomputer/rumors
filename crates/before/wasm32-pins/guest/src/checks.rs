@@ -1,9 +1,9 @@
 //! The semantic checks run by the wasm guest.
 //!
 //! Each function performs the smallest operation that exposes one 32-bit-only
-//! seam. Construction stays in [`crate::synthesis`]; this module begins only
-//! once canonical operands exist, making a returned synthesis failure distinct
-//! from a panic in the operation under test.
+//! boundary. Construction stays in [`crate::synthesis`]; this module begins
+//! only once canonical operands exist, making a returned synthesis failure
+//! distinct from a panic in the operation under test.
 
 use core::cmp::Ordering;
 
@@ -135,7 +135,7 @@ fn version_decode(size: u64) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Checks that a rank retains the bit at the 32-bit exponent seam.
+/// Checks that a rank retains the bit at the 32-bit exponent boundary.
 fn rank_decode(exp: u64) -> Result<(), Failure> {
     let bytes = synthesis::rank(exp)?;
     let rank = Rank::decode(&bytes[..]).map_err(|_| Failure::DecodeRejected)?;

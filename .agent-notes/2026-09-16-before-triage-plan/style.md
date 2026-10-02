@@ -83,6 +83,17 @@ module. Explain a relationship only when the reader needs it to understand the
 contract or safely make a change; source navigation and compiler-visible
 structure own exhaustive inventories.
 
+A concise table of a public type's important operations is different: it gives
+callers a quick map of the type's affordances and how they relate. Preserve or
+add such a table when it materially helps orientation. Keep it conceptual and
+curated rather than turning it into an exhaustive API roster.
+
+Name associated functions without a `self` receiver in qualified form, such as
+`Party::seed`. For receiver methods, use the shorter method name when the
+receiver type is already clear. Prefer a qualified form at the start of a
+sentence so the sentence begins with a capitalized type name, or rephrase the
+sentence.
+
 Prefer representations and APIs that make prose unnecessary. If a roster can
 be derived from a type or a test table, derive it. If a comment must keep two
 copies synchronized, remove the duplication.

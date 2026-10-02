@@ -7,49 +7,23 @@ use std::io::{self, Read, Write};
 use crate::error::Decode;
 use crate::{Rank, Version};
 
-/// A [`Version`] as a total causal-ordering key.
+/// A [`Version`] viewed through a deterministic total causal order.
 ///
-/// This is a view on a [`Version`] which is ordered by its causal [`Rank`] with
-/// a deterministic tiebreak, equal only to itself, with a canonical encoding
-/// whose lexicographic order aligns with its [`Ord`] implementation.
+/// [`Version`]s are ordered first by [`Rank`]. Because rank strictly increases
+/// with causal order, causes always precede their effects. Distinct [`Version`]s
+/// can have equal [`Rank`]s; their canonical bytes provide the tiebreak.
 ///
-/// Construction is `O(1)` and borrows (or takes) the version. Comparison walks
-/// both versions together and computes the sign of their rank difference,
-/// avoiding two separate rank computations and their intermediate values.
+/// Construction borrows or takes the version in `O(1)`. Comparison computes
+/// the rank difference directly from both versions, without first allocating
+/// either [`Rank`]. For a large sort or persistent index, prefer
+/// [`encode`](Self::encode): its byte-wise lexicographic order is exactly the
+/// same total order, and materializing each key once avoids repeating the rank
+/// traversal on every comparison.
 ///
-/// # The total order
-///
-/// Rank first: causally ordered versions compare as causality does, since
-/// [`Rank`] is strictly monotone. Equal ranks never derive from [`Version`]s
-/// which are causally ordered, so the tiebreak to achieve a total order is a
-/// free choice. In this case, we say that [`Rank`]-equal distinct versions are
-/// ordered by a fixed, deterministic comparison of the canonical bytes of their
-/// contained [`Version`]s.
-///
-/// # Using it as a lexicographic causal key
-///
-/// [`encode`](Self::encode) emits the rank's self-delimiting order-preserving
-/// serialization, followed by the version's canonical bytes
-/// ([`Version::as_bytes`]), which builds the tiebreak directly into the output.
-/// Byte-wise lexicographic order on these keys **equals [`Ord`] on the views**:
-/// byte equality is exactly [`Eq`], and the order survives any appended suffix,
-/// because both components are prefix-free.
-///
-/// A sorted KV store keyed by this composite delivers causes before effects
-/// with no rank-aware comparator, needs no further tiebreak suffix, and can
-/// recover the stored version from the key alone via [`decode`](Self::decode).
-///
-/// If you want to group by rank-*class* instead, with all rank-equal keys
-/// collapsing to one, key by [`Rank::encode`] plus a tiebreak of your own
-/// choosing; [`encode_rank`](Self::encode_rank) emits exactly the corresponding
-/// [`Rank`]'s encoded bytes.
-///
-/// # Cost shape
-///
-/// Sorting *many* keys re-walks both versions per comparison: for a sorted
-/// container or a one-shot sort over `n` versions, materialize each key once
-/// rather than paying a traversal per probe; the view's comparisons win where a
-/// handful of verdicts is all you need.
+/// The encoded key consists of the self-delimiting rank followed by the
+/// version's canonical bytes. [`Ranked::decode`] recovers the version.
+/// [`Ranked::encode_rank`] writes only the rank component when the caller wants
+/// equal ranks to remain equal and will supply a different tiebreak.
 ///
 /// # Example
 ///
@@ -172,6 +146,10 @@ impl<'a> Ranked<'a> {
     /// The rank prefix and version suffix are written incrementally rather than
     /// buffered as one composite key.
     ///
+    /// # Errors
+    ///
+    /// Returns any error reported by the writer.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
@@ -229,6 +207,10 @@ impl<'a> Ranked<'a> {
     /// The encoded output is written incrementally rather than buffered in
     /// full.
     ///
+    /// # Errors
+    ///
+    /// Returns any error reported by the writer.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
@@ -258,11 +240,11 @@ impl<'a> Ranked<'a> {
     ///
     /// # Errors
     ///
-    /// Each component's own genres ([`Rank::decode`]'s and
-    /// [`Version::decode`]'s: [`Decode::Truncated`],
-    /// [`Decode::TrailingBits`], [`Decode::NotCanonical`]);
-    /// [`Decode::NotCanonical`] when the rank stream and the version
-    /// disagree; [`Decode::Io`] when the reader itself fails.
+    /// - [`Decode::Truncated`], [`Decode::TrailingBits`], or
+    ///   [`Decode::NotCanonical`] when either component has the corresponding
+    ///   defect described by [`Rank::decode`] or [`Version::decode`];
+    /// - [`Decode::NotCanonical`] when the rank and version disagree;
+    /// - [`Decode::Io`] when the reader fails.
     ///
     /// # Complexity
     ///

@@ -46,8 +46,8 @@
 //! # Counter liveness
 //!
 //! An internal counter could read zero because the implementation bypassed its
-//! probes. Each cell therefore declares either a minimum honest reading or why
-//! no nonzero minimum exists. Falling below that floor is a failure, just like
+//! probes. Each cell therefore declares either a justified minimum reading or
+//! why no nonzero minimum exists. Falling below that floor is a failure, just like
 //! exceeding a ceiling. Floors detect a completely bypassed counter; they are
 //! not proofs that every relevant instruction was counted.
 //!

@@ -1,12 +1,9 @@
-//! The query construction vocabulary: the two elementary atoms, their negations
-//! and widenings, and the named forms built from them.
+//! Construction of causal queries from inclusive bounds.
 //!
-//! Every public constructor lives here, so the file reads as the language's
-//! lexicon: [`after`]/[`before`] are the atoms, `!` and
-//! [`or_concurrent`](Floor::or_concurrent) reach the four negated forms, and
-//! the named forms ([`since`], [`until`], [`delta`], [`toward`], the strict
-//! relations, [`all`]) are spellings of expressions a caller could write by
-//! hand by composition of atoms.
+//! [`Floor`] and [`Ceiling`] are the two atomic bounds. Negation, widening to
+//! include concurrent versions, and the named constructors translate directly
+//! into [`Query`]'s floor, ceiling, and same-polarity holes. Keeping that normal
+//! form avoids building or later interpreting an expression tree.
 
 use std::borrow::Cow;
 use std::fmt;

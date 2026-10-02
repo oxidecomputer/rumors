@@ -35,7 +35,7 @@ use num_bigint::BigUint;
 /// arity quadruples so the population's bytes grow (near-)linearly and
 /// the scan growth above that is the log factor's own signal.
 #[cfg(feature = "scan-meter")]
-const FOLD_DOOR_TEETH: usize = 64;
+const FOLD_POPULATION_TEETH: usize = 64;
 
 /// The staggered version population `SG(n, 64)` in bit-reversed feed
 /// order ([`Shape::StaggerPopulation`](crate::testing::meter::registry::Shape)).
@@ -44,8 +44,8 @@ const FOLD_DOOR_TEETH: usize = 64;
 /// intermediates stay proportional to the leaves they carry.
 #[cfg(feature = "scan-meter")]
 fn stagger_versions(n: usize) -> Vec<crate::Version> {
-    let (versions, _) =
-        crate::testing::meter::registry::Shape::StaggerPopulation.population(n, FOLD_DOOR_TEETH);
+    let (versions, _) = crate::testing::meter::registry::Shape::StaggerPopulation
+        .population(n, FOLD_POPULATION_TEETH);
     versions.iter().map(|p| p.version()).collect()
 }
 
@@ -53,8 +53,8 @@ fn stagger_versions(n: usize) -> Vec<crate::Version> {
 /// fold's dual of [`stagger_versions`].
 #[cfg(feature = "scan-meter")]
 fn stagger_parties(n: usize) -> Vec<crate::Party> {
-    let (_, ids) =
-        crate::testing::meter::registry::Shape::StaggerPopulation.population(n, FOLD_DOOR_TEETH);
+    let (_, ids) = crate::testing::meter::registry::Shape::StaggerPopulation
+        .population(n, FOLD_POPULATION_TEETH);
     ids.iter()
         .map(|p| crate::Party::decode(&p.bytes[..]).expect("generated ids are strict normal form"))
         .collect()
@@ -64,7 +64,7 @@ fn stagger_parties(n: usize) -> Vec<crate::Party> {
 /// printed beside it so a re-pin can restate each floor's linear reference
 /// without editing the harness.
 #[cfg(feature = "scan-meter")]
-fn door_scan_bits<R>(name: &str, n: usize, input_bytes: usize, run: impl FnOnce() -> R) -> u64 {
+fn fold_scan_bits<R>(name: &str, n: usize, input_bytes: usize, run: impl FnOnce() -> R) -> u64 {
     crate::testing::meter::reset_scan_bits();
     std::hint::black_box(run());
     let bits = crate::testing::meter::scan_bits();
@@ -79,7 +79,7 @@ fn join_all_scan_bits(n: usize) -> u64 {
     let mut population = stagger_versions(n);
     let bytes: usize = population.iter().map(|v| v.encode().len()).sum();
     let receiver = population.remove(0);
-    door_scan_bits("version_join_all_scan", n, bytes, || {
+    fold_scan_bits("version_join_all_scan", n, bytes, || {
         receiver.join_all(population)
     })
 }
@@ -122,7 +122,7 @@ fn meet_all_scan_bits(n: usize) -> u64 {
     let mut population = stagger_notch_versions(n);
     let bytes: usize = population.iter().map(|v| v.encode().len()).sum();
     let receiver = population.remove(0);
-    door_scan_bits("version_meet_all_scan", n, bytes, || {
+    fold_scan_bits("version_meet_all_scan", n, bytes, || {
         receiver.meet_all(population)
     })
 }
@@ -136,7 +136,7 @@ fn span_all_scan_bits(n: usize) -> u64 {
     let (receiver, items) = population
         .split_first()
         .expect("the stagger population is nonempty");
-    door_scan_bits("version_span_all_scan", n, bytes, || {
+    fold_scan_bits("version_span_all_scan", n, bytes, || {
         receiver.span_all(items).into_owned()
     })
 }
@@ -148,7 +148,7 @@ fn party_join_all_scan_bits(n: usize) -> u64 {
     let mut population = stagger_parties(n);
     let bytes: usize = population.iter().map(|p| p.encode().len()).sum();
     let mut receiver = population.remove(0);
-    door_scan_bits("party_join_all_scan", n, bytes, || {
+    fold_scan_bits("party_join_all_scan", n, bytes, || {
         receiver
             .join_all(population)
             .expect("staggered ids are pairwise disjoint")
@@ -167,7 +167,7 @@ fn clock_join_all_scan_bits(n: usize) -> u64 {
         .collect();
     let bytes: usize = population.iter().map(|c| c.encode().len()).sum();
     let mut receiver = population.remove(0);
-    door_scan_bits("clock_join_all_scan", n, bytes, || {
+    fold_scan_bits("clock_join_all_scan", n, bytes, || {
         receiver
             .join_all(population)
             .expect("staggered ids are pairwise disjoint")
@@ -198,7 +198,8 @@ fn assert_log_factor_alive(operation: &str, lo: u64, hi: u64, min_growth: f64) {
 /// must move in one change.
 ///
 /// Deterministic counter, dev profile. The linear reference is the population's
-/// own byte growth across the n = 256 -> 1,024 quadrupling at `FOLD_DOOR_TEETH`
+/// own byte growth across the n = 256 -> 1,024 quadrupling at
+/// `FOLD_POPULATION_TEETH`
 /// blocks (the harness prints each run's total input bytes beside its scan
 /// bits; leaf paths deepen with the slot count, so bytes grow slightly faster
 /// than arity) — a scan-linear fold reads that ratio, and the entry point reads

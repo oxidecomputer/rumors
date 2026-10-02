@@ -32,7 +32,7 @@
 //! cell carrying both samples' counters, denominators, and declarations (floats
 //! as bit patterns, so nothing rounds), and one trailing `end` count line
 //! guarding truncation. The parent refuses any mismatch — a header that is not
-//! byte-for-byte the one it commissioned, an unknown operation or family name,
+//! byte-for-byte the one it requested, an unknown operation or family name,
 //! a cell outside the child's slice, a duplicate cell, a count that
 //! disagrees with the lines received, or a merged grid whose per-family
 //! cell counts differ from the reach each registered family declares

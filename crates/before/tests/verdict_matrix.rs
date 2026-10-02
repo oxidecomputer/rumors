@@ -191,7 +191,7 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
         }
         // The freeze-position spine.
         FamilyId::FreezePos => (vec![Shape::FreezePosition.build1(3).version()], vec![]),
-        // The promotion re-arm spine and its small twin.
+        // The deferral re-arm spine and its small twin.
         FamilyId::PromoRearm => (
             vec![
                 Shape::PromotionRearm.build1(3).version(),

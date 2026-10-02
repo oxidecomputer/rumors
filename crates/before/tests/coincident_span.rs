@@ -172,10 +172,10 @@ fn coincident_argument_collapses_to_the_membership_walk() {
 
     // Owned-version, borrowed-version, and coincident-span arguments are one
     // path.
-    let owned_door = scanned(|| assert!(span.contains(mid.clone())));
-    let span_door = scanned(|| assert!(span.contains(Span::at(&mid))));
+    let owned_call = scanned(|| assert!(span.contains(mid.clone())));
+    let span_call = scanned(|| assert!(span.contains(Span::at(&mid))));
     assert_eq!(
-        (owned_door, span_door),
+        (owned_call, span_call),
         (fused, fused),
         "every coincident argument shape must read the fused membership walk's scan"
     );

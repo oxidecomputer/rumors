@@ -26,7 +26,8 @@ use super::*;
 const BOUNDARY_SMALL_K: usize = 512;
 
 /// The plunge residue's digit count at the guards' minimal decidable
-/// clearance: three-digit boundaries plus the two-digit certificate.
+/// clearance: three-digit boundaries plus the two digits needed to prove
+/// domination without subtraction.
 ///
 /// The closed forms rest on every hop deciding without a descent: a
 /// decision-bound top (the boundary shapes' top digit 5) decides two digit

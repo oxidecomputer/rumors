@@ -1,4 +1,4 @@
-//! A wide-by-dense rank family that prices promotion settlement.
+//! A wide-by-dense rank family that prices deferred-height settlement.
 //!
 //! The input parks one `w`-digit height before a run containing `Θ(w)` interval
 //! mass. Rank must eventually multiply those two input-funded quantities. The

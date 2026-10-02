@@ -75,7 +75,7 @@ use crate::error::{Decode, ParseRank};
 ///
 /// # Canonical encoding
 ///
-/// [`encode`](Rank::encode) produces canonical bytes whose lexicographic order
+/// [`Rank::encode`] produces canonical bytes whose lexicographic order
 /// equals [`Rank`]'s numeric order. The encoding is also self-delimiting: an
 /// arbitrary suffix may be appended to each encoded rank without changing the
 /// order between distinct ranks. This makes the encoding suitable as the first
@@ -131,8 +131,10 @@ pub struct Rank {
     /// value has exactly one representation.
     ///
     num: BigUint,
-    /// The (binary) exponent of the denominator `2^exp`. Bounded by the
-    /// event tree's depth, since each level halves the interval width.
+    /// The binary exponent of the denominator `2^exp`.
+    ///
+    /// For a [`Rank`] computed from a [`Version`](crate::Version), this is
+    /// bounded by the version's tree depth, which cannot feasibly exceed 2^64.
     exp: u64,
 }
 
@@ -1202,6 +1204,11 @@ impl Rank {
 /// The integer part is nonempty and has no leading zeroes. The optional
 /// fractional part is nonempty and ends in `1`. Other digits, signs, and
 /// surrounding whitespace are rejected.
+///
+/// # Errors
+///
+/// Returns [`ParseRank`] unless the input is the canonical binary form
+/// described above.
 ///
 /// # Complexity
 ///

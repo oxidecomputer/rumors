@@ -1,7 +1,7 @@
 //! The law drivers: one generic proptest per signature group, iterating
 //! [`crate::testing::laws`]' slices so every assertion names the law it checks.
 //!
-//! Both driver genres — the per-group proptests and the
+//! Both drivers — the per-group proptests and the
 //! organic-populations drive list — expand from the law-group roster
 //! (`crate::for_each_law_group!`), so every registered group is driven
 //! here by construction. Each driver's doc comment states the

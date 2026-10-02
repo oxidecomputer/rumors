@@ -77,7 +77,7 @@ pub(super) fn wide_code_words(v: &Version) -> u64 {
 /// This is the content that delta coding lets ride behind asymptotically fewer
 /// wire bits, and the scaling denominator of the flat-denominator shape's
 /// exponent fits: the boundary comb at fixed tooth magnitude doubles its value
-/// content (and every operation's honest per-tooth work) per level while its
+/// content (and every operation's required per-tooth work) per level while its
 /// size grows only by the unit delta codes over a fixed wide intercept.
 /// Iterative over the encoded form, outside any measurement.
 pub(super) fn value_content_bytes(v: &Version) -> usize {
