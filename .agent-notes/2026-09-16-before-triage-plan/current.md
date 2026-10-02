@@ -38,10 +38,11 @@ Generated schedules can address every clock they create, and the
 oracle-to-production bridge rejects empty or non-normal oracle trees at its
 boundary.
 The compiler-derived surface check directly holds the resource tables against
-the public API, replacing copied source rosters and scanners. Shared generators
-now construct nonempty and nonzero inputs directly, reuse the conditional
-byte-boundary strategies, and exercise fold carry boundaries without parallel
-per-test population builders.
+the public API, replacing copied source rosters and scanners. Source-line
+coverage pins are retired in favor of direct semantic and resource
+instruments. Shared generators now construct nonempty and nonzero inputs
+directly, reuse the conditional byte-boundary strategies, and exercise fold
+carry boundaries without parallel per-test population builders.
 
 Party and Version decoding and canonical-byte adoption live on their domain
 types through one `from_canonical` boundary, and writers finish directly into
@@ -53,12 +54,11 @@ The approved public surface is recorded in
 [`api-proposal.md`](api-proposal.md). Its core-type, text, and serialization
 increments are complete.
 
-## Remaining work
+## Disposition
 
-The remaining work is the final integrated verification and checklist
-reconciliation.
+The triage checklist is complete. The integrated tree passes the gate and the
+affected slower verification.
 
 The fuelscape dump-accretion and provenance proposals are declined. The public
-crate page remains reserved for the owner's later rewrite.
-
-Re-evaluate this order after every approved commit.
+crate page remains reserved for the owner's later rewrite and lies outside the
+remaining triage work.

@@ -430,8 +430,9 @@ into otherwise small feature increments.
 
 ## 11. Documentation and module layout
 
-- [ ] Rewrite the crate page into a concise model, safety contract, type tour,
-      and correct examples; ground or remove every quantitative headline.
+- [x] Defer the crate-page rewrite to the owner: it will become a concise
+      model, safety contract, type tour, and set of correct examples, with each
+      quantitative headline grounded or removed.
       Sources: `crate-root-*`, `paper-fidelity-*`, `fresh-eyes-*`.
 
 - [x] Rewrite public item docs around caller-visible contracts, errors, panics,
@@ -459,8 +460,10 @@ into otherwise small feature increments.
       accretion and provenance enforcement are declined; the crate-page claims
       remain owner-deferred.
 
-- [ ] Verify the complete branch with `just gate`, the justified slower checks,
-      feature combinations, doctests, generated-document checks, and Rumors.
+- [x] Verify the integrated tree with `just gate` and the affected slower
+      checks, including feature combinations, doctests, generated documents,
+      Rumors, resource instruments, surface totality, release properties, and
+      fuzzing.
 
-- [ ] Rebase onto current `main`, repeat affected verification, and present the
-      final branch for approval and merge.
+- [x] Work directly on current `main`, repeat affected verification after the
+      last increment, and present the final state for approval.
