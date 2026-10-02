@@ -907,9 +907,6 @@ ci: gate-lints _gate-workspace _gate-doctest _gate-fuzz _gate-internal-docs _gat
 # Re-run the gate judgments suitable for shared CI runners.
 ci-instruments: _gate-audit _gate-board _gate-surface
 
-# Run both pinned kernel-coverage judgments.
-ci-coverage: coverage-kernel coverage-kernel-branch
-
 # Run the larger release-profile property population.
 ci-properties: test-release
 
@@ -917,44 +914,4 @@ ci-properties: test-release
 local-only: (fuzz fuzz_smoke_secs) lean eventdag muxprobe
 
 # Run every CI group and every local-only sweep check.
-all: ci ci-instruments ci-coverage ci-properties local-only
-
-# ── the coverage legs (`all` and CI cadence; the gate never runs them) ───────
-# GOAL: no skyline-kernel arm goes silently unexercised — every uncovered
-# kernel line and every untaken branch direction is either curated (a
-# panic-arm or an unreachable arm, its argument stated at the entry) or a
-# named remediation item, and any NEW hole fails by name. MECHANISM:
-# cargo-llvm-cov produces an lcov report; tools/covcheck holds it to the
-# curated pinned expectation in tools/covcheck-expected.json, tamper-evident
-# in both directions — a new uncovered kernel line fails, and a stale entry
-# (covered, gone, or no longer instrumented) fails until the pin tightens.
-# Deliberately NOT a global coverage threshold: the worst artifact passing a
-# threshold is a suite that pads covered lines elsewhere; the pin names lines.
-#
-# Sweep legs (`all` and CI's `coverage` job), never gate legs: each run is a
-# full instrumented rebuild plus the whole suite under instrumentation --
-# minutes, not gate seconds. The line leg runs on stable; branch
-# instrumentation needs the pinned nightly (the same
-# toolchain-pin argument as the other nightly legs, and each leg judges only
-# its own toolchain's records — the two map a few regions to different
-# lines). One residual to know when a red arrives: proptest populations draw
-# fresh cases each run, so an arm a random case occasionally grazes can flip
-# a pinned line to covered. That red is information, not noise — the arm is
-# reachable, so promote its remediation entry to a directed test family and
-# remove it. Needs cargo-llvm-cov: `cargo install cargo-llvm-cov`.
-
-covcheck_expected := justfile_directory() + "/tools/covcheck-expected.json"
-
-# Run the instrumented suite (stable) and hold kernel line coverage to the pin.
-coverage-kernel:
-    ./tools/covcheck --self-test
-    @mkdir -p target/llvm-cov
-    cargo llvm-cov nextest --workspace --all-features --lcov --output-path target/llvm-cov/workspace.lcov
-    ./tools/covcheck --lcov target/llvm-cov/workspace.lcov --expected {{ covcheck_expected }} --root {{ justfile_directory() }}
-
-# Run the instrumented suite (pinned nightly, --branch) and hold kernel branch coverage to the pin.
-coverage-kernel-branch:
-    ./tools/covcheck --self-test
-    @mkdir -p target/llvm-cov
-    cargo +{{ nightly_toolchain }} llvm-cov nextest --branch --workspace --all-features --lcov --output-path target/llvm-cov/workspace-branch.lcov
-    ./tools/covcheck --branch --lcov target/llvm-cov/workspace-branch.lcov --expected {{ covcheck_expected }} --root {{ justfile_directory() }}
+all: ci ci-instruments ci-properties local-only

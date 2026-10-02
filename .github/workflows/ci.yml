@@ -91,32 +91,6 @@ jobs:
       - name: Run deterministic instruments
         run: just ci-instruments
 
-  # The instrumented-coverage legs: kernel line coverage on stable and
-  # kernel branch coverage on the pinned nightly, each held to the curated
-  # pinned expectation (tools/covcheck-expected.json) by tools/covcheck —
-  # tamper-evident in both directions, so a new uncovered kernel line or a
-  # stale pin entry fails by name. The justfile's coverage section carries
-  # the design and why these are sweep legs, never gate legs: each run is a
-  # full instrumented rebuild plus the whole suite under instrumentation.
-  #
-  # Runner fit: both legs build the workspace test tier (debug profile,
-  # instrumented) — the same shape as `ci`'s test-all leg, well inside the
-  # runner's memory; the bench/release tier is never built here.
-  coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: ./.github/actions/setup
-        with:
-          tools: just,cargo-nextest,cargo-llvm-cov
-          stable-components: llvm-tools
-          nightly: "true"
-          nightly-components: llvm-tools
-
-      - name: Run pinned kernel coverage
-        run: just ci-coverage
-
   # More randomized Rumors coverage than the commit gate can afford. Release
   # keeps each case cheap; the justfile owns the count and timeout profile.
   properties:

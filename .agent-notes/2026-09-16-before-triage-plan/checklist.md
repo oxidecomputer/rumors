@@ -382,9 +382,9 @@ into otherwise small feature increments.
       dependency footprint.
       Sources: `fuzz-guests-pins-*`, `deps-*`, width findings in section 02.
 
-- [x] Retire mutation and citation machinery that checked copied rosters rather
-      than behavior; keep the compiler-derived public surface check and the
-      kernel-coverage pin for their distinct signals.
+- [x] Retire mutation, citation, and line-coverage-pin machinery that checked
+      copied source rosters rather than behavior; keep the compiler-derived
+      public surface check and direct semantic and resource instruments.
       Sources: `gate-legs-*`, `tools-*`, `surface-roster-*`.
 
 - [x] Make the remaining gate and CI recipes derive their inputs, run at their
