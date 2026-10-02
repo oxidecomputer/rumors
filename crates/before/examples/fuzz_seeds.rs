@@ -16,7 +16,7 @@ mod fuzz_seed_set;
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fuzz/seeds");
     for seed in fuzz_seed_set::seed_set() {
-        let dir = root.join(seed.target);
+        let dir = root.join(seed.target.name());
         fs::create_dir_all(&dir).expect("creating the seed target directory");
         let path = dir.join(seed.name);
         let tmp = dir.join(format!("{}.tmp", seed.name));
