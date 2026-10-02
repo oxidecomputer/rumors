@@ -15,7 +15,7 @@ before = { path = "../..", features = ["meter"] }
 # instruction, deterministic and host-independent. Tool-side only: this
 # workspace is detached from the parent, so wasmtime never enters the
 # production crates' dependency graph.
-wasmtime = { version = "48.0.3", default-features = false, features = [
+wasmtime = { version = "48.0.5", default-features = false, features = [
     "cranelift",
     "runtime",
     # Pooled instance slots: samplers instantiate one guest per sample,
