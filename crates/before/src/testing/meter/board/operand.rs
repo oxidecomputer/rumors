@@ -117,9 +117,7 @@ pub(super) fn value_content_bytes(v: &Version) -> usize {
     (content.div_ceil(8)) as usize
 }
 
-/// The encoded byte size of a version produced by a measured body.
+/// The stored byte size of a version produced by a measured body.
 pub(super) fn version_output_bytes(v: &Version) -> usize {
-    // The measured value's stored buffer is allocated on this host, so its
-    // byte count fits `usize`.
-    usize::try_from(v.encoded_bits().div_ceil(8)).expect("an allocated buffer's byte count")
+    v.as_bytes().len()
 }

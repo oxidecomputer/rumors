@@ -286,8 +286,8 @@ into otherwise small feature increments.
 
 ## 08. Resource instrumentation
 
-- [ ] Denominate Version output bytes by the complete canonical encoding,
-      including its marker byte.
+- [x] Denominate Version output bytes and the `Party::fork` child heap floor by
+      their complete canonical storage, including marker padding.
       Sources: `board-families-floors-judge-27`, `board-frame-15`.
 
 - [ ] Make the truncation family remove exactly the last byte, so it reaches

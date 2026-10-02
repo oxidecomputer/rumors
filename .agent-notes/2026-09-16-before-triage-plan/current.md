@@ -5,8 +5,9 @@ contract cleanup, verification consolidation, and production-documentation
 pass run through `a138d294`. Directional causal comparisons now use their
 one-direction early exits throughout `before` and Rumors.
 
-The board byte-accounting repair is approved as `3103a06b` on
-`codex/before-marker-board` and awaits integration into `main`.
+The amplification board reads canonical stored lengths directly for Version
+outputs and the `Party::fork` child heap floor. No other board adapter
+reconstructs those byte lengths from live bits.
 
 ## Completed foundation
 

@@ -12,6 +12,98 @@ use crate::Version;
 use super::currency::ByCurrency;
 use super::measure::Model;
 
+/// I/O-denominated Version rows charge the complete stored result, including a
+/// whole marker byte when the live encoding ends on a byte boundary.
+///
+/// The prepared cell exercises the board's real result observer and
+/// denomination pipeline. Seven seed ticks put the output's live encoding
+/// exactly on a byte boundary, so its final byte is storage used only for
+/// canonical padding.
+#[test]
+fn version_output_denominator_includes_boundary_marker_byte() {
+    use crate::{Party, Version};
+
+    use super::cell::Cell;
+    use super::floors::na;
+    use super::measure::{measure, HeapMeter};
+    use super::operand::version_output_bytes;
+    use super::Floors;
+
+    const INPUT_BYTES: usize = 3;
+    const PROBE_NA: &str = "the output-byte denomination alone is under test";
+
+    let party = Party::seed();
+    let mut version = Version::new();
+    for _ in 0..7 {
+        version.tick(&party);
+    }
+    assert!(
+        version.encoded_bits().is_multiple_of(8),
+        "the fixture's padding must occupy a whole byte"
+    );
+    let output_bytes = version.as_bytes().len();
+    let cell = Cell::io(
+        INPUT_BYTES,
+        Floors {
+            heap: na(PROBE_NA),
+            scan: na(PROBE_NA),
+            touch: na(PROBE_NA),
+        },
+        |result| {
+            version_output_bytes(
+                result
+                    .downcast_ref::<Version>()
+                    .expect("the probe returns a Version"),
+            )
+        },
+        move || version,
+    );
+    let heap = HeapMeter {
+        reset_peak: || {},
+        peak: || 0,
+        current: || 0,
+    };
+
+    let sample = measure(&heap, cell, None);
+    assert_eq!(sample.denom_bytes, INPUT_BYTES + output_bytes);
+}
+
+/// The `Party::fork` row's heap floor is the complete stored child, including
+/// canonical marker padding.
+///
+/// Inspecting the prepared board row protects the liveness declaration itself:
+/// floor-dividing the child's live bits would understate every child by one
+/// byte and could collapse a small child to a heap-not-applicable verdict.
+#[test]
+fn party_fork_heap_floor_is_complete_child_storage() {
+    use crate::testing::meter::registry::FamilyId;
+
+    use super::currency::Liveness;
+    use super::family::{decode_party, FamilyData};
+    use super::ops::ops;
+
+    let family = FamilyData::build(FamilyId::IdPair, 0.01, 0);
+    let source = &family
+        .parties
+        .as_ref()
+        .expect("the id-pair family supplies parties")
+        .0;
+    let mut parent = decode_party(source);
+    let expected = u64::try_from(parent.fork().as_bytes().len())
+        .expect("a resident party's byte count fits u64");
+    let cell = (ops()
+        .into_iter()
+        .find(|op| op.name == "party_fork")
+        .expect("the fork row is registered")
+        .prepare)(&family)
+    .expect("the id-pair fixture prepares the fork row");
+
+    let Liveness::Floor { min, .. } = cell.floors.heap else {
+        panic!("forking a party must retain a child-storage heap floor");
+    };
+    assert_eq!(min, expected);
+}
+
 /// The board's many-hole operands retain every hole and drive both intended
 /// query paths.
 ///

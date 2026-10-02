@@ -2006,18 +2006,15 @@ pub(super) fn ops() -> Vec<Op> {
                 // measurement); the generic in-place NA would misstate
                 // what fork does.
                 let child_bytes = {
-                    let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
-                    let mut probe = decode_party(&bytes);
-                    probe.fork().encoded_bits() / 8
+                    let bytes = f.parties.as_ref().map(|(a, _)| a)?;
+                    let mut probe = decode_party(bytes);
+                    u64::try_from(probe.fork().as_bytes().len())
+                        .expect("a resident party's byte count fits u64")
                 };
                 let floors = Floors {
-                    heap: if child_bytes == 0 {
-                        na(NA_HEAP_IN_PLACE)
-                    } else {
-                        Liveness::Floor {
-                            min: child_bytes,
-                            why: WHY_HEAP_FORK_HALF,
-                        }
+                    heap: Liveness::Floor {
+                        min: child_bytes,
+                        why: WHY_HEAP_FORK_HALF,
                     },
                     scan: if a.is_seed() {
                         na(NA_SCAN_SEED_PARTY)
