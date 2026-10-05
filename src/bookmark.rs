@@ -3,11 +3,15 @@
 //! Applications provide opaque byte storage through [`Bookmark`]. The crate
 //! owns the record format and the rules for recycling a departed peer's identity.
 //!
-//! Recovery has three requirements: know all recorded writes in the recovered
-//! region, never acquire a live bootstrap's fork, and durably remove donated
-//! rights before sending them. `record` owns the first rule; the peer's bootstrap
-//! guards and session driver enforce the other two. This module loads and stores
-//! the record, treating only a confirmed store as a reusable checkpoint.
+//! The invariant everything serves, and the two conditions under which an
+//! identity may be reclaimed, are stated in `record`. That module checks the
+//! catch-up condition; the peer's reservation gate and session driver keep
+//! reclaimed regions exclusive, by withholding reclamation while a fork is
+//! reserved and by removing donations durably before sending them. This
+//! module loads and stores the record, and treats only a confirmed store as
+//! the checkpoint a session may rely on.
+
+use std::ops::{Deref, DerefMut};
 
 use before::{Party, Version};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -55,14 +59,16 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// caught up with those writes; it need not recover every message that the
 /// prior incarnation had merely observed.
 ///
-/// Reclamation happens when Rumors updates the bookmark, so it can lag behind
-/// catching up. Ordinary gossip records local progress before exchanging
-/// messages, and does not write again just because it learns remote changes. An
-/// identity that becomes reclaimable during an exchange can therefore wait
-/// until a later session after a local send, redaction, or identity change.
-/// Reclamation also waits while bootstrap sessions hold identities for transfer.
-/// These delays postpone the reduction in version size; they do not delay
-/// checkpointing local writes.
+/// Reclamation happens when Rumors updates the bookmark, and ordinary gossip
+/// updates it only to record local progress before exchanging messages, never
+/// because it learned remote changes. An identity that becomes reclaimable
+/// during an exchange therefore waits for the session after the next local
+/// send, redaction, or identity change. That delay costs one event at most:
+/// reclaiming alters no version until the peer's next own event, so the change
+/// that ends the wait still uses the old identity and the one after it uses
+/// the reclaimed one. Reclamation also waits while bootstrap sessions hold
+/// identities for transfer. These delays postpone the reduction in version
+/// size; they do not delay checkpointing local writes.
 ///
 /// # Bounded retention
 ///
@@ -133,10 +139,21 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// requests across established peers: long chains of joins or repeated joins
 /// through a single provider also increase version size.
 ///
+/// Checkpoints precede transmission, and a checkpoint can outlive the writes
+/// it recorded. If a session fails after its checkpoint and the peer crashes
+/// before another session shares those writes, no live peer holds what the
+/// record requires, so that identity can never be caught up. It stays recorded
+/// and unused until the size limit evicts it. The same holds for an identity
+/// absorbed from a retiring peer whose writes the absorber had not yet shared.
+/// Neither case reuses a version; both cost version size.
+///
 /// Retirement removes the departing identity from the local bookmark before
 /// sending it. If the transfer then fails or is cancelled, that bookmark cannot
 /// recover the removed identity. Recovery depends on what reached the recipient
 /// and its bookmark; see [`Retire::Uncertain`](crate::Retire::Uncertain).
+/// Serving a bootstrap removes the donated identity the same way. If that
+/// session fails before sending, the identity returns to the live peer and is
+/// recorded again at its next checkpoint; a crash before then loses it.
 pub trait Bookmark {
     /// Failure to open or replace the stored bytes.
     type Error: std::error::Error + Send + Sync + 'static;
@@ -214,28 +231,34 @@ impl Bookmark for NoBookmark {
 pub(crate) struct Bookmarked<B> {
     /// Application-owned storage for the encoded record.
     persist: B,
-    /// An unloaded cache must read storage before making any changes.
-    loaded: Option<Loaded>,
+    /// The record in memory: absent before the first load, and again after
+    /// any store that did not confirm success.
+    cache: Option<Cache>,
     /// Maximum encoded record size, including its frame.
     size_limit: usize,
 }
 
-/// A loaded record and the checkpoint used to avoid redundant stores.
-pub(crate) struct Loaded {
+/// The record in memory, and which live states it and the durable record are
+/// full checkpoints of.
+pub(crate) struct Cache {
     /// Identities retained across restarts, grouped by network.
     record: Record,
-    /// The checkpoint to install only after its store succeeds.
+    /// The live state this record is a full checkpoint of, if it is one.
     staged: Option<Checkpoint>,
-    /// The last confirmed checkpoint; removing a donation invalidates it.
-    last: Option<Checkpoint>,
+    /// The live state the durable record is a full checkpoint of, if it is one.
+    durable: Option<Checkpoint>,
 }
 
-/// The local ownership and write progress protected by one checkpoint.
+/// The live state a full checkpoint captured.
+///
+/// A full checkpoint attempts reclamation and then records the live party.
+/// Attachment records without reclaiming, and a donation changes the record
+/// without recording, so neither produces one.
 struct Checkpoint {
-    /// The exact live party at the checkpoint.
+    /// The exact live party.
     party: Party,
-    /// Known progress; only the party's own region matters for skipping stores.
-    version: Version,
+    /// The frontier; only the party's own region is ever compared.
+    frontier: Version,
 }
 
 /// Construct an unloaded bookmark cache.
@@ -244,17 +267,20 @@ impl<B> Bookmarked<B> {
     pub(crate) fn new(persist: B) -> Self {
         Self {
             persist,
-            loaded: None,
+            cache: None,
             size_limit: DEFAULT_BOOKMARK_SIZE_LIMIT,
         }
     }
 
-    /// Select the store limit and require a checkpoint to apply it.
+    /// Select the store limit, which the next session's store must apply.
+    ///
+    /// The limit shapes what a store keeps, so a checkpoint stored under the
+    /// old limit no longer counts as stored.
     pub(crate) fn set_size_limit(&mut self, bytes: usize) {
         self.size_limit = bytes.max(format::record_size(0, 0));
-        if let Some(loaded) = &mut self.loaded {
-            loaded.last = None;
-            loaded.staged = None;
+        if let Some(cache) = &mut self.cache {
+            cache.staged = None;
+            cache.durable = None;
         }
     }
 
@@ -264,117 +290,168 @@ impl<B> Bookmarked<B> {
     }
 }
 
-/// Load and persist records while keeping storage failures recoverable.
+/// Load the record on first use.
 impl<B: Bookmark> Bookmarked<B> {
-    /// Load on first use and return the state that can be safely changed.
-    pub(crate) async fn ensure_loaded(&mut self) -> Result<&mut Loaded, BookmarkIo<B::Error>> {
-        match self.loaded {
-            Some(ref mut loaded) => Ok(loaded),
-            None => {
-                let record = match self.persist.load().await.map_err(BookmarkIo::Io)? {
-                    None => Record::default(),
-                    Some(mut reader) => {
-                        let mut bytes = Vec::new();
-                        reader
-                            .read_to_end(&mut bytes)
-                            .await
-                            .map_err(|error| BookmarkIo::Format(FormatError::Read(error)))?;
-                        format::decode(&bytes)?
-                    }
-                };
-                Ok(self.loaded.insert(Loaded {
-                    record,
-                    staged: None,
-                    last: None,
-                }))
-            }
+    /// Read storage unless the cache is present, then lend the cache.
+    pub(crate) async fn load(&mut self) -> Result<Loaded<'_, B>, BookmarkIo<B::Error>> {
+        if self.cache.is_none() {
+            let record = match self.persist.load().await.map_err(BookmarkIo::Io)? {
+                None => Record::default(),
+                Some(mut reader) => {
+                    let mut bytes = Vec::new();
+                    reader
+                        .read_to_end(&mut bytes)
+                        .await
+                        .map_err(|error| BookmarkIo::Format(FormatError::Read(error)))?;
+                    format::decode(&bytes)?
+                }
+            };
+            self.cache = Some(Cache {
+                record,
+                staged: None,
+                durable: None,
+            });
         }
+        Ok(Loaded { bookmark: self })
     }
+}
 
-    /// Store the loaded record and commit its staged checkpoint on success.
+/// The cache, lent from a successful load until it is stored or released.
+///
+/// Only a `Loaded` can store, so every store follows a load. Dropping it
+/// without storing keeps the cache for the next update.
+pub(crate) struct Loaded<'a, B> {
+    /// The bookmark whose cache is present for the lifetime of the loan.
+    bookmark: &'a mut Bookmarked<B>,
+}
+
+/// Read the lent cache.
+impl<B> Deref for Loaded<'_, B> {
+    type Target = Cache;
+
+    /// The cache is present for as long as the loan exists.
+    fn deref(&self) -> &Cache {
+        self.bookmark
+            .cache
+            .as_ref()
+            .expect("a loan exists only while the cache is present")
+    }
+}
+
+/// Change the lent cache.
+impl<B> DerefMut for Loaded<'_, B> {
+    /// The cache is present for as long as the loan exists.
+    fn deref_mut(&mut self) -> &mut Cache {
+        self.bookmark
+            .cache
+            .as_mut()
+            .expect("a loan exists only while the cache is present")
+    }
+}
+
+/// Store the lent cache.
+impl<B: Bookmark> Loaded<'_, B> {
+    /// Store the record, then note what the durable record is a checkpoint of.
     ///
-    /// Take the cache out before I/O and restore it only on success. An error
-    /// or cancellation then leaves the cache unloaded, so the next update must
-    /// read whichever complete record storage retained.
-    pub(crate) async fn write(&mut self) -> Result<(), BookmarkIo<B::Error>> {
-        let Some(mut loaded) = self.loaded.take() else {
-            return Ok(());
-        };
-        let bytes = loaded.record.bounded_bytes(self.size_limit);
-        self.persist.store(bytes).await.map_err(BookmarkIo::Io)?;
-        loaded.last = loaded.staged.take();
-        self.loaded = Some(loaded);
+    /// The cache leaves memory before the store and returns only on success.
+    /// An error or cancellation therefore leaves the bookmark unloaded: the
+    /// next update reads whichever complete record storage kept, and no token
+    /// can describe a store that did not confirm.
+    pub(crate) async fn write(self) -> Result<(), BookmarkIo<B::Error>> {
+        let bookmark = self.bookmark;
+        let mut cache = bookmark
+            .cache
+            .take()
+            .expect("a loan exists only while the cache is present");
+        let bytes = cache.record.bounded_bytes(bookmark.size_limit);
+        bookmark
+            .persist
+            .store(bytes)
+            .await
+            .map_err(BookmarkIo::Io)?;
+        cache.durable = cache.staged.take();
+        bookmark.cache = Some(cache);
         Ok(())
     }
 }
 
-/// Update identity ownership and decide when it needs another checkpoint.
-impl Loaded {
-    /// Stage a checkpoint if the last confirmed store does not cover this state.
+/// Change the record and decide whether it needs another store.
+impl Cache {
+    /// Checkpoint unless the durable record already is one for this live state.
     ///
-    /// Return whether the caller must persist the staged record. This keeps the
-    /// suppression rule and the update it guards in one operation.
+    /// Returns whether the caller must store. Deciding and checkpointing in
+    /// one call means a session can neither checkpoint without consulting the
+    /// rule nor skip without it.
     pub(crate) fn checkpoint_if_needed(
         &mut self,
         network: Network,
         party: &mut Party,
-        version: &Version,
+        frontier: &Version,
         reclaim: bool,
     ) -> bool {
-        if self.can_skip_checkpoint(party, version) {
+        if self.is_checkpointed(party, frontier) {
             return false;
         }
-        self.checkpoint(network, party, version, reclaim);
+        self.checkpoint(network, party, frontier, reclaim);
         true
     }
 
-    /// Whether a confirmed store still protects this party's own writes.
+    /// Whether the durable record is a full checkpoint of this live state.
     ///
-    /// This deliberately requires the same party and own-write progress. A
-    /// larger stored party could sometimes cover a smaller current one too,
-    /// but checkpointing that ownership change keeps the rule simple. Remote
-    /// progress may permit more reclamation without requiring another store.
-    fn can_skip_checkpoint(&self, party: &Party, version: &Version) -> bool {
-        self.last.as_ref().is_some_and(|checkpoint| {
-            checkpoint.party == *party && &checkpoint.version / party == version / party
+    /// If it is, nothing reclaimable lies below what the session is about to
+    /// transmit: either the record holds this party with `written` at or
+    /// above its own progress, or the limit evicted that identity and nothing
+    /// in its region is reclaimable at all. Either way the store is redundant.
+    ///
+    /// The comparison is exact on the party and on own progress only. Remote
+    /// progress may have caught the frontier up with further identities; those
+    /// wait for the session after the next local change. Reclaiming earlier
+    /// would alter no version before that change in any case: the wait defers
+    /// the benefit by one own event.
+    fn is_checkpointed(&self, party: &Party, frontier: &Version) -> bool {
+        self.durable.as_ref().is_some_and(|checkpoint| {
+            checkpoint.party == *party && &checkpoint.frontier / party == frontier / party
         })
     }
 
-    /// Remove a donation; the caller must persist this before sending it.
-    pub(crate) fn slice(&mut self, network: Network, party: &Party) {
-        self.record.slice(network, party);
-        self.staged = None;
-        self.last = None;
-    }
-
-    /// Record the live identity at attachment without acquiring another identity.
-    pub(crate) fn record(&mut self, network: Network, party: &Party, version: &Version) {
-        self.record.network(network).record(party, version);
-        // Attachment does not reclaim; the first session must still try.
-        self.staged = None;
-    }
-
-    /// Stage the live party's checkpoint, optionally reclaiming caught-up
-    /// identities.
+    /// Remove a donation; the caller stores this before the donation leaves.
     ///
-    /// The caller permits reclamation only when no bootstrap guard holds a fork.
-    /// While guards remain, their forks may still appear in the bookmark, but
-    /// cannot be acquired. Recording local writes must continue either way.
+    /// The record is no longer a checkpoint of any live state.
+    pub(crate) fn slice(&mut self, network: Network, donation: &Party) {
+        self.record.slice(network, donation);
+        self.staged = None;
+    }
+
+    /// Record the live party at attachment, without reclaiming.
+    ///
+    /// Not a full checkpoint: the first session must still attempt
+    /// reclamation, so the store leaves no token behind.
+    pub(crate) fn record(&mut self, network: Network, party: &Party, frontier: &Version) {
+        self.record.network(network).record(party, frontier);
+        self.staged = None;
+    }
+
+    /// Reclaim what the frontier has caught up with, when permitted, then
+    /// record the live party: a full checkpoint, staged for the next store.
+    ///
+    /// The caller permits reclamation only while no bootstrap fork is
+    /// reserved; see [`NetworkRecord::reclaim`](record::NetworkRecord::reclaim).
+    /// Recording local writes continues either way.
     pub(crate) fn checkpoint(
         &mut self,
         network: Network,
         party: &mut Party,
-        version: &Version,
+        frontier: &Version,
         reclaim: bool,
     ) {
         let record = self.record.network(network);
         if reclaim {
-            record.reclaim(party, version);
+            record.reclaim(party, frontier);
         }
-        record.record(party, version);
+        record.record(party, frontier);
         self.staged = Some(Checkpoint {
             party: party.dangerously_alias(),
-            version: version.clone(),
+            frontier: frontier.clone(),
         });
     }
 }

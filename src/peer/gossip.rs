@@ -460,20 +460,20 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Remote-only version advances leave our checkpoint current.
     async fn bookmark_update(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
-        let loaded = bookmark.ensure_loaded().await?;
+        let mut loaded = bookmark.load().await?;
 
         let mut persist = false;
         Inner::update_party(&self.inner, |inner| {
-            let version = inner.tree.latest();
+            let frontier = inner.tree.latest();
             persist = loaded.checkpoint_if_needed(
                 self.network,
                 &mut inner.party,
-                version,
+                frontier,
                 inner.bootstrap_forks.can_reclaim(),
             );
         });
         if persist {
-            bookmark.write().await
+            loaded.write().await
         } else {
             Ok(())
         }
@@ -526,14 +526,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             return Ok((unchanged, stats.snapshot()));
         }
 
-        // Persist our identity at the snapshot's frontier before sharing any
-        // content. The writer gate orders this with local tree preparation;
-        // reclaim, snapshot, and bootstrap fork share one watch lock: a
-        // concurrent send must either precede all three or follow them all.
-        // Otherwise the newcomer could inherit a party without its latest
-        // events and reuse their versions. Lock bookmark, then writer gate,
-        // then watch. Retirement needs no fork: its consumed Peer retains the
-        // whole party.
+        // Record our own progress at the snapshot's frontier, durably, before
+        // sharing any of it: the rule bookmark recovery rests on, stated in
+        // the bookmark's record module. The writer gate orders this with local
+        // tree preparation; reclaim, snapshot, and bootstrap fork share one
+        // watch lock, so a concurrent send either precedes all three or
+        // follows them all, and the newcomer cannot inherit a party without
+        // its latest events. Lock bookmark, then writer gate, then watch.
+        // Retirement needs no fork: its consumed Peer retains the whole party.
         let mut guarded = ForkGuard {
             fork: None,
             recover: self.inner.clone(),
@@ -541,14 +541,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut prior_tree = None;
         {
             let mut bookmark = self.bookmark.lock().await;
-            let loaded = bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
+            let mut loaded = bookmark.load().await.map_err(Error::Bookmark)?;
             let mut persist = false;
             Inner::update_party(&self.inner, |inner| {
-                let version = inner.tree.latest();
+                let frontier = inner.tree.latest();
                 persist = loaded.checkpoint_if_needed(
                     self.network,
                     &mut inner.party,
-                    version,
+                    frontier,
                     inner.bootstrap_forks.can_reclaim(),
                 );
                 prior_tree = Some(inner.tree.clone());
@@ -556,8 +556,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     guarded.fork = Some(inner.reserve());
                 }
             });
-            if persist && let Err(e) = bookmark.write().await {
-                return Err(Error::Bookmark(e));
+            if persist {
+                loaded.write().await.map_err(Error::Bookmark)?;
             }
         }
         let prior_tree = prior_tree.expect("set in closure");
@@ -605,10 +605,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             // Remove the donation from durable storage before sending it. A
             // failure here still permits recovery: retirement owns the Peer,
             // and a bootstrap's guard still owns its fork. Even if removal took
-            // effect before the error, nothing has been handed to the recipient.
+            // effect before the error, nothing has been handed to the recipient,
+            // and the next checkpoint records the returned identity again.
             {
                 let mut bookmark = self.bookmark.lock().await;
-                let loaded = bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
+                let mut loaded = bookmark.load().await.map_err(Error::Bookmark)?;
                 if self_retiring {
                     let inner = self.inner.borrow();
                     loaded.slice(self.network, &inner.party);
@@ -616,7 +617,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     let (party, _) = guarded.fork.as_ref().expect("bootstrap fork");
                     loaded.slice(self.network, party);
                 }
-                bookmark.write().await.map_err(Error::Bookmark)?;
+                loaded.write().await.map_err(Error::Bookmark)?;
             }
 
             // `send` encodes immediately and retains no party borrow. Release
@@ -1090,6 +1091,9 @@ struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
 }
 
 /// Restore a bootstrap fork unless its transmission has started.
+///
+/// A fork restored after its removal reached the bookmark is unrecorded until
+/// the peer's next checkpoint; a crash before then loses it.
 struct ForkGuard<T: Send + Sync + 'static> {
     /// The unsent fork and the token that pauses reclamation while it is held.
     fork: Option<(Party, BootstrapReservations)>,

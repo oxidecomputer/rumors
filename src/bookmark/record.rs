@@ -1,11 +1,54 @@
-//! One write frontier per network, with recency kept separately from progress.
+//! The identities a bookmark may reclaim, and the writes it must know first.
 //!
-//! Identities may overlap while a bootstrap holds a fork outside the live party.
-//! Every identity uses the network's shared frontier, so an older, larger claim
-//! cannot authorize recovery without the writes recorded by a smaller claim.
-//! Check only the frontier inside the candidate's region: unrelated remote
-//! progress does not constrain recovery. Eviction can remove an identity, but
-//! must preserve the full frontier over every region still eligible for recovery.
+//! Messages are addressed by version, and a replica infers a deletion whenever
+//! its frontier dominates a version it holds no leaf for. A version issued
+//! twice is therefore not a duplicate but a destroyed message. Within one
+//! incarnation the clock prevents reuse by itself: a party's own progress only
+//! grows, and no other party ticks in its region. A crash discards that
+//! progress. This record lets the next incarnation take the region back
+//! without reopening reuse.
+//!
+//! # The safety invariant
+//!
+//! For every live party `p` at frontier `V`, `V / p` dominates every version
+//! the network knows inside `p`'s region. A tick strictly advances `V / p`, so
+//! each new version lies above every known one there, never on or below one.
+//!
+//! Joining a region `R` into the live party preserves the invariant exactly
+//! when:
+//!
+//! 1. no live peer owns `R`, or two parties would tick there; and
+//! 2. the live frontier dominates every version the network knows in `R`, or
+//!    the next tick there could land on or below one.
+//!
+//! # How the record establishes both
+//!
+//! A [`NetworkRecord`] holds the identities its owner recorded and one
+//! frontier, `written`, shared by all of them.
+//!
+//! - An identity is a region the owner held when it recorded it and has not
+//!   since given away. A donation is removed from every identity, durably,
+//!   before it can leave the process. So an identity is owned by no live
+//!   peer: condition 1.
+//! - `written`, projected on an identity, dominates every version the
+//!   network knows in that region: every own event is recorded before it is
+//!   transmitted, and `written` never shrinks inside a recorded region. One
+//!   frontier serves every identity, so an older, larger identity cannot
+//!   bypass writes recorded under a newer, smaller one. So "the live frontier
+//!   dominates `written / R`" gives condition 2.
+//!
+//! The reclaim rule is then one line: join an identity into the live party
+//! exactly when the live frontier dominates `written` on it.
+//!
+//! Identities may overlap. A fork reserved for a bootstrap leaves the live
+//! party while an identity recorded earlier still contains it, and a
+//! checkpoint taken meanwhile records the smaller party beside the larger
+//! one. The shared frontier keeps overlap harmless for condition 2. For
+//! condition 1 the caller withholds reclamation while any fork is reserved;
+//! see [`NetworkRecord::reclaim`].
+//!
+//! Retention may drop identities, which only forfeits recovery; it must keep
+//! `written` whole over every identity it retains.
 
 use std::collections::{VecDeque, hash_map::RandomState};
 
@@ -40,10 +83,11 @@ impl Record {
             .expect("the network map accepts every entry that can be allocated")
     }
 
-    /// Remove transferred rights, including a network left with no rights.
-    pub(super) fn slice(&mut self, network: Network, party: &Party) {
+    /// Remove a donation from a network's identities, and the network itself
+    /// once no identity remains.
+    pub(super) fn slice(&mut self, network: Network, donation: &Party) {
         if let Some(record) = self.networks.get(&network) {
-            record.slice(party);
+            record.slice(donation);
             if record.identities.is_empty() {
                 self.networks.remove(&network);
             }
@@ -51,6 +95,11 @@ impl Record {
     }
 
     /// Encode within the byte limit, removing one oldest identity at a time.
+    ///
+    /// Eviction starts with the least recently used network and its oldest
+    /// identity, so a network's live party, the newest identity after a
+    /// checkpoint, is the last to go. Every network is compacted first, so the
+    /// frontier never charges for a region no identity records.
     pub(super) fn bounded_bytes(&mut self, limit: usize) -> Vec<u8> {
         for (_, network) in self.networks.iter_mut() {
             network.compact();
@@ -81,61 +130,86 @@ impl Record {
     }
 }
 
-/// Retained recovery rights and the writes required to exercise them.
+/// The identities one bookmark may reclaim in one network, and the writes it
+/// must have caught up with first.
 #[derive(Default)]
 pub(crate) struct NetworkRecord {
-    /// Write progress shared by every identity; consult only its owned region.
+    /// Every write any identity here recorded, as one frontier. Projected on
+    /// an identity, it is the progress a restart must dominate before
+    /// reclaiming that identity.
     pub(super) written: Version,
-    /// Recovery candidates in checkpoint order, oldest first.
+    /// Regions the owner held when it recorded them and has not since given
+    /// away, oldest record first. After a checkpoint the live party is the
+    /// newest.
     pub(super) identities: VecDeque<Party>,
 }
 
-/// Maintain recovery requirements independently of identity recency.
+/// Record, reclaim, and give away identities under the module's invariant.
 impl NetworkRecord {
-    /// Record the live party's writes without acquiring any stored identity.
-    pub(crate) fn record(&mut self, party: &Party, version: &Version) {
-        // Every overlapping claim must require these writes, regardless of
-        // which identity originally recorded them.
-        self.written |= &(version / party).to_version();
-        self.identities.retain(|candidate| candidate != party);
+    /// Record the live party at its frontier.
+    ///
+    /// Afterwards `written` dominates the frontier's own progress on the
+    /// party, and the party is the newest identity, present once. The shared
+    /// frontier means every identity overlapping the party now requires these
+    /// writes too, whichever identity recorded them.
+    pub(crate) fn record(&mut self, party: &Party, frontier: &Version) {
+        self.written |= &(frontier / party).to_version();
+        self.identities.retain(|identity| identity != party);
         self.identities.push_back(party.dangerously_alias());
     }
 
-    /// Acquire caught-up identities when no bootstrap guard holds a fork.
-    pub(crate) fn reclaim(&mut self, party: &mut Party, version: &Version) {
-        for candidate in std::mem::take(&mut self.identities) {
-            // Catch-up and disjoint ownership are separate requirements.
-            // Projection checks the first; Party::join checks the second.
-            let caught_up = &self.written / &candidate <= *version;
+    /// Join every identity the frontier has caught up with into the live party.
+    ///
+    /// Precondition: no fork of the live party is reserved for a bootstrap;
+    /// the caller's reservation gate ensures it. A reserved fork is absent
+    /// from the live party while an identity recorded earlier still contains
+    /// it, and this pass would hand the fork back as the newcomer receives it.
+    ///
+    /// A caught-up identity contributes the part of its region the live party
+    /// does not own yet. That part is disjoint from the live party by
+    /// construction, and the frontier has caught up with it because it has
+    /// caught up with the whole identity. So the join cannot fail, the order
+    /// of the identities does not affect the result, and an identity the live
+    /// party already covers simply drops out. Afterwards every identity that
+    /// remains still awaits writes the frontier lacks, in its original order.
+    pub(crate) fn reclaim(&mut self, party: &mut Party, frontier: &Version) {
+        let mut waiting = VecDeque::new();
+        for identity in std::mem::take(&mut self.identities) {
+            let caught_up = &self.written / &identity <= *frontier;
             if !caught_up {
-                self.identities.push_back(candidate);
+                waiting.push_back(identity);
                 continue;
             }
-            if let Err(candidate) = party.join(candidate) {
-                self.identities.push_back(candidate);
+            if let Some(missing) = identity.without(party) {
+                party
+                    .join(missing)
+                    .expect("the part of an identity outside the live party is disjoint from it");
             }
         }
-        // An alias covered by the final live party adds no recovery rights.
-        // Larger claims may include rights whose writes are still missing.
-        // Keep them available for later recovery.
-        self.identities.retain(|candidate| !party.covers(candidate));
+        self.identities = waiting;
     }
 
-    /// Remove a donation from every claim before its ownership can be transferred.
-    pub(crate) fn slice(&mut self, party: &Party) {
+    /// Remove a donation from every identity before it can leave this peer.
+    ///
+    /// Afterwards no identity overlaps the donation. `written` may still cover
+    /// it until the next encoding compacts; a region no identity records is
+    /// never consulted.
+    pub(crate) fn slice(&mut self, donation: &Party) {
         self.identities = std::mem::take(&mut self.identities)
             .into_iter()
-            .filter_map(|candidate| candidate.without(party))
+            .filter_map(|identity| identity.without(donation))
             .collect();
-        self.compact();
     }
 
-    /// Forget write progress outside the regions still available for recovery.
+    /// Forget `written` outside every identity.
+    ///
+    /// Progress there bounds nothing reclaimable, so no reclaim decision
+    /// changes and the record only shrinks. Run before measuring an encoding.
     pub(crate) fn compact(&mut self) {
         self.written = self
             .identities
             .iter()
-            .map(|party| (&self.written / party).to_version())
+            .map(|identity| (&self.written / identity).to_version())
             .sum();
     }
 }

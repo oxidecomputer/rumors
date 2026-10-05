@@ -1212,6 +1212,50 @@ impl World {
         }
     }
 
+    /// Give every live peer one caught-up checkpoint with the gate open: a
+    /// local change, then a clean session to carry it. Run after a heal, so
+    /// each checkpoint sees the converged frontier.
+    fn settle(&mut self) {
+        let live: Vec<usize> = (0..self.n()).filter(|&k| self.nodes[k].is_live()).collect();
+        for &who in &live {
+            self.send(who);
+            if let Some(other) = live.iter().copied().find(|&k| k != who) {
+                self.clean_gossip(who, other);
+            }
+        }
+    }
+
+    /// Reclamation is total: after a caught-up checkpoint, a live peer's
+    /// bookmark records no identity it could reclaim. Every stored identity
+    /// other than the live party must still await writes the peer lacks.
+    ///
+    /// Identities that legitimately remain are those whose recorded writes
+    /// no live peer holds: writes recorded before a session that then failed,
+    /// or absorbed from a retiree and lost with the absorber's crash. Those
+    /// regions are unreclaimable by design, never reused, and leave only
+    /// through the size limit.
+    fn assert_reclaimed(&self) {
+        for node in &self.nodes {
+            let Some(rumors) = node.live() else { continue };
+            let party = rumors.dangerously_alias_party();
+            let frontier = rumors.snapshot().latest().clone();
+            let record = persisted_record(&node.store);
+            let Some(clocks) = record.get(&rumors.network()) else {
+                continue;
+            };
+            for clock in clocks {
+                let caught_up = clock.own_version() <= frontier;
+                assert!(
+                    *clock.party() == party || !caught_up,
+                    "node {} still records identity {:?}, which its frontier has caught up \
+                     with: reclamation left a reclaimable identity behind",
+                    node.label,
+                    clock.party(),
+                );
+            }
+        }
+    }
+
     /// After a clean heal: every live peer holds identical content, their live
     /// parties are pairwise disjoint, and every unredacted message the winning
     /// network held at heal start is live at every peer.
@@ -1923,10 +1967,15 @@ proptest! {
     /// The fleet starts fragmented into per-peer networks and converges by
     /// the `(min_ticks, network)` tie-break, with each peer's bookmark reads
     /// and writes failing on a shrinkable schedule.
+    ///
+    /// After the heal, one settling change per peer shows reclamation is
+    /// total ([`World::assert_reclaimed`]).
     #[test]
     fn bookmarking_never_recycles_a_version(plan in arb_plan()) {
-        let world = run_plan(plan);
+        let mut world = run_plan(plan);
         world.assert_healed();
+        world.settle();
+        world.assert_reclaimed();
     }
 }
 
@@ -2064,10 +2113,17 @@ proptest! {
     /// Wires and bookmarks are *reliable*, so a party is never lost
     /// in transit nor a checkpoint lost in storage, and every crashed peer can
     /// always reboot from a surviving member.
+    ///
+    /// After the heal, one settling change per peer shows reclamation is
+    /// total ([`World::assert_reclaimed`]): a stored identity is accounted
+    /// for by [`World::assert_no_leak`], but only a reclaimed one is back in
+    /// use.
     #[test]
     fn bookmarking_prevents_party_leakage(plan in arb_reliable_plan()) {
-        let world = run_reliable_plan(plan);
+        let mut world = run_reliable_plan(plan);
         world.assert_healed();
         world.assert_no_leak();
+        world.settle();
+        world.assert_reclaimed();
     }
 }

@@ -203,11 +203,14 @@ pub(crate) struct Inner<T: Send + Sync + 'static> {
 
 /// Keeps bookmark reclamation paused while bootstrap guards own forks.
 ///
-/// The replica holds one reference; each guard holds another. Clone and check
-/// under the replica lock, so no new fork can appear during reclamation. A guard
-/// releases its reference only after returning its fork or durably removing its
-/// recovery rights. If a release races the check, seeing its old count only
-/// delays reclamation.
+/// This gate is what keeps a reserved fork out of reclamation: the fork has
+/// left the live party while an identity recorded earlier still contains it,
+/// and reclaiming that identity would hand the fork back as the newcomer
+/// receives it. The replica holds one reference; each guard holds another.
+/// Clone and check under the replica lock, so no new fork can appear during
+/// reclamation. A guard releases its reference only after returning its fork
+/// or durably removing its recovery rights. If a release races the check,
+/// seeing its old count only delays reclamation.
 #[derive(Clone, Default)]
 struct BootstrapReservations(Arc<()>);
 

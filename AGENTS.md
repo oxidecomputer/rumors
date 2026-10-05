@@ -107,10 +107,6 @@ Elan-managed Lean toolchain.
 You can leave durable notes and other artifacts of exploration and ideation in
 `.agent-notes`. Read the README there for the ground rules.
 
-During the current triage, follow the workflow in
-`.agent-notes/2026-09-09-rumors-triage-plan/README.md`, including keeping Sush's
-compatibility branch current with every external Rumors API change.
-
 ## Writing style
 
 - Inside private modules, `pub` and `pub(crate)` are both accepted; neither

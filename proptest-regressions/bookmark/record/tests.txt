@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 83309041596a371939b28bbfba0bfe14265b0a832011998841d30e4f70ee1a10 # shrinks to piece_count = 4, shapes = [([false, false, false, true, false, false], 1), ([false, true, false, true, false, false], 1)], learned = [false, true, false, true, false, false], rotation = 5712364407072940250

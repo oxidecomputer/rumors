@@ -127,11 +127,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Record this peer's current ownership without reclaiming stored identities.
     async fn record_bookmark(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
-        let loaded = bookmark.ensure_loaded().await?;
+        let mut loaded = bookmark.load().await?;
         {
             let inner = self.inner.borrow();
             loaded.record(self.network, &inner.party, inner.tree.latest());
         }
-        bookmark.write().await
+        loaded.write().await
     }
 }

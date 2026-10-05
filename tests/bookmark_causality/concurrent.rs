@@ -160,5 +160,7 @@ proptest! {
         world.heal();
         world.assert_ownership();
         world.assert_healed();
+        world.settle();
+        world.assert_reclaimed();
     }
 }

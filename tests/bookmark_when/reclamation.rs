@@ -2,7 +2,7 @@
 
 use proptest::prelude::*;
 
-use super::{Peer, Probe, block_on, bootstrap_fork_peer, plain_gossip};
+use super::{Peer, Probe, absorb_retire, block_on, bootstrap_fork_peer, plain_gossip};
 use crate::common::flaky::persisted_record;
 
 /// A checkpoint during bootstrap must not leave an older overlapping entry
@@ -50,6 +50,74 @@ fn concurrent_bootstrap_checkpoint_protects_writes_after_restart() {
             restarted.dangerously_alias_party().is_disjoint(&writer),
             "an older overlapping entry must not authorize reuse of unseen writes"
         );
+    });
+}
+
+/// A restart reclaims the whole of two identities that overlap without
+/// nesting, not just the one it joins first.
+///
+/// One identity is recorded before a fork is reserved, the other after
+/// absorbing a retiree while the fork is still out. Whichever the restart
+/// joins first, the part of the other outside it must not be stranded.
+#[test]
+fn restart_reclaims_identities_that_overlap_without_nesting() {
+    block_on(async {
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let witness = bootstrap_fork_peer(&seed).await.into_rumors();
+        let bookmark = Probe::default();
+        let owner = bootstrap_fork_peer(&seed)
+            .await
+            .bookmark(bookmark.clone())
+            .await
+            .unwrap()
+            .into_rumors();
+        owner.send(1).unwrap();
+        plain_gossip(&owner, &witness).await;
+        let whole = owner.dangerously_alias_party();
+        let retiree = bootstrap_fork_peer(&seed).await;
+        let absorbed = retiree.dangerously_alias_party();
+        {
+            let (mut near, mut far) = rumors::link::memory();
+            let mut joining = Box::pin(Peer::<u64>::bootstrap().join(&mut near));
+            let mut serving = Box::pin(owner.gossip_once(&mut far));
+            assert!(futures::poll!(joining.as_mut()).is_pending());
+            assert!(futures::poll!(serving.as_mut()).is_pending());
+            assert_ne!(
+                owner.dangerously_alias_party(),
+                whole,
+                "the provider must have reserved a fork"
+            );
+            // Absorbing while the fork is reserved records the enlarged party
+            // beside the whole one, with reclamation deferred by the gate.
+            absorb_retire(&owner, retiree.into_rumors()).await;
+        }
+        // Cancelling returns the fork; the crash follows before any checkpoint.
+        drop(owner);
+
+        let restarted = bootstrap_fork_peer(&witness)
+            .await
+            .bookmark(bookmark.clone())
+            .await
+            .unwrap()
+            .into_rumors();
+        plain_gossip(&restarted, &witness).await;
+        let party = restarted.dangerously_alias_party();
+        assert!(
+            party.covers(&whole),
+            "the identity recorded before the reservation is reclaimed"
+        );
+        assert!(
+            party.covers(&absorbed),
+            "the region absorbed under the reservation is reclaimed too"
+        );
+        let record = persisted_record(&bookmark.store);
+        let clocks = &record[&restarted.network()];
+        assert_eq!(
+            clocks.len(),
+            1,
+            "every identity collapses into the live party"
+        );
+        assert_eq!(clocks[0].party(), &party);
     });
 }
 

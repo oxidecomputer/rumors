@@ -1,4 +1,5 @@
-//! Retention may lose recovery rights, but never their write requirements.
+//! Retention may lose recovery rights, but never their write requirements;
+//! reclamation takes every right the frontier has caught up with.
 
 use before::Clock;
 use proptest::prelude::*;
@@ -169,5 +170,99 @@ fn byte_accounting_matches_encoding_at_header_boundaries() {
     }
     for item_bytes in [65_535, 65_536] {
         assert_record_size(1, item_bytes);
+    }
+}
+
+/// Join aliases of the pieces `selected` picks into one identity, or `None`
+/// when it picks nothing.
+fn union(pieces: &[Party], selected: &[bool]) -> Option<Party> {
+    let mut chosen = pieces
+        .iter()
+        .zip(selected)
+        .filter(|(_, picked)| **picked)
+        .map(|(piece, _)| piece.dangerously_alias());
+    let mut identity = chosen.next()?;
+    for piece in chosen {
+        identity
+            .join(piece)
+            .expect("the pieces are pairwise disjoint");
+    }
+    Some(identity)
+}
+
+proptest! {
+    /// Reclamation is total: a checkpoint with the gate open joins every
+    /// identity the frontier is caught up on, however the identities overlap
+    /// and whatever their order.
+    ///
+    /// The live party ends as its start joined with each such identity, and
+    /// only identities that are not caught up remain, in their original
+    /// order. Identities are unions of disjoint pieces, each recorded at a
+    /// frontier that advances every piece it contains, so an identity is
+    /// caught up exactly when the restart has learned every piece in it.
+    #[test]
+    fn reclaim_consumes_every_caught_up_identity(
+        piece_count in 1usize..=6,
+        shapes in proptest::collection::vec(
+            (proptest::collection::vec(any::<bool>(), 6), 1u64..6),
+            1..8,
+        ),
+        learned in proptest::collection::vec(any::<bool>(), 6),
+        rotation in any::<usize>(),
+    ) {
+        let mut restart = Party::seed();
+        let mut owner = restart.fork();
+        let mut pieces: Vec<Party> = owner.forks((piece_count - 1) as u64).collect();
+        pieces.push(owner);
+        let learned = &learned[..piece_count];
+
+        // Record each distinct shape once, in a growing frontier.
+        let mut record = NetworkRecord::default();
+        let mut frontier = Version::new();
+        let mut recorded: Vec<(Party, Vec<bool>)> = Vec::new();
+        for (mask, ticks) in &shapes {
+            let mask = &mask[..piece_count];
+            if recorded.iter().any(|(_, seen)| seen == mask) {
+                continue;
+            }
+            let Some(identity) = union(&pieces, mask) else { continue };
+            for (piece, _) in pieces.iter().zip(mask).filter(|(_, picked)| **picked) {
+                frontier.ticks(piece, *ticks);
+            }
+            record.record(&identity, &frontier);
+            recorded.push((identity, mask.to_vec()));
+        }
+        prop_assume!(!recorded.is_empty());
+        let rotation = rotation % recorded.len();
+        record.identities.rotate_left(rotation);
+        recorded.rotate_left(rotation);
+
+        // The restart attaches with a fresh party. It has learned the writes
+        // of the learned pieces and nothing else in the owner's region.
+        let mut known = Version::new();
+        known.tick(&restart);
+        for (piece, _) in pieces.iter().zip(learned).filter(|(_, learned)| **learned) {
+            known |= &(&record.written / piece).to_version();
+        }
+        record.record(&restart, &known);
+
+        let caught_up = |mask: &[bool]| {
+            mask.iter().zip(learned).all(|(picked, learned)| !picked || *learned)
+        };
+        let mut expected = restart.dangerously_alias();
+        for (index, piece) in pieces.iter().enumerate() {
+            if recorded.iter().any(|(_, mask)| mask[index] && caught_up(mask)) {
+                expected.join(piece.dangerously_alias()).expect("the pieces avoid the restart");
+            }
+        }
+        let expected_remaining: Vec<&Party> = recorded
+            .iter()
+            .filter(|(_, mask)| !caught_up(mask))
+            .map(|(identity, _)| identity)
+            .collect();
+
+        record.reclaim(&mut restart, &known);
+        prop_assert_eq!(&restart, &expected);
+        prop_assert_eq!(record.identities.iter().collect::<Vec<_>>(), expected_remaining);
     }
 }
