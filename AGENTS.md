@@ -101,6 +101,7 @@ Elan-managed Lean toolchain.
   scattered sibling `.proptest-regressions` file. A failure reproduced
   by an already-committed seed replays first and owes no new entry.
   Commit every seed file that appears; never strip one from a diff.
+
 ## Your own notes
 
 You can leave durable notes and other artifacts of exploration and ideation in
