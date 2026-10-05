@@ -17,15 +17,17 @@
 //! - **Remove before sending.** A donated identity is removed from the record
 //!   durably before it can leave the process, because the recipient will own it
 //!   from the moment it may have arrived.
-//! - **No reclaiming while a fork is reserved.** A reserved fork is out of the
-//!   live party but still inside an older recorded identity; reclaiming that
-//!   identity would hand the fork back while the newcomer is about to receive
-//!   it.
+//! - **No reclaiming while a fork is reserved.** A fork of the live party which
+//!   is speculatively reserved to donate to a bootstrapping counterparty may
+//!   still exist inside another older recorded identity; reclaiming that
+//!   identity would revive the forked identity locally while the newcomer is
+//!   about to receive it.
 //!
-//! The first two rules are structural here: the only ways to change the record
-//! each return the store that makes the change durable, and the session awaits
-//! that store before touching the wire. The third is a count the replica keeps
-//! under its own lock.
+//! The first two rules are structural: the only ways to change the record each
+//! return a future which, when awaited, makes the change durable, and the
+//! session awaits that future before proceeding to synchronize with a peer. The
+//! third is enforced by a count of outstanding speculative forks which, when
+//! non-zero, prevents bookmark reclamation.
 
 use std::sync::Arc;
 
@@ -165,7 +167,8 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// and its bookmark; see [`Retire::Uncertain`](crate::Retire::Uncertain).
 /// Serving a bootstrap removes the donated identity the same way. If that
 /// session fails before sending, the identity returns to the live peer and is
-/// recorded again at its next checkpoint; a crash before then loses it.
+/// recorded again at its next checkpoint; a crash before this occurs would drop
+/// it forever.
 pub trait Bookmark {
     /// Failure to open or replace the stored bytes.
     type Error: std::error::Error + Send + Sync + 'static;
@@ -236,36 +239,38 @@ impl Bookmark for NoBookmark {
 
 /// The forks reserved for bootstraps and not yet sent, which pause reclamation.
 ///
-/// A checkpoint reclaims only while no [`Reservation`] is outstanding. That is
-/// race-free because `reserve` needs `&mut self`, which only a holder of the
-/// replica's write lock has, and a checkpoint runs under that same lock: no
-/// fork can be reserved during a checkpoint. Releasing needs no lock. It only
-/// lowers the count, and it happens only after the fork is back in the live
-/// party or gone from the record; a release that races a checkpoint just
+/// We can reclaim old identities during a bookmark checkpoint only while no
+/// [`Reservation`] is outstanding. That is race-free because `reserve` needs
+/// `&mut self`, which only a holder of the replica's write lock has, and a
+/// checkpoint runs under that same lock: no fork can be reserved during a
+/// checkpoint. Releasing needs no lock because it only lowers the count, and it
+/// happens only after the speculative fork rejoins the live party or is
+/// permanently gone from the record. A release that races a checkpoint just
 /// defers reclamation to the next one.
 #[derive(Default)]
 pub(crate) struct Reservations(Arc<()>);
 
-/// A reserved fork's hold on reclamation, released when dropped.
+/// One speculatively reserved fork's hold on reclamation, released when it is
+/// dropped.
 ///
-/// Drop it once the fork is back in the live party, or once its removal from
-/// the record is durable.
+/// Drop it once the fork has rejoined the live party, or once its removal from
+/// the record is durable; either way the record can no longer offer it.
 pub(crate) struct Reservation {
-    /// A clone of the replica's `Arc`: the strong count is one plus the forks
-    /// outstanding.
+    /// A clone of the replica's counter, so that the count of strong references
+    /// is one more than the number of outstanding reservations.
     _hold: Arc<()>,
 }
 
-/// Count reserved forks.
+/// Count the speculative forks that are outstanding.
 impl Reservations {
-    /// Reserve a fork, pausing reclamation until the reservation drops.
+    /// Reserve a fork, pausing reclamation until the returned reservation drops.
     pub(crate) fn reserve(&mut self) -> Reservation {
         Reservation {
             _hold: Arc::clone(&self.0),
         }
     }
 
-    /// Whether no fork is reserved.
+    /// Whether no fork is currently reserved, so that reclamation may proceed.
     fn none_outstanding(&self) -> bool {
         Arc::strong_count(&self.0) == 1
     }
@@ -292,15 +297,6 @@ struct Cache {
     /// Identities retained across restarts, grouped by network.
     record: Record,
     /// The live state the last store checkpointed, if it was a checkpoint.
-    ///
-    /// Store-before-sharing is already satisfied while the live state has not
-    /// changed since: the stored progress covers everything this session will
-    /// share. (Had the size limit evicted the party's own identity in that
-    /// store, nothing in its region would be reclaimable, which satisfies the
-    /// rule just as well.) The test is exact equality of party and own
-    /// progress; learning from others changes neither, so it never costs a
-    /// store, and an identity it caught up with is reclaimed at the checkpoint
-    /// after the next local change instead.
     durable: Option<Checkpoint>,
 }
 
@@ -308,7 +304,9 @@ struct Cache {
 struct Checkpoint {
     /// The exact live party.
     party: Party,
-    /// The frontier; only the party's own region is ever compared.
+    /// The causal frontier across all parties.
+    ///
+    /// Only an individual party's own region is ever compared.
     frontier: Version,
 }
 
@@ -325,8 +323,9 @@ impl<B> Bookmarked<B> {
 
     /// Select the store limit.
     ///
-    /// Only the next store applies it, so until then the stored record may
-    /// exceed it; forgetting the last checkpoint makes the next session store.
+    /// The limit takes effect at the next store, so until then the stored
+    /// record may exceed it. We forget the last checkpoint so that the next
+    /// session stores under the new limit instead of skipping its store.
     pub(crate) fn set_size_limit(&mut self, bytes: usize) {
         self.size_limit = bytes.max(format::record_size(0, 0));
         if let Some(cache) = &mut self.cache {
@@ -342,8 +341,7 @@ impl<B> Bookmarked<B> {
 
 /// Load the record on first use.
 impl<B: Bookmark> Bookmarked<B> {
-    /// Read storage unless the cache is present, then lend the cache for one
-    /// update.
+    /// Read storage if the cache is absent, then lend the cache for one update.
     pub(crate) async fn load(&mut self) -> Result<Loaded<'_, B>, BookmarkIo<B::Error>> {
         if self.cache.is_none() {
             let record = match self.persist.load().await.map_err(BookmarkIo::Io)? {
@@ -366,26 +364,29 @@ impl<B: Bookmark> Bookmarked<B> {
     }
 }
 
-/// The cache on loan from a load until one update stores it or drops it.
+/// The cache on loan from loading a bookmark until an update stores it or
+/// invalidates it by dropping it.
 ///
-/// Store-before-sharing and remove-before-sending are structural here: the
-/// only ways to change the record consume the loan and return the store that
-/// makes the change durable. Dropping the loan without an update changes
-/// nothing.
+/// The only ways to change the record consume the loan and return a future
+/// which will make the change durable. Dropping the loan without updating
+/// anything changes nothing.
 pub(crate) struct Loaded<'a, B> {
     /// The bookmark whose cache is present for the lifetime of the loan.
     bookmark: &'a mut Bookmarked<B>,
 }
 
-/// The three updates, each ending in a store.
+/// The three ways to change the record, each returning the future that stores
+/// it.
 impl<'a, B: Bookmark> Loaded<'a, B> {
     /// Store before sharing: checkpoint the live party at the frontier a
     /// session is about to share, reclaiming whatever that frontier has caught
     /// up with unless a fork is reserved.
     ///
-    /// Returns the store to await before transmitting, or `None` when the last
-    /// store already checkpointed this exact live state.
-    #[must_use = "await the store before the session transmits"]
+    /// Returns the future that stores the record, which the session awaits
+    /// before transmitting, or `None` when the last store already checkpointed
+    /// this exact live state, so that the stored progress already covers
+    /// everything this session will share.
+    #[must_use = "make bookmark changes durable before the session transmits"]
     pub(crate) fn checkpoint(
         mut self,
         network: Network,
@@ -408,7 +409,9 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
     }
 
     /// Remove before sending: take a donation out of every identity, and
-    /// return the store to await before the donation leaves the process.
+    /// return the future that stores the record, which the session awaits
+    /// before the donation leaves the process.
+    #[must_use = "make bookmark changes durable before the session transmits"]
     pub(crate) fn donate(
         mut self,
         network: Network,
@@ -418,12 +421,14 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
         self.store(None)
     }
 
-    /// Record the live party when storage is attached, and return the store.
+    /// Record the live party when storage is attached, and return the future
+    /// that stores the record.
     ///
-    /// Attachment reclaims nothing: if its store fails, the peer is handed
+    /// Attachment reclaims nothing, because a failed attachment hands the peer
     /// back without a bookmark, and a region reclaimed then would write
-    /// unrecorded. So this is not a checkpoint, and the first session still
-    /// reclaims.
+    /// without ever being recorded. So attachment is not a checkpoint, and the
+    /// first session still reclaims.
+    #[must_use = "make bookmark changes durable before the session transmits"]
     pub(crate) fn attach(
         mut self,
         network: Network,
@@ -446,9 +451,10 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
 
     /// Store the record; on success the cache returns with `durable` set.
     ///
-    /// The cache leaves memory as the store is created and comes back only on
-    /// success, so after an error or a cancellation the next load reads what
-    /// storage actually kept instead of trusting memory about it.
+    /// The cache leaves memory as the future is created and comes back only on
+    /// success, so that after an error or a cancellation the next load reads
+    /// what storage actually kept instead of trusting memory about it.
+    #[must_use = "make bookmark changes durable before the session transmits"]
     fn store(
         self,
         durable: Option<Checkpoint>,

@@ -191,15 +191,16 @@ fn union(pieces: &[Party], selected: &[bool]) -> Option<Party> {
 }
 
 proptest! {
-    /// Reclamation is total: a checkpoint with the gate open joins every
-    /// identity the frontier is caught up on, however the identities overlap
-    /// and whatever their order.
+    /// Reclaiming joins every identity the frontier has caught up with into
+    /// the live party, however the identities overlap and in whatever order
+    /// they were recorded.
     ///
-    /// The live party ends as its start joined with each such identity, and
-    /// only identities that are not caught up remain, in their original
-    /// order. Identities are unions of disjoint pieces, each recorded at a
-    /// frontier that advances every piece it contains, so an identity is
-    /// caught up exactly when the restart has learned every piece in it.
+    /// Afterwards the live party is its starting party joined with each such
+    /// identity, and only the identities the frontier has not caught up with
+    /// remain, in their original order. The identities are unions of disjoint
+    /// pieces, each recorded at a frontier that advances every piece it
+    /// contains, so the restart has caught up with an identity exactly when it
+    /// has learned every piece in it.
     #[test]
     fn reclaim_consumes_every_caught_up_identity(
         piece_count in 1usize..=6,

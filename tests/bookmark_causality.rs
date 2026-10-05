@@ -1212,9 +1212,10 @@ impl World {
         }
     }
 
-    /// Give every live peer one caught-up checkpoint with the gate open: a
-    /// local change, then a clean session to carry it. Run after a heal, so
-    /// each checkpoint sees the converged frontier.
+    /// Give every live peer one checkpoint taken after it has caught up and
+    /// with no fork reserved: a local change, then a clean session to carry
+    /// it. Run this after a heal, so that each checkpoint sees the converged
+    /// frontier.
     fn settle(&mut self) {
         let live: Vec<usize> = (0..self.n()).filter(|&k| self.nodes[k].is_live()).collect();
         for &who in &live {
@@ -1225,15 +1226,15 @@ impl World {
         }
     }
 
-    /// Reclamation is total: after a caught-up checkpoint, a live peer's
-    /// bookmark records no identity it could reclaim. Every stored identity
-    /// other than the live party must still await writes the peer lacks.
+    /// After a checkpoint taken once a peer has caught up, its bookmark records
+    /// no identity other than the live party that its frontier has caught up
+    /// with: reclaiming is total.
     ///
-    /// Identities that legitimately remain are those whose recorded writes
-    /// no live peer holds: writes recorded before a session that then failed,
-    /// or absorbed from a retiree and lost with the absorber's crash. Those
-    /// regions are unreclaimable by design, never reused, and leave only
-    /// through the size limit.
+    /// Identities may legitimately remain when no live peer holds the writes
+    /// they recorded: writes a checkpoint recorded before a session that then
+    /// failed, or writes absorbed from a retiree and lost with the absorber's
+    /// crash. Those regions are unreclaimable by design, never reused, and
+    /// leave the record only through the size limit.
     fn assert_reclaimed(&self) {
         for node in &self.nodes {
             let Some(rumors) = node.live() else { continue };

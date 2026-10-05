@@ -107,9 +107,10 @@ impl Record {
     /// Encode within the byte limit, removing one oldest identity at a time.
     ///
     /// Eviction starts with the least recently used network and its oldest
-    /// identity, so a network's live party, the newest identity after a
-    /// checkpoint, is the last to go. Every network is compacted first, so the
-    /// frontier never charges for a region no identity records.
+    /// identity, so that a network's live party, which is the newest identity
+    /// after a checkpoint, goes last: it is the identity the next restart
+    /// needs first. Every network is compacted first, so that the frontier
+    /// costs no bytes for a region no identity records.
     pub(super) fn encode_bounded(&mut self, limit: usize) -> Vec<u8> {
         for (_, network) in self.networks.iter_mut() {
             network.compact();
@@ -158,9 +159,11 @@ pub(crate) struct NetworkRecord {
 
 /// Record, reclaim, and give away identities under the module's invariant.
 impl NetworkRecord {
-    /// Record the live party at its frontier: `written` grows by the
-    /// frontier's own progress on the party, and the party becomes the newest
-    /// identity, present once.
+    /// Record the live party at its frontier.
+    ///
+    /// `written` grows by the frontier's own progress on the party, and the
+    /// party becomes the newest identity, present once, so that recording it
+    /// again refreshes its place rather than duplicating it.
     pub(crate) fn record(&mut self, party: &Party, frontier: &Version) {
         self.written |= &(frontier / party).to_version();
         self.identities.retain(|identity| identity != party);
@@ -169,12 +172,18 @@ impl NetworkRecord {
 
     /// Join every identity the frontier has caught up with into the live party.
     ///
-    /// The caller guarantees no fork of the live party is reserved. A caught-up
-    /// identity may overlap the live party; what it contributes is the part
-    /// outside, which is disjoint by construction and caught up because the
-    /// whole identity is. So the join cannot fail, order does not matter, and
-    /// an identity the live party already covers simply drops out. Whatever
-    /// remains still awaits writes, in its original order.
+    /// The caller guarantees that no fork of the live party is reserved for a
+    /// donation, because an identity recorded before the reservation still
+    /// contains that fork and we would hand it back. A caught-up identity may
+    /// overlap the live party, because a checkpoint taken while a fork was
+    /// reserved recorded the smaller party beside an older, larger one. What
+    /// such an identity contributes is the part outside the live party: that
+    /// part is disjoint from the live party by construction, and the frontier
+    /// has caught up with it because it has caught up with the whole identity.
+    /// So the join cannot fail, the order of the identities does not matter,
+    /// and an identity the live party already covers contributes nothing and
+    /// drops out. Every identity that remains still awaits writes the frontier
+    /// lacks, in its original order.
     pub(crate) fn reclaim(&mut self, party: &mut Party, frontier: &Version) {
         let mut waiting = VecDeque::new();
         for identity in std::mem::take(&mut self.identities) {
@@ -192,10 +201,12 @@ impl NetworkRecord {
         self.identities = waiting;
     }
 
-    /// Remove a donation from every identity.
+    /// Remove a donation from every identity, so that the record can no longer
+    /// offer any part of it to a restart.
     ///
-    /// `written` may still cover it until the next encoding compacts; nothing
-    /// reads `written` outside an identity.
+    /// `written` may still cover the donated region until the next encoding
+    /// compacts it away. That costs only bytes, because nothing reads `written`
+    /// outside an identity.
     pub(crate) fn donate(&mut self, donation: &Party) {
         self.identities = std::mem::take(&mut self.identities)
             .into_iter()
@@ -203,10 +214,11 @@ impl NetworkRecord {
             .collect();
     }
 
-    /// Forget `written` outside every identity.
+    /// Forget `written` outside every identity, so that an encoding pays only
+    /// for regions a restart could reclaim.
     ///
-    /// Progress there bounds nothing reclaimable, so no reclaim decision
-    /// changes and the record only shrinks. Run before measuring an encoding.
+    /// Progress outside every identity bounds nothing reclaimable, so no
+    /// reclaim decision changes; the record only shrinks.
     pub(crate) fn compact(&mut self) {
         self.written = self
             .identities

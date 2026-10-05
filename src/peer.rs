@@ -188,8 +188,11 @@ pub struct SynchronizationSettings {
 pub(crate) struct Inner<T: Send + Sync + 'static> {
     /// Identity used to stamp local events.
     pub(crate) party: Party,
-    /// Forks reserved for bootstraps and not yet sent; the bookmark reclaims
-    /// nothing while any is outstanding.
+    /// Forks reserved for donations to bootstrapping counterparties, not yet
+    /// sent.
+    ///
+    /// Bookmark reclamation pauses for safety while any of these are
+    /// outstanding.
     pub(crate) reservations: Reservations,
     /// The published content and causal ceiling.
     pub(crate) tree: Tree<T>,
@@ -267,7 +270,8 @@ impl<T: Send + Sync + 'static> Inner<T> {
         });
     }
 
-    /// Split off a bootstrap fork; reclamation pauses until the reservation drops.
+    /// Split off a fork to donate to a bootstrapping counterparty; reclamation
+    /// pauses until the returned reservation drops.
     fn reserve(&mut self) -> (Party, Reservation) {
         (self.party.fork(), self.reservations.reserve())
     }

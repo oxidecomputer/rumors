@@ -53,12 +53,14 @@ fn concurrent_bootstrap_checkpoint_protects_writes_after_restart() {
     });
 }
 
-/// A restart reclaims the whole of two identities that overlap without
-/// nesting, not just the one it joins first.
+/// A restart reclaims both of two identities that overlap without either
+/// containing the other, rather than only the one it joins first.
 ///
-/// One identity is recorded before a fork is reserved, the other after
-/// absorbing a retiree while the fork is still out. Whichever the restart
-/// joins first, the part of the other outside it must not be stranded.
+/// The first identity is recorded before a fork is reserved for a bootstrap.
+/// The second is recorded after absorbing a retiree while that fork is still
+/// reserved, so it contains the retiree's region but not the fork. Whichever
+/// identity the restart joins first, the part of the other outside it must be
+/// reclaimed too, and the record must end up holding only the live party.
 #[test]
 fn restart_reclaims_identities_that_overlap_without_nesting() {
     block_on(async {
@@ -88,7 +90,7 @@ fn restart_reclaims_identities_that_overlap_without_nesting() {
                 "the provider must have reserved a fork"
             );
             // Absorbing while the fork is reserved records the enlarged party
-            // beside the whole one, with reclamation deferred by the gate.
+            // beside the whole one, because reclamation waits for the fork.
             absorb_retire(&owner, retiree.into_rumors()).await;
         }
         // Cancelling returns the fork; the crash follows before any checkpoint.

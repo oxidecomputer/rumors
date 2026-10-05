@@ -78,8 +78,8 @@ fn sendable<F: Future + Send>(future: F) -> F {
     future
 }
 
-/// Apply the update under test, a donation or a checkpoint, and return its
-/// store boxed so either kind fits one binding.
+/// Apply the update under test, a donation or a checkpoint, and return the
+/// future that stores it, boxed so that either kind fits one binding.
 fn update<'a>(
     loaded: Loaded<'a, Memory>,
     donation: bool,
