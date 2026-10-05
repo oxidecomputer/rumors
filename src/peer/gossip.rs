@@ -523,14 +523,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             return Ok((unchanged, stats.snapshot()));
         }
 
-        // Store our own progress at the snapshot's frontier before sharing any
-        // of it, so a crash can never leave this region reclaimable below a
-        // version another peer holds. Checkpoint, snapshot, and fork
-        // reservation happen under one replica lock, so a concurrent send
-        // lands wholly before or wholly after all three and the newcomer
-        // cannot inherit a party without its latest events. Lock order:
-        // bookmark, writer gate, watch. Retirement reserves no fork: the
-        // consumed Peer keeps the whole party.
+        // The bookmark's store-before-sharing rule: checkpoint at the
+        // snapshot's frontier, then transmit from that snapshot. Checkpoint,
+        // snapshot, and fork reservation happen under one replica lock, so a
+        // concurrent send lands wholly before or wholly after all three and
+        // the newcomer cannot inherit a party without its latest events. Lock
+        // order: bookmark, writer gate, watch. Retirement reserves no fork:
+        // the consumed Peer keeps the whole party.
         let mut guarded = ForkGuard {
             fork: None,
             recover: self.inner.clone(),
@@ -598,8 +597,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     .map_err(Error::widen)?,
             );
         } else if self_retiring || guarded.fork.is_some() {
-            // Make the removal durable before sending. A failure here hands the
-            // recipient nothing: retirement still owns the Peer, and a
+            // The bookmark's remove-before-sending rule. A failure here hands
+            // the recipient nothing: retirement still owns the Peer, and a
             // bootstrap's guard still owns its fork, which the next checkpoint
             // records again even if the removal reached storage.
             {

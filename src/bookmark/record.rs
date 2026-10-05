@@ -158,12 +158,9 @@ pub(crate) struct NetworkRecord {
 
 /// Record, reclaim, and give away identities under the module's invariant.
 impl NetworkRecord {
-    /// Record the live party at its frontier.
-    ///
-    /// Afterwards `written` dominates the frontier's own progress on the
-    /// party, and the party is the newest identity, present once. The shared
-    /// frontier means every identity overlapping the party now requires these
-    /// writes too, whichever identity recorded them.
+    /// Record the live party at its frontier: `written` grows by the
+    /// frontier's own progress on the party, and the party becomes the newest
+    /// identity, present once.
     pub(crate) fn record(&mut self, party: &Party, frontier: &Version) {
         self.written |= &(frontier / party).to_version();
         self.identities.retain(|identity| identity != party);
@@ -172,18 +169,12 @@ impl NetworkRecord {
 
     /// Join every identity the frontier has caught up with into the live party.
     ///
-    /// The caller reclaims only while no fork of the live party is reserved for
-    /// a bootstrap: a reserved fork is absent from the live party while an
-    /// identity recorded earlier still contains it, and this pass would hand
-    /// the fork back as the newcomer receives it.
-    ///
-    /// A caught-up identity contributes the part of its region the live party
-    /// does not own yet. That part is disjoint from the live party by
-    /// construction, and the frontier has caught up with it because it has
-    /// caught up with the whole identity. So the join cannot fail, the order
-    /// of the identities does not affect the result, and an identity the live
-    /// party already covers simply drops out. Afterwards every identity that
-    /// remains still awaits writes the frontier lacks, in its original order.
+    /// The caller guarantees no fork of the live party is reserved. A caught-up
+    /// identity may overlap the live party; what it contributes is the part
+    /// outside, which is disjoint by construction and caught up because the
+    /// whole identity is. So the join cannot fail, order does not matter, and
+    /// an identity the live party already covers simply drops out. Whatever
+    /// remains still awaits writes, in its original order.
     pub(crate) fn reclaim(&mut self, party: &mut Party, frontier: &Version) {
         let mut waiting = VecDeque::new();
         for identity in std::mem::take(&mut self.identities) {
@@ -201,11 +192,10 @@ impl NetworkRecord {
         self.identities = waiting;
     }
 
-    /// Remove a donation from every identity before it can leave this peer.
+    /// Remove a donation from every identity.
     ///
-    /// Afterwards no identity overlaps the donation. `written` may still cover
-    /// it until the next encoding compacts; a region no identity records is
-    /// never consulted.
+    /// `written` may still cover it until the next encoding compacts; nothing
+    /// reads `written` outside an identity.
     pub(crate) fn donate(&mut self, donation: &Party) {
         self.identities = std::mem::take(&mut self.identities)
             .into_iter()
