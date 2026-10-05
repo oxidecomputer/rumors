@@ -548,8 +548,7 @@ proptest! {
 ///
 /// Every library walk is iterative — depth lives on explicit heap and bit
 /// stacks, never the call stack — and this test is the depth-100k proof of that
-/// claim (the hard rule in the crate's AGENTS.md names it as such). Beyond the
-/// single-clock ops (tick, fork, join, partial_cmp, `|`, encode, decode,
+/// claim. Beyond the single-clock ops (tick, fork, join, partial_cmp, `|`, encode, decode,
 /// Debug), this drives the composite ops on deep structures: `sync` between two
 /// deep clocks, `send`/`recv` of a deep version, and version comparison and
 /// concurrency at depth. Impl-only: the recursive oracle cannot build or even

@@ -17,6 +17,12 @@
 # four CI groups with the checks that require a developer machine. Each check
 # is listed once below; the workflow invokes the owning group rather than
 # copying its contents.
+#
+# Tools: rust-toolchain.toml provisions the stable toolchain with its
+# components and targets on first use. Across tiers the recipes also use
+# cargo-nextest, python3 (the tools/ linters), and the nightly pinned at
+# `nightly_toolchain`; a recipe that needs anything else names it in its
+# comment.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -300,6 +306,7 @@ docs-internal:
 # deps, in one target dir of its own. What this cannot check is the
 # package: docs.rs builds the published tarball, and `cargo package` on
 # before refuses until its `suanpan` dependency carries a version.
+# Needs cargo-docs-rs: `cargo install cargo-docs-rs`.
 
 # Build the rustdoc as docs.rs does (pinned nightly, `--cfg docsrs`, each crate's docs.rs metadata).
 docs-docsrs:
@@ -529,7 +536,8 @@ features:
 wasm-check:
     cargo check -p before-viz --target wasm32-unknown-unknown
 
-# This is exactly what the Pages deploy runs. Needs npm (network on first run).
+# This is exactly what the Pages deploy runs. Needs wasm-pack and npm
+# (network on first run).
 
 # Full visualizer build: wasm-pack, strict TypeScript typecheck, esbuild bundle.
 viz:

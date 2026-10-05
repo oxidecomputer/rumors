@@ -1,188 +1,118 @@
 # rumors — project notes
 
-A guidepost, not a manual: the documentation of record is the rustdoc. Read
-the crate-level docs first, then the module docs named below. Keep this file
-accurate and small; when detail belongs somewhere durable, put it in the docs.
+A guidepost, not a manual: it orients and points, and the documentation of
+record is the rustdoc. Keep this file small and accurate; when detail needs a
+durable home, put it in the docs and point there.
 
 ## Orientation
 
 `rumors` is a Rust library for unordered gossip with redaction: a CRDT-backed
-set of messages that peers replicate and keep convergent, reconciling over
-the wire by exchanging only what differs. It is built on `crates/before`, an
-Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
+set of messages that peers replicate and keep convergent, reconciling over the
+wire by exchanging only what differs. It is built on `crates/before`, an
+Interval Tree Clock library whose crate docs define `Party`, `Version`, and
+`Clock`. Read the crate docs (`src/lib.rs`) first, then the module docs for
+the area you are changing.
 
-- Network membership, the `Peer`/`Rumors` split, the session
-  contract, and bootstrap/retire semantics: crate docs (`src/lib.rs`).
-- The transport: sessions run over a `Link` — a control byte stream plus a
-  supply of independent, lazily opened data streams. The contract (which
-  the deadlock-freedom argument rests on) is in `src/link.rs`; the
-  `conformance` cargo feature ships the public validation suite for
-  caller-built links; `.agent-notes/2026-07-17-streaming-wire-deadlock/`
-  records why the contract exists and the deadlock analysis behind it.
-- The tree (sparse Merkle radix trie, path compression, version-addressed
-  leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
-  `src/tree/typed/`.
-- The mirror protocol: module docs in `src/tree/mirror/streaming/` (V2,
-  fixed-memory; its module doc maps the layers: backend materiality, the
-  type-level phase schedule, the walk and the proxy, the window, the wire
-  vocabulary, the leaf conversion boundary). Its behavioral oracle in the
-  tests is the in-memory merge, `Tree::join`.
-- ITC semantics (`Party`, `Version`, `Clock`, party disjointness):
-  `before`'s crate docs and `crates/before/CLAUDE.md`.
+## Verifying a change
 
-## Commands
+The `justfile` is the source of truth for verification: `just --list` is the
+tour, and the comment above each recipe says what it checks and why.
 
-The `justfile` is the source of truth for verification: every artifact in
-the workspace has a recipe there, and the comment above each recipe explains
-what it checks and why. `just --list` is the tour. Run `just gate` and get
-it fully clean before every commit that touches anything the gate checks;
-no gate leg reads `.agent-notes/`, so a commit confined there needs no run.
+- Iterate with `just check`, `just test <filter>`, `just clippy`, and
+  `just fmt`.
+- After editing crate-level rustdoc, run `just readme`: the READMEs are
+  derived, never hand-edited.
+- Before every commit that touches anything the gate checks, get `just gate`
+  fully clean. No gate leg reads `.agent-notes/`, so a commit confined there
+  needs no run.
 
-## Contributing a change
-
-One-time setup: most of it provisions itself. `rust-toolchain.toml` names
-the stable toolchain of record along with the components and targets the
-gate shells out to — clippy, rustfmt, and `wasm32-unknown-unknown` — and
-rustup installs them on the first cargo invocation, in the detached
-workspaces too. It is pinned rather than tracking current stable because
-the tree pins numbers derived from the compiler; the file's own comment
-carries that argument and the procedure for bumping it.
-
-What you install yourself: the nightly toolchain the gate's nightly legs
-name (`nightly_toolchain` in the justfile, pinned for the same reason),
-`just`, `cargo-nextest`, `cargo-rdme`, `cargo-fuzz`, `cargo-docs-rs`, and
-python3 with bash (the `tools/` linters). `just ci`
-additionally wants `wasm-pack` and node/npm.
-`just all` also wants `cargo-audit`, `cargo-deny`, `cargo-llvm-cov`, and the
-Elan-managed Lean toolchain.
-
-1. Iterate with the inner loop: `just check`, `just test <filter>`,
-   `just clippy`, `just fmt`.
-2. If you edited crate-level rustdoc, run `just readme`: the READMEs are
-   derived, never hand-edited.
-3. Write tests to the conventions below, and commit any proptest seed
-   files that appear.
-4. Run `just gate` and get it fully clean before every commit: it adds
-   everything the inner loop skips (the justfile's tier comments map it).
-   The gate gates what it checks: a commit confined to `.agent-notes/`
-   needs no run.
-5. Sweep your prose against the hard rules below before asking for
-   review; nothing in the gate checks them mechanically.
+`rust-toolchain.toml` provisions the stable toolchain on first use; the
+justfile's header says which other tools the recipes need. Both toolchains are
+pinned deliberately; the comments on `rust-toolchain.toml` and on the
+justfile's `nightly_toolchain` give the reason and the bump procedure.
 
 ## Writing tests
 
-- Unit and protocol tests live in a sibling file: `mod tests;` in the
-  source, `tests.rs` next to it. Cross-peer behavioral suites are category
-  binaries in `tests/`, built on `tests/common` (its module doc maps the
-  categories).
-- Give every test a doc comment stating, in English, the behavior and
-  invariant it protects. The gate's `testdoc` checks that the comment
-  exists; review holds it to the standard.
-- Improve the legibility of every test, helper, fixture, and strategy you touch.
-  Understand how its setup and assertions establish the stated invariant, then
-  simplify its names, structure, and prose accordingly. Preserve its coverage
-  and semantics unless it is wrong, vacuous, or weaker than its claim; in that
-  case, fix the test and call out the behavioral correction for review.
-- Every test must protect behavior that could plausibly regress. Do not test an
-  enum constructor, direct error pass-through, or rendered prose merely to add
-  coverage; exercise the boundary where a wrong implementation would matter.
-- When the claim is a family (a boundary, an ordering, a schedule), test it
-  as a proptest invariant or exhaust the finite domain. Never give a point
-  unit test a family-wide name or comment. A point regression may stay a unit
-  test when its name and prose state the exact case it protects.
-- A failing proptest writes a seed file automatically, at the one path
-  its persistence derives from the test's source location: the central
-  `<package root>/proptest-regressions/<path below the anchor>.txt`,
-  where the anchor is the nearest directory holding `lib.rs` or
-  `main.rs` — `src/` for unit suites, and `tests/` for integration
-  suites, anchored by the deliberate empty `tests/main.rs`. A seed
-  anywhere else is never read — `tests/seed_liveness.rs` holds every
-  committed seed to a path proptest actually resolves, and fails any
-  scattered sibling `.proptest-regressions` file. A failure reproduced
-  by an already-committed seed replays first and owes no new entry.
-  Commit every seed file that appears; never strip one from a diff.
+- Unit and protocol tests live in a sibling file: `mod tests;` in the source,
+  `tests.rs` next to it. Cross-peer suites are binaries in `tests/`, built on
+  the fixtures in `crates/rumors-testkit` (its `common` module doc maps them).
+- Give every test a doc comment stating the behavior and invariant it
+  protects. The gate's `testdoc` checks that the comment exists; review holds
+  it to the standard.
+- Every test must protect behavior that could plausibly regress: exercise a
+  boundary where a wrong implementation would matter, never an enum
+  constructor, an error pass-through, or rendered prose for coverage's sake.
+- When the claim is a family (a boundary, an ordering, a schedule), test it as
+  a proptest invariant or exhaust the finite domain. A point unit test's name
+  and prose state the exact case it protects, never a family-wide claim.
+- Leave every test, helper, fixture, and strategy you touch more legible:
+  understand how it establishes its invariant, then simplify its names,
+  structure, and prose to match. Preserve its coverage and semantics unless it
+  is wrong, vacuous, or weaker than its claim; then fix it and call out the
+  behavioral correction for review.
+- Commit every proptest seed file that appears, and never strip one from a
+  diff. Seeds replay only from the path proptest derives; `tests/main.rs`
+  explains that path, and `tests/seed_liveness.rs` fails any seed proptest
+  would not read.
 
-## Your own notes
+## Writing documentation
 
-You can leave durable notes and other artifacts of exploration and ideation in
-`.agent-notes`. Read the README there for the ground rules.
-
-## Writing style
-
-- Inside private modules, `pub` and `pub(crate)` are both accepted; neither
-  spelling implies that an item belongs to the crate's external API.
-- Give every function, type, trait, constant, and other definition at least a
-  brief doc comment explaining its purpose, including private items, trait
-  implementations, and test helpers. Keep it useful; add detail only as needed.
-- When writing user-facing documentation (all public rustdoc comments), consider
-  first *who is reading it* (the developer wanting to *use* the library) and
-  what they *need to know*. Hew to the quadrants of the Diataxis framework where
-  applicable.
+- Give every item a doc comment stating its purpose, private items, trait
+  impls, and test helpers included; add detail only where it helps.
+- Write public rustdoc for the developer *using* the library, following the
+  Diátaxis quadrants where they apply, and never mention what only a reader of
+  the source can see. Write private docs and comments for the maintainer who
+  needs to *understand*, *orient*, and *modify*.
 - Describe public lifecycle operations as joining, gossiping, and leaving a
-  network. Explain internal peer identity in `Bookmark`, where it motivates
-  version growth and storage obligations, and in maintainer or protocol
-  documentation that needs the mechanism. Ordinary API use should not require it.
-- When writing maintainer-facing documentation (all private rustdoc comments and
-  internal code comments), consider first *who is reading it* (the developer
-  wanting to *understand*, *orient*, and *modify* the library) and what they
-  *need to know*.
-- Documentation should respect the underlying abstraction boundaries of the
-  objects it documents. For example, when documenting a module, specify its
-  invariants, constraints, purpose, and guarantees, but eschew over-binding
-  definitions as to its internal structure; when writing public rustdoc, do not
-  refer to functionality which cannot be seen by someone who is not looking at
-  the source code.
-- At all levels of structure, when writing all prose, think about how to clearly
-  present the information, both concise and pedagogically. Eschew needless and
-  especially self-invented jargon except where it is clearly defined and serves
-  an expository purpose. Consider the precepts of _Style: Lessons in Clarity and
-  Grace_ as you craft prose.
+  network. Internal peer identity is explained in `Bookmark` and in maintainer
+  or protocol docs that need the mechanism; ordinary API use should not
+  require it.
+- Document a module's purpose, invariants, and guarantees without binding the
+  reader to its internal structure.
+- Prefer plain, teaching-register prose (_Style: Lessons in Clarity and
+  Grace_) to self-invented jargon; define any term you must introduce.
+- Inside private modules, `pub` and `pub(crate)` are both accepted; neither
+  marks an item as external API.
 
 ## Hard rules
 
-- Nothing in the codebase refers to code that no longer exists — no
-  "formerly", "superseded", "was removed", no deleted API names in any
-  prose. Excise or re-denominate; provenance lives in git history and
-  the design plans' decision records.
-- Code may cite the Lean artifact by *theorem or definition name* (never
-  by file path — Lean refactors orphan paths) when a kernel-checked
-  statement backs the claim, with the invariant still stated inline;
-  the model's design document (`formal/MODEL.md`) and proof-effort
-  progress notes (`formal/PROGRESS.md`) are never cited from code.
-- The model of record is uniform-hash, authenticated-honest-peer:
-  transport is pre-authenticated and authorized, and an authorized peer
-  already holds write authority over the set, so hostile-peer regimes
-  are off-model — no design or pricing argument may rest on adversary
-  economics. Violation/fail-fast machinery is a conformance bug
-  detector, not a security boundary.
-  Do not add machinery to guarantee termination against non-conforming
-  peers or links; applications own deadlines for those waits. Preserve
-  progress under conforming traffic and propagate detected failures promptly.
-- Never let two independently-`seed`ed universes interact; within a universe,
-  linearity of parties is the invariant everything rests on (see `before`
-  and its `Party` documentation).
-- Commit every proptest seed file (`proptest-regressions/**`); never
-  strip them from diffs.
-- `tests/gossip_snapshot.rs`, `tests/protocol_overhead.rs`, and the `insta`
-  snapshots pin the wire format byte-for-byte; re-accept them only after a
-  deliberate protocol change,
-  never as an accommodation of drift. Pre-release (no shipped version
-  exists to hold compatible), that means a deliberate, owner-ruled change
-  to the wire format or to the capture renderer's vocabulary, named
-  explicitly in the re-accepting commit. Once the first
-  release ships, a format change means a new protocol version, never a
+No gate leg checks these; review does.
+
+- Nothing in the tree refers to code that no longer exists: no "formerly", no
+  "was removed", no deleted API names. Restate prose in terms of what is;
+  provenance lives in git history.
+- Code may cite the Lean artifact by *theorem or definition name*, never by
+  file path, when a kernel-checked statement backs the claim, and still states
+  the invariant inline.
+- The model of record is uniform-hash and authenticated-honest-peer: the
+  transport is pre-authenticated and authorized, and an authorized peer already
+  holds write authority over the set. Hostile peers are off-model, so no
+  design or cost argument rests on adversary economics, and fail-fast checks
+  detect conformance bugs rather than enforce security. Add no machinery to
+  guarantee termination against non-conforming peers or links (applications
+  own deadlines for those waits); preserve progress under conforming traffic
+  and propagate detected failures promptly.
+- Never let two independently `seed`ed universes interact. Within a universe,
+  the linearity of parties is the invariant everything rests on (see
+  `before`'s `Party` docs).
+- Redaction leaves no tombstones: a deletion is honored by observing versions,
+  so reason about it in version ceilings and floors, not markers.
+- The `insta` snapshots and the exact byte counts in
+  `tests/protocol_overhead.rs` pin the wire and storage formats. Re-accept
+  them only for a deliberate, owner-ruled change to a format or to the capture
+  renderer, named in the re-accepting commit, never to accommodate drift. Once
+  a release ships, a wire format change means a new protocol version, never a
   mutation of a released one.
-  To re-accept deliberately: `just test-all`, then `cargo insta review`
-  (install: `cargo install cargo-insta`), then commit the updated
-  `tests/snapshots/*.snap`. For the bookmark pins (`src/bookmark/format/`),
-  one narrower class exists for tamper sweeps attributing snapshot
-  history: a *fixture re-pin*, where only `frame_non_trivial` moves (its
-  fixture deliberately carries nested versions so the pin exercises real
-  skyline payload bytes) while the on-disk format is attested unchanged by
-  an untouched `frame_empty` pin and the round-trip/corruption suite.
-  Attribute such a re-pin to the fixture. A re-accept that moves
-  `frame_empty` is a bookmark *format* change — versioned by
-  `BOOKMARK_FORMAT_VERSION`, owner-ruled, and named in the re-accepting
-  commit like any other deliberate format change.
-- Redaction leaves no tombstones: deletions are honored by observing versions.
-  When reasoning about it, think version ceilings/floors, not markers.
+  - A bookmark snapshot that moves because the encoding changed is an on-disk
+    format change: bump `BOOKMARK_FORMAT_VERSION` in the same commit.
+  - A snapshot that moves only because its test fixture changed is a fixture
+    change; say so in the commit.
+  - To re-accept: `just test-all`, then `cargo insta review` (from
+    `cargo install cargo-insta`), then commit the updated `.snap` files.
+
+## Your own notes
+
+You may leave durable notes and other artifacts of exploration in
+`.agent-notes/`; `.agent-notes/AGENTS.md` sets the conventions. Notes are
+dated and unaudited, never documentation of record: verify a note against the
+tree before relying on it.

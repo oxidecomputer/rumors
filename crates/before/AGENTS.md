@@ -1,36 +1,29 @@
 # before — Interval Tree Clocks
 
-A guidepost, not a manual: the documentation of record is the rustdoc and,
-for the algorithms, the ITC 2008 paper (`reference/itc2008.md`). Read the
-crate docs first for the model and safety contract. An operation's public type
-module is the entry point to its implementation; the `bits` docs explain the
-shared storage boundary, and the `testing` docs explain how independent models,
-properties, and resource measurements divide the verification work.
+The documentation of record is the rustdoc and, for the algorithms, the ITC
+paper (`reference/itc2008.md`). Read the crate docs first for the model and its
+safety rules. Each operation's public type module is the entry point to its
+implementation.
 
-## Commands
+## Verifying a change
 
-The workspace `justfile` (repo root) is the source of truth for verification;
-`just gate` before every commit (it compiles this crate's fuzz targets, which
-no workspace-wide build reaches), `just all` for the full sweep (this crate's
-feature matrix and the libFuzzer smoke). For a `-p before`-scoped inner loop:
+The workspace's root `justfile` and `AGENTS.md` govern verification: get
+`just gate` fully clean before every commit. For a loop scoped to this crate:
 
 - Test: `cargo nextest run -p before --all-features`
 - Lint: `cargo clippy -p before --all-targets --all-features -- -D warnings`
 - Format: `cargo fmt -p before`
 
+That loop never reaches the detached workspaces in this directory (each
+subdirectory with its own `[workspace]` manifest); the gate does.
+
 ## Hard rules
 
-- No `unsafe` (`#![forbid(unsafe_code)]`); the test-only stack guard's
-  platform stack manipulation lives in the `stacker` dev-dependency.
-- No library traversal recurses on tree depth. Deep walks are iterative; a
-  deliberately recursive test helper must route descent through
-  `crate::recurse::descend!` so a deep input cannot overflow the stack. The
-  depth-100k `clock::tests::deep_tree_stack_safety` test protects this rule.
-- `decode` strictly rejects non-canonical input; byte-equality is what
-  `Eq`/`Hash` rest on.
-- `Party`/`Clock` are `!Clone`; `Version` is `Clone`. Don't add `Clone` to
-  the first two, or borrowing `BitOr` overloads for `Clock` (either would
-  duplicate a party).
-- The public API is stable; don't add to or reshape it without explicit
-  direction. If you believe something should be added, or doing so would
-  make things more elegant, efficient, or usable, please suggest this.
+- No `unsafe`: the crate is `#![forbid(unsafe_code)]`. Where a capability
+  needs it, depend on a crate that encapsulates it, as the test-only stack
+  guard does with `stacker`.
+- No library traversal recurses on tree depth: deep walks are iterative. A
+  deliberately recursive test helper routes each descent through
+  `recurse::descend!`.
+- The public API is stable: propose additions or reshapings, with your
+  reasoning, rather than making them unbidden.
