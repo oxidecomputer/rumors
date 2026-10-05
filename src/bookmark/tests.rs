@@ -6,6 +6,7 @@ use std::io::Cursor;
 
 use super::record::NetworkRecord;
 use before::Clock;
+use futures::{FutureExt, future::LocalBoxFuture};
 use proptest::prelude::*;
 
 use super::*;
@@ -77,6 +78,25 @@ fn sendable<F: Future + Send>(future: F) -> F {
     future
 }
 
+/// Apply the update under test, a donation or a checkpoint, and return its
+/// store boxed so either kind fits one binding.
+fn update<'a>(
+    loaded: Loaded<'a, Memory>,
+    donation: bool,
+    network: Network,
+    party: &mut Party,
+    frontier: &Version,
+) -> LocalBoxFuture<'a, Result<(), BookmarkIo<std::io::Error>>> {
+    if donation {
+        loaded.donate(network, party).boxed_local()
+    } else {
+        loaded
+            .checkpoint(network, party, frontier, &Reservations::default())
+            .expect("new own progress needs a store")
+            .boxed_local()
+    }
+}
+
 /// A non-Sync bookmark supports Send attachment and gossip futures.
 #[test]
 fn non_sync_bookmark_can_attach_and_gossip() {
@@ -112,34 +132,34 @@ proptest! {
         let network = Network::from_bytes([0x63; 16]);
         let (mut party, mut version) = Clock::seed().into_parts();
         let mut bookmark = Bookmarked::new(Memory::default());
-        let mut loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
-        loaded.checkpoint(network, &mut party, &version, true);
-        run_to_quiescence(loaded.write()).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        run_to_quiescence(update(loaded, false, network, &mut party, &version)).unwrap().unwrap();
         let prior = bookmark.persist.bytes.borrow().clone().unwrap();
 
         version.ticks(&party, ticks);
         bookmark.persist.outcome.set(if after { Outcome::PauseAfter } else { Outcome::PauseBefore });
-        let mut loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
-        if donation {
-            loaded.slice(network, &party);
-        } else {
-            loaded.checkpoint(network, &mut party, &version, true);
-        }
-        let replacement = format::encode(&loaded.record);
-        prop_assert!(matches!(run_to_quiescence(loaded.write()), Err(crate::testing::Quiescence::Stalled)));
+        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        let store = update(loaded, donation, network, &mut party, &version);
+        prop_assert!(matches!(run_to_quiescence(store), Err(crate::testing::Quiescence::Stalled)));
 
         // Cancellation cannot tell us which complete record reached storage.
         // Reload that record rather than trusting either cached candidate.
+        let stored = bookmark.persist.bytes.borrow().clone().unwrap();
+        prop_assert_eq!(stored == prior, !after);
         let reads = bookmark.persist.loads.get();
-        let mut loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
-        prop_assert!(!loaded.is_checkpointed(&party, &version));
-        prop_assert_eq!(format::encode(&loaded.record), if after { replacement } else { prior });
-        if donation { loaded.slice(network, &party); }
-        else { loaded.checkpoint(network, &mut party, &version, true); }
-        let expected = format::encode(&loaded.record);
-        run_to_quiescence(loaded.write()).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        prop_assert_eq!(format::encode(&loaded.cache().record), stored);
+        prop_assert!(!loaded.checkpointed(&party, &version));
+        run_to_quiescence(update(loaded, donation, network, &mut party, &version)).unwrap().unwrap();
         prop_assert_eq!(bookmark.persist.loads.get(), reads + 1);
-        prop_assert_eq!(bookmark.persist.bytes.borrow().clone(), Some(expected));
+
+        // The retry stored the reloaded record plus the update, and only a
+        // checkpoint leaves the live state marked as stored.
+        let stored = bookmark.persist.bytes.borrow().clone().unwrap();
+        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        prop_assert_eq!(format::encode(&loaded.cache().record), stored);
+        prop_assert_eq!(loaded.checkpointed(&party, &version), !donation);
+        prop_assert_eq!(loaded.cache().record.contains_network(network), !donation);
     }
 
     /// After any failed checkpoint, the next update reloads the durable record
@@ -157,25 +177,24 @@ proptest! {
             for _ in 0..ticks { version.tick(&party); }
             let prior = bookmark.persist.bytes.borrow().clone();
             bookmark.persist.outcome.set(outcome);
-            let mut loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
-            prop_assert!(!loaded.is_checkpointed(&party, &version));
-            loaded.checkpoint(network, &mut party, &version, true);
-            let replacement = format::encode(&loaded.record);
-            let stored = run_to_quiescence(loaded.write()).unwrap();
+            let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+            prop_assert!(!loaded.checkpointed(&party, &version));
+            let stored = run_to_quiescence(update(loaded, false, network, &mut party, &version)).unwrap();
             let fail = outcome != Outcome::Success;
             prop_assert_eq!(stored.is_err(), fail);
-            let expected = if outcome == Outcome::FailBefore { prior } else { Some(replacement) };
-            prop_assert_eq!(bookmark.persist.bytes.borrow().clone(), expected.clone());
             if fail {
                 prop_assert!(matches!(stored, Err(BookmarkIo::Io(_))));
             }
+
+            // Storage holds the replacement unless the failure preceded it,
+            // and after a failure the cache is reloaded from exactly that.
+            let bytes = bookmark.persist.bytes.borrow().clone();
+            prop_assert_eq!(bytes == prior, outcome == Outcome::FailBefore);
             let reads = bookmark.persist.loads.get();
             let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
-            prop_assert_eq!(loaded.is_checkpointed(&party, &version), !fail);
-            if fail {
-                let expected = expected.unwrap_or_else(|| format::encode(&Record::default()));
-                prop_assert_eq!(format::encode(&loaded.record), expected);
-            }
+            prop_assert_eq!(loaded.checkpointed(&party, &version), !fail);
+            let expected = bytes.unwrap_or_else(|| format::encode(&Record::default()));
+            prop_assert_eq!(format::encode(&loaded.cache().record), expected);
             prop_assert_eq!(bookmark.persist.loads.get(), reads + usize::from(fail));
         }
     }
@@ -210,8 +229,8 @@ proptest! {
         drop((owner, reserved));
         let known = if caught_up { version.clone() } else { Version::new() };
         let mut restarted = provider.fork();
-        let mut loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
-        loaded.checkpoint(network, &mut restarted, &known, true);
+        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        let _store = loaded.checkpoint(network, &mut restarted, &known, &Reservations::default());
         prop_assert!(&version / &restarted <= known);
         if caught_up {
             prop_assert!(restarted.covers(&owned));
@@ -262,7 +281,12 @@ proptest! {
         let known = emitted[..learned].last().cloned().unwrap_or_default();
         let mut restarted = provider.fork();
         let mut restored = format::decode(&stored).unwrap();
-        restored.networks.get(&network).unwrap().reclaim(&mut restarted, &known);
+        let reservations = Reservations::default();
+        restored.networks.get(&network).unwrap().reclaim(
+            &mut restarted,
+            &known,
+            reservations.permit().expect("no fork is reserved"),
+        );
 
         // Projection selects every old write in the identity we can now use.
         // We must already know all of them before we may issue another version.

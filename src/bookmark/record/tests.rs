@@ -5,6 +5,7 @@ use before::Clock;
 use proptest::prelude::*;
 
 use super::*;
+use crate::bookmark::Reservations;
 
 /// Construct a network with disjoint identities of varying depth and nonempty writes.
 fn network_record(forks: usize, ticks: u64) -> NetworkRecord {
@@ -72,7 +73,7 @@ proptest! {
             expected.len() < before.len(),
             "removing one retained identity must reduce the encoded record"
         );
-        let actual = record.bounded_bytes(expected.len());
+        let actual = record.encode_bounded(expected.len());
         prop_assert_eq!(actual, expected);
     }
 
@@ -96,7 +97,7 @@ proptest! {
         let original_bytes = format::encode(&record);
         // Exercise restored recency, not only the in-process ordering.
         record = format::decode(&original_bytes).unwrap();
-        let bytes = record.bounded_bytes(limit.max(format::record_size(0, 0)));
+        let bytes = record.encode_bounded(limit.max(format::record_size(0, 0)));
         prop_assert!(bytes.len() <= limit.max(format::record_size(0, 0)));
         prop_assert_eq!(&format::encode(&format::decode(&bytes).unwrap()), &bytes);
         if original_bytes.len() <= limit { prop_assert_eq!(bytes, original_bytes); }
@@ -261,7 +262,8 @@ proptest! {
             .map(|(identity, _)| identity)
             .collect();
 
-        record.reclaim(&mut restart, &known);
+        let reservations = Reservations::default();
+        record.reclaim(&mut restart, &known, reservations.permit().expect("no fork is reserved"));
         prop_assert_eq!(&restart, &expected);
         prop_assert_eq!(record.identities.iter().collect::<Vec<_>>(), expected_remaining);
     }

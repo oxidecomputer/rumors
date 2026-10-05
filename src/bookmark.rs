@@ -3,15 +3,18 @@
 //! Applications provide opaque byte storage through [`Bookmark`]. The crate
 //! owns the record format and the rules for recycling a departed peer's identity.
 //!
-//! The invariant everything serves, and the two conditions under which an
-//! identity may be reclaimed, are stated in `record`. That module checks the
-//! catch-up condition; the peer's reservation gate and session driver keep
-//! reclaimed regions exclusive, by withholding reclamation while a fork is
-//! reserved and by removing donations durably before sending them. This
-//! module loads and stores the record, and treats only a confirmed store as
-//! the checkpoint a session may rely on.
+//! A bookmark lets a restarted peer take back the identity it held before.
+//! That is safe only while the region is owned by no live peer and the peer's
+//! frontier dominates every version the network knows there; `record` makes
+//! that argument and holds the identities and write frontier it rests on.
+//! This module keeps that frontier ahead of the wire: every change to the
+//! record returns the store that makes it durable, and a session awaits that
+//! store before transmitting anything, so no crash can leave a reclaimable
+//! region below a version another peer holds. Reclaiming also needs a
+//! [`ReclaimPermit`], issued only while no fork is reserved for a bootstrap.
 
-use std::ops::{Deref, DerefMut};
+use std::marker::PhantomData;
+use std::sync::Arc;
 
 use before::{Party, Version};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -222,12 +225,55 @@ impl Bookmark for NoBookmark {
     }
 }
 
+/// The forks reserved for bootstraps and not yet sent, which pause reclamation.
+///
+/// A reserved fork has left the live party, but an identity recorded before
+/// the reservation still contains it, and reclaiming that identity would hand
+/// the fork back while the newcomer is about to receive it. So no permit is
+/// issued while a [`Reservation`] is outstanding. The replica owns this value
+/// and checks it under its own lock, the lock a reservation is taken under,
+/// so no fork can appear during a checkpoint that holds the permit.
+#[derive(Default)]
+pub(crate) struct Reservations(Arc<()>);
+
+/// A reserved fork's hold on reclamation, released when dropped.
+///
+/// Drop it once the fork is back in the live party, or once its removal from
+/// the record is durable. A release that races a permit check only delays
+/// reclamation by one checkpoint.
+pub(crate) struct Reservation {
+    /// The count the permit check reads.
+    _hold: Arc<()>,
+}
+
+/// Permission to reclaim: no fork is reserved for a bootstrap.
+///
+/// Only [`Reservations::permit`] issues one, and it borrows the reservations
+/// it was checked against, so it cannot outlive the lock the check was made
+/// under.
+pub(crate) struct ReclaimPermit<'a>(PhantomData<&'a Reservations>);
+
+/// Reserve forks and issue permits.
+impl Reservations {
+    /// Reserve a fork: no permit is issued until the reservation drops.
+    pub(crate) fn reserve(&self) -> Reservation {
+        Reservation {
+            _hold: Arc::clone(&self.0),
+        }
+    }
+
+    /// A permit, unless a reservation is outstanding.
+    pub(crate) fn permit(&self) -> Option<ReclaimPermit<'_>> {
+        (Arc::strong_count(&self.0) == 1).then_some(ReclaimPermit(PhantomData))
+    }
+}
+
 /// Cached restart bookkeeping, protected by the peer's bookmark mutex.
 ///
-/// The mutex spans loading, mutation, and storage. Changes to the live party
-/// take the replica lock briefly inside it; storage never holds that lock.
-/// This keeps the live identity and the record consistent without blocking
-/// local edits on storage I/O.
+/// The mutex spans loading, changing, and storing the record. A change takes
+/// the replica lock briefly inside it; storage never holds that lock. This
+/// keeps the live identity and the record consistent without blocking local
+/// edits on storage I/O.
 pub(crate) struct Bookmarked<B> {
     /// Application-owned storage for the encoded record.
     persist: B,
@@ -238,22 +284,23 @@ pub(crate) struct Bookmarked<B> {
     size_limit: usize,
 }
 
-/// The record in memory, and which live states it and the durable record are
-/// full checkpoints of.
-pub(crate) struct Cache {
+/// The record in memory, and what the durable record is a checkpoint of.
+struct Cache {
     /// Identities retained across restarts, grouped by network.
     record: Record,
-    /// The live state this record is a full checkpoint of, if it is one.
-    staged: Option<Checkpoint>,
-    /// The live state the durable record is a full checkpoint of, if it is one.
+    /// The live state the last store was a checkpoint of, if it was one.
+    ///
+    /// A session at that same state may transmit without storing again:
+    /// either the durable record holds this party with its own progress, or
+    /// the size limit evicted that identity and nothing in its region is
+    /// reclaimable at all. The comparison is exact on the party and on own
+    /// progress, so remote progress alone never forces a store. An identity
+    /// it caught up with is reclaimed at the checkpoint after the next local
+    /// change; reclaiming sooner would change no version before then.
     durable: Option<Checkpoint>,
 }
 
-/// The live state a full checkpoint captured.
-///
-/// A full checkpoint attempts reclamation and then records the live party.
-/// Attachment records without reclaiming, and a donation changes the record
-/// without recording, so neither produces one.
+/// A live party and its frontier at a checkpoint.
 struct Checkpoint {
     /// The exact live party.
     party: Party,
@@ -272,14 +319,13 @@ impl<B> Bookmarked<B> {
         }
     }
 
-    /// Select the store limit, which the next session's store must apply.
+    /// Select the store limit.
     ///
-    /// The limit shapes what a store keeps, so a checkpoint stored under the
-    /// old limit no longer counts as stored.
+    /// The next store applies it, so a checkpoint stored under the old limit
+    /// no longer counts as stored.
     pub(crate) fn set_size_limit(&mut self, bytes: usize) {
         self.size_limit = bytes.max(format::record_size(0, 0));
         if let Some(cache) = &mut self.cache {
-            cache.staged = None;
             cache.durable = None;
         }
     }
@@ -292,7 +338,8 @@ impl<B> Bookmarked<B> {
 
 /// Load the record on first use.
 impl<B: Bookmark> Bookmarked<B> {
-    /// Read storage unless the cache is present, then lend the cache.
+    /// Read storage unless the cache is present, then lend the cache for one
+    /// update.
     pub(crate) async fn load(&mut self) -> Result<Loaded<'_, B>, BookmarkIo<B::Error>> {
         if self.cache.is_none() {
             let record = match self.persist.load().await.map_err(BookmarkIo::Io)? {
@@ -308,7 +355,6 @@ impl<B: Bookmark> Bookmarked<B> {
             };
             self.cache = Some(Cache {
                 record,
-                staged: None,
                 durable: None,
             });
         }
@@ -316,143 +362,124 @@ impl<B: Bookmark> Bookmarked<B> {
     }
 }
 
-/// The cache, lent from a successful load until it is stored or released.
+/// The cache, lent from a load until one update stores it or drops it.
 ///
-/// Only a `Loaded` can store, so every store follows a load. Dropping it
-/// without storing keeps the cache for the next update.
+/// Every update that changes the record returns the store that makes the
+/// change durable, so a change cannot reach the wire before it reaches
+/// storage. Dropping the loan without an update keeps the cache as it was.
 pub(crate) struct Loaded<'a, B> {
     /// The bookmark whose cache is present for the lifetime of the loan.
     bookmark: &'a mut Bookmarked<B>,
 }
 
-/// Read the lent cache.
-impl<B> Deref for Loaded<'_, B> {
-    type Target = Cache;
-
-    /// The cache is present for as long as the loan exists.
-    fn deref(&self) -> &Cache {
-        self.bookmark
-            .cache
-            .as_ref()
-            .expect("a loan exists only while the cache is present")
-    }
-}
-
-/// Change the lent cache.
-impl<B> DerefMut for Loaded<'_, B> {
-    /// The cache is present for as long as the loan exists.
-    fn deref_mut(&mut self) -> &mut Cache {
-        self.bookmark
-            .cache
-            .as_mut()
-            .expect("a loan exists only while the cache is present")
-    }
-}
-
-/// Store the lent cache.
-impl<B: Bookmark> Loaded<'_, B> {
-    /// Store the record, then note what the durable record is a checkpoint of.
+/// The three updates, each ending in a store.
+impl<'a, B: Bookmark> Loaded<'a, B> {
+    /// Checkpoint the live party at its frontier, reclaiming whatever the
+    /// frontier has caught up with if a permit is granted.
     ///
-    /// The cache leaves memory before the store and returns only on success.
-    /// An error or cancellation therefore leaves the bookmark unloaded: the
-    /// next update reads whichever complete record storage kept, and no token
-    /// can describe a store that did not confirm.
-    pub(crate) async fn write(self) -> Result<(), BookmarkIo<B::Error>> {
+    /// Returns the store to await before transmitting anything from this
+    /// frontier, or `None` when the last store already checkpointed this
+    /// exact live state. Without a permit the party is still recorded;
+    /// reclamation waits for a later checkpoint.
+    #[must_use = "await the store before the session transmits"]
+    pub(crate) fn checkpoint(
+        mut self,
+        network: Network,
+        party: &mut Party,
+        frontier: &Version,
+        reservations: &Reservations,
+    ) -> Option<impl Future<Output = Result<(), BookmarkIo<B::Error>>> + use<'a, B>> {
+        if self.checkpointed(party, frontier) {
+            return None;
+        }
+        let record = self.cache_mut().record.network(network);
+        if let Some(permit) = reservations.permit() {
+            record.reclaim(party, frontier, permit);
+        }
+        record.record(party, frontier);
+        Some(self.store(Some(Checkpoint {
+            party: party.dangerously_alias(),
+            frontier: frontier.clone(),
+        })))
+    }
+
+    /// Remove a donation from every identity, and return the store that makes
+    /// the removal durable before the donation can leave the process.
+    pub(crate) fn donate(
+        mut self,
+        network: Network,
+        donation: &Party,
+    ) -> impl Future<Output = Result<(), BookmarkIo<B::Error>>> + use<'a, B> {
+        self.cache_mut().record.donate(network, donation);
+        self.store(None)
+    }
+
+    /// Record the live party at attachment, without reclaiming, and return
+    /// the store.
+    ///
+    /// Not a checkpoint: the first session must still attempt reclamation.
+    pub(crate) fn attach(
+        mut self,
+        network: Network,
+        party: &Party,
+        frontier: &Version,
+    ) -> impl Future<Output = Result<(), BookmarkIo<B::Error>>> + use<'a, B> {
+        self.cache_mut()
+            .record
+            .network(network)
+            .record(party, frontier);
+        self.store(None)
+    }
+
+    /// Whether the last store checkpointed exactly this live state.
+    fn checkpointed(&self, party: &Party, frontier: &Version) -> bool {
+        self.cache().durable.as_ref().is_some_and(|checkpoint| {
+            checkpoint.party == *party && &checkpoint.frontier / party == frontier / party
+        })
+    }
+
+    /// Store the record; on success the cache returns with `durable` set.
+    ///
+    /// The cache leaves memory as the store is created and returns only on
+    /// success. An error or cancellation therefore leaves the bookmark
+    /// unloaded: the next load reads whichever complete record storage kept,
+    /// and nothing in memory can claim a store that did not confirm.
+    fn store(
+        self,
+        durable: Option<Checkpoint>,
+    ) -> impl Future<Output = Result<(), BookmarkIo<B::Error>>> + use<'a, B> {
         let bookmark = self.bookmark;
         let mut cache = bookmark
             .cache
             .take()
             .expect("a loan exists only while the cache is present");
-        let bytes = cache.record.bounded_bytes(bookmark.size_limit);
-        bookmark
-            .persist
-            .store(bytes)
-            .await
-            .map_err(BookmarkIo::Io)?;
-        cache.durable = cache.staged.take();
-        bookmark.cache = Some(cache);
-        Ok(())
-    }
-}
-
-/// Change the record and decide whether it needs another store.
-impl Cache {
-    /// Checkpoint unless the durable record already is one for this live state.
-    ///
-    /// Returns whether the caller must store. Deciding and checkpointing in
-    /// one call means a session can neither checkpoint without consulting the
-    /// rule nor skip without it.
-    pub(crate) fn checkpoint_if_needed(
-        &mut self,
-        network: Network,
-        party: &mut Party,
-        frontier: &Version,
-        reclaim: bool,
-    ) -> bool {
-        if self.is_checkpointed(party, frontier) {
-            return false;
+        let bytes = cache.record.encode_bounded(bookmark.size_limit);
+        async move {
+            bookmark
+                .persist
+                .store(bytes)
+                .await
+                .map_err(BookmarkIo::Io)?;
+            cache.durable = durable;
+            bookmark.cache = Some(cache);
+            Ok(())
         }
-        self.checkpoint(network, party, frontier, reclaim);
-        true
     }
 
-    /// Whether the durable record is a full checkpoint of this live state.
-    ///
-    /// If it is, nothing reclaimable lies below what the session is about to
-    /// transmit: either the record holds this party with `written` at or
-    /// above its own progress, or the limit evicted that identity and nothing
-    /// in its region is reclaimable at all. Either way the store is redundant.
-    ///
-    /// The comparison is exact on the party and on own progress only. Remote
-    /// progress may have caught the frontier up with further identities; those
-    /// wait for the session after the next local change. Reclaiming earlier
-    /// would alter no version before that change in any case: the wait defers
-    /// the benefit by one own event.
-    fn is_checkpointed(&self, party: &Party, frontier: &Version) -> bool {
-        self.durable.as_ref().is_some_and(|checkpoint| {
-            checkpoint.party == *party && &checkpoint.frontier / party == frontier / party
-        })
+    /// The lent cache.
+    fn cache(&self) -> &Cache {
+        self.bookmark
+            .cache
+            .as_ref()
+            .expect("a loan exists only while the cache is present")
     }
 
-    /// Remove a donation; the caller stores this before the donation leaves.
-    ///
-    /// The record is no longer a checkpoint of any live state.
-    pub(crate) fn slice(&mut self, network: Network, donation: &Party) {
-        self.record.slice(network, donation);
-        self.staged = None;
-    }
-
-    /// Record the live party at attachment, without reclaiming.
-    ///
-    /// Not a full checkpoint: the first session must still attempt
-    /// reclamation, so the store leaves no token behind.
-    pub(crate) fn record(&mut self, network: Network, party: &Party, frontier: &Version) {
-        self.record.network(network).record(party, frontier);
-        self.staged = None;
-    }
-
-    /// Reclaim what the frontier has caught up with, when permitted, then
-    /// record the live party: a full checkpoint, staged for the next store.
-    ///
-    /// The caller permits reclamation only while no bootstrap fork is
-    /// reserved; see [`NetworkRecord::reclaim`](record::NetworkRecord::reclaim).
-    /// Recording local writes continues either way.
-    pub(crate) fn checkpoint(
-        &mut self,
-        network: Network,
-        party: &mut Party,
-        frontier: &Version,
-        reclaim: bool,
-    ) {
-        let record = self.record.network(network);
-        if reclaim {
-            record.reclaim(party, frontier);
-        }
-        record.record(party, frontier);
-        self.staged = Some(Checkpoint {
-            party: party.dangerously_alias(),
-            frontier: frontier.clone(),
-        });
+    /// The lent cache, for changing.
+    fn cache_mut(&mut self) -> &mut Cache {
+        self.bookmark
+            .cache
+            .as_mut()
+            .expect("a loan exists only while the cache is present")
     }
 }
 

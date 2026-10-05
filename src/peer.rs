@@ -12,7 +12,7 @@ use rand::RngCore;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
-use crate::bookmark::{Bookmarked, NoBookmark};
+use crate::bookmark::{Bookmarked, NoBookmark, Reservation, Reservations};
 use crate::link::{Acceptor, Connector, Link};
 pub use crate::message::DEFAULT_PAYLOAD_DEPTH_LIMIT;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
@@ -188,8 +188,9 @@ pub struct SynchronizationSettings {
 pub(crate) struct Inner<T: Send + Sync + 'static> {
     /// Identity used to stamp local events.
     pub(crate) party: Party,
-    /// Pauses bookmark reclamation while sessions hold unsent bootstrap forks.
-    bootstrap_forks: BootstrapReservations,
+    /// Forks reserved for bootstraps and not yet sent; the bookmark reclaims
+    /// nothing while any is outstanding.
+    pub(crate) reservations: Reservations,
     /// The published content and causal ceiling.
     pub(crate) tree: Tree<T>,
     /// Serializes local tree preparation and the fallback gossip join.
@@ -199,27 +200,6 @@ pub(crate) struct Inner<T: Send + Sync + 'static> {
     /// Snapshot readers do not take it.
     /// The gate contains no data to repair after a panic, so poison is ignored.
     commit_gate: Arc<RwLock<()>>,
-}
-
-/// Keeps bookmark reclamation paused while bootstrap guards own forks.
-///
-/// This gate is what keeps a reserved fork out of reclamation: the fork has
-/// left the live party while an identity recorded earlier still contains it,
-/// and reclaiming that identity would hand the fork back as the newcomer
-/// receives it. The replica holds one reference; each guard holds another.
-/// Clone and check under the replica lock, so no new fork can appear during
-/// reclamation. A guard releases its reference only after returning its fork
-/// or durably removing its recovery rights. If a release races the check,
-/// seeing its old count only delays reclamation.
-#[derive(Clone, Default)]
-struct BootstrapReservations(Arc<()>);
-
-/// Check whether all bootstrap guards have released their forks.
-impl BootstrapReservations {
-    /// Whether only the replica's reference remains; check under its lock.
-    fn can_reclaim(&self) -> bool {
-        Arc::strong_count(&self.0) == 1
-    }
 }
 
 /// Try the session result, then one rebase, before excluding competing writers.
@@ -235,7 +215,7 @@ impl<T: Send + Sync + 'static> Inner<T> {
         tree.warm_memos();
         Self {
             party,
-            bootstrap_forks: BootstrapReservations::default(),
+            reservations: Reservations::default(),
             tree,
             commit_gate: Arc::new(RwLock::new(())),
         }
@@ -287,9 +267,9 @@ impl<T: Send + Sync + 'static> Inner<T> {
         });
     }
 
-    /// Split off a bootstrap fork and keep reclamation paused until it is released.
-    fn reserve(&mut self) -> (Party, BootstrapReservations) {
-        (self.party.fork(), self.bootstrap_forks.clone())
+    /// Split off a bootstrap fork; reclamation pauses until the reservation drops.
+    fn reserve(&mut self) -> (Party, Reservation) {
+        (self.party.fork(), self.reservations.reserve())
     }
 
     /// Clone the published tree without carrying its read guard into the caller.

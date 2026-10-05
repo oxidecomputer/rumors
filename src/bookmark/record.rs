@@ -1,25 +1,33 @@
 //! The identities a bookmark may reclaim, and the writes it must know first.
 //!
 //! Messages are addressed by version, and a replica infers a deletion whenever
-//! its frontier dominates a version it holds no leaf for. A version issued
-//! twice is therefore not a duplicate but a destroyed message. Within one
-//! incarnation the clock prevents reuse by itself: a party's own progress only
-//! grows, and no other party ticks in its region. A crash discards that
-//! progress. This record lets the next incarnation take the region back
-//! without reopening reuse.
+//! its frontier dominates a version for which it holds no message. A version
+//! issued twice is therefore not a duplicate but a bomb that destroys every
+//! version which previously was issued in its future lightcone. Within one
+//! incarnation of the peer, its own internal clock prevents reuse: a party's
+//! own progress only grows, and no other party ticks in its own identity
+//! region. A restarted peer discards that progress. This record lets the next
+//! incarnation take that identity region back *safely*, once it is locally
+//! certain that it supersedes every message previously issued under the
+//! identity. Bookmarking therefore preserves representational space under
+//! ungraceful restarts (i.e. without retirement): it is safe not to bookmark,
+//! but it is wasteful.
 //!
 //! # The safety invariant
 //!
-//! For every live party `p` at frontier `V`, `V / p` dominates every version
-//! the network knows inside `p`'s region. A tick strictly advances `V / p`, so
-//! each new version lies above every known one there, never on or below one.
+//! For every live party `p` at frontier version `V`, `V / p` (the portion of
+//! `V` owned by `p`) dominates every version the network knows inside `p`'s
+//! region. When `p` ticks `V`, this strictly advances `V / p`, so each new
+//! version lies above every known one there, never on or below one.
 //!
-//! Joining a region `R` into the live party preserves the invariant exactly
-//! when:
+//! Joining an identity region (another party) `R` into the live party preserves
+//! the invariant exactly when:
 //!
-//! 1. no live peer owns `R`, or two parties would tick there; and
+//! 1. no live peer owns `R`, or two parties would be able to register their own
+//!    events there; and
+//!
 //! 2. the live frontier dominates every version the network knows in `R`, or
-//!    the next tick there could land on or below one.
+//!    the next tick could land on or below one already issued.
 //!
 //! # How the record establishes both
 //!
@@ -27,9 +35,9 @@
 //! frontier, `written`, shared by all of them.
 //!
 //! - An identity is a region the owner held when it recorded it and has not
-//!   since given away. A donation is removed from every identity, durably,
-//!   before it can leave the process. So an identity is owned by no live
-//!   peer: condition 1.
+//!   since given away. A donation to a bootstrapping peer is removed from
+//!   every identity, durably, before it can leave the process. So an identity
+//!   is owned by no live peer: condition 1.
 //! - `written`, projected on an identity, dominates every version the
 //!   network knows in that region: every own event is recorded before it is
 //!   transmitted, and `written` never shrinks inside a recorded region. One
@@ -44,17 +52,18 @@
 //! party while an identity recorded earlier still contains it, and a
 //! checkpoint taken meanwhile records the smaller party beside the larger
 //! one. The shared frontier keeps overlap harmless for condition 2. For
-//! condition 1 the caller withholds reclamation while any fork is reserved;
-//! see [`NetworkRecord::reclaim`].
+//! condition 1, reclaiming needs a [`ReclaimPermit`], which exists only while
+//! no fork is reserved.
 //!
-//! Retention may drop identities, which only forfeits recovery; it must keep
-//! `written` whole over every identity it retains.
+//! The size constraint on a stored bookmark may drop older identities, which
+//! only forfeits recovery; it must keep `written` whole over every identity it
+//! retains for safety.
 
 use std::collections::{VecDeque, hash_map::RandomState};
 
 use before::{Party, Version};
 
-use super::format;
+use super::{ReclaimPermit, format};
 use crate::Network;
 
 /// One record per network, ordered by its most recent checkpoint.
@@ -85,9 +94,9 @@ impl Record {
 
     /// Remove a donation from a network's identities, and the network itself
     /// once no identity remains.
-    pub(super) fn slice(&mut self, network: Network, donation: &Party) {
+    pub(super) fn donate(&mut self, network: Network, donation: &Party) {
         if let Some(record) = self.networks.get(&network) {
-            record.slice(donation);
+            record.donate(donation);
             if record.identities.is_empty() {
                 self.networks.remove(&network);
             }
@@ -100,7 +109,7 @@ impl Record {
     /// identity, so a network's live party, the newest identity after a
     /// checkpoint, is the last to go. Every network is compacted first, so the
     /// frontier never charges for a region no identity records.
-    pub(super) fn bounded_bytes(&mut self, limit: usize) -> Vec<u8> {
+    pub(super) fn encode_bounded(&mut self, limit: usize) -> Vec<u8> {
         for (_, network) in self.networks.iter_mut() {
             network.compact();
         }
@@ -131,16 +140,18 @@ impl Record {
 }
 
 /// The identities one bookmark may reclaim in one network, and the writes it
-/// must have caught up with first.
+/// must have caught up with before it can.
 #[derive(Default)]
 pub(crate) struct NetworkRecord {
-    /// Every write any identity here recorded, as one frontier. Projected on
-    /// an identity, it is the progress a restart must dominate before
-    /// reclaiming that identity.
+    /// Every write any identity here recorded, as one frontier.
+    ///
+    /// Projected on an identity, it is the progress a restart must dominate
+    /// before reclaiming that particular identity.
     pub(super) written: Version,
     /// Regions the owner held when it recorded them and has not since given
-    /// away, oldest record first. After a checkpoint the live party is the
-    /// newest.
+    /// away, oldest record first.
+    ///
+    /// After a checkpoint the live party is the newest.
     pub(super) identities: VecDeque<Party>,
 }
 
@@ -160,10 +171,10 @@ impl NetworkRecord {
 
     /// Join every identity the frontier has caught up with into the live party.
     ///
-    /// Precondition: no fork of the live party is reserved for a bootstrap;
-    /// the caller's reservation gate ensures it. A reserved fork is absent
-    /// from the live party while an identity recorded earlier still contains
-    /// it, and this pass would hand the fork back as the newcomer receives it.
+    /// The permit certifies that no fork of the live party is reserved for a
+    /// bootstrap. A reserved fork is absent from the live party while an
+    /// identity recorded earlier still contains it, and this pass would hand
+    /// the fork back as the newcomer receives it.
     ///
     /// A caught-up identity contributes the part of its region the live party
     /// does not own yet. That part is disjoint from the live party by
@@ -172,7 +183,7 @@ impl NetworkRecord {
     /// of the identities does not affect the result, and an identity the live
     /// party already covers simply drops out. Afterwards every identity that
     /// remains still awaits writes the frontier lacks, in its original order.
-    pub(crate) fn reclaim(&mut self, party: &mut Party, frontier: &Version) {
+    pub(crate) fn reclaim(&mut self, party: &mut Party, frontier: &Version, _: ReclaimPermit<'_>) {
         let mut waiting = VecDeque::new();
         for identity in std::mem::take(&mut self.identities) {
             let caught_up = &self.written / &identity <= *frontier;
@@ -194,7 +205,7 @@ impl NetworkRecord {
     /// Afterwards no identity overlaps the donation. `written` may still cover
     /// it until the next encoding compacts; a region no identity records is
     /// never consulted.
-    pub(crate) fn slice(&mut self, donation: &Party) {
+    pub(crate) fn donate(&mut self, donation: &Party) {
         self.identities = std::mem::take(&mut self.identities)
             .into_iter()
             .filter_map(|identity| identity.without(donation))
