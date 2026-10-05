@@ -108,9 +108,10 @@ impl Record {
     ///
     /// Eviction starts with the least recently used network and its oldest
     /// identity, so that a network's live party, which is the newest identity
-    /// after a checkpoint, goes last: it is the identity the next restart
-    /// needs first. Every network is compacted first, so that the frontier
-    /// costs no bytes for a region no identity records.
+    /// after a checkpoint, goes last: it is the identity the next restart needs
+    /// first. Every network is "compacted" first, so that the frontier version
+    /// spends bytes on the area outside the parties we hold only when cutting
+    /// that area out would cost more.
     pub(super) fn encode_bounded(&mut self, limit: usize) -> Vec<u8> {
         for (_, network) in self.networks.iter_mut() {
             network.compact();
@@ -214,17 +215,31 @@ impl NetworkRecord {
             .collect();
     }
 
-    /// Forget `written` outside every identity, so that an encoding pays only
-    /// for regions a restart could reclaim.
+    /// Forget `written` outside every identity, when that does not grow its
+    /// encoding.
     ///
     /// Progress outside every identity bounds nothing reclaimable, so no
-    /// reclaim decision changes; the record only shrinks.
+    /// reclaim decision changes either way. Projecting the frontier onto many
+    /// small identities can cost more bytes than the whole frontier did, so we
+    /// keep whichever encoding is smaller: compacting never grows the record.
     pub(crate) fn compact(&mut self) {
-        self.written = self
+        let compacted: Version = self
             .identities
             .iter()
+            // Project `self.written` across each identity, then merge the
+            // resultant versions. Because `/` distributes over join, this is
+            // the same as merging all the identities (permitting overlap)
+            // and projecting once, but doesn't require us to handle overlap.
             .map(|identity| (&self.written / identity).to_version())
             .sum();
+
+        // It's not always true that this kind of "compaction" will result in a
+        // representationally smaller version, because it could slice a small
+        // version into many small pieces which collectively take more bits to
+        // represent; only accept the compaction if it was successful as such.
+        if compacted.as_bytes().len() <= self.written.as_bytes().len() {
+            self.written = compacted;
+        }
     }
 }
 

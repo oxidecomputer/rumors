@@ -126,10 +126,14 @@ proptest! {
         prop_assert_eq!(&record.written / &selected, &next / &selected);
     }
 
-    /// Removing rights also removes their unneeded frontier, while all retained
-    /// regions keep exactly their recovery requirement.
+    /// Compaction keeps every retained identity's recovery requirement exactly
+    /// and never grows the frontier's encoding.
+    ///
+    /// It is all or nothing: either every removed identity's progress is
+    /// forgotten, or the frontier is unchanged because forgetting it would have
+    /// cost more bytes.
     #[test]
-    fn compaction_forgets_only_unowned_progress(
+    fn compaction_forgets_unowned_progress_unless_that_costs_bytes(
         forks in 1usize..30, ticks in 1u64..20, keep in any::<usize>(),
     ) {
         let mut record = network_record(forks, ticks);
@@ -140,7 +144,11 @@ proptest! {
         for identity in &record.identities {
             prop_assert_eq!(&record.written / identity, &before / identity);
         }
-        for identity in &removed { prop_assert!((&record.written / identity).to_version().is_empty()); }
+        prop_assert!(record.written.as_bytes().len() <= before.as_bytes().len());
+        let forgotten = removed
+            .iter()
+            .all(|identity| (&record.written / identity).to_version().is_empty());
+        prop_assert!(forgotten || record.written == before);
     }
 }
 

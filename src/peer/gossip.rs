@@ -599,11 +599,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     .map_err(Error::widen)?,
             );
         } else if self_retiring || guarded.fork.is_some() {
-            // Remove before sending: we make the donation's removal durable
-            // before any byte of it can reach the recipient. A failure here
-            // hands the recipient nothing: a retiring peer still owns its
-            // Peer, and a bootstrap's guard still owns its fork, which the next
-            // checkpoint records again even if the removal reached storage.
+            // Remove the donated party before sending: we make the donation's
+            // removal durable before any byte of it can reach the recipient. A
+            // failure hands the recipient nothing: a retiring peer still owns
+            // its Peer and a bootstrap's guard still owns its fork, which the
+            // next checkpoint records even if the removal reached storage.
             {
                 let mut bookmark = self.bookmark.lock().await;
                 let loaded = bookmark.load().await.map_err(Error::Bookmark)?;
@@ -622,8 +622,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 let inner = self.inner.borrow();
                 party::send(&inner.party, write, &observe)
             } else {
-                // The removal is durable, so releasing the reservation can no
-                // longer let a checkpoint offer this fork to a restart.
+                // The removal of the party is now durable, so releasing the
+                // reservation can no longer permit any checkpoint offer this
+                // fork across a restart.
                 let (donated, _reservation) = guarded.fork.take().expect("bootstrap fork");
                 party::send(&donated, write, &observe)
             };
