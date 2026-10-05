@@ -13,8 +13,8 @@
 # then every building leg concurrently (see the comment above `gate` for
 # the stream grouping and why parallelism cannot move a verdict).
 # `ci` is the build-everything job GitHub runs. The other `ci-*` recipes own
-# its instrument, coverage, and high-count-property jobs. `all` composes those
-# four CI groups with the checks that require a developer machine. Each check
+# its instrument and high-count-property jobs. `all` composes every CI group
+# with the checks that require a developer machine (`local-only`). Each check
 # is listed once below; the workflow invokes the owning group rather than
 # copying its contents.
 #

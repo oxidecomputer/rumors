@@ -8,9 +8,7 @@
 # adds that locally — libFuzzer minutes are a poor per-commit spend). The
 # `instruments` job beside it re-runs the gate judgments that belong on a
 # shared runner: dependency policy, the board verdicts and pins, and surface
-# totality. Its job comment says which instruments stay local and why. The
-# `coverage` job runs the two instrumented-coverage legs against the
-# curated kernel pin (the justfile's coverage section carries the design).
+# totality. Its job comment says which instruments stay local and why.
 # The `properties` job runs Rumors in release at the larger case count pinned
 # by `test-release` in the justfile.
 # The justfile owns each job's roster. The workflow names only those groups,
