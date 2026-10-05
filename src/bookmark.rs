@@ -3,17 +3,16 @@
 //! Applications provide opaque byte storage through [`Bookmark`]. The crate
 //! owns the record format and the rules for recycling a departed peer's identity.
 //!
-//! A bookmark lets a restarted peer take back the identity it held before.
-//! That is safe only while the region is owned by no live peer and the peer's
+//! A bookmark lets a restarted peer take back the identity it held before. That
+//! is safe only while the region is owned by no live peer and the peer's
 //! frontier dominates every version the network knows there; `record` makes
-//! that argument and holds the identities and write frontier it rests on.
-//! This module keeps that frontier ahead of the wire: every change to the
-//! record returns the store that makes it durable, and a session awaits that
-//! store before transmitting anything, so no crash can leave a reclaimable
-//! region below a version another peer holds. Reclaiming also needs a
-//! [`ReclaimPermit`], issued only while no fork is reserved for a bootstrap.
+//! that argument and holds the identities and write frontier it rests on. This
+//! module keeps that frontier ahead of the wire: every change to the record
+//! returns a future which durably stores that change, and a session awaits that
+//! store's successful completion before transmitting anything, so no crash can
+//! leave a reclaimable region below a version another peer holds. Reclaiming
+//! waits while a fork is reserved for a bootstrap.
 
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use before::{Party, Version};
@@ -63,15 +62,13 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// prior incarnation had merely observed.
 ///
 /// Reclamation happens when Rumors updates the bookmark, and ordinary gossip
-/// updates it only to record local progress before exchanging messages, never
-/// because it learned remote changes. An identity that becomes reclaimable
-/// during an exchange therefore waits for the session after the next local
-/// send, redaction, or identity change. That delay costs one event at most:
-/// reclaiming alters no version until the peer's next own event, so the change
-/// that ends the wait still uses the old identity and the one after it uses
-/// the reclaimed one. Reclamation also waits while bootstrap sessions hold
-/// identities for transfer. These delays postpone the reduction in version
-/// size; they do not delay checkpointing local writes.
+/// updates it only to record local progress before exchanging locally
+/// originated messages, not merely when it learned remote changes. An identity
+/// that becomes reclaimable during an exchange therefore waits for the session
+/// after the next local send, redaction, or identity change. Reclamation also
+/// waits while bootstrap sessions hold identities for transfer. These delays
+/// postpone the potential to reduce the representational size of transmitted
+/// versions; they do not delay checkpointing local writes.
 ///
 /// # Bounded retention
 ///
@@ -142,13 +139,11 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// requests across established peers: long chains of joins or repeated joins
 /// through a single provider also increase version size.
 ///
-/// Checkpoints precede transmission, and a checkpoint can outlive the writes
-/// it recorded. If a session fails after its checkpoint and the peer crashes
-/// before another session shares those writes, no live peer holds what the
-/// record requires, so that identity can never be caught up. It stays recorded
-/// and unused until the size limit evicts it. The same holds for an identity
-/// absorbed from a retiring peer whose writes the absorber had not yet shared.
-/// Neither case reuses a version; both cost version size.
+/// If a session fails after it writes its bookmark and the peer crashes before
+/// another session shares those writes, no live peer holds what the record
+/// requires to reclaim the crashed party's identity, so that identity can never
+/// be safely caught up. It stays recorded and unused until the bookmark size
+/// limit evicts it.
 ///
 /// Retirement removes the departing identity from the local bookmark before
 /// sending it. If the transfer then fails or is cancelled, that bookmark cannot
@@ -229,42 +224,40 @@ impl Bookmark for NoBookmark {
 ///
 /// A reserved fork has left the live party, but an identity recorded before
 /// the reservation still contains it, and reclaiming that identity would hand
-/// the fork back while the newcomer is about to receive it. So no permit is
-/// issued while a [`Reservation`] is outstanding. The replica owns this value
-/// and checks it under its own lock, the lock a reservation is taken under,
-/// so no fork can appear during a checkpoint that holds the permit.
+/// the fork back while the newcomer is about to receive it. So a checkpoint
+/// reclaims only while no [`Reservation`] is outstanding.
+///
+/// Reserving needs `&mut self`, which exists only with exclusive access to the
+/// replica, the access a checkpoint runs under; so no fork can be reserved
+/// during a checkpoint. A reservation may be released anywhere: a release only
+/// lowers the count, and by then the fork is back in the live party or gone
+/// from the record. A release that races a checkpoint defers reclamation to
+/// the next one.
 #[derive(Default)]
 pub(crate) struct Reservations(Arc<()>);
 
 /// A reserved fork's hold on reclamation, released when dropped.
 ///
 /// Drop it once the fork is back in the live party, or once its removal from
-/// the record is durable. A release that races a permit check only delays
-/// reclamation by one checkpoint.
+/// the record is durable.
 pub(crate) struct Reservation {
-    /// The count the permit check reads.
+    /// A clone of the replica's `Arc`: the strong count is one plus the forks
+    /// outstanding.
     _hold: Arc<()>,
 }
 
-/// Permission to reclaim: no fork is reserved for a bootstrap.
-///
-/// Only [`Reservations::permit`] issues one, and it borrows the reservations
-/// it was checked against, so it cannot outlive the lock the check was made
-/// under.
-pub(crate) struct ReclaimPermit<'a>(PhantomData<&'a Reservations>);
-
-/// Reserve forks and issue permits.
+/// Count reserved forks.
 impl Reservations {
-    /// Reserve a fork: no permit is issued until the reservation drops.
-    pub(crate) fn reserve(&self) -> Reservation {
+    /// Reserve a fork, pausing reclamation until the reservation drops.
+    pub(crate) fn reserve(&mut self) -> Reservation {
         Reservation {
             _hold: Arc::clone(&self.0),
         }
     }
 
-    /// A permit, unless a reservation is outstanding.
-    pub(crate) fn permit(&self) -> Option<ReclaimPermit<'_>> {
-        (Arc::strong_count(&self.0) == 1).then_some(ReclaimPermit(PhantomData))
+    /// Whether no fork is reserved.
+    fn none_outstanding(&self) -> bool {
+        Arc::strong_count(&self.0) == 1
     }
 }
 
@@ -375,12 +368,12 @@ pub(crate) struct Loaded<'a, B> {
 /// The three updates, each ending in a store.
 impl<'a, B: Bookmark> Loaded<'a, B> {
     /// Checkpoint the live party at its frontier, reclaiming whatever the
-    /// frontier has caught up with if a permit is granted.
+    /// frontier has caught up with unless a fork is reserved.
     ///
     /// Returns the store to await before transmitting anything from this
     /// frontier, or `None` when the last store already checkpointed this
-    /// exact live state. Without a permit the party is still recorded;
-    /// reclamation waits for a later checkpoint.
+    /// exact live state. While a fork is reserved the party is still
+    /// recorded; reclamation waits for a later checkpoint.
     #[must_use = "await the store before the session transmits"]
     pub(crate) fn checkpoint(
         mut self,
@@ -393,8 +386,8 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
             return None;
         }
         let record = self.cache_mut().record.network(network);
-        if let Some(permit) = reservations.permit() {
-            record.reclaim(party, frontier, permit);
+        if reservations.none_outstanding() {
+            record.reclaim(party, frontier);
         }
         record.record(party, frontier);
         Some(self.store(Some(Checkpoint {

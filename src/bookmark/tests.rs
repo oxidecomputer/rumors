@@ -281,12 +281,7 @@ proptest! {
         let known = emitted[..learned].last().cloned().unwrap_or_default();
         let mut restarted = provider.fork();
         let mut restored = format::decode(&stored).unwrap();
-        let reservations = Reservations::default();
-        restored.networks.get(&network).unwrap().reclaim(
-            &mut restarted,
-            &known,
-            reservations.permit().expect("no fork is reserved"),
-        );
+        restored.networks.get(&network).unwrap().reclaim(&mut restarted, &known);
 
         // Projection selects every old write in the identity we can now use.
         // We must already know all of them before we may issue another version.

@@ -5,7 +5,6 @@ use before::Clock;
 use proptest::prelude::*;
 
 use super::*;
-use crate::bookmark::Reservations;
 
 /// Construct a network with disjoint identities of varying depth and nonempty writes.
 fn network_record(forks: usize, ticks: u64) -> NetworkRecord {
@@ -262,8 +261,7 @@ proptest! {
             .map(|(identity, _)| identity)
             .collect();
 
-        let reservations = Reservations::default();
-        record.reclaim(&mut restart, &known, reservations.permit().expect("no fork is reserved"));
+        record.reclaim(&mut restart, &known);
         prop_assert_eq!(&restart, &expected);
         prop_assert_eq!(record.identities.iter().collect::<Vec<_>>(), expected_remaining);
     }

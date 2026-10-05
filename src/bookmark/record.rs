@@ -52,8 +52,9 @@
 //! party while an identity recorded earlier still contains it, and a
 //! checkpoint taken meanwhile records the smaller party beside the larger
 //! one. The shared frontier keeps overlap harmless for condition 2. For
-//! condition 1, reclaiming needs a [`ReclaimPermit`], which exists only while
-//! no fork is reserved.
+//! condition 1, a checkpoint reclaims only while no fork is reserved, and
+//! reserving needs the same exclusive access to the replica that a checkpoint
+//! runs under, so neither can begin during the other.
 //!
 //! The size constraint on a stored bookmark may drop older identities, which
 //! only forfeits recovery; it must keep `written` whole over every identity it
@@ -63,7 +64,7 @@ use std::collections::{VecDeque, hash_map::RandomState};
 
 use before::{Party, Version};
 
-use super::{ReclaimPermit, format};
+use super::format;
 use crate::Network;
 
 /// One record per network, ordered by its most recent checkpoint.
@@ -171,8 +172,8 @@ impl NetworkRecord {
 
     /// Join every identity the frontier has caught up with into the live party.
     ///
-    /// The permit certifies that no fork of the live party is reserved for a
-    /// bootstrap. A reserved fork is absent from the live party while an
+    /// The caller reclaims only while no fork of the live party is reserved for
+    /// a bootstrap: a reserved fork is absent from the live party while an
     /// identity recorded earlier still contains it, and this pass would hand
     /// the fork back as the newcomer receives it.
     ///
@@ -183,7 +184,7 @@ impl NetworkRecord {
     /// of the identities does not affect the result, and an identity the live
     /// party already covers simply drops out. Afterwards every identity that
     /// remains still awaits writes the frontier lacks, in its original order.
-    pub(crate) fn reclaim(&mut self, party: &mut Party, frontier: &Version, _: ReclaimPermit<'_>) {
+    pub(crate) fn reclaim(&mut self, party: &mut Party, frontier: &Version) {
         let mut waiting = VecDeque::new();
         for identity in std::mem::take(&mut self.identities) {
             let caught_up = &self.written / &identity <= *frontier;
