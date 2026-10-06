@@ -11,8 +11,12 @@ use crate::Version;
 /// A fixture's complete assignment of canonical versions to leaf addresses.
 type Paths = BTreeMap<Vec<u8>, Path>;
 
+// Clippy's `missing_const_for_thread_local` can reject const-block initializers
+// on targets that lower `thread_local!` through fallback TLS. The allow keeps
+// `-D warnings` clean on those targets.
 thread_local! {
     /// The active fixture on this thread; ordinary tests use the version hash.
+    #[allow(clippy::missing_const_for_thread_local)]
     static PATHS: RefCell<Option<Paths>> = const { RefCell::new(None) };
 }
 

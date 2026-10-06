@@ -22,10 +22,15 @@ pub struct Stats {
     pub bytes_allocated: usize,
 }
 
+// Clippy's `missing_const_for_thread_local` can reject const-block initializers
+// on targets that lower `thread_local!` through fallback TLS. The allow keeps
+// `-D warnings` clean on those targets.
 thread_local! {
     /// Whether this thread is currently inside [`measure`].
+    #[allow(clippy::missing_const_for_thread_local)]
     static ACTIVE: Cell<bool> = const { Cell::new(false) };
     /// Counters for the current thread's measured region.
+    #[allow(clippy::missing_const_for_thread_local)]
     static STATS: Cell<Stats> = const { Cell::new(Stats {
         allocations: 0,
         reallocations: 0,
