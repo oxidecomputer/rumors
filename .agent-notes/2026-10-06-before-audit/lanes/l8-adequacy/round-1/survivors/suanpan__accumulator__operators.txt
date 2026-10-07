@@ -1,0 +1,2 @@
+# survivors of crates/suanpan/src/accumulator/operators.rs (suanpan); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/suanpan/src/accumulator/operators.rs:382:23: replace || with && in Accumulator::shift_left

@@ -1,0 +1,2 @@
+# survivors of crates/suanpan/src/accumulator/conversions.rs (suanpan); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/suanpan/src/accumulator/conversions.rs:46:57: replace | with ^ in Accumulator::primitive_parts

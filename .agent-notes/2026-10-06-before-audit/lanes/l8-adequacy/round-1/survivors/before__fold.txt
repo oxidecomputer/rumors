@@ -1,0 +1,3 @@
+# survivors of crates/before/src/fold.rs (rest-partial); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/fold.rs:27:52: replace == with != in balanced_try_fold
+MISSED   crates/before/src/fold.rs:32:28: replace += with *= in balanced_try_fold

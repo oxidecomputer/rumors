@@ -1,0 +1,5 @@
+# survivors of crates/suanpan/src/accumulator/digits.rs (suanpan); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/suanpan/src/accumulator/digits.rs:106:9: replace Digits::reserve with ()
+MISSED   crates/suanpan/src/accumulator/digits.rs:123:9: replace Digits::debug_fields with ()
+MISSED   crates/suanpan/src/accumulator/digits.rs:247:9: replace Digits::debug_assert_valid with ()
+MISSED   crates/suanpan/src/accumulator/digits.rs:260:9: replace Digits::debug_assert_storage with ()

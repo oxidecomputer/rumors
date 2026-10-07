@@ -1,0 +1,7 @@
+# survivors of crates/suanpan/src/accumulator/digits/normalize.rs (suanpan); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/suanpan/src/accumulator/digits/normalize.rs:74:46: replace * with / in Digits::normalize
+MISSED   crates/suanpan/src/accumulator/digits/normalize.rs:81:23: replace > with == in Digits::normalize
+MISSED   crates/suanpan/src/accumulator/digits/normalize.rs:81:23: replace > with < in Digits::normalize
+MISSED   crates/suanpan/src/accumulator/digits/normalize.rs:81:23: replace > with >= in Digits::normalize
+MISSED   crates/suanpan/src/accumulator/digits/normalize.rs:83:21: replace -= with += in Digits::normalize
+MISSED   crates/suanpan/src/accumulator/digits/normalize.rs:83:21: replace -= with /= in Digits::normalize

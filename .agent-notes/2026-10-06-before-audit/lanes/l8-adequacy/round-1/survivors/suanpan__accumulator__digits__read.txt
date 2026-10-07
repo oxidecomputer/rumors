@@ -1,0 +1,4 @@
+# survivors of crates/suanpan/src/accumulator/digits/read.rs (suanpan); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/suanpan/src/accumulator/digits/read.rs:90:22: replace >>= with <<= in Digits::read_digits
+MISSED   crates/suanpan/src/accumulator/digits/read.rs:99:22: replace >>= with <<= in Digits::read_digits
+MISSED   crates/suanpan/src/accumulator/digits/read.rs:115:40: replace | with ^ in pack_limbs

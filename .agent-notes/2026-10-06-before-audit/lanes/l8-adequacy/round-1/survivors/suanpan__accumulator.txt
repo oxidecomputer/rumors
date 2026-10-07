@@ -1,0 +1,3 @@
+# survivors of crates/suanpan/src/accumulator.rs (suanpan); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/suanpan/src/accumulator.rs:197:9: replace Accumulator::reserve_digits with ()
+MISSED   crates/suanpan/src/accumulator.rs:432:9: replace <impl core::fmt::Debug for Accumulator>::fmt -> core::fmt::Result with Ok(Default::default())
