@@ -724,9 +724,9 @@ impl Version {
         // pair walk exists there to fuse.
         //
         // Adjacent clone-identical inputs (the receiver included) collapse
-        // before the counter reads them ([`DedupRuns`]): both hull directions
-        // are idempotent, so a run of one shared buffer is one input.
-        let inputs = DedupRuns::new(self.with_items(iter), FoldInput::version).map(Hull::Input);
+        // before the counter reads them: both hull directions are idempotent,
+        // so a run of one shared buffer is one input.
+        let inputs = crate::fold::dedup_runs(self.with_items(iter), same_buffer).map(Hull::Input);
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             let (lo, hi) = match (a, b) {
                 // A leaf combine: two raw inputs derive their pair hull in one
@@ -866,14 +866,15 @@ impl Version {
     /// no input's bytes are copied. Empty input returns `None`; one input
     /// returns a shared-buffer clone so the result is owned.
     ///
-    /// [`DedupRuns`] removes adjacent inputs sharing the same buffer. Join and
-    /// meet are idempotent, so retaining one from each run preserves the result.
+    /// [`dedup_runs`](crate::fold::dedup_runs) removes adjacent inputs sharing
+    /// the same buffer. Join and meet are idempotent, so retaining one from
+    /// each run preserves the result.
     fn balanced_fold<I>(iter: I, extreme: Extreme) -> Option<Version>
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        let inputs = DedupRuns::new(iter.into_iter(), Borrow::borrow);
+        let inputs = crate::fold::dedup_runs(iter, same_buffer);
         let group = crate::fold::balanced_reduce(inputs.map(Group::Input), |a, b| {
             Group::Merged(match (a, b) {
                 (Group::Input(a), Group::Input(b)) => a.borrow().extreme(extreme, b.borrow()),
@@ -1140,59 +1141,17 @@ impl Version {
     }
 }
 
-/// An iterator adapter collapsing adjacent runs of one shared stored buffer
-/// before a lattice fold reads them.
+/// Whether two fold inputs contribute one shared stored buffer.
 ///
 /// Join and meet are idempotent, so a run of clones contributes only one
-/// operand. Shared storage identifies such a clone in `O(1)` without reading
-/// either stream. Only adjacent duplicates collapse: retaining one previous
-/// item keeps the adapter single-pass with `O(1)` state. Scattered duplicates
-/// remain for the combining operation to handle normally.
-///
-/// `last` holds a **clone** of the last yielded item's version, not a raw
-/// address: the clone keeps the run's buffer alive, so no freed allocation can
-/// be reused at the same address mid-iteration and masquerade as a duplicate.
-#[must_use = "iterators are lazy and do nothing unless consumed"]
-struct DedupRuns<I, F> {
-    inner: I,
-    /// Projects each item to the version it contributes.
-    view: F,
-    /// A clone of the last yielded item's version (see above).
-    last: Option<Version>,
-}
-
-impl<I, F> DedupRuns<I, F> {
-    fn new(inner: I, view: F) -> Self {
-        DedupRuns {
-            inner,
-            view,
-            last: None,
-        }
-    }
-}
-
-impl<I, F> Iterator for DedupRuns<I, F>
-where
-    I: Iterator,
-    F: for<'a> Fn(&'a I::Item) -> &'a Version,
-{
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<I::Item> {
-        loop {
-            let item = self.inner.next()?;
-            let version = (self.view)(&item);
-            if self
-                .last
-                .as_ref()
-                .is_some_and(|prev| prev.0.ptr_eq(&version.0))
-            {
-                continue; // an adjacent clone: idempotence drops it
-            }
-            self.last = Some(version.clone());
-            return Some(item);
-        }
-    }
+/// operand. A clone shares its source's buffer, so comparing buffer address
+/// and length (`ptr_eq`) identifies it in `O(1)` without reading either
+/// stream. Equal addresses prove shared storage, and so equal values, only
+/// while both buffers are alive, because a new buffer can reuse a freed one's
+/// address; [`dedup_runs`](crate::fold::dedup_runs) compares only items it
+/// still holds.
+fn same_buffer<B: Borrow<Version>>(a: &B, b: &B) -> bool {
+    a.borrow().ptr_eq(b.borrow())
 }
 
 /// One entry in [`Version::balanced_fold`]: either an untouched input or an

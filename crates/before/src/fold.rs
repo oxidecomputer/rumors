@@ -9,6 +9,13 @@
 //! repeatedly scanning one growing accumulator. Infallible combiners must be
 //! associative and commutative; fallible combiners stop at the first
 //! incompatible pair.
+//!
+//! An idempotent combiner can also skip inputs it would absorb unchanged:
+//! [`dedup_runs`] drops adjacent inputs that share storage before the counter
+//! reads them.
+
+#[cfg(test)]
+mod tests;
 
 /// Reduce `iter` with a fallible combiner.
 ///
@@ -59,4 +66,22 @@ pub(crate) fn balanced_reduce<T>(
         Err(_) => unreachable!("an infallible combiner rejects nothing"),
     };
     groups.into_iter().reduce(combine)
+}
+
+/// Yield the first item of each run of adjacent items, where a run continues
+/// while `same(first, next)` holds for the run's first item.
+///
+/// Finding a run's end means pulling the item after it, so the adapter holds
+/// one input ahead of its consumer. When inputs are built as they are pulled,
+/// peak heap can exceed an on-demand fold's by up to one input.
+pub(crate) fn dedup_runs<I: IntoIterator>(
+    iter: I,
+    mut same: impl FnMut(&I::Item, &I::Item) -> bool,
+) -> impl Iterator<Item = I::Item> {
+    let mut iter = iter.into_iter().peekable();
+    core::iter::from_fn(move || {
+        let first = iter.next()?;
+        while iter.next_if(|next| same(&first, next)).is_some() {}
+        Some(first)
+    })
 }
