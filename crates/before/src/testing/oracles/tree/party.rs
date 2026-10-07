@@ -2,6 +2,9 @@
 
 use std::sync::Arc;
 
+#[cfg(test)]
+use crate::recurse::descend;
+
 /// An id tree, exactly as the paper defines it.
 ///
 /// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
@@ -95,6 +98,61 @@ impl Party {
                 Arc::unwrap_or_clone(ar).union(Arc::unwrap_or_clone(br)),
             ),
         }
+    }
+
+    /// Tests whether two families of regions own every point equally often.
+    ///
+    /// The families agree when, for every point `x` of `[0, 1)`, as many
+    /// parties in `lhs` own `x` as in `rhs`. Comparing [`union`](Party::union)s
+    /// cannot see a region that one family holds twice; this comparison can.
+    #[cfg(test)]
+    pub(crate) fn same_multiplicity(lhs: &[&Party], rhs: &[&Party]) -> bool {
+        Self::same_multiplicity_below(lhs, rhs, 0)
+    }
+
+    /// Compare owner counts pointwise over the subinterval that `lhs` and `rhs`
+    /// describe, `depth` levels below the root.
+    #[cfg(test)]
+    fn same_multiplicity_below(lhs: &[&Party], rhs: &[&Party], depth: usize) -> bool {
+        let is_leaf = |p: &&Party| matches!(p, Party::Leaf(_));
+        if lhs.iter().chain(rhs).all(is_leaf) {
+            // Each leaf owns all or none of this subinterval, so one count of
+            // owners per family stands for every point in it.
+            return Self::owners(lhs) == Self::owners(rhs);
+        }
+        let (lhs_left, lhs_right) = Self::halves(lhs);
+        let (rhs_left, rhs_right) = Self::halves(rhs);
+        descend!(
+            depth + 1,
+            Self::same_multiplicity_below(&lhs_left, &rhs_left, depth + 1)
+        ) && descend!(
+            depth + 1,
+            Self::same_multiplicity_below(&lhs_right, &rhs_right, depth + 1)
+        )
+    }
+
+    /// Count the parties in `family` that are the full leaf.
+    #[cfg(test)]
+    fn owners(family: &[&Party]) -> usize {
+        family
+            .iter()
+            .filter(|p| matches!(p, Party::Leaf(true)))
+            .count()
+    }
+
+    /// Split every party in `family` into its left and right halves.
+    ///
+    /// A leaf owns or lacks both halves of its interval alike, so it stands for
+    /// itself on each side.
+    #[cfg(test)]
+    fn halves<'a>(family: &[&'a Party]) -> (Vec<&'a Party>, Vec<&'a Party>) {
+        family
+            .iter()
+            .map(|&p| match p {
+                Party::Leaf(_) => (p, p),
+                Party::Node(l, r) => (&**l, &**r),
+            })
+            .unzip()
     }
 
     pub fn fork(&mut self) -> Party {

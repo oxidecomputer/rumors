@@ -19,7 +19,8 @@ fn join_all_agrees_with_oracle_when_none_overlap() {
     assert_join_all_matches_all_models(acc, shares);
 }
 
-/// An overlap among inputs is reported without losing any region.
+/// An overlap among inputs is reported without losing or duplicating any
+/// region.
 #[test]
 fn join_all_preserves_regions_on_overlap() {
     let mut acc = Party::seed();
@@ -31,6 +32,21 @@ fn join_all_preserves_regions_on_overlap() {
     let a = shares.pop().expect("five forks");
     let alias = a.dangerously_alias();
     assert_join_all_matches_all_models(acc, vec![a, b, alias, c, d, e]);
+}
+
+/// An overlap between the receiver and disjoint inputs is reported without
+/// losing or duplicating any region.
+///
+/// The inputs fold into one group without error, so the overlap appears only
+/// when that group meets the receiver: this population reaches the error path
+/// after the fold, where `join_all_preserves_regions_on_overlap` stops inside
+/// it.
+#[test]
+fn join_all_preserves_regions_when_the_receiver_overlaps() {
+    let mut acc = Party::seed();
+    let share = acc.fork();
+    let alias = acc.dangerously_alias();
+    assert_join_all_matches_all_models(acc, vec![share, alias]);
 }
 
 /// Return the union of some oracle parties.
@@ -45,12 +61,17 @@ fn oracle_union_all(parties: impl IntoIterator<Item = tree::Party>) -> tree::Par
 /// All three implementations must agree on success. On failure, the balanced
 /// production fold may group inputs differently from the sequential models;
 /// the contract requires each result to return every region it did not retain,
-/// so the observable comparison is conservation of the complete union.
+/// so each model must conserve the complete union. Production must also
+/// conserve multiplicity: every point is owned as many times across the final
+/// receiver and returned parties as across the initial receiver and inputs, so
+/// no region is lost or comes back twice.
 fn assert_join_all_matches_all_models(mut acc: Party, inputs: Vec<Party>) {
     let initial = to_oracle_party(&acc);
     let oracle_inputs: Vec<tree::Party> = inputs.iter().map(to_oracle_party).collect();
-    let expected =
-        oracle_union_all(std::iter::once(initial.clone()).chain(oracle_inputs.iter().cloned()));
+    let received: Vec<tree::Party> = std::iter::once(initial.clone())
+        .chain(oracle_inputs.iter().cloned())
+        .collect();
+    let expected = oracle_union_all(received.iter().cloned());
     let mut recursive_acc = initial;
     let function_acc = function::lift_id(recursive_acc.clone());
     let function_inputs = oracle_inputs
@@ -95,10 +116,18 @@ fn assert_join_all_matches_all_models(mut acc: Party, inputs: Vec<Party>) {
             );
         }
         (Err(rejected), Err(recursive_rejected)) => {
-            let actual = oracle_union_all(
-                std::iter::once(to_oracle_party(&acc)).chain(rejected.iter().map(to_oracle_party)),
-            );
+            let held: Vec<tree::Party> = std::iter::once(to_oracle_party(&acc))
+                .chain(rejected.iter().map(to_oracle_party))
+                .collect();
+            let actual = oracle_union_all(held.iter().cloned());
             assert_eq!(actual, expected, "join_all lost or invented a region");
+            assert!(
+                tree::Party::same_multiplicity(
+                    &received.iter().collect::<Vec<_>>(),
+                    &held.iter().collect::<Vec<_>>(),
+                ),
+                "join_all returned a region more or fewer times than it received it",
+            );
             let recursive_actual =
                 oracle_union_all(std::iter::once(recursive_acc).chain(recursive_rejected));
             assert_eq!(recursive_actual, expected, "recursive model lost a region");
@@ -118,8 +147,9 @@ fn assert_join_all_matches_all_models(mut acc: Party, inputs: Vec<Party>) {
 }
 
 proptest! {
-    /// `join_all` matches both semantic models on success and conserves the
-    /// complete region in every model after overlap.
+    /// `join_all` matches both semantic models on success. After overlap,
+    /// every model conserves the complete region, and production conserves
+    /// how many times each point is owned.
     #[test]
     fn party_join_all_matches_all_models(
         (oacc, oracle_inputs) in arb_party_family(),

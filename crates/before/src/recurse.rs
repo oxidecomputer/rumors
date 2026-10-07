@@ -8,9 +8,12 @@
 //!
 //! Every library traversal is iterative: depth lives on explicit heap stacks,
 //! never the call stack, so the guard machinery compiles only for the test
-//! surface, where the remaining depth recursion lives: the differential oracle
-//! bridge (`testing::bridge`), whose walks mirror the paper's recursive trees,
-//! plus the test-local recursive witnesses beside it.
+//! surface. The guarded recursion there is the differential oracle bridge
+//! (`testing::bridge`), whose walks mirror the paper's recursive trees, the
+//! test-local recursive witnesses beside it, and the tree oracle's test-only
+//! multiplicity comparison. The tree oracle's own operations recurse unguarded
+//! by design; their harnesses bound input depth instead, as the oracle's
+//! module doc explains.
 //!
 //! The paper-shaped oracle is clearest written recursively, and the guard is
 //! what lets it meet deep inputs safely. Deep-input tests exercise the
