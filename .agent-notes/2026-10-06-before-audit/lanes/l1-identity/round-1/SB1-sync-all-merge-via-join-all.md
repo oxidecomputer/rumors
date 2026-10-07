@@ -6,7 +6,7 @@
 participants with a private copy of `Clock::join_all`'s algorithm: a
 `balanced_try_fold` over aliases of the other clocks with the same combine
 closure, then a loop joining each group into an alias of `self`, mapping
-either failure to `Overlap`. `Clock::join_all` (`src/clock.rs:270-288`) is
+either failure to `Overlap`. `Clock::join_all` (`src/clock.rs:292`, at `main` `97798357`) is
 exactly that fold followed by exactly that loop.
 
 ## Proposed structure
