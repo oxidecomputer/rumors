@@ -121,3 +121,9 @@ Reject them. The human-readable deserializers of `Clock`, `Span`, and
 `Ranked` accept only the named-record form they serialize. Binary formats
 keep the sequence form they depend on.
 
+## Owner's ruling on Q2
+
+Accept and document. Binary formats may bridge byte strings and sequences in
+both directions, so a CBOR byte string decodes as `Count` limbs. The serde
+module doc states this.
+
