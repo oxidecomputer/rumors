@@ -44,6 +44,30 @@ spelling.
 | fuzz | failed | `libfuzzer-sys` 0.4.13 does not compile on illumos (`FuzzerPlatform.h:72: #error "Support for your platform has not been implemented"`). The crate depends on it unconditionally, so the leg stops at its clippy step. The fuzz workspace is out of the audit's scope. |
 | board | failed | `amp-board-acceptance` passes: 5311 green, 0 red. `worst-cases-pin` reports drift for `count_display × heap`: pinned worst `hugeleaf`; live worst `pure-comb` at the default scale and `memo-comb` at the acceptance scale. |
 
+## Landing check
+
+Branches land on the landing check (`~/bin/audit-check`, described in the
+README) rather than the full gate. Its baseline was recorded at `a9bf84f0`,
+whose tree differs from `455e97de`'s only by the landed limb-index fix and
+notes, with this invocation:
+
+```
+on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check'
+```
+
+| Leg | Verdict | Detail |
+|---|---|---|
+| tests | ok | `before` and `suanpan`: 757 run, 757 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
+| lints | ok | |
+| docs | ok | doctests: 193 passed (`before`), 3 passed (`suanpan`) |
+| surface | ok | 14 tests passed; 211 public function-like items = 134 board-covered + 77 excepted |
+| board | failed | 5311 green, 0 red; then exactly the two `count_display × heap` drift lines described under `just gate` |
+| wasm | ok | wasm32-pins 8/8, fuzzfit 25/25, fuelscape 43/43 |
+
+A branch's landing check must match this table, with counts moved only by the
+tests the branch adds or removes, and with the board leg's two drift lines
+and nothing else beside them.
+
 ## Open items
 
 - The `count_display × heap` ranking differs between this box and the machine
