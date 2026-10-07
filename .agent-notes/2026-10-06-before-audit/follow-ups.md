@@ -11,4 +11,8 @@ audit. Each entry names its source and what it would catch.
   on constructed rows. No instrument checks the rule over arbitrary digit
   layouts from random update histories. Folding the rule into an existing
   random-history differential suite would sample that space. Source: the
-  readout-class builder, pending its reviewer's judgment.
+  readout-class builder. Its reviewer found no constructible failure such
+  a suite would catch today, once the table runs at an odd width; what it
+  would still sample is scaled readouts with a nonzero start and interior
+  zero digits jointly with the class. Not recommended until such a failure
+  can be named.
