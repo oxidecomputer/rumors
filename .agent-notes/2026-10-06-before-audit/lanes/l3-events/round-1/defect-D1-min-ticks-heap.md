@@ -171,3 +171,31 @@ With the costs stated fully, the owner chose the deferred variant
   the owner.
 - No performance values appear in tree prose; docs and comments state
   mechanisms and bounds.
+
+## Owner's ruling on the regime past the inline prefix field
+
+Round 1's review of the re-ruled fix measured D1 recurring past `2^23`
+frozen prefixes: a stored minimum's 23-bit prefix field overflows, every
+later minimum spills to a 48-byte slot, and a 91 MB input needs 6.1 GB of
+transient heap (67 B/B, tending to 125). The board's samples never reach
+that side of the field, so it read green.
+
+The owner rejected landing a fix that holds in one regime and fails in
+another, because the split gives false confidence. The owner chose a
+single-regime redesign instead:
+
+- A suspended minimum's payload is only its close count. Its height is
+  derived when it resumes, from the current minimum minus the popped
+  boundary, which `RangeMinima` already stores as the difference between
+  adjacent minima.
+- Only the current minimum carries an explicit height. A chain of settled
+  minima shares one base (a leaf's frozen prefix and offset), and per-chain
+  Abel summation settles them without multiplying a wide running sum once
+  per minimum.
+- The packed contribution word, the spill store, re-anchoring, and the
+  test-only inline bound are removed; the chunked boundary storage and the
+  frozen-prefix scheme for leaf heights stay.
+
+The fixer builds it as a construct-and-measure spike on top of `7222d49b`,
+beginning with the boundary invariant the design rests on, and returns to
+the owner if that invariant does not hold.
