@@ -19,24 +19,50 @@ suite in ways that standard is too narrow to see:
 This file keeps every such instrument findable until the owner triages it.
 No `explore/` branch is deleted before that triage.
 
-## How the triage will work
+## The instrument survey: the audit's final phase
 
-When every lane has reported, one agent will evaluate the inventory below on
-three questions:
+The owner asked for this survey once every lane is done and the rest of the
+review is complete. It is the last phase of the audit, not an interleaved
+task.
 
-1. **Mutation survivors.** Run the adequacy lane's cargo-mutants survivors
-   for the instrument's files against it. A survivor it kills is a failure
-   only it catches.
-2. **Regime reach.** Compare the instrument's generator against the committed
-   generators on depth, width, height, sharing, and relation mix, using the
-   adequacy lane's census as the baseline.
-3. **Where it belongs.** Prefer folding the stronger part into an existing
-   shared instrument (`testing::generators`, `testing::laws`,
-   `testing::diff_ops`, `testing::exhaustive`) over landing a parallel
-   harness.
+Most of these instruments have not caught a current defect or an injected
+regression. Their value lies in going past the current suite's boundaries:
+reaching inputs the generators never produce, checking against independent
+models, and stating predicates nobody has written down. The survey aims to
+turn that work into durable improvements. It covers three areas:
 
-That agent writes one machinery brief per instrument worth folding, with the
-cost under nextest's time limit stated. The owner then rules on each brief.
+- **Generator coverage.** Which regimes the committed generators reach only
+  with negligible probability, or never, and which explore-branch generator
+  constructions reach them cheaply. The adequacy lane's census is the
+  baseline, and each candidate gets the same census.
+- **Oracles.** Which independent models (the leaf-list model of versions, the
+  interval-set model of parties, the specification codec, the accumulator
+  pool model, the grid model of spans) would strengthen the committed
+  oracles. Each oracle is judged either as a replacement for a committed
+  oracle or as a second, independent one.
+- **Predicates.** Which properties the auditors checked that no committed
+  test states, such as multiplicity, history independence, and order
+  independence of folds. For each, ask which plausible future defect it
+  would catch.
+
+### Sequence
+
+1. **Survey.** One agent reads every lane's inventory entries and explore
+   branch. It runs the adequacy lane's mutation survivors against each
+   instrument, and runs the census on each generator. It writes a survey
+   document with its findings in the three areas, each ranked by the failure
+   class it would guard against and its cost under nextest's time limit. The
+   coordinator commits the survey here.
+2. **Proposal branches.** For each of the best enhancements, a builder
+   implements one polished branch, one enhancement per branch, extending the
+   shared instruments (`testing::generators`, `testing::laws`,
+   `testing::diff_ops`, `testing::exhaustive`, the oracles) rather than
+   landing parallel harnesses. The branches are sequenced so that each
+   builds on the shared instruments the earlier ones extend. Each branch gets
+   the usual skeptical review.
+3. **Owner review.** Nothing from the survey is folded in without the owner's
+   review. The branches are proposals: like every audit branch, they wait
+   for the owner and never land autonomously.
 
 ## Inventory
 

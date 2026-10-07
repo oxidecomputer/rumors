@@ -160,6 +160,12 @@ simplifications or design proposals otherwise.
   test pinning it (lane L1's D1).
 - `Clock::from_parts` documents that pairing a party with a version older
   than its latest tick reproduces stamps the party already issued.
+- After every lane is done and the rest of the review is complete, the
+  audit ends with a survey of the auditors' exploratory instruments: generator
+  coverage, oracles, and predicates. It ends in polished, sequenced proposal
+  branches, one per best enhancement. Nothing from the survey is folded in
+  without the owner's review. [`instruments.md`](instruments.md) holds the
+  plan.
 - Debug-only assertions that scan whole buffers on hot paths are deleted,
   provided a mutation check shows committed tests catch every violation they
   would have caught.
