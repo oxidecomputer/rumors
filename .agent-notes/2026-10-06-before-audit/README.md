@@ -58,7 +58,10 @@ defect in need of fixing.
 `wasm32-pins/` and `surfacecheck/` workspaces, and the amplification board and
 meters. Out: `before-viz`, `before-fuelscape`, the `fuzz/` and `fuzzfit/`
 workspaces, `build.rs`'s fuelscape rendering, the `docs/` widget, the committed
-`fuelscape/` data, and the `rumors` crate. 32-bit behavior is fully in scope and
+`fuelscape/` data, and the `rumors` crate. One exception: the cost text
+(`contract` field) in the committed `fuelscape/` data mirrors rustdoc, and an
+agent correcting that rustdoc may edit the matching text by hand, without
+regenerating the data. 32-bit behavior is fully in scope and
 is tested currently through the `wasm32-pins` executor.
 
 **Performance.** Findings are asymptotic primarily: a deterministic counter
