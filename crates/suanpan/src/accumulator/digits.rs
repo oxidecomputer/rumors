@@ -101,10 +101,15 @@ impl Digits {
         self.debug_assert_valid();
     }
 
-    /// Reserve enough capacity for `count` digits without changing the value.
+    /// Reserve enough capacity for `count` digits without changing the value,
+    /// ignoring a request that cannot be honored.
     pub fn reserve(&mut self, count: usize) {
-        self.digits
-            .reserve_exact(count.saturating_sub(self.digits.len()));
+        // The reservation is only a hint. A refused one, whether by capacity
+        // overflow or by the allocator, leaves the buffer unchanged, and a
+        // later write that needs the space grows the buffer itself.
+        let _ = self
+            .digits
+            .try_reserve_exact(count.saturating_sub(self.digits.len()));
     }
 
     /// The stored prefix, including digit zero even when the value is zero.

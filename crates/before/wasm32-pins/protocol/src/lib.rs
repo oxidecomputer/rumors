@@ -32,6 +32,9 @@ pub enum Check {
     RankArithmetic = 7,
     /// Exercise the shifted-landing path selected by parameter `a`.
     SuanpanLanding = 8,
+    /// Reserve parameter `a` bits of storage in two accumulators at once,
+    /// more than the guest can honor.
+    SuanpanReserve = 9,
 }
 
 impl From<Check> for u32 {

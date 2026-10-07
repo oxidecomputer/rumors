@@ -111,7 +111,7 @@ The accumulator may retain more allocation than its current working width
 after cancellation or reset. A nonzero left shift can replace that
 allocation; the old and new allocations may coexist while the shift runs.
 
-`reserve_digits` can avoid repeated allocation
+`reserve_bits` can avoid repeated allocation
 growth. `reset` clears the value while retaining its
 allocation for reuse. Cloning and debug formatting take time and space
 proportional to all retained allocation, not merely the current value.

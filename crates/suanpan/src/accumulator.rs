@@ -180,21 +180,50 @@ impl Accumulator {
         self.small = Some(0);
     }
 
-    /// Reserve capacity for at least `digits` base-2^32 digit positions.
+    /// Reserve storage for a working width of at least `bits` bits, if the
+    /// request can be honored.
     ///
-    /// This allocation hint does not change the value. Reserving the expected
+    /// This allocation hint does not change the value. Storage comes in whole
+    /// 32-bit positions, the unit [`stored_bits`](Self::stored_bits) reports,
+    /// so the request rounds up to a multiple of 32. Reserving the expected
     /// width avoids repeated allocation growth and its transient memory use.
     /// [`reset`](Self::reset) retains the reservation; a nontrivial
     /// `<<=` may release it.
     ///
+    /// A request that cannot be honored, because it is too large to address
+    /// or because the allocator refuses it, is ignored: the call returns
+    /// normally and keeps the existing allocation, and later updates grow
+    /// storage as they would without the hint.
+    ///
+    /// ```
+    /// use core::cmp::Ordering;
+    /// use suanpan::Accumulator;
+    ///
+    /// let mut total = Accumulator::new();
+    /// // Reserve once for the width the following write reaches.
+    /// total.reserve_bits(4_096);
+    /// total.add_shifted_limbs(4_000, [1]);
+    /// assert_eq!(total.stored_bits(), 4_032);
+    ///
+    /// // No platform can address this much storage, so the hint is ignored:
+    /// // the call returns normally and the value is unchanged.
+    /// total.reserve_bits(u64::MAX);
+    /// total.sub_shifted_limbs(4_000, [1]);
+    /// assert_eq!(total.cmp_zero(), Ordering::Equal);
+    /// ```
+    ///
     /// # Complexity
     ///
     /// O(1) time and space if the existing allocation suffices. Otherwise this
-    /// performs at most one allocation and may copy retained storage;
-    /// allocator cost, retained growth, and temporary space depend on the old
-    /// and requested capacities.
-    pub fn reserve_digits(&mut self, digits: usize) {
-        self.digits.reserve(digits);
+    /// makes at most one allocation attempt. A successful attempt may copy
+    /// retained storage; allocator cost, retained growth, and temporary space
+    /// depend on the old and requested capacities. An ignored request retains
+    /// no additional space.
+    pub fn reserve_bits(&mut self, bits: u64) {
+        // A position count beyond `usize` can never be allocated, so
+        // saturating sends it to the same refusal as any oversized request.
+        let positions = usize::try_from(bits.div_ceil(u64::from(DIGIT_BITS))).unwrap_or(usize::MAX);
+        self.digits.reserve(positions);
     }
 
     /// Compare the exact value with zero.
