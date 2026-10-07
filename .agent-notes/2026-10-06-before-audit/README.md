@@ -141,8 +141,10 @@ simplifications or design proposals otherwise.
 - Shifting a zero accumulator, or adding a zero-valued operand at a shift, is
   total and constant-space whatever the zero's stored form.
 - `suanpan::Accumulator::reserve_digits(usize)` becomes
-  `reserve_bits(bits: u64)`, a best-effort hint that ignores any request the
-  allocator cannot satisfy. This public API change is approved; it matches
+  `reserve_bits(bits: u64)`, a best-effort hint. Its bits-to-digits
+  arithmetic saturates rather than overflowing, and a request the allocator
+  refuses reserves nothing. It never reserves "as much as it can" short of
+  the request. This public API change is approved; it matches
   `suanpan`'s other width parameters and removes the caller's conversion.
 - Debug-only assertions that scan whole buffers on hot paths are deleted,
   provided a mutation check shows committed tests catch every violation they
