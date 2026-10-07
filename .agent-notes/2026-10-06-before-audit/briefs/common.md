@@ -107,7 +107,9 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   command the first failing step ends the whole command, and later steps and
   their `echo` lines never run. When a step is expected to fail (a mutant, a
   base-commit demonstration), run it as its own remote command, or record its
-  status explicitly (`cmd; echo "status $?"`).
+  status in a form `set -e` permits: `cmd || echo "status $?"` prints the
+  failing status and continues, while `cmd; echo "status $?"` exits before
+  the `echo`.
 - Begin every remote command with
   `unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24;`.
   - The box's cargo config caps build jobs at 24, but nextest runs one test
