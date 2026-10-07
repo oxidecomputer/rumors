@@ -42,3 +42,13 @@ receiver's buffer can still raise the receiver's working width
 working width stays history-dependent, as documented. Making a zero never
 raise working width would not be comprehensive, and could not be in
 principle, so no fix is pursued.
+
+## Owner's ruling on cancelled top digits of nonzero values
+
+A nonzero value stored with cancelled top digits carries that stored width
+into a shift or deposit; for example, the value 1 stored over 41 digits keeps
+1,041 stored digits after `<<= 32000`, where the value needs 1,001. The
+excess is storage the history already paid for, not growth proportional to
+the shift, and the 32-bit panic case is not constructible. The owner ruled to
+record it as an observation: costs stay stated in stored width, as
+documented, and no compaction branch is built.
