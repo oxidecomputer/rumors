@@ -19,13 +19,15 @@
 //! On each output region the height equals one input — the *side*, `a` when
 //! `sign(D)` favors it, `b` when it favors the other, sticky at ties (`D = 0`
 //! keeps the current side, which both inputs then agree on). Join and meet are
-//! this one sweep with the side selection reversed — pointwise max follows the
+//! one [`sweep`] with the side selection reversed — pointwise max follows the
 //! higher side, pointwise min the lower — and the selection is everything that
-//! distinguishes them: each entry point passes its own picking closure and the
-//! sweep never consults which operation it is running. Because the crossing
-//! sequence and the running difference are selection-independent, [`Version::hull_bits`]
-//! emits both outputs from one sweep, each operand decoded once. The output's
-//! delta across a boundary needs no absolute heights:
+//! distinguishes them: each entry point passes one [`Extreme`] per output it
+//! requests, and the sweep reads those values only through [`Extreme::pick`],
+//! never asking which operation it is running. Because the crossing sequence
+//! and the running difference are selection-independent, one sweep can emit
+//! several extremes: [`Extreme::emit`] requests one, and [`Version::hull_bits`]
+//! requests both, decoding each operand once. The output's delta across a
+//! boundary needs no absolute heights:
 //!
 //! - **Same side**: the output moves with its side, so the delta is
 //!   that side's own step delta — zero when the boundary belonged to
@@ -44,7 +46,8 @@
 //! Each input boundary is visited once. Arithmetic work is charged to the
 //! payload codes that changed `D`, and writer collapse is amortized over the
 //! output it removes or retains. Transient state consists of two compact cursor
-//! paths, the accumulator, the writer's compact path state, and the output.
+//! paths, the accumulator, and, for each emitted extreme, a writer's compact
+//! path state and its output.
 
 #![allow(rustdoc::private_intra_doc_links)]
 
@@ -123,6 +126,16 @@ impl Extreme {
             (Extreme::Higher, Ordering::Less) | (Extreme::Lower, Ordering::Greater) => Side::B,
         }
     }
+
+    /// Emit this pointwise extreme in one overlay walk.
+    ///
+    /// # Panics
+    ///
+    /// Panics as [`sweep`] does.
+    pub fn emit(self, a_bits: &Version, b_bits: &Version) -> Version {
+        let ([out], _) = sweep(a_bits, b_bits, [self]);
+        out
+    }
 }
 
 /// The meet, join, and causal relation produced by one traversal.
@@ -135,151 +148,115 @@ pub struct Hull {
     pub hi: Version,
 }
 
-/// Write both pointwise extremes and determine the operands' causal order in
-/// one traversal.
-///
-/// Meet and join visit the same input boundaries and differ only in which
-/// input height they select. Producing both together decodes each input once.
-/// The sign already used for selection also determines whether either operand
-/// dominates the other.
-///
-/// # Panics
-///
-/// [`Version::join`]'s contract exactly: canonical operands required, structural
-/// violations panic, the rest yield an unspecified output triple.
 impl Version {
+    /// Write both pointwise extremes and determine the operands' causal order
+    /// in one traversal.
+    ///
+    /// Meet and join visit the same input boundaries and differ only in which
+    /// input height they select. Producing both together decodes each input
+    /// once. The sign already used for selection also determines whether
+    /// either operand dominates the other.
+    ///
+    /// # Panics
+    ///
+    /// Panics as [`sweep`] does.
     pub(crate) fn hull_bits(&self, other: &Version) -> Hull {
-        /// State for one of the two outputs.
-        struct Emission {
-            extreme: Extreme,
-            side: Side,
-            out: VersionWriter,
-        }
-
-        let OpenedPair {
-            a: mut cursor_a,
-            b: mut cursor_b,
-            mut diff,
-            a_first,
-            b_first,
-        } = OpenedPair::open(self, other);
-
-        // Both outputs and the relation use the same sign on each region.
-        let mut directions = OrderState::new();
-        let sign = diff.cmp_zero();
-        directions.fold(sign);
-
-        // Open each output with the selected first height. The side fields are
-        // initialized below once the first sign has selected them.
-        let mut outputs = [
-            Emission {
-                extreme: Extreme::Lower,
-                side: Side::A,
-                out: VersionWriter::with_capacity(self.stored_len() + other.stored_len()),
-            },
-            Emission {
-                extreme: Extreme::Higher,
-                side: Side::A,
-                out: VersionWriter::with_capacity(self.stored_len() + other.stored_len()),
-            },
-        ];
-        for emission in &mut outputs {
-            // At a tie both first heights are equal, so either side is equivalent.
-            emission.side = emission.extreme.pick(sign, Side::A);
-            let first = match emission.side {
-                Side::A => &a_first,
-                Side::B => &b_first,
-            };
-            emission
-                .out
-                .height(cursor_a.depth().max(cursor_b.depth()), first);
-        }
-        // The accumulator and outputs now own everything derived from the
-        // opening heights. Release wide decoded integers before the walk grows
-        // its cursor paths and output buffers.
-        drop(a_first);
-        drop(b_first);
-
-        while !(cursor_a.done() && cursor_b.done()) {
-            // Decode this boundary once, then write both resulting deltas.
-            let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-            let sign = diff.cmp_zero();
-            directions.fold(sign);
-            let depth = cursor_a.depth().max(cursor_b.depth());
-            for emission in &mut outputs {
-                let new_side = emission.extreme.pick(sign, emission.side);
-                let old_side = emission.side;
-                emission.side = new_side;
-                old_side.write_delta(
-                    &mut emission.out,
-                    depth,
-                    &diff,
-                    new_side,
-                    step_a.as_ref(),
-                    step_b.as_ref(),
-                );
-            }
-        }
-
-        let [lo, hi] = outputs;
-        Hull {
-            relation: directions.relation(),
-            lo: lo.out.finish(),
-            hi: hi.out.finish(),
-        }
+        let ([lo, hi], relation) = sweep(self, other, [Extreme::Lower, Extreme::Higher]);
+        Hull { relation, lo, hi }
     }
 }
 
-impl Extreme {
-    /// Emit this pointwise extreme in one overlay walk.
-    pub fn emit(self, a_bits: &Version, b_bits: &Version) -> Version {
-        let OpenedPair {
-            a: mut cursor_a,
-            b: mut cursor_b,
-            mut diff,
-            a_first,
-            b_first,
-        } = OpenedPair::open(a_bits, b_bits);
+/// One output of [`sweep`]: the extreme it follows, the input whose height it
+/// currently takes, and the stream written so far.
+struct Emission {
+    /// The extreme this output follows.
+    extreme: Extreme,
+    /// The input supplying the output's height on the current region.
+    side: Side,
+    /// The output stream.
+    out: VersionWriter,
+}
 
-        // The first region's selected height opens the output. The combined
-        // input length is sufficient capacity: output boundaries come from the
-        // union of the inputs' boundaries, and each output delta lies between
-        // the two input deltas at that boundary. Signed gamma length depends
-        // only on magnitude, so the output code is no wider than the wider
-        // input code. The opening height comes from one input, and canonical
-        // collapse only removes topology and a zero delta. Thus the output is
-        // no longer than both inputs together.
-        //
+/// Walk both operands once, emitting each requested extreme and the operands'
+/// causal relation.
+///
+/// The `i`th output follows `extremes[i]`. Each boundary is decoded once and
+/// its sign is shared: every output picks its side from it, and an
+/// [`OrderState`] folds it into the relation, which is `None` when the operands
+/// are concurrent.
+///
+/// # Panics
+///
+/// Panics if either operand's stream is structurally malformed; other
+/// non-canonical streams yield unspecified outputs and relation. Every
+/// [`Version`] holds one canonical stream, so neither case arises from a value
+/// the crate built.
+fn sweep<const N: usize>(
+    a: &Version,
+    b: &Version,
+    extremes: [Extreme; N],
+) -> ([Version; N], Option<Ordering>) {
+    let OpenedPair {
+        a: mut cursor_a,
+        b: mut cursor_b,
+        mut diff,
+        a_first,
+        b_first,
+    } = OpenedPair::open(a, b);
+
+    let mut directions = OrderState::new();
+    let sign = diff.cmp_zero();
+    directions.fold(sign);
+
+    // The first region's selected height opens each output. The combined input
+    // length is sufficient capacity: output boundaries come from the union of
+    // the inputs' boundaries, and each output delta lies between the two input
+    // deltas at that boundary. Signed gamma length depends only on magnitude,
+    // so the output code is no wider than the wider input code. The opening
+    // height comes from one input, and canonical collapse only removes topology
+    // and a zero delta. Thus each output is no longer than both inputs
+    // together.
+    let depth = cursor_a.depth().max(cursor_b.depth());
+    let mut outputs = extremes.map(|extreme| {
         // Equal first heights encode identically, so A may break the tie.
-        let mut side = self.pick(diff.cmp_zero(), Side::A);
-        let mut out = VersionWriter::with_capacity(a_bits.stored_len() + b_bits.stored_len());
+        let side = extreme.pick(sign, Side::A);
         let first = match side {
             Side::A => &a_first,
             Side::B => &b_first,
         };
-        out.height(cursor_a.depth().max(cursor_b.depth()), first);
-        // The running difference and encoded output retain the opening value;
-        // the decoded integers need not overlap the walk's growing state.
-        drop(a_first);
-        drop(b_first);
+        let mut out = VersionWriter::with_capacity(a.stored_len() + b.stored_len());
+        out.height(depth, first);
+        Emission { extreme, side, out }
+    });
 
-        while !(cursor_a.done() && cursor_b.done()) {
-            let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-            let new_side = self.pick(diff.cmp_zero(), side);
-            let old_side = side;
-            side = new_side;
+    // The running difference and encoded outputs retain the opening values;
+    // the decoded integers need not overlap the walk's growing state.
+    drop(a_first);
+    drop(b_first);
+
+    while !(cursor_a.done() && cursor_b.done()) {
+        let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
+        let sign = diff.cmp_zero();
+        directions.fold(sign);
+        let depth = cursor_a.depth().max(cursor_b.depth());
+        for emission in &mut outputs {
+            let old_side = emission.side;
+            emission.side = emission.extreme.pick(sign, old_side);
             old_side.write_delta(
-                &mut out,
-                cursor_a.depth().max(cursor_b.depth()),
+                &mut emission.out,
+                depth,
                 &diff,
-                new_side,
+                emission.side,
                 step_a.as_ref(),
                 step_b.as_ref(),
             );
         }
-
-        out.finish()
     }
+
+    (
+        outputs.map(|emission| emission.out.finish()),
+        directions.relation(),
+    )
 }
 
 #[cfg(test)]
