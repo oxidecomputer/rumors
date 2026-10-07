@@ -111,7 +111,7 @@ likely the triggering input is: "unreachable in practice" carries no weight.
     once push the load past 500, which slows every agent and risks
     spurious timeouts against nextest's 180-second limit.
 - The verification of record during the audit is the box's landing check,
-  `~/bin/audit-check`, run on reserved cores:
+  `~/bin/audit-check`, run through the box's admission wrapper:
   `unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check`.
   Wherever these briefs say `just gate`, run this instead.
   - It runs the `before`- and `suanpan`-relevant legs of `just gate`: lints,
@@ -121,9 +121,13 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   - The owner ruled that this replaces the full gate for landings, to save
     compute. One full `just gate` at the end of the audit catches any other
     effect on `rumors`.
-  - `audit-reserved` gives the command reserved cores, so background load
-    cannot push a test past its time limit. Never call `pset-run` directly,
-    and never run the check unreserved. Expect to wait for a slot.
+  - `audit-reserved` admits at most six long checks onto the box at once.
+    Each runs on the shared pool under `nice`, within the cargo job cap and
+    nextest thread cap, so the box stays busy but not oversubscribed.
+    Never call `pset-run` directly, and never start a long check outside
+    the wrapper. Expect to wait for a slot.
+  - If a test times out under load, rerun that test alone once before
+    treating the timeout as a finding.
   - Its baseline is in `baseline.md`, under "Landing check".
   - The wrapper exports a build directory outside the tree, but the
     justfile's `docs` recipe reads `target/doc`. Under the wrapper's default,
