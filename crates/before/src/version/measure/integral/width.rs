@@ -241,8 +241,19 @@ struct DensePart {
 /// Fill only the selected sign's digits within a cluster's relative span.
 impl DensePart {
     /// Allocate zero-filled bytes for a cluster's digit span.
+    ///
+    /// The byte length `4 * span` cannot overflow on any target. A width sums
+    /// disjoint region widths `2^(S - d)`, where `S` is the integral's common
+    /// tree depth, so it never exceeds `2^S`. Its balanced digits therefore sit
+    /// at indices `0..=S/32 + 1`, and `span <= S/32 + 2`. The deepest version's
+    /// stream stores at least one bit per level of depth, so
+    /// `4 * span <= S/8 + 8` exceeds that stream's byte length by at most
+    /// eight, and no stored byte length exceeds `isize::MAX`.
     fn new(span: usize) -> Self {
-        let bytes = vec![0; span * 4];
+        let len = span
+            .checked_mul(4)
+            .expect("4 * span <= S/8 + 8, at most eight past the deepest stream's byte length, so it fits usize");
+        let bytes = vec![0; len];
         Self {
             bytes,
             is_empty: true,
@@ -251,6 +262,7 @@ impl DensePart {
 
     /// Place a nonzero digit. Sparse digit indices are unique, so slots never overlap.
     fn insert(&mut self, index: usize, digit: u32) {
+        // `index < span`, so `offset + 4 <= 4 * span`, which `new` checked.
         let offset = index * 4;
         self.bytes[offset..offset + 4].copy_from_slice(&digit.to_le_bytes());
         self.is_empty = false;
