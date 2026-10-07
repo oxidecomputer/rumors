@@ -206,6 +206,15 @@ memory, not disk.
 worktrees hold only source, so local disk needs no routine check. Agents'
 `cargo fmt` runs touch no build directory.
 
+### Agent compaction
+
+Subagents compact automatically when their context fills, and each keeps a
+resumption record at `<scratch>/<agent-name>/NOTES.md` (see `common.md`). On
+each status pass, count `compact_boundary` entries in every running agent's
+transcript, using `grep -c` and never reading the transcript whole. After an
+agent compacts, check that its next actions follow from its `NOTES.md` rather
+than restarting or repeating work.
+
 ### Retirement
 
 When the audit ends, retire each slot and auditor worktree:
