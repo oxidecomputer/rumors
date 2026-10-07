@@ -112,6 +112,11 @@ full `just gate` on ox-east-1 before handoff, and its result matches
 cannot sign, agents commit with `--no-gpg-sign` and the coordinator re-signs
 exactly those commits before handoff, preserving trees, messages, and dates.
 
+**Worktrees and build reuse.** The box has no compiler cache: kache does not
+build on illumos, because its `interprocess` dependency has no illumos peer
+credentials. Builds stay warm instead through reused worktrees, under the
+coordinator's management, as described below.
+
 **Pinned instruments.** Agents may lower ceilings and floors without asking, as
 long as every floor stays strictly positive and so still proves its meter is
 counting. Agents never avoid a performance win: they capture it and lock it in
@@ -120,3 +125,90 @@ re-pinned in the same commit, naming the win. Raising a ceiling, or a ranking
 flip caused by a regression, stops work for the owner. No representation on
 the wire may change, so any change to a wire or bookmark snapshot or to a
 `protocol_overhead` byte count also stops work immediately.
+
+## Worktrees, slots, and disk
+
+This section is the coordinator's operating procedure. It is written so a
+coordinator resuming after a context reset can continue without the
+conversation.
+
+### Where agents work
+
+- **Auditors** each keep one worktree for the life of their lane:
+  `/Users/oxide/src/rumors-audit-l<n>-<name>` on branch `explore/l<n>-<name>`.
+- **Every other role** (demonstrator, builder, fixer, reviewer) works in a
+  *slot*: one of a fixed pool of reusable worktrees,
+  `/Users/oxide/src/rumors-slot-01` through `rumors-slot-08`. The pool size
+  matches the agent cap of 16 minus the eight auditors.
+
+The remote wrapper syncs each worktree to `~/src/<basename>` on the box, and
+every remote command unsets `CARGO_TARGET_DIR`, so each worktree builds in
+`~/src/<basename>/target/`. The wrapper's rsync excludes `/target/`, so that
+directory survives every sync. Reusing a worktree at the same path therefore
+reuses a warm build.
+
+### Slot state
+
+`git worktree list` is the record of slot state; nothing else tracks it.
+
+- A slot on a named branch is *assigned* to that branch.
+- A detached slot is *free*.
+
+### Assigning and releasing a slot
+
+1. **Assign.** Pick a free slot and confirm `git -C <slot> status --short` is
+   empty. Then switch it to the branch: `git -C <slot> switch -c <branch>
+   <base>` for a new branch, or `git -C <slot> switch <branch>` for an
+   existing one.
+2. **Keep one slot per branch.** A branch's demonstrator, fixer, reviewer,
+   and any second review round all run in the same slot, one after another,
+   so each finds the build warm for nearly the tree it needs. A reviewer
+   works on the checked-out branch and commits nothing.
+3. **Release.** Release the slot when its branch converges or is paused.
+   Confirm `git status --short` is empty, then run `git -C <slot> switch
+   --detach main`. The branch itself remains.
+
+Reuse is safe because cargo decides what to rebuild from mtimes. Switching
+branches gives every file that differs a fresh mtime, and rsync carries that
+mtime to the box, so cargo rebuilds exactly what changed. Files absent from
+the new branch disappear from the box through rsync's `--delete`.
+Third-party dependencies stay fresh because the slot's path never changes.
+
+Each slot's first build is cold. At creation, every slot was warmed at
+`58285ca5` with `cargo nextest run --workspace --all-features --locked
+--no-run`, one slot at a time under `nice -n 19`.
+
+### Disk duties
+
+The coordinator owns disk usage on both machines.
+
+**On every status pass, and before every dispatch,** check the box:
+
+```
+ssh ox-east-1-agent 'df -h /home; du -sh ~/src/rumors-audit-*/target ~/src/rumors-slot-*/target; swap -sh'
+```
+
+At launch, an auditor's `target/` held about 1 to 5 GB, and `/home` had 1.23 TB
+free. The box's `/tmp` is swap-backed, so a large scratch copy there consumes
+memory, not disk.
+
+| Condition | Action |
+|---|---|
+| A slot's `target/` exceeds 30 GB | On release, delete that `target/`; the next use is cold. |
+| An auditor's `target/` exceeds 60 GB | Ask the auditor, by message, to run `cargo clean` at its next pause. |
+| `/home` has less than 300 GB free | Stop dispatching. Clean free slots' `target/` directories first, then ask the user. |
+| Swap has less than 200 GB available | Find the process holding it (likely cargo-mutants scratch copies in `/tmp`) and ask its agent to stop. |
+
+**On the Mac**, nothing builds, since every agent executes on the box. The
+worktrees hold only source, so local disk needs no routine check. Agents'
+`cargo fmt` runs touch no build directory.
+
+### Retirement
+
+When the audit ends, retire each slot and auditor worktree:
+
+1. Confirm `git status --short` is empty.
+2. Run `git worktree remove`, never with `--force`.
+3. Delete `~/src/<basename>` on the box.
+
+Delete an `explore/` branch only after its lane's report is recorded.
