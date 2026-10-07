@@ -127,11 +127,16 @@ converged after two rounds is paused and reported durably with its outstanding
 issues clearly noted.
 
 **Verification and commits.** Agents commit freely on their branches.
-Intermediate commits run focused checks; each branch's final state runs the
-full `just gate` on ox-east-1 before handoff, and its result matches
-[`baseline.md`](baseline.md). Commits are signed; when 1Password
-cannot sign, agents commit with `--no-gpg-sign` and the coordinator re-signs
-exactly those commits before handoff, preserving trees, messages, and dates.
+Intermediate commits run focused checks. Each branch's final state runs the
+box's landing check (`~/bin/audit-check` on reserved cores, described in
+`briefs/common.md`) and matches [`baseline.md`](baseline.md). The owner ruled
+that the landing check replaces the full `just gate` during the audit, to
+save compute. It covers every `before`- and `suanpan`-relevant leg, plus
+`rumors`' wire and storage snapshot tests. One full `just gate` at the end of
+the audit diagnoses any effect on the rest of `rumors`. Commits are signed;
+when 1Password cannot sign, agents commit with `--no-gpg-sign` and the
+coordinator re-signs exactly those commits before handoff, preserving trees,
+messages, and dates.
 
 **Pinned instruments.** Agents may lower ceilings and floors without asking, as
 long as every floor stays strictly positive and so still proves its meter is
@@ -253,7 +258,14 @@ than restarting or repeating work.
 
 ### Retirement
 
-When the audit ends, retire each slot and auditor worktree:
+When the audit is entirely complete, remove the audit's shared state on the
+box. All of it lives under the `agent` account:
+
+- `~/.cargo/config.toml`: the `[build] jobs = 24` cap.
+- `~/bin/audit-reserved`, `~/bin/audit-check`, and any leftover
+  `~/.audit-reserved.lock*` directories.
+
+Then retire each slot and auditor worktree:
 
 1. Confirm `git status --short` is empty.
 2. Run `git worktree remove`, never with `--force`.
