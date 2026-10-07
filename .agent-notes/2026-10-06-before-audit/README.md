@@ -39,8 +39,10 @@ examine.
 - [`instruments.md`](instruments.md): the probes, models, and generators on
   the auditors' `explore/` branches, kept for a triage of which to fold into
   the committed suites.
-- `QUESTIONS.md`: the questions currently awaiting the owner's ruling, each
-  written to be answerable without the conversation. The coordinator keeps it
+- `QUESTIONS.md`: everything the coordinator addresses to the owner,
+  including open questions awaiting a ruling and notices needing only
+  acknowledgment, each written to be understood without the conversation.
+  Nothing meant for the owner lives only in chat. The coordinator keeps it
   current, deleting each entry once it is answered, and the file's header sets
   how entries are written. It is excluded from git (in `.git/info/exclude`)
   because it holds only live state; rulings worth keeping move into the
