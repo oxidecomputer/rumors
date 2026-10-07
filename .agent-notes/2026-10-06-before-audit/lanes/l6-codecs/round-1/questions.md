@@ -117,9 +117,14 @@ The test brief accepts either until you rule.
 
 ## Owner's ruling on Q1
 
-Reject them. The human-readable deserializers of `Clock`, `Span`, and
-`Ranked` accept only the named-record form they serialize. Binary formats
-keep the sequence form they depend on.
+Be lenient. The human-readable deserializers of `Clock`, `Span`, and
+`Ranked` accept both the named record their serializer writes and the
+fields in order, as `#[derive(Deserialize)]` provides. Some human-readable
+formats write structs positionally by their own choice: `csv` without
+headers, and `rmp-serde` in its human-readable tuple mode. A serde visitor
+cannot tell which format called it, so rejecting JSON's positional array
+would also reject those formats' round trips. The leniency is intended,
+and a committed test states it positively.
 
 ## Owner's ruling on Q2
 
