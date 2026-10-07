@@ -107,55 +107,6 @@ impl Iterator for SharePath<'_> {
     }
 }
 
-/// Remaining shares without an arbitrary-width duplicate of the fork count.
-enum Remaining {
-    /// The exact count.
-    Exact(usize),
-    /// Steps before the exact count becomes `usize::MAX`.
-    Near(usize),
-    /// Too far above `usize::MAX` to track in one machine word.
-    Distant,
-}
-
-/// Maintains a useful sound `usize` size hint in constant space.
-impl Remaining {
-    /// Classify an arbitrary-width initial count.
-    fn new(count: &BigUint) -> Self {
-        if let Ok(exact) = usize::try_from(count) {
-            return Remaining::Exact(exact);
-        }
-        let Ok(count) = u128::try_from(count) else {
-            return Remaining::Distant;
-        };
-        let excess = count - usize::MAX as u128;
-        usize::try_from(excess).map_or(Remaining::Distant, Remaining::Near)
-    }
-
-    /// Account for one produced share.
-    fn advance(&mut self) {
-        *self = match *self {
-            Remaining::Exact(remaining) => Remaining::Exact(remaining - 1),
-            Remaining::Near(1) => Remaining::Exact(usize::MAX),
-            Remaining::Near(excess) => Remaining::Near(excess - 1),
-            Remaining::Distant => Remaining::Distant,
-        };
-    }
-
-    /// Whether an exactly tracked plan is exhausted.
-    fn is_empty(&self) -> bool {
-        matches!(self, Remaining::Exact(0))
-    }
-
-    /// The strongest sound iterator hint represented by this state.
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match *self {
-            Remaining::Exact(remaining) => (remaining, Some(remaining)),
-            Remaining::Near(_) => (usize::MAX, None),
-            Remaining::Distant => (0, None),
-        }
-    }
-}
-
 /// A compact plan that yields one balanced share at a time in preorder.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 struct Plan {
@@ -169,8 +120,9 @@ struct Plan {
     index: BigUint,
     /// Whether the next share is the right child of a fork base path.
     second: bool,
-    /// Constant-space state for exhaustion and [`Iterator::size_hint`].
-    remaining: Remaining,
+    /// Number of shares not yet produced, at the count's full width. Both
+    /// exhaustion and [`Iterator::size_hint`] read it.
+    remaining: BigUint,
 }
 
 /// Builds and advances the compact balanced-fork plan.
@@ -178,9 +130,8 @@ impl Plan {
     /// Plan a partition of `source` into `k >= 1` shares.
     fn new(source: PartySnapshot, k: Count) -> Self {
         debug_assert!(k > Count::ZERO, "a balanced fork yields at least one share");
-        let remaining = Remaining::new(&k.0);
         let depth = k.0.bits() - 1;
-        let mut extra = k.0;
+        let mut extra = k.0.clone();
         extra.set_bit(depth, false);
         Plan {
             source,
@@ -188,29 +139,13 @@ impl Plan {
             extra,
             index: BigUint::ZERO,
             second: false,
-            remaining,
+            remaining: k.0,
         }
     }
 
     /// Whether every planned share has been produced.
     fn is_empty(&self) -> bool {
-        self.remaining.is_empty()
-            // Distant counts deliberately remain inexact. The base-path index
-            // still identifies their exact end.
-            || (matches!(self.remaining, Remaining::Distant) && self.index.bit(self.depth))
-    }
-
-    /// Whether at least `usize::MAX` base paths remain in a distant plan.
-    ///
-    /// With `B = 2^depth` base paths and current index `q`, the condition is
-    /// `q <= B - usize::MAX`. The boundary's bits are all ones above the low
-    /// machine word and the value one within it, so the comparison needs no
-    /// arbitrary-width temporary.
-    fn has_saturated_lower_bound(&self) -> bool {
-        debug_assert!(self.depth >= u64::from(usize::BITS));
-        let word_bits = u64::from(usize::BITS);
-        let high_bits_are_max = (word_bits..self.depth).all(|bit| self.index.bit(bit));
-        !high_bits_are_max || !(1..word_bits).any(|bit| self.index.bit(bit))
+        self.remaining == BigUint::ZERO
     }
 
     /// Whether the current base path has two leaf children.
@@ -252,8 +187,14 @@ impl Plan {
     }
 
     /// Advance past the current share.
+    ///
+    /// # Panics
+    ///
+    /// Panics if every share has already been produced. Callers advance only
+    /// a plan that is not [`is_empty`](Self::is_empty), so a panic here is a
+    /// bug in this module.
     fn advance(&mut self, forks_again: bool) {
-        self.remaining.advance();
+        self.remaining -= 1u8;
         if forks_again && !self.second {
             self.second = true;
         } else {
@@ -264,7 +205,6 @@ impl Plan {
 
     /// Advance without constructing a share.
     fn skip_one(&mut self) {
-        debug_assert!(!self.is_empty());
         let forks_again = self.current_forks_again();
         self.advance(forks_again);
     }
@@ -329,13 +269,12 @@ impl Iterator for Plan {
         Some(share)
     }
 
+    /// Reports the remainder exactly when it fits `usize`. A wider remainder
+    /// reports `usize::MAX` as its lower bound and no upper bound.
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.is_empty() {
-            (0, Some(0))
-        } else if matches!(self.remaining, Remaining::Distant) && self.has_saturated_lower_bound() {
-            (usize::MAX, None)
-        } else {
-            self.remaining.size_hint()
+        match usize::try_from(&self.remaining) {
+            Ok(remaining) => (remaining, Some(remaining)),
+            Err(_) => (usize::MAX, None),
         }
     }
 }
@@ -345,8 +284,9 @@ impl Iterator for Plan {
 /// Yields exactly `k` disjoint shares produced one at a time. The party it
 /// borrows keeps the residual and every share not yet returned.
 ///
-/// [`Iterator::size_hint`] is exact for initial counts fitting `usize`. Wider
-/// counts report a sound lower bound and no upper bound.
+/// [`Iterator::size_hint`] is exact whenever the number of shares still to
+/// yield fits `usize`. When more than `usize::MAX` remain, it reports
+/// `(usize::MAX, None)`.
 ///
 /// # Complexity
 ///
