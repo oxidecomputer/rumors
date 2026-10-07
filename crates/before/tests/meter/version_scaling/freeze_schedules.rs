@@ -434,7 +434,7 @@ fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
 /// Flat per encoded byte across the doubling: `Θ(p)` wide-drift
 /// components in both directions settle at one funded-width product
 /// each.
-const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [645_075, 1_290_075];
+const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [525_079, 1_050_079];
 
 /// `min_ticks` is linear on the deferral re-arm spine: per-byte
 /// touch work stays flat (×1.25) across a block-count

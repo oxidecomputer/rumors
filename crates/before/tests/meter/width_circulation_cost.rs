@@ -109,7 +109,7 @@ fn reveal_comb_close_reveal_cycle_reads_width_quadratic() {
 /// Absolute touch ceiling on the reveal comb's larger run: the
 /// measured record ×1.25, rounded up (the record and every
 /// re-pin's movement live in the pin commits).
-const REVEAL_COMB_TOUCH_CEILING: u64 = 77_120;
+const REVEAL_COMB_TOUCH_CEILING: u64 = 71_717;
 
 /// Improvement tripwire paired with [`REVEAL_COMB_TOUCH_CEILING`]:
 /// the measured reading ×0.75, rounded down.
@@ -117,14 +117,14 @@ const REVEAL_COMB_TOUCH_CEILING: u64 = 77_120;
 /// The module comment's tripwire: a trip means the reading
 /// improved past the band, not that the meter died — attribute and
 /// re-pin.
-const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 46_272;
+const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 43_029;
 
 /// Touch ceiling on the pure comb's larger run: the measured dev-profile
 /// reading with 25% headroom, rounded up.
 ///
 /// The accumulator handles each narrow step in its inline state, so widening
 /// the one plateau should add only the work needed to read that plateau.
-const PURE_COMB_TOUCH_CEILING: u64 = 2_714;
+const PURE_COMB_TOUCH_CEILING: u64 = 1_464;
 
 /// Widening a pure comb's one plateau does not multiply the work at every site.
 ///
@@ -169,7 +169,7 @@ fn pure_comb_cost_is_independent_of_value_width() {
 /// Absolute touch ceiling on the high-floor control's larger run:
 /// the measured record ×1.25, rounded up (the record and every
 /// re-pin's movement live in the pin commits).
-const HIFLOOR_TOUCH_CEILING: u64 = 42_292;
+const HIFLOOR_TOUCH_CEILING: u64 = 38_378;
 
 /// Improvement tripwire paired with [`HIFLOOR_TOUCH_CEILING`]: the
 /// measured reading ×0.75, rounded down.
@@ -177,7 +177,7 @@ const HIFLOOR_TOUCH_CEILING: u64 = 42_292;
 /// The module comment's tripwire: a trip means the reading
 /// improved past the band, not that the meter died — attribute and
 /// re-pin.
-const HIFLOOR_TOUCH_TRIPWIRE: u64 = 25_374;
+const HIFLOOR_TOUCH_TRIPWIRE: u64 = 23_026;
 
 /// The high-floor control is flat and width-independent
 /// — identical forest, identical deferral and close-reveal cycle,
@@ -233,7 +233,7 @@ fn reveal_comb_hifloor_control_is_flat_per_unit() {
 /// re-pin's movement live in the pin commits).
 ///
 /// The record's regime is the at-height arm's no-fold move.
-const ASCEND_CLIFF_TOUCH_CEILING: u64 = 18_560;
+const ASCEND_CLIFF_TOUCH_CEILING: u64 = 15_902;
 
 /// Touch liveness floor on the undercut cascade's larger run,
 /// derived from the cascade's irreducible work — never from a

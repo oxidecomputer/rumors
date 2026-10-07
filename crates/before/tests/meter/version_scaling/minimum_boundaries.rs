@@ -74,7 +74,7 @@ const DESCENDING_TOUCH_FLOOR: u64 = 3 * 2 * BOUNDARY_SMALL_K as u64;
 
 /// Absolute touch ceiling on the descending shape's larger run: the measured
 /// record ×1.25, rounded up (the record lives in the pin commit).
-const DESCENDING_TOUCH_CEILING: u64 = 26_945;
+const DESCENDING_TOUCH_CEILING: u64 = 23_099;
 
 /// Band on the control-minus-plunge touch difference at the larger run:
 /// the measured record ×0.75 down and ×1.25 up (the record lives in the
@@ -229,7 +229,7 @@ const STOPPING_TOUCH_FLOOR: u64 = 3 * 2 * BOUNDARY_SMALL_K as u64;
 
 /// Absolute touch ceiling on the stopping shape's larger run: the measured
 /// record ×1.25, rounded up (the record lives in the pin commit).
-const STOPPING_TOUCH_CEILING: u64 = 38_017;
+const STOPPING_TOUCH_CEILING: u64 = 34_170;
 
 /// Band on the stop-minus-control touch difference at the larger run:
 /// the measured record ×0.75 down and ×1.25 up (the record lives in
@@ -243,7 +243,7 @@ const STOPPING_TOUCH_CEILING: u64 = 38_017;
 /// boundary-dominates hop itself (plus the one stacked-boundary arming
 /// and its drain park, O(1) in `k`): a per-hop read of the surviving
 /// boundary's width lands whole here, undiluted by the shared work.
-const STOPPING_DIFF_BAND: (u64, u64) = (5_904, 9_840);
+const STOPPING_DIFF_BAND: (u64, u64) = (5_900, 9_834);
 
 /// The stopping arm uses O(1) work per hop beside the retiring fold:
 /// per-byte touches stay flat (×1.25) across a site doubling, under an

@@ -35,14 +35,26 @@ pub(super) enum Remainder {
 impl Boundary {
     /// Use a word when the stored width permits a constant-cost conversion.
     ///
+    /// `difference` must be strictly positive. Every caller decides that sign
+    /// immediately before the call, so this conversion does not compare
+    /// again.
+    ///
+    /// - A negative boundary corrupts the minima, which
+    ///   `version::measure::tests::arbitrary_trees_agree` detects.
+    /// - A `Boundary` holding zero, unlike a zero run, leaves the minima
+    ///   correct but breaks [`RangeMinima`](super::RangeMinima)'s payload
+    ///   contract, and costs work a zero run avoids. It suspends a payload
+    ///   under a parent whose minimum is equal, which needs none: arming at an
+    ///   equal minimum creates one, an exact cancellation fails to retire one,
+    ///   and a later close reports [`Close::Lower`](super::Close::Lower) for
+    ///   the equal parent.
+    ///   `nested_operations_preserve_minima_and_payload_lifetimes` detects a
+    ///   `Boundary` holding zero from arming and from a word or wide
+    ///   cancellation.
+    ///
     /// A `u64` uses at most two base-2^32 digits. Materializing at most two
     /// digits has constant cost; a wider accumulator is retained directly.
     pub(super) fn from_positive(difference: Accumulator) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            let sign = difference.clone().cmp_zero();
-            debug_assert_eq!(sign, Ordering::Greater, "boundaries are positive");
-        }
         if difference.stored_digit_count() > 2 {
             return Self::Wide(difference);
         }
