@@ -112,3 +112,9 @@ Derive the hint by one rule on every target:
 - **Base-commit failure:**
   `left: (0, None)` against `right: (5, Some(5))` for `d = usize::BITS + 2`,
   `r = 5` (as above).
+
+## Owner's ruling
+
+Yes. The fork iterators report an exact `size_hint` whenever the remaining
+count fits `usize`, by one rule on every target. This supersedes their
+rustdoc's allowance for wide counts, and the test that pins it.

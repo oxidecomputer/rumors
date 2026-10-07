@@ -85,3 +85,10 @@ record this as declined. That is a legitimate choice.
   `l5_exhaustive_boolean_cube`) on the explore branch; mutants M4 and M5
   (wrong covering endpoint; skipped crossed check) were caught by both these
   and the committed suite.
+
+## Owner's ruling
+
+Accepted. `refine_partial` is private, and the coverage walk is its only
+caller. It may rely on the walk's guarantees (`floor <= hi`, `lo <= ceiling`)
+and decide by `floor <= ceiling`, stating the precondition in its docs and at
+the call site.

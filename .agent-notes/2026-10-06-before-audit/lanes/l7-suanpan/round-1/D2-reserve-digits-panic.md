@@ -68,3 +68,12 @@ No other suanpan entry point reserves on the caller's behalf. `before::Rank::acc
 - Assertion: the call returns normally, and `assert_value(&acc, &oracle)` holds before and after the follow-up update.
 - Expected failure on the base commit: a panic with message `capacity overflow` from `alloc/src/raw_vec`, at the first `reserve_digits` call.
 - If the owner chooses the documentation repair instead (fix note option 2), the test becomes a `#[should_panic(expected = "capacity overflow")]` witness of the documented panic, and the rustdoc gains `# Panics`.
+
+## Owner's ruling
+
+Replace `reserve_digits(usize)` with `reserve_bits(bits: u64)`, matching
+`suanpan`'s other width parameters and removing the caller's conversion; this
+public API change is approved. The hint is best-effort: its bits-to-digits
+arithmetic saturates rather than overflowing, and a request the allocator
+refuses reserves nothing. It never reserves "as much as it can" short of the
+request.

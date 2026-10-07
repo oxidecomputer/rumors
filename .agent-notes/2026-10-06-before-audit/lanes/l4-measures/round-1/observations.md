@@ -191,3 +191,9 @@ observation and question (O6) and a cross-lane lead (L6), not as
   fraction groups (about 1.13 GiB of canonical input) instead of returning an
   error. Inferred, not demonstrated. Record:
   `cross-lane-l6-rank-decode-wasm32.md`.
+
+## Owner's ruling
+
+O6, `Sum`'s order-dependent allocation abort on wasm32, is accepted as an
+observation. The documented `O(n)` space bound holds. It is an input to the
+`suanpan` growth-policy design work under lane L7's F1, not a defect.

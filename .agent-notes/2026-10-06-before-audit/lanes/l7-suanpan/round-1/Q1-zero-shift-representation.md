@@ -28,3 +28,8 @@ Is `0 << s` (and adding a zero-valued accumulator at shift `s`) meant to be tota
 ## Candidate repair (if yes)
 
 `shift_left` already takes `&mut self`; calling `self.cmp_zero()` first and returning on `Equal` costs amortized `O(log(W + 1))`, inside the shift's documented `O(A log(S + 1) + S)`. Compacting first also caps every shifted result's working width at the value's width plus two digits, so `Shl`'s "result needs" wording becomes exact for nonzero values too. For `add_shifted(&other)` the operand is borrowed and cannot be compacted, but a read-only top-down scan of its digits can establish zero within the operation's `O(A)` budget before any deposit. Both changes preserve the public API and formats.
+
+## Owner's ruling
+
+Yes. Shifting a zero accumulator, or adding a zero-valued operand at a
+shift, is total and constant-space whatever the zero's stored form.

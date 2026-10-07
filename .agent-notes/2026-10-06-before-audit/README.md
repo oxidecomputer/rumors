@@ -32,16 +32,18 @@ examine.
 - [`baseline.md`](baseline.md): what passes and fails on ox-east-1 at the
   audit's base commit, against which every later failure is judged.
 - `lanes/<lane>/round-<n>/`: each auditor round's report and deliverables
-  (briefs, observations, coverage record, resumption notes). The coordinator
+  (briefs, observations, coverage record, resumption notes). The owner's
+  ruling on a finding is appended to that finding's record, under "Owner's
+  ruling". The coordinator
   copies them here from the auditor's scratch directory when the round ends,
   because the scratch directory lives under `/private/tmp` and does not
   survive a reboot. Builders and demonstrators read their briefs from here.
 - [`instruments.md`](instruments.md): the probes, models, and generators on
   the auditors' `explore/` branches, kept for a triage of which to fold into
   the committed suites.
-- `QUESTIONS.md`: everything the coordinator addresses to the owner,
-  including open questions awaiting a ruling and notices needing only
-  acknowledgment, each written to be understood without the conversation.
+- `QUESTIONS.md`: everything the coordinator addresses to the owner:
+  open questions awaiting a ruling, branches ready for review, and notices
+  needing only acknowledgment, each written to be understood without the conversation.
   Nothing meant for the owner lives only in chat. The coordinator keeps it
   current, deleting each entry once it is answered, and the file's header sets
   how entries are written. It is excluded from git (in `.git/info/exclude`)
@@ -58,6 +60,9 @@ values, whatever their provenance. Mixing universes or handling identity
 non-linearly forfeits only causal meaning. A law that fails only on valid values
 which no rule-respecting history reaches is still a violation of a law, and is a
 defect in need of fixing.
+Both crates should also behave identically whatever the width of `usize`:
+a `usize` anywhere other than indexing into memory, or counting what memory
+holds, is a possible defect.
 
 **Scope.** In: `before`, `suanpan`, their tests and test-support modules, the
 `wasm32-pins/` and `surfacecheck/` workspaces, and the amplification board and
@@ -128,72 +133,6 @@ full `just gate` on ox-east-1 before handoff, and its result matches
 cannot sign, agents commit with `--no-gpg-sign` and the coordinator re-signs
 exactly those commits before handoff, preserving trees, messages, and dates.
 
-**`usize` invariance.** `before` and `suanpan` should behave identically
-whatever the width of `usize`. A `usize` anywhere other than indexing into
-memory, or counting what memory holds (an array index, a length, a capacity
-actually held), is a possible defect: a public parameter, a stored quantity, or
-arithmetic whose meaning would change with the target's pointer width. Agents
-report such sites as findings when behavior differs by target, and as
-simplifications or design proposals otherwise.
-
-**Rulings on questions raised during the audit.**
-
-- `before`'s documented linear bounds must hold unconditionally. The
-  composition with `suanpan`'s per-update logarithm (lane L7's F1) is to be
-  fixed in `suanpan` without weakening any other guarantee. The suanpan
-  auditor gathers the evidence and designs first, rather than `before`
-  restating its bounds.
-- Shifting a zero accumulator, or adding a zero-valued operand at a shift, is
-  total and constant-space whatever the zero's stored form.
-- `suanpan::Accumulator::reserve_digits(usize)` becomes
-  `reserve_bits(bits: u64)`, a best-effort hint. Its bits-to-digits
-  arithmetic saturates rather than overflowing, and a request the allocator
-  refuses reserves nothing. It never reserves "as much as it can" short of
-  the request. This public API change is approved; it matches
-  `suanpan`'s other width parameters and removes the caller's conversion.
-- On wasm32, `Rank`'s `Sum` can abort on allocation failure in one summand
-  order where the other order and `+` succeed, because `Vec` doubles a
-  digit buffer near the 4 GiB limit. This is accepted as an observation:
-  the documented `O(n)` space bound holds. It is an input to the `suanpan`
-  growth-policy design work, not a defect.
-- The fork iterators (`PartyForks`, `ClockForks`) report an exact
-  `size_hint` whenever the remaining count fits `usize`, by one rule on every
-  target. This supersedes their rustdoc's allowance for wide counts and the
-  test pinning it (lane L1's D1).
-- `Clock::from_parts` documents that pairing a party with a version older
-  than its latest tick reproduces stamps the party already issued.
-- After every lane is done and the rest of the review is complete, the
-  audit ends with a survey of the auditors' exploratory instruments, in seven
-  areas:
-  - generator coverage
-  - oracles
-  - predicates
-  - cost instruments
-  - target dependence
-  - checks on the evidence itself
-  - the verification map
-
-  It ends in polished, sequenced proposal branches, one per best
-  enhancement. Nothing from the survey is folded in
-  without the owner's review. [`instruments.md`](instruments.md) holds the
-  plan.
-- The board stops pinning which input family is worst for
-  `count_display × heap`, and keeps that row's ceiling. The ranking depends on
-  `num-bigint`'s x86-only conversion base and rests on a near-tie (lane L8's
-  D1). The board's docs say which readings depend on the target.
-- `Query::refine_partial` may rely on the coverage walk's guarantees
-  (`floor <= hi`, `lo <= ceiling`) and decide its verdict by
-  `floor <= ceiling`, stating the precondition in its docs and at the call
-  site. It is private, and the walk is its only caller.
-- Debug-only assertions that scan whole buffers on hot paths are deleted,
-  provided a mutation check shows committed tests catch every violation they
-  would have caught.
-
-**Worktrees and build reuse.** The box has no compiler cache: kache does not
-build on illumos, because its `interprocess` dependency has no illumos peer
-credentials. Builds stay warm instead through reused worktrees, under the
-coordinator's management, as described below.
-
 **Pinned instruments.** Agents may lower ceilings and floors without asking, as
 long as every floor stays strictly positive and so still proves its meter is
 counting. Agents never avoid a performance win: they capture it and lock it in
@@ -208,6 +147,10 @@ the wire may change, so any change to a wire or bookmark snapshot or to a
 This section is the coordinator's operating procedure. It is written so a
 coordinator resuming after a context reset can continue without the
 conversation.
+
+The box has no compiler cache (kache does not build on illumos, because its
+`interprocess` dependency lacks illumos peer credentials), so builds stay warm
+through reused worktrees instead.
 
 ### Where agents work
 

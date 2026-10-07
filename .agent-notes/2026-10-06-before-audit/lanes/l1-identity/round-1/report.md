@@ -69,3 +69,9 @@ These are in [`observations.md`](observations.md):
 ## Coverage
 
 See [`coverage.md`](coverage.md) and [`NOTES.md`](NOTES.md).
+
+## Owner's ruling
+
+On `Clock::from_parts`: yes. Its rustdoc states that pairing a party with a
+version older than its latest tick reproduces stamps the party already
+issued, linking the crate page's model.

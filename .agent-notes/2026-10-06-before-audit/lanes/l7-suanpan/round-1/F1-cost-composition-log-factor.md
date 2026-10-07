@@ -55,3 +55,11 @@ A documentation-only repair (restating the affected `before` bounds as `O(n log 
 1. Restate the affected `before` bounds (and suanpan's composition guidance) as `O(n log n)`.
 2. Remove the per-write lookup where it cannot matter. A write can only intersect a range interior at a position whose digit is zero, so a cheap pre-check (the written position held a nonzero digit, or lies outside `[first.lo + 1, last.hi - 1]`) skips the lookup for this measured family. Reasoned (not built): an adversary can still force a lookup per two-limb delta by oscillating a digit through zero inside the span (positions written then cancelled are zero but not in a range), so this alone keeps an `O(log R)` worst case.
 3. Make "zero and not inside a range" decidable in `O(1)` by tagging written-zero positions in the digits' spare high bits (`|d| < 2^33` leaves 30 bits of an `i64`). Every position at or below the top is then either tagged or inside a range, and only writes that split a range would consult the map. My unverified estimate is that splits are bounded by the operand width that reaches them; this is a design sketch for the owner, not a measured result.
+
+## Owner's ruling
+
+`before`'s documented linear bounds must hold unconditionally. Fix `suanpan`
+so they do, without weakening any other guarantee, rather than restating
+`before`'s bounds. Gather the evidence and design first: the suanpan auditor's
+round 2 measures the remaining operations and prototypes the candidate
+designs.
