@@ -199,3 +199,7 @@ single-regime redesign instead:
 The fixer builds it as a construct-and-measure spike on top of `7222d49b`,
 beginning with the boundary invariant the design rests on, and returns to
 the owner if that invariant does not hold.
+
+The owner also set the bar for the finished branch: a rigorous review must
+confirm that no vestigial structure of the earlier designs remains, and that
+the result is as clean as it can be and production-ready.
