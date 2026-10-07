@@ -4,10 +4,12 @@
 //! not claim that the measured roster contains every possible worst case;
 //! complexity arguments and focused tests establish that.
 //!
-//! [`WORST_RANKINGS`] pins the family with the largest reading in each cell.
-//! Exact ties retain every family in name order. The renderer also flags a
-//! runner-up within [`NEAR_TIE_RATIO`] so a small constant difference is not
-//! mistaken for a distinct complexity class.
+//! [`WORST_RANKINGS`] pins the family with the largest reading in each cell,
+//! except in the cells it declares [`TARGET_DEPENDENT`], where it checks only
+//! that some family drives the currency. Exact ties retain every family in
+//! name order. The renderer also flags a runner-up within [`NEAR_TIE_RATIO`]
+//! so a small constant difference is not mistaken for a distinct complexity
+//! class.
 
 use std::collections::BTreeSet;
 use std::io::{self, Write};
@@ -35,8 +37,9 @@ pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance",
 /// families inside it are one reading apart, not two classes, so their rank
 /// order is a fact about the chosen scale's constants, not about the shapes —
 /// the flag stops a reader from over-reading rank 1 vs rank 2. The flag never
-/// enters the pin: the pin records the exact deterministic argmax, and a flip
-/// inside the band is still news worth a look.
+/// enters the pin: the pin records the exact deterministic argmax of every cell
+/// it does not declare target-dependent, and a flip inside the band is still
+/// news worth a look.
 pub const NEAR_TIE_RATIO: f64 = 1.25;
 
 /// The normalized measurements ranked by the map, in display order.
@@ -297,10 +300,31 @@ const VERSION_STREAM_FAMILIES: &str = concat!(
     "staircase,tooth-tail,weight-comb,wide-arming,wide-tooth-comb",
 );
 
+/// The pinned worst set of a cell whose ranking depends on the build target.
+///
+/// Such a cell's readings are deterministic for each build target but differ
+/// between targets, so no single family is its argmax on every target; the
+/// [board's module docs](super#target-dependence) say when a reading depends
+/// on the target. The pin checks such a cell for liveness only: any
+/// live worst set matches, and a row on which every family reads zero is
+/// drift. The cell's ceilings judge its readings on every target as usual.
+///
+/// Declare a cell target-dependent only when a target-conditional code path
+/// that the measured operation reaches changes *which family reads worst*
+/// between the 64-bit hosts the pin is taken and checked on, and name that
+/// path in a `// Target-conditional path:` comment on the line above the
+/// entry; a test fails any marked entry without one. A reading that merely
+/// differs by target does not qualify, nor does a flip between near-equal
+/// families with no such path behind it, however small its margin: that flip
+/// is news (see [`NEAR_TIE_RATIO`]). The margin plays no part in the rule, so
+/// a qualifying cell may itself be a near-tie on some target.
+pub(super) const TARGET_DEPENDENT: &str = "(target-dependent)";
+
 /// Expected winners as `(scale, operation, [heap, scan, touch])`.
 ///
 /// Tied family names are comma-separated in name order; `-` means every family
-/// read zero. [`check_worst_map`](super::shard::check_worst_map) compares this
+/// read zero; [`TARGET_DEPENDENT`] means the winner depends on the build
+/// target. [`check_worst_map`](super::shard::check_worst_map) compares this
 /// table with fresh release-profile measurements at [`WORST_MAP_SCALES`].
 #[rustfmt::skip]
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
@@ -340,7 +364,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "count_clone", ["cliff", "-", "-"]),
     ("default", "count_add", ["hugeleaf", "-", "-"]),
     ("default", "count_sum", ["hugeleaf", "-", "-"]),
-    ("default", "count_display", ["hugeleaf", "-", "-"]),
+    // Target-conditional path: `num-bigint`'s `to_radix_digits_le` takes its base from `FAST_DIV_WIDE`, true only on x86 and x86_64.
+    ("default", "count_display", [TARGET_DEPENDENT, "-", "-"]),
     ("default", "count_parse", ["alt-spine,benign,dense,masked-hole,meet-shade,mirror-narrow,nested-full,scatter,stagger,stagger-arity,stagger-size,weave", "-", "-"]),
     ("default", "version_distance", ["arming-train", "promo-rearm", "lone-freeze"]),
     ("default", "version_lag", ["arming-train", "promo-rearm", "lone-freeze"]),
@@ -475,7 +500,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "count_clone", ["cliff", "-", "-"]),
     ("acceptance", "count_add", ["hugeleaf", "-", "-"]),
     ("acceptance", "count_sum", ["hugeleaf", "-", "-"]),
-    ("acceptance", "count_display", ["hugeleaf", "-", "-"]),
+    // Target-conditional path: `num-bigint`'s `to_radix_digits_le` takes its base from `FAST_DIV_WIDE`, true only on x86 and x86_64.
+    ("acceptance", "count_display", [TARGET_DEPENDENT, "-", "-"]),
     ("acceptance", "count_parse", ["alt-spine,benign,dense,masked-hole,meet-shade,mirror-narrow,nested-full,scatter,stagger,stagger-arity,stagger-size,weave", "-", "-"]),
     ("acceptance", "version_distance", ["arming-train", "memo-oscillating", "lone-freeze"]),
     ("acceptance", "version_lag", ["arming-train", "memo-oscillating", "lone-freeze"]),
@@ -576,16 +602,101 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "count_borsh_deserialize", ["freeze-parade", "-", "-"]),
 ];
 
+/// Entry-compare one sampling scale's folded map against that scale's entries
+/// in `pins`, writing one drift line per disagreement to `out`.
+///
+/// Returns `Ok(true)` when every entry matches. An exact pin (a family set, or
+/// `-`) matches only the identical live worst set. A [`TARGET_DEPENDENT`] pin
+/// matches any live worst set, but not a row on which no family drives the
+/// currency: that drift line says the work went away or the meter stopped
+/// seeing it, never that a ranking flipped. Detects both directions of rot: a
+/// live row missing from the pin and a pinned row the map no longer has.
+///
+/// # Panics
+///
+/// Panics if a mapped counter is not compiled into this run: the pin is stated
+/// over all three mapped currencies, so the check requires the `touch-meter`
+/// and `scan-meter` features.
+pub(super) fn check_scale(
+    label: &str,
+    map: &[OpWorst],
+    pins: &[(&str, &str, [&str; 3])],
+    out: &mut dyn Write,
+) -> io::Result<bool> {
+    let mut clean = true;
+    let mut live_ops = BTreeSet::new();
+    for row in map {
+        live_ops.insert(row.op);
+        let pinned = pins
+            .iter()
+            .find(|(scale, op, _)| *scale == label && *op == row.op);
+        for (i, c) in row.per_currency.iter().enumerate() {
+            assert!(
+                !c.off,
+                "worst-case pin: the {} counter is not compiled into this run: the check \
+                 needs the touch-meter and scan-meter features",
+                c.currency.label()
+            );
+            let live = if c.worst.is_empty() {
+                "-".to_string()
+            } else {
+                c.worst
+                    .iter()
+                    .map(|e| e.family)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+            let (op, cur) = (row.op, c.currency.label());
+            match pinned.map(|(_, _, columns)| columns[i]) {
+                Some(TARGET_DEPENDENT) if live == "-" => {
+                    clean = false;
+                    writeln!(
+                        out,
+                        "worst-case pin drift: {op} x {cur} at the {label} scale: pinned worst \
+                         {TARGET_DEPENDENT}, live worst -: no family drives a currency the pin \
+                         declares target-dependent: either the work legitimately went away \
+                         (re-pin to -, naming the change) or the meter stopped seeing the work \
+                         (investigate first)"
+                    )?;
+                }
+                Some(TARGET_DEPENDENT) => {}
+                Some(old) if old == live => {}
+                old => {
+                    clean = false;
+                    writeln!(
+                        out,
+                        "worst-case pin drift: {op} x {cur} at the {label} scale: pinned worst \
+                         {old}, live worst {live}: a ranking flip is news: either a family \
+                         legitimately overtook (re-pin deliberately with a movement annotation) \
+                         or a code change made some shape relatively worse (investigate first)",
+                        old = old.unwrap_or("(no entry)"),
+                    )?;
+                }
+            }
+        }
+    }
+    for (scale, op, _) in pins {
+        if *scale == label && !live_ops.contains(op) {
+            clean = false;
+            writeln!(
+                out,
+                "worst-case pin drift: the pin names {op} at the {label} scale but the board \
+                 produces no such operation row: drop or rename the stale entry"
+            )?;
+        }
+    }
+    Ok(clean)
+}
+
 /// Entry-compare the live worst-case fold against the committed ranking pin
 /// (the `WORST_RANKINGS` table beside the fold), writing one drift line per
 /// disagreement to `out`.
 ///
 /// `sweeps` yields one whole board's judged cells per sampling scale — a shard
-/// merge under [`check_worst_map`](super::shard::check_worst_map).
+/// merge under [`check_worst_map`](super::shard::check_worst_map). Each scale's
+/// fold is judged by [`check_scale`].
 ///
-/// Returns `Ok(true)` when the pin matches exactly. Detects both directions of
-/// rot: a live row missing from the pin and a pinned row the board no longer
-/// produces.
+/// Returns `Ok(true)` when every entry matches at every scale.
 ///
 /// # Panics
 ///
@@ -610,56 +721,8 @@ pub(super) fn check_with(
     }
     let mut clean = true;
     for (label, scale) in WORST_MAP_SCALES {
-        let results = sweeps(scale)?;
-        let map = fold(&results);
-        let mut live_ops = BTreeSet::new();
-        for op in &map {
-            live_ops.insert(op.op);
-            let pinned = WORST_RANKINGS
-                .iter()
-                .find(|(s, o, _)| *s == label && *o == op.op);
-            for (i, c) in op.per_currency.iter().enumerate() {
-                assert!(
-                    !c.off,
-                    "worst-case pin: the {} counter is not compiled into this run: the check \
-                     needs the touch-meter and scan-meter features",
-                    c.currency.label()
-                );
-                let live = if c.worst.is_empty() {
-                    "-".to_string()
-                } else {
-                    c.worst
-                        .iter()
-                        .map(|e| e.family)
-                        .collect::<Vec<_>>()
-                        .join(",")
-                };
-                let old = pinned.map(|(_, _, columns)| columns[i]);
-                if old != Some(live.as_str()) {
-                    clean = false;
-                    writeln!(
-                        out,
-                        "worst-case pin drift: {op} x {cur} at the {label} scale: pinned worst \
-                         {old}, live worst {live}: a ranking flip is news: either a family \
-                         legitimately overtook (re-pin deliberately with a movement annotation) \
-                         or a code change made some shape relatively worse (investigate first)",
-                        op = op.op,
-                        cur = c.currency.label(),
-                        old = old.unwrap_or("(no entry)"),
-                    )?;
-                }
-            }
-        }
-        for (s, o, _) in WORST_RANKINGS {
-            if *s == label && !live_ops.contains(o) {
-                clean = false;
-                writeln!(
-                    out,
-                    "worst-case pin drift: the pin names {o} at the {label} scale but the board \
-                     produces no such operation row: drop or rename the stale entry"
-                )?;
-            }
-        }
+        let map = fold(&sweeps(scale)?);
+        clean &= check_scale(label, &map, WORST_RANKINGS, out)?;
     }
     if clean {
         writeln!(

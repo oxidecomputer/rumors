@@ -74,6 +74,27 @@
 //! Heap accounting is process-global, so each shard measures one cell at a
 //! time. Acceptance uses release builds so debug assertions do not add
 //! instrumented work to production measurements.
+//!
+//! # Target dependence
+//!
+//! Every reading is deterministic for a given build target, and the board's
+//! ceilings and its worst-case pin are taken and checked on 64-bit hosts. A
+//! reading differs between those hosts only when the measured operation
+//! reaches a target-conditional code path that changes allocation or what the
+//! scan and touch meters count. Architecture-specific code that only selects
+//! instructions, such as an intrinsic or an assembly routine, changes neither.
+//! For example, `num-bigint` chooses the divisor of its decimal conversion by
+//! architecture, so formatting a [`Count`](crate::Count) allocates differently
+//! on x86_64 than on aarch64.
+//!
+//! The ceilings judge such a reading on every host. Where the path also
+//! changes which family reads worst, the worst-case pin declares the cell
+//! target-dependent, checks only that some family drives it, and names the
+//! path in a comment at the entry. The pin's table (`WORST_RANKINGS`) is
+//! therefore the record of which rankings depend on the target, and why.
+//!
+//! A 32-bit target changes heap readings broadly: `num-bigint` stores 32-bit
+//! digits there, and every pointer-sized field halves.
 
 mod ceilings;
 mod cell;

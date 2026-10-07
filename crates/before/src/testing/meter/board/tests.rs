@@ -941,9 +941,10 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 ///
 /// Per sampling scale it names exactly the board's enabled operation rows, in
 /// board row order, and every pinned worst set is name-sorted, duplicate-free
-/// rostered family names (or the dead-row `-`). Serialization rows remain in
-/// the all-feature pin when their feature is disabled, so reduced-feature test
-/// builds omit those rows from the comparison.
+/// rostered family names (or the dead-row `-`, or the
+/// [`TARGET_DEPENDENT`](super::worst::TARGET_DEPENDENT) marker). Serialization
+/// rows remain in the all-feature pin when their feature is disabled, so
+/// reduced-feature test builds omit those rows from the comparison.
 ///
 /// The cheap structural half of the pin's tamper evidence; the readings half —
 /// the argmax itself — is the release-profile entry-compare (`just
@@ -951,7 +952,7 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 /// are never pinned.
 #[test]
 fn worst_rankings_pin_is_well_formed() {
-    use super::worst::WORST_RANKINGS;
+    use super::worst::{TARGET_DEPENDENT, WORST_RANKINGS};
     use crate::testing::meter::registry::FamilyId;
     let ops: Vec<&str> = super::ops::ops().into_iter().map(|op| op.name).collect();
     let families: std::collections::BTreeSet<&str> =
@@ -975,7 +976,7 @@ fn worst_rankings_pin_is_well_formed() {
     }
     for (scale, op, columns) in WORST_RANKINGS {
         for worst in columns {
-            if *worst == "-" {
+            if *worst == "-" || *worst == TARGET_DEPENDENT {
                 continue;
             }
             let names: Vec<&str> = worst.split(',').collect();
@@ -995,5 +996,127 @@ fn worst_rankings_pin_is_well_formed() {
                 );
             }
         }
+    }
+}
+
+/// Every [`TARGET_DEPENDENT`](super::worst::TARGET_DEPENDENT) entry in the
+/// ranking pin names its target-conditional code path in a comment on the line
+/// above it.
+///
+/// The marker's rule admits a cell only when such a path changes which family
+/// reads worst between the hosts the pin is checked on. Whether a named path
+/// does so is for review; this test makes an entry that names no path fail.
+/// It scans the pin's source, so it first checks that the scan finds one
+/// marked line per marked table entry, which keeps a scan that finds nothing
+/// from passing.
+#[test]
+fn target_dependent_pin_entries_name_their_code_path() {
+    use super::worst::{TARGET_DEPENDENT, WORST_RANKINGS};
+    const PATH_COMMENT: &str = "// Target-conditional path: ";
+    let source: Vec<&str> = include_str!("worst.rs").lines().collect();
+    let marked_lines: Vec<usize> = (0..source.len())
+        .filter(|&i| {
+            let line = source[i].trim_start();
+            line.starts_with("(\"") && line.contains("TARGET_DEPENDENT")
+        })
+        .collect();
+    let marked_entries = WORST_RANKINGS
+        .iter()
+        .filter(|(_, _, columns)| columns.contains(&TARGET_DEPENDENT))
+        .count();
+    assert_eq!(
+        marked_lines.len(),
+        marked_entries,
+        "the source scan must find each marked pin entry on its own line"
+    );
+    for i in marked_lines {
+        assert!(
+            i > 0 && source[i - 1].trim_start().starts_with(PATH_COMMENT),
+            "worst.rs line {}: a target-dependent entry needs a `{PATH_COMMENT}...` comment \
+             on the line above it: {}",
+            i + 1,
+            source[i].trim()
+        );
+    }
+}
+
+/// Build a worst-map row whose heap column ranks `heap` worst (empty when no
+/// family drives it) and on which every family reads zero scan and touch.
+fn map_row(op: &'static str, heap: &[&'static str]) -> super::worst::OpWorst {
+    use super::worst::CurrencyWorst;
+    use super::Currency;
+    let column = |currency, worst: &[&'static str]| CurrencyWorst {
+        currency,
+        off: false,
+        worst: worst.iter().map(|&family| candidate(family, 1.0)).collect(),
+        runner_up: None,
+    };
+    super::worst::OpWorst {
+        op,
+        per_currency: vec![
+            column(Currency::Heap, heap),
+            column(Currency::Scan, &[]),
+            column(Currency::Touch, &[]),
+        ],
+    }
+}
+
+/// The per-scale pin check accepts any live worst set in a
+/// [`TARGET_DEPENDENT`](super::worst::TARGET_DEPENDENT) column, but reports a
+/// marked column that no family drives, with its own message.
+///
+/// The declaration relaxes which family wins, ties included, never the
+/// requirement that some family drives the currency, and a dead marked cell is
+/// not a ranking flip. Exact pins, `-` included, keep matching only the
+/// identical live set and report a mismatch as a flip. The rows run through
+/// [`check_scale`](super::worst::check_scale), the comparison the gate runs at
+/// each sampling scale, so a liveness bypass at the call site fails here too.
+#[test]
+fn target_dependent_pin_accepts_any_live_worst_set_but_reports_a_dead_row() {
+    use super::worst::{check_scale, TARGET_DEPENDENT};
+    let map = [
+        map_row("marked_single", &["alpha"]),
+        map_row("marked_tie", &["alpha", "beta"]),
+        map_row("marked_dead", &[]),
+        map_row("exact_held", &["alpha"]),
+        map_row("exact_flipped", &["beta"]),
+        map_row("exact_revived", &["alpha"]),
+    ];
+    let pins = [
+        ("probe", "marked_single", [TARGET_DEPENDENT, "-", "-"]),
+        ("probe", "marked_tie", [TARGET_DEPENDENT, "-", "-"]),
+        ("probe", "marked_dead", [TARGET_DEPENDENT, "-", "-"]),
+        ("probe", "exact_held", ["alpha", "-", "-"]),
+        ("probe", "exact_flipped", ["alpha", "-", "-"]),
+        ("probe", "exact_revived", ["-", "-", "-"]),
+    ];
+    let mut out = Vec::new();
+    let clean = check_scale("probe", &map, &pins, &mut out).expect("writing to a Vec succeeds");
+    let text = String::from_utf8(out).expect("drift lines are UTF-8");
+    assert!(!clean, "a drifting entry makes the scale unclean:\n{text}");
+    let drifted: Vec<&str> = text
+        .lines()
+        .map(|line| {
+            line.strip_prefix("worst-case pin drift: ")
+                .and_then(|rest| rest.split(" x heap ").next())
+                .unwrap_or_else(|| panic!("every line is a heap drift line: {line}"))
+        })
+        .collect();
+    assert_eq!(
+        drifted,
+        ["marked_dead", "exact_flipped", "exact_revived"],
+        "exactly the dead marked row and the mismatched exact rows drift:\n{text}"
+    );
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(
+        lines[0].contains("no family drives") && !lines[0].contains("ranking flip"),
+        "a dead marked row is reported as lost work, not as a flip: {}",
+        lines[0]
+    );
+    for line in &lines[1..] {
+        assert!(
+            line.contains("ranking flip"),
+            "a mismatched exact pin is reported as a flip: {line}"
+        );
     }
 }

@@ -42,10 +42,10 @@
 //! × family cell grid (`--shard i/N`, an internal protocol;
 //! `board::shard` documents it), each child measuring its slice
 //! single-threaded, and the parent merges, judges, and renders. Every
-//! judged quantity is a deterministic counter over state a child owns
-//! privately, so the shard count is a throughput knob and never an input
-//! to a reading: `AMP_BOARD_SHARDS` overrides it (default: available
-//! parallelism).
+//! judged quantity is, for a given build target, a deterministic counter
+//! over state a child owns privately, so the shard count is a throughput
+//! setting and never an input to a reading: `AMP_BOARD_SHARDS` overrides
+//! it (default: available parallelism).
 
 use std::io;
 use std::process::{Command, Stdio};

@@ -892,7 +892,13 @@ worst-cases:
 # fold at both of the ladder's sampling scales, so a ranking flip is caught in the gate,
 # never discovered by a reader. A flip is news: either a family
 # legitimately overtook (re-pin deliberately with a movement annotation) or
-# a code change made some shape relatively worse (investigate first).
+# a code change made some shape relatively worse (investigate first). A
+# cell is declared TARGET_DEPENDENT in the table, and then needs only a live
+# worst set, only when a target-conditional code path the measured operation
+# reaches changes which family reads worst between the 64-bit hosts the pin
+# is checked on; the entry's comment names that path. A flip with no such
+# path behind it, however near the tie, never qualifies: investigate it or
+# re-pin it as above.
 # Exits nonzero on any drift, naming the operation, currency, scale, and
 # both worsts. Runs at release, the board's profile of record: rankings
 # derive from readings, and dev readings are never pinned.
