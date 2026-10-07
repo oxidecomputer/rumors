@@ -36,6 +36,9 @@ examine.
   copies them here from the auditor's scratch directory when the round ends,
   because the scratch directory lives under `/private/tmp` and does not
   survive a reboot. Builders and demonstrators read their briefs from here.
+- [`instruments.md`](instruments.md): the probes, models, and generators on
+  the auditors' `explore/` branches, kept for a triage of which to fold into
+  the committed suites.
 - `QUESTIONS.md`: the questions currently awaiting the owner's ruling, each
   written to be answerable without the conversation. The coordinator keeps it
   current, deleting each entry once it is answered, and the file's header sets
@@ -260,4 +263,5 @@ When the audit ends, retire each slot and auditor worktree:
 2. Run `git worktree remove`, never with `--force`.
 3. Delete `~/src/<basename>` on the box.
 
-Delete an `explore/` branch only after its lane's report is recorded.
+Keep every `explore/` branch until the owner has triaged its instruments in
+[`instruments.md`](instruments.md).

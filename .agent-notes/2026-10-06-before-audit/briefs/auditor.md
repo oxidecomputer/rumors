@@ -19,11 +19,25 @@ and treat the leads as a floor, never a ceiling.
 
 Your task prompt names a worktree on a local branch `explore/<lane>`. It holds
 your exploratory scaffolding: models, generators, probes, and investigative
-tests. That branch is private. It is never presented for review, never merged
-anywhere, and the coordinator deletes it at retirement. Commit to it whenever
-committing helps you; nothing there needs to be polished. Anything worth
-keeping reaches a reviewable branch only by way of a brief that a builder or
-demonstrator implements from scratch.
+tests. That branch is private. It is never presented for review and never merged
+anywhere. Commit to it whenever committing helps you; nothing there needs to
+be polished. Anything worth keeping reaches a reviewable branch only by way
+of a brief that a builder or demonstrator implements from scratch.
+
+The branch is kept after the audit until the owner has triaged its
+instruments (`instruments.md` beside the README). For every probe, model,
+or generator on it, your report gives an inventory entry, *including those
+you do not brief*:
+
+- its path and commit
+- what it checks, and against what oracle or model
+- what inputs it reaches that the committed generators do not (depth, width,
+  heights, sharing, relation mix), measured where you can
+- its calibration, and how many of its mutants the committed suite also
+  caught
+
+"The committed suite caught every mutant I chose" is weak evidence that an
+instrument adds nothing, so record its reach even when you do not brief it.
 
 When the coordinator tells you a fix branch exists for one of your defects,
 merge it into `explore/<lane>` and keep searching past the resolved failure.
