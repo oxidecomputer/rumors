@@ -661,7 +661,7 @@ fn deep_tree_stack_safety() {
     // join restores the whole from the two deep halves.
     clock.join(child).expect("fork halves are disjoint");
 
-    // The recursive Debug pretty-printer must not overflow either.
+    // Formatting a deep clock with `Debug` must not overflow either.
     assert!(!format!("{clock:?}").is_empty());
 }
 
