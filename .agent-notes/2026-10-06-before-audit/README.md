@@ -181,6 +181,10 @@ simplifications or design proposals otherwise.
   `count_display × heap`, and keeps that row's ceiling. The ranking depends on
   `num-bigint`'s x86-only conversion base and rests on a near-tie (lane L8's
   D1). The board's docs say which readings depend on the target.
+- `Query::refine_partial` may rely on the coverage walk's guarantees
+  (`floor <= hi`, `lo <= ceiling`) and decide its verdict by
+  `floor <= ceiling`, stating the precondition in its docs and at the call
+  site. It is private, and the walk is its only caller.
 - Debug-only assertions that scan whole buffers on hot paths are deleted,
   provided a mutation check shows committed tests catch every violation they
   would have caught.
