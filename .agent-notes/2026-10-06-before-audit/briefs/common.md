@@ -112,6 +112,11 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   - It also gives your worktree one build directory instead of two.
   - illumos's `env` has no `-u` flag; use `unset`.
 - Pass `--locked` to cargo on the box, so `Cargo.lock` changes only on the Mac.
+- Never edit files in your worktree while a build or test of it is running on
+  the box. A sync during a build can leave cargo with a fingerprint newer
+  than the source it compiled, so the next run reuses a stale binary and
+  reports a stale result. If a result looks impossible, touch the edited
+  file and rerun.
 - Capture whole output to a file in your scratch directory, then filter the
   file. Never pipe a command into `tail`, `grep`, or `head` inside the remote
   command: the pipeline's exit status becomes the filter's, and a failing run
