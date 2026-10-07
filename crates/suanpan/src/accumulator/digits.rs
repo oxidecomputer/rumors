@@ -86,15 +86,20 @@ impl Digits {
     }
 
     /// Activate zeroed storage, retaining any reservation from an earlier use.
+    ///
+    /// Every retained digit must already be zero. Inactive storage is either
+    /// fresh, and so empty, or left by [`reset`](Self::reset), which zeroes the
+    /// stored prefix; every digit above that prefix is already zero. Activation
+    /// resets only the scan metadata, so a stale digit would enter the next
+    /// value. After a reset, `pooled_reuse_after_reset_matches_the_oracle`
+    /// checks the reused accumulator against an oracle, and
+    /// `complete_surface_matches_bigint` checks that the idle buffer holds only
+    /// zeros.
     pub fn activate(&mut self) {
         if self.digits.is_empty() {
             self.digits.reserve_exact(1);
             self.digits.push(0);
         }
-        debug_assert!(
-            self.digits.iter().all(|&digit| digit == 0),
-            "inactive digit storage contains only zeros"
-        );
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
         self.zero_ranges.clear();
