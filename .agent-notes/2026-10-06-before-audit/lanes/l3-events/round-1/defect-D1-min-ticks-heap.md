@@ -119,3 +119,14 @@ does not sample, and it re-opens a closed fix whose stated goal was that ceiling
 defect against the enforced resource contract. If the owner instead treats 20 B/B as a regression
 limit only for sampled families, this becomes an adequacy finding (the board misses a family) plus
 a constant-factor observation.
+
+## Owner's guidance (provisional)
+
+The owner found the coordinator's recommendation reasonable at first blush:
+repair mechanism 2 by also freezing when the next stored contribution's
+offset would leave the inline `i32` range, and repair mechanism 1 with the
+fix note's repair 1, a segmented LIFO for the payload stack so growth never
+reallocates. The fix note's repair 2 (recomputing payloads instead of
+storing them) becomes an observation, not part of this fix. The guidance is
+provisional: the fixer measures the result against the board's heap ceiling
+and reports, and anything the measurements contradict returns to the owner.
