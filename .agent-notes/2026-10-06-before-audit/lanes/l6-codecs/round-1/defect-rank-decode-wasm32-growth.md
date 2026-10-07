@@ -147,3 +147,14 @@ with `try_reserve`. When the value cannot fit, the decoder returns
 `Decode::Io` with `ErrorKind::OutOfMemory`, the error the reader path already
 returns, so every entry point agrees. No new `Decode` variant.
 
+
+## Owner's ruling on the suanpan site
+
+The `before`-side fix found that the same mechanism remains in suanpan: a
+dense height accumulates in suanpan's `Vec<i64>` digit storage, which grows by
+doubling, so decoding a version whose leaf holds a dense height of about
+2^32 bits (about 1 GiB of input) still traps on wasm32. The owner ruled to
+accept that panic: on 32-bit targets, suanpan's storage growth past 1 GiB
+panics, and suanpan's growth stays as it is. The documentation states the
+limit. Whether `before`'s own decoder buffers follow the same rule is open
+(QUESTIONS #45 at the time of writing).
