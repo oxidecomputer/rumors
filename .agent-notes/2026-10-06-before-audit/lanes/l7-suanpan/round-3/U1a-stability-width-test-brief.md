@@ -41,7 +41,7 @@ assertion `left == right` failed
 
 The native counterpart, `l7_probe_stability_huge_width_compacts` (same construction, 64-bit host), passes: one stored digit remains.
 
-**Failure family.** Every accumulator in the digit representation whose top is not yet compacted, queried with `bits >= 32 * 2^32` (that is, `adjustment_digits - 1 >= 2^32`), on a target with a 32-bit `usize`. It disappears for narrower `bits`, on 64-bit targets, and in the small representation (that branch never converts to `usize`). The answer itself never differs: no 32-bit accumulator can hold enough digits to dominate such a width, so both targets answer `None`.
+**Failure family.** Every accumulator in the digit representation whose top is not yet compacted, queried with `bits > 32 * 2^32` (that is, `adjustment_digits - 1 >= 2^32`; at exactly `32 * 2^32` the top index is `usize::MAX`, which converts, as the demonstrator measured on the box), on a target with a 32-bit `usize`. It disappears for narrower `bits`, on 64-bit targets, and in the small representation (that branch never converts to `usize`). The answer itself never differs: no 32-bit accumulator can hold enough digits to dominate such a width, so both targets answer `None`.
 
 **Fix preserves** the public API and the wire and storage formats. It changes 32-bit behavior only, toward the 64-bit behavior.
 
