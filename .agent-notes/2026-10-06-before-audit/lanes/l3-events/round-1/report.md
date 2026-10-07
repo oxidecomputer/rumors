@@ -82,14 +82,5 @@ The auditor will be resumed to read both runs.
 
 ## Owner's ruling (provisional)
 
-On the D1 fix, the owner found the coordinator's recommendations reasonable
-"at first blush":
-
-- Repair mechanism 2 by freezing when the next stored offset would leave the
-  inline range.
-- Repair mechanism 1 with a segmented payload stack that never copies on
-  growth.
-- Record the derived-payload redesign as an observation.
-
-The fixer re-checks the amortization arguments and reports back if its
-measurements argue otherwise.
+The owner's provisional guidance on the D1 fix is recorded with the finding,
+in [`defect-D1-min-ticks-heap.md`](defect-D1-min-ticks-heap.md).
