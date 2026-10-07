@@ -29,7 +29,7 @@ Most of these instruments have not caught a current defect or an injected
 regression. Their value lies in going past the current suite's boundaries:
 reaching inputs the generators never produce, checking against independent
 models, and stating predicates nobody has written down. The survey aims to
-turn that work into durable improvements. It covers three areas:
+turn that work into durable improvements. It covers seven areas:
 
 - **Generator coverage.** Which regimes the committed generators reach only
   with negligible probability, or never, and which explore-branch generator
@@ -44,13 +44,44 @@ turn that work into durable improvements. It covers three areas:
   test states, such as multiplicity, history independence, and order
   independence of folds. For each, ask which plausible future defect it
   would catch.
+- **Cost instruments.** Which input families the auditors built to maximize
+  work would catch a cost regression the board's current families miss.
+  Candidates include the sparse-height family behind the suanpan lane's cost
+  finding, the carry-ripple families, fragmented masks, the hill-climbing
+  touch adversary, and wasm fuel measurement. Each could become a board
+  family or a metered property.
+- **Target dependence.** Under the owner's `usize`-invariance rule, which
+  pins, build configurations, and checks would make target-dependent
+  behavior visible. The adequacy lane found several gaps:
+  - The wasm32 pins catch 7 of 11 injected narrowings, and some pins' docs
+    claim more than they check.
+  - The pins cannot tell a panic from an allocation abort.
+  - Nothing measures cost on a 32-bit target.
+  - Stack-safety proofs are void at `opt-level = 0`.
+
+  One candidate is pinning the list of `usize` uses in public signatures in
+  `surfacecheck`.
+- **Checks on the evidence itself.** Each candidate states the failure that
+  would go unnoticed without it:
+  - generator-reach floors pinned from the census, so a future generator
+    change cannot silently narrow what the generators reach
+  - a committed known-bad demonstration for each instrument, proving it can
+    still fail
+  - the mutation survivor list, as a baseline a later campaign is compared
+    against
+- **The verification map.** The validation index and the crates'
+  `# Testing` sections, updated for everything folded in. The index has no
+  entry for `wasm32-pins` or for any `suanpan` instrument today.
+
+The survey's output is one ranked list across all seven areas, so the owner
+reviews a single document.
 
 ### Sequence
 
 1. **Survey.** One agent reads every lane's inventory entries and explore
    branch. It runs the adequacy lane's mutation survivors against each
    instrument, and runs the census on each generator. It writes a survey
-   document with its findings in the three areas, each ranked by the failure
+   document with its findings in the seven areas, each ranked by the failure
    class it would guard against and its cost under nextest's time limit. The
    coordinator commits the survey here.
 2. **Proposal branches.** For each of the best enhancements, a builder
