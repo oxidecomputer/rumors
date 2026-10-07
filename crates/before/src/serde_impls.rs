@@ -4,6 +4,13 @@
 //! Human-readable formats use the public text forms for scalar values and
 //! named records for composite values.
 //!
+//! A composite also deserializes from its fields in order, as a sequence or
+//! keyed by position, because headerless csv and `rmp-serde`'s tuple mode
+//! write structs that way and a visitor cannot tell which format called it.
+//! Named keys may come in any order and as bytes. A record that omits,
+//! repeats, or adds a field is rejected. The derived `Deserialize` of the
+//! records below does all of this; a hand-written one must too.
+//!
 //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
 //! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes to
 //! their source, so their linearity notes apply verbatim at this entry point
@@ -233,13 +240,10 @@ impl Serialize for Span<'_> {
     }
 }
 
-/// Builds a span from human-readable endpoints through [`Span::new`]. Binary
-/// formats deserialize through [`Span::decode`].
+/// Deserializes through [`Span::new`] in human-readable formats and
+/// [`Span::decode`] in binary ones.
 ///
-/// Either way, crossed and concurrent pairs are rejected, so a deserialized
-/// span is valid by construction. [`Span::decode`] parses the second
-/// component while validating its dominance over the first, in the same fused
-/// pass.
+/// Both reject crossed and concurrent pairs, so a deserialized span is valid.
 impl<'de> Deserialize<'de> for Span<'static> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         if d.is_human_readable() {

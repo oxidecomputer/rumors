@@ -453,13 +453,8 @@ proptest! {
     /// The named record's keys may be strings or bytes, in any order; the
     /// field texts come in the order the record lists them, as a sequence or
     /// keyed by position. A record that omits, repeats, or adds a field is
-    /// rejected, and so is a sequence that is short a field.
-    ///
-    /// Accepting the fields in order is intended. Some human-readable formats
-    /// write a struct positionally (csv without headers, `rmp-serde`'s
-    /// human-readable tuple mode), and a visitor cannot tell which format
-    /// called it, so rejecting JSON's array would also break those formats'
-    /// round trips.
+    /// rejected, and so is a sequence that is short a field. The module doc
+    /// says why fields in order are accepted.
     #[test]
     fn readable_serde_reads_complete_records_by_name_or_in_order(
         op in arb_oracle_party_nonempty(),
