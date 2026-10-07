@@ -121,13 +121,12 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   - The owner ruled that this replaces the full gate for landings, to save
     compute. One full `just gate` at the end of the audit catches any other
     effect on `rumors`.
-  - `audit-reserved` admits at most six long checks onto the box at once.
-    Each runs on the shared pool under `nice`, within the cargo job cap and
-    nextest thread cap, so the box stays busy but not oversubscribed.
-    Never call `pset-run` directly, and never start a long check outside
-    the wrapper. Expect to wait for a slot.
-  - If a test times out under load, rerun that test alone once before
-    treating the timeout as a finding.
+  - `audit-reserved` only runs the check under `nice`. Cargo's job cap and
+    `NEXTEST_TEST_THREADS` bound each check, and the scheduler shares the box.
+    Never call `pset-run`.
+  - If a test times out while the box is busy, rerun that test alone once
+    before treating the timeout as a finding. Deterministic counters are
+    unaffected by load; only wall-clock limits are.
   - Its baseline is in `baseline.md`, under "Landing check".
   - The wrapper exports a build directory outside the tree, but the
     justfile's `docs` recipe reads `target/doc`. Under the wrapper's default,

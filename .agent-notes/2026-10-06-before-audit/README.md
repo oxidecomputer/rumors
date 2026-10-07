@@ -262,8 +262,7 @@ When the audit is entirely complete, remove the audit's shared state on the
 box. All of it lives under the `agent` account:
 
 - `~/.cargo/config.toml`: the `[build] jobs = 24` cap.
-- `~/bin/audit-reserved`, `~/bin/audit-check`, and any leftover
-  `~/.audit-reserved.lock*` directories.
+- `~/bin/audit-reserved` and `~/bin/audit-check`.
 
 Then retire each slot and auditor worktree:
 
