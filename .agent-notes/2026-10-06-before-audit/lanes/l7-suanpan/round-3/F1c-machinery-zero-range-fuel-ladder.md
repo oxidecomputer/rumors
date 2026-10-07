@@ -233,3 +233,12 @@ Rebuild the guest and run the ladder. Expected: every sparse decode and `<=` cel
 
 1. **Band width.** Recommend ±2%. A narrower band makes every small change on these hot paths a re-pin; a wider one lets W's 7% control regression or a 6.6% K1 cell pass. Exact pins (zero band, re-pinned by calibration like the fuzz-fit bands) are the strict alternative.
 2. **Whether `min_ticks` on F1 stays in the table.** It shows no F1 growth (its opening never enters an accumulator that records ranges), but it is the one row where W is cheaper on a control. I recommend keeping it, for uniformity and as a control-like row.
+
+## Owner's ruling
+
+Each cell holds its base reading to within ±2% in both directions: a ceiling,
+and an improvement tripwire that makes a win a deliberate re-pin. Exact pins
+were rejected because codegen drift from unrelated changes already moves fuel
+by 0.2% to 0.3% on kernels whose source is unchanged; ±2% absorbs that and
+still fails K1's smallest cell (6.6%). F1's own `min_ticks` row stays,
+because it records the one row where W reads cheaper.
