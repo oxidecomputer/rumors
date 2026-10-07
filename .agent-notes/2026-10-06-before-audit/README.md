@@ -154,6 +154,12 @@ simplifications or design proposals otherwise.
   digit buffer near the 4 GiB limit. This is accepted as an observation:
   the documented `O(n)` space bound holds. It is an input to the `suanpan`
   growth-policy design work, not a defect.
+- The fork iterators (`PartyForks`, `ClockForks`) report an exact
+  `size_hint` whenever the remaining count fits `usize`, by one rule on every
+  target. This supersedes their rustdoc's allowance for wide counts and the
+  test pinning it (lane L1's D1).
+- `Clock::from_parts` documents that pairing a party with a version older
+  than its latest tick reproduces stamps the party already issued.
 - Debug-only assertions that scan whole buffers on hot paths are deleted,
   provided a mutation check shows committed tests catch every violation they
   would have caught.
