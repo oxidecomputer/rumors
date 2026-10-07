@@ -31,6 +31,11 @@ examine.
   [`briefs/reviewer.md`](briefs/reviewer.md): the downstream roles.
 - [`baseline.md`](baseline.md): what passes and fails on ox-east-1 at the
   audit's base commit, against which every later failure is judged.
+- `lanes/<lane>/round-<n>/`: each auditor round's report and deliverables
+  (briefs, observations, coverage record, resumption notes). The coordinator
+  copies them here from the auditor's scratch directory when the round ends,
+  because the scratch directory lives under `/private/tmp` and does not
+  survive a reboot. Builders and demonstrators read their briefs from here.
 - `QUESTIONS.md`: the questions currently awaiting the owner's ruling, each
   written to be answerable without the conversation. The coordinator keeps it
   current, deleting each entry once it is answered, and the file's header sets
