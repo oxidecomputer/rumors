@@ -28,6 +28,10 @@ const JOIN_RIGHT_ABOVE: u64 = 2_047_483_646;
 /// largest `usize`; one more bit makes it `2^32`.
 const FIRST_UNINDEXABLE_STABILITY_WIDTH: u64 = 32 * (1 << 32) + 1;
 
+/// The documented panic of a `suanpan` contribution that lands at a digit
+/// position its buffer cannot address.
+const UNADDRESSABLE_LANDING: &str = "a nonzero contribution needs an addressable digit position";
+
 /// Runs a check and reports its parameters if it fails.
 fn assert_passes(check: Check, a: u64, b: u64) {
     assert_eq!(
@@ -37,7 +41,27 @@ fn assert_passes(check: Check, a: u64, b: u64) {
     );
 }
 
-/// The protocol distinguishes a pass, an in-band failure, and a wasm trap.
+/// Runs a check and requires it to panic with exactly `message`.
+///
+/// An allocation failure also traps the guest, so a bare trap would not show
+/// that the documented panic is the cause.
+fn assert_panics(check: Check, a: u64, b: u64, message: &str) {
+    assert_eq!(
+        run(check, a, b),
+        Outcome::Trapped {
+            trap: Trap::UnreachableCodeReached,
+            panic: Some(message.to_owned()),
+        },
+        "{check:?} did not panic as documented for ({a}, {b})"
+    );
+}
+
+/// The protocol distinguishes a pass, an in-band failure, a panic, and an
+/// abort without a panic.
+///
+/// A panic and an allocation failure end in the same wasm trap, so the panic
+/// control must carry its message and the allocation control must carry
+/// none; a harness that conflated them would fail one of the two.
 #[test]
 fn harness_outcomes_are_live() {
     assert_passes(Check::Liveness, 0, 0);
@@ -45,9 +69,13 @@ fn harness_outcomes_are_live() {
         run_raw(u32::MAX, 0, 0),
         Outcome::Failed(Failure::UnknownCheck)
     );
+    assert_panics(Check::HarnessPanic, 0, 0, "deliberate harness panic");
     assert_eq!(
-        run(Check::HarnessTrap, 0, 0),
-        Outcome::Trapped(Trap::UnreachableCodeReached)
+        run(Check::HarnessAllocationFailure, 0, 0),
+        Outcome::Trapped {
+            trap: Trap::UnreachableCodeReached,
+            panic: None,
+        }
     );
 }
 
@@ -131,7 +159,8 @@ fn rank_arithmetic_crosses_the_usize_gap_boundary() {
 }
 
 /// Every public shifted-accumulator route rejects a nonzero digit whose
-/// required buffer length cannot fit wasm32's `usize`.
+/// required buffer length cannot fit wasm32's `usize`, with the documented
+/// panic rather than an allocation failure.
 ///
 /// The cases cover a limb stream after leading zero limbs, a shifted stored
 /// accumulator, a contribution at the last index, and a limb stream longer
@@ -141,11 +170,7 @@ fn rank_arithmetic_crosses_the_usize_gap_boundary() {
 #[test]
 fn suanpan_rejects_unaddressable_digit_landings() {
     for case in 1..=4 {
-        assert_eq!(
-            run(Check::SuanpanLanding, case, 0),
-            Outcome::Trapped(Trap::UnreachableCodeReached),
-            "landing case {case} returned instead of panicking"
-        );
+        assert_panics(Check::SuanpanLanding, case, 0, UNADDRESSABLE_LANDING);
     }
 }
 

@@ -7,12 +7,16 @@
 //! accidentally performed by the 64-bit harness.
 //!
 //! Checks return a typed failure without trapping. Product checks therefore
-//! trap only when the exercised operation panics, including `suanpan`'s
-//! documented rejection of an unaddressable digit landing. One explicit
-//! harness check traps deliberately so the native driver proves it preserves
-//! that distinction.
+//! trap only when the exercised operation panics, as `suanpan` documents for
+//! an unaddressable digit landing, or when the guest exhausts its memory.
+//! Both end in the same wasm trap, so the guest records a panic's message for
+//! the host to read afterwards; the `panic_record` module states when a panic
+//! goes unrecorded. Harness checks trap deliberately in each way, so the
+//! native driver proves it tells a pass, a panic, and an abort without a
+//! panic apart.
 
 mod checks;
+mod panic_record;
 mod synthesis;
 
 use wasm32_pins_protocol::{Check, Failure, PASS};
@@ -20,6 +24,7 @@ use wasm32_pins_protocol::{Check, Failure, PASS};
 /// Runs one typed boundary check.
 #[no_mangle]
 pub extern "C" fn check(number: u32, a: u64, b: u64) -> i32 {
+    panic_record::install();
     let check = match Check::try_from(number) {
         Ok(check) => check,
         Err(()) => return Failure::UnknownCheck.code(),

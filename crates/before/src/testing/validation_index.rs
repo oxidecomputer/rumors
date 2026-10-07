@@ -55,6 +55,17 @@
 //! sampled; outside its scope it says nothing, which is exactly why the
 //! proptest legs exist.
 //!
+//! **The 32-bit boundary pins** (the `wasm32-pins` workspace under this
+//! crate). Public operations of this crate and of `suanpan` run in a wasm32
+//! guest under wasmtime, on operands synthesized inside the guest, at the
+//! exact coordinates where an index, a bit position, or a count crosses a
+//! 32-bit `usize`. What they alone catch: **pointer-width boundary errors** —
+//! a `usize` narrowing, wrap, or capacity limit that is the identity on a
+//! 64-bit host, where every instrument above runs. The guest records the
+//! message of every panic that reaches its panic hook, so a pin that expects
+//! a documented panic fails when the operation instead aborts on allocation
+//! failure, which ends in the same wasm trap.
+//!
 //! # The resource instruments
 //!
 //! Cost claims are guarded by three complementary instruments: a global board
@@ -142,6 +153,12 @@
 //!
 //! - a differential or law fails → the answer is wrong; shrink it,
 //!   commit the seed, fix production (never the oracle to match).
+//! - a 32-bit boundary pin reports `UnreachableCodeReached` with no panic
+//!   message → the guest aborted without completing a panic, usually because
+//!   memory ran out, either before the behavior under test or while
+//!   formatting its panic message; find the allocation before reading the
+//!   failure as a value defect. Other trap kinds name their own cause, such
+//!   as `StackOverflow`.
 //! - a board cell or focused resource check fails → the cost moved; measure at
 //!   the parent commit before attributing, then either cure or bring
 //!   the owner a declared-model case with the derivation.
