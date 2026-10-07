@@ -33,3 +33,12 @@ Is `0 << s` (and adding a zero-valued accumulator at shift `s`) meant to be tota
 
 Yes. Shifting a zero accumulator, or adding a zero-valued operand at a
 shift, is total and constant-space whatever the zero's stored form.
+
+## Owner's ruling on working width
+
+After the zero-shift fix, adding a cancelled zero that lands inside the
+receiver's buffer can still raise the receiver's working width
+(`stored_bits`), where a known zero does not. The owner ruled to leave it:
+working width stays history-dependent, as documented. Making a zero never
+raise working width would not be comprehensive, and could not be in
+principle, so no fix is pursued.
