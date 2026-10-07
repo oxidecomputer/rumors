@@ -86,13 +86,19 @@ impl Digits {
     pub fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, update: Update, shift: u64) {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
-        for (limb_index, limb) in limbs.enumerate() {
+        // We count limbs in `u128` rather than with `enumerate`: a lazy stream
+        // may yield more than `usize::MAX` limbs, and a `usize` counter would
+        // then wrap on a 32-bit target built without overflow checks, landing
+        // a later nonzero limb 2^33 digit positions below its true position
+        // instead of rejecting that unaddressable position. No stream can
+        // yield enough limbs to exhaust a `u128` counter.
+        for (limb_index, limb) in (0_u128..).zip(limbs) {
             touch(1);
             // Each 32-bit half shifts by at most 31 bits, so both
             // contributions fit comfortably in the carry intermediate.
             let low = i128::from(limb & DIGIT_MASK) << bit_shift;
             let high = i128::from(limb >> DIGIT_BITS) << bit_shift;
-            let position = u128::from(digit_shift) + 2 * limb_index as u128;
+            let position = u128::from(digit_shift) + 2 * limb_index;
             if low != 0 {
                 self.add_at(digit_index(position), update.apply(low));
             }
