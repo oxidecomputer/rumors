@@ -138,3 +138,12 @@ decoder should *succeed* for representable values or return a typed error for
 "too large for this target" is a design question (question Q4): `Decode` is
 `#[non_exhaustive]`, so a new variant is additive but still a public API
 addition that needs the owner's ruling.
+
+## Owner's ruling
+
+Option A. A decoder succeeds whenever the decoded value fits in the target's
+memory: its buffers grow without doubling past the target's limit, reserving
+with `try_reserve`. When the value cannot fit, the decoder returns
+`Decode::Io` with `ErrorKind::OutOfMemory`, the error the reader path already
+returns, so every entry point agrees. No new `Decode` variant.
+
