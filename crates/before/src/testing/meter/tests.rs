@@ -4,6 +4,7 @@
 //! closed-form size and canonical encoding, and checks the semantic premise on
 //! which the corresponding resource measurement relies.
 
+use crate::shape::{Plateau, Rise};
 use crate::{Count, Party, Rank, Version};
 
 use num_bigint::BigUint;
@@ -13,11 +14,11 @@ use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
     cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
     dense_suffix_mate, dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position,
-    harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, latent_ladder, lone_freeze,
-    mask_drift_quadruple, mask_drift_triple, masked_hole, plateau_puncture,
-    plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole, scattered_id,
-    seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole, tooth_tail,
-    weight_comb, wide_arming, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS,
+    harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, jump_rising_spine,
+    latent_ladder, lone_freeze, mask_drift_quadruple, mask_drift_triple, masked_hole,
+    plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole,
+    scattered_id, seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole,
+    tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS,
     MIN_DEFERRED_ARMING_DIGITS, PROMOTION_REARM_ARM_BITS,
 };
 
@@ -277,6 +278,34 @@ proptest! {
     #[test]
     fn harmonic_decodes_canonically_at_predicted_length(d in 1usize..=1_000) {
         check_version(&harmonic(d), 6 * d + 2);
+    }
+
+    /// `JR(b, d)` is canonical normal form at exactly `6d + 2b` bits, and its
+    /// shape is the rising spine its resource claim rests on: plateaus at
+    /// heights `0, J + 1, …, J + d` for `J = 2^b`, at depths `1, 2, …, d, d`.
+    ///
+    /// A version is determined by its plateau sequence, so this pins the
+    /// whole tree: one wide rise at entry, then one-tick rises one level
+    /// deeper each, never a fall.
+    #[test]
+    fn jump_rising_spine_decodes_canonically_as_a_rising_spine(
+        b in 2usize..=300,
+        d in 2usize..=300,
+    ) {
+        let shape = jump_rising_spine(b, d);
+        check_version(&shape, 6 * d + 2 * b);
+        let jump = BigUint::from(1u8) << b;
+        let mut expected = vec![
+            Plateau { rise: None, depth: 1 },
+            Plateau { rise: Some(Rise::Up(Count(jump + 1u8))), depth: 2 },
+        ];
+        expected.extend((3..=d as u64).map(|depth| Plateau {
+            rise: Some(Rise::Up(Count::from(1u8))),
+            depth,
+        }));
+        expected.push(Plateau { rise: Some(Rise::Up(Count::from(1u8))), depth: d as u64 });
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, expected);
     }
 
     /// `A(d)` is canonical normal form at exactly `4d + 4` bits, with both

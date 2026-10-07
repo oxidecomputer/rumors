@@ -342,6 +342,8 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
         ),
         // The latent-ladder comb.
         FamilyId::LatentLadder => (vec![Shape::LatentLadder.build2(4, 4).version()], vec![]),
+        // The rising spine entered by one jump past `i32::MAX`.
+        FamilyId::JumpRisingSpine => (vec![Shape::JumpRisingSpine.build2(40, 4).version()], vec![]),
     };
     MatrixOperands { versions, masks }
 }

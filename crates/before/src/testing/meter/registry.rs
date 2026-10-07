@@ -61,6 +61,9 @@ pub enum Shape {
     /// The harmonic spine `H(d)`, a 1-leaf at every depth:
     /// [`Shape::build1`]`(d)`.
     Harmonic,
+    /// The jump-entered rising spine `JR(b, d)`, leaves `0, 2^b + 1, …,
+    /// 2^b + d`: [`Shape::build2`]`(b, d)`.
+    JumpRisingSpine,
     /// The alternating-binary spine `A(d)`: [`Shape::build1`]`(d)`.
     AltSpine,
     /// The scattered id `Z(e)`, `e` owned fragments at alternating
@@ -257,6 +260,7 @@ impl Shape {
             Shape::CliffFan => Builder::P2(super::cliff_fan),
             Shape::CancellingChain => Builder::P2(super::cancelling_chain),
             Shape::Harmonic => Builder::P1(super::harmonic),
+            Shape::JumpRisingSpine => Builder::P2(super::jump_rising_spine),
             Shape::AltSpine => Builder::P1(super::alt_spine),
             Shape::ScatteredId => Builder::P1(super::scattered_id),
             Shape::IdSpine => Builder::Flag(super::id_spine),
@@ -890,6 +894,15 @@ pub enum FamilyId {
     /// that reads the latent's width doubles that marginal when `w`
     /// doubles. The `latent_ladder` band in `tests/meter.rs` prices it.
     LatentLadder,
+    /// The jump-entered rising spine `JR(b, d)` at a fixed entry jump of
+    /// `2^40`: one suspended range minimum per level, each far above the
+    /// root's height but one tick above its parent.
+    ///
+    /// The input pays the jump's width once and every later level costs 6
+    /// bits, so a minimum fold that stores each suspended level at its
+    /// absolute offset rather than its one-tick step holds several machine
+    /// words per 6 input bits. Designed against `min_ticks`'s transient heap.
+    JumpRisingSpine,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -937,7 +950,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 57] = [
+    pub const ALL: [FamilyId; 58] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -995,6 +1008,7 @@ impl FamilyId {
         FamilyId::HoistedWindow,
         FamilyId::PropagateSeam,
         FamilyId::LatentLadder,
+        FamilyId::JumpRisingSpine,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1309,6 +1323,11 @@ impl FamilyId {
             FamilyId::LatentLadder => FamilySpec {
                 name: "latent-ladder",
                 shapes: &[Shape::LatentLadder],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::JumpRisingSpine => FamilySpec {
+                name: "jump-rising-spine",
+                shapes: &[Shape::JumpRisingSpine],
                 cells: VERSION_BUNDLE_CELLS,
             },
         }

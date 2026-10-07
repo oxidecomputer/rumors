@@ -446,6 +446,62 @@ fn harmonic(d: usize) -> Encoding {
     Encoding::from_bits(bits)
 }
 
+/// The jump-entered rising spine `JR(b, d)`: `d` internal nodes leaning
+/// right, whose preorder leaves are `0, J + 1, J + 2, …, J + d` for the
+/// entry jump `J = 2^b`; `6d + 2b` bits.
+///
+/// Every internal node's subtree minimum is its left leaf, and each nested
+/// subtree's minimum sits strictly above its parent's, so a range-minimum
+/// fold over the spine suspends one positive boundary per level and holds
+/// all of them at once at the bottom. The input pays the jump's width once,
+/// at entry; every later level costs 6 bits however wide `J` is. With `J` at
+/// least `2^31`, every leaf after the first sits more than `i32::MAX` above
+/// the root's height while consecutive leaves differ by one tick, so a fold
+/// that stores each suspended level relative to a fixed reference height
+/// pays a wide offset per level unless it re-anchors. Designed against
+/// `min_ticks`'s transient heap.
+///
+/// Layout: `"11"` (the root: internal flag + `gamma(0)`), `"01"` (its left
+/// leaf 0), `"1"` + `gamma(J + 1)` (the right subtree's root, `2b + 2` bits),
+/// then `"01" "1010"` × `(d − 2)` (each level's left leaf 0 and its internal
+/// right sibling lifted by 1), then `"01" "0010"` (the deepest node's leaves,
+/// 0 and 1). Exactly `6d + 2b` bits. Normal form holds everywhere: each
+/// internal node's left leaf stores 0, so every node's minimum is its own
+/// base, and no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `b < 2`, where the entry code breaks the closed-form size
+/// (`gamma(J + 1)` codes `2^b + 2`, which spans `2b + 1` bits only from
+/// `b = 2`), or if `d < 2`: the spine needs the root and its lifted right
+/// subtree.
+fn jump_rising_spine(b: usize, d: usize) -> Encoding {
+    assert!(
+        b >= 2,
+        "jump-entered rising spine needs an entry jump of at least 4"
+    );
+    assert!(
+        d >= 2,
+        "jump-entered rising spine needs the root and its lifted right subtree"
+    );
+    let one = BigUint::from(1u8);
+    let entry = (BigUint::from(1u8) << b) + &one;
+    let mut bits = BitsWriter::with_capacity((6 * d + 2 * b) as u64);
+    bits.push(true); // the root: internal flag
+    bits.write_gamma(&BigUint::ZERO); // ... at base 0
+    ev_leaf(&mut bits, 0); // the root's left leaf: height 0
+    bits.push(true); // the right subtree's root
+    bits.write_gamma(&entry); // ... lifted to J + 1
+    for _ in 0..d - 2 {
+        ev_leaf(&mut bits, 0); // this level's left leaf: the level's minimum
+        bits.push(true); // its right sibling, one level deeper
+        bits.write_gamma(&one); // ... lifted by 1
+    }
+    ev_leaf(&mut bits, 0); // the deepest node's left leaf: J + d − 1
+    ev_leaf(&mut bits, 1); // its right leaf: J + d
+    Encoding::from_bits(bits)
+}
+
 /// The alternating-binary spine `A(d)`: depth `d`, `2d + 1` nodes, `4d + 4`
 /// bits.
 ///
