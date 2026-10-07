@@ -10,9 +10,11 @@ adequacy lane's mutation campaign, whose survivors can always be met with
 more tests or more exotic mutants. The owner asked when it reaches
 diminishing returns.
 
-The campaign itself is bounded: cargo-mutants applied a fixed operator
-catalog once per site, over every group, about 2,415 viable mutants with
-about 225 survivors. No defect in production code came from it. Of the 61
+The campaign itself is bounded: cargo-mutants applies a fixed operator
+catalog once per site. When the owner ruled, six groups had finished and two
+(bits, party) were still running; the coordinator mistakenly reported the
+campaign as essentially complete. Its round-2 report (`lanes/l8-adequacy/
+round-2/report.md`) gives the final counts. No defect in production code came from it. Of the 61
 survivors classified in round 1, six were real test gaps, all in suanpan's
 `normalize`.
 
