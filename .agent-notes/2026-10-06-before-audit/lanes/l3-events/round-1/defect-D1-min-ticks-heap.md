@@ -144,3 +144,11 @@ adds a permanent frozen component, at most one per 63 input bits. The owner
 accepted these costs rather than add machinery to free dead components: land
 both repairs, raise the `seam_plunge` ceiling with its reason, re-pin the
 heap worst case, and annotate the exponent changes.
+
+**Superseded, pending a re-ruling.** The ruling above rested on an incomplete
+statement of the costs. The `seam_plunge` rise is +52.5% against the parent
+(19,503 to 29,752 touches), not only "about 10%" past the ceiling; and the
+same test's `DESCENDING_PARK_SURPLUS_BAND` inverts (control minus plunge goes
+from +2,021 to −1,060), which needs a negative floor. A cheaper variant also
+exists. The owner is re-asked with these facts (QUESTIONS #47 at the time of
+writing).
