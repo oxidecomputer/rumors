@@ -174,8 +174,10 @@ conversation.
   `/Users/oxide/src/rumors-audit-l<n>-<name>` on branch `explore/l<n>-<name>`.
 - **Every other role** (demonstrator, builder, fixer, reviewer) works in a
   *slot*: one of a fixed pool of reusable worktrees,
-  `/Users/oxide/src/rumors-slot-01` through `rumors-slot-08`. The pool size
-  matches the agent cap of 16 minus the eight auditors.
+  `/Users/oxide/src/rumors-slot-NN`, numbered from 01. The pool started at
+  eight, the agent cap of 16 minus the eight auditors, and grows by a slot
+  when a finished auditor frees agent capacity and every slot is assigned.
+  `git worktree list` shows the current pool.
 
 The remote wrapper syncs each worktree to `~/src/<basename>` on the box, and
 every remote command unsets `CARGO_TARGET_DIR`, so each worktree builds in
