@@ -28,6 +28,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
         Check::SuanpanLanding => suanpan_landing(a),
         Check::SuanpanReserve => suanpan_reserve(a),
         Check::SuanpanZeroShift => suanpan_zero_shift(a),
+        Check::SuanpanStabilityWidth => suanpan_stability_width(a),
     }
 }
 
@@ -292,4 +293,42 @@ fn suanpan_zero_shift(case: u64) -> Result<(), Failure> {
     } else {
         Err(Failure::WrongValue)
     }
+}
+
+/// Checks that a stability query at adjustment width `bits` compacts the stored
+/// form and declines to decide.
+///
+/// The documented scan compacts what it reads whatever answer it gives, so the
+/// stored form afterward must not depend on whether the adjustment's top digit
+/// position fits a 32-bit `usize`. The scan decides at digit 2, so the answer
+/// also depends on comparing that position with the full threshold: a threshold
+/// narrowed to a 32-bit `usize` could fall to 2 or below and claim stability.
+fn suanpan_stability_width(bits: u64) -> Result<(), Failure> {
+    // The value 5 * 2^64 at digit 2, below a cancelling top: digit 10 holds 1
+    // and digit 9 holds -2^32. The one-limb subtraction deposits -2^32 at digit
+    // 9 without carrying into digit 10, so eleven digits stay stored.
+    let mut accumulator = Accumulator::new();
+    accumulator.add_shifted_limbs(64, [5]);
+    accumulator.add_shifted_limbs(32 * 10, [1, 0]);
+    accumulator.sub_shifted_limbs(32 * 9, [1 << 32]);
+    // Without the cancelling top there is nothing to compact, and the length
+    // check below would pass vacuously.
+    if accumulator.stored_digit_count() != 11 {
+        return Err(Failure::Synthesis);
+    }
+
+    // A value below 2^67 cannot dominate an adjustment billions of digits wide,
+    // so the correct answer is `None` on every target.
+    if accumulator.cmp_zero_stable_under(bits).is_some() {
+        return Err(Failure::WrongValue);
+    }
+    // The scan folds digits 10 and 9 into a zero partial, descends through the
+    // zero digits to digit 2, and decides there, leaving three stored digits.
+    if accumulator.stored_digit_count() != 3 {
+        return Err(Failure::WrongLength);
+    }
+    if !matches!(i128::try_from(accumulator), Ok(value) if value == 5 << 64) {
+        return Err(Failure::WrongValue);
+    }
+    Ok(())
 }
