@@ -166,3 +166,15 @@ machinery at every buffer, including some that live in dependencies
 (`serde_bytes`, `num-bigint`) and in std's composite readers, and the owner
 judged that effort too large. The fix branch keeps its wasm32 pins,
 restated to assert the documented limit, and drops its growth machinery.
+
+## Owner's final ruling: no size promises
+
+The owner withdrew the documentation clauses above, for `before` and for
+suanpan alike. Neither crate promises anything about the size of inputs it
+supports. Exhausting memory or address space is an ordinary allocation panic
+or abort, as users expect of algorithms in general, and the same holds on
+64-bit targets, dependent on the machine's memory configuration; the 32-bit
+doubling limit is one instance of that, not a special case worth
+quantifying. The fix branch's limit pins and documentation are dropped. Its
+rank decode restructure, which holds a decoded fraction once and avoids the
+materialization copy, survives on its own merits as a heap improvement.
