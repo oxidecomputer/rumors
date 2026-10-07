@@ -3,7 +3,7 @@
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use super::{Party, PartyForks, Plan};
+use super::{Party, PartyForks, Plan, Remaining};
 use crate::party::io::PartySnapshot;
 use crate::testing::bridge::from_oracle_party;
 use crate::testing::generators::arb_oracle_party_nonempty;
@@ -179,4 +179,110 @@ fn distant_size_hint_stays_sound_near_exhaustion() {
     assert_eq!(plan.size_hint(), (0, None));
     plan.index = count;
     assert_eq!(plan.size_hint(), (0, Some(0)));
+}
+
+/// Skips shares of a plan without producing them.
+impl Plan {
+    /// Skips `n` shares of a power-of-two plan that sits between base paths.
+    ///
+    /// A power-of-two count forks no base path again, so each base path names
+    /// one share, and skipping `n` shares advances the base-path index by `n`.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless the count is a power of two above twice `usize::MAX`,
+    /// whose exhaustion and hint the plan derives from its base-path index
+    /// alone, and the plan is between base paths.
+    fn skip_shares(&mut self, n: &BigUint) {
+        assert!(
+            matches!(self.remaining, Remaining::Distant)
+                && self.extra == BigUint::ZERO
+                && !self.second,
+            "skipping needs a power-of-two count above twice `usize::MAX`"
+        );
+        self.index += n;
+    }
+}
+
+/// A wide plan's size hint is its exact remainder whenever the remainder fits
+/// `usize`, and `(usize::MAX, None)` when more than `usize::MAX` remain; the
+/// plan then yields exactly that remainder.
+///
+/// Each plan has a power-of-two count wider than `usize` on every target, the
+/// widest beyond `u128`, and takes one real step from its start. Tail plans
+/// then skip to 0, 1, or 5 remaining shares and drain them through real steps,
+/// checking the hint before every step and exhaustion at the end. Boundary
+/// plans skip to `usize::MAX + 1` or `usize::MAX` remaining shares and take one
+/// real step across the representable boundary.
+#[test]
+fn wide_count_size_hint_is_exact_once_the_remainder_fits() {
+    /// The hint for `remaining` shares under the one rule for every width.
+    fn hint(remaining: &BigUint) -> (usize, Option<usize>) {
+        usize::try_from(remaining).map_or((usize::MAX, None), |r| (r, Some(r)))
+    }
+
+    let word = u64::from(usize::BITS);
+    let max = BigUint::from(usize::MAX);
+    let party = Party::seed();
+    let mut mismatches = Vec::new();
+    for depth in [word + 1, word + 2, 128, 130] {
+        let count = BigUint::from(1u8) << depth;
+        // A plan that has produced its first share through a real step.
+        let started = || {
+            let mut plan = Plan::new(PartySnapshot::new(&party), Count(count.clone()));
+            let before = plan.size_hint();
+            assert!(plan.next().is_some(), "a wide plan yields a first share");
+            (plan, before)
+        };
+
+        let (plan, before) = started();
+        let actual = (before, plan.size_hint());
+        let expected = (hint(&count), hint(&(&count - 1u8)));
+        if actual != expected {
+            mismatches.push(format!(
+                "count 2^{depth}, first step: reported {actual:?}, expected {expected:?}"
+            ));
+        }
+
+        for tail in [0usize, 1, 5] {
+            let (mut plan, _) = started();
+            plan.skip_shares(&(&count - 1u8 - tail));
+            let mut hints = Vec::new();
+            let mut yielded = 0;
+            // Allow one extra step so an overlong drain is observed, not hidden.
+            while yielded <= tail {
+                hints.push(plan.size_hint());
+                if plan.next().is_none() {
+                    break;
+                }
+                yielded += 1;
+            }
+            let expected: Vec<_> = (0..=tail).rev().map(|r| (r, Some(r))).collect();
+            if hints != expected || yielded != tail {
+                mismatches.push(format!(
+                    "count 2^{depth}, tail {tail}: reported {hints:?} over {yielded} shares, \
+                     expected {expected:?} over {tail}"
+                ));
+            }
+        }
+
+        for from in [&max + 1u8, max.clone()] {
+            let (mut plan, _) = started();
+            plan.skip_shares(&(&count - 1u8 - &from));
+            let before = plan.size_hint();
+            assert!(plan.next().is_some(), "a nonempty plan yields a share");
+            let actual = (before, plan.size_hint());
+            let expected = (hint(&from), hint(&(&from - 1u8)));
+            if actual != expected {
+                mismatches.push(format!(
+                    "count 2^{depth}, step from {from}: reported {actual:?}, expected {expected:?}"
+                ));
+            }
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "size hints differ from the remaining count:\n{}",
+        mismatches.join("\n")
+    );
 }
