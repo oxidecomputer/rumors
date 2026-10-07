@@ -175,6 +175,10 @@ simplifications or design proposals otherwise.
   enhancement. Nothing from the survey is folded in
   without the owner's review. [`instruments.md`](instruments.md) holds the
   plan.
+- The board stops pinning which input family is worst for
+  `count_display × heap`, and keeps that row's ceiling. The ranking depends on
+  `num-bigint`'s x86-only conversion base and rests on a near-tie (lane L8's
+  D1). The board's docs say which readings depend on the target.
 - Debug-only assertions that scan whole buffers on hot paths are deleted,
   provided a mutation check shows committed tests catch every violation they
   would have caught.
