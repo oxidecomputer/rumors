@@ -47,7 +47,10 @@ examine.
 - `QUESTIONS.md`: everything the coordinator addresses to the owner:
   open questions awaiting a ruling, branches ready for review, and notices
   needing only acknowledgment, each written to be understood without the conversation.
-  Nothing meant for the owner lives only in chat. The coordinator keeps it
+  Nothing meant for the owner lives only in chat. Every exchange is
+  asynchronous by default: a question the coordinator raises is written to
+  this file in the same turn it is asked, whether or not the owner is
+  present, and an answer given in chat then deletes it. The coordinator keeps it
   current, deleting each entry once it is answered, and the file's header sets
   how entries are written. It is excluded from git (in `.git/info/exclude`)
   because it holds only live state; rulings worth keeping move into the

@@ -59,6 +59,9 @@ exhaustion (`Plan::is_empty` stays true), but neither implements
 `FusedIterator`, while `Regions`, `Plateaus`, `Overlay`, and `Cells` do.
 Adding the impls is a public API addition, so: design proposal.
 
+**Owner's ruling.** Implement `FusedIterator` for the fork iterators; the
+docs branch carries it.
+
 ## O7. `join_all` and `sync_all` complexity terms lack their derivation (verified by reading)
 
 `Party::join_all`, `Clock::join_all`, and `Clock::sync_all` document

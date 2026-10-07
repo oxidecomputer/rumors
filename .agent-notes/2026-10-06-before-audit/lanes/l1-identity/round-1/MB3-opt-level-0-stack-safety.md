@@ -62,3 +62,9 @@ from cold for the lib tests plus one integration target
 2. Apply M25 (exact text in the auditor's `muts4.py`): the recipe fails with
    a stack overflow in `deep_tree_query_and_causal_stack_safety`, while
    `just test` still passes. Revert; `git diff` empty.
+
+## Owner's ruling
+
+No new check leg. The committed deep-tree stack-safety tests are sufficient
+to establish that no traversal uses non-tail recursion, so this brief is not
+built.
