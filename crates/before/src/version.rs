@@ -257,8 +257,10 @@ impl Version {
 
     /// Advances this version by `k` events for `party`.
     ///
-    /// This is identical to `k` sequential [`tick`](Self::tick)s, but computed
-    /// much more efficiently.
+    /// The result is identical to `k` sequential [`tick`](Self::tick)s,
+    /// computed in a bounded number of passes rather than `k`. The count `k`
+    /// may be any unsigned integer type or a [`Count`], which has no width
+    /// limit.
     ///
     /// # Complexity
     ///
