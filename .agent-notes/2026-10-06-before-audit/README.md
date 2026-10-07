@@ -225,6 +225,21 @@ memory, not disk.
 worktrees hold only source, so local disk needs no routine check. Agents'
 `cargo fmt` runs touch no build directory.
 
+### Landing an approved branch
+
+When the owner approves a branch listed in `QUESTIONS.md`, the coordinator
+lands it on local `main` and does not push:
+
+1. Cherry-pick its commits in order. They are signed on landing.
+2. Confirm that `main`'s tree outside `.agent-notes/` equals the reviewed
+   tip's tree plus whatever had already landed.
+3. Delete the branch's entry from `QUESTIONS.md`.
+
+Rerun the gate before the next handoff only if the cherry-pick needed
+conflict resolution. Branches still in flight were cut from earlier bases;
+each rebases onto `main` before its own landing, and resolves conflicts
+there with a fresh gate.
+
 ### Agent compaction
 
 Subagents compact automatically when their context fills, and each keeps a
