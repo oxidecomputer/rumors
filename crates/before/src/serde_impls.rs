@@ -233,11 +233,13 @@ impl Serialize for Span<'_> {
     }
 }
 
-/// Deserializes through [`Span::decode`].
+/// Builds a span from human-readable endpoints through [`Span::new`]. Binary
+/// formats deserialize through [`Span::decode`].
 ///
-/// The second component is parsed while its dominance over the first is
-/// validated in the same fused pass, so crossed and concurrent pairs are
-/// rejected and a deserialized span is valid by construction.
+/// Either way, crossed and concurrent pairs are rejected, so a deserialized
+/// span is valid by construction. [`Span::decode`] parses the second
+/// component while validating its dominance over the first, in the same fused
+/// pass.
 impl<'de> Deserialize<'de> for Span<'static> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         if d.is_human_readable() {
