@@ -110,6 +110,13 @@ likely the triggering input is: "unreachable in practice" carries no weight.
     includes every nextest run inside `just gate`. Several such runs at
     once push the load past 500, which slows every agent and risks
     spurious timeouts against nextest's 180-second limit.
+- Run `just gate`, and any other run whose timing matters, on reserved
+  cores: `pset-run -n 24 -- just gate`. `pset-run` gives the command a
+  processor set the scheduler keeps every other process off, so the box's
+  background load cannot push a test past its time limit. Release is
+  automatic when the command exits. If `pset-run` reports that too few
+  cores are free, wait a few minutes and retry; do not run the gate
+  unreserved.
   - The wrapper exports a build directory outside the tree, but the
     justfile's `docs` recipe reads `target/doc`. Under the wrapper's default,
     `just gate` therefore fails for a reason unrelated to your change.
