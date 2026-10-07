@@ -95,3 +95,12 @@ with `before_refs` = the initial receiver's tree plus every input's tree, and
 This extends the focused behavioral properties, an instrument the validation
 index (`src/testing/validation_index.rs`) already lists, so the index needs
 no new row.
+
+## Owner's ruling
+
+State the multiplicity contract in the rustdoc. The `# Errors` sections of
+`Party::join_all` and `Clock::join_all` promise that no region is dropped or
+duplicated: each point is owned as many times across `self` and the
+returned parties as it was across `self` and the inputs. That is the
+property that keeps the linearity of parties intact through a failed join,
+and it is what the extended model tests check.
