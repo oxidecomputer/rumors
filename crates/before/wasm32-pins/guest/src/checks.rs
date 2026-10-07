@@ -6,6 +6,7 @@
 //! distinct from a panic in the operation under test.
 
 use core::cmp::Ordering;
+use core::iter;
 
 use before::{Clock, Count, Party, Rank, Version};
 use suanpan::Accumulator;
@@ -223,10 +224,15 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
             accumulator <<= 32 * (max - 1);
         }
         3 => accumulator.add_shifted_limbs(32 * max, [1]),
+        // Zero limbs fill indices 0 through 2^32 - 1, and the 1 sits at index
+        // 2^32, one past the largest index a 32-bit `usize` counter can hold.
+        // The stream is lazy, so the guest allocates nothing for it.
+        4 => accumulator.add_shifted_limbs(0, iter::repeat_n(0, usize::MAX).chain([0, 1])),
         _ => return Err(Failure::InvalidArguments),
     }
 
-    // Correct code panics before reaching this observation. Wrapping the
-    // landing position returns a small digit count, so a normal return is red.
+    // Correct code panics before reaching this observation. A wrapped landing
+    // position falls near the start of the buffer and the call returns
+    // normally, so any return is a failure.
     Err(Failure::WrongValue)
 }

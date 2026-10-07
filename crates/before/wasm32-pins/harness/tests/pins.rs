@@ -126,11 +126,13 @@ fn rank_arithmetic_straddles_the_usize_alignment_limit() {
 /// required buffer length cannot fit wasm32's `usize`.
 ///
 /// The cases cover a limb stream after leading zero limbs, a shifted stored
-/// accumulator, and a contribution at the last index. Wrapping any landing
-/// would return normally after writing near the start of the buffer.
+/// accumulator, a contribution at the last index, and a limb stream longer
+/// than `usize::MAX` limbs, whose landing position must not come from a
+/// wrapped limb counter. Wrapping any landing would return normally after
+/// writing near the start of the buffer.
 #[test]
 fn suanpan_rejects_unaddressable_digit_landings() {
-    for case in 1..=3 {
+    for case in 1..=4 {
         assert_eq!(
             run(Check::SuanpanLanding, case, 0),
             Outcome::Trapped(Trap::UnreachableCodeReached),
