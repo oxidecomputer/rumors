@@ -149,6 +149,11 @@ simplifications or design proposals otherwise.
   refuses reserves nothing. It never reserves "as much as it can" short of
   the request. This public API change is approved; it matches
   `suanpan`'s other width parameters and removes the caller's conversion.
+- On wasm32, `Rank`'s `Sum` can abort on allocation failure in one summand
+  order where the other order and `+` succeed, because `Vec` doubles a
+  digit buffer near the 4 GiB limit. This is accepted as an observation:
+  the documented `O(n)` space bound holds. It is an input to the `suanpan`
+  growth-policy design work, not a defect.
 - Debug-only assertions that scan whole buffers on hot paths are deleted,
   provided a mutation check shows committed tests catch every violation they
   would have caught.
