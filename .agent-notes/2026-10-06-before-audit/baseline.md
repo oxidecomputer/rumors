@@ -2,6 +2,11 @@
 
 # Baseline on ox-east-1 at `455e97de`
 
+The baseline below was recorded at `455e97de`. It still holds at `main`: the
+fixes landed on `main` since then change no leg's verdict and no test count.
+Each landed fix ran the full gate on reserved cores, and each matched this
+record.
+
 Every later "this fails" claim in the audit is judged against this record. A
 failure that also occurs here is pre-existing, and a branch must reproduce it
 exactly, with nothing new beside it.
