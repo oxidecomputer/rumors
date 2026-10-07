@@ -194,18 +194,14 @@ impl Rank {
             Ordering::Less => None,
             Ordering::Equal => Some(Rank::ZERO),
             Ordering::Greater => {
-                let e = self.exp.max(other.exp);
-                if Self::alignment_fits(self.exp, other.exp, e) {
-                    let a = self.num.clone() << (e - self.exp);
-                    let b = other.num.clone() << (e - other.exp);
-                    return Some(Rank::from_raw(a - &b, e));
-                }
-                let difference = self.accumulate(other, e, true);
-                debug_assert!(
-                    difference > Rank::ZERO,
-                    "the Greater pre-check promises a strictly positive difference"
-                );
-                Some(difference)
+                // Aligned as in `&Rank + &Rank`, whose comment gives the
+                // argument that no step depends on the width of `usize`. Here
+                // each shifted numerator is at most one bit wider than the
+                // difference or an unshifted numerator.
+                let exp = self.exp.max(other.exp);
+                let a = &self.num << (exp - self.exp);
+                let b = &other.num << (exp - other.exp);
+                Some(Rank::from_raw(a - &b, exp))
             }
         }
     }
@@ -490,46 +486,6 @@ impl Rank {
                 }
             }
         }
-    }
-
-    /// Whether both exponent gaps fit the big-integer shift interface.
-    fn alignment_fits(a_exp: u64, b_exp: u64, common_exp: u64) -> bool {
-        usize::try_from(common_exp - a_exp).is_ok() && usize::try_from(common_exp - b_exp).is_ok()
-    }
-
-    /// Combine `self ± rhs` at exponent `exp` through the streaming
-    /// accumulator.
-    ///
-    /// Reserving for the wider aligned operand avoids a transient created by
-    /// growth-doubling the buffer.
-    fn accumulate(&self, rhs: &Rank, exp: u64, subtract_rhs: bool) -> Rank {
-        let mut acc = Accumulator::new();
-        let aligned_bits = |rank: &Rank| {
-            if rank.num.bits() == 0 {
-                0
-            } else {
-                rank.num.bits().saturating_add(exp - rank.exp)
-            }
-        };
-        // A sum is at most one bit wider than its wider aligned operand, so it
-        // occupies at most ceil(sum_bits / 32) positions. The request leaves
-        // one position of margin above that, or two when `sum_bits` is a
-        // multiple of 32.
-        let sum_bits = aligned_bits(self).max(aligned_bits(rhs)).saturating_add(1);
-        acc.reserve_bits(sum_bits.saturating_add(1 + 32));
-        acc.add_shifted_limbs(exp - self.exp, self.num.iter_u64_digits());
-        if subtract_rhs {
-            acc.sub_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
-        } else {
-            acc.add_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
-        }
-        let (sign, num) = acc.biguint_parts();
-        debug_assert_ne!(
-            sign,
-            Ordering::Less,
-            "rank addition and pre-checked subtraction are nonnegative"
-        );
-        Rank::from_raw(num, exp)
     }
 
     /// Write the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ`.
@@ -953,15 +909,19 @@ impl PartialOrd for Rank {
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
-        // Shift and add directly when both exponent gaps fit `usize`. The
-        // accumulator handles larger gaps without narrowing the exponent.
-        let e = self.exp.max(rhs.exp);
-        if Rank::alignment_fits(self.exp, rhs.exp, e) {
-            let a = self.num.clone() << (e - self.exp);
-            let b = rhs.num.clone() << (e - rhs.exp);
-            return Rank::from_raw(a + &b, e);
-        }
-        self.accumulate(rhs, e, false)
+        // Align both numerators to the larger exponent. Each gap is a `u64`
+        // bit count, and `BigUint`'s `u64` shift takes it without narrowing:
+        // the `usize` values it derives from the gap, the count of zero
+        // digits to prepend and the length of the shifted buffer, are lengths
+        // the shifted value must hold in memory. A shifted numerator is no
+        // wider than the sum, so that count outgrows `usize` only for a sum
+        // no memory could hold: alignment computes the same values whatever
+        // the width of `usize`. Shifting by reference copies each numerator
+        // once, with no separate clone.
+        let exp = self.exp.max(rhs.exp);
+        let a = &self.num << (exp - self.exp);
+        let b = &rhs.num << (exp - rhs.exp);
+        Rank::from_raw(a + &b, exp)
     }
 }
 
