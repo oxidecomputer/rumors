@@ -118,3 +118,11 @@ Derive the hint by one rule on every target:
 Yes. The fork iterators report an exact `size_hint` whenever the remaining
 count fits `usize`, by one rule on every target. This supersedes their
 rustdoc's allowance for wide counts, and the test that pins it.
+
+The fix stores the remainder as a `BigUint` in the fork plan, which adds one
+count-sized allocation per fork iterator. That flips the board's
+default-scale `party_forks × heap` worst case from
+`ascend-cliff,ascend-plateau` (10.1 to 10.6 B/byte) to `copy-hole` (9.4 to
+10.8 B/byte), a constant-heap family on tiny inputs; every committed
+ceiling still holds. The owner accepted the allocation and the re-pin,
+rather than deriving the remainder without storing it.
