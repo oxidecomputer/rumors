@@ -123,6 +123,27 @@ full `just gate` on ox-east-1 before handoff, and its result matches
 cannot sign, agents commit with `--no-gpg-sign` and the coordinator re-signs
 exactly those commits before handoff, preserving trees, messages, and dates.
 
+**`usize` invariance.** `before` and `suanpan` should behave identically
+whatever the width of `usize`. A `usize` anywhere other than indexing into
+memory, or counting what memory holds (an array index, a length, a capacity
+actually held), is a possible defect: a public parameter, a stored quantity, or
+arithmetic whose meaning would change with the target's pointer width. Agents
+report such sites as findings when behavior differs by target, and as
+simplifications or design proposals otherwise.
+
+**Rulings on questions raised during the audit.**
+
+- `before`'s documented linear bounds must hold unconditionally. The
+  composition with `suanpan`'s per-update logarithm (lane L7's F1) is to be
+  fixed in `suanpan` without weakening any other guarantee. The suanpan
+  auditor gathers the evidence and designs first, rather than `before`
+  restating its bounds.
+- Shifting a zero accumulator, or adding a zero-valued operand at a shift, is
+  total and constant-space whatever the zero's stored form.
+- Debug-only assertions that scan whole buffers on hot paths are deleted,
+  provided a mutation check shows committed tests catch every violation they
+  would have caught.
+
 **Worktrees and build reuse.** The box has no compiler cache: kache does not
 build on illumos, because its `interprocess` dependency has no illumos peer
 credentials. Builds stay warm instead through reused worktrees, under the

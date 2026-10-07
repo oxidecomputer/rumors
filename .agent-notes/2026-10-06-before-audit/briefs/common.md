@@ -65,6 +65,13 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   that as a finding. Never pick a winner silently.
 - **32-bit targets.** These are fully in scope. The `wasm32-pins` executor is
   the current instrument; another means needs a stated reason in your report.
+- **`usize` invariance.** Both crates should behave identically whatever
+  the width of `usize`. Treat a `usize` anywhere other than indexing into
+  memory or counting what memory holds (an index, a length, a capacity
+  actually held) as a possible defect: a public parameter, a stored
+  quantity, or arithmetic whose meaning would change with pointer width.
+  Report it as a defect where behavior differs by target, and as a
+  simplification or design proposal otherwise.
 - **Performance.** Asymptotic findings come first. A finding is a
   deterministic counter (scan, touch, heap, or wasm fuel) growing faster than
   the documented bound across at least four sizes.
