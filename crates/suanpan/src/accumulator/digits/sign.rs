@@ -24,6 +24,10 @@
 //! than `0.99 B^i`; an adjustment occupying positions through `f` has
 //! magnitude below `2.01 B^(f + 1)`. Thus `i >= f + 2` is sufficient. Failure
 //! to meet that test says only that this scan did not establish the guarantee.
+//!
+//! A borrowed operand cannot be rewritten, so deciding whether it is zero
+//! runs the same descent read-only. That scan is not amortized: it reads each
+//! position down to its decision, at most the operand's stored digits.
 
 use core::cmp::Ordering;
 
@@ -47,6 +51,24 @@ impl Digits {
         // small threshold.
         (partial.abs() >= COMPARISON_DECIDED && index >= adjustment_high.saturating_add(2))
             .then(|| partial.cmp(&0))
+    }
+
+    /// Return whether the value is zero, reading the digits without rewriting them.
+    ///
+    /// The descent is the comparison's: a partial of magnitude at least 3
+    /// proves the value nonzero, and reaching position zero leaves the exact
+    /// value. Each call reads every position down to its decision, recorded
+    /// zero ranges included, and therefore at most the stored digits.
+    pub fn value_is_zero(&self) -> bool {
+        let mut partial: i128 = 0;
+        for &digit in self.stored_digits().iter().rev() {
+            touch(1);
+            partial = (partial << DIGIT_BITS) + i128::from(digit);
+            if partial.abs() >= COMPARISON_DECIDED {
+                return false;
+            }
+        }
+        partial == 0
     }
 
     /// Return the stopping position and replace the scanned suffix by its value.

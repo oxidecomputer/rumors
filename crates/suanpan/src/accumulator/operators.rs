@@ -336,12 +336,21 @@ macro_rules! shifts {
         /// working width. A nonzero shift takes at most amortized
         /// O(`A` log(`S` + 1) + `S`) time and O(`S`) temporary space because
         /// the old and new allocations may coexist until the operation
-        /// finishes. Identity operations take O(1) time and space.
+        /// finishes. A zero count, or a value for which
+        /// [`is_known_zero`](Accumulator::is_known_zero) returns `true`, takes
+        /// O(1) time and space. Any other zero value shifts in O(1) space and
+        /// O(`A`) time, a scan that is not amortized, whatever its working
+        /// width.
         ///
         /// # Panics
         ///
-        /// Panics if the count is negative, exceeds `u64::MAX`, or a nonzero
-        /// contribution cannot fit an addressable stored position.
+        /// Panics if the count is negative or exceeds `u64::MAX`, or if the
+        /// value is nonzero and its working width, shifted, would reach digit
+        /// position `usize::MAX - 1`, where no allocation can hold the buffer
+        /// the result needs. Growing the buffer is an ordinary vector
+        /// allocation, which can also fail short of that position: it panics
+        /// on capacity overflow, and aborts when the allocator cannot satisfy
+        /// it. With a valid count, shifting zero never panics.
         impl ShlAssign<$integer> for Accumulator {
             /// Validate the count before changing the receiver.
             fn shl_assign(&mut self, shift: $integer) {
@@ -353,13 +362,22 @@ macro_rules! shifts {
         ///
         /// Let `A` be the old working width and `S` the result's working width.
         /// A nonzero shift takes at most amortized
-        /// O(`A` log(`S` + 1) + `S`) time and O(`S`) temporary space. Identity
-        /// operations take O(1) time and space.
+        /// O(`A` log(`S` + 1) + `S`) time and O(`S`) temporary space. A zero
+        /// count, or a value for which
+        /// [`is_known_zero`](Accumulator::is_known_zero) returns `true`, takes
+        /// O(1) time and space. Any other zero value shifts in O(1) space and
+        /// O(`A`) time, a scan that is not amortized, whatever its working
+        /// width.
         ///
         /// # Panics
         ///
-        /// Panics if the count is negative, exceeds `u64::MAX`, or the result
-        /// needs an unrepresentable working width.
+        /// Panics if the count is negative or exceeds `u64::MAX`, or if the
+        /// value is nonzero and its working width, shifted, would reach digit
+        /// position `usize::MAX - 1`, where no allocation can hold the buffer
+        /// the result needs. Growing the buffer is an ordinary vector
+        /// allocation, which can also fail short of that position: it panics
+        /// on capacity overflow, and aborts when the allocator cannot satisfy
+        /// it. With a valid count, shifting zero never panics.
         impl Shl<$integer> for Accumulator {
             /// The exact value multiplied by the requested power of two.
             type Output = Self;
@@ -398,6 +416,10 @@ impl Accumulator {
             }
             return;
         }
+        // The fresh receiver holds no buffer, so every deposit would extend
+        // it and `add_shifted` first scans the operand for zero. A zero whose
+        // stored digits cancel therefore leaves a fresh zero rather than
+        // landing those digits at the shifted position.
         let previous = core::mem::take(self);
         self.add_shifted(shift, &previous);
     }

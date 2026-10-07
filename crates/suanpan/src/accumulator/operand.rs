@@ -8,7 +8,12 @@
 //! Another accumulator is likewise read as stored. A small operand enters as
 //! one exact value; a digit-stored operand is read through its highest nonzero
 //! position and deposited at the requested offset. Work therefore follows the
-//! operand's stored width, not the receiver's width.
+//! operand's stored width, not the receiver's width. Stored digits can cancel
+//! to zero, so an operand whose deposit would extend the receiver's buffer is
+//! first scanned for zero. A zero operand therefore never grows the buffer
+//! toward the shifted position, however wide its stored digits and however
+//! large the shift, though one landing inside the buffer can carry one
+//! position past its top.
 //!
 //! Position arithmetic uses `u128` until the contribution is known nonzero.
 //! Only then does [`digit_index`] validate its destination. Zero contributions
@@ -101,9 +106,19 @@ impl Accumulator {
             }
             return;
         }
+        let operand = other.digits.stored_digits();
+        // Stored digits can cancel to zero at any width. Depositing such a
+        // zero past the retained buffer would grow the buffer to the shifted
+        // position, retaining space that grows with the shift for a value that
+        // needs none, and would reject an unaddressable landing. A deposit
+        // within the buffer costs the operand's width whatever its value, so
+        // only a deposit that would extend the buffer first scans for zero.
+        if self.digits.deposit_extends_buffer(shift, operand.len()) && other.digits.value_is_zero()
+        {
+            return;
+        }
         self.ensure_digits();
-        self.digits
-            .add_digits(other.digits.stored_digits(), shift, update);
+        self.digits.add_digits(operand, shift, update);
     }
 
     /// Add or subtract a shifted word, staying small when headroom permits.
