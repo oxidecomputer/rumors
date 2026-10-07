@@ -125,9 +125,13 @@ behavior-preserving simplification is built as its own clean branch. When a fix
 awaits review, the lane merges it and keeps searching past it.
 
 **Review.** Every branch gets a skeptical review by a separate agent before it
-reaches the owner, aiming for one round and allowing two. A branch that has not
-converged after two rounds is paused and reported durably with its outstanding
-issues clearly noted.
+reaches the owner, aiming for one round and allowing two. When a reviewer has
+already written and verified the exact repair for its remaining finding, so
+that another round would only re-run that check, the coordinator may accept
+the repair: the builder applies it and the coordinator verifies the diff and
+the reviewer's demonstration, then says so in the ready entry. Otherwise a
+branch that has not converged after two rounds is paused and reported durably
+with its outstanding issues clearly noted.
 
 **Verification and commits.** Agents commit freely on their branches.
 Intermediate commits run focused checks. Each branch's final state runs the
