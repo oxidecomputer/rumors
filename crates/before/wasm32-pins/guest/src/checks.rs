@@ -247,17 +247,39 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
     let max = u64::from(u32::MAX);
     let mut accumulator = Accumulator::new();
     match case {
+        // A limb stream lands each limb two digits above the one before it:
+        // from the shift's digit 2^32 - 4, two zero limbs put the 5 at digit
+        // 2^32.
         1 => accumulator.add_shifted_limbs(32 * (max - 3), [0, 0, 5]),
+        // `<<=` on a stored value adds it back through `add_shifted`'s
+        // stored-operand path. The first shift exceeds the small
+        // representation's headroom, so 2^64 is stored as digit 2 before the
+        // second shift moves that digit to 2^32.
         2 => {
             accumulator += 1_u64;
             accumulator <<= 64;
             accumulator <<= 32 * (max - 1);
         }
+        // One word lands directly at its shift's digit, here `usize::MAX`,
+        // whose buffer length `usize::MAX + 1` cannot be represented.
         3 => accumulator.add_shifted_limbs(32 * max, [1]),
         // Zero limbs fill indices 0 through 2^32 - 1, and the 1 sits at index
         // 2^32, one past the largest index a 32-bit `usize` counter can hold.
         // The stream is lazy, so the guest allocates nothing for it.
         4 => accumulator.add_shifted_limbs(0, iter::repeat_n(0, usize::MAX).chain([0, 1])),
+        // A small operand has no stored digits, so `add_shifted` deposits its
+        // value directly at digit 2^32. The shift, 2^37 bits, truncates to zero
+        // in 32 bits: a narrowed shift lands the 1 at digit 0, where the call
+        // returns at once. Case 3's shift would instead land a narrowed digit
+        // near 2^27, behind a 1 GiB allocation.
+        5 => accumulator.add_shifted(32 * (max + 1), &mut Accumulator::from(1_u8)),
+        // A small value shifted past the small representation's headroom
+        // deposits directly at the same digit, without passing through
+        // `add_shifted`.
+        6 => {
+            accumulator += 1_u64;
+            accumulator <<= 32 * (max + 1);
+        }
         _ => return Err(Failure::InvalidArguments),
     }
 
