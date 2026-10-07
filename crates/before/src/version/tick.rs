@@ -59,6 +59,11 @@ mod probe;
 pub mod raise;
 mod route;
 
+/// Slots per memo block, for the co-generation census that counts which
+/// pre-scans reserve more than one block.
+#[cfg(test)]
+pub(crate) use self::memo::BLOCK_SLOTS;
+
 /// Tracks the minimum minus the previous output height after emitting a
 /// minimum. A follower is a value that `RangeMinima` updates whenever its
 /// reference minimum changes.

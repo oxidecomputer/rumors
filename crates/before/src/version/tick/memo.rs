@@ -22,7 +22,7 @@ use super::StoredAccumulator;
 ///
 /// One `u64` records exactly one block's occupied slots. The fixed bound also
 /// caps the work of an out-of-order insertion at 63 value moves.
-const BLOCK_SLOTS: usize = u64::BITS as usize;
+pub(crate) const BLOCK_SLOTS: usize = u64::BITS as usize;
 
 /// One block of consumption-order memo slots.
 struct Block {

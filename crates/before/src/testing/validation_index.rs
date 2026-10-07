@@ -37,6 +37,19 @@
 //! What they alone catch: **surface composition errors** that no independent
 //! model represents, such as omitting one component from a streamed encoding.
 //!
+//! **Co-generated tick pairs** ([`super::generators::co_generated`]). These
+//! strategies build a tick's party and version together, region by region,
+//! and feed the tick module's differentials against the recursive oracle. One
+//! tick pre-scan then covers many lookahead sites: nested several deep,
+//! several in one range, more than one memo block's worth, or several such
+//! pre-scans in one walk. What they alone catch: **multi-site pre-scan
+//! errors**, which independently drawn operands do not reach and the
+//! hand-built families reach only at fixed shapes. Examples are an owned
+//! leaf's old maximum that ties its memoized minimum but is read as dominated
+//! by it, a memo reference re-anchored after a sibling site closes but before
+//! the tracked minimum's deferred update resolves, a memo block allocated one
+//! reservation late, and a block left uncleared for the next pre-scan.
+//!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:
 //! lattice identities, monotonicity, the distance metric's axioms, order/rank
