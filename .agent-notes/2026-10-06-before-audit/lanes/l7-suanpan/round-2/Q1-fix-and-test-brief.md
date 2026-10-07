@@ -55,3 +55,10 @@ Limb streams need no change: zero limbs deposit nothing (`add.rs:96-101`).
 - **Expected failure on the base commit:** with `k = 1` and `s = 32 << 20`, the count assertion fails with `left: 1048578`, `right: 1` (the probe's reading).
 - **32-bit unit case:** a new arm in the guest's check dispatch builds `[-2^32, 1]` and applies `<<= 32 * u64::from(u32::MAX)`, returning `Ok(())` when `cmp_zero()` is `Equal`. The harness asserts `Outcome::Passed`; on the base commit it reports `Trapped(UnreachableCodeReached)`. A known-zero control case passes on both.
 - **Runtime:** the native property is milliseconds per case at the largest shift (one `2^20`-digit buffer on the base commit); the guest case is under a second.
+
+## Owner's ruling on pin movement
+
+Approved in advance: the fix may raise exact touch pins by a constant per
+operation, caused by the zero check. The fixer measures each rise at the
+parent, re-pins it with an annotation naming the zero check, and stops if
+anything rises by more than a constant or changes a growth rate.

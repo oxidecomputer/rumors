@@ -170,3 +170,15 @@ W, if the owner accepts a constant of up to 18% on `before` inputs that never cr
 
 - Prototypes: `explore/l7-suanpan`, features `l7-proto` (T) and `l7-proto-w` (W; W takes precedence if both are on).
 - Fuel matrix: `crates/before/wasm32-pins/guest/src/l7_builders.rs` (families), `guest/src/checks.rs` (`l7_fuel`, modes `100 * family + op`), harness test `zz_l7_fuel_matrix` (`#[ignore]`; env `L7_FAMILIES`, `L7_OPS`, `L7_SIZES`). Guests built with `--features suanpan/l7-proto` or `suanpan/l7-proto-w` into separate target directories; the harness binary is run directly so jobs do not contend for cargo's lock. Logs: `S/m3/`.
+
+## Owner's ruling
+
+Adopt design W, the written-position bitset, in this order:
+
+1. A machinery branch first: a deterministic counter, or a committed fuel
+   pin, that grows on the F1 families today, so the fix moves a committed
+   number.
+2. The W branch, which flattens that counter. It tunes the constant on
+   range-free inputs before review, for example by keeping the lowest
+   level of marks in the digits' spare bits. It carries a model-based test
+   of the bitset against a `BTreeSet` oracle.
