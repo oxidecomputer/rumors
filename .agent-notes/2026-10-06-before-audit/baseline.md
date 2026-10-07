@@ -47,9 +47,10 @@ spelling.
 ## Landing check
 
 Branches land on the landing check (`~/bin/audit-check`, described in the
-README) rather than the full gate. Its baseline was recorded at `a9bf84f0`,
-whose tree differs from `455e97de`'s only by the landed limb-index fix and
-notes, with this invocation:
+README) rather than the full gate. Its baseline was recorded at `868ac7ab`,
+whose code differs from `455e97de`'s only by the landed limb-index fix, with
+the corrected script, which judges every command in a leg and refuses to run
+if it cannot see a failing first command. The invocation:
 
 ```
 on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check'
@@ -58,8 +59,8 @@ on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24
 | Leg | Verdict | Detail |
 |---|---|---|
 | tests | ok | `before` and `suanpan`: 757 run, 757 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
-| lints | ok | |
-| docs | ok | doctests: 193 passed (`before`), 3 passed (`suanpan`) |
+| lints | ok | `just gate-lints` and both clippy runs clean |
+| docs | ok | private-items and docs.rs builds clean; doctests: 193 passed (`before`), 3 passed (`suanpan`) |
 | surface | ok | 14 tests passed; 211 public function-like items = 134 board-covered + 77 excepted |
 | board | failed | 5311 green, 0 red; then exactly the two `count_display × heap` drift lines described under `just gate` |
 | wasm | ok | wasm32-pins 8/8, fuzzfit 25/25, fuelscape 43/43 |
