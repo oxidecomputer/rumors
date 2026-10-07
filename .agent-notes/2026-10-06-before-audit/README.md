@@ -31,6 +31,12 @@ examine.
   [`briefs/reviewer.md`](briefs/reviewer.md): the downstream roles.
 - [`baseline.md`](baseline.md): what passes and fails on ox-east-1 at the
   audit's base commit, against which every later failure is judged.
+- `QUESTIONS.md`: the questions currently awaiting the owner's ruling, each
+  written to be answerable without the conversation. The coordinator keeps it
+  current, deleting each entry once it is answered, and the file's header sets
+  how entries are written. It is excluded from git (in `.git/info/exclude`)
+  because it holds only live state; rulings worth keeping move into the
+  rulings of record below.
 
 ## Rulings of record
 
