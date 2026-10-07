@@ -130,3 +130,17 @@ reallocates. The fix note's repair 2 (recomputing payloads instead of
 storing them) becomes an observation, not part of this fix. The guidance is
 provisional: the fixer measures the result against the board's heap ceiling
 and reports, and anything the measurements contradict returns to the owner.
+
+## Owner's ruling on the measured costs
+
+The fixer built both repairs from the provisional guidance and measured them.
+Together they turn `version_min_ticks × jump-rising-spine` green (14.3 B/B at
+the default scale), with values unchanged. The extra freeze costs other
+families: the `seam_plunge` touch reading rises about 10% past its pinned
+ceiling (29,752 against 26,945), three families' heap goes from constant to
+linear in input (`dominated-undercut`, `jump-pair`, `cancelling-chain`, all
+still green), and `propagate-seam` becomes the heap worst case. Each freeze
+adds a permanent frozen component, at most one per 63 input bits. The owner
+accepted these costs rather than add machinery to free dead components: land
+both repairs, raise the `seam_plunge` ceiling with its reason, re-pin the
+heap worst case, and annotate the exponent changes.
