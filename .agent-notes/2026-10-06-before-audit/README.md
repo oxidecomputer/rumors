@@ -67,6 +67,9 @@ measurement or benchmarking.
 inputs of several gigabytes. Allowed tools: cargo-mutants, llvm-cov branch
 coverage, and long property-test runs. libFuzzer is not used: it does not
 build on illumos, and the fuzz workspace that depends on it is out of scope.
+The one exception to running everything on the box is branch coverage: no
+toolchain on the box ships the profiler runtime that `llvm-cov` needs, so the
+adequacy auditor runs coverage on the Mac, niced and capped at eight jobs.
 
 **Organization.** Eight lanes launch together. The coordinator dispatches every
 agent centrally (lanes never spawn their own agents), with at most 16 agents
