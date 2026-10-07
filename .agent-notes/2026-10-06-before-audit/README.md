@@ -41,6 +41,9 @@ examine.
 - [`instruments.md`](instruments.md): the probes, models, and generators on
   the auditors' `explore/` branches, kept for a triage of which to fold into
   the committed suites.
+- `STATE.md`: the coordinator's live state (agents and their IDs, pending
+  actions, merge-order conflicts, the dispatch queue), read after any context
+  reset. Like `QUESTIONS.md`, it is excluded from git.
 - `QUESTIONS.md`: everything the coordinator addresses to the owner:
   open questions awaiting a ruling, branches ready for review, and notices
   needing only acknowledgment, each written to be understood without the conversation.
