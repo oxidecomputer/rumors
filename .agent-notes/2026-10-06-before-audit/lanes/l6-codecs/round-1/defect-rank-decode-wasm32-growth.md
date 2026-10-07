@@ -156,5 +156,13 @@ doubling, so decoding a version whose leaf holds a dense height of about
 2^32 bits (about 1 GiB of input) still traps on wasm32. The owner ruled to
 accept that panic: on 32-bit targets, suanpan's storage growth past 1 GiB
 panics, and suanpan's growth stays as it is. The documentation states the
-limit. Whether `before`'s own decoder buffers follow the same rule is open
-(QUESTIONS #45 at the time of writing).
+limit.
+
+The owner then extended the same rule to `before`'s own decoder buffers,
+which supersedes option A for 32-bit growth: on 32-bit targets, a decode
+whose buffers grow past 1 GiB panics, and the documentation states the
+limit. Supporting the rest of a 32-bit address space would take growth
+machinery at every buffer, including some that live in dependencies
+(`serde_bytes`, `num-bigint`) and in std's composite readers, and the owner
+judged that effort too large. The fix branch keeps its wasm32 pins,
+restated to assert the documented limit, and drops its growth machinery.
