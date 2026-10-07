@@ -84,3 +84,10 @@ The premise that the big-integer shift needs a `usize` gap is false for the
 to use the new `reserve_bits(u64)`. This branch deletes that function. If the
 fix lands first, the rebase resolves the conflict by deletion. Report it
 either way.
+
+## Independent corroboration
+
+The adequacy auditor (lane L8) verified on the box that forcing the
+`BigUint` shift route at a 2^32-bit gap on wasm32 gives the correct value.
+`num-bigint` divides the shift into digits before narrowing it. See
+`lanes/l8-adequacy/round-1/report.md`.
