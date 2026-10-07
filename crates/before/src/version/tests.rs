@@ -10,8 +10,11 @@ use std::io::{self, Write};
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
+use proptest::sample::Index;
 
 use super::{Ranked, Version};
+use crate::error::Decode;
+use crate::rank::DECODE_CHUNK_BYTES;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
@@ -1269,7 +1272,6 @@ fn rank_encoding_exhaustive_small_scope() {
 #[test]
 #[allow(clippy::type_complexity)]
 fn rank_decoding_rejects_each_malformed_input_class() {
-    use crate::error::Decode;
     let cases: [(&[u8], fn(&Decode) -> bool, &str); 9] = [
         (&[], |e| matches!(e, Decode::Truncated), "empty input"),
         (
@@ -1332,70 +1334,368 @@ fn rank_decoding_rejects_each_malformed_input_class() {
     }
 }
 
-/// A reader that exposes at most one byte per call.
-struct OneByteReader<'a>(&'a [u8]);
+/// A decode result reduced to what the reader property compares: the decoded
+/// rank, or the error's variant, with the kind of an I/O error.
+#[derive(Debug, PartialEq)]
+enum Verdict {
+    Decoded(Rank),
+    Truncated,
+    TrailingBits,
+    NotCanonical,
+    Io(io::ErrorKind),
+}
 
-/// Advances through the slice one byte at a time.
-impl std::io::Read for OneByteReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let Some((byte, rest)) = self.0.split_first() else {
-            return Ok(0);
-        };
-        let Some(dst) = buf.first_mut() else {
-            return Ok(0);
-        };
-        *dst = *byte;
-        self.0 = rest;
-        Ok(1)
+/// Reduces a decode result to its variant, keeping only an I/O error's kind.
+impl From<Result<Rank, Decode>> for Verdict {
+    fn from(result: Result<Rank, Decode>) -> Self {
+        match result {
+            Ok(rank) => Verdict::Decoded(rank),
+            Err(Decode::Truncated) => Verdict::Truncated,
+            Err(Decode::TrailingBits) => Verdict::TrailingBits,
+            Err(Decode::NotCanonical) => Verdict::NotCanonical,
+            Err(Decode::Io(error)) => Verdict::Io(error.kind()),
+        }
     }
+}
+
+/// How a [`ScriptedReader`] paces the bytes it serves.
+#[derive(Debug)]
+struct ReadSchedule {
+    /// The most bytes one call serves.
+    chunk: usize,
+    /// The `Interrupted` errors returned before each answer, cycled: answer
+    /// `i` is preceded by `interrupts[i % interrupts.len()]` of them.
+    interrupts: Vec<u8>,
+}
+
+/// Generates schedules from one byte per call to calls wider than the
+/// decoder's buffer, with up to two interrupts before each answer.
+fn arb_read_schedule() -> impl Strategy<Value = ReadSchedule> {
+    (
+        prop_oneof![Just(1), 1..=2 * DECODE_CHUNK_BYTES],
+        prop::collection::vec(0u8..=2, 1..=4),
+    )
+        .prop_map(|(chunk, interrupts)| ReadSchedule { chunk, interrupts })
+}
+
+/// A reader that serves its input on a [`ReadSchedule`], and can fail
+/// partway.
+///
+/// An *answer* is a call that serves bytes, reports the end of input, or
+/// fails; the schedule's interrupts come before each one. Given a failure
+/// offset, the reader serves the bytes before it and then fails with kind
+/// `Other` instead of serving more or reporting the end.
+struct ScriptedReader<'a> {
+    /// The bytes served, in order.
+    input: &'a [u8],
+    /// The chunk size and interrupt cycle.
+    schedule: &'a ReadSchedule,
+    /// The offset at which the reader fails, if it does.
+    fail_at: Option<usize>,
+    /// Bytes of `input` served so far.
+    served: usize,
+    /// Answers given so far, which index the interrupt cycle.
+    answers: usize,
+    /// Interrupts already returned before the pending answer.
+    interrupted: u8,
+    /// Whether the reader has returned its failure.
+    failed: bool,
+}
+
+impl<'a> ScriptedReader<'a> {
+    /// Builds a reader over `input` that fails at offset `fail_at`, if given.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `fail_at` lies past the end of `input`.
+    fn new(input: &'a [u8], schedule: &'a ReadSchedule, fail_at: Option<usize>) -> Self {
+        assert!(
+            fail_at.is_none_or(|offset| offset <= input.len()),
+            "a scripted failure must fall within the input or at its end"
+        );
+        ScriptedReader {
+            input,
+            schedule,
+            fail_at,
+            served: 0,
+            answers: 0,
+            interrupted: 0,
+            failed: false,
+        }
+    }
+}
+
+/// Returns the schedule's pending interrupt, or else the next answer.
+///
+/// # Panics
+///
+/// Panics when called after it has failed. A decoder must report the first
+/// error that is not `Interrupted`; one that retries it instead would loop
+/// forever against this reader, and the panic makes that loop fail the test
+/// rather than hang it.
+impl io::Read for ScriptedReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        assert!(
+            !self.failed,
+            "the decoder read again after its reader failed with a non-retryable error"
+        );
+        let interrupts = &self.schedule.interrupts;
+        if self.interrupted < interrupts[self.answers % interrupts.len()] {
+            self.interrupted += 1;
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        self.interrupted = 0;
+        self.answers += 1;
+        if self.fail_at == Some(self.served) {
+            self.failed = true;
+            return Err(io::Error::other("scripted reader failure"));
+        }
+        let end = self.fail_at.unwrap_or(self.input.len());
+        let len = buf.len().min(self.schedule.chunk).min(end - self.served);
+        buf[..len].copy_from_slice(&self.input[self.served..][..len]);
+        self.served += len;
+        Ok(len)
+    }
+}
+
+/// A decode input with the verdict it must receive, known before decoding.
+#[derive(Debug)]
+struct DecodeCase {
+    /// The bytes to decode.
+    input: Vec<u8>,
+    /// The verdict a reader that never fails must produce.
+    verdict: Verdict,
+    /// Bounds from below how far into `input` a decoder must read before its
+    /// verdict is settled, with the end of input counted as one position past
+    /// the last byte.
+    ///
+    /// A reader failure before that many bytes leaves the verdict open, so
+    /// the decoder must report it. An input whose verdict turns on where it
+    /// ends has `input.len() + 1`.
+    decided_by: usize,
+}
+
+/// The three inputs one rank yields: its encoding, the encoding followed by
+/// `suffix`, and a strict prefix of the encoding.
+///
+/// `prefix_len` maps the encoding's length to the prefix's, which must be
+/// shorter.
+fn rank_cases(
+    rank: &Rank,
+    suffix: &[u8],
+    prefix_len: impl FnOnce(usize) -> usize,
+) -> Vec<DecodeCase> {
+    let encoding = rank.encode();
+    let rank_len = encoding.len();
+    let prefix = encoding[..prefix_len(rank_len)].to_vec();
+    vec![
+        DecodeCase {
+            input: encoding.clone(),
+            verdict: Verdict::Decoded(rank.clone()),
+            decided_by: rank_len + 1,
+        },
+        DecodeCase {
+            input: [encoding.as_slice(), suffix].concat(),
+            verdict: Verdict::TrailingBits,
+            // The first byte past the encoding settles the rejection.
+            decided_by: rank_len + 1,
+        },
+        DecodeCase {
+            verdict: Verdict::Truncated,
+            decided_by: prefix.len() + 1,
+            input: prefix,
+        },
+    ]
+}
+
+/// An arbitrary byte string, judged by the in-memory decoder, which reads
+/// nothing through a reader.
+fn arbitrary_bytes_case(input: Vec<u8>) -> DecodeCase {
+    let verdict = Verdict::from(Rank::decode_bytes(&input));
+    let decided_by = match verdict {
+        // Acceptance and truncation both turn on where the input ends.
+        Verdict::Decoded(_) | Verdict::Truncated => input.len() + 1,
+        // A rejection can be settled as early as the first byte.
+        _ => 1,
+    };
+    DecodeCase {
+        input,
+        verdict,
+        decided_by,
+    }
+}
+
+/// Decodes `case` through a [`ScriptedReader`] on `schedule` that fails at
+/// `fail_at`, if given, and checks the verdict.
+///
+/// The verdict must be `Decode::Io` with the reader's kind exactly when the
+/// reader returned its failure, and the case's verdict otherwise. A failure
+/// before `case.decided_by` leaves the verdict open, so the decoder must meet
+/// it.
+fn check_decode(
+    case: &DecodeCase,
+    schedule: &ReadSchedule,
+    fail_at: Option<usize>,
+) -> Result<(), TestCaseError> {
+    let reader_failed = Verdict::Io(io::ErrorKind::Other);
+    let mut reader = ScriptedReader::new(&case.input, schedule, fail_at);
+    let verdict = Verdict::from(Rank::decode(&mut reader));
+    let expected = if reader.failed {
+        &reader_failed
+    } else {
+        &case.verdict
+    };
+    prop_assert_eq!(
+        &verdict,
+        expected,
+        "reader failure at {:?}, met: {}; input {:?}",
+        fail_at,
+        reader.failed,
+        case.input
+    );
+    if let Some(offset) = fail_at {
+        prop_assert!(
+            reader.failed || offset >= case.decided_by,
+            "a failure after {} bytes leaves the verdict open, yet the decoder returned {:?} \
+             without meeting it; input {:?}",
+            offset,
+            verdict,
+            case.input
+        );
+    }
+    Ok(())
+}
+
+/// The longest fraction, in bits, that the reader property generates: three
+/// decoder buffers' worth of bytes before framing, so the longest encodings
+/// need more than two refills.
+const MAX_FRACTION_BITS: usize = 3 * DECODE_CHUNK_BYTES * u8::BITS as usize;
+
+/// The rank `0.b₁b₂…bₙ1`: `bits` followed by a closing set bit, which makes
+/// the fraction canonical.
+fn binary_fraction(bits: &[bool]) -> Rank {
+    let digits: String = bits
+        .iter()
+        .map(|&bit| if bit { '1' } else { '0' })
+        .collect();
+    format!("0.{digits}1")
+        .parse()
+        .expect("a binary fraction ending in 1 is canonical rank text")
+}
+
+/// Generates a rank in `[0, 1)` whose fraction has exactly `len` bits, the
+/// last set and the rest random; zero bits give zero.
+fn arb_fraction_rank(len: usize) -> impl Strategy<Value = Rank> {
+    prop::collection::vec(any::<bool>(), len.saturating_sub(1)).prop_map(move |bits| {
+        if len == 0 {
+            Rank::ZERO
+        } else {
+            binary_fraction(&bits)
+        }
+    })
+}
+
+/// Fraction lengths whose rank encodings end one byte before, at, or one
+/// byte after the decoder's prefix length or twice it.
+///
+/// `Rank::decode` reads a prefix of `DECODE_CHUNK_BYTES` bytes and then
+/// refills a buffer of that size, so these encodings end where it changes
+/// read path. A fraction's encoded length depends only on its bit length,
+/// so the fraction `2⁻ˡᵉⁿ` measures it for every fraction that long.
+fn fraction_lengths_at_decode_boundaries() -> Vec<usize> {
+    (1..=MAX_FRACTION_BITS)
+        .filter(|&len| {
+            let encoded = binary_fraction(&vec![false; len - 1]).encode().len();
+            [1, 2]
+                .iter()
+                .any(|multiple| encoded.abs_diff(multiple * DECODE_CHUNK_BYTES) <= 1)
+        })
+        .collect()
+}
+
+/// Generates decode inputs with known verdicts: the three cases of a rank
+/// ending at a read-path boundary, of a rank of any fraction length, or of a
+/// seeded rank, or else one arbitrary byte string.
+fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase>> {
+    let rank = prop_oneof![
+        2 => prop::sample::select(fraction_lengths_at_decode_boundaries())
+            .prop_flat_map(arb_fraction_rank),
+        1 => (0..=MAX_FRACTION_BITS).prop_flat_map(arb_fraction_rank),
+        1 => any::<u64>().prop_map(seeded_rank),
+    ];
+    // Zero bytes could pass for padding, so all-zero suffixes get their own arm.
+    let suffix = prop_oneof![
+        prop::collection::vec(any::<u8>(), 1..=70),
+        prop::collection::vec(Just(0u8), 1..=70),
+    ];
+    prop_oneof![
+        4 => (rank, suffix, any::<Index>())
+            .prop_map(|(rank, suffix, cut)| rank_cases(&rank, &suffix, |len| cut.index(len))),
+        1 => prop::collection::vec(any::<u8>(), 0..256)
+            .prop_map(|input| vec![arbitrary_bytes_case(input)]),
+    ]
 }
 
 proptest! {
-    /// Reader chunk boundaries do not affect rank decoding.
+    /// `Rank::decode`'s verdict depends only on the bytes its reader yields,
+    /// and every reader failure it meets comes back as `Decode::Io`.
     ///
-    /// Arbitrary byte strings decode identically when presented as one slice or
-    /// through one-byte reads. This exercises both the fixed-prefix path and the
-    /// incremental path, including acceptance and every structural rejection.
+    /// A scripted reader serves each input in chunks from one byte to more
+    /// than the decoder's buffer, returning `Interrupted` before its answers on
+    /// a generated schedule, and the verdict must equal the one known for the
+    /// input: the rank for its exact encoding, `TrailingBits` for the encoding
+    /// with bytes appended, `Truncated` for a strict prefix, and the in-memory
+    /// decoder's verdict for arbitrary bytes. Generated ranks are steered to
+    /// end beside the decoder's prefix length and its first refill, where it
+    /// changes read path.
+    ///
+    /// The same reader then fails, at the input's end and at a generated
+    /// offset. The verdict must be `Decode::Io` with the reader's kind exactly
+    /// when the decoder met the failure, and the input's verdict otherwise, and
+    /// the decoder must meet a failure placed before the bytes that settle the
+    /// verdict. The reader panics if called after failing, so a decoder that
+    /// retries the failure fails this test rather than hanging it.
     #[test]
-    fn rank_decode_is_independent_of_reader_chunks(
-        bytes in prop_oneof![
-            3 => proptest::collection::vec(any::<u8>(), 0..256),
-            1 => any::<u64>().prop_map(|seed| seeded_rank(seed).encode()),
-        ],
+    fn rank_decode_is_independent_of_the_read_schedule(
+        cases in arb_decode_cases(),
+        schedule in arb_read_schedule(),
+        failure in any::<Index>(),
     ) {
-        let whole = super::Rank::decode(bytes.as_slice());
-        let fragmented = super::Rank::decode(OneByteReader(&bytes));
-        match (whole, fragmented) {
-            (Ok(a), Ok(b)) => prop_assert_eq!(a, b),
-            (Err(crate::error::Decode::Truncated), Err(crate::error::Decode::Truncated))
-            | (Err(crate::error::Decode::TrailingBits), Err(crate::error::Decode::TrailingBits))
-            | (Err(crate::error::Decode::NotCanonical), Err(crate::error::Decode::NotCanonical)) => {}
-            (expected, actual) => prop_assert!(false, "chunking changed {expected:?} to {actual:?}"),
+        for case in &cases {
+            let end = case.input.len();
+            for fail_at in [None, Some(end), Some(failure.index(end + 1))] {
+                check_decode(case, &schedule, fail_at)?;
+            }
         }
     }
 }
 
-/// A reader failure after a complete rank remains an I/O error rather than
-/// being mistaken for clean EOF or trailing input.
+/// `Rank::decode` retries `Interrupted` at each of its reads, on every run.
+///
+/// Each rank whose encoding ends one byte before, at, or one byte after the
+/// decoder's prefix length or twice it is decoded whole, with one trailing
+/// zero byte, and one byte short. A reader that returns `Interrupted` before
+/// every answer serves each input one byte or a whole buffer per call, once
+/// without a failure and once failing at the input's end. Together these
+/// inputs reach the prefix reads, the probe after a rank that fills the prefix
+/// exactly, the refills, and the probe after a longer rank; the property
+/// reaches the probe after a full prefix only on some draws.
 #[test]
-fn rank_decode_preserves_late_reader_errors() {
-    use std::io::{self, Cursor, Read};
-
-    /// A reader that fails whenever decoding reaches it.
-    struct FailedTail;
-
-    impl Read for FailedTail {
-        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other("tail failed"))
+fn rank_decode_retries_interrupts_at_every_read() -> Result<(), TestCaseError> {
+    let schedules = [1, DECODE_CHUNK_BYTES].map(|chunk| ReadSchedule {
+        chunk,
+        interrupts: vec![1],
+    });
+    for len in fraction_lengths_at_decode_boundaries() {
+        let rank = binary_fraction(&vec![true; len - 1]);
+        for case in rank_cases(&rank, &[0], |rank_len| rank_len - 1) {
+            for schedule in &schedules {
+                check_decode(&case, schedule, None)?;
+                check_decode(&case, schedule, Some(case.input.len()))?;
+            }
         }
     }
-
-    let bytes = uniform(1u8).rank().encode();
-    let reader = Cursor::new(bytes).chain(FailedTail);
-    assert!(matches!(
-        super::Rank::decode(reader),
-        Err(crate::error::Decode::Io(error)) if error.kind() == io::ErrorKind::Other
-    ));
+    Ok(())
 }
 
 /// Every version-derived rank encoding is no larger than its source version.
@@ -1955,7 +2255,6 @@ fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_boundary() {
 /// the composite entry.
 #[test]
 fn ranked_decode_rejects_each_composite_error() {
-    use crate::error::Decode;
     let half = half();
     let key = Ranked::from(&half).encode();
     assert!(

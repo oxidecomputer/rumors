@@ -551,7 +551,10 @@ const FRACTION_GROUP_BITS: u64 = 8;
 /// Bytes examined directly before decoding falls back to incremental reads.
 ///
 /// Retrying this fixed prefix bounds the extra work independently of input size.
-const DECODE_CHUNK_BYTES: usize = 64;
+///
+/// `pub(crate)` so the reader tests can end rank encodings beside the end
+/// of the prefix and of the first refill.
+pub(crate) const DECODE_CHUNK_BYTES: usize = 64;
 
 /// A byte-at-a-time source dressed as an MSB-first bit reader: one byte
 /// buffered, refilled strictly on demand.
