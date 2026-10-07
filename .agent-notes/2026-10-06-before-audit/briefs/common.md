@@ -103,6 +103,11 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   Never run `cargo build`, `check`, `test`, `clippy`, `nextest`, or `run`
   locally. The one local exception is `cargo fmt`, because it rewrites source
   files and edits on the box never sync back.
+- The wrapper runs your remote command under `set -e`, so in a chained
+  command the first failing step ends the whole command, and later steps and
+  their `echo` lines never run. When a step is expected to fail (a mutant, a
+  base-commit demonstration), run it as its own remote command, or record its
+  status explicitly (`cmd; echo "status $?"`).
 - Begin every remote command with
   `unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24;`.
   - The box's cargo config caps build jobs at 24, but nextest runs one test
