@@ -114,3 +114,10 @@ targets. Several other decoders share the mechanism (fix note).
 removes an avoidable 1 GiB buffer), and option 2 as the backstop at every
 input-proportional growth, with a new variant rather than overloading `Io`.
 The test brief accepts either until you rule.
+
+## Owner's ruling on Q1
+
+Reject them. The human-readable deserializers of `Clock`, `Span`, and
+`Ranked` accept only the named-record form they serialize. Binary formats
+keep the sequence form they depend on.
+
