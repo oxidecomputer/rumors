@@ -16,15 +16,6 @@ use before::{Clock, Version};
 /// Peak heap allowed for `join_all`'s fixed-size fold bookkeeping.
 const EQUAL_JOIN_PEAK_HEAP: usize = 440;
 
-/// Measure peak heap above the storage already live at entry.
-fn peak_heap<T>(f: impl FnOnce() -> T) -> (usize, T) {
-    super::HEAP.reset_peak_usage();
-    let baseline = super::HEAP.current_usage();
-    let value = f();
-    let peak = super::HEAP.peak_usage().saturating_sub(baseline);
-    (peak, value)
-}
-
 /// Scan bits of one closure run, on a fresh counter.
 fn scanned(f: impl FnOnce()) -> u64 {
     meter::reset_scan_bits();
@@ -72,7 +63,7 @@ fn equal_join_all_has_fixed_heap_cost() {
         let encoded = Shape::Dense.build1(depth);
         let a = super::version_of(&encoded);
         let b = super::version_of(&encoded);
-        let (peak, out) = peak_heap(|| a.join_all([&b]));
+        let (peak, out) = super::peak_heap(|| a.join_all([&b]));
         assert_eq!(out, a, "joining equal versions preserves their value");
         assert!(
             peak <= EQUAL_JOIN_PEAK_HEAP,
@@ -232,19 +223,16 @@ fn metric_fast_paths_skip_the_fold() {
 /// An empty operand answers every lattice identity/absorption rung
 /// without a walk.
 ///
-/// The identity ladder's empty rungs — `v ∨ 0 = v` (no-op),
-/// `0 ∨ v = v` (adopt the incoming stream wholesale, an `O(1)`
-/// refcount clone), `0 ∧ v = 0` / `v ∧ 0 = 0` (absorption), and the
-/// span forms — must all settle with zero scanned bits, in both
-/// orders at every entry point: the operators and `|=`/`&=` assigns (all of
-/// which route through the in-place cores — `0 |= v` is the seed
-/// pattern the fold accumulators hit on their first join), the span
-/// entry points, and two-element folds (whose single combine is the
-/// borrowed-pair core, unreachable from the operator matrix). The
-/// walking control below proves the zeros are fast paths firing,
-/// not a dead meter: without these rungs the general emission walk
-/// produces byte-identical values (every value law stays green), so
-/// only this scan pin witnesses the rungs' existence.
+/// The identity ladder's empty rungs — `v ∨ 0 = v` (no-op), `0 ∨ v = v` (adopt
+/// the incoming stream wholesale, an `O(1)` refcount clone), `0 ∧ v = 0` / `v ∧
+/// 0 = 0` (absorption), and the span forms — must all settle with zero scanned
+/// bits, in both orders at every entry point: the operators and `|=`/`&=`
+/// assigns (`0 |= v` is the seed pattern the fold accumulators hit on their
+/// first join), the span entry points, and two-element folds (whose single
+/// combine reads two untouched inputs). The walking control below proves the
+/// zeros are fast paths firing, not a dead meter: without these rungs the
+/// general emission walk produces byte-identical values (every value law stays
+/// green), so only this scan pin witnesses the rungs' existence.
 #[test]
 fn empty_operands_answer_without_a_walk() {
     let (v, _, _) = fixture();
@@ -277,10 +265,8 @@ fn empty_operands_answer_without_a_walk() {
             acc &= &v;
             assert_eq!(&acc, &empty);
         }),
-        // The fold entry points: a two-element fold's only combine is the
-        // borrowed-pair core, so these cells are what reach the
-        // `refs` rungs (the operator matrix routes through the
-        // in-place cores exclusively).
+        // The fold entry points: a two-element fold's only combine reads
+        // two untouched inputs rather than updating an owned result.
         ("join_fold_noop", &|| assert_eq!(&v.join_all([&empty]), &v)),
         ("join_fold_adopt", &|| assert_eq!(&empty.join_all([&v]), &v)),
         ("meet_fold_absorb_r", &|| {

@@ -83,6 +83,10 @@
 //! paired control's marginal cost, the retained densification counter, or an
 //! exact early-exit relationship. What they alone catch: **orthogonal cost
 //! growth** that cannot be represented by scaling a board family's operands.
+//! They also hold exact heap parities between entry points that compute the
+//! same value, which catch **constant-size allocations** too small for the
+//! board's peak-heap column to resolve, such as an operand clone on a path that
+//! discards it.
 //!
 //! **The fuzz-fit bands** (the `fuzzfit` workspace under this crate).
 //! Public operations compiled to wasm and metered in wasmtime *fuel*

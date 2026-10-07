@@ -3,8 +3,9 @@
 //! The global board owns ordinary input-scaling and peak-heap coverage across
 //! the public operation surface. This suite retains only independent axes: an
 //! operation argument varied while operands stay fixed, a control-paired
-//! marginal, an implementation counter with no board currency, or an exact
-//! early-exit relationship.
+//! marginal, an implementation counter with no board currency, an exact
+//! early-exit relationship, or an exact heap parity between entry points that
+//! compute the same value.
 
 use before::testing::meter;
 use before::testing::meter::registry::Shape;
@@ -12,12 +13,21 @@ use before::{Count, Party, Version};
 use num_bigint::BigUint;
 use peak_alloc::PeakAlloc;
 
-/// Counts allocations for the focused fixed-heap check.
+/// Counts live and peak heap bytes for the focused heap checks.
 ///
 /// The gate runs this suite through nextest, which isolates each test in its
 /// own process; a process-global allocator therefore observes only one check.
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
+
+/// Measure peak heap above the storage already live at entry.
+fn peak_heap<T>(f: impl FnOnce() -> T) -> (usize, T) {
+    HEAP.reset_peak_usage();
+    let baseline = HEAP.current_usage();
+    let value = f();
+    let peak = HEAP.peak_usage().saturating_sub(baseline);
+    (peak, value)
+}
 
 /// Decode a generated party.
 fn party_of(encoded: &meter::Encoding) -> Party {
@@ -81,6 +91,8 @@ mod hoisted_window;
 #[cfg(feature = "scan-meter")]
 #[path = "meter/identity_fast_paths.rs"]
 mod identity_fast_paths;
+#[path = "meter/lattice_clones.rs"]
+mod lattice_clones;
 #[cfg(feature = "scan-meter")]
 #[path = "meter/placement.rs"]
 mod placement;
