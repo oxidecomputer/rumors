@@ -103,7 +103,13 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   Never run `cargo build`, `check`, `test`, `clippy`, `nextest`, or `run`
   locally. The one local exception is `cargo fmt`, because it rewrites source
   files and edits on the box never sync back.
-- Begin every remote command with `unset CARGO_TARGET_DIR;`.
+- Begin every remote command with
+  `unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24;`.
+  - The box's cargo config caps build jobs at 24, but nextest runs one test
+    process per hardware thread (192) unless told otherwise, and that
+    includes every nextest run inside `just gate`. Several such runs at
+    once push the load past 500, which slows every agent and risks
+    spurious timeouts against nextest's 180-second limit.
   - The wrapper exports a build directory outside the tree, but the
     justfile's `docs` recipe reads `target/doc`. Under the wrapper's default,
     `just gate` therefore fails for a reason unrelated to your change.
