@@ -16,3 +16,9 @@ audit. Each entry names its source and what it would catch.
   would still sample is scaled readouts with a nonzero start and interior
   zero digits jointly with the class. Not recommended until such a failure
   can be named.
+
+- **Bound-digit states reaching other operations.** suanpan's surface
+  model never parks digits at the representation's bound, so negation,
+  shifts, `add_shifted` with extreme operands, and
+  `cmp_zero_stable_under` never see such states. The normalize test covers
+  normalization alone. Source: the normalize-bound reviewer.
