@@ -152,3 +152,22 @@ same test's `DESCENDING_PARK_SURPLUS_BAND` inverts (control minus plunge goes
 from +2,021 to −1,060), which needs a negative floor. A cheaper variant also
 exists. The owner is re-asked with these facts (QUESTIONS #47 at the time of
 writing).
+
+## Owner's re-ruling
+
+With the costs stated fully, the owner chose the deferred variant
+(`both-deferred.patch`) together with the chunked payload stack:
+
+- A leaf's offset enters the result only after its minima are observed, so a
+  re-anchored leaf adds nothing and no wide add-then-subtract occurs.
+- The freeze-position liveness floor gets a premise derived from work the
+  fold cannot avoid, demonstrated live by a dead-meter variant.
+- The descending-park surplus band is re-centered, with a committed
+  demonstration that the per-hop residue regression it guards still trips it.
+- The input that re-anchors at every level becomes a new board family, so the
+  cost of permanent components is checked from now on, not described in prose.
+  The regime past the inline prefix field's capacity is to be made reachable
+  by a committed check if that can be done cleanly; otherwise it returns to
+  the owner.
+- No performance values appear in tree prose; docs and comments state
+  mechanisms and bounds.
