@@ -1,0 +1,8 @@
+# The hang limit explained in the root `.config/nextest.toml`, sized for the
+# boundary pins' large synthesized inputs.
+#
+# It is the only bound on a check here: the harness meters neither wasmtime
+# fuel nor epochs, so a guest loop that never exits runs until nextest kills
+# it. One limit covers every test, so a hang in a fast test also runs to it.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 20 }

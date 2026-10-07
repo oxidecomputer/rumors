@@ -15,6 +15,15 @@
 # before it fails; we accept that cost so these two tests can finish under
 # load. Once they are cheaper, the limit can return to three periods.
 #
+# Nextest reads this file only in this workspace. Each detached workspace
+# (one with its own `[workspace]` manifest) that runs nextest has its own
+# `.config/nextest.toml` with the same period and a limit no lower than this
+# one. A workspace with slower tests sets its limit to about twice its slowest
+# passing run under heavy load, rounded up to a whole period, so a busy
+# machine does not kill passing tests. The commit that sets such a limit
+# records the readings; re-derive it when the tests' work grows. Keep those
+# files' period and policy in step with this one.
+#
 # The limit also bounds proptest shrinking. Proptest persists a failing
 # case's regression seed only after shrinking completes, so a failing
 # property whose shrink phase outruns the limit is killed mid-shrink, and
