@@ -64,3 +64,21 @@ These are in [`observations.md`](observations.md):
 ## Coverage
 
 See [`coverage.md`](coverage.md) and [`NOTES.md`](NOTES.md).
+
+## Addendum: `usize` invariance pass
+
+After the owner added the `usize`-invariance clause, the auditor classified
+every `usize` in the lane. No value differs by target.
+
+- **Brief:**
+  [`simplification-rank-width-invariant-routing.md`](simplification-rank-width-invariant-routing.md).
+  `Rank::alignment_fits` (`rank.rs:495-498`) chooses between the `BigUint`
+  shift route and the accumulator route by `usize::try_from(gap)`. As a
+  result, `Rank::accumulate` never runs on a 64-bit host. A fixed bound
+  (`u32::MAX`) leaves wasm32 unchanged and removes the target dependence.
+- **Design note (O8):** `TryFrom<Count> for usize` differs by target by
+  definition. The auditor recommends keeping it and saying so in `Count`'s
+  docs. This goes to the docs branch.
+- **Observation (O9):** `DensePart::new` multiplies `span * 4` in `usize`
+  unchecked. It is safe on 32-bit only through an unstated bound, so the
+  repair is `checked_mul` with the bound as its proof.

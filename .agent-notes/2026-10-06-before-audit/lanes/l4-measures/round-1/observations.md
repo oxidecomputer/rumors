@@ -116,6 +116,75 @@ maintainer orienting from the index would not learn that pointer-width
 behavior has its own instrument. Routed to the adequacy lane (L8); the
 trap-diagnosis brief proposes the row.
 
+## `usize` invariance (the clause added to `common.md`)
+
+Every `usize` in the lane's production code (`rank.rs`, `ranked.rs`,
+`count.rs`, `accumulator.rs`, `version/measure/**`) was read and classed;
+verified by reading.
+
+- **Memory roles the clause allows:** decoder and encoder staging
+  (`DECODE_CHUNK_BYTES`, `ENCODE_BUFFER_BYTES`, `BitWriter::len`,
+  `MatchingWriter::written`), `FromStr`'s digit indexing, `Ranked`'s
+  `consumed` index, `Limbs::size_hint`, the deferred reduction's leaf indices,
+  `accumulate`'s reservation hint, and `SparseWidth`'s dense cluster length.
+- **Digit counts:** `digit_len`, `stored_digit_count`,
+  `Integrator::boundary(delta_digits)`, `HEIGHT_FREEZE_ALLOWANCE_DIGITS`. These
+  count base-2^32 digits of held values; suanpan's digit base is 32 bits on
+  every target, so the freeze schedule is identical on every width. They are
+  allowed counts of what memory holds; their `usize` type is incidental.
+- **`Display`:** `Formatter::width`/`precision` are `usize` by `std`'s API and
+  are widened losslessly to `u64`; text longer than `usize::MAX` characters
+  still streams through `write_binary`'s `u64` positions.
+- **Brief:** `Rank::alignment_fits` routes `+` and `checked_sub` by whether
+  an exponent gap fits `usize`. See
+  `briefs/simplification-rank-width-invariant-routing.md`.
+
+### O8. `Count`'s `usize` conversions (design proposal)
+
+`impl From<usize> for Count` (`count.rs:246-250`) is lossless on every
+target: the same numeric value becomes the same count, so it is invariant.
+`impl TryFrom<Count>/TryFrom<&Count> for usize` (`count.rs:221-243`) returns
+`Ok` for a count of `2^32` on 64-bit targets and `TooWide` on wasm32: its
+result differs by target by definition. The wasm32 half is already pinned:
+the committed `Forks` check (`wasm32-pins/guest/src/checks.rs:80`) asserts
+`usize::try_from(&count)` fails for a count above `u32::MAX`. No crate code calls it (callers:
+tests and the wasm32 guest), so the crate's own behavior does not depend on
+it.
+
+- Option A, keep it, and add one sentence to `Count`'s type docs: "`usize`'s
+  range depends on the target's pointer width, so `usize::try_from` succeeds
+  for a given count on some targets and not others." This keeps the
+  conversion where a caller needs it, to index or allocate, which is the
+  memory role the clause allows, and makes the target dependence visible
+  where the conversions are documented.
+- Option B, remove the `usize` conversions, so callers write
+  `usize::try_from(u64::try_from(&count)?)` and the target dependence sits
+  in their code. This is a public API change.
+
+Recommendation: A. The conversion is the one place where a count meets
+memory, and B only moves the identical target dependence into every caller.
+
+### O9. `DensePart::new`'s `span * 4` relies on an unstated bound
+
+`crates/before/src/version/measure/integral/width.rs:239-245` allocates
+`vec![0; span * 4]` with an unchecked `usize` multiplication; `span` came
+from `usize::try_from(...).expect("cluster spans are bounded by the stream's
+depth")` (`width.rs:197-198`). On wasm32 the product overflows if
+`span >= 2^30`. It cannot: width digit indices are bit positions below the
+version's depth divided by 32, and a stored version on 32-bit has fewer than
+about 2^34 bits, so `span < 2^29` and `span * 4 < 2^31`. The argument holds
+but lives nowhere in the code. Repair: `span.checked_mul(4).expect(...)` with
+the bound as its proof, or state the bound beside the `expect`. Verified by
+reading. Behavior is identical on both widths today.
+
+### O6 and the L6 lead under the clause
+
+Both differ by target, but through address-space capacity (a 4 GiB wasm32
+memory and `Vec`'s `isize::MAX` capacity), which is memory held. Neither
+stems from a `usize` used as a semantic quantity, so I keep them as an
+observation and question (O6) and a cross-lane lead (L6), not as
+`usize`-invariance defects.
+
 ## Cross-lane
 
 - L6: `Rank::decode` on wasm32 panics with "capacity overflow" past 2^30

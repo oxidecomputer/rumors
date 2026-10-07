@@ -93,8 +93,17 @@ None running. Completed: run4 deep 600 cases pass; run5 strengthened Rank
   `sum_iter` caught by case 8. Briefs: `briefs/machinery-wasm32-rank-sum-pin.md`,
   `briefs/machinery-wasm32-trap-diagnosis.md`; observation O6, O7.
 
+## usize-invariance pass (coordinator message after the first report)
+
+Done by reading: every usize in rank.rs, ranked.rs, count.rs,
+accumulator.rs, version/measure/** classed (observations.md section
+"usize invariance"). Brief for `Rank::alignment_fits` routing; O8 Count
+TryFrom<usize> design proposal; O9 `span * 4`. Also checked
+`party/forks.rs` `Remaining::Distant` (L1): termination is exact via
+`index.bit(depth)`, so there is no lead.
+
 ## Next
 
-1. Write the report (verdict: no confirmed contract defect in lane; one
+1. Send the addendum report (first report already delivered). Then: write the report (verdict: no confirmed contract defect in lane; one
    low-severity prose defect brief; two machinery briefs; observations;
    cross-lane L6 lead; question on O6). Judge the lane at diminishing returns.
