@@ -105,9 +105,9 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// Maximum scan bits per input byte and balanced-reduction level.
 ///
 /// For `k` operands, the board allows this coefficient times `log2(2k)`.
-/// The coefficient is the largest release-profile fold measurement at any
-/// judged size plus 25%, rounded up.
-pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 17.0;
+/// The coefficient is the largest release-profile fold reading at any judged
+/// size, small-input samples included, with 25% headroom, rounded up.
+pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 16.0;
 
 /// Heap ceiling for materializing the output-dominated comb-scatter
 /// projection, in bytes per total-I/O byte.
@@ -151,9 +151,17 @@ pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 /// Evaluation keeps one cursor and comparison state per bound. Small bounds
 /// may therefore have much greater overhead than other `before` values. This
 /// operation-specific limit excludes evaluation from the general heap ceiling
-/// while retaining the board's linear-growth check. It is the largest
-/// release-profile reading with 25% headroom, rounded up.
-pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 152.0;
+/// while retaining the board's linear-growth check.
+///
+/// The ceiling is the largest release-profile reading on the measurement
+/// ladder (the samples at [`DEFAULT_SCALE`] and [`LADDER_TOP_SCALE`]), with
+/// 25% headroom, rounded up. Small-input samples are judged against it but do
+/// not enter its derivation. Unlike the deserialize ceilings, this one cannot
+/// set aside every sample smaller than twice [`HEAP_INTERCEPT_BYTES`]: query
+/// state grows with the bounds rather than staying fixed, so a ceiling derived
+/// only from larger samples can leave a small sample's reading above what the
+/// intercept absorbs.
+pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 98.0;
 
 /// Base scale and size multiplier for a single-scale board run.
 ///
