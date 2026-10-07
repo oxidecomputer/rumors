@@ -65,11 +65,11 @@ pub enum RegionKind {
 pub struct OpenBranch(u64);
 
 /// The width of a party node's presence tag: one bit per child.
-const TAG_BITS: usize = 2;
+const TAG_BITS: u64 = 2;
 
 /// The output width of a node whose two children are both terminals: its own
 /// tag followed by the two terminal tags.
-const TERMINAL_PAIR_BITS: u64 = 3 * TAG_BITS as u64;
+const TERMINAL_PAIR_BITS: u64 = 3 * TAG_BITS;
 
 impl PartyWriter {
     /// Create an empty party builder without reserving storage.

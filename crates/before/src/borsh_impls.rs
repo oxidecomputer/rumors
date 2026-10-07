@@ -128,7 +128,7 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
         if let Some((n, next)) =
             BitsReader::gamma_from_window(&self.bytes, self.bytes.len() as u64 * 8, self.position)
         {
-            scan::record_bits_u64(next - self.position);
+            scan::record_bits(next - self.position);
             self.position = next;
             return Ok(BigUint::from(n));
         }

@@ -159,7 +159,7 @@ impl BitsWriter {
             len == 64 || value >> len == 0,
             "append value has bits above its stated width"
         );
-        scan::record_bits(len as usize);
+        scan::record_bits(u64::from(len));
         self.append_bits(value, len);
     }
 
@@ -204,12 +204,12 @@ impl BitsWriter {
     }
 
     /// Append `len` zero bits.
-    #[cfg(any(test, feature = "meter"))]
     fn push_zeros(&mut self, mut len: u64) {
         while len >= u64::from(u64::BITS) {
             self.push_bits(0, u64::BITS);
             len -= u64::from(u64::BITS);
         }
+        // The loop leaves fewer than 64 bits, so the narrowing is exact.
         self.push_bits(0, len as u32);
     }
 
@@ -238,7 +238,7 @@ impl BitsWriter {
             len <= 63 && start + u64::from(len) <= self.len(),
             "word read lies within the writer"
         );
-        scan::record_bits(len as usize);
+        scan::record_bits(u64::from(len));
         let mut value = 0;
         for position in start..start + u64::from(len) {
             value = value << 1 | u64::from(self.bit(position));
@@ -247,14 +247,9 @@ impl BitsWriter {
     }
 
     /// Append `width` zero bits and return the start of the reserved range.
-    pub(crate) fn reserve(&mut self, width: usize) -> u64 {
+    pub(crate) fn reserve(&mut self, width: u64) -> u64 {
         let start = self.len();
-        let mut remaining = width;
-        while remaining > 0 {
-            let chunk = remaining.min(u64::BITS as usize) as u32;
-            self.push_bits(0, chunk);
-            remaining -= chunk as usize;
-        }
+        self.push_zeros(width);
         start
     }
 
@@ -353,7 +348,7 @@ impl BitsWriter {
             start <= end && end <= bytes.len() as u64 * 8,
             "copied range lies within the source storage"
         );
-        scan::record_bits_u64(end - start);
+        scan::record_bits(end - start);
         let mut position = start;
         while position < end && !position.is_multiple_of(8) {
             self.append_bit(bit(bytes, position));

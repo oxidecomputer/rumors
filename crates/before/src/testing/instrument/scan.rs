@@ -36,16 +36,7 @@ pub(crate) use counter::{reset, scan_bits};
 /// Compiles to nothing without the `scan-meter` feature, so every primitive
 /// can call it unconditionally.
 #[inline(always)]
-pub(crate) fn record_bits(n: usize) {
-    #[cfg(feature = "scan-meter")]
-    counter::record(n as u64);
-    #[cfg(not(feature = "scan-meter"))]
-    let _ = n;
-}
-
-/// Record a count already expressed at the meter's `u64` width.
-#[inline(always)]
-pub(crate) fn record_bits_u64(n: u64) {
+pub(crate) fn record_bits(n: u64) {
     #[cfg(feature = "scan-meter")]
     counter::record(n);
     #[cfg(not(feature = "scan-meter"))]

@@ -43,7 +43,7 @@ impl Positions {
     pub fn push(&mut self, OpenBranch(pos): OpenBranch) {
         debug_assert!(pos >= self.top, "reserved tag positions never move left");
         let distance = pos - self.top;
-        if self.len > 0 && distance == TAG_BITS as u64 {
+        if self.len > 0 && distance == TAG_BITS {
             self.adjacent += 1;
         } else {
             self.flush_run();
@@ -62,7 +62,7 @@ impl Positions {
         self.len -= 1;
         if self.adjacent > 0 {
             self.adjacent -= 1;
-            self.top -= TAG_BITS as u64;
+            self.top -= TAG_BITS;
             return OpenBranch(pos);
         }
 
@@ -71,7 +71,7 @@ impl Positions {
         if is_run {
             debug_assert!(value > 0, "an adjacent run is nonempty");
             self.adjacent = value - 1;
-            self.top -= TAG_BITS as u64;
+            self.top -= TAG_BITS;
         } else {
             self.top -= value - 1;
         }

@@ -178,7 +178,7 @@ impl<'a> BitsReader<'a> {
             .reader
             .read_bits(len as usize)
             .expect("the requested word fits the live range");
-        scan::record_bits(len as usize);
+        scan::record_bits(u64::from(len));
         self.position += u64::from(len);
         Ok(value)
     }
@@ -215,7 +215,7 @@ impl<'a> BitsReader<'a> {
     /// cursor parks at the live length, where the per-bit loop's failing read
     /// leaves its own reader.
     fn truncated(&mut self) -> Truncated {
-        scan::record_bits_u64(self.len - self.position);
+        scan::record_bits(self.len - self.position);
         self.position = self.len;
         Truncated
     }
@@ -241,7 +241,7 @@ impl<'a> BitsReader<'a> {
                 .expect("the mantissa was proven to fit the live length");
             remaining -= chunk;
         }
-        scan::record_bits_u64(code_len);
+        scan::record_bits(code_len);
         self.position += code_len;
         Ok(())
     }
@@ -295,7 +295,7 @@ impl BitRead for BitsReader<'_> {
 
     fn read_unary(&mut self) -> Result<u64, Truncated> {
         let k = self.unary_raw()?;
-        scan::record_bits_u64(k + 1);
+        scan::record_bits(k + 1);
         self.position += k + 1;
         Ok(k)
     }

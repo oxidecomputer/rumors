@@ -49,7 +49,7 @@ impl BitRead for ReferenceBitsReader<'_> {
         if let Some((value, next)) =
             BitsReader::gamma_from_window(self.bytes, self.len, self.position)
         {
-            scan::record_bits_u64(next - self.position);
+            scan::record_bits(next - self.position);
             self.position = next;
             return Ok(BigUint::from(value));
         }

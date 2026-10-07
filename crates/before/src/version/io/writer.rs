@@ -350,6 +350,7 @@ impl PayloadWriter<'_> {
             self.push_bits(0, u64::BITS);
             len -= u64::from(u64::BITS);
         }
+        // The loop leaves fewer than 64 bits, so the narrowing is exact.
         self.push_bits(0, len as u32);
     }
 
