@@ -47,10 +47,10 @@ spelling.
 ## Landing check
 
 Branches land on the landing check (`~/bin/audit-check`, described in the
-README) rather than the full gate. Its baseline was recorded at `868ac7ab`,
-whose code differs from `455e97de`'s only by the landed limb-index fix, with
-the corrected script, which judges every command in a leg and refuses to run
-if it cannot see a failing first command. The invocation:
+README) rather than the full gate. Its baseline was recorded at `9a90b767`,
+whose code is `455e97de`'s plus the landed limb-index and board-pin fixes,
+with the corrected script, which judges every command in a leg and refuses
+to run if it cannot see a failing first command. The invocation:
 
 ```
 on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check'
@@ -58,24 +58,21 @@ on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24
 
 | Leg | Verdict | Detail |
 |---|---|---|
-| tests | ok | `before` and `suanpan`: 757 run, 757 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
+| tests | ok | `before` and `suanpan`: 759 run, 759 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
 | lints | ok | `just gate-lints` and both clippy runs clean |
 | docs | ok | private-items and docs.rs builds clean; doctests: 193 passed (`before`), 3 passed (`suanpan`) |
 | surface | ok | 14 tests passed; 211 public function-like items = 134 board-covered + 77 excepted |
-| board | failed | 5311 green, 0 red; then exactly the two `count_display × heap` drift lines described under `just gate` |
+| board | ok | 5311 green, 0 red; `worst-case pin: clean (270 pinned rows verified at 2 sampling scales)` |
 | wasm | ok | wasm32-pins 8/8, fuzzfit 25/25, fuelscape 43/43 |
 
-A branch's landing check must match this table, with counts moved only by the
-tests the branch adds or removes, and with the board leg's two drift lines
-and nothing else beside them.
+A branch's landing check must match this table, with counts moved only by
+the tests the branch adds or removes. A branch based before the board-pin
+fix (`ddfabe4c`) instead shows the board leg failing with exactly the two
+`count_display × heap` drift lines described under `just gate`, and nothing
+else beside them; its `before` and `suanpan` count is two lower.
 
 ## Open items
 
-- The `count_display × heap` ranking differs between this box and the machine
-  the pin was taken on. Whether the heap reading depends on the platform, or the
-  ranking rests on a near-tie, is unexamined; it is a lead for the adequacy
-  lane. Until it is resolved, every branch's board leg must reproduce exactly
-  these two drift lines and nothing else.
 - The justfile's `docs` recipe assumes the build directory is `target/`, which
   any exported `CARGO_TARGET_DIR` breaks. The owner ruled to record this as a
   finding and change nothing during the audit.
