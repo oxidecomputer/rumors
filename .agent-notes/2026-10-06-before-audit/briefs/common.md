@@ -191,6 +191,28 @@ likely the triggering input is: "unreachable in practice" carries no weight.
 - The coordinator updates `baseline.md` whenever the baseline changes; read
   the current file, not a remembered version.
 
+## Surviving context compaction
+
+A long task may outgrow your context window. When it does, your context is
+automatically compacted: earlier turns are replaced by a summary, and you
+continue from it. Your agent definition and the owner's `CLAUDE.md` survive
+compaction. These briefs, files you read, and the details of your own
+reasoning survive only as far as the summary preserves them.
+
+- Keep `<scratch>/NOTES.md` as your resumption record, current at every
+  milestone:
+  - what you have established, and how (commands, revision, results)
+  - your open hypotheses and the evidence for each
+  - the background jobs you started, with their log paths and remote process
+    IDs
+  - what you will do next
+
+  Write it so a fresh agent holding only the briefs could continue your work.
+- After a compaction, re-read `common.md`, your role brief, your task prompt's
+  lane section or brief, and `<scratch>/NOTES.md` before acting. Verify
+  anything the summary asserts that you are about to rely on, against the
+  artifact it names.
+
 ## Honesty and reporting
 
 - Distinguish what you verified from what you inferred, in every claim. Quote
