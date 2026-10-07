@@ -230,6 +230,24 @@ pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
     Party::from_test_bits(bits)
 }
 
+/// Build a depth-`depth` right-spine [`Party`] directly as canonical encoded
+/// bits, with a single owned region at the deep-right tip.
+///
+/// The mirror of [`deep_left_spine_party`]: each spine node is a `Right-only`
+/// tag (`01`), giving `(0, (0, …(0, 1)…))`. A walk that loops down left
+/// children but recurses into right ones keeps one frame per level only on
+/// this spine.
+pub(crate) fn deep_right_spine_party(depth: usize) -> Party {
+    let mut bits = bits::BitsWriter::with_capacity(2 * depth as u64 + 2);
+    for _ in 0..depth {
+        bits.push(false); // Right-only tag `01`: left child absent ...
+        bits.push(true); //   ... right child present
+    }
+    bits.push(false); // terminal tag `00`: the deep-right owned tip
+    bits.push(false);
+    Party::from_test_bits(bits)
+}
+
 // ───────────────────────── arbitrary normal-form ─────────────────────────
 //
 // BigUint magnitudes deliberately span small values AND values near/beyond

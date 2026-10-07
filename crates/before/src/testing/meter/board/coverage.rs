@@ -571,8 +571,10 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
     ),
     (
         "unbounded depth (beyond the differential grids)",
-        "a coverage disposition, not an operation: depth safety is pinned by \
-         deep_tree_stack_safety, and every board family already scales depth",
+        "a coverage disposition, not an operation: depth safety is checked, \
+         for the operations they drive, by the deep-input stress tests at \
+         100,000 levels or more, chiefly the deep_tree_* tests in \
+         clock/tests.rs; every board family already scales depth",
     ),
     (
         "meter instrumentation plumbing",
