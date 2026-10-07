@@ -66,3 +66,19 @@ regression guards.
   the board leg of `just gate`.
 - My explore-branch probe (`crates/before/tests/l2_probe`) checks every
   operator cell and the named methods against an independent model.
+
+## Owner's ruling
+
+Defer the clone until after the short-circuit checks, at every site: no
+entry point clones an operand before the ladder decides the result.
+
+With that change, the board's `span_*_all` heap readings rise by multiples
+of 24 bytes while every other moved reading falls. The setup operator that
+builds each span (`&lo | &extra`) no longer clones `lo`, so the 24-byte
+reference-count allocation of `lo`'s first clone lands inside the measured
+fold, in its duplicate filter, instead of in setup. The fold's own work is
+unchanged, and the board previously undercounted it. The owner accepts the
+rise as a measurement-boundary shift, on the condition that promoting `lo`
+during setup returns every `span_*_all` reading exactly to base. The
+owner also accepts the re-pin of the four acceptance-scale `span_*` heap
+worst cases from `benign` to `scatter`, which the improvement causes.
