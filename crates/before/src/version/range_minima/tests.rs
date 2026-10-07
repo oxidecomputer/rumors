@@ -64,6 +64,18 @@ fn close_against_model(minima: &mut RangeMinima<BigInt>, model: &mut Vec<BigInt>
     }
 }
 
+/// A value's signed coefficient: a small pool that makes repeated values
+/// common, or any `i16`.
+fn value_coefficient() -> impl Strategy<Value = i16> {
+    prop_oneof![-3i16..=3, any::<i16>()]
+}
+
+/// A value's shift: a few fixed widths, small, word-sized, and wide, that make
+/// repeated values common, or any width below 260 bits.
+fn value_shift() -> impl Strategy<Value = usize> {
+    prop_oneof![prop::sample::select(vec![0usize, 1, 40, 200]), 0usize..260]
+}
+
 /// A deferred distance of 1000 resolves during an emission at 25 without
 /// changing the true minimum, zero. Neighboring probes establish its value.
 #[test]
@@ -253,9 +265,16 @@ proptest! {
     /// Mixed arming, undercuts, and closes match absolute range minima. Payload
     /// factories run only for distinct minima, retire crossed boundaries in
     /// nesting order, and return the exact parent payload on a positive close.
+    ///
+    /// Values repeat often, so the steps reach equal minima, which need no
+    /// payload, and exact cancellations, which retire the outer payload, at
+    /// word and wide widths alike.
     #[test]
     fn nested_operations_preserve_minima_and_payload_lifetimes(
-        steps in prop::collection::vec((any::<i16>(), 0usize..260, 0u64..4, 0usize..5), 1..60),
+        steps in prop::collection::vec(
+            (value_coefficient(), value_shift(), 0u64..4, 0usize..5),
+            1..60,
+        ),
     ) {
         let mut minima = RangeMinima::<BigInt>::new();
         let mut model = Vec::<BigInt>::new();
