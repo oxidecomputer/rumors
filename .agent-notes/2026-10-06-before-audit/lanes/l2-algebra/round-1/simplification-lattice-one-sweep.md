@@ -72,3 +72,10 @@ the fold from `emit` without splitting the loop.
 - The `reanchor_join_scan_is_linear_per_input_bit` scan pin and the board
   rows for join, meet, and span.
 - My explore-branch probe (`crates/before/tests/l2_probe`).
+
+## Owner's ruling
+
+The one-sweep structure raises wasm fuel on the lattice kernels by about 0.2%
+to 1.2%; heap, scan, and touch readings are unchanged. The owner accepts that
+cost for the simpler code, and asks that nothing be added to recover it.
+
