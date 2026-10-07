@@ -612,3 +612,36 @@ fn reserve_digits_is_value_neutral() {
     oracle -= IBig::from(UBig::from(1u8) << 12_800usize);
     assert_value(&acc, &oracle);
 }
+
+/// An unsatisfiable reservation is ignored in both representations.
+///
+/// `reserve_digits` is a hint, so a request whose byte size exceeds
+/// `isize::MAX` returns normally, leaves the value unchanged, and leaves the
+/// accumulator usable for later updates. The requests are `usize::MAX` and the
+/// smallest digit count whose storage exceeds `isize::MAX` bytes. A request the
+/// allocator merely cannot supply stays untested here, because allocation
+/// failure aborts the process.
+#[test]
+fn reserve_digits_ignores_unsatisfiable_requests() {
+    // Digit storage holds one `i64` per base-2^32 position.
+    const DIGIT_BYTES: usize = core::mem::size_of::<i64>();
+    let first_oversized = isize::MAX.unsigned_abs() / DIGIT_BYTES + 1;
+
+    for request in [usize::MAX, first_oversized] {
+        let mut scalar = Accumulator::new();
+        scalar += 7_i64;
+        // 2^3200 lies far outside the scalar range, forcing digits.
+        let mut digits = Accumulator::new();
+        digits.add_shifted_limbs(3_200, [1]);
+        digits += 7_i64;
+        let wide = IBig::from(UBig::from(1u8) << 3_200usize) + 7;
+
+        for (mut acc, mut oracle) in [(scalar, IBig::from(7)), (digits, wide)] {
+            acc.reserve_digits(request);
+            assert_value(&acc, &oracle);
+            acc += 1_i64;
+            oracle += 1;
+            assert_value(&acc, &oracle);
+        }
+    }
+}
