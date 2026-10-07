@@ -420,7 +420,8 @@ laws! {
     /// For disjoint clocks, both forms must leave the receiver, every child,
     /// and the returned version equal. If the receiver overlaps an input, or
     /// two inputs overlap each other, `sync_all` must reject the operation
-    /// without changing any clock.
+    /// without changing any clock, including when the merge meets the
+    /// overlap only after absorbing other inputs into the receiver.
     fn sync_all_is_join_all_then_forks {
         // Compare both forms on independently advanced forks.
         let mut parent = c.dangerously_alias();
@@ -466,7 +467,51 @@ laws! {
             && p == p0
             && child == child0
             && dup == dup0;
-        receiver_overlap && item_overlap
+        // Overlap between the receiver and its last input must leave every
+        // clock unchanged as well. The merge can absorb both disjoint shares
+        // before it meets the receiver's alias, so this case fails if that
+        // partial merge reaches any participant.
+        let mut q = c.dangerously_alias();
+        let mut shares: Vec<Clock> = q.forks(2u64).collect();
+        let mut echo = q.dangerously_alias();
+        let (q0, shares0, echo0) = (
+            q.dangerously_alias(),
+            shares.iter().map(Clock::dangerously_alias).collect::<Vec<_>>(),
+            echo.dangerously_alias(),
+        );
+        let late_overlap = q.sync_all(shares.iter_mut().chain([&mut echo])).is_err()
+            && q == q0
+            && shares == shares0
+            && echo == echo0;
+        receiver_overlap && item_overlap && late_overlap
+    }
+
+    /// `sync_all` accepts exactly the participants `join_all` accepts, and
+    /// leaves every participant unchanged when it rejects them.
+    ///
+    /// Unlike `sync_all_is_join_all_then_forks`, which builds its own
+    /// participants by forking the receiver, this law syncs the receiver with
+    /// the items as given, so it judges whatever overlaps the drivers
+    /// generate. On acceptance, the receiver, every item, and the returned
+    /// version equal `join_all` followed by `forks`. On rejection, the
+    /// receiver and every item keep their values.
+    fn sync_all_agrees_with_join_all {
+        let mut composed = c.dangerously_alias();
+        let joined = composed
+            .join_all(items.iter().map(Clock::dangerously_alias))
+            .is_ok();
+        let mut fused = c.dangerously_alias();
+        let mut fused_items: Vec<Clock> = items.iter().map(Clock::dangerously_alias).collect();
+        match fused.sync_all(fused_items.iter_mut()).cloned() {
+            Ok(returned) => {
+                let shares: Vec<Clock> = composed.forks(items.len() as u64).collect();
+                joined
+                    && returned == *composed.version()
+                    && fused == composed
+                    && fused_items == shares
+            }
+            Err(_) => !joined && fused == *c && fused_items == items,
+        }
     }
 
     /// `recv_all` equals joining each input version and then calling
