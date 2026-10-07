@@ -485,6 +485,14 @@ struct SpanSide<'a> {
 /// [`Coverage::Full`] at zero cost. The demand list's order is the read order
 /// per elementary interval; callers supply a deterministic order.
 ///
+/// A [`Coverage::Partial`] verdict certifies every required demand against the
+/// far endpoint: each floor ([`Demand::After`]) satisfies `floor <= hi`, and
+/// each ceiling ([`Demand::Before`]) satisfies `lo <= ceiling`. The walk
+/// returns [`Coverage::Empty`] at the first interval refuting either relation,
+/// and it never settles those two pairs, so it reads each of them to
+/// exhaustion. [`Query::coverage`](crate::causally::Query::coverage) relies on
+/// this guarantee to decide a crossed clamp from the query's bounds alone.
+///
 /// # Panics
 ///
 /// The canonical-stream contract of [`admits`], on all operands.
@@ -511,6 +519,7 @@ pub fn coverage<'a>(
             })
         })
         .collect();
+
     let mut live = sides.len();
     // Refuted the moment any bound provably misses part of the segment; `Full`
     // needs every bound to survive to exhaustion with its admit-everything
@@ -526,23 +535,28 @@ pub fn coverage<'a>(
         hi_live: true,
         sides,
     };
+
     loop {
         for slot in &mut walk.sides {
             let Some(side) = slot else { continue };
+
             if side.lo.live {
                 side.lo
                     .comparison
                     .read(&mut walk.lo_height, &mut side.bound);
             }
+
             if side.hi.live {
                 side.hi
                     .comparison
                     .read(&mut walk.hi_height, &mut side.bound);
             }
+
             match side.demand {
                 // The floor admitting nothing — not even the segment's maximum
-                // — is a refutation: the earliest bail, the verdict a pruning
-                // walk wants fastest.
+                // — fully refutes coverage, and allows bailing earliest. The hi
+                // pair is never settled, so a `Partial` verdict certifies
+                // `floor <= hi` (see this function's doc).
                 Demand::After => {
                     if !side.hi.comparison.directions.allows_ge() {
                         return Coverage::Empty;
@@ -555,8 +569,10 @@ pub fn coverage<'a>(
                         side.lo.live = false;
                     }
                 }
+
                 // The ceiling dually: admitting nothing is a refutation on the
-                // segment's minimum.
+                // segment's minimum, and a `Partial` verdict certifies
+                // `lo <= ceiling`.
                 Demand::Before => {
                     if !side.lo.comparison.directions.allows_le() {
                         return Coverage::Empty;
@@ -566,6 +582,7 @@ pub fn coverage<'a>(
                         side.hi.live = false;
                     }
                 }
+
                 // A hole subtracts all of the segment only by covering its
                 // maximum (confirmed at exhaustion), and none of it once it
                 // provably misses the minimum: missing the minimum is missing
@@ -589,6 +606,7 @@ pub fn coverage<'a>(
                         side.lo.live = false;
                     }
                 }
+
                 Demand::NotAfter | Demand::NotStrictlyAfter => {
                     if side.lo.live && !side.lo.comparison.directions.allows_ge() {
                         side.lo.live = false;
@@ -598,17 +616,20 @@ pub fn coverage<'a>(
                     }
                 }
             }
+
             if !side.lo.live && !side.hi.live {
                 *slot = None;
                 live -= 1;
             }
         }
+
         // A walk left holding only settled holes is decided: every hole was
         // refuted both ways, so nothing subtracts from the segment and nothing
         // more can change the verdict.
         if live == 0 {
             break;
         }
+
         // A probe endpoint whose every pair is settled stops being scanned.
         walk.lo_live = walk.lo_live && walk.sides.iter().flatten().any(|side| side.lo.live);
         walk.hi_live = walk.hi_live && walk.sides.iter().flatten().any(|side| side.hi.live);

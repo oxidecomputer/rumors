@@ -28,6 +28,7 @@ mod sealed {
     #![allow(private_interfaces)]
 
     use core::cmp::Ordering;
+    use std::borrow::Cow;
 
     use super::{Hole, Version};
     use crate::version::place::filter::Demand;
@@ -37,12 +38,22 @@ mod sealed {
     pub trait Sealed {
         /// The fused walks' demand for one hole.
         fn hole_demand(strict: bool) -> Demand;
-        /// The clamped endpoint that decides whether one of this polarity's
-        /// holes covers the whole segment.
+
+        /// Builds the endpoint of the clamped segment `[lo ∨ floor, hi ∧
+        /// ceiling]` that decides whether one of this polarity's holes covers
+        /// the whole clamped segment.
         ///
-        /// A down-set covers the segment iff it covers the maximum endpoint;
-        /// an up-set covers it iff it covers the minimum endpoint.
-        fn covering_endpoint<'a>(clamped_lo: &'a Version, clamped_hi: &'a Version) -> &'a Version;
+        /// A down-set covers the clamped segment iff it covers the top `hi ∧
+        /// ceiling`; an up-set covers it iff it covers the bottom `lo ∨
+        /// floor`. An absent bound clamps nothing, so the endpoint is then
+        /// borrowed rather than built.
+        fn covering_endpoint<'v>(
+            lo: &'v Version,
+            hi: &'v Version,
+            floor: Option<&Version>,
+            ceiling: Option<&Version>,
+        ) -> Cow<'v, Version>;
+
         /// Whether `hole` still subtracts something from an interval bounded by
         /// `floor`/`ceiling`.
         fn hole_survives(
@@ -65,8 +76,16 @@ mod sealed {
             }
         }
 
-        fn covering_endpoint<'a>(_clamped_lo: &'a Version, clamped_hi: &'a Version) -> &'a Version {
-            clamped_hi
+        fn covering_endpoint<'v>(
+            _lo: &'v Version,
+            hi: &'v Version,
+            _floor: Option<&Version>,
+            ceiling: Option<&Version>,
+        ) -> Cow<'v, Version> {
+            match ceiling {
+                Some(ceiling) => Cow::Owned(hi & ceiling),
+                None => Cow::Borrowed(hi),
+            }
         }
 
         fn hole_survives(
@@ -115,8 +134,16 @@ mod sealed {
             }
         }
 
-        fn covering_endpoint<'a>(clamped_lo: &'a Version, _clamped_hi: &'a Version) -> &'a Version {
-            clamped_lo
+        fn covering_endpoint<'v>(
+            lo: &'v Version,
+            _hi: &'v Version,
+            floor: Option<&Version>,
+            _ceiling: Option<&Version>,
+        ) -> Cow<'v, Version> {
+            match floor {
+                Some(floor) => Cow::Owned(lo | floor),
+                None => Cow::Borrowed(lo),
+            }
         }
 
         fn hole_survives(
@@ -161,10 +188,12 @@ mod sealed {
             unreachable!("a neutral query holds no holes")
         }
 
-        fn covering_endpoint<'a>(
-            _clamped_lo: &'a Version,
-            _clamped_hi: &'a Version,
-        ) -> &'a Version {
+        fn covering_endpoint<'v>(
+            _lo: &'v Version,
+            _hi: &'v Version,
+            _floor: Option<&Version>,
+            _ceiling: Option<&Version>,
+        ) -> Cow<'v, Version> {
             unreachable!("a neutral query holds no holes")
         }
 
