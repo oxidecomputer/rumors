@@ -132,7 +132,7 @@ pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 4.0;
 /// The decoded arbitrary-width numerator cannot adopt the encoded input's byte
 /// buffer. The ceiling is the largest release-profile reading with 25%
 /// headroom, rounded up.
-pub const RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 6.0;
+pub const RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 5.0;
 
 /// Heap ceiling for deserializing and validating a ranked version, in bytes per
 /// input byte.

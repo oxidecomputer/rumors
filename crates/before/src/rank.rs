@@ -612,10 +612,16 @@ impl Rank {
             mantissa.push(src.bit()?);
         }
         let integral = mantissa.into_num() - 1u32;
-        // The fraction's groups, each opened by a set continuation bit; the
-        // stream's one clear closing bit ends the loop. Group bytes stay plain
-        // `u8`s until the single `BigUint` materialization below.
-        let mut groups: Vec<u8> = Vec::new();
+        // The fraction follows as 8-bit groups, each preceded by a 1 bit; a 0
+        // bit ends it. With `g` groups whose bytes read big-endian as `G`, the
+        // rank is `integral + G / 2^(8g)`, so its numerator over `2^(8g)` is
+        // `integral * 2^(8g) + G`. That number's big-endian bytes are the
+        // integral part's bytes followed by the group bytes, so we collect
+        // exactly those, in `image`, as the groups arrive. `image` is created
+        // by the first group, so a rank without a fraction never allocates it,
+        // and a zero integral part adds no bytes to it.
+        let mut image: Option<Vec<u8>> = None;
+        let mut integral_len = 0;
         loop {
             if !src.bit()? {
                 break;
@@ -624,8 +630,19 @@ impl Rank {
             for _ in 0..FRACTION_GROUP_BITS {
                 group = group << 1 | u8::from(src.bit()?);
             }
-            groups.push(group);
+            image
+                .get_or_insert_with(|| {
+                    let seed = if integral == BigUint::ZERO {
+                        Vec::new()
+                    } else {
+                        integral.to_bytes_be()
+                    };
+                    integral_len = seed.len();
+                    seed
+                })
+                .push(group);
         }
+        let mut image = image.unwrap_or_default();
         // Strict minimal packing within the final byte: the bits after the close
         // bit are padding and must be zero.
         if src.used < 8 && src.current & (0xFF >> src.used) != 0 {
@@ -635,6 +652,7 @@ impl Rank {
         // the expansion never ends in zero), so an all-zero final group is pure
         // padding — non-minimal packing — and its trailing zeros locate the
         // fraction's true depth.
+        let groups = &image[integral_len..];
         let (frac_len, pad) = match groups.last() {
             None => (0, 0),
             Some(0) => return Err(Decode::TrailingBits),
@@ -654,21 +672,21 @@ impl Rank {
         let num = if frac_len == 0 {
             integral
         } else {
-            // The numerator by byte assembly, never by a value-width shift:
-            // `num · 2^pad = integral · 2^(8·groups) + G` with `G` the groups'
-            // big-endian value, and the `pad` low bits shifted out are exactly
-            // the final group's trailing zeros — so `num` is the concatenated
-            // image's value shifted right by the sub-byte pad. The
-            // `integral << exp` spelling is not available at every scale this
-            // decoder accepts: on a 32-bit target `exp` outruns `usize` from
-            // ~604 MB of input. Leading zero bytes are stripped before
-            // materializing so the allocation reflects the value rather than
-            // zero padding in its byte image.
-            let mut image = integral.to_bytes_be();
-            image.extend_from_slice(&groups);
-            drop(groups);
-            let lead = image.iter().take_while(|&&byte| byte == 0).count();
-            BigUint::from_bytes_be(&image[lead..]) >> pad
+            // `image` holds `integral * 2^(8g) + G`. Its low `pad` bits are the
+            // final group's trailing zeros, which are padding, so the numerator
+            // over `2^exp` is that value shifted right by `pad`. Building it
+            // from bytes avoids computing `integral << exp`, whose shift amount
+            // can exceed `usize` on a 32-bit target. `from_bytes_be` would copy
+            // the image first, so we reverse it in place and read it
+            // little-endian, trimming high zero bytes so the allocation fits
+            // the value.
+            drop(integral);
+            image.reverse();
+            let len = image
+                .iter()
+                .rposition(|&byte| byte != 0)
+                .map_or(0, |top| top + 1);
+            BigUint::from_bytes_le(&image[..len]) >> pad
         };
         debug_assert!(
             exp == 0 || num.bit(0),
