@@ -40,11 +40,16 @@ impl Digits {
     }
 
     /// Return the comparison when lower-width adjustments cannot change it.
-    pub fn cmp_zero_stable_above(&mut self, adjustment_high: usize) -> Option<Ordering> {
+    ///
+    /// `adjustment_high` is the highest digit position the adjustment may
+    /// occupy. It is a mathematical position, not a buffer index, so it stays
+    /// in `u64`: the scan runs and compacts for every bound on every target,
+    /// and a bound beyond every addressable index always yields `None`.
+    pub fn cmp_zero_stable_above(&mut self, adjustment_high: u64) -> Option<Ordering> {
         let (index, partial) = self.compact_until_order_known();
-        // An unrepresentably high adjustment bound must remain impossible to
-        // establish; wrapping adjustment_high + 2 would instead create a
-        // small threshold.
+        let index = u64::try_from(index).expect("an allocated digit position fits u64");
+        // A bound near `u64::MAX` must still yield `None`; wrapping
+        // adjustment_high + 2 would instead create a small threshold.
         (partial.abs() >= COMPARISON_DECIDED && index >= adjustment_high.saturating_add(2))
             .then(|| partial.cmp(&0))
     }
