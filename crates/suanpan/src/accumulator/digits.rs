@@ -123,6 +123,15 @@ impl Digits {
         self.highest_nonzero + 1
     }
 
+    /// Count the digit positions the buffer retains, including zeros above the stored prefix.
+    ///
+    /// Retained positions measure the space an operation leaves behind, which
+    /// the stored digit count understates after cancellation.
+    #[cfg(test)]
+    pub fn retained_len(&self) -> usize {
+        self.digits.len()
+    }
+
     /// Append the stored representation to the accumulator's debug record.
     pub fn debug_fields(&self, fields: &mut core::fmt::DebugStruct<'_, '_>) {
         fields

@@ -27,6 +27,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
         Check::RankArithmetic => rank_arithmetic(a),
         Check::SuanpanLanding => suanpan_landing(a),
         Check::SuanpanReserve => suanpan_reserve(a),
+        Check::SuanpanZeroShift => suanpan_zero_shift(a),
     }
 }
 
@@ -262,4 +263,33 @@ fn suanpan_reserve(bits: u64) -> Result<(), Failure> {
         }
     }
     Ok(())
+}
+
+/// Shifts zero onto digit position `2^32 - 1`, which no 32-bit buffer can address.
+///
+/// Case 0 holds a known zero. Case 1 stores zero as the cancelling digits
+/// `-2^32` at position 0 and `1` at position 1. The result is zero either
+/// way, so neither case may trap; depositing case 1's digits at the shifted
+/// position would panic on the unaddressable landing.
+fn suanpan_zero_shift(case: u64) -> Result<(), Failure> {
+    let mut accumulator = Accumulator::new();
+    match case {
+        0 => {}
+        1 => {
+            // Two limbs select the digit representation, so the cancelling
+            // digits stay stored instead of combining in the small value.
+            accumulator.add_shifted_limbs(32, [1, 0]);
+            accumulator.sub_shifted_limbs(0, [1 << 32]);
+            if accumulator.is_known_zero() {
+                return Err(Failure::Synthesis);
+            }
+        }
+        _ => return Err(Failure::InvalidArguments),
+    }
+    accumulator <<= 32 * u64::from(u32::MAX);
+    if accumulator.cmp_zero() == Ordering::Equal {
+        Ok(())
+    } else {
+        Err(Failure::WrongValue)
+    }
 }
