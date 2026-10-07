@@ -8,8 +8,10 @@
 
 #![no_std]
 
+use strum_macros::FromRepr;
+
 /// A distinct behavior that must execute with a 32-bit `usize`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, FromRepr)]
 #[repr(u32)]
 pub enum Check {
     /// Validate the guest, decoder, and typed-failure channel on small input.
@@ -32,23 +34,23 @@ pub enum Check {
     SuanpanLanding = 8,
 }
 
+impl From<Check> for u32 {
+    /// Returns the stable number that names `check` across the wasm ABI.
+    fn from(check: Check) -> Self {
+        check as u32
+    }
+}
+
 impl TryFrom<u32> for Check {
     type Error = ();
 
+    /// Decodes a check number, the inverse of `u32::from`.
+    ///
     /// Rejects values that name no check, keeping dispatch errors in-band.
+    /// `FromRepr` derives this decoder from the declared numbers, so it cannot
+    /// disagree with them.
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Liveness),
-            1 => Ok(Self::HarnessTrap),
-            2 => Ok(Self::Forks),
-            3 => Ok(Self::VersionDecode),
-            4 => Ok(Self::RankDecode),
-            5 => Ok(Self::VersionCompare),
-            6 => Ok(Self::VersionJoinEmitted),
-            7 => Ok(Self::RankArithmetic),
-            8 => Ok(Self::SuanpanLanding),
-            _ => Err(()),
-        }
+        Self::from_repr(value).ok_or(())
     }
 }
 
@@ -56,7 +58,7 @@ impl TryFrom<u32> for Check {
 pub const PASS: i32 = 0;
 
 /// A typed check failure returned without trapping the guest.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, FromRepr)]
 #[repr(i32)]
 pub enum Failure {
     /// The host supplied a check number unknown to this guest.
@@ -79,21 +81,21 @@ pub enum Failure {
     Exhausted = 9,
 }
 
+// The harness reads `PASS` as success before it decodes a failure, so a failure
+// numbered `PASS` would be reported as a pass.
+const _: () = assert!(
+    Failure::from_repr(PASS).is_none(),
+    "a failure is numbered PASS"
+);
+
 impl Failure {
-    /// Decodes a guest return value, rejecting values from a mismatched guest.
+    /// Decodes a guest return value, the inverse of [`Failure::code`].
+    ///
+    /// Rejects values that name no failure, such as those from a mismatched
+    /// guest. `FromRepr` derives this decoder from the declared codes, so it
+    /// cannot disagree with them.
     pub fn from_code(code: i32) -> Option<Self> {
-        match code {
-            1 => Some(Self::UnknownCheck),
-            2 => Some(Self::InvalidArguments),
-            3 => Some(Self::Synthesis),
-            4 => Some(Self::DecodeRejected),
-            5 => Some(Self::DecodeAccepted),
-            6 => Some(Self::WrongBytes),
-            7 => Some(Self::WrongLength),
-            8 => Some(Self::WrongValue),
-            9 => Some(Self::Exhausted),
-            _ => None,
-        }
+        Self::from_repr(code)
     }
 
     /// Returns the stable integer transferred across the wasm ABI.
