@@ -1,6 +1,6 @@
 <!-- CAVEAT LECTOR: written by Claude (Opus 5.5), auditor-l7, round 3. -->
 
-# U1-a: `cmp_zero_stable_under` skips its scan on 32-bit for widths of `32 * 2^32` bits or more
+# U1-a: `cmp_zero_stable_under` skips its scan on 32-bit for widths above `32 * 2^32` bits
 
 Kind: defect record, test brief (demonstrator), and fix note. Severity: low.
 
@@ -20,7 +20,7 @@ let adjustment_digits = bits.div_ceil(u64::from(DIGIT_BITS)).max(1);
 let adjustment_high = usize::try_from(adjustment_digits - 1).ok()?;
 ```
 
-On 64-bit the conversion succeeds for every `u64`, so the call always reaches `Digits::cmp_zero_stable_above` (`crates/suanpan/src/accumulator/digits/sign.rs:43`), whose `compact_until_order_known` compacts the top of the stored form before returning `None`. On 32-bit, every `bits >= 32 * 2^32` returns `None` at the `?`, with the stored form untouched.
+On 64-bit the conversion succeeds for every `u64`, so the call always reaches `Digits::cmp_zero_stable_above` (`crates/suanpan/src/accumulator/digits/sign.rs:43`), whose `compact_until_order_known` compacts the top of the stored form before returning `None`. On 32-bit, every `bits > 32 * 2^32` returns `None` at the `?`, with the stored form untouched.
 
 **Reproduction (verified at `4fd78232`, explore branch).** The explore guest's case builds the value 5 with a cancelling top, 11 stored digits, and asserts one stored digit after `cmp_zero_stable_under(u64::MAX)`:
 
@@ -72,7 +72,7 @@ Assert the premise before the call: `accumulator.stored_digit_count() == 11`. A 
 
 **Failure on the base commit.** The 32-bit pin fails with the harness assertion above, `left: Failed(WrongLength)`, `right: Passed`. The native witness passes on the 64-bit box (it records the reference behavior; it is not the demonstration).
 
-**Doc comments.** The pin's doc states the invariant ("compacts identically on every pointer width") and why the width matters (`32 * 2^32` bits is the first adjustment whose top digit index exceeds a 32-bit `usize`). Name no explore case numbers.
+**Doc comments.** The pin's doc states the invariant ("compacts identically on every pointer width") and why the width matters (`32 * 2^32 + 1` bits is the first adjustment whose top digit index exceeds a 32-bit `usize`). Name no explore case numbers.
 
 ## Fix note (for a fixer)
 
@@ -94,3 +94,14 @@ The repair is verified on wasm32 and natively; see "Fix verification" below.
 - wasm32: the explore case reports `L7 stability huge width (case 9): Passed`, and `suanpan_rejects_unaddressable_digit_landings` still passes (`S/r3/u1f.log`).
 - Native: `cargo nextest run -p suanpan --features touch-meter` passes, 72 tests run, 72 passed, every committed witness and touch pin included.
 - Without the repair, case 9 still fails with `Failed(WrongLength)` at `5358b7f8`, after merging main's limb-index fix (`S/r3/leads2.log`).
+
+## Reach, established in review
+
+No `before` operation reaches this defect. `before` calls the stability query
+only from the range-minima boundary and anchor code and from the causal
+query's place filter, each passing 64 or another accumulator's
+`stored_bits()`. On wasm32, digits are `Vec<i64>`, so `stored_bits()` stays
+below `32 * 2^28`, far under the boundary. No `rumors` code calls the query.
+Only a direct suanpan caller passing an arbitrary `u64` width can reach it.
+The fixer established this and the reviewer confirmed it by reading the
+callers.
