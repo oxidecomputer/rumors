@@ -491,10 +491,10 @@ laws! {
     ///
     /// Unlike `sync_all_is_join_all_then_forks`, which builds its own
     /// participants by forking the receiver, this law syncs the receiver with
-    /// the items as given, so it judges whatever overlaps the drivers
-    /// generate. On acceptance, the receiver, every item, and the returned
-    /// version equal `join_all` followed by `forks`. On rejection, the
-    /// receiver and every item keep their values.
+    /// the items as given, so it judges whatever overlaps the drivers generate.
+    /// On acceptance, the receiver, every item, and the returned version equal
+    /// `join_all` followed by `forks`. On rejection, the receiver and every
+    /// item keep their values.
     fn sync_all_agrees_with_join_all {
         let mut composed = c.dangerously_alias();
         let joined = composed
