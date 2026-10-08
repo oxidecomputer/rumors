@@ -112,3 +112,13 @@ page and restated in brief in the `Version` or `Clock` docs, in terms of
 pairing of one `Party` with the `Version` it ticks; `rumors` does not use
 `Clock` in its tree, because one `Party` ticks many `Version`s. The
 coordinator's proposed wording was not accepted; the text is drafted afresh.
+
+### Correction to the summary of question 103's ruling
+
+The summary above says restoring an older state with no live holder "only
+rewinds versions". That overstates the owner's words ("you can safely restore
+an identity ... once you, the caller, ensure that it doesn't exist anywhere
+else"), and the claim is false: the restored party lacks the events recorded
+in its identity since the saved state, and its ticks can then dominate them
+(constructed by #104's reviewer). Question 108 asks how the contract should
+state that.
