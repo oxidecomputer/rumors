@@ -144,3 +144,19 @@ bare `Party::join` without the version join, restoring identity without the
 events recorded in it since) are each an operation on one part without its
 paired operation on the other, which matters only if the caller wants the
 stamp's causal semantics.
+
+## Owner's ruling on the crate page's linearity section (question 111)
+
+The owner drops the audit's rewrites of `before`'s crate page and will
+write the linearity material themselves: "I want to drop rewrites of the
+crate lib.rs page. I'll tackle this myself." The draft branch
+`docs/crate-page-identity-linearity` (`78a180b1`) is withdrawn from the
+review order and kept as a reference. Its per-item doc changes link to the
+section it adds, so they do not stand without it. Two of them are corrections
+the owner's pass may want:
+- `Party`'s docs list decoding and `dangerously_alias` as escape hatches
+  from linearity, but not parsing through `FromStr`.
+- The decode warnings on `Party` and `Clock` say only that the decoded
+  value must not coexist with its source. It also must not coexist with a
+  party that has since received part of the source's identity, or with a
+  second decoding of the same bytes.
