@@ -85,3 +85,13 @@ only identity linearity is meant to be." The crate page's rule 2 is restated
 around identity, with `dangerously_alias` and bytes as its two exceptions,
 and a paragraph says a `Version` records knowledge and is freely `Clone`.
 `tests/stale_state.rs`'s "Valid by the model" stands.
+
+## Owner's ruling on restoring an identity (question 103)
+
+Confirmed: "you can safely restore an identity (within a clock or not) once
+you, the caller, ensure that it doesn't exist anywhere else." Restoring an
+older state while no live party holds any part of the identity only rewinds
+versions, which is the caller's monotonicity discipline, not a linearity
+violation; restoring while any live party holds part of it (the source, a
+party that has since received part of it, or another restoration of the same
+bytes) violates linearity.
