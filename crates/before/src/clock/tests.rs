@@ -944,6 +944,150 @@ fn deep_identity_stack_safety() {
     }
 }
 
+/// The version, ranked, span, and query entry points that the other
+/// stack-safety tests leave undriven survive versions `STACK_SAFETY_DEPTH`
+/// levels deep, and each returns the outcome its rustdoc promises.
+///
+/// As in `deep_tree_shape_hull_and_fold_stack_safety`, a deep tip forks into
+/// `keeper` and `half`, which tick the concurrent versions `a` and `b`; `late`
+/// is `a` ticked three more times. Writing a version's heights at `keeper`'s
+/// and `half`'s leaves as a pair, `a` is (1, 0), `b` is (0, 1), and `late` is
+/// (4, 0), so `joined = a | b` is (1, 1), `met = a & b` is empty, and
+/// `top = late | b` is (4, 1). Every expected outcome below follows from these
+/// heights. Every query bound is a deep, nonempty version, and each asserted
+/// outcome requires at least one walk over operands in separate storage.
+///
+/// Each call here delegates to a walk that a sibling test drives at this
+/// depth: span placement for `precedence` and version membership, the
+/// projected comparison for two `OwnVersion`s, the rank stream and version
+/// validator for `Ranked::decode`, the fused tick for `Version::ticks`, and the
+/// lattice kernels and comparisons for the rest. The test therefore catches an
+/// entry point that recurses instead of delegating to an iterative walk. It
+/// also reaches one state of the placement walk that no sibling test reaches:
+/// on the left spine the tip is the first region, so `precedence` refutes
+/// `a <= met` at once, drops the span's start, and sweeps its end alone
+/// through every remaining level.
+#[test]
+fn deep_tree_remaining_surfaces_stack_safety() {
+    use crate::causally::{self, Coverage};
+    use crate::{Precedence, Ranked, Span};
+
+    for mut keeper in [
+        deep_left_spine_party(STACK_SAFETY_DEPTH),
+        deep_right_spine_party(STACK_SAFETY_DEPTH),
+    ] {
+        let half = keeper.fork();
+        let mut a = Version::new();
+        keeper.tick(&mut a);
+        let mut b = Version::new();
+        half.tick(&mut b);
+
+        // `Version::ticks` matches the same number of single ticks.
+        let mut late = a.clone();
+        late.ticks(&keeper, 3u8);
+        let mut stepped = a.clone();
+        for _ in 0..3 {
+            stepped.tick(&keeper);
+        }
+        assert_eq!(late, stepped);
+
+        // The named lattice methods and the hull operator.
+        let joined = a.join(&b);
+        let met = a.meet(&b);
+        assert!(met.is_empty());
+        let hull = &a ^ &b;
+        assert_eq!(hull.lo(), &met);
+        assert_eq!(hull.hi(), &joined);
+        let top = &late | &b;
+
+        // The version codec and parser, and the ranked codec.
+        assert_eq!(
+            Version::decode(&a.encode()[..]).expect("an encoded version is canonical"),
+            a
+        );
+        assert_eq!(
+            a.to_string()
+                .parse::<Version>()
+                .expect("a rendered version is canonical"),
+            a
+        );
+        let ranked_bytes = a.ranked().encode();
+        assert!(
+            Ranked::decode(&ranked_bytes[..]).expect("an encoded ranked key is canonical")
+                == a.ranked()
+        );
+        let mut buf = Vec::new();
+        a.ranked()
+            .encode_to(&mut buf)
+            .expect("writing to a Vec succeeds");
+        assert_eq!(buf, ranked_bytes);
+        assert_eq!(a.encode_rank(), a.ranked().encode_rank());
+        let mut buf = Vec::new();
+        a.encode_rank_to(&mut buf)
+            .expect("writing to a Vec succeeds");
+        assert_eq!(buf, a.encode_rank());
+
+        // Restricted to `keeper`, `joined` is `a` and `top` is `late`;
+        // restricted to `half`, `joined` is `b`.
+        let own_a = &joined / &keeper;
+        let own_b = &joined / &half;
+        let own_late = &top / &keeper;
+        assert!(own_a.partial_cmp(&own_b).is_none());
+        assert!(own_a < own_late);
+
+        // `a` lies strictly above the start of `[met, joined]` and at or below
+        // its end. `wide` contains `tail`, but `span` does not reach `late`.
+        let span = Span::new(&met, &joined).expect("met <= joined");
+        let tail = Span::new(&a, &late).expect("a <= late");
+        let wide = Span::new(&met, &top).expect("met <= top");
+        assert_eq!(span.precedence(&a), Precedence::Between);
+        assert!(span.contains(&a));
+        assert!(wide.contains(&tail));
+        assert!(!span.contains(&tail));
+
+        // The span algebra over `span` and `tail`, endpoint by endpoint:
+        // union is [met & a, joined | late], intersection [met | a, joined &
+        // late], and the pointwise join and meet apply one operation to both.
+        let point = Span::at(&a);
+        let lifted = Span::new(&a, &top).expect("a <= top");
+        let lowered = Span::new(&met, &a).expect("met <= a");
+        assert_eq!(span.union(&tail), wide);
+        assert_eq!(span.intersect(&tail), Some(point.clone()));
+        assert_eq!(span.join(&tail), lifted);
+        assert_eq!(span.meet(&tail), lowered);
+        assert_eq!(span.intersect_all([&tail, &span]), Some(point.clone()));
+        assert_eq!(span.join_all([&tail, &span]), lifted);
+        assert_eq!(span.meet_all([&tail, &span]), lowered);
+        assert_eq!(
+            [&span, &tail].into_iter().sum::<Option<Span>>(),
+            Some(wide.clone())
+        );
+        assert_eq!(
+            [&span, &tail].into_iter().product::<Option<Span>>(),
+            Some(point)
+        );
+
+        // Each query form admits the version it is given, except `until(a)`,
+        // which rejects `late` because `late` lies in `a`'s future.
+        assert!(!causally::until(&a).contains(&late));
+        assert!(causally::strictly_after(&a).contains(&late));
+        assert!(causally::strictly_before(&late).contains(&a));
+        assert!(causally::delta(&a, &top).contains(&late));
+        assert!(causally::toward(&a, &top).contains(&late));
+        assert!(causally::after(&a).contains(&late));
+        assert!(causally::before(&late).contains(&a));
+        assert!(causally::after(&a).or_concurrent().contains(&b));
+        assert!(causally::before(&a).or_concurrent().contains(&b));
+        assert!((!causally::after(&late)).contains(&joined));
+
+        // Coverage: nothing in `span` reaches `late`, all of `tail` lies at or
+        // below `top`, and `wide` runs from below `late` to above it.
+        assert_eq!(causally::after(&late).coverage(&span), Coverage::Empty);
+        assert_eq!(causally::before(&top).coverage(&tail), Coverage::Full);
+        assert_eq!(causally::until(&late).coverage(&wide), Coverage::Partial);
+    }
+}
+
 /// `min_ticks` handles a version `STACK_SAFETY_DEPTH` levels deep without
 /// keeping a call frame per level.
 #[test]
