@@ -174,3 +174,10 @@ on 64-bit targets, I'd call this effectively constant. I think we should
 accept the theoretical asymptotic log bound." The table on
 `docs/suanpan-time-bounds` already states that bound; the cached-maximum
 candidate for removing the factor is not pursued.
+
+## Owner's ruling on how the cost table counts growth (question 113)
+
+Option 1: `G` and `W` count each update's span, its shift plus its
+operand's width, as `docs/suanpan-time-bounds` states. A shifted operand
+that cancels is charged for the positions its span reaches, even when the
+working width does not change. The deposit path is not redesigned.
