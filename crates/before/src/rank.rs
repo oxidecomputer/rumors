@@ -7,10 +7,12 @@
 //!
 //! # Canonical representation
 //!
-//! A rank is stored as `num / 2^exp`. The numerator is odd unless the value is
-//! zero, whose exponent is also zero. This normalization gives every value one
-//! in-memory representation and makes structural equality exact numeric
-//! equality.
+//! A rank is stored as `num / 2^exp` in lowest terms: the numerator and the
+//! denominator share no factor of two. A positive exponent therefore comes
+//! with an odd numerator, zero is stored with exponent zero, and an integral
+//! rank has exponent zero and a numerator that may be even. This
+//! normalization gives every value one in-memory representation and makes
+//! structural equality exact numeric equality.
 //!
 //! # Canonical byte encoding
 //!
@@ -126,8 +128,8 @@ use crate::error::{Decode, ParseRank};
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Rank {
-    /// The numerator. Normalized: odd, or zero with `exp` zero, so each
-    /// value has exactly one representation.
+    /// The numerator. Normalized: odd whenever `exp` is positive, and zero
+    /// only with `exp` zero, so each value has exactly one representation.
     ///
     num: BigUint,
     /// The binary exponent of the denominator `2^exp`.
