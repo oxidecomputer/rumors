@@ -558,7 +558,8 @@ impl Clock {
     /// version, then [`tick`](Clock::tick)s the [`Clock`] (once).
     ///
     /// Prefer this to iteratively [`recv`](Clock::recv)-ing [`Version`]s
-    /// one-at-a-time, which is less efficient than this method.
+    /// one-at-a-time, which is less efficient than this method in the worst
+    /// case.
     ///
     /// Equivalent to [`absorb_all`](Clock::absorb_all) and then
     /// [`tick`](Clock::tick)ing once. The n-ary half of the vector-clock
@@ -598,7 +599,8 @@ impl Clock {
     /// version, without marking an event, and returning the new version.
     ///
     /// Prefer this to iteratively [`absorb`](Clock::absorb)ing [`Version`]s
-    /// one-at-a-time, which is less efficient than this method.
+    /// one-at-a-time, which is less efficient than this method in the worst
+    /// case.
     ///
     /// # Complexity
     ///

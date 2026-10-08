@@ -523,7 +523,7 @@ impl Version {
     /// The [`join`](Version::join) of `self` and every version in `iter`.
     ///
     /// Prefer this to iteratively [`join`](Version::join)ing [`Version`]s
-    /// one-at-a-time, as it is more efficient.
+    /// one-at-a-time, as it is more efficient in the worst case.
     ///
     /// To join an iterator with no distinguished first element,
     /// [`sum`](Iterator::sum) or [`collect`](Iterator::collect) it.
@@ -594,7 +594,7 @@ impl Version {
     /// every version in `iter`; for an empty iterator, a clone of `self`.
     ///
     /// Prefer this to iteratively [`meet`](Version::meet)ing [`Version`]s
-    /// one-at-a-time, as it is more efficient.
+    /// one-at-a-time, as it is more efficient in the worst case.
     ///
     /// Unlike the join, the meet has no iterator-only form (no `Sum`
     /// counterpart): the empty meet would be the version dominating all
@@ -677,7 +677,7 @@ impl Version {
     /// such that `self.meet_all(iter) <= v <= self.join_all(iter)`.
     ///
     /// Prefer this to repeatedly calling [`span`](Version::span) one pair at a
-    /// time, as it is more efficient.
+    /// time, as it is more efficient in the worst case.
     ///
     /// # Complexity
     ///
