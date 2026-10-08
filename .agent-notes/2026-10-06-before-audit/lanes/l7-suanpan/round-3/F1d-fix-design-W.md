@@ -188,3 +188,11 @@ Option 1: state retained space as amortized wherever storage can grow, and
 state `normalize`'s temporary O(`V`) growth, as `docs/suanpan-time-bounds`
 does. In the owner's words: "say amortized everywhere; that's what this
 crate is all about." Buffers are not grown exactly.
+
+## Owner's ruling on the written-position bitset's growth (question 116)
+
+Option 1: build a fix branch. `Bitset::cover` stops at the first level that
+needs no growth, so a growing call costs O(1) plus the words it fills, and
+the cost argument on `docs/suanpan-time-bounds` drops its dependence on the
+width of `usize`. The branch `fix/suanpan-cover-growing-levels` stacks on
+`docs/suanpan-time-bounds`, whose text it edits.
