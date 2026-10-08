@@ -287,16 +287,18 @@ fn owner_layers(family: &[&Party]) -> Option<Vec<Party>> {
         let mut carry = Some(party.dangerously_alias());
         for layer in &mut layers {
             let Some(incoming) = carry.take() else { break };
-            let fresh = incoming.dangerously_alias().without(layer);
-            carry = match &fresh {
-                Some(fresh) => incoming.without(fresh),
-                None => Some(incoming),
-            };
-            if let Some(fresh) = fresh {
-                layer.join(fresh).ok()?;
+            match incoming.dangerously_alias().without(layer) {
+                // All of `incoming` is already in this layer, so all of it moves up.
+                None => carry = Some(incoming),
+                Some(fresh) => {
+                    carry = incoming.without(&fresh);
+                    layer.join(fresh).ok()?;
+                }
             }
         }
-        layers.extend(carry);
+        if let Some(top) = carry {
+            layers.push(top);
+        }
     }
     Some(layers)
 }

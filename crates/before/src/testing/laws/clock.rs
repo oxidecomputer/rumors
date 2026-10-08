@@ -392,10 +392,11 @@ laws! {
     /// Each point is owned as many times across the parties of the final
     /// receiver and the returned clocks as across those of the original
     /// receiver and the inputs, so no region is lost or comes back twice. The
-    /// join of their versions covers the original receiver's version and every
-    /// input's. Returned clocks may combine several inputs, so the law compares
-    /// owner counts and joined versions rather than individual values. Versions
-    /// need no count, because joining a version twice changes nothing.
+    /// join of the final receiver's and the returned clocks' versions covers
+    /// the original receiver's version and every input's. Returned clocks may
+    /// combine several inputs, so the law compares owner counts and joined
+    /// versions rather than individual values. Versions need no count, because
+    /// joining a version twice changes nothing.
     fn clock_join_all_err_conserves_multiplicity {
         let mut acc = c.dangerously_alias();
         match acc.join_all(items.iter().map(Clock::dangerously_alias)) {
