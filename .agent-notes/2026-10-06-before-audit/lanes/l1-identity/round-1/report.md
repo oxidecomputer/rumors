@@ -122,3 +122,25 @@ else"), and the claim is false: the restored party lacks the events recorded
 in its identity since the saved state, and its ticks can then dominate them
 (constructed by #104's reviewer). Question 108 asks how the contract should
 state that.
+
+## Owner's framing of the parts and the stamp (question 108)
+
+In the owner's words: "fundamentally you're trying to attribute more domain
+semantics to `Version` and to a lesser extent `Party` than they actually
+*have*. `Clock` is the safest abstraction, the hardest to make mistakes with
+(and indeed, `Version` is also unproblematic in the context of `Clock` +
+`Version` interactions). In the original ITC paper, the objects of study
+don't really directly deal with a naked `Party` the way `before` exposes it,
+and the problematic cases all seem to stem from performing operations on
+parties which are not tracked by corresponding causal operations on
+`Version`s -- *assuming* that you want a particular semantics out of these
+operations."
+
+Consequence for the docs: `Clock` corresponds to the paper's stamp (an id
+and an event, operated on together); the safety rules are invariants of that
+system; `Party` and `Version` are its parts, whose own guarantee is their
+algebra. The hazards the reviews constructed (re-ticking a copied version, a
+bare `Party::join` without the version join, restoring identity without the
+events recorded in it since) are each an operation on one part without its
+paired operation on the other, which matters only if the caller wants the
+stamp's causal semantics.
