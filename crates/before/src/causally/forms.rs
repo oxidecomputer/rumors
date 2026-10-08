@@ -234,9 +234,9 @@ pub fn delta<'a>(
 }
 
 /// Everything in the causal future of `s` (including `s` itself) but nothing in
-/// the causal future of `e` (including `e` itself).
+/// the causal future of `t` (including `t` itself).
 ///
-/// Equivalent to `after(p) & until(t)`.
+/// Equivalent to `after(s) & until(t)`.
 ///
 /// # Example
 ///
@@ -250,10 +250,10 @@ pub fn delta<'a>(
 /// use before::causally::toward;
 /// let a3 = alice.tick().clone();
 ///
-/// let t = toward(&a1, &a3);
-/// assert!(t.contains(&a1) && t.contains(&a2)); // s's future, s included
-/// assert!(!t.contains(&a3)); // t is already reached: excluded
-/// assert!(!t.contains(&b1)); // concurrent: outside s's future
+/// let q = toward(&a1, &a3);
+/// assert!(q.contains(&a1) && q.contains(&a2)); // s's future, s included
+/// assert!(!q.contains(&a3)); // t is already reached: excluded
+/// assert!(!q.contains(&b1)); // concurrent: outside s's future
 /// ```
 pub fn toward<'a>(s: impl Into<Cow<'a, Version>>, t: impl Into<Cow<'a, Version>>) -> Query<'a, Up> {
     after(s) & until(t)
