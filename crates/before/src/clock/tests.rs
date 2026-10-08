@@ -6,7 +6,9 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{arb_clock_family, deep_left_spine_party, deep_right_spine_party};
+use crate::testing::generators::{
+    arb_clock_family, deep_left_spine_party, deep_right_spine_party, STACK_SAFETY_DEPTH,
+};
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::testing::oracles::{function, tree};
 use crate::{Clock, Party, Version};
@@ -563,22 +565,23 @@ proptest! {
 
 // ───────────────────────────── robustness ─────────────────────────────
 
-/// Deep structures (a depth-100k id spine, and the deep event tree a tick
-/// builds over it) survive the clock operations driven below, the codec, and
-/// the `Debug` printer with no stack overflow.
+/// Deep structures (an id spine `STACK_SAFETY_DEPTH` levels deep, and the deep
+/// event tree a tick builds over it) survive the clock operations driven
+/// below, the codec, and the `Debug` printer with no stack overflow.
 ///
 /// Library walks keep depth on explicit heap and bit stacks, never the call
-/// stack. This test and the other `deep_tree_*` tests check that at depth for
-/// the operations they drive. Beyond the single-clock ops (tick, fork, join,
-/// partial_cmp, `|`, encode, decode, Debug), this drives the composite ops on
-/// deep structures: `sync` between two deep clocks, `send`/`recv` of a deep
+/// stack. This test and the other `deep_*_stack_safety` tests check that for
+/// the operations they drive, at a depth where any walk keeping one call frame
+/// per level overflows the test thread's stack (`STACK_SAFETY_DEPTH` states
+/// the bound). Beyond the single-clock ops (tick, fork, join, partial_cmp,
+/// `|`, encode, decode, Debug), this drives the composite ops on deep
+/// structures: `sync` between two deep clocks, `send`/`recv` of a deep
 /// version, and version comparison and concurrency at depth. Impl-only: the
 /// recursive oracle cannot build or even drop a tree this deep (oracle
 /// agreement at bounded depth is the master differential harness's job).
 #[test]
 fn deep_tree_stack_safety() {
-    const DEPTH: usize = 100_000;
-    let party = deep_left_spine_party(DEPTH);
+    let party = deep_left_spine_party(STACK_SAFETY_DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
 
     // Codec over a deep id round-trips to canonical bytes.
@@ -662,25 +665,25 @@ fn deep_tree_stack_safety() {
     assert!(!format!("{clock:?}").is_empty());
 }
 
-/// The query folds and causal-interval walks survive depth 100k.
+/// The query folds and causal-interval walks survive depth
+/// `STACK_SAFETY_DEPTH`.
 ///
 /// Driven here: rank, distance, lag, `Ranked` ordering, the `Rank` wire
-/// round-trip at a 100k exponent, span hulls (pair and n-ary), `Span`
-/// validation, decode, placement, and dominance, the span algebra (all four
-/// operators, multi-clock joins, the quotient view), query membership and
-/// coverage, and projection through a deep id.
+/// round-trip at an exponent that grows with the spine's depth, span hulls
+/// (pair and n-ary), `Span` validation, decode, placement, and dominance, the
+/// span algebra (all four operators, multi-clock joins, the quotient view),
+/// query membership and coverage, and projection through a deep id.
 ///
 /// `deep_tree_stack_safety` above proves the clock ops at this depth; this is
 /// the same proof for the surfaces it does not drive — every one an iterative
 /// walk whose depth lives on explicit heap or bit stacks, exercised here at a
-/// depth no program stack could carry.
+/// depth that overflows any walk keeping one call frame per level.
 #[test]
 fn deep_tree_query_and_causal_stack_safety() {
     use crate::Rank;
     use crate::{causally, Span};
 
-    const DEPTH: usize = 100_000;
-    let party = deep_left_spine_party(DEPTH);
+    let party = deep_left_spine_party(STACK_SAFETY_DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
     clock.tick();
     let early = clock.version().clone();
@@ -696,7 +699,8 @@ fn deep_tree_query_and_causal_stack_safety() {
     assert_eq!(early.lag(&late) + late.lag(&early), d);
     assert!(early.ranked() < late.ranked());
 
-    // The Rank wire form round-trips at a 100k-deep exponent.
+    // The Rank wire form round-trips at an exponent that grows with the
+    // spine's depth.
     let bytes = r_late.encode();
     assert_eq!(Rank::decode(&bytes[..]).expect("canonical rank"), r_late);
 
@@ -740,31 +744,25 @@ fn deep_tree_query_and_causal_stack_safety() {
 }
 
 /// The shape walks, the hull of a concurrent pair, the version folds, and the
-/// projection view's comparisons survive depth 2^18 on the default 2 MiB
-/// test-thread stack.
+/// projection view's comparisons survive depth `STACK_SAFETY_DEPTH`.
 ///
 /// The deep tests above reach the version algebra only through comparable
 /// pairs, and none of them drains a shape iterator. Here a deep tip forks into
 /// two halves and each half ticks its own version, so the two versions are
-/// concurrent and each is `DEPTH + 1` levels deep. Only a concurrent pair
-/// enters the sweep that builds both hull endpoints. The test runs twice, with
-/// the tip at the end of a left spine and then of a right spine, so a walk that
-/// loops down one side but recurses down the other meets full depth on one run.
-///
-/// `DEPTH` leaves 8 bytes of a 2 MiB stack per level. A call frame costs at
-/// least 16 bytes on x86_64 and aarch64: a return address padded to the stack's
-/// 16-byte alignment, or a saved frame pointer and link register. So a walk
-/// whose compiled code keeps one call frame per level overflows here. A
-/// recursion the optimizer turns into a loop (a tail call, or an accumulation
-/// such as `1 + f(rest)`) keeps no frames and passes. The bound rests on
-/// libtest's default thread stack; a larger `RUST_MIN_STACK` weakens it.
+/// concurrent and each is `STACK_SAFETY_DEPTH + 1` levels deep. Only a
+/// concurrent pair enters the sweep that builds both hull endpoints. The test
+/// runs twice, with the tip at the end of a left spine and then of a right
+/// spine, so a walk that loops down one side but recurses down the other meets
+/// full depth on one run.
 #[test]
 fn deep_tree_shape_hull_and_fold_stack_safety() {
     use crate::shape::combine;
 
-    const DEPTH: usize = 1 << 18;
-    let tip = DEPTH as u64 + 1;
-    for mut keeper in [deep_left_spine_party(DEPTH), deep_right_spine_party(DEPTH)] {
+    let tip = STACK_SAFETY_DEPTH as u64 + 1;
+    for mut keeper in [
+        deep_left_spine_party(STACK_SAFETY_DEPTH),
+        deep_right_spine_party(STACK_SAFETY_DEPTH),
+    ] {
         let half = keeper.fork();
         let mut a = Version::new();
         keeper.tick(&mut a);
@@ -820,12 +818,11 @@ fn deep_tree_shape_hull_and_fold_stack_safety() {
     }
 }
 
-/// `min_ticks` handles a version 100,000 levels deep without using the call
-/// stack.
+/// `min_ticks` handles a version `STACK_SAFETY_DEPTH` levels deep without
+/// keeping a call frame per level.
 #[test]
 fn deep_tree_min_ticks_stack_safety() {
-    const DEPTH: usize = 100_000;
-    let party = deep_left_spine_party(DEPTH);
+    let party = deep_left_spine_party(STACK_SAFETY_DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
     clock.tick();
     let version = clock.version().clone();

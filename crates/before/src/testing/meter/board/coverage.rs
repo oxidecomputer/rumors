@@ -573,7 +573,8 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
         "unbounded depth (beyond the differential grids)",
         "a coverage disposition, not an operation: depth safety is checked, \
          for the operations they drive, by the deep-input stress tests at \
-         100,000 levels or more, chiefly the deep_tree_* tests in \
+         STACK_SAFETY_DEPTH, where any walk keeping one call frame per level \
+         overflows the test stack, chiefly the deep_*_stack_safety tests in \
          clock/tests.rs; every board family already scales depth",
     ),
     (
