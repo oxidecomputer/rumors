@@ -304,7 +304,8 @@ laws! {
     /// Laws for joining any number of parties into a receiver.
     ///
     /// They cover the acceptance condition, successful results, reunion of
-    /// forked parties, and preservation of every region after an error.
+    /// forked parties, and conservation of every point's multiplicity after an
+    /// error.
     pub static PARTY_AND_LIST: (p: &Party, items: &[Party]);
 
     /// `join_all` succeeds exactly when all parties, including the receiver,
@@ -360,25 +361,21 @@ laws! {
         keeper.join_all(shares).is_ok() && keeper == *p
     }
 
-    /// An unsuccessful `join_all` preserves every input region.
+    /// An unsuccessful `join_all` conserves every point's multiplicity.
     ///
-    /// Together, the receiver and returned parties cover the original receiver
-    /// and every input. Returned parties may combine several inputs, so the law
-    /// compares their union rather than individual values.
-    fn party_join_all_err_conserves_the_region_union {
+    /// Each point is owned as many times across the final receiver and the
+    /// returned parties as across the original receiver and the inputs, so no
+    /// region is lost or comes back twice. Returned parties may combine several
+    /// inputs, so the law compares owner counts point by point rather than
+    /// individual values.
+    fn party_join_all_err_conserves_multiplicity {
         let mut acc = p.dangerously_alias();
         match acc.join_all(items.iter().map(Party::dangerously_alias)) {
             Ok(()) => true,
             Err(returned) => {
-                let mut union = acc;
-                for back in returned {
-                    if let Some(missing) = back.without(&union) {
-                        if union.join(missing).is_err() {
-                            return false; // the remainder is disjoint by construction
-                        }
-                    }
-                }
-                union.covers(p) && items.iter().all(|item| union.covers(item))
+                let received: Vec<&Party> = core::iter::once(p).chain(items).collect();
+                let held: Vec<&Party> = core::iter::once(&acc).chain(&returned).collect();
+                same_multiplicity(&received, &held)
             }
         }
     }

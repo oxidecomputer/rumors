@@ -386,31 +386,31 @@ laws! {
         }
     }
 
-    /// An unsuccessful `join_all` preserves every input region and version.
+    /// An unsuccessful `join_all` conserves every point's multiplicity and
+    /// every version.
     ///
-    /// Together, the receiver and returned clocks cover the original receiver
-    /// and every input. Returned clocks may combine several inputs, so the law
-    /// compares their joined state rather than individual values.
-    fn clock_join_all_err_conserves_the_region_union {
+    /// Each point is owned as many times across the parties of the final
+    /// receiver and the returned clocks as across those of the original
+    /// receiver and the inputs, so no region is lost or comes back twice. The
+    /// join of their versions covers the original receiver's version and every
+    /// input's. Returned clocks may combine several inputs, so the law compares
+    /// owner counts and joined versions rather than individual values. Versions
+    /// need no count, because joining a version twice changes nothing.
+    fn clock_join_all_err_conserves_multiplicity {
         let mut acc = c.dangerously_alias();
         match acc.join_all(items.iter().map(Clock::dangerously_alias)) {
             Ok(_) => true, // an accepted fold equals the sequential pair joins
             Err(returned) => {
-                let (mut union, mut history) = acc.into_parts();
-                for back in returned {
-                    let (party, version) = back.into_parts();
-                    if let Some(missing) = party.without(&union) {
-                        if union.join(missing).is_err() {
-                            return false; // the remainder is disjoint by construction
-                        }
-                    }
-                    history = &history | &version;
-                }
-                union.covers(c.party())
+                let received: Vec<&Party> =
+                    core::iter::once(c).chain(items).map(Clock::party).collect();
+                let held: Vec<&Party> =
+                    core::iter::once(&acc).chain(&returned).map(Clock::party).collect();
+                let history = returned
+                    .iter()
+                    .fold(acc.version().clone(), |history, back| &history | back.version());
+                same_multiplicity(&received, &held)
                     && c.version() <= history
-                    && items
-                        .iter()
-                        .all(|item| union.covers(item.party()) && item.version() <= history)
+                    && items.iter().all(|item| item.version() <= history)
             }
         }
     }
