@@ -100,14 +100,14 @@ impl StepValue {
     }
 }
 
-/// Draw single terms and offsets from open minima in equal proportion.
+/// Draw each [`StepValue`] form with equal probability.
 ///
 /// Single terms come from [`value_coefficient`] and [`value_shift`], which
 /// favor a few small coefficients and fixed widths, so values repeat often.
 ///
-/// Shifts reach 259 bits, so a boundary and a decrease can differ in width by
-/// the two 32-bit digits at which `Boundary::lowered_by` decides from leading
-/// digits alone which operand dominates.
+/// Shifts reach past four 32-bit digits, so a boundary and a decrease can
+/// differ in width by the two 32-bit digits at which `Boundary::lowered_by`
+/// decides from leading digits alone which operand dominates.
 fn step_value() -> impl Strategy<Value = StepValue> {
     prop_oneof![
         (value_coefficient(), value_shift())
