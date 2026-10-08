@@ -12,13 +12,10 @@ use std::hint::black_box;
 use std::mem::size_of_val;
 use std::sync::Arc;
 
+use alloc_meter::{measure, reading};
 use before::testing::oracles::tree as oracle;
 use before::{Clock, Count};
 use num_bigint::BigUint;
-use peak_alloc::PeakAlloc;
-
-#[global_allocator]
-static HEAP: PeakAlloc = PeakAlloc;
 
 /// Build `count` clocks by repeatedly doubling a balanced population.
 fn production_population(count: usize) -> Vec<Clock> {
@@ -46,16 +43,23 @@ fn oracle_population(count: usize) -> Vec<oracle::Clock> {
     clocks
 }
 
-/// Measure a value's inline size and owned heap, excluding the harness baseline.
+/// Measure a value's inline size and the heap it retains, and check that
+/// dropping it releases that heap.
+///
+/// The reading counts only this thread's allocator requests, so allocations
+/// the test harness makes on its own threads cannot enter it.
 fn resident_bytes<T>(build: impl FnOnce() -> T) -> usize {
-    let baseline = HEAP.current_usage();
-    let value = black_box(build());
-    let resident = size_of_val(&value) + HEAP.current_usage() - baseline;
-    black_box(&value);
-    drop(value);
+    let (whole, resident) = measure(|| {
+        let value = black_box(build());
+        let retained = usize::try_from(reading().net_bytes)
+            .expect("a value built inside the reading frees nothing allocated before it");
+        let resident = size_of_val(&value) + retained;
+        black_box(&value);
+        drop(value);
+        resident
+    });
     assert_eq!(
-        HEAP.current_usage(),
-        baseline,
+        whole.net_bytes, 0,
         "the measured value must release every allocation it owns"
     );
     resident

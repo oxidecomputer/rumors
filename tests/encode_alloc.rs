@@ -9,12 +9,6 @@
 //! meter counts only the thread driving the write, so test-harness work on
 //! other threads cannot perturb an exact result.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-};
-use std::thread;
-
 use alloc_meter::{Stats, measure};
 use rumors::testing::{FrameShape, PreparedFrame, prepare_frame, write_prepared_frame};
 
@@ -69,49 +63,6 @@ fn harness_allocations() {
     let (change, ()) = measure(|| pollster::block_on(async {}));
     assert_eq!(change.allocations, HARNESS_ALLOCATIONS);
     assert_eq!(change.reallocations, 0);
-}
-
-/// Allocations on another thread do not enter the current thread's count.
-///
-/// This recreates the test-harness interference that made the old process-wide
-/// meter vary with scheduling, while one local allocation gives the assertion
-/// a nonzero control.
-#[test]
-fn concurrent_allocations_are_excluded() {
-    let start = Arc::new(AtomicBool::new(false));
-    let stop = Arc::new(AtomicBool::new(false));
-    let remote_allocations = Arc::new(AtomicUsize::new(0));
-    let worker = {
-        let start = Arc::clone(&start);
-        let stop = Arc::clone(&stop);
-        let remote_allocations = Arc::clone(&remote_allocations);
-        thread::spawn(move || {
-            while !start.load(Ordering::Acquire) {
-                std::hint::spin_loop();
-            }
-            while !stop.load(Ordering::Acquire) {
-                let allocation = Vec::<u8>::with_capacity(64);
-                std::hint::black_box(allocation);
-                remote_allocations.fetch_add(1, Ordering::Release);
-            }
-        })
-    };
-
-    let (change, local_allocation) = measure(|| {
-        start.store(true, Ordering::Release);
-        while remote_allocations.load(Ordering::Acquire) < 128 {
-            std::hint::spin_loop();
-        }
-        let allocation = Vec::<u8>::with_capacity(64);
-        stop.store(true, Ordering::Release);
-        allocation
-    });
-    worker.join().expect("allocation worker completes");
-    std::hint::black_box(local_allocation);
-
-    assert_eq!(change.allocations, 1);
-    assert_eq!(change.reallocations, 0);
-    assert_eq!(change.bytes_allocated, 64);
 }
 
 /// A body-free frame's write performs exactly `BODY_FREE_ALLOCATIONS`

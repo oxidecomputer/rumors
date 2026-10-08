@@ -9,28 +9,29 @@ use std::sync::{Mutex, MutexGuard};
 
 use before::testing::meter::board::{self, HeapMeter, BOARD_PRICED};
 use before::testing::meter::registry::FamilyId;
-use peak_alloc::PeakAlloc;
 
-#[global_allocator]
-static HEAP: PeakAlloc = PeakAlloc;
-
-/// Serializes in-process measurements that share [`HEAP`].
+/// Serializes in-process board sweeps, whose scan and touch counters are
+/// process-global.
 static MEASUREMENT: Mutex<()> = Mutex::new(());
 
 /// A fraction of the board's default sizes, small enough that the smoke run
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The peak-heap readers over this binary's global allocator.
+/// The peak-heap readers over this thread's `alloc_meter` ledger.
+///
+/// The in-process sweep measures every cell on the test's own thread, and the
+/// ledger counts only that thread's allocator requests, so allocations the
+/// test harness makes on its own threads cannot enter a reading.
 fn heap_meter() -> HeapMeter {
     HeapMeter {
-        reset_peak: || HEAP.reset_peak_usage(),
-        peak: || HEAP.peak_usage(),
-        current: || HEAP.current_usage(),
+        reset_peak: alloc_meter::reset,
+        peak: || alloc_meter::reading().peak_bytes,
     }
 }
 
-/// Hold exclusive access to the process-global meter for one smoke test.
+/// Hold exclusive access to the process-global scan and touch counters for
+/// one smoke test.
 fn measurement_guard() -> MutexGuard<'static, ()> {
     MEASUREMENT
         .lock()

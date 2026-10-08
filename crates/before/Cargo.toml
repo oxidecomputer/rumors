@@ -45,7 +45,11 @@ rand_chacha = { workspace = true }
 postcard = { workspace = true }
 ciborium = { workspace = true }
 stacker = { workspace = true }
+# The amplification board's shard processes read process-wide heap from
+# `peak_alloc`; the heap-measuring test binaries read per-thread heap from
+# `alloc-meter`, since libtest allocates on its own threads while a test runs.
 peak_alloc = { workspace = true }
+alloc-meter = { workspace = true }
 insta = { workspace = true }
 rayon = { workspace = true }
 indicatif = { workspace = true }

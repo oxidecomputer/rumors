@@ -66,6 +66,7 @@ use std::fs;
 use std::io::{self, Write as _};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use before::testing::meter::board::{self, HeapMeter};
 use peak_alloc::PeakAlloc;
@@ -78,12 +79,24 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// parallelism.
 const SHARDS_ENV: &str = "AMP_BOARD_SHARDS";
 
+/// Live bytes at the board's last peak reset: the level its peak readings rise
+/// from.
+static PEAK_ORIGIN: AtomicUsize = AtomicUsize::new(0);
+
 /// The peak-heap readers over this binary's global allocator.
+///
+/// The allocator counts process-wide, which the board's single-threaded sweep
+/// makes exact: no other thread allocates while a cell is measured.
 fn heap_meter() -> HeapMeter {
     HeapMeter {
-        reset_peak: || HEAP.reset_peak_usage(),
-        peak: || HEAP.peak_usage(),
-        current: || HEAP.current_usage(),
+        reset_peak: || {
+            HEAP.reset_peak_usage();
+            PEAK_ORIGIN.store(HEAP.current_usage(), Ordering::Relaxed);
+        },
+        peak: || {
+            HEAP.peak_usage()
+                .saturating_sub(PEAK_ORIGIN.load(Ordering::Relaxed))
+        },
     }
 }
 

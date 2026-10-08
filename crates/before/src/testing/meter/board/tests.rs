@@ -61,7 +61,6 @@ fn version_output_denominator_includes_boundary_marker_byte() {
     let heap = HeapMeter {
         reset_peak: || {},
         peak: || 0,
-        current: || 0,
     };
 
     let sample = measure(&heap, cell, None);
