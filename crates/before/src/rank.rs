@@ -334,7 +334,9 @@ impl Rank {
     ///   or an all-zero final fraction group);
     /// - [`Decode::NotCanonical`] when the integral header declares a mantissa
     ///   width outside the format's `u64` range;
-    /// - [`Decode::Io`] when the reader itself fails.
+    /// - [`Decode::Io`] with the first error the reader returns other than
+    ///   [`Interrupted`](io::ErrorKind::Interrupted), which the decoder
+    ///   retries, as [`Read::read_exact`] does.
     ///
     /// # Complexity
     ///
