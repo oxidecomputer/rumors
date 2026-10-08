@@ -1,0 +1,8 @@
+# coverage of crates/before/src/bits/storage.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 67/69; branch outcomes 19/22
+# never-executed lines:
+L   32  }
+L   39  })?;
+# branches with an outcome never taken (outcome hit counts):
+B   30  [24, 0]  if f.alternate() {
+B  144  [19305438, 0, 19305438, 0]  self.has_canonical_padding() && other.has_canonical_padding(),

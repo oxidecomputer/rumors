@@ -1,0 +1,18 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 13s
+────────────
+ Nextest run ID c336c45a-0285-4ad3-8b4e-4dd1ebcb09f2 with nextest profile: default
+    Starting 1 test across 12 binaries (698 tests skipped)
+       START [         ] (1/1) before span::tests::l8_witness_span_lone_endpoint_bad_padding
+
+running 1 test
+verdict: Err(TrailingBits)
+test span::tests::l8_witness_span_lone_endpoint_bad_padding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 608 filtered out; finished in 0.00s
+
+        PASS [   0.071s] (1/1) before span::tests::l8_witness_span_lone_endpoint_bad_padding
+────────────
+     Summary [   0.075s] 1 test run: 1 passed, 698 skipped
+original done

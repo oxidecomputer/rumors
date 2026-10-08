@@ -1,0 +1,30 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 07s
+────────────
+ Nextest run ID 25abc3d8-1e63-43a6-bde4-e04c67dab1e4 with nextest profile: default
+    Starting 1 test across 12 binaries (698 tests skipped)
+       START [         ] (1/1) before span::tests::l8_witness_span_lone_endpoint_bad_padding
+
+running 1 test
+verdict: Err(Truncated)
+
+thread 'span::tests::l8_witness_span_lone_endpoint_bad_padding' (2) panicked at crates/before/src/span/tests.rs:1030:5:
+a set padding bit after the lone endpoint is TrailingBits, got Err(Truncated)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test span::tests::l8_witness_span_lone_endpoint_bad_padding ... FAILED
+
+failures:
+
+failures:
+    span::tests::l8_witness_span_lone_endpoint_bad_padding
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 608 filtered out; finished in 0.05s
+
+        FAIL [   0.133s] (1/1) before span::tests::l8_witness_span_lone_endpoint_bad_padding
+────────────
+     Summary [   0.136s] 1 test run: 0 passed, 1 failed, 698 skipped
+        FAIL [   0.133s] (1/1) before span::tests::l8_witness_span_lone_endpoint_bad_padding
+error: test run failed
+m136 witness status 100
+m136 done

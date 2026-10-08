@@ -1,0 +1,31 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.76s
+────────────
+ Nextest run ID a95945fc-321b-4535-a24f-cffa4229bd9c with nextest profile: high-count
+    Starting 18 tests across 1 binary (3 tests skipped)
+        PASS [   0.290s] ( 1/18) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.463s] ( 2/18) before::l2_probe deep_surfaces_are_stack_safe
+        PASS [  46.250s] ( 3/18) before::l2_probe par01
+        PASS [  47.246s] ( 4/18) before::l2_probe par14
+        PASS [  47.937s] ( 5/18) before::l2_probe par03
+        PASS [  48.301s] ( 6/18) before::l2_probe par09
+        PASS [  49.510s] ( 7/18) before::l2_probe par02
+        PASS [  52.390s] ( 8/18) before::l2_probe par10
+        PASS [  52.581s] ( 9/18) before::l2_probe par07
+        PASS [  53.027s] (10/18) before::l2_probe par05
+        PASS [  54.037s] (11/18) before::l2_probe par15
+        PASS [  56.720s] (12/18) before::l2_probe par13
+        PASS [  57.721s] (13/18) before::l2_probe par08
+        PASS [  59.101s] (14/18) before::l2_probe par06
+        PASS [  59.297s] (15/18) before::l2_probe par11
+        PASS [  59.462s] (16/18) before::l2_probe par00
+        SLOW [> 60.000s] (─────) before::l2_probe par04
+        SLOW [> 60.000s] (─────) before::l2_probe par12
+        PASS [  62.540s] (17/18) before::l2_probe par04
+        PASS [  66.445s] (18/18) before::l2_probe par12
+────────────
+     Summary [  66.502s] 18 tests run: 18 passed (2 slow), 3 skipped

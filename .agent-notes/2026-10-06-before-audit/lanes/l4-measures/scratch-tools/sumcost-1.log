@@ -1,0 +1,45 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+warning: calls to `std::mem::drop` with a value that implements `Copy` does nothing
+   --> crates/before/src/version/measure/explore_l4.rs:633:30
+    |
+633 |             ("rank_cmp", &|| drop(a.rank_cmp(&b))),
+    |                              ^^^^^--------------^
+    |                                   |
+    |                                   argument has type `std::cmp::Ordering`
+    |
+    = note: use `let _ = ...` to ignore the expression or result
+    = note: `#[warn(dropping_copy_types)]` on by default
+
+warning: `before` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 22s
+────────────
+ Nextest run ID 113727a4-2952-46f1-9474-abef68983d07 with nextest profile: default
+    Starting 1 test across 12 binaries (702 tests skipped)
+       START [         ] (1/1) before version::measure::explore_l4_rank::l4_rank_sum_order_cost
+
+running 1 test
+SUMCOST wide-then-ascending    W=2^12 k=  128 bytes=     1560 touches=       832 per_byte_x1000=533
+SUMCOST ascending-then-wide    W=2^12 k=  128 bytes=     1560 touches=       471 per_byte_x1000=301
+SUMCOST wide-then-descending   W=2^12 k=  128 bytes=     1560 touches=       832 per_byte_x1000=533
+SUMCOST interleaved-wide       W=2^12 k=  128 bytes=    66584 touches=     32630 per_byte_x1000=490
+SUMCOST wide-then-ascending    W=2^14 k=  256 bytes=     6192 touches=      3072 per_byte_x1000=496
+SUMCOST ascending-then-wide    W=2^14 k=  256 bytes=     6192 touches=      1583 per_byte_x1000=255
+SUMCOST wide-then-descending   W=2^14 k=  256 bytes=     6192 touches=      3072 per_byte_x1000=496
+SUMCOST interleaved-wide       W=2^14 k=  256 bytes=   528432 touches=    261270 per_byte_x1000=494
+SUMCOST wide-then-ascending    W=2^16 k=  512 bytes=    24672 touches=     11776 per_byte_x1000=477
+SUMCOST ascending-then-wide    W=2^16 k=  512 bytes=    24672 touches=      5727 per_byte_x1000=232
+SUMCOST wide-then-descending   W=2^16 k=  512 bytes=    24672 touches=     11776 per_byte_x1000=477
+SUMCOST interleaved-wide       W=2^16 k=  512 bytes=  4210784 touches=   2093014 per_byte_x1000=497
+SUMCOST wide-then-ascending    W=2^18 k= 1024 bytes=    98496 touches=     46080 per_byte_x1000=467
+SUMCOST ascending-then-wide    W=2^18 k= 1024 bytes=    98496 touches=     21695 per_byte_x1000=220
+SUMCOST wide-then-descending   W=2^18 k= 1024 bytes=    98496 touches=     46080 per_byte_x1000=467
+SUMCOST interleaved-wide       W=2^18 k= 1024 bytes= 33620160 touches=  16759382 per_byte_x1000=498
+test version::measure::explore_l4_rank::l4_rank_sum_order_cost ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 612 filtered out; finished in 0.28s
+
+        PASS [   0.359s] (1/1) before version::measure::explore_l4_rank::l4_rank_sum_order_cost
+────────────
+     Summary [   0.363s] 1 test run: 1 passed, 702 skipped

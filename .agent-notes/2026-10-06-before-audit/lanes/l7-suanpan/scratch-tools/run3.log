@@ -1,0 +1,331 @@
+warning: ignoring --test-threads because --no-run is specified
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:798:17
+    |
+798 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.82s
+    Blocking waiting for file lock on package cache
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:798:17
+    |
+798 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+────────────
+ Nextest run ID cebb1b4f-9ecb-46e9-81e8-90ba0f30e93a with nextest profile: default
+    Starting 4 tests across 2 binaries (65 tests skipped)
+       START [         ] (1/4) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+
+running 1 test
+test accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 4.66s
+
+        PASS [   4.701s] (1/4) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+       START [         ] (2/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+
+running 1 test
+RATIO 0.920 total 1102/1198 worst-step 9.0 len 45
+RATIO 1.210 total 75/62 worst-step 8.0 len 29
+RATIO 0.702 total 4374/6228 worst-step 404.4 len 113
+RATIO 0.765 total 13/17 worst-step 8.0 len 12
+RATIO 0.920 total 103800/112860 worst-step 168.8 len 92
+RATIO 0.638 total 44/69 worst-step 1.0 len 22
+RATIO 0.838 total 2882/3440 worst-step 11.0 len 72
+RATIO 1.456 total 131/90 worst-step 8.0 len 37
+RATIO 1.238 total 328/265 worst-step 11.0 len 78
+RATIO 0.559 total 71/127 worst-step 6.0 len 46
+RATIO 1.001 total 25092/25058 worst-step 9.0 len 92
+RATIO 1.257 total 7173/5708 worst-step 48.5 len 112
+RATIO 3.800 total 57/15 worst-step 13.0 len 9
+RATIO 1.116 total 77/69 worst-step 3.0 len 20
+RATIO 1.362 total 64/47 worst-step 9.0 len 16
+RATIO 0.737 total 146/198 worst-step 8.0 len 65
+RATIO 2.259 total 61/27 worst-step 9.0 len 19
+RATIO 0.816 total 4296/5265 worst-step 9.0 len 74
+RATIO 1.812 total 58/32 worst-step 9.0 len 24
+RATIO 1.000 total 19465/19466 worst-step 9.0 len 88
+RATIO 1.144 total 50830/44438 worst-step 8.0 len 108
+RATIO 0.943 total 18019/19106 worst-step 6.0 len 104
+RATIO 0.697 total 1213/1740 worst-step 9.0 len 117
+RATIO 0.597 total 1334/2236 worst-step 8.0 len 67
+RATIO 1.331 total 462/347 worst-step 13.0 len 60
+RATIO 1.009 total 536/531 worst-step 9.0 len 85
+RATIO 1.365 total 434/318 worst-step 15.0 len 83
+RATIO 0.817 total 1189/1456 worst-step 11.0 len 70
+RATIO 1.125 total 45/40 worst-step 5.0 len 26
+RATIO 1.005 total 2417/2404 worst-step 11.0 len 66
+RATIO 0.991 total 8429/8504 worst-step 149.0 len 110
+RATIO 0.550 total 5343/9714 worst-step 9.0 len 80
+RATIO 1.083 total 144/133 worst-step 2.3 len 10
+RATIO 0.727 total 514/707 worst-step 6.0 len 38
+RATIO 0.587 total 3935/6698 worst-step 11.0 len 113
+RATIO 1.035 total 59/57 worst-step 2.3 len 19
+RATIO 1.037 total 5697/5496 worst-step 9.0 len 111
+RATIO 0.960 total 458/477 worst-step 11.0 len 60
+RATIO 1.419 total 44/31 worst-step 7.0 len 16
+RATIO 0.901 total 464/515 worst-step 9.0 len 110
+RATIO 0.907 total 341/376 worst-step 9.0 len 104
+RATIO 2.114 total 334/158 worst-step 14.0 len 85
+RATIO 0.499 total 179/359 worst-step 9.0 len 23
+RATIO 0.857 total 12/14 worst-step 1.7 len 10
+RATIO 0.991 total 433/437 worst-step 11.0 len 117
+RATIO 0.648 total 103/159 worst-step 2.2 len 27
+RATIO 1.123 total 73/65 worst-step 9.0 len 29
+RATIO 0.923 total 4300/4657 worst-step 9.0 len 96
+RATIO 0.626 total 1347/2152 worst-step 6.0 len 77
+RATIO 0.952 total 514/540 worst-step 9.0 len 83
+RATIO 1.312 total 63/48 worst-step 6.0 len 22
+RATIO 0.983 total 857/872 worst-step 5.0 len 86
+RATIO 1.397 total 1762/1261 worst-step 9.0 len 63
+RATIO 0.807 total 138/171 worst-step 9.0 len 71
+RATIO 1.161 total 259/223 worst-step 9.0 len 45
+RATIO 1.302 total 474/364 worst-step 11.0 len 72
+RATIO 0.814 total 41387/50823 worst-step 3.0 len 80
+RATIO 1.249 total 487/390 worst-step 12.0 len 105
+RATIO 0.951 total 1429/1502 worst-step 11.5 len 36
+RATIO 0.867 total 1098/1267 worst-step 13.0 len 101
+RATIO 0.869 total 578/665 worst-step 9.0 len 71
+RATIO 0.969 total 2097/2165 worst-step 5.0 len 31
+RATIO 0.632 total 11427/18073 worst-step 10.0 len 87
+RATIO 0.571 total 4/7 worst-step 1.0 len 3
+RATIO 0.815 total 18070/22162 worst-step 9.0 len 62
+RATIO 0.636 total 14442/22713 worst-step 227.8 len 108
+RATIO 0.966 total 1500/1552 worst-step 9.0 len 75
+RATIO 1.077 total 684/635 worst-step 8.0 len 48
+RATIO 1.507 total 740/491 worst-step 10.0 len 117
+RATIO 0.917 total 10150/11069 worst-step 9.0 len 36
+RATIO 0.646 total 1173/1815 worst-step 13.0 len 51
+RATIO 1.068 total 94/88 worst-step 3.3 len 17
+RATIO 0.583 total 308/528 worst-step 5.0 len 57
+RATIO 1.112 total 299/269 worst-step 3.7 len 30
+RATIO 0.939 total 1936/2062 worst-step 9.0 len 24
+RATIO 0.627 total 3593/5727 worst-step 9.0 len 88
+RATIO 0.510 total 2100/4117 worst-step 9.0 len 26
+RATIO 0.689 total 93/135 worst-step 9.0 len 46
+RATIO 2.345 total 68/29 worst-step 9.0 len 6
+RATIO 0.635 total 5310/8367 worst-step 6.0 len 64
+RATIO 0.459 total 17/37 worst-step 1.0 len 20
+RATIO 0.947 total 3697/3903 worst-step 9.0 len 115
+RATIO 0.983 total 459/467 worst-step 9.0 len 66
+RATIO 0.516 total 512/992 worst-step 9.0 len 54
+RATIO 0.854 total 1058/1239 worst-step 8.0 len 85
+RATIO 0.903 total 606/671 worst-step 10.0 len 95
+RATIO 0.630 total 5628/8929 worst-step 3.3 len 117
+RATIO 0.927 total 625/674 worst-step 2.0 len 95
+RATIO 0.733 total 2713/3700 worst-step 9.0 len 79
+RATIO 0.873 total 145/166 worst-step 9.0 len 56
+RATIO 1.228 total 377/307 worst-step 9.0 len 25
+RATIO 0.692 total 3321/4800 worst-step 9.0 len 51
+RATIO 0.798 total 35541/44559 worst-step 9.0 len 84
+RATIO 1.084 total 415/383 worst-step 9.0 len 80
+RATIO 1.245 total 1122/901 worst-step 11.0 len 62
+RATIO 0.893 total 192/215 worst-step 15.0 len 77
+RATIO 1.103 total 129/117 worst-step 11.0 len 35
+RATIO 0.000 total 0/5 worst-step 0.0 len 2
+RATIO 1.256 total 49/39 worst-step 7.0 len 18
+RATIO 1.016 total 322/317 worst-step 9.0 len 71
+RATIO 0.967 total 5323/5503 worst-step 11.0 len 90
+RATIO 2.533 total 76/30 worst-step 9.0 len 17
+RATIO 1.049 total 734/700 worst-step 9.0 len 95
+RATIO 0.899 total 46826/52100 worst-step 3.7 len 107
+RATIO 0.800 total 4/5 worst-step 1.0 len 3
+RATIO 0.964 total 3457/3585 worst-step 8.0 len 110
+RATIO 1.072 total 119/111 worst-step 4.0 len 36
+RATIO 1.221 total 293/240 worst-step 9.0 len 55
+RATIO 1.280 total 32/25 worst-step 5.0 len 10
+RATIO 0.250 total 32/128 worst-step 1.0 len 59
+RATIO 1.058 total 2455/2321 worst-step 13.0 len 67
+RATIO 1.164 total 602/517 worst-step 8.0 len 75
+RATIO 0.912 total 9071/9946 worst-step 93.9 len 61
+RATIO 0.182 total 2/11 worst-step 1.0 len 6
+RATIO 0.667 total 4/6 worst-step 1.0 len 6
+RATIO 1.144 total 1006/879 worst-step 17.5 len 114
+RATIO 0.561 total 222/396 worst-step 9.0 len 47
+RATIO 0.595 total 138/232 worst-step 15.0 len 97
+RATIO 0.617 total 387/627 worst-step 10.0 len 38
+RATIO 1.003 total 350/349 worst-step 9.0 len 96
+RATIO 0.728 total 736/1011 worst-step 2.0 len 40
+RATIO 0.898 total 662/737 worst-step 14.0 len 64
+RATIO 0.564 total 22/39 worst-step 1.0 len 20
+RATIO 0.810 total 34953/43159 worst-step 9.0 len 92
+RATIO 1.069 total 2750/2573 worst-step 11.0 len 82
+RATIO 1.355 total 309/228 worst-step 13.0 len 99
+RATIO 1.379 total 91/66 worst-step 9.0 len 42
+RATIO 1.248 total 20462/16393 worst-step 1010.5 len 116
+RATIO 0.995 total 221/222 worst-step 8.0 len 40
+RATIO 0.757 total 305/403 worst-step 9.0 len 33
+RATIO 1.025 total 3188/3111 worst-step 8.0 len 40
+RATIO 0.870 total 16995/19542 worst-step 9.0 len 76
+RATIO 1.321 total 74/56 worst-step 8.0 len 19
+RATIO 0.733 total 22/30 worst-step 7.0 len 10
+RATIO 1.372 total 11127/8111 worst-step 3.2 len 36
+RATIO 1.000 total 2103/2104 worst-step 7.0 len 34
+RATIO 0.539 total 1168/2168 worst-step 8.0 len 52
+RATIO 0.686 total 20354/29673 worst-step 8.0 len 70
+RATIO 1.245 total 66/53 worst-step 5.0 len 25
+RATIO 3.212 total 106/33 worst-step 14.0 len 23
+RATIO 0.974 total 673/691 worst-step 9.0 len 114
+RATIO 0.953 total 345/362 worst-step 8.0 len 108
+RATIO 0.775 total 40325/52021 worst-step 9.0 len 92
+RATIO 1.353 total 276/204 worst-step 7.0 len 53
+RATIO 0.387 total 2196/5672 worst-step 9.0 len 113
+RATIO 1.913 total 44/23 worst-step 11.0 len 20
+RATIO 1.818 total 280/154 worst-step 13.0 len 78
+RATIO 0.939 total 867/923 worst-step 9.0 len 75
+RATIO 0.871 total 683/784 worst-step 9.0 len 33
+RATIO 0.357 total 5/14 worst-step 1.0 len 8
+RATIO 1.029 total 4356/4232 worst-step 9.0 len 104
+RATIO 0.741 total 837/1129 worst-step 9.0 len 112
+RATIO 0.645 total 12235/18965 worst-step 9.0 len 98
+RATIO 0.585 total 4262/7289 worst-step 2.3 len 50
+RATIO 0.606 total 86/142 worst-step 1.5 len 83
+RATIO 0.779 total 2292/2943 worst-step 10.0 len 61
+RATIO 0.995 total 913/918 worst-step 8.0 len 69
+RATIO 1.090 total 205/188 worst-step 15.0 len 40
+RATIO 0.885 total 683/772 worst-step 14.0 len 81
+RATIO 0.936 total 146/156 worst-step 9.0 len 48
+RATIO 0.648 total 7480/11543 worst-step 8.0 len 55
+RATIO 1.660 total 83/50 worst-step 9.0 len 26
+RATIO 0.722 total 52/72 worst-step 1.7 len 30
+RATIO 0.824 total 239/290 worst-step 14.0 len 73
+RATIO 1.314 total 243/185 worst-step 11.0 len 80
+RATIO 0.445 total 7228/16232 worst-step 8.0 len 75
+RATIO 0.916 total 60950/66559 worst-step 8.0 len 109
+RATIO 0.617 total 42191/68402 worst-step 9.0 len 118
+RATIO 1.036 total 145/140 worst-step 9.0 len 28
+RATIO 0.893 total 2520/2823 worst-step 11.0 len 71
+RATIO 0.615 total 16/26 worst-step 1.0 len 11
+RATIO 0.920 total 486/528 worst-step 3.0 len 86
+RATIO 0.924 total 14022/15170 worst-step 9.0 len 102
+RATIO 1.019 total 30686/30103 worst-step 9.0 len 108
+RATIO 1.000 total 1/1 worst-step 1.0 len 1
+RATIO 0.821 total 81594/99334 worst-step 9.0 len 105
+RATIO 0.536 total 1343/2504 worst-step 15.0 len 41
+RATIO 0.658 total 1212/1841 worst-step 5.0 len 71
+RATIO 0.602 total 556/923 worst-step 3.8 len 42
+RATIO 1.063 total 827/778 worst-step 54.5 len 27
+RATIO 0.886 total 47078/53128 worst-step 3.0 len 96
+RATIO 1.070 total 380/355 worst-step 9.0 len 28
+RATIO 0.330 total 35/106 worst-step 9.0 len 14
+RATIO 0.651 total 18759/28820 worst-step 9.0 len 58
+RATIO 1.061 total 156/147 worst-step 9.0 len 38
+RATIO 0.762 total 16/21 worst-step 9.0 len 11
+RATIO 0.677 total 7207/10650 worst-step 8.0 len 116
+RATIO 0.788 total 534/678 worst-step 11.0 len 59
+RATIO 0.950 total 2170/2284 worst-step 3.8 len 84
+RATIO 0.000 total 0/5 worst-step 0.0 len 2
+RATIO 0.983 total 4462/4539 worst-step 6.0 len 108
+RATIO 1.503 total 257/171 worst-step 2.7 len 75
+RATIO 0.393 total 3279/8338 worst-step 13.0 len 103
+RATIO 0.983 total 295/300 worst-step 9.0 len 53
+RATIO 0.805 total 1594/1981 worst-step 63.5 len 113
+RATIO 0.756 total 1003/1326 worst-step 8.0 len 40
+RATIO 0.822 total 20907/25442 worst-step 9.0 len 74
+RATIO 0.803 total 1585/1975 worst-step 5.0 len 116
+RATIO 0.741 total 29170/39349 worst-step 9.0 len 102
+RATIO 0.949 total 17067/17976 worst-step 11.0 len 111
+RATIO 0.928 total 9752/10506 worst-step 9.0 len 90
+RATIO 0.875 total 321/367 worst-step 9.0 len 92
+RATIO 0.944 total 68/72 worst-step 3.0 len 23
+RATIO 0.808 total 5711/7068 worst-step 8.0 len 106
+RATIO 0.990 total 67319/67972 worst-step 8.0 len 92
+RATIO 1.176 total 60/51 worst-step 9.0 len 17
+RATIO 1.618 total 301/186 worst-step 9.0 len 47
+RATIO 0.954 total 863/905 worst-step 5.0 len 103
+RATIO 1.333 total 32/24 worst-step 9.0 len 14
+RATIO 1.245 total 71388/57335 worst-step 10.0 len 79
+RATIO 0.999 total 2196/2199 worst-step 9.0 len 53
+RATIO 1.037 total 278/268 worst-step 13.0 len 115
+RATIO 0.788 total 50271/63774 worst-step 9.0 len 114
+RATIO 1.317 total 4291/3257 worst-step 9.0 len 60
+RATIO 0.781 total 22718/29074 worst-step 10.0 len 93
+RATIO 1.355 total 4168/3077 worst-step 202.8 len 38
+RATIO 1.022 total 592/579 worst-step 3.5 len 102
+RATIO 0.811 total 271/334 worst-step 9.0 len 66
+RATIO 0.908 total 148/163 worst-step 9.0 len 29
+RATIO 1.056 total 3644/3450 worst-step 138.0 len 36
+RATIO 1.511 total 139/92 worst-step 11.0 len 32
+RATIO 1.338 total 2094/1565 worst-step 22.6 len 117
+RATIO 0.910 total 191/210 worst-step 9.0 len 72
+RATIO 1.025 total 21620/21094 worst-step 683.0 len 88
+RATIO 0.993 total 3320/3344 worst-step 8.0 len 53
+RATIO 0.747 total 3372/4513 worst-step 2.6 len 43
+RATIO 0.981 total 2482/2531 worst-step 8.0 len 41
+RATIO 0.495 total 95/192 worst-step 9.0 len 68
+RATIO 0.568 total 734/1293 worst-step 9.0 len 107
+RATIO 0.444 total 4/9 worst-step 1.0 len 6
+RATIO 1.193 total 1409/1181 worst-step 15.0 len 110
+RATIO 0.944 total 219/232 worst-step 9.0 len 74
+RATIO 0.881 total 29062/32994 worst-step 9.0 len 93
+RATIO 1.130 total 78/69 worst-step 8.0 len 33
+RATIO 1.015 total 39769/39166 worst-step 8.0 len 82
+RATIO 0.970 total 1334/1375 worst-step 29.4 len 66
+RATIO 1.233 total 328/266 worst-step 13.0 len 41
+RATIO 0.791 total 808/1022 worst-step 11.0 len 104
+RATIO 0.575 total 649/1128 worst-step 10.0 len 32
+RATIO 1.299 total 152/117 worst-step 9.0 len 47
+RATIO 6.359 total 1240/195 worst-step 168.2 len 52
+RATIO 1.490 total 642/431 worst-step 11.0 len 79
+RATIO 0.734 total 23203/31609 worst-step 21.6 len 97
+RATIO 1.009 total 2137/2117 worst-step 11.0 len 68
+RATIO 1.442 total 150/104 worst-step 7.0 len 36
+RATIO 0.796 total 74/93 worst-step 5.5 len 40
+RATIO 1.005 total 2797/2784 worst-step 3.0 len 48
+RATIO 0.875 total 1950/2229 worst-step 9.0 len 111
+RATIO 0.677 total 13979/20650 worst-step 8.0 len 111
+RATIO 0.892 total 255/286 worst-step 5.0 len 18
+RATIO 1.267 total 38/30 worst-step 9.0 len 12
+RATIO 0.988 total 2721/2755 worst-step 11.0 len 73
+RATIO 0.750 total 3/4 worst-step 1.0 len 2
+RATIO 1.238 total 130/105 worst-step 8.0 len 26
+RATIO 1.074 total 73/68 worst-step 8.0 len 41
+RATIO 0.911 total 185/203 worst-step 9.0 len 58
+test accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 1.45s
+
+        PASS [   1.491s] (2/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+       START [         ] (3/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme
+
+running 1 test
+
+thread 'accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme' (2) panicked at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library/alloc/src/raw_vec/mod.rs:28:5:
+capacity overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+PROBE reserve_digits(usize::MAX): panicked: capacity overflow
+test accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.00s
+
+        PASS [   0.029s] (3/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme
+       START [         ] (4/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history
+
+running 1 test
+PROBE zero-shift known zero <<=: stored_digit_count 1, is_known_zero true, cmp_zero Equal
+PROBE zero-shift redundant zero <<=: stored_digit_count 1048578, is_known_zero false, cmp_zero Equal
+PROBE zero-shift redundant zero <<: stored_digit_count 1048578, is_known_zero false, cmp_zero Equal
+PROBE zero-shift add_shifted(redundant zero): stored_digit_count 1048578, is_known_zero false, cmp_zero Equal
+PROBE zero-shift normalized redundant zero <<=: stored_digit_count 1, is_known_zero true, cmp_zero Equal
+test accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.03s
+
+        PASS [   0.079s] (4/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history
+────────────
+     Summary [   6.303s] 4 tests run: 4 passed, 65 skipped
+exit=0

@@ -1,0 +1,22 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+warning: calls to `std::mem::drop` with a value that implements `Copy` does nothing
+   --> crates/before/src/version/measure/explore_l4.rs:562:30
+    |
+562 |             ("rank_cmp", &|| drop(a.rank_cmp(&b))),
+    |                              ^^^^^--------------^
+    |                                   |
+    |                                   argument has type `std::cmp::Ordering`
+    |
+    = note: use `let _ = ...` to ignore the expression or result
+    = note: `#[warn(dropping_copy_types)]` on by default
+
+warning: `before` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 48s
+────────────
+ Nextest run ID fc3b8466-32cb-4f25-9f33-d6a9042ec462 with nextest profile: default
+    Starting 1 test across 12 binaries (701 tests skipped)
+        PASS [   0.042s] (1/1) before version::measure::explore_l4_rank::l4_count_boundaries
+────────────
+     Summary [   0.047s] 1 test run: 1 passed, 701 skipped

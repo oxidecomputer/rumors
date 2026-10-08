@@ -1,0 +1,2 @@
+# survivors of crates/before/src/bits/reader/gamma.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/reader/gamma.rs:68:40: replace | with ^ in decode

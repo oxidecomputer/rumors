@@ -1,0 +1,13 @@
+crates/before/src/count.rs:98:9: replace Count::limbs -> Limbs<'_> with Default::default()
+crates/before/src/count.rs:317:15: replace + with - in <impl Add<Count> for Count>::add
+crates/before/src/count.rs:317:15: replace + with * in <impl Add<Count> for Count>::add
+crates/before/src/count.rs:324:15: replace + with - in <impl Add<&Count> for Count>::add
+crates/before/src/count.rs:324:15: replace + with * in <impl Add<&Count> for Count>::add
+crates/before/src/count.rs:331:14: replace + with - in <impl Add<Count> for &Count>::add
+crates/before/src/count.rs:331:14: replace + with * in <impl Add<Count> for &Count>::add
+crates/before/src/count.rs:343:15: replace += with -= in <impl AddAssign<Count> for Count>::add_assign
+crates/before/src/count.rs:343:15: replace += with *= in <impl AddAssign<Count> for Count>::add_assign
+crates/before/src/count.rs:351:17: replace += with -= in <impl Sum<Count> for Count>::sum
+crates/before/src/count.rs:351:17: replace += with *= in <impl Sum<Count> for Count>::sum
+crates/before/src/count.rs:361:17: replace += with -= in <impl Sum<&'a Count> for Count>::sum
+crates/before/src/count.rs:361:17: replace += with *= in <impl Sum<&'a Count> for Count>::sum

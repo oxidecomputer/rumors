@@ -1,0 +1,12 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 09s
+────────────
+ Nextest run ID fada4ba0-7e10-4d99-84ce-f559cd674528 with nextest profile: default
+    Starting 4 tests across 12 binaries (694 tests skipped)
+        PASS [   0.058s] (1/4) before version::tick::l3_probe::l3_bridge_round_trip
+        PASS [   4.337s] (2/4) before version::tick::l3_probe::l3_min_ticks_floor_over_histories
+        PASS [   6.229s] (3/4) before version::tick::l3_probe::l3_cogen_bushy
+        PASS [  37.981s] (4/4) before version::tick::l3_probe::l3_cogen_spine
+────────────
+     Summary [  37.990s] 4 tests run: 4 passed, 694 skipped
+exit=0

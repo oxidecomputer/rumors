@@ -1,0 +1,7 @@
+# coverage of crates/before/src/version/tick/output.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 70/73; branch outcomes 2/2
+# never-executed lines:
+L   83  unreachable!("a verbatim emission is matched or has diverged")
+L  129  unreachable!("the region splice runs post-divergence")
+L  170  Output::Unstarted => 0,
+# branches with an outcome never taken (outcome hit counts):

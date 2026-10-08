@@ -1,0 +1,93 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.94s
+────────────
+ Nextest run ID 38e7e4e3-deff-4441-ad46-cfe2f5cf0b2e with nextest profile: default
+    Starting 2 tests across 1 binary (2 tests skipped)
+       START [         ] (1/2) before::l2_cost fragmented_mask_family
+
+running 1 test
+fragmented-mask(W=n) :: view_cmp
+  in_bits=    10242 touch=        177 (   0.017/bit) scan=       4104 (  0.401/bit)
+  in_bits=    20482 touch=        353 (   0.017/bit) scan=       8200 (  0.400/bit)
+  in_bits=    40962 touch=        705 (   0.017/bit) scan=      16392 (  0.400/bit)
+  in_bits=    81922 touch=       1409 (   0.017/bit) scan=      32776 (  0.400/bit)
+fragmented-mask(W=n) :: view_le
+  in_bits=    10242 touch=        177 (   0.017/bit) scan=       4104 (  0.401/bit)
+  in_bits=    20482 touch=        353 (   0.017/bit) scan=       8200 (  0.400/bit)
+  in_bits=    40962 touch=        705 (   0.017/bit) scan=      16392 (  0.400/bit)
+  in_bits=    81922 touch=       1409 (   0.017/bit) scan=      32776 (  0.400/bit)
+fragmented-mask(W=n) :: version_view_cmp
+  in_bits=    10242 touch=        177 (   0.017/bit) scan=       4104 (  0.401/bit)
+  in_bits=    20482 touch=        353 (   0.017/bit) scan=       8200 (  0.400/bit)
+  in_bits=    40962 touch=        705 (   0.017/bit) scan=      16392 (  0.400/bit)
+  in_bits=    81922 touch=       1409 (   0.017/bit) scan=      32776 (  0.400/bit)
+fragmented-mask(W=n) :: view_view_cmp
+  in_bits=    10242 touch=        225 (   0.022/bit) scan=       4110 (  0.401/bit)
+  in_bits=    20482 touch=        449 (   0.022/bit) scan=       8206 (  0.401/bit)
+  in_bits=    40962 touch=        897 (   0.022/bit) scan=      16398 (  0.400/bit)
+  in_bits=    81922 touch=       1793 (   0.022/bit) scan=      32782 (  0.400/bit)
+fragmented-mask(W=n) :: view_view_eq
+  in_bits=    10242 touch=        224 (   0.022/bit) scan=       4104 (  0.401/bit)
+  in_bits=    20482 touch=        448 (   0.022/bit) scan=       8200 (  0.400/bit)
+  in_bits=    40962 touch=        896 (   0.022/bit) scan=      16392 (  0.400/bit)
+  in_bits=    81922 touch=       1792 (   0.022/bit) scan=      32776 (  0.400/bit)
+fragmented-mask(W=n) :: project_p
+  in_bits=    10242 touch=      33807 (   3.301/bit) scan=    2103295 (205.360/bit)
+  in_bits=    20482 touch=     133151 (   6.501/bit) scan=    8400895 (410.160/bit)
+  in_bits=    40962 touch=     528447 (  12.901/bit) scan=   33579007 (819.760/bit)
+  in_bits=    81922 touch=    2105471 (  25.701/bit) scan=  134266879 (1638.960/bit)
+fragmented-mask(W=n) :: project_q
+  in_bits=    10242 touch=      33840 (   3.304/bit) scan=    2107394 (205.760/bit)
+  in_bits=    20482 touch=     133216 (   6.504/bit) scan=    8409090 (410.560/bit)
+  in_bits=    40962 touch=     528576 (  12.904/bit) scan=   33595394 (820.160/bit)
+  in_bits=    81922 touch=    2105728 (  25.704/bit) scan=  134299650 (1639.360/bit)
+test fragmented_mask_family ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.29s
+
+        PASS [   0.358s] (1/2) before::l2_cost fragmented_mask_family
+       START [         ] (2/2) before::l2_cost fragmented_mask_stepping_family
+
+running 1 test
+fragmented-mask-stepping(W=n) :: view_cmp
+  in_bits=    20484 touch=       4277 (   0.209/bit) scan=      17410 (  0.850/bit)
+  in_bits=    40964 touch=       8549 (   0.209/bit) scan=      34818 (  0.850/bit)
+  in_bits=    81924 touch=      17093 (   0.209/bit) scan=      69634 (  0.850/bit)
+  in_bits=   163844 touch=      34181 (   0.209/bit) scan=     139266 (  0.850/bit)
+fragmented-mask-stepping(W=n) :: view_le
+  in_bits=    20484 touch=       4277 (   0.209/bit) scan=      17410 (  0.850/bit)
+  in_bits=    40964 touch=       8549 (   0.209/bit) scan=      34818 (  0.850/bit)
+  in_bits=    81924 touch=      17093 (   0.209/bit) scan=      69634 (  0.850/bit)
+  in_bits=   163844 touch=      34181 (   0.209/bit) scan=     139266 (  0.850/bit)
+fragmented-mask-stepping(W=n) :: version_view_cmp
+  in_bits=    20484 touch=       4277 (   0.209/bit) scan=      17410 (  0.850/bit)
+  in_bits=    40964 touch=       8549 (   0.209/bit) scan=      34818 (  0.850/bit)
+  in_bits=    81924 touch=      17093 (   0.209/bit) scan=      69634 (  0.850/bit)
+  in_bits=   163844 touch=      34181 (   0.209/bit) scan=     139266 (  0.850/bit)
+fragmented-mask-stepping(W=n) :: view_view_cmp
+  in_bits=    20484 touch=        142 (   0.007/bit) scan=       4124 (  0.201/bit)
+  in_bits=    40964 touch=        270 (   0.007/bit) scan=       8220 (  0.201/bit)
+  in_bits=    81924 touch=        526 (   0.006/bit) scan=      16412 (  0.200/bit)
+  in_bits=   163844 touch=       1038 (   0.006/bit) scan=      32796 (  0.200/bit)
+fragmented-mask-stepping(W=n) :: view_view_eq
+  in_bits=    20484 touch=        133 (   0.006/bit) scan=       4108 (  0.201/bit)
+  in_bits=    40964 touch=        261 (   0.006/bit) scan=       8204 (  0.200/bit)
+  in_bits=    81924 touch=        517 (   0.006/bit) scan=      16396 (  0.200/bit)
+  in_bits=   163844 touch=       1029 (   0.006/bit) scan=      32780 (  0.200/bit)
+fragmented-mask-stepping(W=n) :: project_p
+  in_bits=    20484 touch=      35316 (   1.724/bit) scan=    2108420 (102.930/bit)
+  in_bits=    40964 touch=     136164 (   3.324/bit) scan=    8411140 (205.330/bit)
+  in_bits=    81924 touch=     534468 (   6.524/bit) scan=   33599492 (410.130/bit)
+  in_bits=   163844 touch=    2117508 (  12.924/bit) scan=  134307844 (819.730/bit)
+fragmented-mask-stepping(W=n) :: project_q
+  in_bits=    20484 touch=      35376 (   1.727/bit) scan=    2112518 (103.130/bit)
+  in_bits=    40964 touch=     136288 (   3.327/bit) scan=    8419334 (205.530/bit)
+  in_bits=    81924 touch=     534720 (   6.527/bit) scan=   33615878 (410.330/bit)
+  in_bits=   163844 touch=    2118016 (  12.927/bit) scan=  134340614 (819.930/bit)
+test fragmented_mask_stepping_family ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.64s
+
+        PASS [   0.705s] (2/2) before::l2_cost fragmented_mask_stepping_family
+────────────
+     Summary [   1.064s] 2 tests run: 2 passed, 2 skipped

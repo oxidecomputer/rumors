@@ -1,0 +1,51 @@
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 3 size 64 op 1 net 1164254
+L7M family 3 size 64 op 3 net 4694361
+L7M family 3 size 64 op 4 net 4667190
+L7M family 3 size 64 op 5 net 4667276
+L7M family 3 size 64 op 6 net 6480652
+L7M family 3 size 64 op 7 net 5059244
+L7M family 3 size 64 op 8 net 6031483
+L7M family 3 size 64 op 9 net 6745927
+L7M family 3 size 64 op 10 net 10558524
+L7M family 3 size 256 op 1 net 4638711
+L7M family 3 size 256 op 3 net 18647774
+L7M family 3 size 256 op 4 net 18522169
+L7M family 3 size 256 op 5 net 18522255
+L7M family 3 size 256 op 6 net 25508255
+L7M family 3 size 256 op 7 net 19837828
+L7M family 3 size 256 op 8 net 23910646
+L7M family 3 size 256 op 9 net 26638461
+L7M family 3 size 256 op 10 net 41951682
+L7M family 3 size 1024 op 1 net 18522119
+L7M family 3 size 1024 op 3 net 74464679
+L7M family 3 size 1024 op 4 net 73945858
+L7M family 3 size 1024 op 5 net 73945944
+L7M family 3 size 1024 op 6 net 101654072
+L7M family 3 size 1024 op 7 net 78971946
+L7M family 3 size 1024 op 8 net 95405155
+L7M family 3 size 1024 op 9 net 106157397
+L7M family 3 size 1024 op 10 net 167497100
+L7M family 3 size 4096 op 1 net 74092127
+L7M family 3 size 4096 op 3 net 297768007
+L7M family 3 size 4096 op 4 net 295676322
+L7M family 3 size 4096 op 5 net 295676408
+L7M family 3 size 4096 op 6 net 406287688
+L7M family 3 size 4096 op 7 net 315553581
+L7M family 3 size 4096 op 8 net 381465944
+L7M family 3 size 4096 op 9 net 424363224
+L7M family 3 size 4096 op 10 net 669719891
+L7M family 3 size 16384 op 1 net 296408142
+L7M family 3 size 16384 op 3 net 1190818267
+L7M family 3 size 16384 op 4 net 1182435126
+L7M family 3 size 16384 op 5 net 1182435212
+L7M family 3 size 16384 op 6 net 1624647388
+L7M family 3 size 16384 op 7 net 1261709505
+L7M family 3 size 16384 op 8 net 1525377540
+L7M family 3 size 16384 op 9 net 1696685996
+L7M family 3 size 16384 op 10 net 2678445441
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 8.96s
+

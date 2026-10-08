@@ -1,0 +1,5 @@
+# coverage of crates/before/src/version/range_minima/emission.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 83/84; branch outcomes 24/24
+# never-executed lines:
+L   77  Ordering::Equal => unreachable!("a decisive gap is nonzero"),
+# branches with an outcome never taken (outcome hit counts):

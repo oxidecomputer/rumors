@@ -1,0 +1,67 @@
+# coverage of crates/before/src/rank.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 420/472; branch outcomes 93/110
+# never-executed lines:
+L  202  }
+L  203  let difference = self.accumulate(other, e, true);
+L  204  debug_assert!(
+L  205  difference > Rank::ZERO,
+L  208  Some(difference)
+L  391  Ok(_) => return Err(Decode::TrailingBits),
+L  392  Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+L  393  Err(error) => return Err(Decode::Io(error)),
+L  409  Ok(0) => return Err(Decode::Truncated),
+L  414  Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+L  415  Err(error) => return Err(Decode::Io(error)),
+L  425  Ok(_) => return Err(Decode::TrailingBits),
+L  426  Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+L  427  Err(error) => return Err(Decode::Io(error)),
+L  505  fn accumulate(&self, rhs: &Rank, exp: u64, subtract_rhs: bool) -> Rank {
+L  506  let mut acc = Accumulator::new();
+L  507  let aligned_bits = |rank: &Rank| {
+L  508  if rank.num.bits() == 0 {
+L  509  0
+L  511  rank.num.bits().saturating_add(exp - rank.exp)
+L  513  };
+L  514  let widest = aligned_bits(self).max(aligned_bits(rhs)).saturating_add(1);
+L  515  if let Ok(digits) = usize::try_from(widest / 32 + 2) {
+L  516  acc.reserve_digits(digits);
+L  517  }
+L  518  acc.add_shifted_limbs(exp - self.exp, self.num.iter_u64_digits());
+L  519  if subtract_rhs {
+L  520  acc.sub_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
+L  521  } else {
+L  522  acc.add_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
+L  523  }
+L  524  let (sign, num) = acc.biguint_parts();
+L  525  debug_assert_ne!(
+L  530  Rank::from_raw(num, exp)
+L  531  }
+L  868  fn flush(&mut self) -> io::Result<()> {
+L  869  Ok(())
+L  870  }
+L  961  }
+L  962  self.accumulate(rhs, e, false)
+L  982  fn add(self, rhs: Rank) -> Rank {
+L  983  self + &rhs
+L  984  }
+L  988  fn add_assign(&mut self, rhs: &Rank) {
+L  989  *self = &*self + rhs;
+L  990  }
+L  994  fn add_assign(&mut self, rhs: Rank) {
+L  995  *self = &*self + &rhs;
+L  996  }
+L 1079  fn default() -> Self {
+L 1080  Rank::ZERO
+L 1081  }
+# branches with an outcome never taken (outcome hit counts):
+B  198  [862705, 0]  if Self::alignment_fits(self.exp, other.exp, e) {
+B  378  [0, 1]  Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+B  392  [0, 0]  Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+B  414  [0, 0]  Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+B  426  [0, 0]  Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+B  497  [881068, 0]  usize::try_from(common_exp - a_exp).is_ok() && usize::try_from(common_exp - b_exp).is_ok()
+B  508  [0, 0]  if rank.num.bits() == 0 {
+B  515  [0, 0]  if let Ok(digits) = usize::try_from(widest / 32 + 2) {
+B  519  [0, 0]  if subtract_rhs {
+B  716  [47850, 277693, 277693, 0]  exp == 0 || num.bit(0),
+B  957  [18363, 0]  if Rank::alignment_fits(self.exp, rhs.exp, e) {

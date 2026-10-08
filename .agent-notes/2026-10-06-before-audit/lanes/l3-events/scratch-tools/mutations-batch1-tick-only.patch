@@ -1,0 +1,58 @@
+diff --git a/crates/before/src/version/tick.rs b/crates/before/src/version/tick.rs
+index af7c23dc..4256f7c2 100644
+--- a/crates/before/src/version/tick.rs
++++ b/crates/before/src/version/tick.rs
+@@ -82,7 +82,7 @@ impl StoredAccumulator {
+     fn new(value: Accumulator) -> Self {
+         // At most two held digits make exact conversion constant-width.
+         // A wider representation stays boxed even if its digits might cancel.
+-        if value.stored_digit_count() > 2 {
++        if value.stored_digit_count() > 2 || crate::l3_mut(9) {
+             return Self::Wide(Box::new(value));
+         }
+         match i64::try_from(value) {
+@@ -184,7 +184,11 @@ impl TickWalk<'_> {
+                 if n.bits() == 1 {
+                     return bits;
+                 }
+-                let remaining = n.clone() - &BigUint::from(1u8);
++                let remaining = if crate::l3_mut(13) {
++                    n.clone()
++                } else {
++                    n.clone() - &BigUint::from(1u8)
++                };
+                 let simplified = bits;
+                 match Self::decide(&simplified, party) {
+                     Decision::Raise(route) => route.apply(&simplified, party, &remaining),
+@@ -522,7 +526,10 @@ impl TickWalk<'_> {
+                     arm_offset += &link;
+                     drop(link);
+                 }
+-                if self.minima.compare_above_vs(above, &arm_offset) == Ordering::Less {
++                if self.minima.compare_above_vs(above, &arm_offset) == Ordering::Less
++                    || (crate::l3_mut(6)
++                        && self.minima.compare_above_vs(above, &arm_offset) == Ordering::Equal)
++                {
+                     // The memoized minimum dominates the old maximum.
+                     self.minima.arm_relative(arm_offset);
+                     self.emit_at_min(depth + 1);
+@@ -564,7 +571,7 @@ impl TickWalk<'_> {
+         }
+         let sign = relation.cmp_zero();
+         relation.sub_bigint(above);
+-        if sign == Ordering::Less {
++        if sign == Ordering::Less || (crate::l3_mut(3) && sign == Ordering::Equal) {
+             // The memoized minimum dominates the old maximum, so the new leaf
+             // necessarily differs from the consumed range.
+             let first = self.output.is_unstarted();
+@@ -615,7 +622,9 @@ impl TickWalk<'_> {
+         if !outermost {
+             // The new zero relation is against the true minimum, so make the
+             // anchor exact before storing it.
+-            self.minima.resolve_deferred();
++            if !crate::l3_mut(8) {
++                self.minima.resolve_deferred();
++            }
+             let zero = Accumulator::new();
+             self.minima.follower_set(REL_FOLLOWER, zero);
+             self.memo_reference = MemoReference::Min;

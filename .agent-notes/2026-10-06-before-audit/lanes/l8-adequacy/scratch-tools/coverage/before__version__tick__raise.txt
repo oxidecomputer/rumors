@@ -1,0 +1,5 @@
+# coverage of crates/before/src/version/tick/raise.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 175/176; branch outcomes 30/30
+# never-executed lines:
+L   77  PayloadAdjustment::UpAbsolute => unreachable!("an absolute payload is not a delta"),
+# branches with an outcome never taken (outcome hit counts):

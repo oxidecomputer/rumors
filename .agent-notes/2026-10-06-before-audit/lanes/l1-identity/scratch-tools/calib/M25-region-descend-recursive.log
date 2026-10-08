@@ -1,0 +1,45 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: function `arb_cluster_points` is never used
+  --> crates/before/tests/audit_l1/gen.rs:32:8
+   |
+32 | pub fn arb_cluster_points() -> impl Strategy<Value = Vec<u128>> {
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+
+warning: `before` (test "audit_l1") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.13s
+────────────
+ Nextest run ID a3667f43-9a6e-4e83-973e-815dac1c8ab7 with nextest profile: default
+    Starting 20 tests across 1 binary
+        PASS [   0.157s] ( 1/20) before::audit_l1 model_roundtrip
+        PASS [   0.188s] ( 2/20) before::audit_l1 fork_matches_model
+        PASS [   0.186s] ( 3/20) before::audit_l1 set_algebra_arbitrary
+        PASS [   0.229s] ( 4/20) before::audit_l1 overlay::overlay_is_the_refinement
+        PASS [   0.249s] ( 5/20) before::audit_l1 clock_forks_match_party_forks
+        PASS [   0.266s] ( 6/20) before::audit_l1 join_all_disjoint
+        PASS [   0.260s] ( 7/20) before::audit_l1 set_algebra_disjoint
+        PASS [   0.268s] ( 8/20) before::audit_l1 set_algebra_nested
+        PASS [   0.290s] ( 9/20) before::audit_l1 forks_partial_drain
+        PASS [   0.303s] (10/20) before::audit_l1 join_all_failure_conserves_multiplicity
+        PASS [   0.321s] (11/20) before::audit_l1 wide::clock_forks_wide_counts
+        PASS [   0.339s] (12/20) before::audit_l1 sync_arbitrary
+        PASS [   0.348s] (13/20) before::audit_l1 sync_disjoint
+        PASS [   0.377s] (14/20) before::audit_l1 array_split_matches_model
+        PASS [   0.545s] (15/20) before::audit_l1 rule_respecting_histories
+        PASS [   0.731s] (16/20) before::audit_l1 deep::deep_identity_operations_are_iterative
+        PASS [   0.876s] (17/20) before::audit_l1 clock_join_all_conserves
+        PASS [   0.880s] (18/20) before::audit_l1 sync_all_matches_model
+        PASS [   1.410s] (19/20) before::audit_l1 wide::forks_wide_counts
+        PASS [   2.761s] (20/20) before::audit_l1 generator_stats
+────────────
+     Summary [   2.763s] 20 tests run: 20 passed, 0 skipped

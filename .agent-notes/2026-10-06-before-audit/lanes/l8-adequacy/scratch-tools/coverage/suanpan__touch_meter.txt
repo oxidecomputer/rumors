@@ -1,0 +1,4 @@
+# coverage of crates/suanpan/src/touch_meter.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 9/9; branch outcomes 0/0
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):

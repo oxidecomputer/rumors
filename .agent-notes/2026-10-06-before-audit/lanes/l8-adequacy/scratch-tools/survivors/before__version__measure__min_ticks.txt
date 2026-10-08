@@ -1,0 +1,3 @@
+# survivors of crates/before/src/version/measure/min_ticks.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/measure/min_ticks.rs:69:17: replace > with >= in Count::min_ticks_for
+MISSED   crates/before/src/version/measure/min_ticks.rs:69:69: replace + with * in Count::min_ticks_for

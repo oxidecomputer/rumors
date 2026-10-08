@@ -1,0 +1,36 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 16.07s
+    Finished `release` profile [optimized] target(s) in 0.18s
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 18.65s
+────────────
+ Nextest run ID ab724dcf-2977-4201-b481-04715b8fdbaf with nextest profile: default
+    Starting 2 tests across 4 binaries (8 tests skipped)
+       START [         ] (1/2) wasm32-pins-harness::pins suanpan_rejects_unaddressable_digit_landings
+
+running 1 test
+test suanpan_rejects_unaddressable_digit_landings ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.77s
+
+        PASS [   0.832s] (1/2) wasm32-pins-harness::pins suanpan_rejects_unaddressable_digit_landings
+       START [         ] (2/2) wasm32-pins-harness::pins zz_l7_suanpan_limb_index_past_usize_max
+
+running 1 test
+L7 case5 (index 2^31) outcome: Trapped(UnreachableCodeReached)
+L7 case4 (index 2^32) outcome: Trapped(UnreachableCodeReached)
+        SLOW [> 60.000s] (───) wasm32-pins-harness::pins zz_l7_suanpan_limb_index_past_usize_max
+test zz_l7_suanpan_limb_index_past_usize_max has been running for over 60 seconds
+L7 case6 (classified) outcome: Trapped(UnreachableCodeReached)
+test zz_l7_suanpan_limb_index_past_usize_max ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 70.05s
+
+        PASS [  70.203s] (2/2) wasm32-pins-harness::pins zz_l7_suanpan_limb_index_past_usize_max
+────────────
+     Summary [  71.036s] 2 tests run: 2 passed (1 slow), 8 skipped
+exit=0

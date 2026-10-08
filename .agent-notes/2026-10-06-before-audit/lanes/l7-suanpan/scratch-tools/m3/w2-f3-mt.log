@@ -1,0 +1,11 @@
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 3 size 64 op 11 net 9035486
+L7M family 3 size 256 op 11 net 35394615
+L7M family 3 size 1024 op 11 net 140665224
+L7M family 3 size 4096 op 11 net 561441322
+L7M family 3 size 16384 op 11 net 2245816047
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.67s
+

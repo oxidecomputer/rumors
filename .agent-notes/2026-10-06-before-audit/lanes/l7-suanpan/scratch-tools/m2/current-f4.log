@@ -1,0 +1,141 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.25
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling libm v0.2.16
+   Compiling serde v1.0.229
+   Compiling foldhash v0.2.0
+   Compiling version_check v0.9.5
+   Compiling wasmtime-internal-core v48.0.5
+   Compiling cranelift-srcgen v0.135.5
+   Compiling typenum v1.20.1
+   Compiling thiserror v2.0.20
+   Compiling log v0.4.34
+   Compiling cfg-if v1.0.5
+   Compiling equivalent v1.0.2
+   Compiling cranelift-isle v0.135.5
+   Compiling cranelift-codegen-shared v0.135.5
+   Compiling target-lexicon v0.13.5
+   Compiling heck v0.5.0
+   Compiling cpufeatures v0.2.17
+   Compiling allocator-api2 v0.2.21
+   Compiling fnv v1.0.7
+   Compiling hashbrown v0.16.1
+   Compiling rustc-hash v2.1.3
+   Compiling crc32fast v1.5.2
+   Compiling bitflags v2.13.2
+   Compiling arbitrary v1.4.2
+   Compiling anyhow v1.0.104
+   Compiling object v0.39.1
+   Compiling leb128fmt v0.1.0
+   Compiling libc v0.2.189
+   Compiling termcolor v1.4.1
+   Compiling memchr v2.8.3
+   Compiling find-msvc-tools v0.1.12
+   Compiling wasmtime-internal-unwinder v48.0.5
+   Compiling wasmtime-internal-component-util v48.0.5
+   Compiling shlex v2.0.1
+   Compiling rustix v1.1.5
+   Compiling either v1.18.0
+   Compiling wasmtime-internal-cranelift v48.0.5
+   Compiling once_cell v1.21.4
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/protocol)
+   Compiling wasm-encoder v0.254.2
+   Compiling itertools v0.14.0
+   Compiling hashbrown v0.17.1
+   Compiling generic-array v0.14.7
+   Compiling cranelift-assembler-x64-meta v0.135.5
+   Compiling cranelift-control v0.135.5
+   Compiling cc v1.4.6
+   Compiling bumpalo v3.20.3
+   Compiling errno v0.3.14
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling cranelift-assembler-x64 v0.135.5
+   Compiling cranelift-bitset v0.135.5
+   Compiling semver v1.0.28
+   Compiling indexmap v2.14.2
+   Compiling pulley-macros v48.0.5
+   Compiling wasmtime-internal-versioned-export-macros v48.0.5
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling async-trait v0.1.92
+   Compiling wasmtime v48.0.5
+   Compiling gimli v0.33.0
+   Compiling pulley-interpreter v48.0.5
+   Compiling cobs v0.3.0
+   Compiling cranelift-codegen-meta v0.135.5
+   Compiling smallvec v1.16.1
+   Compiling postcard v1.1.3
+   Compiling wasmparser v0.254.2
+   Compiling regalloc2 v0.15.2
+   Compiling wasmtime-internal-jit-icache-coherence v48.0.5
+   Compiling cranelift-entity v0.135.5
+   Compiling cranelift-bforest v0.135.5
+   Compiling cranelift-codegen v0.135.5
+   Compiling wasmprinter v0.254.2
+   Compiling wasmtime-environ v48.0.5
+   Compiling cranelift-frontend v0.135.5
+   Compiling cranelift-native v0.135.5
+   Compiling wasm32-pins-harness v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/harness)
+    Finished `release` profile [optimized] target(s) in 5m 49s
+     Running tests/pins.rs (../../../target/wasm32-pins/release/deps/pins-c2e1fad8c0bd62a4)
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 4 size 64 op 1 net 3158468
+L7M family 4 size 64 op 3 net 4945770
+L7M family 4 size 64 op 4 net 4923001
+L7M family 4 size 64 op 5 net 4923183
+L7M family 4 size 64 op 6 net 6598130
+L7M family 4 size 64 op 7 net 5119008
+L7M family 4 size 64 op 8 net 6821426
+L7M family 4 size 64 op 9 net 7602097
+L7M family 4 size 64 op 10 net 14955873
+L7M family 4 size 256 op 1 net 15194285
+L7M family 4 size 256 op 3 net 20978743
+L7M family 4 size 256 op 4 net 20863171
+L7M family 4 size 256 op 5 net 20863353
+L7M family 4 size 256 op 6 net 27402988
+L7M family 4 size 256 op 7 net 21491511
+L7M family 4 size 256 op 8 net 29784946
+L7M family 4 size 256 op 9 net 32980721
+L7M family 4 size 256 op 10 net 68574796
+L7M family 4 size 1024 op 1 net 70650911
+L7M family 4 size 1024 op 3 net 88784324
+L7M family 4 size 1024 op 4 net 88270039
+L7M family 4 size 1024 op 5 net 88270221
+L7M family 4 size 1024 op 6 net 114257443
+L7M family 4 size 1024 op 7 net 90619361
+L7M family 4 size 1024 op 8 net 129272435
+L7M family 4 size 1024 op 9 net 142861843
+L7M family 4 size 1024 op 10 net 312223802
+L7M family 4 size 4096 op 1 net 317627569
+L7M family 4 size 4096 op 3 net 372583804
+L7M family 4 size 4096 op 4 net 370496698
+L7M family 4 size 4096 op 5 net 370496880
+L7M family 4 size 4096 op 6 net 474287464
+L7M family 4 size 4096 op 7 net 379733427
+L7M family 4 size 4096 op 8 net 553688298
+L7M family 4 size 4096 op 9 net 611462877
+L7M family 4 size 4096 op 10 net 1398306979
+L7M family 4 size 16384 op 1 net 1418870278
+L7M family 4 size 16384 op 3 net 1564425656
+L7M family 4 size 16384 op 4 net 1556047094
+L7M family 4 size 16384 op 5 net 1556047276
+L7M family 4 size 16384 op 6 net 1971040745
+L7M family 4 size 16384 op 7 net 1592830516
+L7M family 4 size 16384 op 8 net 2369185424
+L7M family 4 size 16384 op 9 net 2612013757
+L7M family 4 size 16384 op 10 net 6130674356
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 14.90s
+
+exit=255

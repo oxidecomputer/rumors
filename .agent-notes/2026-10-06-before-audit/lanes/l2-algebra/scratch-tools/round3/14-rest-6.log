@@ -1,0 +1,35 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.21s
+────────────
+ Nextest run ID a784a92a-f3f4-4128-96e7-42a30c0b9865 with nextest profile: high-count
+    Starting 18 tests across 1 binary (3 tests skipped)
+        PASS [   0.298s] ( 1/18) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.369s] ( 2/18) before::l2_probe deep_surfaces_are_stack_safe
+        PASS [  49.159s] ( 3/18) before::l2_probe par04
+        PASS [  56.729s] ( 4/18) before::l2_probe par11
+        PASS [  57.581s] ( 5/18) before::l2_probe par03
+        PASS [  58.379s] ( 6/18) before::l2_probe par12
+        PASS [  59.429s] ( 7/18) before::l2_probe par13
+        PASS [  59.719s] ( 8/18) before::l2_probe par10
+        SLOW [> 60.000s] (─────) before::l2_probe par00
+        SLOW [> 60.000s] (─────) before::l2_probe par09
+        SLOW [> 60.000s] (─────) before::l2_probe par14
+        SLOW [> 60.000s] (─────) before::l2_probe par07
+        SLOW [> 60.000s] (─────) before::l2_probe par02
+        SLOW [> 60.000s] (─────) before::l2_probe par01
+        SLOW [> 60.000s] (─────) before::l2_probe par05
+        SLOW [> 60.000s] (─────) before::l2_probe par06
+        SLOW [> 60.000s] (─────) before::l2_probe par08
+        SLOW [> 60.000s] (─────) before::l2_probe par15
+        PASS [  60.624s] ( 9/18) before::l2_probe par00
+        PASS [  61.088s] (10/18) before::l2_probe par06
+        PASS [  61.721s] (11/18) before::l2_probe par08
+        PASS [  62.120s] (12/18) before::l2_probe par15
+        PASS [  62.929s] (13/18) before::l2_probe par01
+        PASS [  63.172s] (14/18) before::l2_probe par05
+        PASS [  66.042s] (15/18) before::l2_probe par07
+        PASS [  68.721s] (16/18) before::l2_probe par14
+        PASS [  69.143s] (17/18) before::l2_probe par09
+        PASS [  74.096s] (18/18) before::l2_probe par02
+────────────
+     Summary [  74.098s] 18 tests run: 18 passed (10 slow), 3 skipped

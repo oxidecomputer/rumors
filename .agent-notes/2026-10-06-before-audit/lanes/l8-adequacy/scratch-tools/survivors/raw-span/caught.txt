@@ -1,0 +1,103 @@
+crates/before/src/span.rs:296:33: replace <= with > in Span<'a>::dominance
+crates/before/src/span.rs:349:31: replace <= with > in Span<'a>::precedence
+crates/before/src/span.rs:411:9: replace Span<'a>::contains -> bool with false
+crates/before/src/span.rs:411:9: replace Span<'a>::contains -> bool with true
+crates/before/src/span.rs:424:19: replace <= with > in Span<'a>::contains
+crates/before/src/span.rs:424:47: replace <= with > in Span<'a>::contains
+crates/before/src/span.rs:418:32: replace == with != in Span<'a>::contains
+crates/before/src/span.rs:424:33: replace && with || in Span<'a>::contains
+crates/before/src/span.rs:471:9: replace Span<'a>::hi -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/span.rs:491:9: replace Span<'a>::lo -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/span.rs:500:9: replace Span<'a>::shared_endpoint -> Option<&Version> with None
+crates/before/src/span.rs:500:9: replace Span<'a>::shared_endpoint -> Option<&Version> with Some(Box::leak(Box::new(Default::default())))
+crates/before/src/span.rs:520:9: replace Span<'a>::into_parts -> (Version, Version) with (Default::default(), Default::default())
+crates/before/src/span.rs:569:9: replace <impl From<Version> for Cow<'_, Version>>::from -> Self with Default::default()
+crates/before/src/span/algebra.rs:85:12: replace &= with |= in Span<'a>::union
+crates/before/src/span/algebra.rs:86:12: replace |= with &= in Span<'a>::union
+crates/before/src/span/algebra.rs:160:9: replace Span<'a>::intersect -> Option<Span<'static>> with None
+crates/before/src/span/algebra.rs:162:23: replace == with != in Span<'a>::intersect
+crates/before/src/span/algebra.rs:166:12: replace |= with &= in Span<'a>::intersect
+crates/before/src/span/algebra.rs:167:12: replace &= with |= in Span<'a>::intersect
+crates/before/src/span/algebra.rs:168:15: replace <= with > in Span<'a>::intersect
+crates/before/src/span/algebra.rs:215:15: replace <= with > in Span<'a>::intersect_all
+crates/before/src/span/algebra.rs:214:9: replace Span<'a>::intersect_all -> Option<Span<'static>> with None
+crates/before/src/span/algebra.rs:343:12: replace &= with |= in Span<'a>::meet
+crates/before/src/span/algebra.rs:261:12: replace |= with &= in Span<'a>::join
+crates/before/src/span/algebra.rs:262:12: replace |= with &= in Span<'a>::join
+crates/before/src/span/algebra.rs:409:63: replace && with || in Span<'a>::fold_endpoints
+crates/before/src/span/algebra.rs:344:12: replace &= with |= in Span<'a>::meet
+crates/before/src/span/algebra.rs:402:9: replace Span<'a>::fold_endpoints -> (Version, Version) with (Default::default(), Default::default())
+crates/before/src/span/algebra.rs:413:17: delete ! in Span<'a>::fold_endpoints
+crates/before/src/span/algebra.rs:491:5: replace union_points -> (Version, Version) with (Default::default(), Default::default())
+crates/before/src/span/algebra.rs:513:5: replace join_points -> (Version, Version) with (Default::default(), Default::default())
+crates/before/src/span/algebra.rs:502:5: replace intersect_points -> (Version, Version) with (Default::default(), Default::default())
+crates/before/src/span/algebra.rs:530:42: replace &= with |=
+crates/before/src/span/algebra.rs:502:10: replace == with != in intersect_points
+crates/before/src/span/algebra.rs:522:5: replace meet_points -> (Version, Version) with (Default::default(), Default::default())
+crates/before/src/span/algebra.rs:539:42: replace |= with &=
+crates/before/src/span/algebra.rs:548:42: replace |= with &=
+crates/before/src/span/algebra.rs:549:42: replace |= with &=
+crates/before/src/span/algebra.rs:531:42: replace |= with &=
+crates/before/src/span/algebra.rs:557:42: replace &= with |=
+crates/before/src/span/algebra.rs:558:42: replace &= with |=
+crates/before/src/span/algebra.rs:540:42: replace &= with |=
+crates/before/src/span/own.rs:132:17: delete match arm None in OwnSpan<'a>::place
+crates/before/src/span/own.rs:122:17: delete match arm Some(Ordering::Equal) in OwnSpan<'a>::place
+crates/before/src/span/algebra.rs:602:9: replace Group<FoldInput<'_, 'i, T>>::point -> Option<&'x Version> with None
+crates/before/src/span/algebra.rs:602:9: replace Group<FoldInput<'_, 'i, T>>::point -> Option<&'x Version> with Some(Box::leak(Box::new(Default::default())))
+crates/before/src/span/own.rs:174:24: replace >= with < in OwnSpan<'a>::dominance
+crates/before/src/span/own.rs:173:20: replace >= with < in OwnSpan<'a>::dominance
+crates/before/src/span/own.rs:221:24: replace <= with > in OwnSpan<'a>::precedence
+crates/before/src/span/own.rs:220:20: replace <= with > in OwnSpan<'a>::precedence
+crates/before/src/span/own.rs:253:9: replace OwnSpan<'a>::contains -> bool with true
+crates/before/src/span/own.rs:253:9: replace OwnSpan<'a>::contains -> bool with false
+crates/before/src/span/own.rs:253:30: replace && with || in OwnSpan<'a>::contains
+crates/before/src/span/own.rs:253:17: replace >= with < in OwnSpan<'a>::contains
+crates/before/src/span/own.rs:253:41: replace <= with > in OwnSpan<'a>::contains
+crates/before/src/span/wire.rs:47:9: replace Span<'a>::encode -> Vec<u8> with vec![]
+crates/before/src/span/wire.rs:47:9: replace Span<'a>::encode -> Vec<u8> with vec![0]
+crates/before/src/span/wire.rs:47:9: replace Span<'a>::encode -> Vec<u8> with vec![1]
+crates/before/src/span/wire.rs:75:9: replace Span<'a>::encode_to -> io::Result<()> with Ok(())
+crates/before/src/span/wire.rs:135:32: replace + with - in Span<'a>::decode_bytes
+crates/before/src/span/wire.rs:136:21: replace > with == in Span<'a>::decode_bytes
+crates/before/src/span/wire.rs:135:32: replace + with * in Span<'a>::decode_bytes
+crates/before/src/span/wire.rs:136:21: replace > with < in Span<'a>::decode_bytes
+crates/before/src/causally/conjunction.rs:54:32: delete ! in Query<'a, P>::and
+crates/before/src/causally/conjunction.rs:48:16: delete ! in Query<'a, P>::and
+crates/before/src/causally/forms.rs:290:9: replace Floor<'a>::contains -> bool with false
+crates/before/src/causally/forms.rs:290:26: replace <= with > in Floor<'a>::contains
+crates/before/src/causally/forms.rs:290:9: replace Floor<'a>::contains -> bool with true
+crates/before/src/causally/forms.rs:331:9: replace Ceiling<'a>::contains -> bool with true
+crates/before/src/causally/forms.rs:331:9: replace Ceiling<'a>::contains -> bool with false
+crates/before/src/causally/forms.rs:331:17: replace <= with > in Ceiling<'a>::contains
+crates/before/src/causally/polarity.rs:87:13: replace sealed::<impl Sealed for super::Down>::hole_survives -> bool with true
+crates/before/src/causally/polarity.rs:79:13: replace sealed::<impl Sealed for super::Down>::covering_endpoint -> &'a Version with Box::leak(Box::new(Default::default()))
+crates/before/src/causally/polarity.rs:87:13: replace sealed::<impl Sealed for super::Down>::hole_survives -> bool with false
+crates/before/src/causally/polarity.rs:90:31: replace < with == in sealed::<impl Sealed for super::Down>::hole_survives
+crates/before/src/causally/polarity.rs:90:31: replace < with > in sealed::<impl Sealed for super::Down>::hole_survives
+crates/before/src/causally/polarity.rs:92:31: replace <= with > in sealed::<impl Sealed for super::Down>::hole_survives
+crates/before/src/causally/polarity.rs:103:13: replace sealed::<impl Sealed for super::Down>::absorbs -> bool with true
+crates/before/src/causally/polarity.rs:103:13: replace sealed::<impl Sealed for super::Down>::absorbs -> bool with false
+crates/before/src/causally/polarity.rs:105:52: replace || with && in sealed::<impl Sealed for super::Down>::absorbs
+crates/before/src/causally/polarity.rs:105:42: delete ! in sealed::<impl Sealed for super::Down>::absorbs
+crates/before/src/causally/polarity.rs:111:13: replace sealed::<impl Sealed for super::Down>::hole_name -> &'static str with ""
+crates/before/src/causally/polarity.rs:111:13: replace sealed::<impl Sealed for super::Down>::hole_name -> &'static str with "xyzzy"
+crates/before/src/causally/polarity.rs:137:13: replace sealed::<impl Sealed for super::Up>::covering_endpoint -> &'a Version with Box::leak(Box::new(Default::default()))
+crates/before/src/causally/polarity.rs:145:13: replace sealed::<impl Sealed for super::Up>::hole_survives -> bool with false
+crates/before/src/causally/polarity.rs:148:42: replace < with == in sealed::<impl Sealed for super::Up>::hole_survives
+crates/before/src/causally/polarity.rs:148:42: replace < with > in sealed::<impl Sealed for super::Up>::hole_survives
+crates/before/src/causally/polarity.rs:150:42: replace <= with > in sealed::<impl Sealed for super::Up>::hole_survives
+crates/before/src/causally/polarity.rs:159:13: replace sealed::<impl Sealed for super::Up>::absorbs -> bool with true
+crates/before/src/causally/polarity.rs:161:42: delete ! in sealed::<impl Sealed for super::Up>::absorbs
+crates/before/src/causally/polarity.rs:167:13: replace sealed::<impl Sealed for super::Up>::hole_name -> &'static str with ""
+crates/before/src/causally/polarity.rs:167:13: replace sealed::<impl Sealed for super::Up>::hole_name -> &'static str with "xyzzy"
+crates/before/src/causally/polarity.rs:202:13: replace sealed::<impl Sealed for super::Neutral>::absorbs -> bool with true
+crates/before/src/causally/query.rs:93:9: replace Query<'a, P>::demands -> impl Iterator<Item =(&Version, Demand)> with ::std::iter::empty()
+crates/before/src/causally/query.rs:103:9: replace Query<'a, P>::hole_demands -> impl Iterator<Item =(&'b Version, Demand)> with ::std::iter::empty()
+crates/before/src/causally/query.rs:153:9: replace Query<'a, P>::contains -> bool with true
+crates/before/src/causally/query.rs:153:9: replace Query<'a, P>::contains -> bool with false
+crates/before/src/causally/query.rs:235:44: replace & with | in Query<'a, P>::refine_partial
+crates/before/src/causally/query.rs:231:42: replace | with & in Query<'a, P>::refine_partial
+crates/before/src/causally/query.rs:299:16: delete ! in <impl fmt::Debug for Query<'_, P>>::fmt
+crates/before/src/causally/query.rs:238:23: replace <= with > in Query<'a, P>::refine_partial
+crates/before/src/causally/query.rs:297:9: replace <impl fmt::Debug for Query<'_, P>>::fmt -> fmt::Result with Ok(Default::default())

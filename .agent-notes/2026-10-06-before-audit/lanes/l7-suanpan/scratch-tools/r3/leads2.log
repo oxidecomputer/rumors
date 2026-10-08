@@ -1,0 +1,290 @@
+== STEP3 lead1
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6m 03s
+────────────
+ Nextest run ID f86512d7-cd5a-410f-a108-0d52199be4cd with nextest profile: default
+    Starting 1 test across 1 binary (545 tests skipped)
+       START [         ] (1/1) before testing::meter::board::l7_compare_probe::l7_compare_offset_accounting
+
+running 1 test
+L7CMP family=CombScatter size=0 bytes=710 tick_touches=3096 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CombScatter size=1 bytes=918 tick_touches=5912 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CombScatter size=2 bytes=1334 tick_touches=11544 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CombScatter size=3 bytes=2166 tick_touches=22808 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedFull size=0 bytes=1315 tick_touches=7506 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedFull size=1 bytes=2627 tick_touches=15006 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedFull size=2 bytes=5252 tick_touches=30006 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedFull size=3 bytes=10502 tick_touches=60006 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedWide size=0 bytes=1128 tick_touches=6179 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedWide size=1 bytes=2253 tick_touches=12335 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedWide size=2 bytes=4503 tick_touches=24645 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=NestedWide size=3 bytes=9003 tick_touches=49269 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=MirrorWide size=0 bytes=564 tick_touches=7165 calls=499 cmp_touches=1497 cand_digits=499 above_digits=0 gap_digits=7984 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.8848
+L7CMP family=MirrorWide size=1 bytes=1127 tick_touches=14333 calls=999 cmp_touches=2997 cand_digits=999 above_digits=0 gap_digits=31968 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.8864
+L7CMP family=MirrorWide size=2 bytes=2252 tick_touches=28660 calls=1999 cmp_touches=5997 cand_digits=1999 above_digits=0 gap_digits=125937 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.8877
+L7CMP family=MirrorWide size=3 bytes=4502 tick_touches=57311 calls=3999 cmp_touches=11997 cand_digits=3999 above_digits=0 gap_digits=499875 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.8883
+L7CMP family=MirrorNarrow size=0 bytes=1315 tick_touches=21006 calls=1499 cmp_touches=4497 cand_digits=1499 above_digits=0 gap_digits=1499 max_call=3 cmp_per_operand=1.000 cand_per_byte=1.1399
+L7CMP family=MirrorNarrow size=1 bytes=2627 tick_touches=42006 calls=2999 cmp_touches=8997 cand_digits=2999 above_digits=0 gap_digits=2999 max_call=3 cmp_per_operand=1.000 cand_per_byte=1.1416
+L7CMP family=MirrorNarrow size=2 bytes=5252 tick_touches=84006 calls=5999 cmp_touches=17997 cand_digits=5999 above_digits=0 gap_digits=5999 max_call=3 cmp_per_operand=1.000 cand_per_byte=1.1422
+L7CMP family=MirrorNarrow size=3 bytes=10502 tick_touches=168006 calls=11999 cmp_touches=35997 cand_digits=11999 above_digits=0 gap_digits=11999 max_call=3 cmp_per_operand=1.000 cand_per_byte=1.1425
+L7CMP family=Staircase size=0 bytes=1317 tick_touches=7507 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=Staircase size=1 bytes=2630 tick_touches=15007 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=Staircase size=2 bytes=5255 tick_touches=30007 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=Staircase size=3 bytes=10505 tick_touches=60007 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=RevealComb size=0 bytes=1377 tick_touches=15340 calls=499 cmp_touches=1497 cand_digits=499 above_digits=0 gap_digits=499 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.3624
+L7CMP family=RevealComb size=1 bytes=2752 tick_touches=30684 calls=999 cmp_touches=2997 cand_digits=999 above_digits=0 gap_digits=999 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.3630
+L7CMP family=RevealComb size=2 bytes=5502 tick_touches=61353 calls=1999 cmp_touches=5997 cand_digits=1999 above_digits=0 gap_digits=1999 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.3633
+L7CMP family=RevealComb size=3 bytes=11002 tick_touches=122687 calls=3999 cmp_touches=11997 cand_digits=3999 above_digits=0 gap_digits=3999 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.3635
+L7CMP family=RevealHifloor size=0 bytes=1377 tick_touches=16198 calls=500 cmp_touches=1504 cand_digits=500 above_digits=0 gap_digits=500 max_call=7 cmp_per_operand=1.003 cand_per_byte=0.3631
+L7CMP family=RevealHifloor size=1 bytes=2752 tick_touches=32366 calls=1000 cmp_touches=3004 cand_digits=1000 above_digits=0 gap_digits=1000 max_call=7 cmp_per_operand=1.001 cand_per_byte=0.3634
+L7CMP family=RevealHifloor size=2 bytes=5502 tick_touches=64693 calls=2000 cmp_touches=6004 cand_digits=2000 above_digits=0 gap_digits=2000 max_call=7 cmp_per_operand=1.001 cand_per_byte=0.3635
+L7CMP family=RevealHifloor size=3 bytes=11002 tick_touches=129344 calls=4000 cmp_touches=12004 cand_digits=4000 above_digits=0 gap_digits=4000 max_call=7 cmp_per_operand=1.000 cand_per_byte=0.3636
+L7CMP family=PureComb size=0 bytes=1377 tick_touches=2083 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=PureComb size=1 bytes=2752 tick_touches=4162 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=PureComb size=2 bytes=5502 tick_touches=8322 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=PureComb size=3 bytes=11002 tick_touches=16636 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendCliff size=0 bytes=1366 tick_touches=7128 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendCliff size=1 bytes=2730 tick_touches=14245 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendCliff size=2 bytes=5458 tick_touches=28474 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendCliff size=3 bytes=10914 tick_touches=56932 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendPlateau size=0 bytes=1118 tick_touches=1182 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendPlateau size=1 bytes=2234 tick_touches=2347 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendPlateau size=2 bytes=4466 tick_touches=4672 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=AscendPlateau size=3 bytes=8930 tick_touches=9322 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=DominatedUndercut size=0 bytes=13562 tick_touches=25284 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=DominatedUndercut size=1 bytes=52722 tick_touches=82564 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=DominatedUndercut size=2 bytes=207842 tick_touches=286724 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=DominatedUndercut size=3 bytes=825282 tick_touches=1059844 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=MemoChain size=0 bytes=1379 tick_touches=10508 calls=249 cmp_touches=1245 cand_digits=249 above_digits=0 gap_digits=249 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1806
+L7CMP family=MemoChain size=1 bytes=3002 tick_touches=21008 calls=499 cmp_touches=2495 cand_digits=499 above_digits=0 gap_digits=499 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1662
+L7CMP family=MemoChain size=2 bytes=6497 tick_touches=42008 calls=999 cmp_touches=4995 cand_digits=999 above_digits=0 gap_digits=999 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1538
+L7CMP family=MemoChain size=3 bytes=13985 tick_touches=84008 calls=1999 cmp_touches=9995 cand_digits=1999 above_digits=0 gap_digits=1999 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1429
+L7CMP family=MemoComb size=0 bytes=741 tick_touches=7639 calls=250 cmp_touches=1000 cand_digits=250 above_digits=0 gap_digits=250 max_call=5 cmp_per_operand=1.333 cand_per_byte=0.3374
+L7CMP family=MemoComb size=1 bytes=1600 tick_touches=15264 calls=500 cmp_touches=2000 cand_digits=500 above_digits=0 gap_digits=500 max_call=5 cmp_per_operand=1.333 cand_per_byte=0.3125
+L7CMP family=MemoComb size=2 bytes=3442 tick_touches=30514 calls=1000 cmp_touches=4000 cand_digits=1000 above_digits=0 gap_digits=1000 max_call=5 cmp_per_operand=1.333 cand_per_byte=0.2905
+L7CMP family=MemoComb size=3 bytes=7374 tick_touches=61014 calls=2000 cmp_touches=8000 cand_digits=2000 above_digits=0 gap_digits=2000 max_call=5 cmp_per_operand=1.333 cand_per_byte=0.2712
+L7CMP family=MemoFanout size=0 bytes=1651 tick_touches=9333 calls=249 cmp_touches=747 cand_digits=249 above_digits=0 gap_digits=249 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.1508
+L7CMP family=MemoFanout size=1 bytes=3301 tick_touches=18669 calls=499 cmp_touches=1497 cand_digits=499 above_digits=0 gap_digits=499 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.1512
+L7CMP family=MemoFanout size=2 bytes=6599 tick_touches=37341 calls=999 cmp_touches=2997 cand_digits=999 above_digits=0 gap_digits=999 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.1514
+L7CMP family=MemoFanout size=3 bytes=13195 tick_touches=74685 calls=1999 cmp_touches=5997 cand_digits=1999 above_digits=0 gap_digits=1999 max_call=3 cmp_per_operand=1.000 cand_per_byte=0.1515
+L7CMP family=MemoOscillating size=0 bytes=32565 tick_touches=111807 calls=249 cmp_touches=20168 cand_digits=3984 above_digits=0 gap_digits=2124 max_call=82 cmp_per_operand=2.454 cand_per_byte=0.1223
+L7CMP family=MemoOscillating size=1 bytes=129128 tick_touches=437602 calls=499 cmp_touches=80338 cand_digits=15968 above_digits=0 gap_digits=8249 max_call=162 cmp_per_operand=2.477 cand_per_byte=0.1237
+L7CMP family=MemoOscillating size=2 bytes=514253 tick_touches=1731192 calls=999 cmp_touches=320678 cand_digits=63936 above_digits=0 gap_digits=32499 max_call=322 cmp_per_operand=2.488 cand_per_byte=0.1243
+L7CMP family=MemoOscillating size=3 bytes=2052503 tick_touches=6886372 calls=1999 cmp_touches=1281358 cand_digits=255872 above_digits=0 gap_digits=128999 max_call=642 cmp_per_operand=2.494 cand_per_byte=0.1247
+L7CMP family=MemoChurn size=0 bytes=1332 tick_touches=10820 calls=199 cmp_touches=995 cand_digits=199 above_digits=0 gap_digits=199 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1494
+L7CMP family=MemoChurn size=1 bytes=2855 tick_touches=21620 calls=399 cmp_touches=1995 cand_digits=399 above_digits=0 gap_digits=399 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1398
+L7CMP family=MemoChurn size=2 bytes=6100 tick_touches=43220 calls=799 cmp_touches=3995 cand_digits=799 above_digits=0 gap_digits=799 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1310
+L7CMP family=MemoChurn size=3 bytes=12989 tick_touches=86420 calls=1599 cmp_touches=7995 cand_digits=1599 above_digits=0 gap_digits=1599 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1231
+L7CMP family=DescendingRaises size=0 bytes=1088 tick_touches=8428 calls=199 cmp_touches=995 cand_digits=199 above_digits=0 gap_digits=199 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1829
+L7CMP family=DescendingRaises size=1 bytes=2361 tick_touches=16828 calls=399 cmp_touches=1995 cand_digits=399 above_digits=0 gap_digits=399 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1690
+L7CMP family=DescendingRaises size=2 bytes=5107 tick_touches=33628 calls=799 cmp_touches=3995 cand_digits=799 above_digits=0 gap_digits=799 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1565
+L7CMP family=DescendingRaises size=3 bytes=10996 tick_touches=67228 calls=1599 cmp_touches=7995 cand_digits=1599 above_digits=0 gap_digits=1599 max_call=5 cmp_per_operand=1.667 cand_per_byte=0.1454
+L7CMP family=CollapseHole size=0 bytes=10518 tick_touches=50588 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CollapseHole size=1 bytes=41546 tick_touches=199484 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CollapseHole size=2 bytes=165074 tick_touches=792188 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CollapseHole size=3 bytes=657954 tick_touches=3157244 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CopyHole size=0 bytes=10462 tick_touches=99084 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CopyHole size=1 bytes=41434 tick_touches=394764 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CopyHole size=2 bytes=164850 tick_touches=1575948 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=CopyHole size=3 bytes=657506 tick_touches=6297612 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=RaiseHole size=0 bytes=10478 tick_touches=50272 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=RaiseHole size=1 bytes=41466 tick_touches=198848 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=RaiseHole size=2 bytes=164914 tick_touches=790912 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=RaiseHole size=3 bytes=657634 tick_touches=3154688 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=SiteHole size=0 bytes=10518 tick_touches=67176 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=SiteHole size=1 bytes=41546 tick_touches=265416 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=SiteHole size=2 bytes=165074 tick_touches=1055112 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=SiteHole size=3 bytes=657954 tick_touches=4207368 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-all-b256 size=64 bytes=186 tick_touches=584 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-all-b256 size=128 bytes=242 tick_touches=1032 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-all-b256 size=256 bytes=354 tick_touches=1928 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-all-b256 size=512 bytes=578 tick_touches=3720 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-all-b512 size=128 bytes=370 tick_touches=1172 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-all-b1024 size=128 bytes=626 tick_touches=1452 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-all-b2048 size=128 bytes=1138 tick_touches=2012 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-top-b256 size=64 bytes=162 tick_touches=143 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-top-b256 size=128 bytes=194 tick_touches=143 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-top-b256 size=256 bytes=258 tick_touches=143 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-top-b256 size=512 bytes=386 tick_touches=143 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-top-b512 size=128 bytes=322 tick_touches=283 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-top-b1024 size=128 bytes=578 tick_touches=563 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+L7CMP family=left-chain-top-b2048 size=128 bytes=1090 tick_touches=1123 calls=0 cmp_touches=0 cand_digits=0 above_digits=0 gap_digits=0 max_call=0 cmp_per_operand=0.000 cand_per_byte=0.0000
+test testing::meter::board::l7_compare_probe::l7_compare_offset_accounting ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 545 filtered out; finished in 20.92s
+
+        PASS [  21.121s] (1/1) before testing::meter::board::l7_compare_probe::l7_compare_offset_accounting
+────────────
+     Summary [  21.124s] 1 test run: 1 passed, 545 skipped
+== STEP4 wasm32
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.25
+   Compiling thiserror v2.0.20
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling syn v3.0.6
+   Compiling thiserror-impl v2.0.20
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+warning: function `l7_leaves` is never used
+   --> guest/src/l7_builders.rs:152:8
+    |
+152 | pub fn l7_leaves(family: u64, r: u64) -> u64 {
+    |        ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm32-pins-guest` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 38.75s
+   Compiling serde_core v1.0.229
+   Compiling syn v3.0.6
+   Compiling libm v0.2.16
+   Compiling serde v1.0.229
+   Compiling foldhash v0.2.0
+   Compiling syn v2.0.119
+   Compiling wasmtime-internal-core v48.0.5
+   Compiling version_check v0.9.5
+   Compiling cranelift-srcgen v0.135.5
+   Compiling typenum v1.20.1
+   Compiling equivalent v1.0.2
+   Compiling cfg-if v1.0.5
+   Compiling cranelift-isle v0.135.5
+   Compiling log v0.4.34
+   Compiling cranelift-codegen-shared v0.135.5
+   Compiling target-lexicon v0.13.5
+   Compiling heck v0.5.0
+   Compiling cpufeatures v0.2.17
+   Compiling allocator-api2 v0.2.21
+   Compiling fnv v1.0.7
+   Compiling thiserror v2.0.20
+   Compiling hashbrown v0.16.1
+   Compiling anyhow v1.0.104
+   Compiling hashbrown v0.17.1
+   Compiling bitflags v2.13.2
+   Compiling generic-array v0.14.7
+   Compiling cranelift-assembler-x64-meta v0.135.5
+   Compiling crc32fast v1.5.2
+   Compiling rustc-hash v2.1.3
+   Compiling arbitrary v1.4.2
+   Compiling object v0.39.1
+   Compiling memchr v2.8.3
+   Compiling libc v0.2.189
+   Compiling leb128fmt v0.1.0
+   Compiling termcolor v1.4.1
+   Compiling shlex v2.0.1
+   Compiling bumpalo v3.20.3
+   Compiling wasm-encoder v0.254.2
+   Compiling wasmtime-internal-component-util v48.0.5
+   Compiling wasmtime-internal-unwinder v48.0.5
+   Compiling find-msvc-tools v0.1.12
+   Compiling rustix v1.1.5
+   Compiling wasmtime-internal-cranelift v48.0.5
+   Compiling either v1.18.0
+   Compiling once_cell v1.21.4
+   Compiling cc v1.4.6
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/protocol)
+   Compiling itertools v0.14.0
+   Compiling cranelift-control v0.135.5
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling errno v0.3.14
+   Compiling digest v0.10.7
+   Compiling cranelift-assembler-x64 v0.135.5
+   Compiling sha2 v0.10.9
+   Compiling cranelift-bitset v0.135.5
+   Compiling pulley-macros v48.0.5
+   Compiling wasmtime-internal-versioned-export-macros v48.0.5
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling async-trait v0.1.92
+   Compiling semver v1.0.28
+   Compiling pulley-interpreter v48.0.5
+   Compiling wasmtime v48.0.5
+   Compiling indexmap v2.14.2
+   Compiling cobs v0.3.0
+   Compiling gimli v0.33.0
+   Compiling cranelift-codegen-meta v0.135.5
+   Compiling smallvec v1.16.1
+   Compiling postcard v1.1.3
+   Compiling wasmparser v0.254.2
+   Compiling regalloc2 v0.15.2
+   Compiling wasmtime-internal-jit-icache-coherence v48.0.5
+   Compiling cranelift-entity v0.135.5
+   Compiling cranelift-bforest v0.135.5
+   Compiling cranelift-codegen v0.135.5
+   Compiling wasmprinter v0.254.2
+   Compiling wasmtime-environ v48.0.5
+   Compiling cranelift-native v0.135.5
+   Compiling cranelift-frontend v0.135.5
+   Compiling wasm32-pins-harness v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/harness)
+    Finished `release` profile [optimized] target(s) in 3m 39s
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+warning: function `l7_leaves` is never used
+   --> guest/src/l7_builders.rs:152:8
+    |
+152 | pub fn l7_leaves(family: u64, r: u64) -> u64 {
+    |        ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm32-pins-guest` (lib test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 23.52s
+────────────
+ Nextest run ID 6f2e26c5-271e-4f93-a677-e6bc7363a23b with nextest profile: default
+    Starting 3 tests across 4 binaries (10 tests skipped)
+       START [         ] (1/3) wasm32-pins-harness::pins suanpan_rejects_unaddressable_digit_landings
+
+running 1 test
+test suanpan_rejects_unaddressable_digit_landings ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 37.74s
+
+        PASS [  37.871s] (1/3) wasm32-pins-harness::pins suanpan_rejects_unaddressable_digit_landings
+       START [         ] (2/3) wasm32-pins-harness::pins zz_l7_suanpan_add_shifted_landings
+
+running 1 test
+L7 landing case 1: Trapped(UnreachableCodeReached)
+L7 landing case 2: Trapped(UnreachableCodeReached)
+L7 landing case 3: Trapped(UnreachableCodeReached)
+L7 landing case 4: Trapped(UnreachableCodeReached)
+L7 landing case 10: Trapped(UnreachableCodeReached)
+L7 landing case 11: Trapped(UnreachableCodeReached)
+test zz_l7_suanpan_add_shifted_landings ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 32.80s
+
+        PASS [  32.851s] (2/3) wasm32-pins-harness::pins zz_l7_suanpan_add_shifted_landings
+       START [         ] (3/3) wasm32-pins-harness::pins zz_l7_suanpan_stability_width_compacts
+
+running 1 test
+L7 stability huge width (case 9): Failed(WrongLength)
+
+thread 'zz_l7_suanpan_stability_width_compacts' (2) panicked at harness/tests/pins.rs:220:5:
+assertion `left == right` failed
+  left: Failed(WrongLength)
+ right: Passed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test zz_l7_suanpan_stability_width_compacts ... FAILED
+
+failures:
+
+failures:
+    zz_l7_suanpan_stability_width_compacts
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.76s
+
+        FAIL [   0.810s] (3/3) wasm32-pins-harness::pins zz_l7_suanpan_stability_width_compacts
+  Cancelling due to test failure: 
+────────────
+     Summary [  71.534s] 3 tests run: 2 passed, 1 failed, 10 skipped
+        FAIL [   0.810s] (3/3) wasm32-pins-harness::pins zz_l7_suanpan_stability_width_compacts
+error: test run failed
+STEP4 TESTS FAILED
+pins-c2e1fad8c0bd62a4
+STEP4 DONE

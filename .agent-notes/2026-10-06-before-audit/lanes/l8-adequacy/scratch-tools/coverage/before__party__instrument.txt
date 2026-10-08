@@ -1,0 +1,4 @@
+# coverage of crates/before/src/party/instrument.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 6/6; branch outcomes 0/0
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):

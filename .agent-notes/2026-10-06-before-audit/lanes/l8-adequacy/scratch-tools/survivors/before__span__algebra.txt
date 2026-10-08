@@ -1,0 +1,2 @@
+# survivors of crates/before/src/span/algebra.rs (span); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/span/algebra.rs:410:20: delete ! in Span<'a>::fold_endpoints

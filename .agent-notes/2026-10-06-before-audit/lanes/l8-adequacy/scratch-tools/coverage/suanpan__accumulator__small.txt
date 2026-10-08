@@ -1,0 +1,5 @@
+# coverage of crates/suanpan/src/accumulator/small.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 38/38; branch outcomes 9/10
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):
+B   83  [23144457, 10225, 10225, 0]  debug_assert!(len < 2 || limbs[1] != 0);

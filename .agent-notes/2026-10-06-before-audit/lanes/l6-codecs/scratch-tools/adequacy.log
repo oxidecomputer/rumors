@@ -1,0 +1,510 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 13s
+=== MUT 0 ===
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+────────────
+ Nextest run ID 235aa8a1-fb50-4f76-a888-8e10f7c4bad5 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  27.351s] 693 tests run: 693 passed, 12 skipped
+=== END 0 exit=0 secs=29 ===
+=== MUT 1 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+────────────
+ Nextest run ID 25d59668-731f-404e-92c7-a435f1c2e00e with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  25.828s] 693 tests run: 684 passed, 9 failed, 12 skipped
+        FAIL [   0.076s] (185/693) before span::tests::span_decode_structural_errors_outrank_the_pair_verdict
+        FAIL [   1.264s] (191/693) before bits::tests::bit_flip_rejects_or_decodes_canonically
+        FAIL [   0.262s] (205/693) before span::tests::span_single_bit_mutations_never_alias
+        FAIL [   0.062s] (379/693) before version::io::tests::exhaustive_single_bit_mutations_never_alias
+        FAIL [   0.100s] (384/693) before version::io::tests::arbitrary_single_bit_mutations_never_alias
+        FAIL [   0.064s] (389/693) before version::io::tests::rejects_negative_height_midstream
+        FAIL [   0.063s] (392/693) before version::io::tests::rejects_negative_running_height
+        FAIL [   0.055s] (606/693) before::fuzz_seeds decode_seeds_decode_as_named_and_round_trip
+        FAIL [  10.476s] (691/693) before version::tests::ranked_composite_bit_flip_rejects_or_decodes_canonically
+error: test run failed
+=== END 1 exit=100 secs=27 ===
+=== MUT 2 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+────────────
+ Nextest run ID 18af94b1-0353-4583-9dee-97687d222f2b with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  98.999s] 693 tests run: 600 passed, 93 failed, 12 skipped
+        FAIL [   0.159s] ( 15/693) before bits::tests::decode_encode_roundtrip
+        FAIL [   0.138s] ( 62/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        FAIL [   0.104s] ( 65/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        FAIL [   0.102s] ( 85/693) before clock::tests::borsh_frames_as_canonical_bytes
+        FAIL [   0.078s] ( 90/693) before clock::tests::encoding_views_agree_over_impl_history
+        FAIL [   0.160s] ( 93/693) before clock::tests::borsh_roundtrip
+        FAIL [   0.137s] ( 95/693) before clock::tests::decode_preserves_component_canonicity
+        FAIL [   0.246s] ( 96/693) before borsh_impls::tests::span_borsh_roundtrips
+        FAIL [   0.286s] ( 97/693) before borsh_impls::tests::ranked_borsh_roundtrips_and_orders
+        FAIL [   0.121s] ( 98/693) before clock::tests::deep_tree_stack_safety
+        FAIL [   0.084s] (100/693) before clock::tests::master_differential
+        FAIL [   0.072s] (101/693) before clock::tests::serde_roundtrip_binary_formats
+        FAIL [   0.100s] (106/693) before clock::tests::serde_roundtrip
+        FAIL [   0.246s] (109/693) before clock::tests::deep_tree_query_and_causal_stack_safety
+        FAIL [   0.777s] (120/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+        FAIL [   0.077s] (188/693) before span::tests::span_decode_verdict_matches_the_composed_form_off_corpus
+        FAIL [   0.851s] (190/693) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        FAIL [   0.286s] (194/693) before serde_impls::tests::serde_roundtrips_every_supported_type
+        FAIL [   0.190s] (196/693) before span::tests::span_decode_verdict_matches_the_composed_form_exhaustively
+        FAIL [   0.058s] (204/693) before testing::asymptotics::mul_bound_key_embedding_is_alive
+        FAIL [   1.308s] (245/693) before testing::algebraic_laws::tests::version_solo_laws
+        FAIL [   0.908s] (247/693) before testing::exhaustive::tests::exhaustive_small
+        FAIL [   0.062s] (255/693) before testing::meter::board::tests::many_hole_conjunction_preserves_both_antichains
+        FAIL [   0.075s] (258/693) before testing::meter::board::tests::many_hole_query_operands_exercise_both_fused_walks
+        FAIL [   0.055s] (271/693) before testing::meter::tests::alt_spine_decodes_canonically_at_predicted_length
+        FAIL [   0.058s] (272/693) before testing::meter::tests::bigroot_decodes_canonically_at_predicted_length
+        FAIL [   0.059s] (273/693) before testing::meter::tests::cliff_fan_decodes_canonically_at_predicted_length
+        FAIL [   0.078s] (274/693) before testing::meter::tests::arming_train_decodes_canonically_at_predicted_length
+        FAIL [   0.057s] (275/693) before testing::meter::tests::dense_suffix_decodes_canonically_at_predicted_length
+        FAIL [   0.073s] (276/693) before testing::meter::tests::dense_decodes_canonically_at_predicted_length
+        FAIL [   0.059s] (277/693) before testing::meter::tests::dense_suffix_mate_decodes_canonically_at_predicted_length
+        FAIL [   0.052s] (279/693) before testing::meter::tests::freeze_parade_decodes_canonically_at_predicted_length
+        FAIL [   0.055s] (282/693) before testing::meter::tests::harmonic_decodes_canonically_at_predicted_length
+        FAIL [   0.057s] (285/693) before testing::meter::tests::hoisted_window_decodes_canonically_at_predicted_length
+        FAIL [   0.057s] (287/693) before testing::meter::tests::hole_pairs_decode_canonically_at_predicted_lengths
+        FAIL [   0.058s] (291/693) before testing::meter::tests::jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves
+        FAIL [   0.050s] (294/693) before testing::meter::tests::plateau_puncture_decodes_canonically_at_predicted_length
+        FAIL [   0.067s] (295/693) before testing::meter::tests::masked_hole_decodes_canonically_and_realizes_less
+        FAIL [   0.059s] (301/693) before testing::meter::tests::stagger_comb_decodes_canonically_at_predicted_length
+        FAIL [   1.891s] (303/693) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.055s] (306/693) before testing::meter::tests::weight_comb_decodes_canonically_at_predicted_length
+        FAIL [   0.065s] (307/693) before testing::meter::tests::wide_arming_decodes_canonically_at_predicted_length
+        FAIL [   0.055s] (377/693) before version::io::tests::accepts_zero_delta_across_a_subtree_boundary
+        FAIL [   0.056s] (381/693) before version::io::tests::exhaustive_small_scope_round_trips_and_is_injective
+        FAIL [   0.070s] (383/693) before version::io::tests::generator_families_round_trip
+        FAIL [   0.059s] (390/693) before version::io::tests::rejects_trailing_bits
+        FAIL [   0.159s] (401/693) before version::io::tests::organic_histories_round_trip
+        FAIL [   0.234s] (403/693) before text::tests::version_text_round_trips
+        FAIL [   0.075s] (417/693) before version::lattice::tests::flat_over_deep_collapses_totally
+        FAIL [   0.092s] (418/693) before version::lattice::tests::wide_grid_pairs_emit_identically
+        FAIL [   0.240s] (425/693) before version::lattice::tests::organic_histories_emit_identically
+        FAIL [   0.240s] (426/693) before version::lattice::tests::family_pairs_emit_identically
+        FAIL [   0.116s] (429/693) before version::measure::tests::arbitrary_factors_embed_their_product_in_exact_rank
+        FAIL [   0.348s] (433/693) before version::lattice::tests::exhaustive_small_scope_emits_identically
+        FAIL [   0.491s] (443/693) before version::lattice::tests::arbitrary_pairs_emit_identically
+        FAIL [   0.128s] (490/693) before version::tests::decode_encode_arbitrary
+        FAIL [   0.096s] (538/693) before version::tick::raise::tests::family_pairs_grow_identically
+        FAIL [   0.123s] (539/693) before version::tick::raise::tests::deep_spines_grow_identically
+        FAIL [   0.073s] (540/693) before version::tick::raise::tests::organic_histories_grow_identically
+        FAIL [   0.149s] (542/693) before version::tick::raise::tests::worked_examples_grow_exactly
+        FAIL [   0.135s] (544/693) before version::tick::tests::chain_one_past_the_ceiling_stays_feasible
+        FAIL [   0.293s] (549/693) before version::tick::raise::tests::arbitrary_pairs_grow_identically
+        FAIL [   5.015s] (552/693) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   0.125s] (554/693) before version::tick::tests::comparable_scales_collapse_under_the_true_minimum
+        FAIL [   0.276s] (556/693) before version::tick::tests::arbitrary_pairs_tick_and_flag_identically
+        FAIL [   0.087s] (559/693) before version::tick::tests::dominated_undercut_family_ticks_identically
+        FAIL [   0.430s] (561/693) before version::tick::raise::tests::exhaustive_small_scope_grows_identically
+        FAIL [   0.072s] (566/693) before version::tick::tests::narrow_undercut_moves_the_live_memo_reference
+        FAIL [   0.476s] (569/693) before version::tick::tests::latent_ladder_ticks_identically
+        FAIL [   0.525s] (570/693) before version::tick::tests::deep_spines_tick_and_flag_identically
+        FAIL [   0.632s] (577/693) before version::tick::tests::organic_histories_tick_and_flag_identically
+        FAIL [   0.748s] (579/693) before version::tick::tests::family_pairs_tick_and_flag_identically
+        FAIL [   0.654s] (588/693) before::amp_board_smoke board_runs_to_completion
+        FAIL [   0.503s] (589/693) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   0.503s] (590/693) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   0.804s] (592/693) before version::tick::tests::undercut_under_a_live_relation_family_ticks_identically
+        FAIL [   0.777s] (595/693) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   0.777s] (596/693) before version::tick::tests::wide_drop_dominates_a_word_scale_latent
+        FAIL [   1.573s] (597/693) before version::tick::tests::exhaustive_small_scope_ticks_and_flags_identically
+        FAIL [   0.892s] (599/693) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   0.403s] (602/693) before::coincident_span coincident_argument_collapses_to_the_membership_walk
+        FAIL [   0.070s] (605/693) before::coincident_span coincident_place_collapses_to_the_pair_sweep
+        FAIL [   0.164s] (606/693) before::coincident_span coincident_dominance_collapses_to_one_containment
+        FAIL [   0.058s] (616/693) before::meter identity_fast_paths::clone_operands_answer_without_a_walk
+        FAIL [   0.058s] (617/693) before::meter identity_fast_paths::distinct_buffers_keep_the_walked_paths_covered
+        FAIL [   0.059s] (618/693) before::meter identity_fast_paths::empty_operands_answer_without_a_walk
+        FAIL [   0.071s] (622/693) before::meter identity_fast_paths::metric_fast_paths_skip_the_fold
+        FAIL [   0.078s] (629/693) before::meter placement::query_fused_walk_scans_each_stream_once
+        FAIL [   0.065s] (632/693) before::meter placement::span_place_scans_each_stream_once
+        FAIL [   0.058s] (637/693) before::meter span_codec::span_decode_deletes_the_second_validation_accumulator
+        FAIL [   0.072s] (638/693) before::meter span::span_fuses_the_pair_walk
+        FAIL [   0.059s] (639/693) before::meter span_codec::span_decode_scans_the_second_component_once
+        FAIL [  97.744s] (693/693) before testing::algebraic_laws::tests::version_triple_laws
+error: test run failed
+=== END 2 exit=100 secs=102 ===
+=== MUT 3 ===
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+────────────
+ Nextest run ID c0cd5169-7512-4bc4-8473-da4c9d083e96 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  27.139s] 693 tests run: 638 passed, 55 failed, 12 skipped
+        FAIL [   0.131s] ( 10/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+        FAIL [   0.128s] ( 13/693) before bits::tests::decode_encode_roundtrip
+        FAIL [   0.175s] ( 19/693) before bits::tests::flush_cut_party_reads_truncated_for_party_and_clock
+        FAIL [   0.062s] ( 30/693) before bits::tests::malformed_padding_rejected_witness
+        FAIL [   0.076s] ( 38/693) before bits::tests::padding_perturbation_rejects
+        FAIL [   0.071s] ( 55/693) before borsh_impls::tests::flush_cut_party_is_truncated_by_both_decoders
+        FAIL [   0.144s] ( 68/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        FAIL [   0.120s] ( 71/693) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        FAIL [   0.145s] ( 72/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        FAIL [   0.088s] ( 86/693) before clock::tests::borsh_roundtrip
+        FAIL [   0.070s] ( 89/693) before clock::tests::decode_preserves_component_canonicity
+        FAIL [   0.063s] ( 91/693) before clock::tests::encoding_views_agree_over_impl_history
+        FAIL [   0.067s] ( 98/693) before clock::tests::master_differential
+        FAIL [   0.058s] ( 99/693) before clock::tests::serde_roundtrip_binary_formats
+        FAIL [   0.074s] (100/693) before clock::tests::serde_roundtrip
+        FAIL [   0.061s] (138/693) before party::tests::decode_encode_arbitrary
+        FAIL [   0.195s] (191/693) before serde_impls::tests::serde_roundtrips_every_supported_type
+        FAIL [   0.054s] (193/693) before testing::algebraic_laws::tests::party_solo_laws
+        FAIL [   0.242s] (203/693) before testing::algebraic_laws::tests::clock_solo_laws
+        FAIL [   0.065s] (206/693) before testing::asymptotics::clock_join_all_log_factor_is_alive
+        FAIL [   0.067s] (210/693) before testing::asymptotics::party_join_all_log_factor_is_alive
+        FAIL [   0.079s] (213/693) before testing::asymptotics::version_meet_all_log_factor_is_alive
+        FAIL [   0.911s] (252/693) before testing::exhaustive::tests::exhaustive_small
+        FAIL [   0.120s] (256/693) before testing::meter::board::tests::many_hole_query_operands_exercise_both_fused_walks
+        FAIL [   0.075s] (258/693) before testing::meter::board::tests::many_hole_conjunction_preserves_both_antichains
+        FAIL [   0.075s] (259/693) before testing::meter::board::tests::party_fork_heap_floor_is_complete_child_storage
+        FAIL [   0.053s] (277/693) before testing::meter::tests::dominated_undercut_id_decodes_canonically_at_predicted_length
+        FAIL [   0.056s] (285/693) before testing::meter::tests::hole_pairs_decode_canonically_at_predicted_lengths
+        FAIL [   0.059s] (292/693) before testing::meter::tests::mask_drift_quadruple_decodes_canonically_and_realizes_less
+        FAIL [   0.058s] (293/693) before testing::meter::tests::mask_drift_triple_decodes_canonically_and_realizes_less
+        FAIL [   0.052s] (300/693) before testing::meter::tests::scattered_id_decodes_canonically_at_predicted_length
+        FAIL [   0.051s] (301/693) before testing::meter::tests::scattered_id_projection_retains_each_selected_tooth
+        FAIL [   0.050s] (302/693) before testing::meter::tests::stagger_id_decodes_canonically_at_predicted_length
+        FAIL [   0.055s] (368/693) before text::tests::party_text_round_trips
+        FAIL [   3.320s] (426/693) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.179s] (444/693) before version::measure::tests::families_agree_with_the_encodings
+        FAIL [   0.051s] (541/693) before version::tick::raise::tests::family_pairs_grow_identically
+        FAIL [   0.263s] (566/693) before version::tick::tests::family_pairs_tick_and_flag_identically
+        FAIL [   0.732s] (574/693) before version::tick::tests::prescan_raise_shapes::suspended_and_skipping_site_raises_match_oracle
+        FAIL [   1.106s] (586/693) before version::tick::tests::prescan_raise_shapes::chain_raise_grid_matches_oracle
+        FAIL [   0.330s] (589/693) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   0.335s] (592/693) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   0.331s] (595/693) before::amp_board_smoke board_runs_to_completion
+        FAIL [   0.336s] (596/693) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   0.603s] (616/693) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   0.166s] (648/693) before::meter tick_counts::ticks_wide_count_flatness_holds_the_width_band
+        FAIL [   0.195s] (653/693) before::meter tick_counts::ticks_flatness_holds_the_log_band
+        FAIL [   0.064s] (656/693) before::meter version_scaling::pair_crossings::masked_cmp_drift_cost_is_flat_per_unit
+        FAIL [   0.067s] (657/693) before::meter version_scaling::pair_crossings::masked_pair_cmp_drift_cost_is_flat_per_unit
+        FAIL [   0.067s] (662/693) before::meter width_circulation_cost::reveal_comb_close_reveal_cycle_reads_width_quadratic
+        FAIL [   0.072s] (663/693) before::meter width_circulation_cost::pure_comb_cost_is_independent_of_value_width
+        FAIL [   0.066s] (665/693) before::meter width_circulation_cost::reveal_comb_hifloor_control_is_flat_per_unit
+        FAIL [   0.078s] (674/693) before::verdict_matrix every_family_answers_the_matrix_coverage_question
+        FAIL [   0.067s] (677/693) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [   0.080s] (678/693) before::verdict_matrix pool_witnesses_every_verdict_class
+error: test run failed
+=== END 3 exit=100 secs=29 ===
+=== MUT 4 ===
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+────────────
+ Nextest run ID 811cd405-3edf-4b00-9eef-07922c4492cc with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  66.248s] 693 tests run: 610 passed, 83 failed, 12 skipped
+        FAIL [   0.125s] ( 12/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+        FAIL [   0.149s] ( 18/693) before bits::tests::decode_encode_roundtrip
+        FAIL [   0.167s] ( 72/693) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        FAIL [   0.172s] ( 83/693) before borsh_impls::tests::span_wire_decode_matches_bitwise_reference
+        FAIL [   0.076s] ( 87/693) before clock::tests::decode_preserves_component_canonicity
+        FAIL [   0.082s] ( 94/693) before clock::tests::encoding_views_agree_over_impl_history
+        FAIL [   0.126s] ( 96/693) before clock::tests::deep_tree_stack_safety
+        FAIL [   0.079s] ( 98/693) before clock::tests::master_differential
+        FAIL [   0.071s] ( 99/693) before clock::tests::serde_roundtrip
+        FAIL [   0.089s] (102/693) before clock::tests::serde_roundtrip_binary_formats
+        FAIL [   0.285s] (117/693) before clock::tests::deep_tree_query_and_causal_stack_safety
+        FAIL [   0.077s] (140/693) before party::tests::decode_encode_arbitrary
+        FAIL [   0.083s] (173/693) before span::tests::decoded_point_span_shares_one_buffer
+        FAIL [   0.193s] (186/693) before serde_impls::tests::serde_roundtrips_every_supported_type
+        FAIL [   0.077s] (189/693) before span::tests::span_decode_verdict_matches_the_composed_form_exhaustively
+        FAIL [   0.159s] (194/693) before span::tests::span_decode_verdict_matches_the_composed_form
+        FAIL [   0.070s] (195/693) before testing::algebraic_laws::tests::party_solo_laws
+        FAIL [   0.094s] (206/693) before testing::algebraic_laws::tests::version_solo_laws
+        FAIL [   0.399s] (216/693) before testing::algebraic_laws::tests::clock_solo_laws
+        FAIL [   0.641s] (240/693) before testing::exhaustive::tests::exhaustive_small
+        FAIL [   0.083s] (255/693) before testing::meter::board::tests::many_hole_conjunction_preserves_both_antichains
+        FAIL [   0.079s] (259/693) before testing::meter::board::tests::many_hole_query_operands_exercise_both_fused_walks
+        FAIL [   0.073s] (265/693) before testing::meter::board::tests::wide_query_probe_exercises_shared_numeric_state
+        FAIL [   0.068s] (270/693) before testing::meter::tests::ascend_cliff_band_guard_admits_exactly_the_documented_frontier
+        FAIL [   0.070s] (271/693) before testing::meter::tests::bigroot_decodes_canonically_at_predicted_length
+        FAIL [   0.075s] (272/693) before testing::meter::tests::alt_spine_decodes_canonically_at_predicted_length
+        FAIL [   0.065s] (274/693) before testing::meter::tests::cliff_comb_decodes_canonically_at_predicted_length
+        FAIL [   0.077s] (275/693) before testing::meter::tests::cancelling_chain_decodes_canonically_at_predicted_length
+        FAIL [   0.096s] (276/693) before testing::meter::tests::arming_train_decodes_canonically_at_predicted_length
+        FAIL [   1.641s] (277/693) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.074s] (278/693) before testing::meter::tests::dense_decodes_canonically_at_predicted_length
+        FAIL [   0.096s] (281/693) before testing::meter::tests::dense_suffix_decodes_canonically_at_predicted_length
+        FAIL [   0.058s] (282/693) before testing::meter::tests::dominated_undercut_id_decodes_canonically_at_predicted_length
+        FAIL [   0.081s] (283/693) before testing::meter::tests::descending_boundary_control_decodes_at_predicted_length
+        FAIL [   0.106s] (284/693) before testing::meter::tests::dense_suffix_mate_decodes_canonically_at_predicted_length
+        FAIL [   0.073s] (285/693) before testing::meter::tests::harmonic_decodes_canonically_at_predicted_length
+        FAIL [   0.107s] (287/693) before testing::meter::tests::descending_boundary_decodes_canonically_at_predicted_length
+        FAIL [   0.066s] (288/693) before testing::meter::tests::hole_pairs_decode_canonically_at_predicted_lengths
+        FAIL [   0.099s] (289/693) before testing::meter::tests::freeze_position_decodes_canonically_at_predicted_length
+        FAIL [   0.068s] (291/693) before testing::meter::tests::id_spine_decodes_canonically_at_predicted_length
+        FAIL [   0.074s] (292/693) before testing::meter::tests::hugeleaf_decodes_canonically_at_predicted_length
+        FAIL [   0.100s] (293/693) before testing::meter::tests::hoisted_window_decodes_canonically_at_predicted_length
+        FAIL [   0.077s] (294/693) before testing::meter::tests::jump_comb_decodes_canonically_at_predicted_length
+        FAIL [   0.076s] (295/693) before testing::meter::tests::jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves
+        FAIL [   0.070s] (296/693) before testing::meter::tests::latent_ladder_decodes_canonically_at_predicted_length
+        FAIL [   0.071s] (297/693) before testing::meter::tests::lone_freeze_decodes_canonically_at_predicted_length
+        FAIL [   0.071s] (298/693) before testing::meter::tests::mask_drift_quadruple_decodes_canonically_and_realizes_less
+        FAIL [   0.069s] (299/693) before testing::meter::tests::mask_drift_triple_decodes_canonically_and_realizes_less
+        FAIL [   0.068s] (300/693) before testing::meter::tests::masked_hole_decodes_canonically_and_realizes_less
+        FAIL [   0.065s] (302/693) before testing::meter::tests::scattered_id_decodes_canonically_at_predicted_length
+        FAIL [   0.065s] (303/693) before testing::meter::tests::scattered_id_projection_retains_each_selected_tooth
+        FAIL [   0.086s] (304/693) before testing::meter::tests::promotion_rearm_mate_decodes_canonically_at_predicted_length
+        FAIL [   0.096s] (305/693) before testing::meter::tests::promotion_rearm_decodes_canonically_at_predicted_length
+        FAIL [   0.068s] (306/693) before testing::meter::tests::stopping_boundary_control_decodes_at_predicted_length
+        FAIL [   0.113s] (309/693) before testing::meter::tests::plateau_puncture_decodes_canonically_at_predicted_length
+        FAIL [   0.083s] (310/693) before testing::meter::tests::stagger_id_decodes_canonically_at_predicted_length
+        FAIL [   0.072s] (311/693) before testing::meter::tests::stopping_boundary_decodes_canonically_at_predicted_length
+        FAIL [   0.067s] (312/693) before testing::meter::tests::tooth_tail_decodes_canonically_at_predicted_length
+        FAIL [   0.105s] (313/693) before testing::meter::tests::stagger_comb_decodes_canonically_at_predicted_length
+        FAIL [   0.064s] (314/693) before testing::meter::tests::wide_tooth_comb_decodes_canonically_at_predicted_length
+        FAIL [   0.106s] (318/693) before testing::meter::tests::wide_arming_decodes_canonically_at_predicted_length
+        FAIL [   0.073s] (371/693) before text::tests::party_text_round_trips
+        FAIL [   0.099s] (378/693) before text::tests::version_text_round_trips
+        FAIL [   0.150s] (425/693) before version::measure::tests::arbitrary_factors_embed_their_product_in_exact_rank
+        FAIL [   0.163s] (432/693) before version::measure::tests::families_agree_with_the_encodings
+        FAIL [   4.009s] (441/693) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   1.051s] (502/693) before version::tests::decode_encode_arbitrary
+        FAIL [   0.057s] (541/693) before version::tick::raise::tests::family_pairs_grow_identically
+        FAIL [   0.206s] (557/693) before version::tick::tests::family_pairs_tick_and_flag_identically
+        FAIL [   0.205s] (569/693) before version::tick::tests::prescan_raise_shapes::chain_raise_grid_matches_oracle
+        FAIL [   0.289s] (575/693) before version::tick::tests::prescan_raise_shapes::suspended_and_skipping_site_raises_match_oracle
+        FAIL [   0.596s] (588/693) before::amp_board_smoke board_runs_to_completion
+        FAIL [   0.726s] (590/693) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   0.827s] (593/693) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   0.875s] (595/693) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   1.312s] (601/693) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   0.081s] (609/693) before::fuzz_seeds decode_seeds_decode_as_named_and_round_trip
+        FAIL [   0.068s] (613/693) before::fuzz_seeds differential_seeds_exercise_their_error_boundaries
+        FAIL [   0.057s] (663/693) before::meter width_circulation_cost::pure_comb_cost_is_independent_of_value_width
+        FAIL [   0.059s] (678/693) before::verdict_matrix pool_witnesses_every_verdict_class
+        FAIL [   0.073s] (680/693) before::verdict_matrix every_family_answers_the_matrix_coverage_question
+        FAIL [   0.054s] (681/693) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  64.927s] (693/693) before testing::algebraic_laws::tests::version_triple_laws
+error: test run failed
+=== END 4 exit=100 secs=67 ===
+=== MUT 5 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+────────────
+ Nextest run ID c2d0d6f9-2d25-48b3-8b76-c9a6ae3730f7 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  29.493s] 693 tests run: 676 passed, 17 failed, 12 skipped
+        FAIL [   0.077s] ( 48/693) before borsh_impls::tests::borsh_every_type_pair_composes_with_exact_boundaries
+        FAIL [   0.071s] ( 65/693) before borsh_impls::tests::span_borsh_composes_and_preserves_decode_errors
+        FAIL [   0.129s] ( 81/693) before borsh_impls::tests::span_wire_decode_matches_bitwise_reference
+        FAIL [   0.346s] ( 94/693) before borsh_impls::tests::span_borsh_roundtrips
+        FAIL [   0.076s] (160/693) before serde_impls::tests::serde_composes_rank_and_span_in_larger_values
+        FAIL [   0.081s] (164/693) before serde_impls::tests::serde_data_model_matches_each_format_class
+        FAIL [   0.086s] (174/693) before span::tests::decoded_strict_span_keeps_distinct_endpoints
+        FAIL [   0.078s] (183/693) before span::tests::span_decode_rejects_each_malformed_input_class
+        FAIL [   0.219s] (189/693) before serde_impls::tests::serde_roundtrips_every_supported_type
+        FAIL [   0.102s] (190/693) before span::tests::span_decode_verdict_matches_the_composed_form_exhaustively
+        FAIL [   0.134s] (194/693) before span::tests::span_decode_verdict_matches_the_composed_form_off_corpus
+        FAIL [   0.223s] (199/693) before span::tests::span_decode_verdict_matches_the_composed_form
+        FAIL [   0.261s] (206/693) before span::tests::span_single_bit_mutations_never_alias
+        FAIL [   0.498s] (222/693) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   4.108s] (324/693) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   0.381s] (605/693) before::fuzz_seeds decode_seeds_decode_as_named_and_round_trip
+        FAIL [   0.296s] (606/693) before::fuzz_seeds differential_seeds_exercise_their_error_boundaries
+error: test run failed
+=== END 5 exit=100 secs=31 ===
+=== MUT 6 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+────────────
+ Nextest run ID 89a0e73c-e5e5-4120-bd35-15cafbbfad24 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  31.368s] 693 tests run: 692 passed, 1 failed, 12 skipped
+        FAIL [   0.071s] (517/693) before version::tests::rank_decoding_rejects_each_malformed_input_class
+error: test run failed
+=== END 6 exit=100 secs=33 ===
+=== MUT 7 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+────────────
+ Nextest run ID 874789f2-f74d-499c-984b-b9f81b59d89d with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  27.856s] 693 tests run: 690 passed, 3 failed, 12 skipped
+        FAIL [   0.068s] (518/693) before version::tests::rank_decoding_rejects_each_malformed_input_class
+        FAIL [   0.097s] (524/693) before version::tests::rank_encoding_exhaustive_small_scope
+        FAIL [   0.412s] (550/693) before version::tests::ranked_composite_bit_flip_rejects_or_decodes_canonically
+error: test run failed
+=== END 7 exit=100 secs=29 ===
+=== MUT 8 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+────────────
+ Nextest run ID 7b4639b4-a02a-4501-8648-daabf8422b05 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  29.771s] 693 tests run: 689 passed, 4 failed, 12 skipped
+        FAIL [   0.071s] (166/693) before serde_impls::tests::serde_rejects_defective_payloads
+        FAIL [   0.065s] (531/693) before version::tests::ranked_decode_rejects_each_composite_error
+        FAIL [   0.127s] (537/693) before version::tests::ranked_composite_bit_flip_rejects_or_decodes_canonically
+        FAIL [   0.085s] (609/693) before::fuzz_seeds differential_seeds_exercise_their_error_boundaries
+error: test run failed
+=== END 8 exit=100 secs=32 ===
+=== MUT 9 ===
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+────────────
+ Nextest run ID a0d2f1f4-73d8-4bef-be23-2f216591b069 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  26.548s] 693 tests run: 680 passed, 13 failed, 12 skipped
+        FAIL [   0.147s] ( 11/693) before bits::tests::decode_encode_roundtrip
+        FAIL [   0.074s] ( 85/693) before clock::tests::decode_preserves_component_canonicity
+        FAIL [   0.071s] ( 92/693) before clock::tests::encoding_views_agree_over_impl_history
+        FAIL [   0.069s] ( 96/693) before clock::tests::master_differential
+        FAIL [   0.071s] ( 97/693) before clock::tests::serde_roundtrip_binary_formats
+        FAIL [   0.348s] (200/693) before serde_impls::tests::serde_roundtrips_every_supported_type
+        FAIL [   0.352s] (209/693) before testing::algebraic_laws::tests::clock_solo_laws
+        FAIL [   3.207s] (279/693) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.640s] (626/693) before::amp_board_smoke board_runs_to_completion
+        FAIL [   0.579s] (637/693) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   0.514s] (642/693) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   0.481s] (645/693) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   0.456s] (648/693) before::amp_board_smoke worst_map_covers_every_operation_row
+error: test run failed
+=== END 9 exit=100 secs=27 ===
+=== MUT 10 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+────────────
+ Nextest run ID cce76fce-1c94-4a0b-a36a-7a102278514c with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  25.332s] 693 tests run: 688 passed, 5 failed, 12 skipped
+        FAIL [   0.071s] ( 58/693) before borsh_impls::tests::party_wire_decode_matches_bitwise_reference
+        FAIL [   0.105s] ( 59/693) before borsh_impls::tests::clock_wire_decode_matches_bitwise_reference
+        FAIL [   0.096s] ( 76/693) before borsh_impls::tests::version_wire_decode_matches_bitwise_reference
+        FAIL [   0.177s] ( 81/693) before borsh_impls::tests::ranked_wire_decode_matches_bitwise_reference
+        FAIL [   0.161s] ( 82/693) before borsh_impls::tests::span_wire_decode_matches_bitwise_reference
+error: test run failed
+=== END 10 exit=100 secs=27 ===
+=== MUT 11 ===
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+────────────
+ Nextest run ID 99b1d17e-fc85-4c00-a5f8-9e4c25060527 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  27.049s] 693 tests run: 669 passed, 24 failed, 12 skipped
+        FAIL [   0.074s] ( 27/693) before bits::tests::gamma_window_edge
+        FAIL [   0.064s] ( 46/693) before borsh_impls::tests::borsh_sequence_defect_preserves_its_error_class
+        FAIL [   0.087s] ( 49/693) before borsh_impls::tests::borsh_every_type_pair_composes_with_exact_boundaries
+        FAIL [   0.064s] ( 53/693) before borsh_impls::tests::deep_trees_roundtrip_through_borsh
+        FAIL [   0.094s] ( 59/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        FAIL [   0.128s] ( 60/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        FAIL [   0.136s] ( 61/693) before borsh_impls::tests::clock_wire_decode_matches_bitwise_reference
+        FAIL [   0.069s] ( 62/693) before borsh_impls::tests::ranked_borsh_composes_and_preserves_decode_errors
+        FAIL [   0.073s] ( 63/693) before borsh_impls::tests::rank_composes_in_a_borsh_stream
+        FAIL [   0.075s] ( 71/693) before borsh_impls::tests::span_wire_decode_matches_bitwise_reference
+        FAIL [   0.064s] ( 72/693) before borsh_impls::tests::truncated_borsh_stream_reports_unexpected_eof
+        FAIL [   0.103s] ( 74/693) before borsh_impls::tests::ranked_wire_decode_matches_bitwise_reference
+        FAIL [   0.073s] ( 78/693) before borsh_impls::tests::version_wire_decode_matches_bitwise_reference
+        FAIL [   0.204s] ( 83/693) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        FAIL [   0.096s] ( 87/693) before clock::tests::borsh_roundtrip
+        FAIL [   0.112s] ( 89/693) before clock::tests::borsh_frames_as_canonical_bytes
+        FAIL [   0.188s] ( 90/693) before borsh_impls::tests::span_borsh_roundtrips
+        FAIL [   0.112s] ( 91/693) before clock::tests::borsh_rejects_non_canonical
+        FAIL [   0.269s] ( 96/693) before borsh_impls::tests::ranked_borsh_roundtrips_and_orders
+        FAIL [   1.107s] (595/693) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   1.454s] (596/693) before::amp_board_smoke board_runs_to_completion
+        FAIL [   1.049s] (607/693) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   0.724s] (608/693) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   1.365s] (610/693) before::amp_board_smoke shard_protocol_round_trips
+error: test run failed
+=== END 11 exit=100 secs=28 ===
+=== MUT 12 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+────────────
+ Nextest run ID e9a67ef5-3ce2-4431-bc05-c23783d2d1f6 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  20.879s] 693 tests run: 635 passed, 58 failed, 12 skipped
+        FAIL [   0.249s] ( 80/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        FAIL [   0.244s] ( 83/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        FAIL [   0.201s] ( 86/693) before borsh_impls::tests::span_borsh_roundtrips
+        FAIL [   0.186s] ( 96/693) before clock::tests::encoding_views_agree_over_impl_history
+        FAIL [   0.316s] (103/693) before clock::tests::churn_orbit_sizes_reach_a_bounded_band
+        FAIL [   0.206s] (108/693) before clock::tests::master_differential
+        FAIL [   0.283s] (192/693) before serde_impls::tests::serde_roundtrips_every_supported_type
+        FAIL [   0.252s] (215/693) before testing::algebraic_laws::tests::version_party_pair_laws
+        FAIL [   0.114s] (218/693) before testing::diff_ops::tests::clock_solo_ops
+        FAIL [   0.108s] (219/693) before testing::diff_ops::tests::diff_ops_match_the_oracle_on_organic_populations
+        FAIL [   0.579s] (229/693) before testing::algebraic_laws::tests::clock_version_laws
+        FAIL [   0.587s] (230/693) before testing::algebraic_laws::tests::version_list_laws
+        FAIL [   0.370s] (232/693) before testing::diff_ops::tests::version_pair_ops
+        FAIL [   1.710s] (248/693) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   1.172s] (251/693) before testing::algebraic_laws::tests::clock_and_list_laws
+        FAIL [   1.505s] (277/693) before testing::exhaustive::tests::exhaustive_small
+        FAIL [   0.074s] (291/693) before testing::meter::tests::mask_drift_quadruple_decodes_canonically_and_realizes_less
+        FAIL [   0.073s] (300/693) before testing::meter::tests::stagger_comb_decodes_canonically_at_predicted_length
+        FAIL [   0.199s] (403/693) before version::io::tests::op_paths_yield_identical_bytes
+        FAIL [   0.213s] (406/693) before version::io::tests::organic_histories_round_trip
+        FAIL [   0.069s] (408/693) before version::io::writer::tests::reanchor_cascade_climbs_chained_levels
+        FAIL [   0.069s] (409/693) before version::io::writer::tests::merged_right_subtree_reanchors_over_left_leaf
+        FAIL [   0.084s] (411/693) before version::io::writer::tests::partial_equality_collapses_only_the_equal_pair
+        FAIL [   3.674s] (417/693) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   0.079s] (419/693) before version::lattice::tests::family_lattice_laws_hold
+        FAIL [   0.078s] (421/693) before version::lattice::tests::reanchor_join_scan_is_linear_per_input_bit
+        FAIL [   0.078s] (422/693) before version::lattice::tests::wide_grid_pairs_emit_identically
+        FAIL [   0.153s] (425/693) before version::lattice::tests::family_associativity_holds_on_the_kernel
+        FAIL [   0.171s] (427/693) before version::lattice::tests::organic_histories_emit_identically
+        FAIL [   0.239s] (430/693) before version::lattice::tests::family_pairs_emit_identically
+        FAIL [   0.084s] (432/693) before version::measure::tests::exhaustive_small_scope_agrees
+        FAIL [   0.069s] (433/693) before version::measure::tests::families_agree_with_the_encodings
+        FAIL [   0.369s] (434/693) before version::lattice::tests::arbitrary_triples_hold_the_lattice_laws
+        FAIL [   0.246s] (436/693) before version::measure::tests::arbitrary_projections_agree
+        FAIL [   1.365s] (448/693) before version::lattice::tests::exhaustive_small_scope_emits_identically
+        FAIL [   1.164s] (457/693) before version::measure::tests::organic_histories_agree
+        FAIL [   0.278s] (480/693) before version::tests::boundary_arity_fan_folds_match_the_sequential_fold
+        FAIL [   6.469s] (482/693) before testing::algebraic_laws::tests::version_and_list_laws
+        FAIL [   0.103s] (499/693) before version::tests::meet_matrix_matches_oracle
+        FAIL [   0.126s] (500/693) before version::tests::meet_assign_matrix_matches_oracle
+        FAIL [   0.218s] (509/693) before version::tests::no_maximum_tick_count
+        FAIL [   7.489s] (516/693) before testing::algebraic_laws::tests::version_triple_laws
+        FAIL [   4.223s] (538/693) before version::lattice::tests::arbitrary_pairs_emit_identically
+        FAIL [   0.556s] (559/693) before version::tests::tick_and_ticks_match_the_recursive_oracle
+        FAIL [   0.386s] (561/693) before version::tick::tests::left_full_raise_decides_at_the_site_not_its_close
+        FAIL [   0.617s] (570/693) before version::tick::tests::family_pairs_tick_and_flag_identically
+        FAIL [   1.244s] (578/693) before version::tick::raise::tests::organic_histories_grow_identically
+        FAIL [   0.388s] (586/693) before version::tick::tests::tick_is_ticks_one
+        FAIL [   0.633s] (590/693) before version::tick::tests::undercut_under_a_live_relation_family_ticks_identically
+        FAIL [   2.121s] (599/693) before version::tick::tests::exhaustive_small_scope_ticks_and_flags_identically
+        FAIL [   1.821s] (602/693) before version::tick::tests::organic_histories_tick_and_flag_identically
+        FAIL [   1.982s] (648/693) before::amp_board_smoke board_runs_to_completion
+        FAIL [   1.846s] (658/693) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   1.918s] (659/693) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   2.901s] (665/693) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   2.690s] (667/693) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   1.567s] (688/693) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [   6.104s] (690/693) before version::tick::tests::arbitrary_pairs_tick_and_flag_identically
+error: test run failed
+=== END 12 exit=100 secs=23 ===
+=== MUT 13 ===
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+────────────
+ Nextest run ID cf3771e8-667d-4650-8838-210e919c8c71 with nextest profile: default
+    Starting 693 tests across 12 binaries (12 tests skipped)
+────────────
+     Summary [  28.270s] 693 tests run: 691 passed, 2 failed, 12 skipped
+        FAIL [   0.086s] (183/693) before span::tests::span_decode_structural_errors_outrank_the_pair_verdict
+        FAIL [   0.231s] (608/693) before::fuzz_seeds differential_seeds_exercise_their_error_boundaries
+error: test run failed
+=== END 13 exit=100 secs=29 ===
+exit=0

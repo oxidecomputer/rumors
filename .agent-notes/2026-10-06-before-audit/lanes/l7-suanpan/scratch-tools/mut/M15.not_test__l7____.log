@@ -1,0 +1,83 @@
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:874:17
+    |
+874 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.97s
+────────────
+ Nextest run ID 3e0e2867-ef95-4821-845b-b9a4e4d3969f with nextest profile: default
+    Starting 64 tests across 2 binaries (6 tests skipped)
+        PASS [   0.503s] ( 1/64) suanpan accumulator::tests::differential::negative_limb_values_read_back_exactly
+        PASS [   0.952s] ( 2/64) suanpan accumulator::tests::metered::limb_writes_cost_the_operand_at_any_held_width
+        PASS [   0.953s] ( 3/64) suanpan accumulator::tests::metered::domination_reads_cost_one_touch_after_the_first
+        PASS [   0.942s] ( 4/64) suanpan accumulator::tests::differential::exact_cancellation_and_unit_nudges_read_correctly
+        PASS [   0.775s] ( 5/64) suanpan accumulator::tests::differential::wide_teeth_across_the_cliff_match_the_oracle
+        PASS [   0.930s] ( 6/64) suanpan accumulator::tests::metered::limb_streams_select_word_or_wide_cost
+        PASS [   0.775s] ( 7/64) suanpan accumulator::tests::differential::u64_entry_points_cover_the_full_range
+        PASS [   1.164s] ( 8/64) suanpan accumulator::tests::metered::held_width_rows_cost_the_held_digits
+        PASS [   1.164s] ( 9/64) suanpan accumulator::tests::differential::stored_width_stability_is_sound
+        PASS [   1.068s] (10/64) suanpan accumulator::tests::differential::cancelling_prefix_chain_matches_the_oracle
+        PASS [   1.068s] (11/64) suanpan accumulator::tests::metered::no_collapse_fold_re_scans_the_prefix
+        PASS [   1.164s] (12/64) suanpan accumulator::tests::metered::accumulator_operand_rows_cost_the_operand
+        PASS [   0.438s] (13/64) suanpan accumulator::tests::differential::boundary_comb_oscillation_matches_the_oracle
+        PASS [   1.344s] (14/64) suanpan accumulator::tests::differential::word_width_stability_is_sound
+        PASS [   1.166s] (15/64) suanpan accumulator::tests::differential::new_and_default_hold_zero
+        PASS [   1.076s] (16/64) suanpan accumulator::tests::metered::decision_bound_top_decides_on_the_first_touch
+        PASS [   1.482s] (17/64) suanpan accumulator::tests::metered::alternating_shifted_writes_cost_the_operand_not_the_gap
+        PASS [   1.834s] (18/64) suanpan accumulator::tests::differential::carry_tie_streams_match_the_oracle
+        PASS [   1.457s] (19/64) suanpan accumulator::tests::differential::two_sided_stability_converges_to_exact_comparison
+        PASS [   0.562s] (20/64) suanpan accumulator::tests::differential::redundant_zero_reads_nonzero_until_collapsed
+        PASS [   0.407s] (21/64) suanpan accumulator::tests::metered::scaled_read_costs_the_span_not_the_write_count
+        PASS [   0.267s] (22/64) suanpan accumulator::tests::primitives::unsigned_64
+        PASS [   0.871s] (23/64) suanpan accumulator::tests::metered::sign_query_skips_recorded_zero_ranges
+        PASS [   0.562s] (24/64) suanpan accumulator::tests::metered::scaled_read_costs_the_written_span
+        PASS [   0.161s] (25/64) suanpan accumulator::tests::primitives::full_width_updates_match_the_oracle
+        PASS [   0.704s] (26/64) suanpan accumulator::tests::primitives::primitive_shift_counts_are_checked
+        PASS [   0.570s] (27/64) suanpan accumulator::tests::primitives::signed_32
+        PASS [   0.570s] (28/64) suanpan accumulator::tests::primitives::signed_pointer
+        PASS [   0.569s] (29/64) suanpan accumulator::tests::primitives::signed_128
+        PASS [   2.031s] (30/64) suanpan accumulator::tests::differential::pooled_reuse_after_reset_matches_the_oracle
+        PASS [   0.738s] (31/64) suanpan accumulator::tests::primitives::owned_arithmetic_reuses_storage_and_preserves_order
+        PASS [   0.579s] (32/64) suanpan accumulator::tests::metered::u64_comb_touches_are_flat_and_exact
+        PASS [   1.141s] (33/64) suanpan accumulator::tests::metered::merge_tie_reads_the_operand
+        PASS [   0.649s] (34/64) suanpan accumulator::tests::primitives::bit_bounds_cover_requested_adjustments
+        PASS [   0.579s] (35/64) suanpan accumulator::tests::primitives::signed_8
+        PASS [   0.598s] (36/64) suanpan accumulator::tests::primitives::signed_64
+        PASS [   0.592s] (37/64) suanpan accumulator::tests::primitives::unsigned_16
+        PASS [   0.600s] (38/64) suanpan accumulator::tests::primitives::unsigned_32
+        PASS [   0.591s] (39/64) suanpan accumulator::tests::primitives::unsigned_pointer
+        PASS [   0.635s] (40/64) suanpan accumulator::tests::primitives::signed_16
+        PASS [   0.110s] (41/64) suanpan accumulator::tests::witnesses::comparison_compaction_lowers_the_scaled_read_shift
+        PASS [   0.110s] (42/64) suanpan accumulator::tests::witnesses::comparison_compaction_tightens_the_stored_width
+        PASS [   0.533s] (43/64) suanpan accumulator::tests::primitives::unsigned_8
+        PASS [   0.110s] (44/64) suanpan accumulator::tests::witnesses::comparison_threshold_survives_extreme_cancellation
+        PASS [   0.099s] (45/64) suanpan accumulator::tests::witnesses::first_unaddressable_digit_panics
+        PASS [   0.069s] (46/64) suanpan accumulator::tests::witnesses::limb_stream_selects_the_narrowest_representation
+        PASS [   0.065s] (47/64) suanpan accumulator::tests::witnesses::last_addressable_digit_is_accepted
+        PASS [   0.060s] (48/64) suanpan accumulator::tests::witnesses::small_value_engages_and_retires
+        PASS [   0.649s] (49/64) suanpan accumulator::tests::metered::top_settlement_steps_are_metered
+        PASS [   0.065s] (50/64) suanpan accumulator::tests::witnesses::flush_right_carry_tie_converts_exactly
+        PASS [   0.059s] (51/64) suanpan accumulator::tests::witnesses::reserve_digits_is_value_neutral
+        PASS [   0.061s] (52/64) suanpan accumulator::tests::witnesses::normalized_limb_conversion_corners
+        PASS [   0.071s] (53/64) suanpan accumulator::tests::witnesses::small_value_extremes_spill_exactly
+        PASS [   0.668s] (54/64) suanpan accumulator::tests::primitives::unsigned_128
+        PASS [   0.077s] (55/64) suanpan accumulator::tests::witnesses::maximum_adjustment_width_never_decides
+        PASS [   0.088s] (56/64) suanpan accumulator::tests::witnesses::small_value_can_decide_before_a_digit_scan_could
+        PASS [   0.063s] (57/64) suanpan accumulator::tests::witnesses::stability_answer_can_depend_on_representation
+        PASS [   0.066s] (58/64) suanpan accumulator::tests::witnesses::small_value_stability_threshold_is_tight_from_below
+        PASS [   0.049s] (59/64) suanpan::amortized_sequences sign_flip_oscillation_has_no_width_product
+        PASS [   0.053s] (60/64) suanpan accumulator::tests::witnesses::stability_covers_extreme_accumulator_operands
+        PASS [   0.053s] (61/64) suanpan accumulator::tests::witnesses::stability_needs_two_digits_of_clearance
+        PASS [   0.729s] (62/64) suanpan accumulator::tests::representation::representation_invariants_hold_on_run_forming_streams
+        PASS [   2.867s] (63/64) suanpan accumulator::tests::surface::complete_surface_matches_bigint
+        PASS [   5.714s] (64/64) suanpan accumulator::tests::representation::representation_invariants_hold_exhaustively
+────────────
+     Summary [   7.644s] 64 tests run: 64 passed, 6 skipped

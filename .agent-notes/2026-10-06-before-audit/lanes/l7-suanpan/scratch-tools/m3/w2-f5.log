@@ -1,0 +1,51 @@
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 5 size 64 op 1 net 2128966
+L7M family 5 size 64 op 3 net 4530852
+L7M family 5 size 64 op 4 net 4504052
+L7M family 5 size 64 op 5 net 4504137
+L7M family 5 size 64 op 6 net 6185787
+L7M family 5 size 64 op 7 net 4701829
+L7M family 5 size 64 op 8 net 5859363
+L7M family 5 size 64 op 9 net 6555747
+L7M family 5 size 64 op 10 net 10315526
+L7M family 5 size 256 op 1 net 8505182
+L7M family 5 size 256 op 3 net 18010471
+L7M family 5 size 256 op 4 net 17888962
+L7M family 5 size 256 op 5 net 17889047
+L7M family 5 size 256 op 6 net 24425954
+L7M family 5 size 256 op 7 net 18512775
+L7M family 5 size 256 op 8 net 23244538
+L7M family 5 size 256 op 9 net 25911270
+L7M family 5 size 256 op 10 net 41063296
+L7M family 5 size 1024 op 1 net 34002178
+L7M family 5 size 1024 op 3 net 71953019
+L7M family 5 size 1024 op 4 net 71434656
+L7M family 5 size 1024 op 5 net 71434741
+L7M family 5 size 1024 op 6 net 97430309
+L7M family 5 size 1024 op 7 net 73785711
+L7M family 5 size 1024 op 8 net 92806894
+L7M family 5 size 1024 op 9 net 103370270
+L7M family 5 size 1024 op 10 net 164009344
+L7M family 5 size 4096 op 1 net 136027004
+L7M family 5 size 4096 op 3 net 287654493
+L7M family 5 size 4096 op 4 net 285563309
+L7M family 5 size 4096 op 5 net 285563394
+L7M family 5 size 4096 op 6 net 389352714
+L7M family 5 size 4096 op 7 net 294796336
+L7M family 5 size 4096 op 8 net 370873084
+L7M family 5 size 4096 op 9 net 412894704
+L7M family 5 size 4096 op 10 net 655683877
+L7M family 5 size 16384 op 1 net 544164442
+L7M family 5 size 16384 op 3 net 1150527503
+L7M family 5 size 16384 op 4 net 1142144863
+L7M family 5 size 16384 op 5 net 1142144948
+L7M family 5 size 16384 op 6 net 1557137231
+L7M family 5 size 16384 op 7 net 1178924661
+L7M family 5 size 16384 op 8 net 1483385280
+L7M family 5 size 16384 op 9 net 1651414806
+L7M family 5 size 16384 op 10 net 2622537472
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 18.20s
+

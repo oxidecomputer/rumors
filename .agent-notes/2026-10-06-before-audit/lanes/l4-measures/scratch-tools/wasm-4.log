@@ -1,0 +1,7 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l4-measures/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 13.95s
+case 7 rc=0
+L4SUM case 7: Passed pages=58399 panic=""
+case 8 rc=0
+L4SUM case 8: Trapped(UnreachableCodeReached) pages=42014 panic="panicked at /home/agent/src/rumors-audit-l4-measures/crates/suanpan/src/accumulator.rs:417:10:\na nonzero contribution needs an addressable digit position"

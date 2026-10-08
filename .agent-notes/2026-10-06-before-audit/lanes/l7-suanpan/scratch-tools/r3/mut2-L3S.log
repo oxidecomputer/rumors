@@ -1,0 +1,41 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+warning: function `l7_leaves` is never used
+   --> guest/src/l7_builders.rs:152:8
+    |
+152 | pub fn l7_leaves(family: u64, r: u64) -> u64 {
+    |        ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm32-pins-guest` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 15.70s
+
+running 1 test
+L7 landing case 1: Trapped(UnreachableCodeReached)
+L7 landing case 2: Trapped(UnreachableCodeReached)
+L7 landing case 3: Trapped(UnreachableCodeReached)
+L7 landing case 4: Trapped(UnreachableCodeReached)
+L7 landing case 10: Failed(WrongValue)
+L7 landing case 11: Trapped(UnreachableCodeReached)
+L7 landing case 12: Trapped(UnreachableCodeReached)
+
+thread 'zz_l7_suanpan_add_shifted_landings' (2) panicked at harness/tests/pins.rs:232:9:
+assertion `left == right` failed: landing case 10 returned instead of panicking
+  left: Failed(WrongValue)
+ right: Trapped(UnreachableCodeReached)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test zz_l7_suanpan_add_shifted_landings ... FAILED
+
+failures:
+
+failures:
+    zz_l7_suanpan_add_shifted_landings
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 25.54s
+
+MUTANT L3S status 101

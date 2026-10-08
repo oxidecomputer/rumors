@@ -1,0 +1,22 @@
+baseline status=0
+00-version-1 status=0 restored=yes
+01-version-2 status=0 restored=yes
+02-version-3 status=0 restored=yes
+03-version-7 status=0 restored=yes
+04-version-8 status=0 restored=yes
+05-version-9 status=0 restored=yes
+06-version-10 status=0 restored=yes
+07-version-11 status=0 restored=yes
+08-version-12 status=0 restored=yes
+09-version-29 status=0 restored=yes
+10-version-43 status=0 restored=yes
+11-version-44 status=0 restored=yes
+12-version-45 status=0 restored=yes
+13-version-56 status=0 restored=yes
+14-rest-6 status=0 restored=yes
+15-rest-7 status=0 restored=yes
+16-span-29 status=0 restored=yes
+17-span-28 status=0 restored=yes
+18-tie-projection-reversed status=0 restored=yes
+19-tie-place-reversed status=0 restored=yes
+exit=0

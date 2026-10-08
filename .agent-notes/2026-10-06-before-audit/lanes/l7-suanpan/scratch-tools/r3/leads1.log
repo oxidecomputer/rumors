@@ -1,0 +1,199 @@
+== STEP1 high-part probe
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.20s
+────────────
+ Nextest run ID 30b75a69-ac33-4dc0-91ab-9d258e1a67ff with nextest profile: default
+    Starting 1 test across 2 binaries (72 tests skipped)
+       START [         ] (1/1) suanpan accumulator::tests::explore_l7::metered::l7_probe_extreme_high_parts
+
+running 1 test
+L7HIGHPROBE carry2 d64: digits 64 touches 65 scaled 65 shift 0 expected 65
+L7HIGHPROBE carry-3 d64: digits 64 touches 129 scaled 129 shift 0 expected 129
+L7HIGHPROBE carry-1 zero-low d64: digits 64 touches 65 scaled 65 shift 0 expected 65
+L7HIGHPROBE carry-2 zero-low d64: digits 64 touches 65 scaled 65 shift 0 expected 65
+L7HIGHPROBE carry2 zero-low d64: digits 64 touches 65 scaled 65 shift 0 expected 65
+L7HIGHPROBE carry2 d128: digits 128 touches 129 scaled 129 shift 0 expected 129
+L7HIGHPROBE carry-3 d128: digits 128 touches 257 scaled 257 shift 0 expected 257
+L7HIGHPROBE carry-1 zero-low d128: digits 128 touches 129 scaled 129 shift 0 expected 129
+L7HIGHPROBE carry-2 zero-low d128: digits 128 touches 129 scaled 129 shift 0 expected 129
+L7HIGHPROBE carry2 zero-low d128: digits 128 touches 129 scaled 129 shift 0 expected 129
+test accumulator::tests::explore_l7::metered::l7_probe_extreme_high_parts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 71 filtered out; finished in 0.00s
+
+        PASS [   0.066s] (1/1) suanpan accumulator::tests::explore_l7::metered::l7_probe_extreme_high_parts
+────────────
+     Summary [   0.068s] 1 test run: 1 passed, 72 skipped
+STEP1 EXIT=0
+== STEP2 census suanpan
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.65s
+────────────
+ Nextest run ID 838d40fa-04b5-4dce-abc1-11218fecff10 with nextest profile: default
+    Starting 64 tests across 2 binaries (9 tests skipped)
+        PASS [   0.090s] ( 1/64) suanpan accumulator::tests::differential::u64_entry_points_cover_the_full_range
+        PASS [   0.099s] ( 2/64) suanpan accumulator::tests::differential::cancelling_prefix_chain_matches_the_oracle
+        PASS [   0.104s] ( 3/64) suanpan accumulator::tests::differential::wide_teeth_across_the_cliff_match_the_oracle
+        PASS [   0.108s] ( 4/64) suanpan accumulator::tests::differential::redundant_zero_reads_nonzero_until_collapsed
+        PASS [   0.114s] ( 5/64) suanpan accumulator::tests::metered::accumulator_operand_rows_cost_the_operand
+        PASS [   0.120s] ( 6/64) suanpan accumulator::tests::differential::new_and_default_hold_zero
+        PASS [   0.118s] ( 7/64) suanpan accumulator::tests::metered::alternating_shifted_writes_cost_the_operand_not_the_gap
+        PASS [   0.134s] ( 8/64) suanpan accumulator::tests::differential::boundary_comb_oscillation_matches_the_oracle
+        PASS [   0.101s] ( 9/64) suanpan accumulator::tests::metered::held_width_rows_cost_the_held_digits
+        PASS [   0.133s] (10/64) suanpan accumulator::tests::metered::decision_bound_top_decides_on_the_first_touch
+        PASS [   0.140s] (11/64) suanpan accumulator::tests::differential::exact_cancellation_and_unit_nudges_read_correctly
+        PASS [   0.083s] (12/64) suanpan accumulator::tests::metered::merge_tie_reads_the_operand
+        PASS [   0.100s] (13/64) suanpan accumulator::tests::metered::limb_writes_cost_the_operand_at_any_held_width
+        PASS [   0.100s] (14/64) suanpan accumulator::tests::metered::domination_reads_cost_one_touch_after_the_first
+        PASS [   0.108s] (15/64) suanpan accumulator::tests::metered::limb_streams_select_word_or_wide_cost
+        PASS [   0.108s] (16/64) suanpan accumulator::tests::metered::scaled_read_costs_the_span_not_the_write_count
+        PASS [   0.161s] (17/64) suanpan accumulator::tests::metered::scaled_read_costs_the_written_span
+        PASS [   0.145s] (18/64) suanpan accumulator::tests::metered::no_collapse_fold_re_scans_the_prefix
+        PASS [   0.220s] (19/64) suanpan accumulator::tests::differential::negative_limb_values_read_back_exactly
+        PASS [   0.106s] (20/64) suanpan accumulator::tests::primitives::full_width_updates_match_the_oracle
+        PASS [   0.121s] (21/64) suanpan accumulator::tests::metered::top_settlement_steps_are_metered
+        PASS [   0.116s] (22/64) suanpan accumulator::tests::metered::u64_comb_touches_are_flat_and_exact
+        PASS [   0.096s] (23/64) suanpan accumulator::tests::primitives::primitive_shift_counts_are_checked
+        PASS [   0.100s] (24/64) suanpan accumulator::tests::primitives::owned_arithmetic_reuses_storage_and_preserves_order
+        PASS [   0.179s] (25/64) suanpan accumulator::tests::primitives::bit_bounds_cover_requested_adjustments
+        PASS [   0.119s] (26/64) suanpan accumulator::tests::primitives::unsigned_32
+        PASS [   0.131s] (27/64) suanpan accumulator::tests::primitives::signed_8
+        PASS [   0.147s] (28/64) suanpan accumulator::tests::primitives::signed_16
+        PASS [   0.147s] (29/64) suanpan accumulator::tests::primitives::signed_32
+        PASS [   0.147s] (30/64) suanpan accumulator::tests::primitives::signed_64
+        PASS [   0.131s] (31/64) suanpan accumulator::tests::primitives::unsigned_128
+        PASS [   0.131s] (32/64) suanpan accumulator::tests::primitives::signed_pointer
+        PASS [   0.153s] (33/64) suanpan accumulator::tests::primitives::signed_128
+        PASS [   0.198s] (34/64) suanpan accumulator::tests::metered::sign_query_skips_recorded_zero_ranges
+        PASS [   0.305s] (35/64) suanpan accumulator::tests::differential::carry_tie_streams_match_the_oracle
+        PASS [   0.137s] (36/64) suanpan accumulator::tests::primitives::unsigned_16
+        PASS [   0.120s] (37/64) suanpan accumulator::tests::primitives::unsigned_64
+        PASS [   0.138s] (38/64) suanpan accumulator::tests::primitives::unsigned_pointer
+        PASS [   0.087s] (39/64) suanpan accumulator::tests::witnesses::comparison_compaction_lowers_the_scaled_read_shift
+        PASS [   0.143s] (40/64) suanpan accumulator::tests::primitives::unsigned_8
+        PASS [   0.087s] (41/64) suanpan accumulator::tests::witnesses::first_unaddressable_digit_panics
+        PASS [   0.087s] (42/64) suanpan accumulator::tests::witnesses::comparison_compaction_tightens_the_stored_width
+        PASS [   0.091s] (43/64) suanpan accumulator::tests::witnesses::limb_stream_selects_the_narrowest_representation
+        PASS [   0.103s] (44/64) suanpan accumulator::tests::witnesses::comparison_threshold_survives_extreme_cancellation
+        PASS [   0.103s] (45/64) suanpan accumulator::tests::witnesses::flush_right_carry_tie_converts_exactly
+        PASS [   0.089s] (46/64) suanpan accumulator::tests::witnesses::maximum_adjustment_width_never_decides
+        PASS [   0.094s] (47/64) suanpan accumulator::tests::witnesses::small_value_can_decide_before_a_digit_scan_could
+        PASS [   0.094s] (48/64) suanpan accumulator::tests::witnesses::normalized_limb_conversion_corners
+        PASS [   0.094s] (49/64) suanpan accumulator::tests::witnesses::last_addressable_digit_is_accepted
+        PASS [   0.109s] (50/64) suanpan accumulator::tests::witnesses::small_value_stability_threshold_is_tight_from_below
+        PASS [   0.091s] (51/64) suanpan accumulator::tests::witnesses::small_value_extremes_spill_exactly
+        PASS [   0.096s] (52/64) suanpan accumulator::tests::witnesses::small_value_engages_and_retires
+        PASS [   0.091s] (53/64) suanpan accumulator::tests::witnesses::reserve_digits_is_value_neutral
+        PASS [   0.092s] (54/64) suanpan accumulator::tests::witnesses::stability_answer_can_depend_on_representation
+        PASS [   0.079s] (55/64) suanpan accumulator::tests::witnesses::stability_covers_extreme_accumulator_operands
+        PASS [   0.083s] (56/64) suanpan accumulator::tests::witnesses::stability_needs_two_digits_of_clearance
+        PASS [   0.086s] (57/64) suanpan::amortized_sequences sign_flip_oscillation_has_no_width_product
+        PASS [   0.528s] (58/64) suanpan accumulator::tests::differential::word_width_stability_is_sound
+        PASS [   0.543s] (59/64) suanpan accumulator::tests::differential::stored_width_stability_is_sound
+        PASS [   0.581s] (60/64) suanpan accumulator::tests::differential::two_sided_stability_converges_to_exact_comparison
+        PASS [   0.428s] (61/64) suanpan accumulator::tests::representation::representation_invariants_hold_on_run_forming_streams
+        PASS [   0.948s] (62/64) suanpan accumulator::tests::differential::pooled_reuse_after_reset_matches_the_oracle
+        PASS [   3.744s] (63/64) suanpan accumulator::tests::surface::complete_surface_matches_bigint
+        PASS [  18.015s] (64/64) suanpan accumulator::tests::representation::representation_invariants_hold_exhaustively
+────────────
+     Summary [  18.238s] 64 tests run: 64 passed, 9 skipped
+STEP2 EXIT=0
+   48367 target/l7m/high-suanpan.log
+46674 carry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+ 794 carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+  89 carry=2 low_nonzero=true test=accumulator::tests::differential::stored_width_stability_is_sound
+  79 carry=-3 low_nonzero=true test=accumulator::tests::differential::stored_width_stability_is_sound
+  56 carry=2 low_nonzero=true test=accumulator::tests::surface::complete_surface_matches_bigint
+  56 carry=-1 low_nonzero=false test=accumulator::tests::differential::carry_tie_streams_match_the_oracle
+  44 carry=carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+  36 -1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+  32 -1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+  30 carry=carry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+  30 carry=-3 low_nonzero=true test=accumulator::tests::surface::complete_surface_matches_bigint
+  29 
+  15 accumulator::tests::surface::complete_surface_matches_bigint
+  15 -carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+  14 1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+  13  low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+  12 false test=accumulator::tests::surface::complete_surface_matches_bigint
+  10 carry=-1 low_nonzero=carry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   9 false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   9 accumulator::tests::representation::representation_invariants_hold_exhaustively
+   9 1carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+   8 carry=carry=--1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   8 carry=-1 low_nonzero=false test=accumulator::tests::primitives::unsigned_128
+   8  low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   7 falsecarry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+   7 accumulator::tests::representation::representation_invariants_hold_exhaustivelycarry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+   7 1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+   7  test=accumulator::tests::surface::complete_surface_matches_bigint
+   6 carry=carry=-3 low_nonzero=true test=accumulator::tests::differential::stored_width_stability_is_sound
+   6 carry=-carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+   6 1carry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   6  low_nonzero=carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+   5 carry=-1carry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   5  test=carry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   4 falsecarry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   4 carry=-1 low_nonzero=false test=carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigint
+   4 carry=-1 low_nonzero=false test=carry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   4 carry=-1 low_nonzero=false test=accumulator::tests::surface::complete_surface_matches_bigintcarry=-1 low_nonzero=false test=accumulator::tests::representation::representation_invariants_hold_exhaustively
+   4 carry=-1 low_nonzero=false test=accumulator::tests::primitives::unsigned_64
+   4 carry=-1 low_nonzero=false test=accumulator::tests::primitives::unsigned_32
+== STEP3 lead1
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+error[E0277]: the trait bound `&Vec<u8>: std::io::Read` is not satisfied
+   --> crates/before/src/testing/meter/board/l7_compare_probe.rs:81:39
+    |
+ 81 |             let party = Party::decode(&nested_left_full_id(d).bytes).expect("canonical id");
+    |                         ------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `std::io::Read` is not implemented for `&Vec<u8>`
+    |                         |
+    |                         required by a bound introduced by this call
+    |
+note: required by a bound in `party::Party::decode`
+   --> crates/before/src/party.rs:714:22
+    |
+714 |     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
+    |                      ^^^^^^^^^^^^^ required by this bound in `Party::decode`
+help: consider dereferencing here
+    |
+ 81 |             let party = Party::decode(&*nested_left_full_id(d).bytes).expect("canonical id");
+    |                                        +
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `before` (lib test) due to 1 previous error
+error: command `/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo test --no-run --message-format json-render-diagnostics --package before --lib --features touch-meter --locked` exited with code 101

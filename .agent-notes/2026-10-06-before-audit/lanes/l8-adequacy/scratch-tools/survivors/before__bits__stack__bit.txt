@@ -1,0 +1,7 @@
+# survivors of crates/before/src/bits/stack/bit.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/stack/bit.rs:46:36: replace | with ^ in BitStack::push
+MISSED   crates/before/src/bits/stack/bit.rs:58:42: replace | with ^ in BitStack::push_bits
+MISSED   crates/before/src/bits/stack/bit.rs:64:39: replace | with ^ in BitStack::push_bits
+MISSED   crates/before/src/bits/stack/bit.rs:93:27: replace | with ^ in BitStack::pop_bits
+MISSED   crates/before/src/bits/stack/bit.rs:152:40: replace | with ^ in BitStack::set_last
+MISSED   crates/before/src/bits/stack/bit.rs:155:34: replace | with ^ in BitStack::set_last

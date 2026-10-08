@@ -1,0 +1,8 @@
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+────────────
+ Nextest run ID 00dead29-9a1a-441c-b92e-542e3cc5752b with nextest profile: default
+    Starting 1 test across 12 binaries (696 tests skipped)
+        PASS [   7.379s] (1/1) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+────────────
+     Summary [   7.384s] 1 test run: 1 passed, 696 skipped

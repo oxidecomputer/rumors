@@ -1,0 +1,5 @@
+M08-fold-drops-back: exit=100 compile_error=False caught_by=['clock::tests::clock_join_all_matches_all_models', 'party::tests::join_all_preserves_regions_on_overlap', 'party::tests::party_join_all_matches_all_models', 'testing::algebraic_laws::tests::clock_and_list_laws', 'testing::algebraic_laws::tests::laws_hold_on_organic_populations', 'testing::algebraic_laws::tests::party_and_list_laws'] ['Summary [  24.540s] 610 tests run: 604 passed, 6 failed, 1 skipped']
+M11-join-all-drops-groups: exit=100 compile_error=False caught_by=['testing::algebraic_laws::tests::party_and_list_laws'] ['Summary [  23.437s] 610 tests run: 609 passed, 1 failed, 1 skipped']
+M18-clock-join-all-drops-version: exit=100 compile_error=False caught_by=['clock::tests::clock_join_all_matches_all_models', 'clock::tests::join_all_agrees_with_oracle_on_forked_and_aliased_populations', 'testing::algebraic_laws::tests::clock_and_list_laws', 'testing::algebraic_laws::tests::laws_hold_on_organic_populations'] ['Summary [  23.839s] 610 tests run: 606 passed, 4 failed, 1 skipped']
+git diff after revert: ''
+exit=0

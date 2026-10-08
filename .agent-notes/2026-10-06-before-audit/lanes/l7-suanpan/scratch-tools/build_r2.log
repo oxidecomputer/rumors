@@ -1,0 +1,103 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+warning: function `l7_leaves` is never used
+   --> guest/src/l7_builders.rs:133:8
+    |
+133 | pub fn l7_leaves(family: u64, r: u64) -> u64 {
+    |        ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm32-pins-guest` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 25.63s
+   Compiling proc-macro2 v1.0.107
+   Compiling zmij v1.0.23
+   Compiling autocfg v1.5.1
+   Compiling unicode-ident v1.0.25
+   Compiling serde_core v1.0.229
+   Compiling quote v1.0.47
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling thiserror v2.0.20
+   Compiling num-primitive v0.2.1
+   Compiling hex v0.4.3
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling bytes v1.12.1
+   Compiling static_assertions v1.1.0
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/protocol)
+   Compiling num-traits v0.2.19
+   Compiling dsi-bitstream v0.10.1
+   Compiling syn v3.0.6
+   Compiling num-integer v0.1.47
+   Compiling num-bigint v0.4.8
+   Compiling thiserror-impl v2.0.20
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+warning: function `l7_leaves` is never used
+   --> guest/src/l7_builders.rs:133:8
+    |
+133 | pub fn l7_leaves(family: u64, r: u64) -> u64 {
+    |        ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm32-pins-guest` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 43.85s
+   Compiling wasm32-pins-harness v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/harness)
+    Finished `release` profile [optimized] target(s) in 7.81s
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+    Finished `release` profile [optimized] target(s) in 4m 43s
+────────────
+ Nextest run ID 4859031c-aa29-4542-b7ef-7d05e80d8f1a with nextest profile: default
+    Starting 1 test across 12 binaries (568 tests skipped)
+       START [         ] (1/1) before::explore_l7 l7_probe_version_sizes
+
+running 1 test
+L7SIZE family 0 size 64: 3569 encoded bytes, 4096 leaves
+L7SIZE family 0 size 256: 14321 encoded bytes, 16384 leaves
+L7SIZE family 0 size 1024: 57329 encoded bytes, 65536 leaves
+L7SIZE family 0 size 4096: 229361 encoded bytes, 262144 leaves
+        SLOW [> 60.000s] (───) before::explore_l7 l7_probe_version_sizes
+test l7_probe_version_sizes has been running for over 60 seconds
+L7SIZE family 0 size 16384: 917489 encoded bytes, 1048576 leaves
+L7SIZE family 1 size 64: 3577 encoded bytes, 4096 leaves
+L7SIZE family 1 size 256: 14329 encoded bytes, 16384 leaves
+L7SIZE family 1 size 1024: 57337 encoded bytes, 65536 leaves
+L7SIZE family 1 size 4096: 229369 encoded bytes, 262144 leaves
+        SLOW [>120.000s] (───) before::explore_l7 l7_probe_version_sizes
+L7SIZE family 1 size 16384: 917497 encoded bytes, 1048576 leaves
+L7SIZE family 2 size 64: 32292 encoded bytes, 32 leaves
+L7SIZE family 2 size 256: 130596 encoded bytes, 32 leaves
+L7SIZE family 2 size 1024: 523812 encoded bytes, 32 leaves
+L7SIZE family 2 size 4096: 2096676 encoded bytes, 32 leaves
+L7SIZE family 2 size 16384: 8388132 encoded bytes, 32 leaves
+L7SIZE family 3 size 64: 32548 encoded bytes, 32 leaves
+L7SIZE family 3 size 256: 130852 encoded bytes, 32 leaves
+L7SIZE family 3 size 1024: 524068 encoded bytes, 32 leaves
+L7SIZE family 3 size 4096: 2096932 encoded bytes, 32 leaves
+L7SIZE family 3 size 16384: 8388388 encoded bytes, 32 leaves
+L7SIZE family 4 size 64: 32412 encoded bytes, 32 leaves
+L7SIZE family 4 size 256: 130716 encoded bytes, 32 leaves
+L7SIZE family 4 size 1024: 523932 encoded bytes, 32 leaves
+L7SIZE family 4 size 4096: 2096796 encoded bytes, 32 leaves
+L7SIZE family 4 size 16384: 8388252 encoded bytes, 32 leaves
+L7SIZE family 5 size 64: 32540 encoded bytes, 32 leaves
+L7SIZE family 5 size 256: 130844 encoded bytes, 32 leaves
+L7SIZE family 5 size 1024: 524060 encoded bytes, 32 leaves
+L7SIZE family 5 size 4096: 2096924 encoded bytes, 32 leaves
+L7SIZE family 5 size 16384: 8388380 encoded bytes, 32 leaves
+test l7_probe_version_sizes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 176.16s
+
+        PASS [ 176.268s] (1/1) before::explore_l7 l7_probe_version_sizes
+────────────
+     Summary [ 176.272s] 1 test run: 1 passed (1 slow), 568 skipped
+exit=0

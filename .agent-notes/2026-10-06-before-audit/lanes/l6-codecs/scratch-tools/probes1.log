@@ -1,0 +1,34 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 22s
+────────────
+ Nextest run ID 16d96504-51fb-4477-87ad-d60ca8d41809 with nextest profile: default
+    Starting 4 tests across 12 binaries (694 tests skipped)
+       START [         ] (1/4) before testing::l6_probes::probe_cbor_text_and_array_as_bytes
+
+running 1 test
+PROBE party seed bytes [20]
+PROBE cbor text [61, 20] -> Err("Semantic(None, \"invalid type: string, expected byte buffer\")")
+PROBE cbor array [81, 18, 20] -> Ok([32])
+PROBE cbor text rank [61, 00] -> Err("Semantic(None, \"invalid type: string, expected byte buffer\")") (zero = 0)
+PROBE cbor bytes as count [42, 01, 02] -> Ok("36893488147419103233")
+test testing::l6_probes::probe_cbor_text_and_array_as_bytes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.00s
+
+        PASS [   0.041s] (1/4) before testing::l6_probes::probe_cbor_text_and_array_as_bytes
+       START [         ] (2/4) before testing::l6_probes::probe_encoders_under_failing_writers
+
+running 1 test
+        SLOW [> 60.000s] (───) before testing::l6_probes::probe_encoders_under_failing_writers
+test testing::l6_probes::probe_encoders_under_failing_writers has been running for over 60 seconds
+        SLOW [>120.000s] (───) before testing::l6_probes::probe_encoders_under_failing_writers
+ TERMINATING [>180.000s] (───) before testing::l6_probes::probe_encoders_under_failing_writers
+     TIMEOUT [ 180.013s] (2/4) before testing::l6_probes::probe_encoders_under_failing_writers
+  Cancelling due to test failure: 
+────────────
+     Summary [ 180.059s] 2/4 tests run: 1 passed, 1 timed out, 694 skipped
+     TIMEOUT [ 180.013s] (2/4) before testing::l6_probes::probe_encoders_under_failing_writers
+warning: 2/4 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)
+error: test run failed
+exit=100

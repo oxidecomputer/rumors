@@ -1,0 +1,5 @@
+# survivors of crates/before/src/bits/reader.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/reader.rs:182:23: replace += with *= in BitsReader<'a>::read_word
+MISSED   crates/before/src/bits/reader.rs:201:38: replace + with * in BitsReader<'a>::unary_raw
+MISSED   crates/before/src/bits/reader.rs:218:40: replace - with + in BitsReader<'a>::truncated
+MISSED   crates/before/src/bits/reader.rs:298:33: replace + with * in <impl BitRead for BitsReader<'_>>::read_unary

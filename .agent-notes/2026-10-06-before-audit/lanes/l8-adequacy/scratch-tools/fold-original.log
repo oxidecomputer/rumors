@@ -1,0 +1,59 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.86s
+────────────
+ Nextest run ID 028aaf76-cdcc-488f-bf88-3855f9c9c194 with nextest profile: default
+    Starting 5 tests across 12 binaries (693 tests skipped)
+       START [         ] (1/5) before testing::asymptotics::clock_join_all_log_factor_is_alive
+
+running 1 test
+MEASURED clock_join_all_scan: n=256 input_bytes=104448 scan_bits=8917542
+MEASURED clock_join_all_scan: n=1024 input_bytes=499712 scan_bits=51218342
+test testing::asymptotics::clock_join_all_log_factor_is_alive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 1.73s
+
+        PASS [   1.802s] (1/5) before testing::asymptotics::clock_join_all_log_factor_is_alive
+       START [         ] (2/5) before testing::asymptotics::party_join_all_log_factor_is_alive
+
+running 1 test
+MEASURED party_join_all_scan: n=256 input_bytes=40960 scan_bits=4011272
+MEASURED party_join_all_scan: n=1024 input_bytes=196608 scan_bits=22639368
+test testing::asymptotics::party_join_all_log_factor_is_alive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.32s
+
+        PASS [   0.398s] (2/5) before testing::asymptotics::party_join_all_log_factor_is_alive
+       START [         ] (3/5) before testing::asymptotics::version_join_all_log_factor_is_alive
+
+running 1 test
+MEASURED version_join_all_scan: n=256 input_bytes=63488 scan_bits=4906266
+MEASURED version_join_all_scan: n=1024 input_bytes=303104 scan_bits=28537882
+test testing::asymptotics::version_join_all_log_factor_is_alive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 1.54s
+
+        PASS [   1.620s] (3/5) before testing::asymptotics::version_join_all_log_factor_is_alive
+       START [         ] (4/5) before testing::asymptotics::version_meet_all_log_factor_is_alive
+
+running 1 test
+MEASURED version_meet_all_scan: n=256 input_bytes=63742 scan_bits=4907680
+MEASURED version_meet_all_scan: n=1024 input_bytes=304126 scan_bits=28543880
+test testing::asymptotics::version_meet_all_log_factor_is_alive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 1.37s
+
+        PASS [   1.416s] (4/5) before testing::asymptotics::version_meet_all_log_factor_is_alive
+       START [         ] (5/5) before testing::asymptotics::version_span_all_log_factor_is_alive
+
+running 1 test
+MEASURED version_span_all_scan: n=256 input_bytes=63488 scan_bits=5241754
+MEASURED version_span_all_scan: n=1024 input_bytes=303104 scan_bits=30212634
+test testing::asymptotics::version_span_all_log_factor_is_alive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 1.48s
+
+        PASS [   1.547s] (5/5) before testing::asymptotics::version_span_all_log_factor_is_alive
+────────────
+     Summary [   6.787s] 5 tests run: 5 passed, 693 skipped
+fold exit=0

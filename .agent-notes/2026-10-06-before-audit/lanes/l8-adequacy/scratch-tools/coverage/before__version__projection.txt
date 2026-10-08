@@ -1,0 +1,6 @@
+# coverage of crates/before/src/version/projection.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 232/234; branch outcomes 44/44
+# never-executed lines:
+L  433  _ => unreachable!("four cursor slots"),
+L  479  _ => unreachable!("four cursor slots"),
+# branches with an outcome never taken (outcome hit counts):

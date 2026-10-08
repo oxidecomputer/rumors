@@ -1,0 +1,20 @@
+# coverage of crates/before/src/version/io/writer.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 400/406; branch outcomes 69/82
+# never-executed lines:
+L  145  unreachable!()
+L  158  unreachable!()
+L  212  unreachable!()
+L  256  debug_assert_eq!(cursor.position() - 1, end);
+L  257  return;
+L  668  None => panic!("a leaf arrived after the tree was complete"),
+# branches with an outcome never taken (outcome hit counts):
+B  144  [564316, 0]  let Output::Split(out) = self else {
+B  157  [28114, 0]  let Output::Split(out) = self else {
+B  211  [191884, 0]  let Output::Interleaved(out) = self else {
+B  255  [0, 326]  if cursor.position() > end {
+B  341  [92250595, 23341390, 23341390, 0]  debug_assert!(sign != Sign::Minus || *magnitude != BigUint::ZERO);
+B  377  [5404818, 0, 5404818, 0]  start < end && end <= bits.reader().len(),
+B  381  [5404818, 0, 5336919, 67899]  if self.wide_len == 0 && u64::from(self.staged_len) + len <= NARROW_CODE_BITS {
+B  403  [13834783, 310801971, 310801971, 0]  len == 64 || value >> len == 0,
+B  546  [1283168, 0, 1283168, 0]  first_rel_depth >= 1 && last_rel_depth >= 1,
+B  550  [1283168, 0, 1283168, 0]  self.pending.is_some() && self.path.len() == root_depth + first_rel_depth,

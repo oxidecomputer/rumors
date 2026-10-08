@@ -1,0 +1,10 @@
+# coverage of crates/before/src/causally/forms.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 112/118; branch outcomes 0/0
+# never-executed lines:
+L  401  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+L  402  write!(f, "after({:?})", self.at)
+L  403  }
+L  407  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+L  408  write!(f, "before({:?})", self.at)
+L  409  }
+# branches with an outcome never taken (outcome hit counts):

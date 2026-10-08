@@ -1,0 +1,77 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: function `arb_cluster_points` is never used
+  --> crates/before/tests/audit_l1/gen.rs:32:8
+   |
+32 | pub fn arb_cluster_points() -> impl Strategy<Value = Vec<u128>> {
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+
+warning: `before` (test "audit_l1") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.01s
+────────────
+ Nextest run ID f66854d8-a5f0-46c1-966d-dcc04d019f72 with nextest profile: high-count
+    Starting 19 tests across 1 binary (1 test skipped)
+        PASS [   0.836s] ( 1/19) before::audit_l1 deep::deep_identity_operations_are_iterative
+        PASS [  17.450s] ( 2/19) before::audit_l1 fork_matches_model
+        PASS [  17.483s] ( 3/19) before::audit_l1 model_roundtrip
+        PASS [  31.603s] ( 4/19) before::audit_l1 set_algebra_arbitrary
+        PASS [  33.984s] ( 5/19) before::audit_l1 set_algebra_disjoint
+        PASS [  36.003s] ( 6/19) before::audit_l1 clock_forks_match_party_forks
+        PASS [  38.806s] ( 7/19) before::audit_l1 set_algebra_nested
+        PASS [  40.337s] ( 8/19) before::audit_l1 overlay::overlay_is_the_refinement
+        PASS [  40.931s] ( 9/19) before::audit_l1 join_all_disjoint
+        PASS [  49.811s] (10/19) before::audit_l1 forks_partial_drain
+        PASS [  56.037s] (11/19) before::audit_l1 join_all_failure_conserves_multiplicity
+        SLOW [> 60.000s] (─────) before::audit_l1 rule_respecting_histories
+        SLOW [> 60.000s] (─────) before::audit_l1 array_split_matches_model
+        SLOW [> 60.000s] (─────) before::audit_l1 clock_join_all_conserves
+        SLOW [> 60.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [> 60.000s] (─────) before::audit_l1 wide::clock_forks_wide_counts
+        SLOW [> 60.000s] (─────) before::audit_l1 sync_disjoint
+        SLOW [> 60.000s] (─────) before::audit_l1 sync_arbitrary
+        SLOW [> 60.000s] (─────) before::audit_l1 sync_all_matches_model
+        PASS [  61.765s] (12/19) before::audit_l1 sync_arbitrary
+        PASS [  63.643s] (13/19) before::audit_l1 sync_disjoint
+        PASS [  64.025s] (14/19) before::audit_l1 array_split_matches_model
+        PASS [ 102.221s] (15/19) before::audit_l1 wide::clock_forks_wide_counts
+        SLOW [>120.000s] (─────) before::audit_l1 rule_respecting_histories
+        SLOW [>120.000s] (─────) before::audit_l1 clock_join_all_conserves
+        SLOW [>120.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [>120.000s] (─────) before::audit_l1 sync_all_matches_model
+        SLOW [>180.000s] (─────) before::audit_l1 rule_respecting_histories
+        SLOW [>180.000s] (─────) before::audit_l1 clock_join_all_conserves
+        SLOW [>180.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [>180.000s] (─────) before::audit_l1 sync_all_matches_model
+        PASS [ 184.229s] (16/19) before::audit_l1 clock_join_all_conserves
+        PASS [ 199.536s] (17/19) before::audit_l1 sync_all_matches_model
+        PASS [ 203.556s] (18/19) before::audit_l1 rule_respecting_histories
+        SLOW [>240.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [>300.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [>360.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [>420.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [>480.000s] (─────) before::audit_l1 wide::forks_wide_counts
+        SLOW [>540.000s] (─────) before::audit_l1 wide::forks_wide_counts
+ TERMINATING [>600.000s] (─────) before::audit_l1 wide::forks_wide_counts
+     TIMEOUT [ 600.029s] (19/19) before::audit_l1 wide::forks_wide_counts
+  stdout ───
+
+    running 1 test
+    test wide::forks_wide_counts has been running for over 60 seconds
+
+    (test timed out)
+
+────────────
+     Summary [ 600.101s] 19 tests run: 18 passed (7 slow), 1 timed out, 1 skipped
+     TIMEOUT [ 600.029s] (19/19) before::audit_l1 wide::forks_wide_counts
+error: test run failed
+exit=100

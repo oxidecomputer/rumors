@@ -1,0 +1,18 @@
+[
+    Op::Limbs {
+        t: 1,
+        negative: false,
+        limbs: [
+            1,
+        ],
+        shift: 3008,
+    },
+    Op::Acc {
+        t: 0,
+        s: 1,
+        negative: true,
+        shift: 0,
+        form: AccForm::OwnedClone,
+    },
+]
+

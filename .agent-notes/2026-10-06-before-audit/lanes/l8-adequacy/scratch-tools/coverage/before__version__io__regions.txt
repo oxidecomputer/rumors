@@ -1,0 +1,5 @@
+# coverage of crates/before/src/version/io/regions.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 180/181; branch outcomes 14/14
+# never-executed lines:
+L  162  None => unreachable!("a final version leaf is never advanced"),
+# branches with an outcome never taken (outcome hit counts):

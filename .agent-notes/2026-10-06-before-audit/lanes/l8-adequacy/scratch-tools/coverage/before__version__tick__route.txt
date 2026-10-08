@@ -1,0 +1,6 @@
+# coverage of crates/before/src/version/tick/route.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 127/129; branch outcomes 8/8
+# never-executed lines:
+L  173  _ => panic!("a packed route cost is either wholly feasible or wholly absent"),
+L  193  (None, None) => Ordering::Equal,
+# branches with an outcome never taken (outcome hit counts):

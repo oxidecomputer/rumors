@@ -1,0 +1,240 @@
+87079324 635616 target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm
+1213745740 645666 target/fuzzfit-w/wasm32-unknown-unknown/release/fuzzfit_guest.wasm
+959450816 636110 target/fuzzfit-k1/wasm32-unknown-unknown/release/fuzzfit_guest.wasm
+a exit=0 secs=87
+w exit=0 secs=153
+k1 exit=0 secs=132
+
+running 1 test
+test l7_zero_range_fuel_ladder ... L7FUEL family=0 r=64 op=decode bytes=3569 leaves=4096 fuel=5220705 per_byte=1462.8
+L7FUEL family=0 r=64 op=le bytes=3569 leaves=4096 fuel=8954256 per_byte=2508.9
+L7FUEL family=0 r=64 op=min_ticks bytes=3569 leaves=4096 fuel=13852605 per_byte=3881.4
+L7FUEL family=0 r=256 op=decode bytes=14321 leaves=16384 fuel=22122134 per_byte=1544.7
+L7FUEL family=0 r=256 op=le bytes=14321 leaves=16384 fuel=36064029 per_byte=2518.3
+L7FUEL family=0 r=256 op=min_ticks bytes=14321 leaves=16384 fuel=58207735 per_byte=4064.5
+L7FUEL family=0 r=1024 op=decode bytes=57329 leaves=65536 fuel=93473515 per_byte=1630.5
+L7FUEL family=0 r=1024 op=le bytes=57329 leaves=65536 fuel=145304433 per_byte=2534.6
+L7FUEL family=0 r=1024 op=min_ticks bytes=57329 leaves=65536 fuel=260497897 per_byte=4543.9
+L7FUEL family=0 r=4096 op=decode bytes=229361 leaves=262144 fuel=375636916 per_byte=1637.8
+L7FUEL family=0 r=4096 op=le bytes=229361 leaves=262144 fuel=585344751 per_byte=2552.1
+L7FUEL family=0 r=4096 op=min_ticks bytes=229361 leaves=262144 fuel=1293803908 per_byte=5640.9
+L7FUEL family=1 r=64 op=decode bytes=3577 leaves=4096 fuel=4490446 per_byte=1255.4
+L7FUEL family=1 r=64 op=le bytes=3577 leaves=4096 fuel=8836660 per_byte=2470.4
+L7FUEL family=1 r=64 op=min_ticks bytes=3577 leaves=4096 fuel=13809108 per_byte=3860.5
+L7FUEL family=1 r=256 op=decode bytes=14329 leaves=16384 fuel=17956066 per_byte=1253.1
+L7FUEL family=1 r=256 op=le bytes=14329 leaves=16384 fuel=35343004 per_byte=2466.5
+L7FUEL family=1 r=256 op=min_ticks bytes=14329 leaves=16384 fuel=57857475 per_byte=4037.8
+L7FUEL family=1 r=1024 op=decode bytes=57337 leaves=65536 fuel=71821904 per_byte=1252.6
+L7FUEL family=1 r=1024 op=le bytes=57337 leaves=65536 fuel=141367300 per_byte=2465.6
+L7FUEL family=1 r=1024 op=min_ticks bytes=57337 leaves=65536 fuel=258779100 per_byte=4513.3
+L7FUEL family=1 r=4096 op=decode bytes=229369 leaves=262144 fuel=287260233 per_byte=1252.4
+L7FUEL family=1 r=4096 op=le bytes=229369 leaves=262144 fuel=565463404 per_byte=2465.3
+L7FUEL family=1 r=4096 op=min_ticks bytes=229369 leaves=262144 fuel=1285073684 per_byte=5602.6
+L7FUEL family=2 r=64 op=decode bytes=32292 leaves=32 fuel=6394632 per_byte=198.0
+L7FUEL family=2 r=64 op=le bytes=32292 leaves=32 fuel=12314584 per_byte=381.4
+L7FUEL family=2 r=64 op=min_ticks bytes=32292 leaves=32 fuel=13540476 per_byte=419.3
+L7FUEL family=2 r=256 op=decode bytes=130596 leaves=32 fuel=29452727 per_byte=225.5
+L7FUEL family=2 r=256 op=le bytes=130596 leaves=32 fuel=56781084 per_byte=434.8
+L7FUEL family=2 r=256 op=min_ticks bytes=130596 leaves=32 fuel=66676582 per_byte=510.6
+L7FUEL family=2 r=1024 op=decode bytes=523812 leaves=32 fuel=134517341 per_byte=256.8
+L7FUEL family=2 r=1024 op=le bytes=523812 leaves=32 fuel=259504520 per_byte=495.4
+L7FUEL family=2 r=1024 op=min_ticks bytes=523812 leaves=32 fuel=338295894 per_byte=645.8
+L7FUEL family=2 r=4096 op=decode bytes=2096676 leaves=32 fuel=604081312 per_byte=288.1
+L7FUEL family=2 r=4096 op=le bytes=2096676 leaves=32 fuel=1165946697 per_byte=556.1
+L7FUEL family=2 r=4096 op=min_ticks bytes=2096676 leaves=32 fuel=1783462998 per_byte=850.6
+L7FUEL family=3 r=64 op=decode bytes=32548 leaves=32 fuel=4517913 per_byte=138.8
+L7FUEL family=3 r=64 op=le bytes=32548 leaves=32 fuel=8676421 per_byte=266.6
+L7FUEL family=3 r=64 op=min_ticks bytes=32548 leaves=32 fuel=8243714 per_byte=253.3
+L7FUEL family=3 r=256 op=decode bytes=130852 leaves=32 fuel=17973453 per_byte=137.4
+L7FUEL family=3 r=256 op=le bytes=130852 leaves=32 fuel=34542789 per_byte=264.0
+L7FUEL family=3 r=256 op=min_ticks bytes=130852 leaves=32 fuel=34926017 per_byte=266.9
+L7FUEL family=3 r=1024 op=decode bytes=524068 leaves=32 fuel=71794209 per_byte=137.0
+L7FUEL family=3 r=1024 op=le bytes=524068 leaves=32 fuel=138006725 per_byte=263.3
+L7FUEL family=3 r=1024 op=min_ticks bytes=524068 leaves=32 fuel=166135998 per_byte=317.0
+L7FUEL family=3 r=4096 op=decode bytes=2096932 leaves=32 fuel=287113536 per_byte=136.9
+L7FUEL family=3 r=4096 op=le bytes=2096932 leaves=32 fuel=551860933 per_byte=263.2
+L7FUEL family=3 r=4096 op=min_ticks bytes=2096932 leaves=32 fuel=914204568 per_byte=436.0
+L7FUEL family=4 r=64 op=decode bytes=32412 leaves=32 fuel=4803211 per_byte=148.2
+L7FUEL family=4 r=64 op=le bytes=32412 leaves=32 fuel=11800330 per_byte=364.1
+L7FUEL family=4 r=64 op=min_ticks bytes=32412 leaves=32 fuel=11695199 per_byte=360.8
+L7FUEL family=4 r=256 op=decode bytes=130716 leaves=32 fuel=20461922 per_byte=156.5
+L7FUEL family=4 r=256 op=le bytes=130716 leaves=32 fuel=54074114 per_byte=413.7
+L7FUEL family=4 r=256 op=min_ticks bytes=130716 leaves=32 fuel=57346694 per_byte=438.7
+L7FUEL family=4 r=1024 op=decode bytes=523932 leaves=32 fuel=86810792 per_byte=165.7
+L7FUEL family=4 r=1024 op=le bytes=523932 leaves=32 fuel=246095557 per_byte=469.7
+L7FUEL family=4 r=1024 op=min_ticks bytes=523932 leaves=32 fuel=292297689 per_byte=557.9
+L7FUEL family=4 r=4096 op=decode bytes=2096796 leaves=32 fuel=364912585 per_byte=174.0
+L7FUEL family=4 r=4096 op=le bytes=2096796 leaves=32 fuel=1102042525 per_byte=525.6
+L7FUEL family=4 r=4096 op=min_ticks bytes=2096796 leaves=32 fuel=1560045842 per_byte=744.0
+L7FUEL family=5 r=64 op=decode bytes=32540 leaves=32 fuel=4211311 per_byte=129.4
+L7FUEL family=5 r=64 op=le bytes=32540 leaves=32 fuel=10056023 per_byte=309.0
+L7FUEL family=5 r=64 op=min_ticks bytes=32540 leaves=32 fuel=9698879 per_byte=298.1
+L7FUEL family=5 r=256 op=decode bytes=130844 leaves=32 fuel=16745251 per_byte=128.0
+L7FUEL family=5 r=256 op=le bytes=130844 leaves=32 fuel=43424629 per_byte=331.9
+L7FUEL family=5 r=256 op=min_ticks bytes=130844 leaves=32 fuel=44902148 per_byte=343.2
+L7FUEL family=5 r=1024 op=decode bytes=524060 leaves=32 fuel=66879607 per_byte=127.6
+L7FUEL family=5 r=1024 op=le bytes=524060 leaves=32 fuel=188125139 per_byte=359.0
+L7FUEL family=5 r=1024 op=min_ticks bytes=524060 leaves=32 fuel=223779642 per_byte=427.0
+L7FUEL family=5 r=4096 op=decode bytes=2096924 leaves=32 fuel=267453334 per_byte=127.5
+L7FUEL family=5 r=4096 op=le bytes=2096924 leaves=32 fuel=810070773 per_byte=386.3
+L7FUEL family=5 r=4096 op=min_ticks bytes=2096924 leaves=32 fuel=1212729852 per_byte=578.3
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.32s
+
+
+running 1 test
+test l7_zero_range_fuel_ladder ... L7FUEL family=0 r=64 op=decode bytes=3569 leaves=4096 fuel=4796475 per_byte=1343.9
+L7FUEL family=0 r=64 op=le bytes=3569 leaves=4096 fuel=9377647 per_byte=2627.5
+L7FUEL family=0 r=64 op=min_ticks bytes=3569 leaves=4096 fuel=12926117 per_byte=3621.8
+L7FUEL family=0 r=256 op=decode bytes=14321 leaves=16384 fuel=19179278 per_byte=1339.2
+L7FUEL family=0 r=256 op=le bytes=14321 leaves=16384 fuel=37509718 per_byte=2619.2
+L7FUEL family=0 r=256 op=min_ticks bytes=14321 leaves=16384 fuel=54387409 per_byte=3797.7
+L7FUEL family=0 r=1024 op=decode bytes=57329 leaves=65536 fuel=76706928 per_byte=1338.0
+L7FUEL family=0 r=1024 op=le bytes=57329 leaves=65536 fuel=150030246 per_byte=2617.0
+L7FUEL family=0 r=1024 op=min_ticks bytes=57329 leaves=65536 fuel=244741441 per_byte=4269.1
+L7FUEL family=0 r=4096 op=decode bytes=229361 leaves=262144 fuel=306794855 per_byte=1337.6
+L7FUEL family=0 r=4096 op=le bytes=229361 leaves=262144 fuel=600113071 per_byte=2616.5
+L7FUEL family=0 r=4096 op=min_ticks bytes=229361 leaves=262144 fuel=1229024069 per_byte=5358.5
+L7FUEL family=1 r=64 op=decode bytes=3577 leaves=4096 fuel=4818678 per_byte=1347.1
+L7FUEL family=1 r=64 op=le bytes=3577 leaves=4096 fuel=9432432 per_byte=2637.0
+L7FUEL family=1 r=64 op=min_ticks bytes=3577 leaves=4096 fuel=12955805 per_byte=3622.0
+L7FUEL family=1 r=256 op=decode bytes=14329 leaves=16384 fuel=19265801 per_byte=1344.5
+L7FUEL family=1 r=256 op=le bytes=14329 leaves=16384 fuel=37724439 per_byte=2632.7
+L7FUEL family=1 r=256 op=min_ticks bytes=14329 leaves=16384 fuel=54440508 per_byte=3799.3
+L7FUEL family=1 r=1024 op=decode bytes=57337 leaves=65536 fuel=77050731 per_byte=1343.8
+L7FUEL family=1 r=1024 op=le bytes=57337 leaves=65536 fuel=150884711 per_byte=2631.5
+L7FUEL family=1 r=1024 op=min_ticks bytes=57337 leaves=65536 fuel=245101013 per_byte=4274.7
+L7FUEL family=1 r=4096 op=decode bytes=229369 leaves=262144 fuel=308167778 per_byte=1343.5
+L7FUEL family=1 r=4096 op=le bytes=229369 leaves=262144 fuel=603526512 per_byte=2631.2
+L7FUEL family=1 r=4096 op=min_ticks bytes=229369 leaves=262144 fuel=1230352846 per_byte=5364.1
+L7FUEL family=2 r=64 op=decode bytes=32292 leaves=32 fuel=4178779 per_byte=129.4
+L7FUEL family=2 r=64 op=le bytes=32292 leaves=32 fuel=8024223 per_byte=248.5
+L7FUEL family=2 r=64 op=min_ticks bytes=32292 leaves=32 fuel=7369824 per_byte=228.2
+L7FUEL family=2 r=256 op=decode bytes=130596 leaves=32 fuel=16686427 per_byte=127.8
+L7FUEL family=2 r=256 op=le bytes=130596 leaves=32 fuel=32057581 per_byte=245.5
+L7FUEL family=2 r=256 op=min_ticks bytes=130596 leaves=32 fuel=31523586 per_byte=241.4
+L7FUEL family=2 r=1024 op=decode bytes=523812 leaves=32 fuel=66718911 per_byte=127.4
+L7FUEL family=2 r=1024 op=le bytes=523812 leaves=32 fuel=128195300 per_byte=244.7
+L7FUEL family=2 r=1024 op=min_ticks bytes=523812 leaves=32 fuel=152590337 per_byte=291.3
+L7FUEL family=2 r=4096 op=decode bytes=2096676 leaves=32 fuel=266870942 per_byte=127.3
+L7FUEL family=2 r=4096 op=le bytes=2096676 leaves=32 fuel=512702617 per_byte=244.5
+L7FUEL family=2 r=4096 op=min_ticks bytes=2096676 leaves=32 fuel=859903730 per_byte=410.1
+L7FUEL family=3 r=64 op=decode bytes=32548 leaves=32 fuel=5053192 per_byte=155.3
+L7FUEL family=3 r=64 op=le bytes=32548 leaves=32 fuel=9722804 per_byte=298.7
+L7FUEL family=3 r=64 op=min_ticks bytes=32548 leaves=32 fuel=9760839 per_byte=299.9
+L7FUEL family=3 r=256 op=decode bytes=130852 leaves=32 fuel=20125215 per_byte=153.8
+L7FUEL family=3 r=256 op=le bytes=130852 leaves=32 fuel=38719938 per_byte=295.9
+L7FUEL family=3 r=256 op=min_ticks bytes=130852 leaves=32 fuel=40980695 per_byte=313.2
+L7FUEL family=3 r=1024 op=decode bytes=524068 leaves=32 fuel=80405123 per_byte=153.4
+L7FUEL family=3 r=1024 op=le bytes=524068 leaves=32 fuel=154712761 per_byte=295.2
+L7FUEL family=3 r=1024 op=min_ticks bytes=524068 leaves=32 fuel=190260370 per_byte=363.0
+L7FUEL family=3 r=4096 op=decode bytes=2096932 leaves=32 fuel=321546850 per_byte=153.3
+L7FUEL family=3 r=4096 op=le bytes=2096932 leaves=32 fuel=618640494 per_byte=295.0
+L7FUEL family=3 r=4096 op=min_ticks bytes=2096932 leaves=32 fuel=1010495986 per_byte=481.9
+L7FUEL family=4 r=64 op=decode bytes=32412 leaves=32 fuel=4196010 per_byte=129.5
+L7FUEL family=4 r=64 op=le bytes=32412 leaves=32 fuel=7814765 per_byte=241.1
+L7FUEL family=4 r=64 op=min_ticks bytes=32412 leaves=32 fuel=6969006 per_byte=215.0
+L7FUEL family=4 r=256 op=decode bytes=130716 leaves=32 fuel=16727957 per_byte=128.0
+L7FUEL family=4 r=256 op=le bytes=130716 leaves=32 fuel=31127849 per_byte=238.1
+L7FUEL family=4 r=256 op=min_ticks bytes=130716 leaves=32 fuel=30000478 per_byte=229.5
+L7FUEL family=4 r=1024 op=decode bytes=523932 leaves=32 fuel=66847801 per_byte=127.6
+L7FUEL family=4 r=1024 op=le bytes=523932 leaves=32 fuel=124388338 per_byte=237.4
+L7FUEL family=4 r=1024 op=min_ticks bytes=523932 leaves=32 fuel=146567737 per_byte=279.7
+L7FUEL family=4 r=4096 op=decode bytes=2096796 leaves=32 fuel=267349952 per_byte=127.5
+L7FUEL family=4 r=4096 op=le bytes=2096796 leaves=32 fuel=497370550 per_byte=237.2
+L7FUEL family=4 r=4096 op=min_ticks bytes=2096796 leaves=32 fuel=835235598 per_byte=398.3
+L7FUEL family=5 r=64 op=decode bytes=32540 leaves=32 fuel=4553574 per_byte=139.9
+L7FUEL family=5 r=64 op=le bytes=32540 leaves=32 fuel=8625573 per_byte=265.1
+L7FUEL family=5 r=64 op=min_ticks bytes=32540 leaves=32 fuel=8133482 per_byte=250.0
+L7FUEL family=5 r=256 op=decode bytes=130844 leaves=32 fuel=18117581 per_byte=138.5
+L7FUEL family=5 r=256 op=le bytes=130844 leaves=32 fuel=34309327 per_byte=262.2
+L7FUEL family=5 r=256 op=min_ticks bytes=130844 leaves=32 fuel=34564790 per_byte=264.2
+L7FUEL family=5 r=1024 op=decode bytes=524060 leaves=32 fuel=72365425 per_byte=138.1
+L7FUEL family=5 r=1024 op=le bytes=524060 leaves=32 fuel=137052312 per_byte=261.5
+L7FUEL family=5 r=1024 op=min_ticks bytes=524060 leaves=32 fuel=164837732 per_byte=314.5
+L7FUEL family=5 r=4096 op=decode bytes=2096924 leaves=32 fuel=289377416 per_byte=138.0
+L7FUEL family=5 r=4096 op=le bytes=2096924 leaves=32 fuel=547964508 per_byte=261.3
+L7FUEL family=5 r=4096 op=min_ticks bytes=2096924 leaves=32 fuel=908087768 per_byte=433.1
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 135.66s
+
+
+running 1 test
+test l7_zero_range_fuel_ladder ... L7FUEL family=0 r=64 op=decode bytes=3569 leaves=4096 fuel=5875872 per_byte=1646.4
+L7FUEL family=0 r=64 op=le bytes=3569 leaves=4096 fuel=9006243 per_byte=2523.5
+L7FUEL family=0 r=64 op=min_ticks bytes=3569 leaves=4096 fuel=13881237 per_byte=3889.4
+L7FUEL family=0 r=256 op=decode bytes=14321 leaves=16384 fuel=25926351 per_byte=1810.4
+L7FUEL family=0 r=256 op=le bytes=14321 leaves=16384 fuel=36349402 per_byte=2538.2
+L7FUEL family=0 r=256 op=min_ticks bytes=14321 leaves=16384 fuel=58374926 per_byte=4076.2
+L7FUEL family=0 r=1024 op=decode bytes=57329 leaves=65536 fuel=113440715 per_byte=1978.8
+L7FUEL family=0 r=1024 op=le bytes=57329 leaves=65536 fuel=146789791 per_byte=2560.5
+L7FUEL family=0 r=1024 op=min_ticks bytes=57329 leaves=65536 fuel=261394412 per_byte=4559.5
+L7FUEL family=0 r=4096 op=decode bytes=229361 leaves=262144 fuel=456372692 per_byte=1989.8
+L7FUEL family=0 r=4096 op=le bytes=229361 leaves=262144 fuel=592773039 per_byte=2584.5
+L7FUEL family=0 r=4096 op=min_ticks bytes=229361 leaves=262144 fuel=1298256071 per_byte=5660.3
+L7FUEL family=1 r=64 op=decode bytes=3577 leaves=4096 fuel=4490446 per_byte=1255.4
+L7FUEL family=1 r=64 op=le bytes=3577 leaves=4096 fuel=8836660 per_byte=2470.4
+L7FUEL family=1 r=64 op=min_ticks bytes=3577 leaves=4096 fuel=13809108 per_byte=3860.5
+L7FUEL family=1 r=256 op=decode bytes=14329 leaves=16384 fuel=17956066 per_byte=1253.1
+L7FUEL family=1 r=256 op=le bytes=14329 leaves=16384 fuel=35343004 per_byte=2466.5
+L7FUEL family=1 r=256 op=min_ticks bytes=14329 leaves=16384 fuel=57857475 per_byte=4037.8
+L7FUEL family=1 r=1024 op=decode bytes=57337 leaves=65536 fuel=71821904 per_byte=1252.6
+L7FUEL family=1 r=1024 op=le bytes=57337 leaves=65536 fuel=141367300 per_byte=2465.6
+L7FUEL family=1 r=1024 op=min_ticks bytes=57337 leaves=65536 fuel=258779100 per_byte=4513.3
+L7FUEL family=1 r=4096 op=decode bytes=229369 leaves=262144 fuel=287260233 per_byte=1252.4
+L7FUEL family=1 r=4096 op=le bytes=229369 leaves=262144 fuel=565463404 per_byte=2465.3
+L7FUEL family=1 r=4096 op=min_ticks bytes=229369 leaves=262144 fuel=1285073684 per_byte=5602.6
+L7FUEL family=2 r=64 op=decode bytes=32292 leaves=32 fuel=7226424 per_byte=223.8
+L7FUEL family=2 r=64 op=le bytes=32292 leaves=32 fuel=13926181 per_byte=431.3
+L7FUEL family=2 r=64 op=min_ticks bytes=32292 leaves=32 fuel=16373376 per_byte=507.0
+L7FUEL family=2 r=256 op=decode bytes=130596 leaves=32 fuel=34018695 per_byte=260.5
+L7FUEL family=2 r=256 op=le bytes=130596 leaves=32 fuel=65627647 per_byte=502.5
+L7FUEL family=2 r=256 op=min_ticks bytes=130596 leaves=32 fuel=82127052 per_byte=628.9
+L7FUEL family=2 r=1024 op=decode bytes=523812 leaves=32 fuel=158283069 per_byte=302.2
+L7FUEL family=2 r=1024 op=le bytes=523812 leaves=32 fuel=305550618 per_byte=583.3
+L7FUEL family=2 r=1024 op=min_ticks bytes=523812 leaves=32 fuel=418452224 per_byte=798.9
+L7FUEL family=2 r=4096 op=decode bytes=2096676 leaves=32 fuel=722933920 per_byte=344.8
+L7FUEL family=2 r=4096 op=le bytes=2096676 leaves=32 fuel=1396223625 per_byte=665.9
+L7FUEL family=2 r=4096 op=min_ticks bytes=2096676 leaves=32 fuel=2184638648 per_byte=1042.0
+L7FUEL family=3 r=64 op=decode bytes=32548 leaves=32 fuel=4517913 per_byte=138.8
+L7FUEL family=3 r=64 op=le bytes=32548 leaves=32 fuel=8676421 per_byte=266.6
+L7FUEL family=3 r=64 op=min_ticks bytes=32548 leaves=32 fuel=8243714 per_byte=253.3
+L7FUEL family=3 r=256 op=decode bytes=130852 leaves=32 fuel=17973453 per_byte=137.4
+L7FUEL family=3 r=256 op=le bytes=130852 leaves=32 fuel=34542789 per_byte=264.0
+L7FUEL family=3 r=256 op=min_ticks bytes=130852 leaves=32 fuel=34926017 per_byte=266.9
+L7FUEL family=3 r=1024 op=decode bytes=524068 leaves=32 fuel=71794209 per_byte=137.0
+L7FUEL family=3 r=1024 op=le bytes=524068 leaves=32 fuel=138006725 per_byte=263.3
+L7FUEL family=3 r=1024 op=min_ticks bytes=524068 leaves=32 fuel=166135998 per_byte=317.0
+L7FUEL family=3 r=4096 op=decode bytes=2096932 leaves=32 fuel=287113536 per_byte=136.9
+L7FUEL family=3 r=4096 op=le bytes=2096932 leaves=32 fuel=551860933 per_byte=263.2
+L7FUEL family=3 r=4096 op=min_ticks bytes=2096932 leaves=32 fuel=914204568 per_byte=436.0
+L7FUEL family=4 r=64 op=decode bytes=32412 leaves=32 fuel=5119995 per_byte=158.0
+L7FUEL family=4 r=64 op=le bytes=32412 leaves=32 fuel=13295564 per_byte=410.2
+L7FUEL family=4 r=64 op=min_ticks bytes=32412 leaves=32 fuel=13556447 per_byte=418.3
+L7FUEL family=4 r=256 op=decode bytes=130716 leaves=32 fuel=22265922 per_byte=170.3
+L7FUEL family=4 r=256 op=le bytes=130716 leaves=32 fuel=62290058 per_byte=476.5
+L7FUEL family=4 r=256 op=min_ticks bytes=130716 leaves=32 fuel=67644388 per_byte=517.5
+L7FUEL family=4 r=1024 op=decode bytes=523932 leaves=32 fuel=96254712 per_byte=183.7
+L7FUEL family=4 r=1024 op=le bytes=523932 leaves=32 fuel=288866071 per_byte=551.3
+L7FUEL family=4 r=1024 op=min_ticks bytes=523932 leaves=32 fuel=346114236 per_byte=660.6
+L7FUEL family=4 r=4096 op=decode bytes=2096796 leaves=32 fuel=410818433 per_byte=195.9
+L7FUEL family=4 r=4096 op=le bytes=2096796 leaves=32 fuel=1315772820 per_byte=627.5
+L7FUEL family=4 r=4096 op=min_ticks bytes=2096796 leaves=32 fuel=1828711934 per_byte=872.1
+L7FUEL family=5 r=64 op=decode bytes=32540 leaves=32 fuel=4211311 per_byte=129.4
+L7FUEL family=5 r=64 op=le bytes=32540 leaves=32 fuel=10783841 per_byte=331.4
+L7FUEL family=5 r=64 op=min_ticks bytes=32540 leaves=32 fuel=10583417 per_byte=325.2
+L7FUEL family=5 r=256 op=decode bytes=130844 leaves=32 fuel=16745251 per_byte=128.0
+L7FUEL family=5 r=256 op=le bytes=130844 leaves=32 fuel=47419851 per_byte=362.4
+L7FUEL family=5 r=256 op=min_ticks bytes=130844 leaves=32 fuel=49749320 per_byte=380.2
+L7FUEL family=5 r=1024 op=decode bytes=524060 leaves=32 fuel=66879607 per_byte=127.6
+L7FUEL family=5 r=1024 op=le bytes=524060 leaves=32 fuel=208920151 per_byte=398.7
+L7FUEL family=5 r=1024 op=min_ticks bytes=524060 leaves=32 fuel=248980747 per_byte=475.1
+L7FUEL family=5 r=4096 op=decode bytes=2096924 leaves=32 fuel=267453334 per_byte=127.5
+L7FUEL family=5 r=4096 op=le bytes=2096924 leaves=32 fuel=914066805 per_byte=435.9
+L7FUEL family=5 r=4096 op=min_ticks bytes=2096924 leaves=32 fuel=1338473223 per_byte=638.3
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 125.48s
+

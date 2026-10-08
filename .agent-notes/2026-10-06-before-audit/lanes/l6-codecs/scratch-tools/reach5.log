@@ -1,0 +1,135 @@
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.26s
+=== MUT 31 ===
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+────────────
+ Nextest run ID bf999d2e-fef3-4c97-b46c-790739f8f314 with nextest profile: default
+    Starting 695 tests across 13 binaries (12 tests skipped)
+────────────
+     Summary [  62.655s] 695 tests run: 679 passed (1 leaky), 16 failed, 12 skipped
+        FAIL [   1.277s] (211/695) before testing::algebraic_laws::tests::clock_solo_laws
+        FAIL [   1.749s] (223/695) before testing::algebraic_laws::tests::clock_and_list_laws
+        FAIL [   2.014s] (229/695) before testing::algebraic_laws::tests::clock_version_laws
+        FAIL [   1.600s] (230/695) before testing::algebraic_laws::tests::version_party_laws
+        FAIL [   0.455s] (253/695) before testing::l6_writer::l6_writer_copy_matches_spec
+        FAIL [   6.490s] (325/695) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   0.431s] (415/695) before version::io::writer::tests::split_output_splices_like_leaf_feeding
+        FAIL [   1.543s] (565/695) before version::tick::tests::arbitrary_pairs_tick_and_flag_identically
+        FAIL [   0.709s] (566/695) before version::tick::tests::family_pairs_tick_and_flag_identically
+ FAIL + LEAK [   3.524s] (579/695) before version::tick::raise::tests::arbitrary_pairs_grow_identically
+        FAIL [   2.459s] (592/695) before version::tick::tests::grow_branch_is_absorbing
+        FAIL [   1.261s] (596/695) before version::tick::tests::tick_orbit_growth_is_transient_plus_log
+        FAIL [   1.060s] (602/695) before version::tick::tests::tick_output_is_input_bounded
+        FAIL [   2.813s] (606/695) before version::tick::tests::tick_is_ticks_one
+        FAIL [   2.911s] (607/695) before version::tick::tests::simplification_is_idempotent
+        FAIL [   2.254s] (628/695) before version::tick::tests::ticks_matches_iterated_ticks_arbitrary
+error: test run failed
+=== END 31 exit=100 ===
+=== MUT 32 ===
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.08s
+────────────
+ Nextest run ID 14551072-5a32-4806-9872-5a8c5c41ad42 with nextest profile: default
+    Starting 695 tests across 13 binaries (12 tests skipped)
+────────────
+     Summary [  43.718s] 695 tests run: 638 passed, 57 failed, 12 skipped
+        FAIL [   0.591s] ( 66/695) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        FAIL [   0.622s] ( 68/695) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        FAIL [   0.170s] ( 87/695) before clock::tests::churn_orbit_sizes_reach_a_bounded_band
+        FAIL [   0.159s] ( 97/695) before clock::tests::encoding_views_agree_over_impl_history
+        FAIL [   0.164s] ( 98/695) before clock::tests::master_differential
+        FAIL [   0.157s] ( 99/695) before clock::tests::ops_preserve_normal_form
+        FAIL [   0.126s] (100/695) before clock::tests::static_orbit_ids_freeze_and_versions_grow_log
+        FAIL [   0.533s] (213/695) before testing::algebraic_laws::tests::version_party_pair_laws
+        FAIL [   0.820s] (214/695) before testing::algebraic_laws::tests::clock_solo_laws
+        FAIL [   1.086s] (221/695) before testing::algebraic_laws::tests::clock_and_list_laws
+        FAIL [   0.844s] (223/695) before testing::algebraic_laws::tests::version_party_laws
+        FAIL [   1.017s] (225/695) before testing::algebraic_laws::tests::clock_version_laws
+        FAIL [   0.581s] (236/695) before testing::l6_writer::l6_writer_copy_matches_spec
+        FAIL [   2.494s] (252/695) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   0.619s] (256/695) before testing::meter::board::tests::many_hole_query_operands_exercise_both_fused_walks
+        FAIL [   0.448s] (257/695) before testing::meter::board::tests::many_hole_conjunction_preserves_both_antichains
+        FAIL [   3.831s] (289/695) before testing::exhaustive::tests::exhaustive_small
+        FAIL [   0.516s] (337/695) before testing::oracles::function::tests::replay_matches_across_references
+        FAIL [   6.469s] (354/695) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.217s] (397/695) before version::io::writer::tests::copy_subtree_remainder_matches_per_leaf_feeding
+        FAIL [   0.173s] (398/695) before version::io::writer::tests::collapse_after_a_splice_matches_per_leaf_feeding
+        FAIL [   0.190s] (418/695) before version::io::writer::tests::split_output_splices_like_leaf_feeding
+        FAIL [   0.793s] (421/695) before version::io::tests::organic_histories_round_trip
+        FAIL [   0.688s] (449/695) before version::measure::tests::organic_histories_agree
+        FAIL [   1.047s] (451/695) before version::lattice::tests::organic_histories_emit_identically
+        FAIL [   1.268s] (504/695) before version::tests::grow_minimal
+        FAIL [   3.697s] (506/695) before version::order::tests::organic_histories_agree
+        FAIL [   1.497s] (510/695) before version::tests::grow_matches_brute_force
+        FAIL [   1.056s] (527/695) before version::tests::min_ticks_floors_every_history
+        FAIL [   1.010s] (549/695) before version::tick::raise::tests::family_pairs_grow_identically
+        FAIL [   0.207s] (556/695) before version::tick::tests::deep_and_wide_ticks_match_iterated
+        FAIL [   0.401s] (557/695) before version::tick::tests::dominated_undercut_family_ticks_identically
+        FAIL [   1.223s] (558/695) before version::tests::tick_and_ticks_match_the_recursive_oracle
+        FAIL [   1.387s] (559/695) before version::tick::raise::tests::arbitrary_pairs_grow_identically
+        FAIL [   1.606s] (565/695) before version::tick::raise::tests::exhaustive_small_scope_grows_identically
+        FAIL [   0.260s] (567/695) before version::tick::tests::prescan_raise_shapes::chain_raise_grid_matches_oracle
+        FAIL [   0.301s] (572/695) before version::tick::tests::prescan_raise_shapes::suspended_and_skipping_site_raises_match_oracle
+        FAIL [   1.861s] (573/695) before version::tick::tests::arbitrary_pairs_tick_and_flag_identically
+        FAIL [   0.621s] (575/695) before version::tick::tests::organic_histories_tick_and_flag_identically
+        FAIL [   1.187s] (577/695) before version::tick::tests::family_pairs_tick_and_flag_identically
+        FAIL [   1.234s] (580/695) before version::tick::tests::exhaustive_small_scope_ticks_and_flags_identically
+        FAIL [   1.404s] (581/695) before version::tick::tests::exhaustive_small_scope_ticks_n_matches_iterated
+        FAIL [   0.667s] (583/695) before version::tick::tests::ticks_composes_at_wide_n
+        FAIL [   0.687s] (589/695) before version::tick::tests::ticks_matches_iterated_ticks_shapes
+        FAIL [   1.694s] (594/695) before version::tick::raise::tests::organic_histories_grow_identically
+        FAIL [   0.624s] (596/695) before::amp_board_smoke board_runs_to_completion
+        FAIL [   0.596s] (598/695) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   2.017s] (599/695) before version::tick::tests::grow_branch_is_absorbing
+        FAIL [   0.364s] (600/695) before::answer_embedded measure_folds_are_additive_on_wide_base_tiny_tail
+        FAIL [   1.442s] (605/695) before version::tick::tests::tick_orbit_growth_is_transient_plus_log
+        FAIL [   0.501s] (607/695) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   1.524s] (608/695) before version::tick::tests::tick_is_ticks_one
+        FAIL [   0.438s] (609/695) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   0.345s] (612/695) before::answer_embedded measure_folds_are_flat_per_byte_on_wide_ladder
+        FAIL [   0.575s] (615/695) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   1.673s] (617/695) before version::tick::tests::tick_output_is_input_bounded
+        FAIL [   2.011s] (642/695) before version::tick::tests::ticks_matches_iterated_ticks_arbitrary
+error: test run failed
+=== END 32 exit=100 ===
+=== MUT 33 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+────────────
+ Nextest run ID a0ce36fc-84b0-452c-918f-449f34c98109 with nextest profile: default
+    Starting 695 tests across 13 binaries (12 tests skipped)
+────────────
+     Summary [  52.273s] 695 tests run: 669 passed, 26 failed, 12 skipped
+        FAIL [   0.248s] (199/695) before testing::algebraic_laws::tests::clock_solo_laws
+        FAIL [   0.311s] (203/695) before testing::algebraic_laws::tests::clock_and_list_laws
+        FAIL [   0.146s] (208/695) before testing::algebraic_laws::tests::version_party_pair_laws
+        FAIL [   0.446s] (214/695) before testing::algebraic_laws::tests::clock_version_laws
+        FAIL [   0.279s] (217/695) before testing::algebraic_laws::tests::version_party_laws
+        FAIL [   0.396s] (235/695) before testing::l6_writer::l6_writer_copy_matches_spec
+        FAIL [   1.470s] (243/695) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   0.708s] (506/695) before version::tests::grow_minimal
+        FAIL [   1.357s] (529/695) before version::tests::grow_matches_brute_force
+        FAIL [   1.955s] (548/695) before version::tests::tick_and_ticks_match_the_recursive_oracle
+        FAIL [   1.828s] (564/695) before version::tick::raise::tests::arbitrary_pairs_grow_identically
+        FAIL [   1.996s] (571/695) before version::tick::tests::deep_and_wide_ticks_match_iterated
+        FAIL [   2.581s] (573/695) before version::tick::tests::arbitrary_pairs_tick_and_flag_identically
+        FAIL [   1.378s] (575/695) before version::tick::tests::family_pairs_tick_and_flag_identically
+        FAIL [   2.761s] (586/695) before version::tick::tests::grow_branch_is_absorbing
+        FAIL [   2.411s] (589/695) before version::tick::tests::tick_orbit_growth_is_transient_plus_log
+        FAIL [   2.692s] (592/695) before version::tick::tests::tick_output_is_input_bounded
+        FAIL [   0.966s] (595/695) before::answer_embedded measure_folds_are_flat_per_byte_on_wide_ladder
+        FAIL [   3.099s] (599/695) before version::tick::tests::tick_is_ticks_one
+        FAIL [   3.370s] (605/695) before version::tick::tests::simplification_is_idempotent
+        FAIL [   3.211s] (613/695) before version::tick::tests::ticks_matches_iterated_ticks_arbitrary
+        FAIL [   3.192s] (628/695) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   3.116s] (633/695) before::amp_board_smoke board_runs_to_completion
+        FAIL [   3.179s] (647/695) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   3.311s] (651/695) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   3.510s] (656/695) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+error: test run failed
+=== END 33 exit=100 ===
+exit=0

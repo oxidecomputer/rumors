@@ -1,0 +1,25 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.56s
+────────────
+ Nextest run ID b5d9081a-8e1e-4589-8ff2-cb164bc58664 with nextest profile: high-count
+    Starting 18 tests across 1 binary (3 tests skipped)
+        PASS [   0.218s] ( 1/18) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.305s] ( 2/18) before::l2_probe deep_surfaces_are_stack_safe
+        PASS [  36.665s] ( 3/18) before::l2_probe par05
+        PASS [  39.632s] ( 4/18) before::l2_probe par04
+        PASS [  42.646s] ( 5/18) before::l2_probe par00
+        PASS [  44.681s] ( 6/18) before::l2_probe par03
+        PASS [  45.441s] ( 7/18) before::l2_probe par02
+        PASS [  45.642s] ( 8/18) before::l2_probe par12
+        PASS [  46.300s] ( 9/18) before::l2_probe par07
+        PASS [  47.600s] (10/18) before::l2_probe par15
+        PASS [  48.011s] (11/18) before::l2_probe par14
+        PASS [  52.521s] (12/18) before::l2_probe par09
+        PASS [  53.820s] (13/18) before::l2_probe par11
+        PASS [  54.588s] (14/18) before::l2_probe par13
+        PASS [  56.271s] (15/18) before::l2_probe par08
+        PASS [  56.627s] (16/18) before::l2_probe par10
+        PASS [  56.916s] (17/18) before::l2_probe par06
+        PASS [  59.399s] (18/18) before::l2_probe par01
+────────────
+     Summary [  59.400s] 18 tests run: 18 passed, 3 skipped

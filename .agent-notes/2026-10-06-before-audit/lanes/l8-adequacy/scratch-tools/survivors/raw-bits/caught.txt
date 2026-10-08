@@ -1,0 +1,586 @@
+crates/before/src/bits/reader.rs:65:19: replace += with -= in BitRead::read_unary
+crates/before/src/bits/reader.rs:63:9: replace BitRead::read_unary -> Result<u64, Self::Error> with Ok(1)
+crates/before/src/bits/reader.rs:63:9: replace BitRead::read_unary -> Result<u64, Self::Error> with Ok(0)
+crates/before/src/bits/reader.rs:79:9: replace BitRead::read_gamma -> Result<BigUint, Decode> with Ok(Default::default())
+crates/before/src/bits/reader.rs:64:15: delete ! in BitRead::read_unary
+crates/before/src/bits/reader.rs:65:19: replace += with *= in BitRead::read_unary
+crates/before/src/bits/reader.rs:122:54: replace * with + in BitsReader<'a>::from_bytes
+crates/before/src/bits/reader.rs:92:9: replace BitRead::read_gamma_slow -> Result<BigUint, Decode> with Ok(Default::default())
+crates/before/src/bits/reader.rs:122:54: replace * with / in BitsReader<'a>::from_bytes
+crates/before/src/bits/reader.rs:148:81: replace / with % in BitsReader<'a>::from_storage
+crates/before/src/bits/reader.rs:132:9: replace BitsReader<'a>::len -> u64 with 0
+crates/before/src/bits/reader.rs:132:9: replace BitsReader<'a>::len -> u64 with 1
+crates/before/src/bits/reader.rs:149:30: replace % with + in BitsReader<'a>::from_storage
+crates/before/src/bits/reader.rs:148:81: replace / with * in BitsReader<'a>::from_storage
+crates/before/src/bits/reader.rs:149:30: replace % with / in BitsReader<'a>::from_storage
+crates/before/src/bits/reader.rs:150:17: replace != with == in BitsReader<'a>::from_storage
+crates/before/src/bits/reader.rs:168:9: replace BitsReader<'a>::gamma_from_window -> Option<(u64, u64)> with Some((0, 0))
+crates/before/src/bits/reader.rs:168:9: replace BitsReader<'a>::gamma_from_window -> Option<(u64, u64)> with None
+crates/before/src/bits/reader.rs:168:9: replace BitsReader<'a>::gamma_from_window -> Option<(u64, u64)> with Some((1, 0))
+crates/before/src/bits/reader.rs:168:9: replace BitsReader<'a>::gamma_from_window -> Option<(u64, u64)> with Some((0, 1))
+crates/before/src/bits/reader.rs:168:9: replace BitsReader<'a>::gamma_from_window -> Option<(u64, u64)> with Some((1, 1))
+crates/before/src/bits/reader.rs:173:9: replace BitsReader<'a>::read_word -> Result<u64, Truncated> with Ok(0)
+crates/before/src/bits/reader.rs:173:9: replace BitsReader<'a>::read_word -> Result<u64, Truncated> with Ok(1)
+crates/before/src/bits/reader.rs:174:43: replace > with == in BitsReader<'a>::read_word
+crates/before/src/bits/reader.rs:174:43: replace > with >= in BitsReader<'a>::read_word
+crates/before/src/bits/reader.rs:174:43: replace > with < in BitsReader<'a>::read_word
+crates/before/src/bits/reader.rs:174:26: replace + with * in BitsReader<'a>::read_word
+crates/before/src/bits/reader.rs:174:26: replace + with - in BitsReader<'a>::read_word
+crates/before/src/bits/reader.rs:182:23: replace += with -= in BitsReader<'a>::read_word
+crates/before/src/bits/reader.rs:195:9: replace BitsReader<'a>::unary_raw -> Result<u64, Truncated> with Ok(1)
+crates/before/src/bits/reader.rs:195:9: replace BitsReader<'a>::unary_raw -> Result<u64, Truncated> with Ok(0)
+crates/before/src/bits/reader.rs:201:42: replace > with < in BitsReader<'a>::unary_raw
+crates/before/src/bits/reader.rs:201:42: replace > with == in BitsReader<'a>::unary_raw
+crates/before/src/bits/reader.rs:201:42: replace > with >= in BitsReader<'a>::unary_raw
+crates/before/src/bits/reader.rs:201:38: replace + with - in BitsReader<'a>::unary_raw
+crates/before/src/bits/reader.rs:201:34: replace + with * in BitsReader<'a>::unary_raw
+crates/before/src/bits/reader.rs:201:34: replace + with - in BitsReader<'a>::unary_raw
+crates/before/src/bits/reader.rs:218:40: replace - with / in BitsReader<'a>::truncated
+crates/before/src/bits/reader.rs:231:9: replace BitsReader<'a>::skip_gamma -> Result<(), Truncated> with Ok(())
+crates/before/src/bits/reader.rs:232:30: replace + with * in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:232:30: replace + with - in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:232:26: replace * with + in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:232:26: replace * with / in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:233:37: replace > with == in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:233:37: replace > with < in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:233:37: replace > with >= in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:233:26: replace + with - in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:233:26: replace + with * in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:237:25: replace > with < in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:242:23: replace -= with += in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:242:23: replace -= with /= in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:245:23: replace += with -= in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:245:23: replace += with *= in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(Vec::new()), None)
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(Vec::new()), Some(0))
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(Vec::new()), Some(1))
+crates/before/src/bits/reader.rs:237:25: replace > with == in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(vec![0]), None)
+crates/before/src/bits/reader.rs:237:25: replace > with >= in BitsReader<'a>::skip_gamma
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(vec![0]), Some(0))
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(vec![0]), Some(1))
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(vec![1]), Some(0))
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(vec![1]), None)
+crates/before/src/bits/reader.rs:253:23: replace / with % in body_tail
+crates/before/src/bits/reader.rs:252:5: replace body_tail -> (&[u8], Option<u8>) with (Vec::leak(vec![1]), Some(1))
+crates/before/src/bits/reader.rs:253:23: replace / with * in body_tail
+crates/before/src/bits/reader.rs:254:21: replace % with / in body_tail
+crates/before/src/bits/reader.rs:255:12: replace == with != in body_tail
+crates/before/src/bits/reader.rs:254:21: replace % with + in body_tail
+crates/before/src/bits/reader.rs:258:45: replace & with | in body_tail
+crates/before/src/bits/reader.rs:258:47: delete ! in body_tail
+crates/before/src/bits/reader.rs:258:45: replace & with ^ in body_tail
+crates/before/src/bits/reader.rs:258:54: replace >> with << in body_tail
+crates/before/src/bits/reader.rs:264:5: replace live_len -> u64 with 0
+crates/before/src/bits/reader.rs:264:5: replace live_len -> u64 with 1
+crates/before/src/bits/reader.rs:268:40: replace - with + in live_len
+crates/before/src/bits/reader.rs:268:36: replace - with + in live_len
+crates/before/src/bits/reader.rs:268:40: replace - with / in live_len
+crates/before/src/bits/reader.rs:268:36: replace - with / in live_len
+crates/before/src/bits/reader.rs:268:32: replace * with + in live_len
+crates/before/src/bits/reader.rs:268:32: replace * with / in live_len
+crates/before/src/bits/reader.rs:277:9: replace <impl BitRead for BitsReader<'_>>::read_bit -> Result<bool, Truncated> with Ok(true)
+crates/before/src/bits/reader.rs:277:9: replace <impl BitRead for BitsReader<'_>>::read_bit -> Result<bool, Truncated> with Ok(false)
+crates/before/src/bits/reader.rs:277:26: replace >= with < in <impl BitRead for BitsReader<'_>>::read_bit
+crates/before/src/bits/reader.rs:284:13: replace != with == in <impl BitRead for BitsReader<'_>>::read_bit
+crates/before/src/bits/reader.rs:288:23: replace += with *= in <impl BitRead for BitsReader<'_>>::read_bit
+crates/before/src/bits/reader.rs:288:23: replace += with -= in <impl BitRead for BitsReader<'_>>::read_bit
+crates/before/src/bits/reader.rs:293:9: replace <impl BitRead for BitsReader<'_>>::position -> u64 with 0
+crates/before/src/bits/reader.rs:297:9: replace <impl BitRead for BitsReader<'_>>::read_unary -> Result<u64, Truncated> with Ok(0)
+crates/before/src/bits/reader.rs:293:9: replace <impl BitRead for BitsReader<'_>>::position -> u64 with 1
+crates/before/src/bits/reader.rs:297:9: replace <impl BitRead for BitsReader<'_>>::read_unary -> Result<u64, Truncated> with Ok(1)
+crates/before/src/bits/reader.rs:298:33: replace + with - in <impl BitRead for BitsReader<'_>>::read_unary
+crates/before/src/bits/reader.rs:299:23: replace += with -= in <impl BitRead for BitsReader<'_>>::read_unary
+crates/before/src/bits/reader.rs:299:28: replace + with - in <impl BitRead for BitsReader<'_>>::read_unary
+crates/before/src/bits/reader.rs:299:23: replace += with *= in <impl BitRead for BitsReader<'_>>::read_unary
+crates/before/src/bits/reader.rs:299:28: replace + with * in <impl BitRead for BitsReader<'_>>::read_unary
+crates/before/src/bits/reader.rs:312:9: replace <impl BitRead for BitsReader<'_>>::read_gamma -> Result<BigUint, Decode> with Ok(Default::default())
+crates/before/src/bits/storage.rs:30:9: replace <impl fmt::Binary for Bits>::fmt -> fmt::Result with Ok(Default::default())
+crates/before/src/bits/storage.rs:34:33: replace < with > in <impl fmt::Binary for Bits>::fmt
+crates/before/src/bits/storage.rs:34:33: replace < with == in <impl fmt::Binary for Bits>::fmt
+crates/before/src/bits/storage.rs:34:33: replace < with <= in <impl fmt::Binary for Bits>::fmt
+crates/before/src/bits/storage.rs:70:9: replace Bits::as_raw_slice -> &[u8] with Vec::leak(vec![0])
+crates/before/src/bits/storage.rs:70:9: replace Bits::as_raw_slice -> &[u8] with Vec::leak(Vec::new())
+crates/before/src/bits/storage.rs:70:9: replace Bits::as_raw_slice -> &[u8] with Vec::leak(vec![1])
+crates/before/src/bits/storage.rs:77:9: replace Bits::ptr_eq -> bool with true
+crates/before/src/bits/storage.rs:77:9: replace Bits::ptr_eq -> bool with false
+crates/before/src/bits/storage.rs:77:47: replace && with || in Bits::ptr_eq
+crates/before/src/bits/storage.rs:77:70: replace == with != in Bits::ptr_eq
+crates/before/src/bits/storage.rs:77:26: replace == with != in Bits::ptr_eq
+crates/before/src/bits/storage.rs:82:9: replace Bits::has_canonical_padding -> bool with false
+crates/before/src/bits/storage.rs:98:40: replace * with + in Bits::validate_padding
+crates/before/src/bits/storage.rs:98:9: replace Bits::validate_padding -> Result<(), Decode> with Ok(())
+crates/before/src/bits/storage.rs:98:40: replace * with / in Bits::validate_padding
+crates/before/src/bits/storage.rs:103:26: replace && with || in Bits::validate_padding
+crates/before/src/bits/storage.rs:103:21: replace == with != in Bits::validate_padding
+crates/before/src/bits/storage.rs:103:29: delete ! in Bits::validate_padding
+crates/before/src/bits/storage.rs:108:31: replace - with + in Bits::validate_padding
+crates/before/src/bits/storage.rs:108:31: replace - with / in Bits::validate_padding
+crates/before/src/bits/storage.rs:111:13: delete match arm 1..= 8 in Bits::validate_padding
+crates/before/src/bits/storage.rs:110:13: delete match arm 0 in Bits::validate_padding
+crates/before/src/bits/storage.rs:114:46: replace - with + in Bits::validate_padding
+crates/before/src/bits/storage.rs:114:46: replace - with / in Bits::validate_padding
+crates/before/src/bits/storage.rs:118:40: replace - with + in Bits::validate_padding
+crates/before/src/bits/storage.rs:115:41: replace == with != in Bits::validate_padding
+crates/before/src/bits/storage.rs:118:40: replace - with / in Bits::validate_padding
+crates/before/src/bits/storage.rs:118:26: replace << with >> in Bits::validate_padding
+crates/before/src/bits/storage.rs:120:32: replace == with != in Bits::validate_padding
+crates/before/src/bits/storage.rs:120:25: replace & with | in Bits::validate_padding
+crates/before/src/bits/storage.rs:120:25: replace & with ^ in Bits::validate_padding
+crates/before/src/bits/storage.rs:120:37: replace << with >> in Bits::validate_padding
+crates/before/src/bits/storage.rs:120:51: replace - with + in Bits::validate_padding
+crates/before/src/bits/storage.rs:120:51: replace - with / in Bits::validate_padding
+crates/before/src/bits/storage.rs:143:9: replace <impl PartialEq for Bits>::eq -> bool with true
+crates/before/src/bits/storage.rs:143:9: replace <impl PartialEq for Bits>::eq -> bool with false
+crates/before/src/bits/storage.rs:147:28: replace || with && in <impl PartialEq for Bits>::eq
+crates/before/src/bits/storage.rs:147:51: replace == with != in <impl PartialEq for Bits>::eq
+crates/before/src/bits/writer.rs:45:9: replace BitsWriter::write_gamma with ()
+crates/before/src/bits/writer.rs:45:30: replace + with - in BitsWriter::write_gamma
+crates/before/src/bits/writer.rs:45:30: replace + with * in BitsWriter::write_gamma
+crates/before/src/bits/writer.rs:46:41: replace - with + in BitsWriter::write_gamma
+crates/before/src/bits/writer.rs:46:41: replace - with / in BitsWriter::write_gamma
+crates/before/src/bits/writer.rs:59:29: replace == with != in BitsWriter::with_capacity
+crates/before/src/bits/writer.rs:59:9: replace BitsWriter::with_capacity -> Self with Default::default()
+crates/before/src/bits/writer.rs:62:38: replace + with - in BitsWriter::with_capacity
+crates/before/src/bits/writer.rs:62:38: replace + with * in BitsWriter::with_capacity
+crates/before/src/bits/writer.rs:62:34: replace / with % in BitsWriter::with_capacity
+crates/before/src/bits/writer.rs:72:9: replace BitsWriter::repeat -> Self with Default::default()
+crates/before/src/bits/writer.rs:83:9: replace BitsWriter::len -> u64 with 0
+crates/before/src/bits/writer.rs:62:34: replace / with * in BitsWriter::with_capacity
+crates/before/src/bits/writer.rs:83:9: replace BitsWriter::len -> u64 with 1
+crates/before/src/bits/writer.rs:88:9: replace BitsWriter::is_empty -> bool with true
+crates/before/src/bits/writer.rs:88:9: replace BitsWriter::is_empty -> bool with false
+crates/before/src/bits/writer.rs:93:9: replace BitsWriter::as_raw_slice -> &[u8] with Vec::leak(Vec::new())
+crates/before/src/bits/writer.rs:88:19: replace == with != in BitsWriter::is_empty
+crates/before/src/bits/writer.rs:93:9: replace BitsWriter::as_raw_slice -> &[u8] with Vec::leak(vec![0])
+crates/before/src/bits/writer.rs:93:9: replace BitsWriter::as_raw_slice -> &[u8] with Vec::leak(vec![1])
+crates/before/src/bits/writer.rs:108:9: replace BitsWriter::into_padded_bytes -> Vec<u8> with vec![]
+crates/before/src/bits/writer.rs:108:9: replace BitsWriter::into_padded_bytes -> Vec<u8> with vec![0]
+crates/before/src/bits/writer.rs:118:9: replace BitsWriter::bit -> bool with true
+crates/before/src/bits/writer.rs:108:9: replace BitsWriter::into_padded_bytes -> Vec<u8> with vec![1]
+crates/before/src/bits/writer.rs:118:9: replace BitsWriter::bit -> bool with false
+crates/before/src/bits/writer.rs:119:61: replace == with != in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:57: replace & with | in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:57: replace & with ^ in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:25: replace / with % in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:40: replace >> with << in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:25: replace / with * in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:46: replace - with + in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:46: replace - with / in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:52: replace % with / in BitsWriter::bit
+crates/before/src/bits/writer.rs:119:52: replace % with + in BitsWriter::bit
+crates/before/src/bits/writer.rs:128:9: replace BitsWriter::patch_bit with ()
+crates/before/src/bits/writer.rs:129:25: replace >> with << in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:129:33: replace % with / in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:129:33: replace % with + in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:131:44: replace |= with &= in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:131:29: replace / with % in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:131:29: replace / with * in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:133:44: replace &= with |= in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:133:29: replace / with % in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:133:29: replace / with * in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:133:47: delete ! in BitsWriter::patch_bit
+crates/before/src/bits/writer.rs:139:9: replace BitsWriter::push with ()
+crates/before/src/bits/writer.rs:145:9: replace BitsWriter::append_bit with ()
+crates/before/src/bits/writer.rs:145:33: replace % with / in BitsWriter::append_bit
+crates/before/src/bits/writer.rs:145:33: replace % with + in BitsWriter::append_bit
+crates/before/src/bits/writer.rs:146:19: replace == with != in BitsWriter::append_bit
+crates/before/src/bits/writer.rs:150:68: replace |= with &= in BitsWriter::append_bit
+crates/before/src/bits/writer.rs:150:76: replace >> with << in BitsWriter::append_bit
+crates/before/src/bits/writer.rs:152:19: replace += with -= in BitsWriter::append_bit
+crates/before/src/bits/writer.rs:152:19: replace += with *= in BitsWriter::append_bit
+crates/before/src/bits/writer.rs:157:9: replace BitsWriter::push_bits with ()
+crates/before/src/bits/writer.rs:168:9: replace BitsWriter::append_bits with ()
+crates/before/src/bits/writer.rs:168:16: replace == with != in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:171:33: replace % with / in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:171:33: replace % with + in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:172:25: replace <= with > in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:172:19: replace + with - in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:172:19: replace + with * in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:176:38: replace << with >> in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:176:53: replace - with + in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:176:53: replace - with / in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:176:44: replace - with + in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:176:44: replace - with / in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:177:23: replace == with != in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:180:72: replace |= with &= in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:182:23: replace += with *= in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:182:23: replace += with -= in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:188:32: replace == with != in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:191:72: replace >> with << in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:191:78: replace - with + in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:191:78: replace - with / in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:193:28: replace + with * in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:193:28: replace + with - in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:194:47: replace | with & in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:194:39: replace << with >> in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:195:28: replace << with >> in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:195:36: replace - with + in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:195:36: replace - with / in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:196:28: replace / with % in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:196:28: replace / with * in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:198:12: delete ! in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:203:19: replace += with -= in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:203:19: replace += with *= in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:209:9: replace BitsWriter::push_zeros with ()
+crates/before/src/bits/writer.rs:209:19: replace >= with < in BitsWriter::push_zeros
+crates/before/src/bits/writer.rs:211:17: replace -= with /= in BitsWriter::push_zeros
+crates/before/src/bits/writer.rs:220:17: replace == with != in BitsWriter::push_magnitude
+crates/before/src/bits/writer.rs:219:9: replace BitsWriter::push_magnitude with ()
+crates/before/src/bits/writer.rs:225:58: replace + with - in BitsWriter::push_magnitude
+crates/before/src/bits/writer.rs:225:58: replace + with * in BitsWriter::push_magnitude
+crates/before/src/bits/writer.rs:225:35: replace % with / in BitsWriter::push_magnitude
+crates/before/src/bits/writer.rs:225:35: replace % with + in BitsWriter::push_magnitude
+crates/before/src/bits/writer.rs:225:30: replace - with + in BitsWriter::push_magnitude
+crates/before/src/bits/writer.rs:225:30: replace - with / in BitsWriter::push_magnitude
+crates/before/src/bits/writer.rs:237:9: replace BitsWriter::read_word -> u64 with 0
+crates/before/src/bits/writer.rs:237:9: replace BitsWriter::read_word -> u64 with 1
+crates/before/src/bits/writer.rs:243:38: replace + with - in BitsWriter::read_word
+crates/before/src/bits/writer.rs:243:38: replace + with * in BitsWriter::read_word
+crates/before/src/bits/writer.rs:211:17: replace -= with += in BitsWriter::push_zeros
+crates/before/src/bits/writer.rs:244:32: replace | with & in BitsWriter::read_word
+crates/before/src/bits/writer.rs:244:27: replace << with >> in BitsWriter::read_word
+crates/before/src/bits/writer.rs:253:25: replace > with == in BitsWriter::reserve
+crates/before/src/bits/writer.rs:251:9: replace BitsWriter::reserve -> u64 with 1
+crates/before/src/bits/writer.rs:251:9: replace BitsWriter::reserve -> u64 with 0
+crates/before/src/bits/writer.rs:253:25: replace > with < in BitsWriter::reserve
+crates/before/src/bits/writer.rs:263:9: replace BitsWriter::splice with ()
+crates/before/src/bits/writer.rs:272:9: replace BitsWriter::splice_writer with ()
+crates/before/src/bits/writer.rs:289:9: replace BitsWriter::truncate with ()
+crates/before/src/bits/writer.rs:307:9: replace BitsWriter::seal_padding with ()
+crates/before/src/bits/writer.rs:307:12: delete ! in BitsWriter::seal_padding
+crates/before/src/bits/writer.rs:253:25: replace > with >= in BitsWriter::reserve
+crates/before/src/bits/writer.rs:256:23: replace -= with /= in BitsWriter::reserve
+crates/before/src/bits/writer.rs:319:9: replace BitsWriter::mask_tail with ()
+crates/before/src/bits/writer.rs:256:23: replace -= with += in BitsWriter::reserve
+crates/before/src/bits/writer.rs:319:33: replace % with / in BitsWriter::mask_tail
+crates/before/src/bits/writer.rs:319:33: replace % with + in BitsWriter::mask_tail
+crates/before/src/bits/writer.rs:320:19: replace != with == in BitsWriter::mask_tail
+crates/before/src/bits/writer.rs:321:68: replace &= with |= in BitsWriter::mask_tail
+crates/before/src/bits/writer.rs:321:76: replace << with >> in BitsWriter::mask_tail
+crates/before/src/bits/writer.rs:321:82: replace - with + in BitsWriter::mask_tail
+crates/before/src/bits/writer.rs:321:82: replace - with / in BitsWriter::mask_tail
+crates/before/src/bits/writer.rs:328:9: replace BitsWriter::tail_is_zeroed -> bool with false
+crates/before/src/bits/writer.rs:328:33: replace % with + in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:328:33: replace % with / in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:329:21: replace || with && in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:329:16: replace == with != in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:329:79: replace == with != in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:329:60: replace & with | in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:329:60: replace & with ^ in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:329:68: replace >> with << in BitsWriter::tail_is_zeroed
+crates/before/src/bits/writer.rs:335:9: replace BitsWriter::extend_bytes with ()
+crates/before/src/bits/writer.rs:335:33: replace % with + in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:335:33: replace % with / in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:341:72: replace |= with &= in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:336:19: replace == with != in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:341:77: replace >> with << in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:344:35: replace << with >> in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:344:41: replace - with + in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:344:41: replace - with / in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:347:19: replace += with -= in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:347:19: replace += with *= in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:347:40: replace * with + in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:347:40: replace * with / in BitsWriter::extend_bytes
+crates/before/src/bits/writer.rs:352:9: replace BitsWriter::splice_storage with ()
+crates/before/src/bits/writer.rs:356:35: replace - with + in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:358:30: replace && with || in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:356:35: replace - with / in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:358:24: replace < with == in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:358:24: replace < with > in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:358:24: replace < with <= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:358:33: delete ! in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:360:22: replace += with -= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:362:39: replace / with % in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:362:39: replace / with * in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:362:27: replace - with + in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:362:27: replace - with / in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:364:34: replace / with * in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:364:34: replace / with % in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:360:22: replace += with *= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:365:49: replace + with - in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:366:22: replace += with -= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:365:49: replace + with * in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:366:22: replace += with *= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:366:38: replace * with + in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:366:38: replace * with / in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:368:24: replace < with == in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:368:24: replace < with > in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:368:24: replace < with <= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:370:22: replace += with -= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:424:5: replace bit -> bool with true
+crates/before/src/bits/writer.rs:391:9: replace <impl FromIterator<bool> for BitsWriter>::from_iter -> Self with Default::default()
+crates/before/src/bits/writer.rs:400:9: replace <impl Extend<bool> for BitsWriter>::extend with ()
+crates/before/src/bits/writer.rs:424:5: replace bit -> bool with false
+crates/before/src/bits/writer.rs:424:62: replace == with != in bit
+crates/before/src/bits/writer.rs:370:22: replace += with *= in BitsWriter::splice_storage
+crates/before/src/bits/writer.rs:424:58: replace & with ^ in bit
+crates/before/src/bits/writer.rs:424:58: replace & with | in bit
+crates/before/src/bits/writer.rs:424:36: replace >> with << in bit
+crates/before/src/bits/writer.rs:424:21: replace / with % in bit
+crates/before/src/bits/writer.rs:424:21: replace / with * in bit
+crates/before/src/bits/writer.rs:424:42: replace - with / in bit
+crates/before/src/bits/writer.rs:424:42: replace - with + in bit
+crates/before/src/bits/writer.rs:424:53: replace % with / in bit
+crates/before/src/bits/writer.rs:424:53: replace % with + in bit
+crates/before/src/bits/reader/gamma.rs:20:5: replace decode_slow -> Result<BigUint, Decode> with Ok(Default::default())
+crates/before/src/bits/reader/gamma.rs:21:11: delete ! in decode_slow
+crates/before/src/bits/reader/gamma.rs:28:22: replace <<= with >>= in decode_slow
+crates/before/src/bits/reader/gamma.rs:22:15: replace += with *= in decode_slow
+crates/before/src/bits/reader/gamma.rs:22:15: replace += with -= in decode_slow
+crates/before/src/bits/reader/gamma.rs:25:14: replace < with == in decode_slow
+crates/before/src/bits/reader/gamma.rs:30:26: replace |= with &= in decode_slow
+crates/before/src/bits/reader/gamma.rs:33:42: replace - with + in decode_slow
+crates/before/src/bits/reader/gamma.rs:25:14: replace < with > in decode_slow
+crates/before/src/bits/reader/gamma.rs:25:14: replace < with <= in decode_slow
+crates/before/src/bits/reader/gamma.rs:48:37: replace >= with < in decode
+crates/before/src/bits/reader/gamma.rs:48:19: replace - with + in decode
+crates/before/src/bits/reader/gamma.rs:48:19: replace - with / in decode
+crates/before/src/bits/reader/gamma.rs:51:29: replace += with -= in decode
+crates/before/src/bits/reader/gamma.rs:33:42: replace - with / in decode_slow
+crates/before/src/bits/reader/gamma.rs:43:17: replace - with + in decode_slow
+crates/before/src/bits/reader/gamma.rs:51:29: replace += with *= in decode
+crates/before/src/bits/reader/gamma.rs:57:30: replace + with - in decode
+crates/before/src/bits/reader/gamma.rs:43:17: replace - with / in decode_slow
+crates/before/src/bits/reader/gamma.rs:48:5: replace decode -> Result<BigUint, Decode> with Ok(Default::default())
+crates/before/src/bits/reader/gamma.rs:58:35: replace > with == in decode
+crates/before/src/bits/reader/gamma.rs:57:22: replace * with / in decode
+crates/before/src/bits/reader/gamma.rs:58:24: replace + with - in decode
+crates/before/src/bits/reader/gamma.rs:58:24: replace + with * in decode
+crates/before/src/bits/reader/gamma.rs:57:30: replace + with * in decode
+crates/before/src/bits/reader/gamma.rs:63:14: replace < with == in decode
+crates/before/src/bits/reader/gamma.rs:57:22: replace * with + in decode
+crates/before/src/bits/reader/gamma.rs:63:14: replace < with > in decode
+crates/before/src/bits/reader/gamma.rs:58:35: replace > with < in decode
+crates/before/src/bits/reader/gamma.rs:68:40: replace | with & in decode
+crates/before/src/bits/reader/gamma.rs:68:30: replace << with >> in decode
+crates/before/src/bits/reader/gamma.rs:70:25: replace += with -= in decode
+crates/before/src/bits/reader/gamma.rs:58:35: replace > with >= in decode
+crates/before/src/bits/reader/gamma.rs:70:25: replace += with *= in decode
+crates/before/src/bits/reader/gamma.rs:71:42: replace - with + in decode
+crates/before/src/bits/reader/gamma.rs:77:21: replace > with == in decode
+crates/before/src/bits/reader/gamma.rs:77:21: replace > with < in decode
+crates/before/src/bits/reader/gamma.rs:63:14: replace < with <= in decode
+crates/before/src/bits/reader/gamma.rs:83:19: replace -= with += in decode
+crates/before/src/bits/reader/gamma.rs:83:19: replace -= with /= in decode
+crates/before/src/bits/reader/gamma.rs:85:35: replace == with != in decode
+crates/before/src/bits/reader/gamma.rs:85:31: replace & with | in decode
+crates/before/src/bits/reader/gamma.rs:85:31: replace & with ^ in decode
+crates/before/src/bits/reader/gamma.rs:71:42: replace - with / in decode
+crates/before/src/bits/reader/gamma.rs:85:23: replace >> with << in decode
+crates/before/src/bits/reader/gamma.rs:86:44: replace + with - in decode
+crates/before/src/bits/reader/gamma.rs:91:21: replace += with -= in decode
+crates/before/src/bits/reader/gamma.rs:92:17: replace - with + in decode
+crates/before/src/bits/reader/gamma.rs:92:17: replace - with / in decode
+crates/before/src/bits/reader/gamma.rs:77:21: replace > with >= in decode
+crates/before/src/bits/reader/gamma.rs:91:21: replace += with *= in decode
+crates/before/src/bits/reader/gamma.rs:98:5: replace from_window -> Option<(u64, u64)> with None
+crates/before/src/bits/reader/gamma.rs:86:44: replace + with * in decode
+crates/before/src/bits/reader/gamma.rs:98:5: replace from_window -> Option<(u64, u64)> with Some((0, 0))
+crates/before/src/bits/reader/gamma.rs:98:5: replace from_window -> Option<(u64, u64)> with Some((0, 1))
+crates/before/src/bits/reader/gamma.rs:98:5: replace from_window -> Option<(u64, u64)> with Some((1, 1))
+crates/before/src/bits/reader/gamma.rs:98:5: replace from_window -> Option<(u64, u64)> with Some((1, 0))
+crates/before/src/bits/reader/words.rs:32:9: replace ByteWords<'a>::byte_at -> u8 with 0
+crates/before/src/bits/reader/words.rs:32:9: replace ByteWords<'a>::byte_at -> u8 with 1
+crates/before/src/bits/reader/words.rs:32:18: replace < with == in ByteWords<'a>::byte_at
+crates/before/src/bits/reader/words.rs:32:18: replace < with > in ByteWords<'a>::byte_at
+crates/before/src/bits/reader/words.rs:34:25: replace == with != in ByteWords<'a>::byte_at
+crates/before/src/bits/reader/words.rs:32:18: replace < with <= in ByteWords<'a>::byte_at
+crates/before/src/bits/reader/words.rs:45:36: replace + with * in ByteWords<'a>::gather
+crates/before/src/bits/reader/words.rs:46:36: replace + with - in ByteWords<'a>::gather
+crates/before/src/bits/reader/words.rs:46:36: replace + with * in ByteWords<'a>::gather
+crates/before/src/bits/reader/words.rs:47:36: replace + with - in ByteWords<'a>::gather
+crates/before/src/bits/reader/words.rs:43:9: replace ByteWords<'a>::gather -> u32 with 0
+crates/before/src/bits/reader/words.rs:47:36: replace + with * in ByteWords<'a>::gather
+crates/before/src/bits/reader/words.rs:43:9: replace ByteWords<'a>::gather -> u32 with 1
+crates/before/src/bits/reader/words.rs:69:22: replace >= with < in <impl WordRead for ByteWords<'_>>::read_word
+crates/before/src/bits/reader/words.rs:45:36: replace + with - in ByteWords<'a>::gather
+crates/before/src/bits/reader/words.rs:69:9: replace <impl WordRead for ByteWords<'_>>::read_word -> Result<u32, OutOfBytes> with Ok(0)
+crates/before/src/bits/reader/words.rs:69:9: replace <impl WordRead for ByteWords<'_>>::read_word -> Result<u32, OutOfBytes> with Ok(1)
+crates/before/src/bits/reader/words.rs:73:19: replace += with -= in <impl WordRead for ByteWords<'_>>::read_word
+crates/before/src/bits/reader/words.rs:78:9: replace <impl WordRead for ByteWords<'_>>::read_word_opt -> Option<u32> with Some(0)
+crates/before/src/bits/reader/words.rs:78:9: replace <impl WordRead for ByteWords<'_>>::read_word_opt -> Option<u32> with Some(1)
+crates/before/src/bits/reader/words.rs:82:19: replace += with *= in <impl WordRead for ByteWords<'_>>::read_word_opt
+crates/before/src/bits/stack/bit.rs:36:9: replace BitStack::len -> u64 with 0
+crates/before/src/bits/reader/words.rs:73:19: replace += with *= in <impl WordRead for ByteWords<'_>>::read_word
+crates/before/src/bits/reader/words.rs:82:19: replace += with -= in <impl WordRead for ByteWords<'_>>::read_word_opt
+crates/before/src/bits/stack/bit.rs:36:38: replace + with * in BitStack::len
+crates/before/src/bits/stack/bit.rs:36:33: replace * with + in BitStack::len
+crates/before/src/bits/stack/bit.rs:36:9: replace BitStack::len -> u64 with 1
+crates/before/src/bits/stack/bit.rs:36:38: replace + with - in BitStack::len
+crates/before/src/bits/stack/bit.rs:41:25: replace == with != in BitStack::push
+crates/before/src/bits/stack/bit.rs:46:36: replace | with & in BitStack::push
+crates/before/src/bits/stack/bit.rs:46:30: replace << with >> in BitStack::push
+crates/before/src/bits/stack/bit.rs:47:22: replace += with -= in BitStack::push
+crates/before/src/bits/stack/bit.rs:47:22: replace += with *= in BitStack::push
+crates/before/src/bits/stack/bit.rs:56:34: replace + with - in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:41:9: replace BitStack::push with ()
+crates/before/src/bits/stack/bit.rs:36:33: replace * with / in BitStack::len
+crates/before/src/bits/stack/bit.rs:56:34: replace + with * in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:57:18: replace <= with > in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:58:34: replace << with >> in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:62:24: replace - with + in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:62:24: replace - with / in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:54:9: replace BitStack::push_bits with ()
+crates/before/src/bits/stack/bit.rs:64:39: replace | with & in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:58:42: replace | with & in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:64:48: replace >> with << in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:65:26: replace & with | in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:65:26: replace & with ^ in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:64:29: replace << with >> in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:65:53: replace - with + in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:65:53: replace - with / in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:64:56: replace - with / in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:64:56: replace - with + in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:65:35: replace << with >> in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:66:28: replace - with / in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:65:43: replace - with + in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:66:28: replace - with + in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:65:43: replace - with / in BitStack::push_bits
+crates/before/src/bits/stack/bit.rs:77:9: replace BitStack::pop_bits -> u64 with 0
+crates/before/src/bits/stack/bit.rs:77:9: replace BitStack::pop_bits -> u64 with 1
+crates/before/src/bits/stack/bit.rs:78:16: replace <= with > in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:80:22: replace >>= with <<= in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:79:34: replace & with | in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:79:51: replace - with + in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:81:26: replace -= with += in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:79:34: replace & with ^ in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:81:26: replace -= with /= in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:79:51: replace - with / in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:86:24: replace - with + in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:79:43: replace << with >> in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:86:24: replace - with / in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:90:29: replace & with | in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:90:29: replace & with ^ in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:90:47: replace - with + in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:91:18: replace >>= with <<= in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:90:38: replace << with >> in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:90:47: replace - with / in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:92:27: replace - with + in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:92:27: replace - with / in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:93:27: replace | with & in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:93:15: replace << with >> in BitStack::pop_bits
+crates/before/src/bits/stack/bit.rs:103:20: replace < with == in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:103:20: replace < with > in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:102:9: replace BitStack::trailing_ones -> u64 with 0
+crates/before/src/bits/stack/bit.rs:103:20: replace < with <= in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:102:9: replace BitStack::trailing_ones -> u64 with 1
+crates/before/src/bits/stack/bit.rs:109:17: replace += with *= in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:109:17: replace += with -= in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:110:18: replace < with > in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:125:16: replace == with != in BitStack::trailing_ones_capped
+crates/before/src/bits/stack/bit.rs:127:21: replace += with -= in BitStack::trailing_ones_capped
+crates/before/src/bits/stack/bit.rs:127:21: replace += with *= in BitStack::trailing_ones_capped
+crates/before/src/bits/stack/bit.rs:124:9: replace BitStack::trailing_ones_capped -> u32 with 0
+crates/before/src/bits/stack/bit.rs:124:9: replace BitStack::trailing_ones_capped -> u32 with 1
+crates/before/src/bits/stack/bit.rs:110:18: replace < with == in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:110:18: replace < with <= in BitStack::trailing_ones
+crates/before/src/bits/stack/bit.rs:139:32: replace == with != in BitStack::pop
+crates/before/src/bits/stack/bit.rs:139:28: replace & with | in BitStack::pop
+crates/before/src/bits/stack/bit.rs:135:9: replace BitStack::pop -> Option<bool> with None
+crates/before/src/bits/stack/bit.rs:139:28: replace & with ^ in BitStack::pop
+crates/before/src/bits/stack/bit.rs:135:9: replace BitStack::pop -> Option<bool> with Some(false)
+crates/before/src/bits/stack/bit.rs:135:9: replace BitStack::pop -> Option<bool> with Some(true)
+crates/before/src/bits/stack/bit.rs:140:18: replace >>= with <<= in BitStack::pop
+crates/before/src/bits/stack/bit.rs:135:25: replace == with != in BitStack::pop
+crates/before/src/bits/stack/bit.rs:141:22: replace -= with /= in BitStack::pop
+crates/before/src/bits/stack/bit.rs:151:25: replace > with < in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:141:22: replace -= with += in BitStack::pop
+crates/before/src/bits/stack/bit.rs:152:34: replace & with | in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:151:25: replace > with == in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:152:34: replace & with ^ in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:152:36: delete ! in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:155:28: replace & with | in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:151:25: replace > with >= in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:151:9: replace BitStack::set_last with ()
+crates/before/src/bits/stack/bit.rs:152:40: replace | with & in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:155:28: replace & with ^ in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:161:25: replace > with == in BitStack::last
+crates/before/src/bits/stack/bit.rs:161:9: replace BitStack::last -> Option<bool> with None
+crates/before/src/bits/stack/bit.rs:155:30: delete ! in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:161:25: replace > with < in BitStack::last
+crates/before/src/bits/stack/bit.rs:161:9: replace BitStack::last -> Option<bool> with Some(true)
+crates/before/src/bits/stack/bit.rs:155:34: replace | with & in BitStack::set_last
+crates/before/src/bits/stack/bit.rs:162:31: replace == with != in BitStack::last
+crates/before/src/bits/stack/bit.rs:161:9: replace BitStack::last -> Option<bool> with Some(false)
+crates/before/src/bits/stack/bit.rs:162:27: replace & with | in BitStack::last
+crates/before/src/bits/stack/bit.rs:164:45: replace == with != in BitStack::last
+crates/before/src/bits/stack/bit.rs:164:41: replace & with | in BitStack::last
+crates/before/src/bits/stack/bit.rs:161:25: replace > with >= in BitStack::last
+crates/before/src/bits/stack/bit.rs:162:27: replace & with ^ in BitStack::last
+crates/before/src/bits/stack/bit.rs:175:27: replace == with != in BitStack::all_set
+crates/before/src/bits/stack/bit.rs:175:42: replace - with + in BitStack::all_set
+crates/before/src/bits/stack/bit.rs:172:9: replace BitStack::all_set -> bool with true
+crates/before/src/bits/stack/bit.rs:175:42: replace - with / in BitStack::all_set
+crates/before/src/bits/stack/bit.rs:174:28: replace == with != in BitStack::all_set
+crates/before/src/bits/stack/bit.rs:164:41: replace & with ^ in BitStack::last
+crates/before/src/bits/stack/bit.rs:175:36: replace << with >> in BitStack::all_set
+crates/before/src/bits/stack/bit.rs:172:9: replace BitStack::all_set -> bool with false
+crates/before/src/bits/stack/packed_u64.rs:34:32: replace - with + in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:34:32: replace - with / in PackedU64Stack::push
+crates/before/src/bits/stack/bit.rs:177:49: replace == with != in BitStack::all_set
+crates/before/src/bits/stack/packed_u64.rs:38:45: replace == with != in PackedU64Stack::push
+crates/before/src/bits/stack/bit.rs:177:17: replace && with || in BitStack::all_set
+crates/before/src/bits/stack/packed_u64.rs:38:41: replace & with ^ in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:34:9: replace PackedU64Stack::push with ()
+crates/before/src/bits/stack/packed_u64.rs:38:35: replace >> with << in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:39:40: replace & with | in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:39:40: replace & with ^ in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:37:18: replace == with != in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:46:18: replace == with != in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:50:57: replace - with + in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:48:44: replace >> with << in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:50:57: replace - with / in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:50:41: replace << with >> in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:50:51: replace - with + in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:50:51: replace - with / in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:63:30: replace < with == in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:39:52: replace >> with << in PackedU64Stack::push
+crates/before/src/bits/stack/packed_u64.rs:64:40: replace + with - in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:63:30: replace < with <= in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:64:40: replace + with * in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:65:19: replace + with - in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:65:19: replace + with * in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:70:23: replace += with -= in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:62:9: replace PackedU64Stack::pop -> u64 with 0
+crates/before/src/bits/stack/packed_u64.rs:62:9: replace PackedU64Stack::pop -> u64 with 1
+crates/before/src/bits/stack/packed_u64.rs:70:23: replace += with *= in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:71:20: delete ! in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:77:18: replace == with != in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:80:18: replace << with >> in PackedU64Stack::pop
+crates/before/src/bits/stack/packed_u64.rs:80:25: replace | with & in PackedU64Stack::pop
+crates/before/src/bits/reader/gamma/window.rs:14:5: replace decode -> Option<(u64, u64)> with None
+crates/before/src/bits/reader/gamma/window.rs:14:5: replace decode -> Option<(u64, u64)> with Some((0, 0))
+crates/before/src/bits/reader/gamma/window.rs:14:5: replace decode -> Option<(u64, u64)> with Some((0, 1))
+crates/before/src/bits/reader/gamma/window.rs:14:5: replace decode -> Option<(u64, u64)> with Some((1, 0))
+crates/before/src/bits/reader/gamma/window.rs:14:5: replace decode -> Option<(u64, u64)> with Some((1, 1))
+crates/before/src/bits/reader/gamma/window.rs:18:30: replace + with * in decode
+crates/before/src/bits/reader/gamma/window.rs:18:30: replace + with - in decode
+crates/before/src/bits/reader/gamma/window.rs:19:17: replace > with == in decode
+crates/before/src/bits/reader/gamma/window.rs:18:22: replace * with + in decode
+crates/before/src/bits/reader/gamma/window.rs:22:25: replace >> with << in decode
+crates/before/src/bits/reader/gamma/window.rs:22:41: replace - with + in decode
+crates/before/src/bits/reader/gamma/window.rs:22:41: replace - with / in decode
+crates/before/src/bits/reader/gamma/window.rs:23:20: replace - with + in decode
+crates/before/src/bits/reader/gamma/window.rs:18:22: replace * with / in decode
+crates/before/src/bits/reader/gamma/window.rs:23:34: replace + with - in decode
+crates/before/src/bits/reader/gamma/window.rs:23:34: replace + with * in decode
+crates/before/src/bits/reader/gamma/window.rs:19:17: replace > with < in decode
+crates/before/src/bits/reader/gamma/window.rs:28:41: replace / with % in load
+crates/before/src/bits/reader/gamma/window.rs:19:17: replace > with >= in decode
+crates/before/src/bits/reader/gamma/window.rs:29:27: replace % with / in load
+crates/before/src/bits/reader/gamma/window.rs:23:20: replace - with / in decode
+crates/before/src/bits/reader/gamma/window.rs:34:17: replace - with + in load
+crates/before/src/bits/reader/gamma/window.rs:28:5: replace load -> u64 with 0
+crates/before/src/bits/reader/gamma/window.rs:38:20: replace < with == in load
+crates/before/src/bits/reader/gamma/window.rs:28:41: replace / with * in load
+crates/before/src/bits/reader/gamma/window.rs:28:5: replace load -> u64 with 1
+crates/before/src/bits/reader/gamma/window.rs:38:20: replace < with <= in load
+crates/before/src/bits/reader/gamma/window.rs:29:27: replace % with + in load
+crates/before/src/bits/reader/gamma/window.rs:44:14: replace == with != in load
+crates/before/src/bits/reader/gamma/window.rs:34:17: replace - with / in load
+crates/before/src/bits/reader/gamma/window.rs:47:15: replace << with >> in load
+crates/before/src/bits/reader/gamma/window.rs:38:20: replace < with > in load
+crates/before/src/bits/reader/gamma/window.rs:39:27: replace - with + in load
+crates/before/src/bits/reader/gamma/window.rs:39:27: replace - with / in load
+crates/before/src/bits/reader/gamma/window.rs:47:25: replace | with & in load

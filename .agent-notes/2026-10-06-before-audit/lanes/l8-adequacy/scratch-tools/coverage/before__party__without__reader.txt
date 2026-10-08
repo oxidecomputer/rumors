@@ -1,0 +1,6 @@
+# coverage of crates/before/src/party/without/reader.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 68/70; branch outcomes 4/4
+# never-executed lines:
+L   79  Item::Retained(_) => unreachable!("a retained subtree never covers another region"),
+L  164  None => unreachable!("the final region is never advanced"),
+# branches with an outcome never taken (outcome hit counts):

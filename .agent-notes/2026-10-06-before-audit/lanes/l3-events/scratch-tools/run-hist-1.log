@@ -1,0 +1,20 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 09s
+────────────
+ Nextest run ID cb81b921-fe89-4d14-b5f1-400220535acf with nextest profile: default
+    Starting 1 test across 12 binaries (698 tests skipped)
+       START [         ] (1/1) before version::tick::l3_probe::l3_generator_histograms
+
+running 1 test
+HIST bushy: n=2000 fill-changed=1567 sites(0..7+)=[1066, 543, 306, 75, 9, 1, 0, 0] max-site-nesting(0..7+)=[1066, 614, 269, 46, 5, 0, 0, 0] depth/4(0..7+)=[1604, 396, 0, 0, 0, 0, 0, 0] multi-site-range=2 owned-right=823 over-leaf=959 wide=686
+HIST spine: n=2000 fill-changed=1577 sites(0..7+)=[510, 91, 94, 96, 106, 102, 102, 899] max-site-nesting(0..7+)=[510, 98, 102, 106, 112, 112, 117, 843] depth/4(0..7+)=[532, 172, 166, 163, 160, 147, 155, 505] multi-site-range=500 owned-right=1394 over-leaf=1820 wide=1110
+HIST committed-arbitrary: n=2000 fill-changed=1530 sites(0..7+)=[1616, 354, 30, 0, 0, 0, 0, 0] max-site-nesting(0..7+)=[1616, 359, 25, 0, 0, 0, 0, 0] depth/4(0..7+)=[1998, 2, 0, 0, 0, 0, 0, 0] multi-site-range=0 owned-right=405 over-leaf=815 wide=1035
+test version::tick::l3_probe::l3_generator_histograms ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 608 filtered out; finished in 9.06s
+
+        PASS [   9.096s] (1/1) before version::tick::l3_probe::l3_generator_histograms
+────────────
+     Summary [   9.100s] 1 test run: 1 passed, 698 skipped
+exit=0

@@ -1,0 +1,51 @@
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 1 size 64 op 1 net 30736391
+L7M family 1 size 64 op 3 net 4705311
+L7M family 1 size 64 op 4 net 5297218
+L7M family 1 size 64 op 5 net 5321814
+L7M family 1 size 64 op 6 net 9557354
+L7M family 1 size 64 op 7 net 8348456
+L7M family 1 size 64 op 8 net 5416290
+L7M family 1 size 64 op 9 net 8706027
+L7M family 1 size 64 op 10 net 11718012
+L7M family 1 size 256 op 1 net 30736391
+L7M family 1 size 256 op 3 net 18810767
+L7M family 1 size 256 op 4 net 21173626
+L7M family 1 size 256 op 5 net 21271950
+L7M family 1 size 256 op 6 net 38184278
+L7M family 1 size 256 op 7 net 33371228
+L7M family 1 size 256 op 8 net 21605900
+L7M family 1 size 256 op 9 net 34750879
+L7M family 1 size 256 op 10 net 46847977
+L7M family 1 size 1024 op 1 net 30736391
+L7M family 1 size 1024 op 3 net 75240017
+L7M family 1 size 1024 op 4 net 84686852
+L7M family 1 size 1024 op 5 net 85080088
+L7M family 1 size 1024 op 6 net 152698209
+L7M family 1 size 1024 op 7 net 133468468
+L7M family 1 size 1024 op 8 net 86365377
+L7M family 1 size 1024 op 9 net 138950369
+L7M family 1 size 1024 op 10 net 187376423
+L7M family 1 size 4096 op 1 net 30736391
+L7M family 1 size 4096 op 3 net 300901362
+L7M family 1 size 4096 op 4 net 338684269
+L7M family 1 size 4096 op 5 net 340257153
+L7M family 1 size 4096 op 6 net 610576382
+L7M family 1 size 4096 op 7 net 533798997
+L7M family 1 size 4096 op 8 net 345300297
+L7M family 1 size 4096 op 9 net 555675643
+L7M family 1 size 4096 op 10 net 749417391
+L7M family 1 size 16384 op 1 net 30736391
+L7M family 1 size 16384 op 3 net 1203664308
+L7M family 1 size 16384 op 4 net 1354791671
+L7M family 1 size 16384 op 5 net 1361083147
+L7M family 1 size 16384 op 6 net 2443561745
+L7M family 1 size 16384 op 7 net 2135242286
+L7M family 1 size 16384 op 8 net 1381211966
+L7M family 1 size 16384 op 9 net 2222838235
+L7M family 1 size 16384 op 10 net 2997602529
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 3027.01s
+

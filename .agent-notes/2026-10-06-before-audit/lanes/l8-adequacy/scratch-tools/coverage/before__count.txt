@@ -1,0 +1,10 @@
+# coverage of crates/before/src/count.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 86/92; branch outcomes 8/8
+# never-executed lines:
+L  302  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+L  303  <Self as fmt::Display>::fmt(self, f)
+L  304  }
+L  323  fn add(self, rhs: &Count) -> Count {
+L  324  &self + rhs
+L  325  }
+# branches with an outcome never taken (outcome hit counts):

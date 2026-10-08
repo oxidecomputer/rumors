@@ -1,0 +1,28 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.33s
+────────────
+ Nextest run ID fe230585-b1b6-4004-95f5-bf8433317ff6 with nextest profile: default
+    Starting 2 tests across 2 binaries (70 tests skipped)
+        PASS [  48.383s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+        SLOW [> 60.000s] (───) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+        PASS [ 100.377s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+────────────
+     Summary [ 100.380s] 2 tests run: 2 passed (1 slow), 70 skipped

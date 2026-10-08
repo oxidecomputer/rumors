@@ -1,0 +1,153 @@
+diff --git a/crates/before/src/version/measure/integral.rs b/crates/before/src/version/measure/integral.rs
+index 3100cb5c..c740cd57 100644
+--- a/crates/before/src/version/measure/integral.rs
++++ b/crates/before/src/version/measure/integral.rs
+@@ -126,6 +126,15 @@ thread_local! {
+     pub static DEFER_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+ }
+ 
++/// L4 explore: whether the named mutant is enabled through `L4_MUT`.
++pub(crate) fn l4_mutant(name: &str) -> bool {
++    static MUTANTS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
++    MUTANTS
++        .get_or_init(|| std::env::var("L4_MUT").unwrap_or_default())
++        .split(',')
++        .any(|m| m == name)
++}
++
+ /// Integrates consecutive regions whose widths sum to one whole domain.
+ ///
+ /// The driver opens at the first height, adds each region with [`Self::interval`],
+@@ -219,7 +228,14 @@ impl Integrator {
+             order == Ordering::Less,
+             "the orientation correction must be nonnegative"
+         );
+-        let shift = if coefficient.abs() == 2 { 1 } else { 0 };
++        let shift = if coefficient.abs() == 2
++            && !l4_mutant("M6")
++            && !(l4_mutant("M29") && coefficient == -2)
++        {
++            1
++        } else {
++            0
++        };
+         if order == Ordering::Less {
+             self.live.sub_shifted(shift, diff);
+         } else {
+@@ -251,6 +267,9 @@ impl Integrator {
+         // This segment belongs to the old parked height. Live changes have
+         // already contributed to it region by region; folding them into the
+         // parked height first would charge those contributions a second time.
++        if l4_mutant("M2") {
++            self.parked += &self.live;
++        }
+         let parked = self.close_segment();
+         if self.parked.stored_digit_count() > drift_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
+             self.defer_parked(parked);
+@@ -276,7 +295,9 @@ impl Integrator {
+             );
+             return None;
+         }
+-        self.deferred.add_width(&width);
++        if !l4_mutant("M3") && !l4_mutant("M31") {
++            self.deferred.add_width(&width);
++        }
+         if self.parked.is_known_zero() {
+             return None;
+         }
+@@ -284,6 +305,9 @@ impl Integrator {
+         if parked == BigInt::ZERO {
+             return None;
+         }
++        if l4_mutant("M31") {
++            self.deferred.add_width(&width);
++        }
+         width.add_product(&mut self.total, &parked);
+         Some(parked)
+     }
+@@ -292,6 +316,11 @@ impl Integrator {
+     /// The preceding segment must already have been closed.
+     fn defer_parked(&mut self, parked: Option<BigInt>) {
+         if let Some(parked) = parked {
++            let parked = if l4_mutant("M23") {
++                BigInt::from(parked.magnitude().clone())
++            } else {
++                parked
++            };
+             #[cfg(test)]
+             DEFER_HITS.with(|hits| hits.set(hits.get() + 1));
+             self.deferred.push(parked);
+@@ -319,8 +348,10 @@ impl Integrator {
+     pub fn finish(mut self, closing_shift: u64) -> (Ordering, BigUint) {
+         self.finish_segment();
+         if !self.deferred.is_empty() {
+-            self.deferred
+-                .add_width(&ScaledWidth::read(&self.segment_width));
++            if !l4_mutant("M4") {
++                self.deferred
++                    .add_width(&ScaledWidth::read(&self.segment_width));
++            }
+             self.deferred.finish(&mut self.total);
+         }
+         if !self.base.is_known_zero() {
+diff --git a/crates/before/src/version/measure/integral/deferred.rs b/crates/before/src/version/measure/integral/deferred.rs
+index 1c2677b8..5af50f85 100644
+--- a/crates/before/src/version/measure/integral/deferred.rs
++++ b/crates/before/src/version/measure/integral/deferred.rs
+@@ -69,6 +69,9 @@ impl DeferredIntegral {
+             !self.is_empty(),
+             "an empty deferred integral needs no reduction"
+         );
++        if super::l4_mutant("M15") && self.entries.len() == 1 {
++            return;
++        }
+         let entries = core::mem::take(&mut self.entries);
+         let final_width = ScaledWidth::read(&self.width);
+         let mut leaves = Vec::with_capacity(entries.len() + 1);
+@@ -116,7 +119,11 @@ impl Aggregate {
+         // product accounts exactly for the pairs crossing this split.
+         let heights = self.heights.to_bigint();
+         if heights != BigInt::ZERO {
+-            right.widths.add_product(total, &heights);
++            if super::l4_mutant("M5") {
++                self.widths.add_product(total, &heights);
++            } else {
++                right.widths.add_product(total, &heights);
++            }
+         }
+         self.heights += &right.heights;
+         self.widths.add(right.widths);
+diff --git a/crates/before/src/version/measure/integral/pair.rs b/crates/before/src/version/measure/integral/pair.rs
+index 81b97b4d..a574005f 100644
+--- a/crates/before/src/version/measure/integral/pair.rs
++++ b/crates/before/src/version/measure/integral/pair.rs
+@@ -48,7 +48,7 @@ impl Integrator {
+         let mut current_orientation = orientation(diff.cmp_zero());
+         let mut integral = Integrator::new();
+ 
+-        if current_orientation != 0 {
++        if current_orientation != 0 && !(super::l4_mutant("M30") && current_orientation < 0) {
+             integral.open_difference(&diff, current_orientation);
+         }
+ 
+@@ -70,6 +70,8 @@ impl Integrator {
+                     if let Some(step) = step {
+                         let toward = if current_orientation > 0 {
+                             side
++                        } else if super::l4_mutant("M9") {
++                            side
+                         } else {
+                             side.other()
+                         };
+diff --git a/crates/before/src/version/measure/integral/width.rs b/crates/before/src/version/measure/integral/width.rs
+index d44dc0e7..ecb82aac 100644
+--- a/crates/before/src/version/measure/integral/width.rs
++++ b/crates/before/src/version/measure/integral/width.rs
+@@ -31,6 +31,7 @@ impl ScaledWidth {
+     pub fn read(width: &Accumulator) -> Self {
+         let (sign, magnitude, shift) = width.scaled_biguint_parts();
+         debug_assert_ne!(sign, Ordering::Less, "interval widths only accumulate");
++        let shift = if super::l4_mutant("M25") { 0 } else { shift };
+         Self { magnitude, shift }
+     }
+ 

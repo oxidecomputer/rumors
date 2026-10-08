@@ -1,0 +1,18 @@
+crates/before/src/version.rs:162:9: replace <impl Hash for Version>::hash with ()
+crates/before/src/version.rs:776:24: replace &= with |= in Version::span_all
+crates/before/src/version.rs:777:24: replace |= with &= in Version::span_all
+crates/before/src/version/io/regions.rs:122:9: replace VersionRegionReader<'a>::peek_flip -> u64 with 0
+crates/before/src/version/io/regions.rs:122:9: replace VersionRegionReader<'a>::peek_flip -> u64 with 1
+crates/before/src/version/io/writer.rs:155:21: replace > with >= in Output::take_left
+crates/before/src/version/io/writer.rs:255:34: replace > with == in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:255:34: replace > with >= in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:410:48: replace | with ^ in PayloadWriter<'_>::push_bits
+crates/before/src/version/overlay.rs:142:48: replace > with >= in advance_set
+crates/before/src/version/projection.rs:110:44: replace + with * in VersionWriter::project
+crates/before/src/version/projection.rs:355:36: replace != with == in Comparison<'a>::others_deepest
+crates/before/src/version/projection.rs:375:9: replace Comparison<'a>::block_skip with ()
+crates/before/src/version/shape.rs:174:48: replace > with >= in advance_refinement
+crates/before/src/fold.rs:27:52: replace == with != in balanced_try_fold
+crates/before/src/fold.rs:32:28: replace += with *= in balanced_try_fold
+crates/before/src/span/wire.rs:136:21: replace > with >= in Span<'a>::decode_bytes
+crates/before/src/span/algebra.rs:410:20: delete ! in Span<'a>::fold_endpoints

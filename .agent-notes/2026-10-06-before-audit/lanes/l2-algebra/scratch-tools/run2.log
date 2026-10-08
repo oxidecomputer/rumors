@@ -1,0 +1,8 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.77s
+────────────
+ Nextest run ID 1e7f71b7-b28c-4102-b81d-2ebb93e3b7ef with nextest profile: default
+    Starting 1 test across 1 binary (17 tests skipped)
+        PASS [  11.416s] (1/1) before::l2_probe algebra_matches_model
+────────────
+     Summary [  11.492s] 1 test run: 1 passed, 17 skipped

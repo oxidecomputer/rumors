@@ -1,0 +1,40 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.91s
+────────────
+ Nextest run ID 12bbd721-e64d-4289-ab69-2e9d8d2272e6 with nextest profile: high-count
+    Starting 18 tests across 1 binary (3 tests skipped)
+        PASS [   0.236s] ( 1/18) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.397s] ( 2/18) before::l2_probe deep_surfaces_are_stack_safe
+        PASS [  58.868s] ( 3/18) before::l2_probe par03
+        SLOW [> 60.000s] (─────) before::l2_probe par01
+        SLOW [> 60.000s] (─────) before::l2_probe par08
+        SLOW [> 60.000s] (─────) before::l2_probe par07
+        SLOW [> 60.000s] (─────) before::l2_probe par06
+        SLOW [> 60.000s] (─────) before::l2_probe par13
+        SLOW [> 60.000s] (─────) before::l2_probe par04
+        SLOW [> 60.000s] (─────) before::l2_probe par09
+        SLOW [> 60.000s] (─────) before::l2_probe par15
+        SLOW [> 60.000s] (─────) before::l2_probe par00
+        SLOW [> 60.000s] (─────) before::l2_probe par11
+        SLOW [> 60.000s] (─────) before::l2_probe par10
+        SLOW [> 60.000s] (─────) before::l2_probe par02
+        SLOW [> 60.000s] (─────) before::l2_probe par05
+        SLOW [> 60.000s] (─────) before::l2_probe par14
+        SLOW [> 60.000s] (─────) before::l2_probe par12
+        PASS [  67.236s] ( 4/18) before::l2_probe par02
+        PASS [  70.450s] ( 5/18) before::l2_probe par15
+        PASS [  70.623s] ( 6/18) before::l2_probe par10
+        PASS [  73.346s] ( 7/18) before::l2_probe par04
+        PASS [  74.759s] ( 8/18) before::l2_probe par01
+        PASS [  76.360s] ( 9/18) before::l2_probe par12
+        PASS [  77.042s] (10/18) before::l2_probe par11
+        PASS [  77.369s] (11/18) before::l2_probe par13
+        PASS [  78.275s] (12/18) before::l2_probe par05
+        PASS [  78.559s] (13/18) before::l2_probe par09
+        PASS [  79.464s] (14/18) before::l2_probe par07
+        PASS [  90.554s] (15/18) before::l2_probe par06
+        PASS [  90.529s] (16/18) before::l2_probe par14
+        PASS [  91.678s] (17/18) before::l2_probe par00
+        PASS [  97.774s] (18/18) before::l2_probe par08
+────────────
+     Summary [  97.776s] 18 tests run: 18 passed (15 slow), 3 skipped

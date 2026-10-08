@@ -1,0 +1,43 @@
+# survivors of crates/before/src/rank.rs (rank); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/rank.rs:378:31: replace match guard error.kind() == io::ErrorKind::Interrupted with false in Rank::decode
+MISSED   crates/before/src/rank.rs:387:25: replace match guard at_eof with true in Rank::decode
+MISSED   crates/before/src/rank.rs:387:25: replace match guard at_eof with false in Rank::decode
+MISSED   crates/before/src/rank.rs:392:35: replace match guard error.kind() == io::ErrorKind::Interrupted with true in Rank::decode
+MISSED   crates/before/src/rank.rs:392:35: replace match guard error.kind() == io::ErrorKind::Interrupted with false in Rank::decode
+MISSED   crates/before/src/rank.rs:392:48: replace == with != in Rank::decode
+MISSED   crates/before/src/rank.rs:396:39: replace match guard at_eof with false in Rank::decode
+MISSED   crates/before/src/rank.rs:414:31: replace match guard error.kind() == io::ErrorKind::Interrupted with true in Rank::decode
+MISSED   crates/before/src/rank.rs:414:31: replace match guard error.kind() == io::ErrorKind::Interrupted with false in Rank::decode
+MISSED   crates/before/src/rank.rs:414:44: replace == with != in Rank::decode
+MISSED   crates/before/src/rank.rs:426:31: replace match guard error.kind() == io::ErrorKind::Interrupted with true in Rank::decode
+MISSED   crates/before/src/rank.rs:426:31: replace match guard error.kind() == io::ErrorKind::Interrupted with false in Rank::decode
+MISSED   crates/before/src/rank.rs:426:44: replace == with != in Rank::decode
+MISSED   crates/before/src/rank.rs:497:9: replace Rank::alignment_fits -> bool with true
+MISSED   crates/before/src/rank.rs:497:9: replace Rank::alignment_fits -> bool with false
+MISSED   crates/before/src/rank.rs:497:53: replace && with || in Rank::alignment_fits
+MISSED   crates/before/src/rank.rs:497:36: replace - with + in Rank::alignment_fits
+MISSED   crates/before/src/rank.rs:497:83: replace - with + in Rank::alignment_fits
+MISSED   crates/before/src/rank.rs:506:9: replace Rank::accumulate -> Rank with Default::default()
+MISSED   crates/before/src/rank.rs:508:32: replace == with != in Rank::accumulate
+MISSED   crates/before/src/rank.rs:511:52: replace - with + in Rank::accumulate
+MISSED   crates/before/src/rank.rs:511:52: replace - with / in Rank::accumulate
+MISSED   crates/before/src/rank.rs:515:57: replace + with - in Rank::accumulate
+MISSED   crates/before/src/rank.rs:515:57: replace + with * in Rank::accumulate
+MISSED   crates/before/src/rank.rs:515:52: replace / with % in Rank::accumulate
+MISSED   crates/before/src/rank.rs:515:52: replace / with * in Rank::accumulate
+MISSED   crates/before/src/rank.rs:518:35: replace - with + in Rank::accumulate
+MISSED   crates/before/src/rank.rs:518:35: replace - with / in Rank::accumulate
+MISSED   crates/before/src/rank.rs:520:39: replace - with + in Rank::accumulate
+MISSED   crates/before/src/rank.rs:520:39: replace - with / in Rank::accumulate
+MISSED   crates/before/src/rank.rs:522:39: replace - with / in Rank::accumulate
+MISSED   crates/before/src/rank.rs:522:39: replace - with + in Rank::accumulate
+MISSED   crates/before/src/rank.rs:647:24: replace | with ^ in Rank::decode_stream
+MISSED   crates/before/src/rank.rs:667:36: replace | with ^ in Rank::decode_stream
+MISSED   crates/before/src/rank.rs:806:21: replace == with != in BitWriter<'a, W>::push_byte
+MISSED   crates/before/src/rank.rs:893:33: replace | with ^ in Rank::aligned_words
+MISSED   crates/before/src/rank.rs:983:9: replace <impl Add<Rank> for &Rank>::add -> Rank with Default::default()
+MISSED   crates/before/src/rank.rs:989:9: replace <impl AddAssign<&Rank> for Rank>::add_assign with ()
+MISSED   crates/before/src/rank.rs:995:9: replace <impl AddAssign<Rank> for Rank>::add_assign with ()
+MISSED   crates/before/src/rank.rs:1052:16: delete ! in Rank::sum_iter
+MISSED   crates/before/src/rank.rs:1058:25: replace > with >= in Rank::sum_iter
+MISSED   crates/before/src/rank.rs:1059:36: replace - with + in Rank::sum_iter

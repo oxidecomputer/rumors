@@ -1,0 +1,1411 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+────────────
+ Nextest run ID ab7ccd92-bfd8-492f-a602-720708728a08 with nextest profile: default
+    Starting 1 test across 12 binaries (696 tests skipped)
+        FAIL [   4.980s] (1/1) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+  stdout ───
+
+    running 1 test
+    test version::measure::explore_l4::l4_measures_agree_with_flat_oracle ... FAILED
+
+    failures:
+
+    failures:
+        version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 606 filtered out; finished in 4.92s
+
+  stderr ───
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+    proptest: Aborting shrinking after the PROPTEST_MAX_SHRINK_ITERS environment variable or ProptestConfig.max_shrink_iters iterations (set 4096 to a large(r) value to shrink more; current configuration: 4096 iterations)
+
+    thread 'version::measure::explore_l4::l4_measures_agree_with_flat_oracle' (2) panicked at crates/before/src/version/measure/explore_l4.rs:463:1:
+    Test failed: distance(a,b) = 101101111111111111111111111111110100100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011101110000000000000000000000000000011100000010011000000000100.101001110001 at crates/before/src/version/measure/explore_l4.rs:270.
+    minimal failing input: (la, lb) = (
+        [
+            Leaf {
+                depth: 11,
+                height: 3,
+            },
+            Leaf {
+                depth: 11,
+                height: 3,
+            },
+            Leaf {
+                depth: 10,
+                height: 3,
+            },
+            Leaf {
+                depth: 9,
+                height: 18446744069414584320,
+            },
+            Leaf {
+                depth: 8,
+                height: 7524389322797446040475164130017547005136973694718168754997167867066891793815081269139461992921286694278210045393642630808998673017702037997817628310624346925145271013379230425488905089037612144960322896412131704635916180933036796081882991483161412610670934170065232363634706689789442010869603382158076466776166719101624770276592928488600772707370277557334550783351457337217624476710187734383163429360676245932669181387568721012032090636785439820358427100735787186139942656412099138000007801449051171616075895891804268202742312363043225503394293142969991504627063500680003033288426849706244180960533513502720,
+            },
+            Leaf {
+                depth: 7,
+                height: 7524389322797446040475164130017547005136973694718168754997167867066891793815081269139461992921286694278210045393642630808998673017702037997817628310624346925145271013379230425488905089037612144960322896412131704635916180933036796081882991483161412610670934170065232363634706689789442010869603382158076466776166719101624770276592928488600772707370277557334550783351457337217624476710187734383163429360676245932669181387568721012032090636785439820358427100735787186139942656412099138000007801449051171616075895891804268202742312363043225503394293142969991504627063500680003033288426849706244180960533513502726,
+            },
+            Leaf {
+                depth: 6,
+                height: 7524389322797446040475164130017547005136973694718168754997167867066891793815081269139461992921286694278210045393642630808998673017702037997817628310624346925145271013379230425488905089037612144960322896412131704635916180933036796081882991483161412610670934170065232363634706689789442010869603382158076466776166719101624770276592928488600772707370277557334550783351457337217624476710187734383163429360676245932669181387568721012032090636785911565661529793404817380462566190023463753152559856502598197403606598912103286809253078203690432849336976689848836985239534823758743632367497028987673267965989687918598,
+            },
+            Leaf {
+                depth: 6,
+                height: 0,
+            },
+            Leaf {
+                depth: 8,
+                height: 7,
+            },
+            Leaf {
+                depth: 8,
+                height: 7,
+            },
+            Leaf {
+                depth: 8,
+                height: 0,
+            },
+            Leaf {
+                depth: 8,
+                height: 1,
+            },
+            Leaf {
+                depth: 5,
+                height: 7,
+            },
+            Leaf {
+                depth: 5,
+                height: 13,
+            },
+            Leaf {
+                depth: 5,
+                height: 8,
+            },
+            Leaf {
+                depth: 5,
+                height: 0,
+            },
+            Leaf {
+                depth: 6,
+                height: 5,
+            },
+            Leaf {
+                depth: 7,
+                height: 5,
+            },
+            Leaf {
+                depth: 7,
+                height: 590295810358705651717,
+            },
+            Leaf {
+                depth: 6,
+                height: 0,
+            },
+            Leaf {
+                depth: 6,
+                height: 5,
+            },
+            Leaf {
+                depth: 3,
+                height: 5,
+            },
+            Leaf {
+                depth: 4,
+                height: 262149,
+            },
+            Leaf {
+                depth: 4,
+                height: 262155,
+            },
+            Leaf {
+                depth: 2,
+                height: 262157,
+            },
+            Leaf {
+                depth: 4,
+                height: 262157,
+            },
+            Leaf {
+                depth: 6,
+                height: 262157,
+            },
+            Leaf {
+                depth: 6,
+                height: 18446744069414584320,
+            },
+            Leaf {
+                depth: 5,
+                height: 7524389322797446040475164130017547005136973694718168754997167867066891793815081269139461992921286694278210045393642630808998673017702037997817628310624346925145271013379230425488905089037612144960322896412131704635916180933036796081882991483161412610670934170065232363634706689789442010869603382158076466776166719101624770276592928488600772707370277557334550783351457337217624476710187734383163429360676245932669181387568721012032090636785439820358427100735787186139942656412099138000007801449051171616075895891804268202742312363043225503394293142969991504627063500680003033288426849706244180960533513502720,
+            },
+            Leaf {
+                depth: 6,
+                height: 7524389322797446040475164130017547005136973694718168754997167867066891793815081269139461992921286694278210045393642630808998673017702037997817628310624346925145271013379230425488905089037612144960322896412131704635916180933036796081882991483161412610670934170065232363634706689789442010869603382158076466776166719101624770276592928488600772707370277557334550783351457337217624476710187734383163429360676245932669181387568721012032090636785439820358427100735787186139942656412099138000007801449051171616075895891804268202742312363043225503394293142969991504627063500680003033288426849706244180960533513502726,
+            },
+            Leaf {
+                depth: 6,
+                height: 7524389322797446040475164130017547005136973694718168754997167867066891793815081269139461992921286694278210045393642630808998673017702037997817628310624346925145271013379230425488905089037612144960322896412131704635916180933036796081882991483161412610670934170065232363634706689789442010869603382158076466776166719101624770276592928488600772707370277557334550783351457337217624476710187734383163429360676245932669181387568721012032090636785911565661529793404817380462566190023463753152559856502598197403606598912103286809253078203690432849336976689848836985239534823758743632367497028987673267965989687918598,
+            },
+            Leaf {
+                depth: 6,
+                height: 0,
+            },
+            Leaf {
+                depth: 6,
+                height: 7,
+            },
+            Leaf {
+                depth: 5,
+                height: 7,
+            },
+            Leaf {
+                depth: 6,
+                height: 0,
+            },
+            Leaf {
+                depth: 7,
+                height: 1,
+            },
+            Leaf {
+                depth: 8,
+                height: 7,
+            },
+            Leaf {
+                depth: 9,
+                height: 13,
+            },
+            Leaf {
+                depth: 11,
+                height: 8,
+            },
+            Leaf {
+                depth: 11,
+                height: 0,
+            },
+            Leaf {
+                depth: 11,
+                height: 5,
+            },
+            Leaf {
+                depth: 13,
+                height: 5,
+            },
+            Leaf {
+                depth: 13,
+                height: 590295810358705651717,
+            },
+            Leaf {
+                depth: 12,
+                height: 0,
+            },
+        ],
+        [
+            Leaf {
+                depth: 1,
+                height: 0,
+            },
+            Leaf {
+                depth: 2,
+                height: 0,
+            },
+            Leaf {
+                depth: 2,
+                height: 39191066485258739495582803211213116836177854260974927689867324404930562930532401964915294470471057677470020717800991369135822596029816596680341771026342219486499009066287015365002034290763159969980219392,
+            },
+        ],
+    )
+    successes: 0
+    local rejects: 0
+    global rejects: 0
+
+
+────────────
+     Summary [   4.992s] 1 test run: 0 passed, 1 failed, 696 skipped
+        FAIL [   4.980s] (1/1) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+error: test run failed

@@ -1,0 +1,119 @@
+warning: ignoring --test-threads because --no-run is specified
+   Compiling num-traits v0.2.19
+   Compiling regex-automata v0.4.14
+   Compiling half v2.7.1
+   Compiling console v0.16.3
+   Compiling is-terminal v0.4.17
+   Compiling tempfile v3.23.0
+   Compiling rand_chacha v0.9.0
+   Compiling stacker v0.1.24
+   Compiling rusty-fork v0.3.1
+   Compiling indicatif v0.18.5
+   Compiling insta v1.47.2
+   Compiling rand v0.9.4
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling regex v1.12.3
+   Compiling num-integer v0.1.47
+   Compiling plotters v0.3.7
+   Compiling proptest v1.11.0
+   Compiling num-bigint v0.4.8
+   Compiling criterion v0.5.1
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8m 33s
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 01s
+────────────
+ Nextest run ID b736c970-1e10-41d9-9991-90d989146b90 with nextest profile: default
+    Starting 84 tests across 13 binaries (611 tests skipped)
+        PASS [   0.109s] ( 1/84) before testing::meter::board::tests::many_hole_query_operands_exercise_both_fused_walks
+        PASS [   0.196s] ( 2/84) before testing::meter::board::tests::wide_query_probe_exercises_shared_numeric_state
+        PASS [   0.212s] ( 3/84) before testing::meter::board::tests::acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red
+        PASS [   0.279s] ( 4/84) before testing::meter::board::tests::exponent_guard_depends_on_denominator_span
+        PASS [   0.194s] ( 5/84) before testing::meter::board::tests::worst_row_flags_near_ties_strictly_under_the_ratio
+        PASS [   0.134s] ( 6/84) before testing::meter::registry::tests::every_family_reaches_board_operations
+        PASS [   0.516s] ( 7/84) before testing::meter::board::tests::worst_rank_excludes_zero_readings
+        PASS [   0.458s] ( 8/84) before testing::meter::board::tests::worst_rankings_pin_is_well_formed
+        PASS [   0.637s] ( 9/84) before testing::meter::board::tests::bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors
+        PASS [   0.187s] (10/84) before testing::meter::board::coverage::tests::board_coverage_is_consistent
+        PASS [   0.224s] (11/84) before testing::meter::board::tests::party_fork_heap_floor_is_complete_child_storage
+        PASS [   0.260s] (12/84) before testing::meter::board::tests::heap_trend_resolution_does_not_exempt_peaks_from_the_ceiling
+        PASS [   0.839s] (13/84) before testing::meter::board::tests::model_ceiling_tightens_only_the_constant
+        PASS [   0.203s] (14/84) before testing::meter::board::tests::worst_rank_records_ties_whole_and_runner_up_strictly_below
+        PASS [   0.165s] (15/84) before testing::meter::board::tests::many_hole_conjunction_preserves_both_antichains
+        PASS [   0.839s] (16/84) before testing::meter::board::tests::resource_model_preserves_constant_and_exponent_checks
+        PASS [   0.840s] (17/84) before testing::meter::board::tests::heap_ceiling_checks_both_samples_without_hiding_raw_cost
+        PASS [   0.321s] (18/84) before testing::meter::board::tests::declared_fold_model_admits_the_log_factor_and_rejects_quadratic
+        PASS [   0.272s] (19/84) before testing::meter::board::tests::flat_denominator_stored_fit_manufactures_an_exponent
+        PASS [   0.331s] (20/84) before testing::meter::board::tests::version_output_denominator_includes_boundary_marker_byte
+        PASS [   0.457s] (21/84) before::meter deferred_wide_arming::rank_wide_arming_is_flat_per_unit
+        PASS [   0.381s] (22/84) before::meter placement::dominance_bails_at_the_refuted_start
+        PASS [   0.801s] (23/84) before::answer_embedded measure_folds_are_additive_on_wide_base_tiny_tail
+        PASS [   0.827s] (24/84) before::fold_skeleton span_all_flat_on_shared_deep_skeleton
+        PASS [   0.481s] (25/84) before::meter eq_early_exit::eq_exit_cost_is_tail_independent_on_first_interval_refuted_pair
+        PASS [   0.512s] (26/84) before::meter identity_fast_paths::empty_operands_answer_without_a_walk
+        PASS [   0.270s] (27/84) before::meter identity_fast_paths::distinct_buffers_keep_the_walked_paths_covered
+        PASS [   0.517s] (28/84) before::meter placement::contains_bails_at_either_refuted_side
+        PASS [   0.517s] (29/84) before::meter identity_fast_paths::metric_fast_paths_skip_the_fold
+        PASS [   0.428s] (30/84) before::meter identity_fast_paths::equal_join_all_has_fixed_heap_cost
+        PASS [   0.370s] (31/84) before::meter hoisted_window::rank_hoisted_window_densify_span_band
+        PASS [   0.358s] (32/84) before::meter identity_fast_paths::clone_operands_answer_without_a_walk
+        PASS [   0.245s] (33/84) before::meter placement::query_fused_walk_scans_each_stream_once
+        PASS [   0.257s] (34/84) before::meter placement::span_place_scans_each_stream_once
+        PASS [   0.376s] (35/84) before::meter placement::query_early_exits_survive_the_fusion
+        PASS [   0.632s] (36/84) before::meter hoisted_window::rank_hoisted_window_is_flat_per_unit
+        PASS [   0.291s] (37/84) before::meter placement::precedence_bails_at_the_refuted_end
+        PASS [   0.285s] (38/84) before::meter placement::query_single_bound_matches_the_pair_sweep
+        PASS [   0.257s] (39/84) before::meter span::span_fuses_the_pair_walk
+        PASS [   0.257s] (40/84) before::meter span::span_all_leaf_combine_is_the_fused_pair_walk
+        PASS [   0.376s] (41/84) before::meter placement::span_concurrent_exits_survive_the_fusion
+        PASS [   0.541s] (42/84) before::meter span_codec::span_decode_scans_the_second_component_once
+        PASS [   0.541s] (43/84) before::meter version_scaling::cliff_and_freeze::skyline_join_cliff_cost_is_flat_per_unit
+        PASS [   1.790s] (44/84) before::meter answer_embedded_product::rank_plateau_puncture_is_flat_per_unit
+        PASS [   0.656s] (45/84) before::meter span_codec::span_decode_deletes_the_second_validation_accumulator
+        PASS [   0.798s] (46/84) before::meter span::span_all_fuses_the_leaf_level
+        PASS [   0.541s] (47/84) before::meter tick_counts::ticks_wide_count_flatness_holds_the_width_band
+        PASS [   0.423s] (48/84) before::meter version_scaling::cliff_and_freeze::skyline_cmp_cliff_cost_is_flat_per_unit
+        PASS [   0.592s] (49/84) before::meter version_scaling::cliff_and_freeze::skyline_rank_jump_eviction_is_flat_per_unit
+        PASS [   0.762s] (50/84) before::meter settle_flatness::arming_trains_is_flat_per_unit
+        PASS [   0.799s] (51/84) before::meter span::span_shares_the_crossing_folds
+        PASS [   0.790s] (52/84) before::meter version_scaling::cliff_and_freeze::skyline_rank_wide_tooth_freeze_band
+        PASS [   0.186s] (53/84) before::meter version_scaling::freeze_schedules::skyline_rank_freeze_position_is_flat_per_unit
+        PASS [   0.700s] (54/84) before::meter version_scaling::cliff_and_freeze::skyline_validate_cliff_cost_is_flat_per_unit
+        PASS [   0.721s] (55/84) before::meter tick_counts::ticks_flatness_holds_the_log_band
+        PASS [   0.154s] (56/84) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_descending_boundary_clearance_band
+        PASS [   0.165s] (57/84) before::meter version_scaling::freeze_schedules::skyline_rank_lone_freeze_tail_is_flat_per_unit
+        PASS [   0.182s] (58/84) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_descending_boundary_is_flat_per_unit
+        PASS [   0.396s] (59/84) before::meter version_scaling::freeze_schedules::skyline_rank_lone_freeze_late_is_flat_per_unit
+        PASS [   0.397s] (60/84) before::meter version_scaling::freeze_schedules::skyline_min_ticks_freeze_position_is_flat_per_unit
+        PASS [   0.162s] (61/84) before::meter version_scaling::minimum_combs::skyline_min_ticks_pure_comb_is_flat_per_unit
+        PASS [   0.239s] (62/84) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_stopping_boundary_is_flat_per_unit
+        PASS [   0.575s] (63/84) before::meter version_scaling::freeze_schedules::skyline_rank_promotion_rearm_is_flat_per_unit
+        PASS [   1.550s] (64/84) before::meter settle_flatness::pair_plateau_train_is_flat_per_unit
+        PASS [   0.354s] (65/84) before::meter version_scaling::skip_adequacy::skyline_cmp_tooth_tail_is_flat_per_unit
+        PASS [   0.751s] (66/84) before::meter version_scaling::freeze_schedules::skyline_min_ticks_promotion_rearm_is_flat_per_unit
+        PASS [   0.434s] (67/84) before::meter version_scaling::pair_crossings::masked_pair_cmp_drift_cost_is_flat_per_unit
+        PASS [   0.434s] (68/84) before::meter version_scaling::pair_crossings::masked_cmp_drift_cost_is_flat_per_unit
+        PASS [   0.323s] (69/84) before::meter version_scaling::skip_adequacy::skyline_rank_dense_suffix_is_flat_per_unit
+        PASS [   0.584s] (70/84) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_latent_ladder_is_flat_per_unit
+        PASS [   0.666s] (71/84) before::meter version_scaling::minimum_combs::skyline_min_ticks_reveal_comb_is_flat_per_unit
+        PASS [   0.375s] (72/84) before::meter width_circulation_cost::reveal_comb_hifloor_control_is_flat_per_unit
+        PASS [   0.313s] (73/84) before::meter version_scaling::skip_adequacy::skyline_rank_weight_comb_is_flat_per_unit
+        PASS [   0.749s] (74/84) before::meter version_scaling::skip_adequacy::skyline_distance_dense_suffix_is_flat_per_unit
+        PASS [   0.701s] (75/84) before::meter version_scaling::pair_crossings::skyline_distance_jump_pair_is_flat_per_unit
+        PASS [   0.651s] (76/84) before::meter version_scaling::skip_adequacy::skyline_rank_freeze_parade_is_flat_per_unit
+        PASS [   0.258s] (77/84) before::meter width_circulation_cost::ascend_cliff_undercut_cascade_reads_residue_width
+        PASS [   1.147s] (78/84) before::meter version_scaling::freeze_schedules::skyline_distance_promotion_rearm_is_flat_per_unit
+        PASS [   0.301s] (79/84) before::meter width_circulation_cost::pure_comb_cost_is_independent_of_value_width
+        PASS [   0.332s] (80/84) before::meter width_circulation_cost::reveal_comb_close_reveal_cycle_reads_width_quadratic
+        PASS [   0.448s] (81/84) before::meter width_circulation_cost::ascend_cliff_plateau_control_is_flat_per_unit
+        PASS [   3.390s] (82/84) before::amp_board_smoke board_runs_to_completion
+        PASS [   5.849s] (83/84) before::answer_embedded measure_folds_are_flat_per_byte_on_wide_ladder
+        PASS [   6.572s] (84/84) before::meter version_scaling::freeze_schedules::skyline_distance_freeze_position_is_flat_per_unit
+────────────
+     Summary [   9.134s] 84 tests run: 84 passed, 611 skipped
+exit=0

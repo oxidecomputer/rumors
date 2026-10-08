@@ -1,0 +1,3 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 55s
+mutant none exit 0

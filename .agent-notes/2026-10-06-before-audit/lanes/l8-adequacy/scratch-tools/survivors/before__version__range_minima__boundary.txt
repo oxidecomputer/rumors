@@ -1,0 +1,6 @@
+# survivors of crates/before/src/version/range_minima/boundary.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/range_minima/boundary.rs:46:44: replace > with >= in Boundary::from_positive
+MISSED   crates/before/src/version/range_minima/boundary.rs:106:30: replace -= with += in Boundary::lower_wide
+MISSED   crates/before/src/version/range_minima/boundary.rs:113:75: replace + with * in Boundary::lower_wide
+MISSED   crates/before/src/version/range_minima/boundary.rs:113:42: replace >= with < in Boundary::lower_wide
+MISSED   crates/before/src/version/range_minima/boundary.rs:116:30: replace -= with += in Boundary::lower_wide

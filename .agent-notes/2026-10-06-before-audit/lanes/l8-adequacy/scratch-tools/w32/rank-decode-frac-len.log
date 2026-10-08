@@ -1,0 +1,32 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 18.92s
+────────────
+ Nextest run ID c6b70c29-6839-4621-a7d4-a63bba1faa0b with nextest profile: default
+    Starting 1 test across 4 binaries (7 tests skipped)
+        FAIL [  36.856s] (1/1) wasm32-pins-harness::pins rank_decode_accepts_the_first_exponent_past_usize
+  stdout ───
+
+    running 1 test
+    test rank_decode_accepts_the_first_exponent_past_usize ... FAILED
+
+    failures:
+
+    failures:
+        rank_decode_accepts_the_first_exponent_past_usize
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 36.81s
+
+  stderr ───
+
+    thread 'rank_decode_accepts_the_first_exponent_past_usize' (2) panicked at harness/tests/pins.rs:25:5:
+    assertion `left == right` failed: RankDecode failed for (4294967296, 0)
+      left: Failed(WrongValue)
+     right: Passed
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [  36.859s] 1 test run: 0 passed, 1 failed, 7 skipped
+        FAIL [  36.856s] (1/1) wasm32-pins-harness::pins rank_decode_accepts_the_first_exponent_past_usize
+error: test run failed
+rank-decode-frac-len pins exit=100 secs=70

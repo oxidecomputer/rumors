@@ -1,0 +1,36 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: method `contains` is never used
+   --> crates/suanpan/src/accumulator/digits/written.rs:108:12
+    |
+ 36 | impl ZeroRanges {
+    | --------------- method in this implementation
+...
+108 |     pub fn contains(&self, p: usize) -> bool {
+    |            ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib) generated 1 warning
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.54s
+────────────
+ Nextest run ID d1f98161-0d37-48b3-98ff-2e1dc0af144b with nextest profile: default
+    Starting 2 tests across 2 binaries (70 tests skipped)
+        PASS [  28.485s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+        SLOW [> 60.000s] (───) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+        PASS [  82.121s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+────────────
+     Summary [  82.122s] 2 tests run: 2 passed (1 slow), 70 skipped

@@ -1,0 +1,94 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 09s
+     Running unittests src/lib.rs (target/debug/deps/before-332950f26c43de8d)
+
+running 11 tests
+PROBE party seed bytes [20]
+PROBE cbor text [61, 20] -> Err("Semantic(None, \"invalid type: string, expected byte buffer\")")
+PROBE cbor array [81, 18, 20] -> Ok([32])
+PROBE json clock array ["20","e0"] -> Ok([32, 224])
+PROBE cbor text rank [61, 00] -> Err("Semantic(None, \"invalid type: string, expected byte buffer\")") (zero = 0)
+PROBE json span array ["a8","b8"] -> Ok([168, 184])
+PROBE cbor bytes as count [42, 01, 02] -> Ok("36893488147419103233")
+PROBE json ranked array ["a8"] -> Ok([128, 168])
+test testing::l6_probes::probe_cbor_text_and_array_as_bytes ... ok
+test testing::l6_probes::probe_json_composites_accept_arrays ... ok
+test testing::l6_probes::probe_encoders_under_failing_writers ... ok
+== party ==
+      478  party borsh: accept
+      626  party borsh: reject NotCanonical
+      686  party borsh: reject TrailingBits
+      210  party borsh: reject Truncated
+      369  party slice: accept
+      597  party slice: reject NotCanonical
+      609  party slice: reject TrailingBits
+      425  party slice: reject Truncated
+      369  party text: accept
+      597  party text: reject NotCanonical
+      609  party text: reject TrailingBits
+      425  party text: reject Truncated
+test testing::l6_spec::l6_spec_party ... ok
+test testing::l6_probes::probe_reader_entries_ignore_chunking ... ok
+== rank ==
+     1187  rank borsh: accept
+      151  rank borsh: reject NotCanonical
+      556  rank borsh: reject TrailingBits
+      106  rank borsh: reject Truncated
+      981  rank slice: accept
+      150  rank slice: reject NotCanonical
+      660  rank slice: reject TrailingBits
+      209  rank slice: reject Truncated
+test testing::l6_spec::l6_spec_rank ... ok
+== version ==
+      636  version borsh: accept
+      701  version borsh: reject NotCanonical
+      383  version borsh: reject TrailingBits
+      280  version borsh: reject Truncated
+      503  version slice: accept
+      650  version slice: reject NotCanonical
+      419  version slice: reject TrailingBits
+      428  version slice: reject Truncated
+      503  version text: accept
+      650  version text: reject NotCanonical
+      419  version text: reject TrailingBits
+      428  version text: reject Truncated
+test testing::l6_spec::l6_spec_version ... ok
+== clock ==
+      891  clock borsh: accept
+      495  clock borsh: reject NotCanonical
+      473  clock borsh: reject TrailingBits
+      141  clock borsh: reject Truncated
+      770  clock slice: accept
+      478  clock slice: reject NotCanonical
+      579  clock slice: reject TrailingBits
+      173  clock slice: reject Truncated
+test testing::l6_spec::l6_spec_clock ... ok
+== ranked ==
+      611  ranked borsh: accept
+     1064  ranked borsh: reject NotCanonical
+      163  ranked borsh: reject TrailingBits
+      162  ranked borsh: reject Truncated
+      529  ranked slice: accept
+      922  ranked slice: reject NotCanonical
+      332  ranked slice: reject TrailingBits
+      217  ranked slice: reject Truncated
+test testing::l6_spec::l6_spec_ranked ... ok
+test testing::l6_spec::l6_spec_encoders_agree_with_production ... ok
+== span ==
+      766  span borsh: accept
+      892  span borsh: reject NotCanonical
+      153  span borsh: reject TrailingBits
+      189  span borsh: reject Truncated
+      532  span json: ordered=false
+      672  span json: ordered=true
+      672  span slice: accept
+      804  span slice: reject NotCanonical
+      287  span slice: reject TrailingBits
+      237  span slice: reject Truncated
+      435  span: accepted equal=false
+      237  span: accepted equal=true
+test testing::l6_spec::l6_spec_span ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 604 filtered out; finished in 10.31s
+
+exit=0

@@ -1,0 +1,18 @@
+decode-from-bytes: local exit=0 decode-from-bytes pins exit=100 secs=40
+decode-live-len: local exit=0 decode-live-len pins exit=100 secs=60
+decode-padding-total: local exit=0 decode-padding-total pins exit=100 secs=56
+compare-reader-open: local exit=0 compare-reader-open pins exit=0 secs=89
+compare-gamma-window: local exit=0 compare-gamma-window pins exit=0 secs=80
+join-live-usize: local exit=0 join-live-usize pins exit=0 secs=68
+rank-decode-frac-len: local exit=0 rank-decode-frac-len pins exit=100 secs=70
+rank-arith-route: local exit=0 rank-arith-route pins exit=0 secs=121
+rank-accumulate-sign: local exit=0 rank-accumulate-sign pins exit=100 secs=77
+forks-count-narrow: local exit=0 forks-count-narrow pins exit=100 secs=34
+suanpan-landing-narrow: local exit=0 suanpan-landing-narrow pins exit=100 secs=31
+all injections done; probe tree restored
+--- trap probes
+probe-reader-open: local exit=0 probe-reader-open pins exit=0 secs=97
+probe-gamma-window: local exit=0 probe-gamma-window pins exit=0 secs=80
+control-reader-open: local exit=0 control-reader-open pins exit=0 secs=82
+control-gamma-window: local exit=0 control-gamma-window pins exit=0 secs=68
+all injections done; probe tree restored

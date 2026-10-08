@@ -1,0 +1,6 @@
+# coverage of crates/before/src/party/forks.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 185/186; branch outcomes 36/38
+# never-executed lines:
+L   64  return None;
+# branches with an outcome never taken (outcome hit counts):
+B   61  [34199, 0, 34199, 0]  } else if self.decision == self.depth && self.forks_again {

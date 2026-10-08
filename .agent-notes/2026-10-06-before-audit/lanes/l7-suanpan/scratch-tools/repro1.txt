@@ -1,0 +1,84 @@
+[
+    Op::Reserve {
+        t: 2,
+        digits: 27,
+    },
+    Op::Neg {
+        t: 0,
+    },
+    Op::Acc {
+        t: 0,
+        s: 0,
+        negative: true,
+        shift: 1,
+        form: AccForm::OwnedClone,
+    },
+    Op::Acc {
+        t: 1,
+        s: 0,
+        negative: false,
+        shift: 3,
+        form: AccForm::OwnedClone,
+    },
+    Op::StablePool {
+        t: 0,
+        s: 1,
+    },
+    Op::WideU {
+        t: 2,
+        negative: true,
+        value: 170141183460469231731687303715884105728u128,
+    },
+    Op::Stable {
+        t: 1,
+        bits: 157,
+    },
+    Op::Stable {
+        t: 1,
+        bits: 9223372036854775815u64,
+    },
+    Op::Word {
+        t: 0,
+        value: 3173021695853935,
+    },
+    Op::Word {
+        t: 1,
+        value: -1776702664954095,
+    },
+    Op::Reserve {
+        t: 2,
+        digits: 42,
+    },
+    Op::Stable {
+        t: 2,
+        bits: 207,
+    },
+    Op::SumPool {
+        t: 0,
+        owned: false,
+    },
+    Op::Acc {
+        t: 2,
+        s: 0,
+        negative: false,
+        shift: 66,
+        form: AccForm::Shifted,
+    },
+    Op::WordU {
+        t: 0,
+        negative: true,
+        value: 4294967295,
+    },
+    Op::Acc {
+        t: 0,
+        s: 2,
+        negative: true,
+        shift: 4,
+        form: AccForm::Borrowed,
+    },
+    Op::Shl {
+        t: 2,
+        shift: 192,
+    },
+]
+

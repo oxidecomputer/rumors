@@ -1,0 +1,20 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 57s
+────────────
+ Nextest run ID 75a7adde-1c60-489a-ac22-5f7e59d34bf1 with nextest profile: default
+    Starting 1 test across 1 binary (12 binaries skipped)
+       START [         ] (1/1) before::l8_env_probe l8_env_probe
+
+running 1 test
+ARGS ["/home/agent/src/rumors-audit-l8-adequacy/target/l8/probe-target/debug/deps/l8_env_probe-3d62ea5f402f6135", "--exact", "l8_env_probe", "--nocapture"]
+RUST_TEST_THREADS Err(NotPresent)
+PARALLELISM Ok(192)
+THREAD Some("l8_env_probe")
+test l8_env_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+        PASS [   0.061s] (1/1) before::l8_env_probe l8_env_probe
+────────────
+     Summary [   0.062s] 1 test run: 1 passed, 0 skipped

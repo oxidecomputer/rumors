@@ -1,0 +1,4 @@
+# survivors of crates/before/src/count.rs (pilot); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/count.rs:303:9: replace <impl fmt::Debug for Count>::fmt -> fmt::Result with Ok(Default::default())
+MISSED   crates/before/src/count.rs:324:9: replace <impl Add<&Count> for Count>::add -> Count with Default::default()
+MISSED   crates/before/src/count.rs:360:9: replace <impl Sum<&'a Count> for Count>::sum -> Count with Default::default()

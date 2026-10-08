@@ -1,0 +1,75 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 06s
+────────────
+ Nextest run ID 4eb7b480-55b5-4474-a93c-f6875a606bb0 with nextest profile: default
+    Starting 1 test across 12 binaries (703 tests skipped)
+       START [         ] (1/1) before version::measure::explore_l4::l4_cost_search
+
+running 1 test
+COST distance  bin<2^ 5: touch/B=       0 dense/B=       0  
+COST distance  bin<2^ 7: touch/B=     805 dense/B=       0  bytes=77 leaves=8/8 maxdepth=5/5 maxbits=55/55
+COST distance  bin<2^ 9: touch/B=     472 dense/B=       0  bytes=296 leaves=6/6 maxdepth=4/4 maxbits=288/288
+COST distance  bin<2^11: touch/B=    2386 dense/B=       0  bytes=1467 leaves=303/10 maxdepth=75/5 maxbits=48/1163
+COST distance  bin<2^12: touch/B=     341 dense/B=       0  bytes=2624 leaves=14/14 maxdepth=7/7 maxbits=2508/2508
+COST distance  bin<2^13: touch/B=    2367 dense/B=       0  bytes=6930 leaves=369/369 maxdepth=64/64 maxbits=288/288
+COST distance  bin<2^14: touch/B=    1194 dense/B=       0  bytes=9965 leaves=36/32 maxdepth=13/10 maxbits=3450/2585
+COST distance  bin<2^15: touch/B=    1106 dense/B=       0  bytes=27212 leaves=124/2 maxdepth=32/1 maxbits=5719/669
+COST distance  bin<2^16: touch/B=    1305 dense/B=       1  bytes=39779 leaves=774/774 maxdepth=669/669 maxbits=288/288
+COST distance  bin<2^17: touch/B=    1220 dense/B=       1  bytes=82255 leaves=397/17 maxdepth=69/8 maxbits=5527/4936
+COST distance  bin<2^18: touch/B=    1526 dense/B=       2  bytes=131363 leaves=2844/6 maxdepth=2821/3 maxbits=666/1124
+COST distance  bin<2^19: touch/B=    1252 dense/B=       2  bytes=321131 leaves=383/1116 maxdepth=82/1078 maxbits=5780/4960
+COST distance  bin<2^20: touch/B=    1425 dense/B=       1  bytes=587324 leaves=932/2022 maxdepth=898/2004 maxbits=5385/5902
+COST distance  bin<2^21: touch/B=    1130 dense/B=       1  bytes=1654189 leaves=2699/2937 maxdepth=2630/2935 maxbits=5771/5472
+COST distance  bin<2^22: touch/B=     851 dense/B=       0  bytes=2437044 leaves=3007/3007 maxdepth=2994/2994 maxbits=5211/5211
+COST lag       bin<2^ 5: touch/B=       0 dense/B=       0  
+COST lag       bin<2^ 7: touch/B=     597 dense/B=       0  bytes=77 leaves=8/8 maxdepth=5/5 maxbits=55/55
+COST lag       bin<2^ 9: touch/B=     408 dense/B=       0  bytes=296 leaves=6/6 maxdepth=4/4 maxbits=288/288
+COST lag       bin<2^11: touch/B=    2252 dense/B=       0  bytes=1467 leaves=303/10 maxdepth=75/5 maxbits=48/1163
+COST lag       bin<2^12: touch/B=     272 dense/B=       0  bytes=2624 leaves=14/14 maxdepth=7/7 maxbits=2508/2508
+COST lag       bin<2^13: touch/B=    2325 dense/B=       0  bytes=6930 leaves=369/369 maxdepth=64/64 maxbits=288/288
+COST lag       bin<2^14: touch/B=     715 dense/B=       0  bytes=9965 leaves=36/32 maxdepth=13/10 maxbits=3450/2585
+COST lag       bin<2^15: touch/B=     782 dense/B=       0  bytes=22182 leaves=79/40 maxdepth=20/13 maxbits=5030/5076
+COST lag       bin<2^16: touch/B=    1044 dense/B=       0  bytes=39779 leaves=774/774 maxdepth=669/669 maxbits=288/288
+COST lag       bin<2^17: touch/B=     712 dense/B=       1  bytes=81384 leaves=138/138 maxdepth=28/28 maxbits=5229/5229
+COST lag       bin<2^18: touch/B=     849 dense/B=       2  bytes=131363 leaves=2844/6 maxdepth=2821/3 maxbits=666/1124
+COST lag       bin<2^19: touch/B=     815 dense/B=       1  bytes=357023 leaves=658/1293 maxdepth=386/1270 maxbits=4590/5597
+COST lag       bin<2^20: touch/B=    1424 dense/B=       1  bytes=587324 leaves=932/2022 maxdepth=898/2004 maxbits=5385/5902
+COST lag       bin<2^21: touch/B=     897 dense/B=       0  bytes=1654189 leaves=2699/2937 maxdepth=2630/2935 maxbits=5771/5472
+COST lag       bin<2^22: touch/B=     569 dense/B=       0  bytes=2437044 leaves=3007/3007 maxdepth=2994/2994 maxbits=5211/5211
+COST rank      bin<2^ 5: touch/B=     333 dense/B=       0  bytes=15 leaves=1/1 maxdepth=0/0 maxbits=58/58
+COST rank      bin<2^ 7: touch/B=     512 dense/B=       0  bytes=41 leaves=8/8 maxdepth=5/5 maxbits=55/55
+COST rank      bin<2^ 9: touch/B=     256 dense/B=       0  bytes=148 leaves=6/6 maxdepth=4/4 maxbits=288/288
+COST rank      bin<2^11: touch/B=    2469 dense/B=       0  bytes=520 leaves=306/320 maxdepth=56/61 maxbits=704/704
+COST rank      bin<2^12: touch/B=     757 dense/B=       0  bytes=1713 leaves=17/17 maxdepth=7/7 maxbits=4956/4956
+COST rank      bin<2^13: touch/B=    3639 dense/B=       0  bytes=372 leaves=380/30 maxdepth=73/10 maxbits=6/4459
+COST rank      bin<2^14: touch/B=    1296 dense/B=       0  bytes=7310 leaves=125/125 maxdepth=27/27 maxbits=992/992
+COST rank      bin<2^15: touch/B=    1283 dense/B=       0  bytes=7402 leaves=49/49 maxdepth=13/13 maxbits=4928/5336
+COST rank      bin<2^16: touch/B=    1132 dense/B=       2  bytes=19344 leaves=89/89 maxdepth=24/24 maxbits=5417/5417
+COST rank      bin<2^17: touch/B=     947 dense/B=       2  bytes=37270 leaves=1086/1086 maxdepth=824/824 maxbits=320/320
+COST rank      bin<2^18: touch/B=    1279 dense/B=       2  bytes=246947 leaves=1055/30 maxdepth=860/10 maxbits=5733/4672
+COST rank      bin<2^19: touch/B=    1125 dense/B=       2  bytes=214941 leaves=1079/1086 maxdepth=1053/1055 maxbits=5769/5769
+COST rank      bin<2^20: touch/B=    1173 dense/B=       2  bytes=301428 leaves=2442/2447 maxdepth=2416/2416 maxbits=3712/3712
+COST rank      bin<2^21: touch/B=     961 dense/B=       1  bytes=529933 leaves=2702/2702 maxdepth=2587/2587 maxbits=5709/5709
+COST rank      bin<2^22: touch/B=     869 dense/B=       0  bytes=1030744 leaves=2758/2758 maxdepth=2585/2585 maxbits=5611/5611
+COST rank_cmp  bin<2^ 5: touch/B=     166 dense/B=       0  bytes=30 leaves=1/1 maxdepth=0/0 maxbits=58/58
+COST rank_cmp  bin<2^ 7: touch/B=     740 dense/B=       0  bytes=77 leaves=8/8 maxdepth=5/5 maxbits=55/55
+COST rank_cmp  bin<2^ 9: touch/B=     361 dense/B=       0  bytes=296 leaves=6/6 maxdepth=4/4 maxbits=288/288
+COST rank_cmp  bin<2^11: touch/B=    2149 dense/B=       0  bytes=1467 leaves=303/10 maxdepth=75/5 maxbits=48/1163
+COST rank_cmp  bin<2^12: touch/B=     316 dense/B=       0  bytes=3883 leaves=28/28 maxdepth=10/10 maxbits=1027/1027
+COST rank_cmp  bin<2^13: touch/B=    2310 dense/B=       0  bytes=6930 leaves=369/369 maxdepth=64/64 maxbits=288/288
+COST rank_cmp  bin<2^14: touch/B=    1094 dense/B=       0  bytes=9965 leaves=36/32 maxdepth=13/10 maxbits=3450/2585
+COST rank_cmp  bin<2^15: touch/B=    1035 dense/B=       0  bytes=27212 leaves=124/2 maxdepth=32/1 maxbits=5719/669
+COST rank_cmp  bin<2^16: touch/B=    1228 dense/B=       1  bytes=61106 leaves=304/1 maxdepth=50/0 maxbits=3251/69
+COST rank_cmp  bin<2^17: touch/B=    1167 dense/B=       2  bytes=74619 leaves=1086/1086 maxdepth=824/824 maxbits=320/320
+COST rank_cmp  bin<2^18: touch/B=    1492 dense/B=       2  bytes=131363 leaves=2844/6 maxdepth=2821/3 maxbits=666/1124
+COST rank_cmp  bin<2^19: touch/B=    1169 dense/B=       2  bytes=486514 leaves=1937/47 maxdepth=1679/16 maxbits=5280/2820
+COST rank_cmp  bin<2^20: touch/B=    1417 dense/B=       1  bytes=587324 leaves=932/2022 maxdepth=898/2004 maxbits=5385/5902
+COST rank_cmp  bin<2^21: touch/B=    1101 dense/B=       1  bytes=1654189 leaves=2699/2937 maxdepth=2630/2935 maxbits=5771/5472
+COST rank_cmp  bin<2^22: touch/B=     832 dense/B=       0  bytes=2437044 leaves=3007/3007 maxdepth=2994/2994 maxbits=5211/5211
+test version::measure::explore_l4::l4_cost_search ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 613 filtered out; finished in 36.37s
+
+        PASS [  36.431s] (1/1) before version::measure::explore_l4::l4_cost_search
+────────────
+     Summary [  36.434s] 1 test run: 1 passed, 703 skipped

@@ -1,0 +1,7 @@
+campaign-bits 628 628 {'Unviable': 10, 'CaughtMutant': 586, 'MissedMutant': 32}
+campaign2-party 467 467 {'Unviable': 102, 'CaughtMutant': 339, 'MissedMutant': 26}
+15913 /home/agent/src/rumors-slot-36/target/reviewer-tmp/cargo-mutants-rumors-slot-36
+15915 /home/agent/src/rumors-slot-36/target/reviewer-tmp/cargo-mutants-rumors-slot-36
+ 3550 /home/agent/.cargo/bin/cargo-mutants mutants --no-config --test-tool nextest --
+October  8, 2026 at 12:51:24 AM GMT
+00:51:24    up 11:31,  1 user,  load average: 58.92, 88.87, 101.23

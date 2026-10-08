@@ -1,0 +1,17 @@
+[
+ {"name":"M01-switch-delta-step-sign","file":"crates/before/src/version/lattice.rs","old":"Some(step) => switched + step,","new":"Some(step) => switched - step,"},
+ {"name":"M02-switch-delta-side-sign","file":"crates/before/src/version/lattice.rs","old":"Side::A => diff_sign == Ordering::Less,","new":"Side::A => diff_sign == Ordering::Greater,"},
+ {"name":"M03-writer-cascade-left-leaf-check","file":"crates/before/src/version/io/writer.rs","old":"            && self.left_leaf.last() == Some(true)\n","new":""},
+ {"name":"M04-writer-take-left-wide-flag","file":"crates/before/src/version/io/writer.rs","old":"            out.topology.push(true);\n            return PendingPayload::Wide { len: code_len };","new":"            return PendingPayload::Wide { len: code_len };"},
+ {"name":"M05-writer-split-take-left-narrow","file":"crates/before/src/version/io/writer.rs","old":"                out.payloads.truncate(start);","new":"                out.payloads.truncate(start + 1);"},
+ {"name":"M06-writer-split-direct-narrow","file":"crates/before/src/version/io/writer.rs","old":"Output::Split(out) => out.topology.truncate(out.topology.len() - 1),","new":"Output::Split(out) => out.topology.truncate(out.topology.len()),"},
+ {"name":"M07-writer-direct-depth-check","file":"crates/before/src/version/io/writer.rs","old":"            && depth == self.path.len()\n","new":""},
+ {"name":"M08-project-leave-ownership-step","file":"crates/before/src/version/projection.rs","old":"Some(step) => now - step,","new":"Some(_step) => now,"},
+ {"name":"M09-masked-unowned-a-sign","file":"crates/before/src/version/projection.rs","old":"                    height_sign.reverse()","new":"                    height_sign"},
+ {"name":"M10-masked-block-skip-b-sign","file":"crates/before/src/version/projection.rs","old":"                self.diff -= &net;","new":"                self.diff += &net;"},
+ {"name":"M11-causal-lt-equal","file":"crates/before/src/version/order.rs","old":"OrderState::exit_le, OrderState::is_lt","new":"OrderState::exit_le, OrderState::allows_le"},
+ {"name":"M12-fold-merged-merged-drop","file":"crates/before/src/version.rs","old":"                    fold_view(&mut a, &b);","new":"                    let _ = &b;"},
+ {"name":"M13-span-all-merged-hi-from-lo","file":"crates/before/src/version.rs","old":"a_hi |= &b_hi;","new":"a_hi |= &b_lo;"},
+ {"name":"M14-combine-tie-strict","file":"crates/before/src/version/shape.rs","old":"walk.depth() >= flip {","new":"walk.depth() > flip {"},
+ {"name":"M15-overlay-tie-strict","file":"crates/before/src/version/overlay.rs","old":"let crossing_b = (flip_a <= b.depth()).then(","new":"let crossing_b = (flip_a < b.depth()).then("}
+]

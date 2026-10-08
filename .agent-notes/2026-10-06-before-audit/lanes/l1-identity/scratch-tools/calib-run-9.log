@@ -1,0 +1,5 @@
+M04-near-to-exact-off-by-one: exit=100 compile_error=False caught_by=['party::forks::tests::adjacent_wide_count_becomes_exact', 'party::forks::tests::explore_distant_plan_is_exact_once_the_remainder_fits'] ['Summary [  36.031s] 612 tests run: 610 passed, 2 failed, 1 skipped']
+M23-overlay-shallow-depth: exit=100 compile_error=False caught_by=['party::forks::tests::explore_distant_plan_is_exact_once_the_remainder_fits', 'testing::diff_ops::tests::clock_solo_ops', 'testing::diff_ops::tests::diff_ops_match_the_oracle_on_organic_populations'] ['Summary [  37.924s] 612 tests run: 609 passed, 3 failed, 1 skipped']
+M24-shares-ceil-floor-swapped: exit=100 compile_error=False caught_by=['party::forks::tests::consuming_traversal_matches_recursive_forking', 'party::forks::tests::explore_distant_plan_is_exact_once_the_remainder_fits', 'testing::algebraic_laws::tests::clock_and_list_laws', 'testing::algebraic_laws::tests::laws_hold_on_organic_populations'] ['Summary [  38.691s] 612 tests run: 608 passed (3 leaky), 4 failed, 1 skipped']
+git diff after revert: ''
+exit=0

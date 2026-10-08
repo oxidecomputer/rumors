@@ -1,0 +1,69 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: function `arb_cluster_points` is never used
+  --> crates/before/tests/audit_l1/gen.rs:32:8
+   |
+32 | pub fn arb_cluster_points() -> impl Strategy<Value = Vec<u128>> {
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+
+warning: `before` (test "audit_l1") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.81s
+────────────
+ Nextest run ID 95a2410d-8430-4ccb-869b-223a3911a5ec with nextest profile: high-count
+    Starting 17 tests across 1 binary (3 tests skipped)
+        PASS [   0.778s] ( 1/17) before::audit_l1 deep::deep_identity_operations_are_iterative
+        PASS [   2.634s] ( 2/17) before::audit_l1 model_roundtrip
+        PASS [   2.655s] ( 3/17) before::audit_l1 fork_matches_model
+        PASS [   5.068s] ( 4/17) before::audit_l1 set_algebra_arbitrary
+        PASS [   5.906s] ( 5/17) before::audit_l1 set_algebra_disjoint
+        PASS [   6.319s] ( 6/17) before::audit_l1 clock_forks_match_party_forks
+        PASS [   6.713s] ( 7/17) before::audit_l1 set_algebra_nested
+        PASS [   7.097s] ( 8/17) before::audit_l1 join_all_disjoint
+        PASS [   7.175s] ( 9/17) before::audit_l1 overlay::overlay_is_the_refinement
+        PASS [   7.855s] (10/17) before::audit_l1 forks_partial_drain
+        PASS [   9.667s] (11/17) before::audit_l1 join_all_failure_conserves_multiplicity
+        PASS [  10.501s] (12/17) before::audit_l1 array_split_matches_model
+        PASS [  10.837s] (13/17) before::audit_l1 sync_arbitrary
+        PASS [  11.406s] (14/17) before::audit_l1 sync_disjoint
+        PASS [  34.047s] (15/17) before::audit_l1 clock_join_all_conserves
+        PASS [  37.319s] (16/17) before::audit_l1 sync_all_matches_model
+        PASS [  39.171s] (17/17) before::audit_l1 rule_respecting_histories
+────────────
+     Summary [  39.173s] 17 tests run: 17 passed, 3 skipped
+warning: function `arb_cluster_points` is never used
+  --> crates/before/tests/audit_l1/gen.rs:32:8
+   |
+32 | pub fn arb_cluster_points() -> impl Strategy<Value = Vec<u128>> {
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+
+warning: `before` (test "audit_l1") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+────────────
+ Nextest run ID ebd68c90-2cd2-40e6-9007-15ab689fb91a with nextest profile: high-count
+    Starting 2 tests across 1 binary (18 tests skipped)
+        PASS [   4.661s] (1/2) before::audit_l1 wide::clock_forks_wide_counts
+        PASS [  33.406s] (2/2) before::audit_l1 wide::forks_wide_counts
+────────────
+     Summary [  33.407s] 2 tests run: 2 passed, 18 skipped
+exit=0

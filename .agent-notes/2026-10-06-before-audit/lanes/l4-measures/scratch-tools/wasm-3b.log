@@ -1,0 +1,4 @@
+case 11 rc=0
+L4SUM case 11: Trapped(UnreachableCodeReached) pages=42014 panic=""
+case 12 rc=0
+L4SUM case 12: Passed pages=42014 panic=""

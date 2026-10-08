@@ -1,0 +1,10 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 16.88s
+────────────
+ Nextest run ID 3cef37e0-4009-4f20-a4bc-5bdf26430f15 with nextest profile: default
+    Starting 1 test across 4 binaries (7 tests skipped)
+        PASS [  34.801s] (1/1) wasm32-pins-harness::pins version_join_output_crosses_the_usize_position_boundary
+────────────
+     Summary [  34.803s] 1 test run: 1 passed, 7 skipped
+join-live-usize pins exit=0 secs=68

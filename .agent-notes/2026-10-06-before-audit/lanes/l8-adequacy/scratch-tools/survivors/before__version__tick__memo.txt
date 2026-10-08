@@ -1,0 +1,7 @@
+# survivors of crates/before/src/version/tick/memo.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/tick/memo.rs:110:9: replace Memo::check_position -> u64 with 0
+MISSED   crates/before/src/version/tick/memo.rs:110:9: replace Memo::check_position -> u64 with 1
+MISSED   crates/before/src/version/tick/memo.rs:110:16: replace ^ with | in Memo::check_position
+MISSED   crates/before/src/version/tick/memo.rs:110:16: replace ^ with & in Memo::check_position
+MISSED   crates/before/src/version/tick/memo.rs:120:9: replace Memo::begin_scan with ()
+MISSED   crates/before/src/version/tick/memo.rs:136:17: replace / with % in Memo::reserve

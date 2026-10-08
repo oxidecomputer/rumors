@@ -1,0 +1,9 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.10s
+────────────
+ Nextest run ID 47abfdf3-5f24-4af1-90aa-bb3cb27e2526 with nextest profile: default
+    Starting 2 tests across 1 binary (19 tests skipped)
+        PASS [   0.237s] (1/2) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.325s] (2/2) before::l2_probe deep_surfaces_are_stack_safe
+────────────
+     Summary [   0.326s] 2 tests run: 2 passed, 19 skipped

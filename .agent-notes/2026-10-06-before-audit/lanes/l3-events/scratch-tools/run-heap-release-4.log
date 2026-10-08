@@ -1,0 +1,29 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+    Finished `release` profile [optimized] target(s) in 6m 43s
+────────────
+ Nextest run ID 4581eb91-16b8-4b69-9349-93bbdc1397d5 with nextest profile: default
+    Starting 1 test across 12 binaries (712 tests skipped)
+       START [         ] (1/1) before version::tick::l3_heap::l3_heap_search
+
+running 1 test
+HEAPSEARCH spine ceiling-fraction=0.252 ticks2^70 peak=1273 input=201 Node(5, Leaf(3206676769767351137), Node(0, Node(0, Node(18446744073709551611, Leaf(3), Leaf(0)), Node(0, Node(0, Leaf(18446744073709551611), Node(0, Leaf(1361129467683753853853498429727072845819), Leaf(0))), Node(0, Leaf(1844674407370955161
+HEAPSEARCH spine ceiling-fraction=0.241 tick peak=1214 input=201 Node(5, Leaf(3206676769767351137), Node(0, Node(0, Node(18446744073709551611, Leaf(3), Leaf(0)), Node(0, Node(0, Leaf(18446744073709551611), Node(0, Leaf(1361129467683753853853498429727072845819), Leaf(0))), Node(0, Leaf(1844674407370955161
+HEAPSEARCH spine ceiling-fraction=0.226 ticks2^70 peak=1064 input=184 Node(1, Leaf(0), Node(0, Node(0, Leaf(1), Node(0, Leaf(1), Leaf(0))), Node(0, Node(0, Leaf(1), Leaf(0)), Node(0, Leaf(18446744073709551618), Node(0, Node(0, Node(0, Node(0, Leaf(0), Leaf(18446744073709551618)), Leaf(18446744073709551618)), 
+HEAPSEARCH spine ceiling-fraction=0.211 ticks2^70 peak=1143 input=220 Node(1, Node(0, Node(0, Leaf(199), Leaf(0)), Leaf(199)), Node(0, Node(0, Node(0, Leaf(199), Leaf(0)), Node(0, Leaf(0), Leaf(199))), Node(0, Node(0, Node(0, Node(0, Node(0, Leaf(199), Leaf(0)), Node(0, Leaf(1361129467683753853853498429727072
+HEAPSEARCH bushy ceiling-fraction=0.428 ticks2^70 peak=1200 input=89 Node(2, Node(0, Leaf(0), Node(1, Leaf(0), Leaf(960))), Node(0, Node(0, Node(0, Leaf(1), Leaf(0)), Node(0, Leaf(0), Node(1, Leaf(0), Leaf(960)))), Node(0, Node(0, Node(0, Node(1, Leaf(960), Leaf(0)), Leaf(0)), Leaf(13611294676837538538534984
+HEAPSEARCH bushy ceiling-fraction=0.423 ticks2^70 peak=1145 input=84 Node(0, Node(0, Leaf(778), Node(0, Leaf(778), Leaf(0))), Node(0, Node(0, Node(0, Leaf(0), Leaf(5)), Node(0, Leaf(0), Leaf(1361129467683753853853498429727072845826))), Node(0, Node(0, Node(778, Leaf(1361129467683753853853498429727072845048),
+HEAPSEARCH bushy ceiling-fraction=0.422 tick peak=1184 input=89 Node(2, Node(0, Leaf(0), Node(1, Leaf(0), Leaf(960))), Node(0, Node(0, Node(0, Leaf(1), Leaf(0)), Node(0, Leaf(0), Node(1, Leaf(0), Leaf(960)))), Node(0, Node(0, Node(0, Node(1, Leaf(960), Leaf(0)), Leaf(0)), Leaf(13611294676837538538534984
+HEAPSEARCH bushy ceiling-fraction=0.379 ticks2^70 peak=1268 input=116 Node(297, Node(0, Leaf(338), Node(0, Leaf(0), Leaf(1361129467683753853853498429727072845530))), Node(0, Node(0, Leaf(1361129467683753853853498429727072845529), Node(0, Leaf(0), Leaf(338))), Node(0, Node(0, Node(0, Leaf(0), Leaf(136112946768
+HEAPSEARCH wide ceiling-fraction=0.151 ticks2^70 peak=5397 input=1737 Node(1, Leaf(0), Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Leaf(0), Leaf(18446744073709551618)), Leaf(0)), Node(0, Leaf(18446744073709551618), Leaf(0))), Leaf(0)), Node(0, Node(0, Leaf(0), Leaf(1844674407370955
+HEAPSEARCH wide ceiling-fraction=0.150 tick peak=5381 input=1737 Node(1, Leaf(0), Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Leaf(0), Leaf(18446744073709551618)), Leaf(0)), Node(0, Leaf(18446744073709551618), Leaf(0))), Leaf(0)), Node(0, Node(0, Leaf(0), Leaf(1844674407370955
+HEAPSEARCH wide ceiling-fraction=0.147 ticks2^70 peak=12909 input=4330 Node(3, Leaf(18446744073709551613), Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(18446744073709551613, Leaf(0), Leaf(3)), Node(0, Node(0, Node(18446744073709551613, Leaf(2), Leaf(0)), Node(0, Leaf(0), Leaf(184467440737095516
+HEAPSEARCH wide ceiling-fraction=0.147 tick peak=12893 input=4330 Node(3, Leaf(18446744073709551613), Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(0, Node(18446744073709551613, Leaf(0), Leaf(3)), Node(0, Node(0, Node(18446744073709551613, Leaf(2), Leaf(0)), Node(0, Leaf(0), Leaf(184467440737095516
+test version::tick::l3_heap::l3_heap_search ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 622 filtered out; finished in 12.98s
+
+        PASS [  13.061s] (1/1) before version::tick::l3_heap::l3_heap_search
+────────────
+     Summary [  13.065s] 1 test run: 1 passed, 712 skipped
+exit=0

@@ -1,0 +1,38 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling num-primitive v0.2.1
+   Compiling static_assertions v1.1.0
+   Compiling hex v0.4.3
+   Compiling bytes v1.12.1
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/suanpan)
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/protocol)
+   Compiling num-traits v0.2.19
+   Compiling dsi-bitstream v0.10.1
+   Compiling num-integer v0.1.47
+   Compiling num-bigint v0.4.8
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 36.05s
+────────────
+ Nextest run ID 9fe0b749-fdab-43d5-af0d-5c4a50ff23cc with nextest profile: default
+    Starting 8 tests across 4 binaries
+        PASS [   0.839s] (1/8) wasm32-pins-harness::pins forks_accept_the_first_count_past_usize
+        PASS [   0.868s] (2/8) wasm32-pins-harness::pins harness_outcomes_are_live
+        PASS [   1.047s] (3/8) wasm32-pins-harness::pins suanpan_rejects_unaddressable_digit_landings
+        PASS [  24.766s] (4/8) wasm32-pins-harness::pins version_decode_crosses_the_usize_position_boundary
+        PASS [  39.902s] (5/8) wasm32-pins-harness::pins rank_decode_accepts_the_first_exponent_past_usize
+        PASS [  43.316s] (6/8) wasm32-pins-harness::pins version_compare_crosses_the_usize_position_boundary
+        SLOW [> 60.000s] (───) wasm32-pins-harness::pins rank_arithmetic_straddles_the_usize_alignment_limit
+        PASS [  36.591s] (7/8) wasm32-pins-harness::pins version_join_output_crosses_the_usize_position_boundary
+        PASS [  78.984s] (8/8) wasm32-pins-harness::pins rank_arithmetic_straddles_the_usize_alignment_limit
+────────────
+     Summary [  78.985s] 8 tests run: 8 passed (1 slow), 0 skipped
+baseline pins exit=0 secs=375

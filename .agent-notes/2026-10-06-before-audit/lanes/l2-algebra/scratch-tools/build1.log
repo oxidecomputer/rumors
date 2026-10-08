@@ -1,0 +1,3 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/suanpan)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.24s

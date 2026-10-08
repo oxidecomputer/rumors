@@ -1,0 +1,10 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.35s
+────────────
+ Nextest run ID dda32a25-983b-45f6-a7dc-ccc554356cc8 with nextest profile: default
+    Starting 1 test across 1 binary (17 tests skipped)
+        PASS [  52.878s] (1/1) before::l2_probe algebra_matches_model
+────────────
+     Summary [  52.879s] 1 test run: 1 passed, 17 skipped

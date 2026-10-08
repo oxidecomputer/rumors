@@ -1,0 +1,8 @@
+# coverage of crates/before/src/bits/reader.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 137/139; branch outcomes 14/16
+# never-executed lines:
+L  175  return Err(self.truncated());
+L  202  return Err(self.truncated());
+# branches with an outcome never taken (outcome hit counts):
+B  174  [0, 6590823]  if self.position + u64::from(len) > self.len {
+B  201  [0, 511846507]  if self.position + k + 1 > self.len {

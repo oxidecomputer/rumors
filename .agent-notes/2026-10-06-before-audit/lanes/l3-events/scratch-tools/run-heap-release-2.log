@@ -1,0 +1,73 @@
+warning: ignoring --test-threads because --no-capture is specified
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+    Finished `release` profile [optimized] target(s) in 5m 20s
+────────────
+ Nextest run ID 6047631c-aa47-4f4f-9ab6-ad9473e2b3dc with nextest profile: default
+    Starting 1 test across 12 binaries (708 tests skipped)
+       START [         ] (1/1) before version::tick::l3_heap::l3_heap_min_ticks_rising_spine_fine
+
+running 1 test
+FINE min_ticks rising-right-spine n=252 stored_bytes=158 encoded_bytes=158 peak=3280 ratio=20.76 board_ceiling=4184 green
+FINE min_ticks rising-right-spine n=253 stored_bytes=159 encoded_bytes=159 peak=3280 ratio=20.63 board_ceiling=4204 green
+FINE min_ticks rising-right-spine n=254 stored_bytes=159 encoded_bytes=160 peak=3280 ratio=20.50 board_ceiling=4224 green
+FINE min_ticks rising-right-spine n=255 stored_bytes=160 encoded_bytes=160 peak=3280 ratio=20.50 board_ceiling=4224 green
+FINE min_ticks rising-right-spine n=256 stored_bytes=161 encoded_bytes=161 peak=3280 ratio=20.37 board_ceiling=4244 green
+FINE min_ticks rising-right-spine n=257 stored_bytes=161 encoded_bytes=161 peak=3280 ratio=20.37 board_ceiling=4244 green
+FINE min_ticks rising-right-spine n=258 stored_bytes=162 encoded_bytes=162 peak=6352 ratio=39.21 board_ceiling=4264 RED
+FINE min_ticks rising-right-spine n=259 stored_bytes=163 encoded_bytes=163 peak=6352 ratio=38.97 board_ceiling=4284 RED
+FINE min_ticks rising-right-spine n=260 stored_bytes=163 encoded_bytes=163 peak=6352 ratio=38.97 board_ceiling=4284 RED
+FINE min_ticks rising-right-spine n=1020 stored_bytes=638 encoded_bytes=638 peak=12656 ratio=19.84 board_ceiling=13784 green
+FINE min_ticks rising-right-spine n=1021 stored_bytes=639 encoded_bytes=639 peak=12656 ratio=19.81 board_ceiling=13804 green
+FINE min_ticks rising-right-spine n=1022 stored_bytes=639 encoded_bytes=640 peak=12656 ratio=19.77 board_ceiling=13824 green
+FINE min_ticks rising-right-spine n=1023 stored_bytes=640 encoded_bytes=640 peak=12656 ratio=19.77 board_ceiling=13824 green
+FINE min_ticks rising-right-spine n=1024 stored_bytes=641 encoded_bytes=641 peak=12656 ratio=19.74 board_ceiling=13844 green
+FINE min_ticks rising-right-spine n=1025 stored_bytes=641 encoded_bytes=641 peak=12656 ratio=19.74 board_ceiling=13844 green
+FINE min_ticks rising-right-spine n=1026 stored_bytes=642 encoded_bytes=642 peak=25264 ratio=39.35 board_ceiling=13864 RED
+FINE min_ticks rising-right-spine n=1027 stored_bytes=643 encoded_bytes=643 peak=25264 ratio=39.29 board_ceiling=13884 RED
+FINE min_ticks rising-right-spine n=1028 stored_bytes=643 encoded_bytes=643 peak=25264 ratio=39.29 board_ceiling=13884 RED
+FINE min_ticks rising-right-spine n=4092 stored_bytes=2558 encoded_bytes=2558 peak=50480 ratio=19.73 board_ceiling=52184 green
+FINE min_ticks rising-right-spine n=4093 stored_bytes=2559 encoded_bytes=2559 peak=50480 ratio=19.73 board_ceiling=52204 green
+FINE min_ticks rising-right-spine n=4094 stored_bytes=2559 encoded_bytes=2560 peak=50480 ratio=19.72 board_ceiling=52224 green
+FINE min_ticks rising-right-spine n=4095 stored_bytes=2560 encoded_bytes=2560 peak=50480 ratio=19.72 board_ceiling=52224 green
+FINE min_ticks rising-right-spine n=4096 stored_bytes=2561 encoded_bytes=2561 peak=50480 ratio=19.71 board_ceiling=52244 green
+FINE min_ticks rising-right-spine n=4097 stored_bytes=2561 encoded_bytes=2561 peak=50480 ratio=19.71 board_ceiling=52244 green
+FINE min_ticks rising-right-spine n=4098 stored_bytes=2562 encoded_bytes=2562 peak=100912 ratio=39.39 board_ceiling=52264 RED
+FINE min_ticks rising-right-spine n=4099 stored_bytes=2563 encoded_bytes=2563 peak=100912 ratio=39.37 board_ceiling=52284 RED
+FINE min_ticks rising-right-spine n=4100 stored_bytes=2563 encoded_bytes=2563 peak=100912 ratio=39.37 board_ceiling=52284 RED
+FINE min_ticks rising-right-spine n=16380 stored_bytes=10238 encoded_bytes=10238 peak=201776 ratio=19.71 board_ceiling=205784 green
+FINE min_ticks rising-right-spine n=16381 stored_bytes=10239 encoded_bytes=10239 peak=201776 ratio=19.71 board_ceiling=205804 green
+FINE min_ticks rising-right-spine n=16382 stored_bytes=10239 encoded_bytes=10240 peak=201776 ratio=19.70 board_ceiling=205824 green
+FINE min_ticks rising-right-spine n=16383 stored_bytes=10240 encoded_bytes=10240 peak=201776 ratio=19.70 board_ceiling=205824 green
+FINE min_ticks rising-right-spine n=16384 stored_bytes=10241 encoded_bytes=10241 peak=201776 ratio=19.70 board_ceiling=205844 green
+FINE min_ticks rising-right-spine n=16385 stored_bytes=10241 encoded_bytes=10241 peak=201776 ratio=19.70 board_ceiling=205844 green
+FINE min_ticks rising-right-spine n=16386 stored_bytes=10242 encoded_bytes=10242 peak=403504 ratio=39.40 board_ceiling=205864 RED
+FINE min_ticks rising-right-spine n=16387 stored_bytes=10243 encoded_bytes=10243 peak=403504 ratio=39.39 board_ceiling=205884 RED
+FINE min_ticks rising-right-spine n=16388 stored_bytes=10243 encoded_bytes=10243 peak=403504 ratio=39.39 board_ceiling=205884 RED
+FINE min_ticks rising-right-spine n=65532 stored_bytes=40958 encoded_bytes=40958 peak=806960 ratio=19.70 board_ceiling=820184 green
+FINE min_ticks rising-right-spine n=65533 stored_bytes=40959 encoded_bytes=40959 peak=806960 ratio=19.70 board_ceiling=820204 green
+FINE min_ticks rising-right-spine n=65534 stored_bytes=40959 encoded_bytes=40960 peak=806960 ratio=19.70 board_ceiling=820224 green
+FINE min_ticks rising-right-spine n=65535 stored_bytes=40960 encoded_bytes=40960 peak=806960 ratio=19.70 board_ceiling=820224 green
+FINE min_ticks rising-right-spine n=65536 stored_bytes=40961 encoded_bytes=40961 peak=806960 ratio=19.70 board_ceiling=820244 green
+FINE min_ticks rising-right-spine n=65537 stored_bytes=40961 encoded_bytes=40961 peak=806960 ratio=19.70 board_ceiling=820244 green
+FINE min_ticks rising-right-spine n=65538 stored_bytes=40962 encoded_bytes=40962 peak=1613872 ratio=39.40 board_ceiling=820264 RED
+FINE min_ticks rising-right-spine n=65539 stored_bytes=40963 encoded_bytes=40963 peak=1613872 ratio=39.40 board_ceiling=820284 RED
+FINE min_ticks rising-right-spine n=65540 stored_bytes=40963 encoded_bytes=40963 peak=1613872 ratio=39.40 board_ceiling=820284 RED
+FINE min_ticks rising-right-spine n=262140 stored_bytes=163838 encoded_bytes=163838 peak=3227696 ratio=19.70 board_ceiling=3277784 green
+FINE min_ticks rising-right-spine n=262141 stored_bytes=163839 encoded_bytes=163839 peak=3227696 ratio=19.70 board_ceiling=3277804 green
+FINE min_ticks rising-right-spine n=262142 stored_bytes=163839 encoded_bytes=163840 peak=3227696 ratio=19.70 board_ceiling=3277824 green
+FINE min_ticks rising-right-spine n=262143 stored_bytes=163840 encoded_bytes=163840 peak=3227696 ratio=19.70 board_ceiling=3277824 green
+FINE min_ticks rising-right-spine n=262144 stored_bytes=163841 encoded_bytes=163841 peak=3227696 ratio=19.70 board_ceiling=3277844 green
+FINE min_ticks rising-right-spine n=262145 stored_bytes=163841 encoded_bytes=163841 peak=3227696 ratio=19.70 board_ceiling=3277844 green
+FINE min_ticks rising-right-spine n=262146 stored_bytes=163842 encoded_bytes=163842 peak=6455344 ratio=39.40 board_ceiling=3277864 RED
+FINE min_ticks rising-right-spine n=262147 stored_bytes=163843 encoded_bytes=163843 peak=6455344 ratio=39.40 board_ceiling=3277884 RED
+FINE min_ticks rising-right-spine n=262148 stored_bytes=163843 encoded_bytes=163843 peak=6455344 ratio=39.40 board_ceiling=3277884 RED
+test version::tick::l3_heap::l3_heap_min_ticks_rising_spine_fine ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 618 filtered out; finished in 5.66s
+
+        PASS [   6.424s] (1/1) before version::tick::l3_heap::l3_heap_min_ticks_rising_spine_fine
+────────────
+     Summary [   6.429s] 1 test run: 1 passed, 708 skipped
+exit=0

@@ -1,0 +1,34 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 15.91s
+────────────
+ Nextest run ID 3cd3633c-9840-4c25-857e-b30dc3a1339d with nextest profile: default
+    Starting 1 test across 4 binaries (7 tests skipped)
+        FAIL [   0.471s] (1/1) wasm32-pins-harness::pins forks_accept_the_first_count_past_usize
+  stdout ───
+
+    running 1 test
+    test forks_accept_the_first_count_past_usize ... FAILED
+
+    failures:
+
+    failures:
+        forks_accept_the_first_count_past_usize
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.40s
+
+  stderr ───
+
+    thread 'forks_accept_the_first_count_past_usize' (2) panicked at harness/tests/pins.rs:25:5:
+    assertion `left == right` failed: Forks failed for (4294967296, 0)
+      left: Failed(WrongValue)
+     right: Passed
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.473s] 1 test run: 0 passed, 1 failed, 7 skipped
+        FAIL [   0.471s] (1/1) wasm32-pins-harness::pins forks_accept_the_first_count_past_usize
+error: test run failed
+forks-count-narrow pins exit=100 secs=34

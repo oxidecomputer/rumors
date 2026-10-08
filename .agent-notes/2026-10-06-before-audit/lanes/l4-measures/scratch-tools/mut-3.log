@@ -1,0 +1,10 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 52s
+mutant R1 exit 100
+mutant R2 exit 0
+mutant R3 exit 100
+mutant R4 exit 100
+mutant R5 exit 100
+mutant R6 exit 100
+mutant R7 exit 100
+mutant E8 exit 0

@@ -1,0 +1,50 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+────────────
+ Nextest run ID 429e6d81-77fd-4b95-b233-dbbd52b05d28 with nextest profile: default
+    Starting 1 test across 1 binary (614 tests skipped)
+        FAIL [   0.098s] (1/1) before testing::l6_spec::l6_spec_span
+────────────
+     Summary [   0.102s] 1 test run: 0 passed, 1 failed, 614 skipped
+        FAIL [   0.098s] (1/1) before testing::l6_spec::l6_spec_span
+  stdout ───
+
+    running 1 test
+    == span ==
+           30  span borsh: accept
+           14  span borsh: reject NotCanonical
+            4  span borsh: reject TrailingBits
+            4  span borsh: reject Truncated
+           15  span slice: accept
+          979  span slice: reject NotCanonical
+           18  span slice: reject TrailingBits
+            5  span slice: reject Truncated
+           12  span: accepted equal=false
+            3  span: accepted equal=true
+    test testing::l6_spec::l6_spec_span ... FAILED
+
+    failures:
+
+    failures:
+        testing::l6_spec::l6_spec_span
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.06s
+
+  stderr ───
+
+    thread 'testing::l6_spec::l6_spec_span' (2) panicked at crates/before/src/testing/l6_spec.rs:1592:9:
+    span: Test failed: span slice: production reported NotCanonical, not among applicable {TrailingBits}
+    input: [a8, e0, 00].
+    minimal failing input: (
+        [
+            168,
+            224,
+            0,
+        ],
+        [],
+    )
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+error: test run failed
+rc=100

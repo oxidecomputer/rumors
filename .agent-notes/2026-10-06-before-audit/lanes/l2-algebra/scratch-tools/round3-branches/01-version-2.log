@@ -1,0 +1,35 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.19s
+────────────
+ Nextest run ID da91b613-fd29-4b07-9373-28b2852a1e81 with nextest profile: high-count
+    Starting 19 tests across 1 binary (2 tests skipped)
+        PASS [   0.251s] ( 1/19) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.377s] ( 2/19) before::l2_probe deep_surfaces_are_stack_safe
+        PASS [  48.158s] ( 3/19) before::l2_probe par11
+        PASS [  49.067s] ( 4/19) before::l2_probe algebra_matches_model
+        PASS [  55.207s] ( 5/19) before::l2_probe par05
+        PASS [  56.281s] ( 6/19) before::l2_probe par00
+        PASS [  56.755s] ( 7/19) before::l2_probe par02
+        PASS [  57.155s] ( 8/19) before::l2_probe par10
+        PASS [  57.373s] ( 9/19) before::l2_probe par14
+        PASS [  57.921s] (10/19) before::l2_probe par08
+        SLOW [> 60.000s] (─────) before::l2_probe par06
+        SLOW [> 60.000s] (─────) before::l2_probe par09
+        SLOW [> 60.000s] (─────) before::l2_probe par07
+        SLOW [> 60.000s] (─────) before::l2_probe par03
+        SLOW [> 60.000s] (─────) before::l2_probe par01
+        SLOW [> 60.000s] (─────) before::l2_probe par04
+        SLOW [> 60.000s] (─────) before::l2_probe par15
+        SLOW [> 60.000s] (─────) before::l2_probe par12
+        SLOW [> 60.000s] (─────) before::l2_probe par13
+        PASS [  60.153s] (11/19) before::l2_probe par06
+        PASS [  61.437s] (12/19) before::l2_probe par09
+        PASS [  61.820s] (13/19) before::l2_probe par01
+        PASS [  62.979s] (14/19) before::l2_probe par15
+        PASS [  63.708s] (15/19) before::l2_probe par12
+        PASS [  63.810s] (16/19) before::l2_probe par03
+        PASS [  64.472s] (17/19) before::l2_probe par13
+        PASS [  65.282s] (18/19) before::l2_probe par07
+        PASS [  76.399s] (19/19) before::l2_probe par04
+────────────
+     Summary [  76.402s] 19 tests run: 19 passed (9 slow), 2 skipped

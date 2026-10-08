@@ -1,0 +1,42 @@
+REACH-PASS
+STAT committed coverage after(c) Full = 43
+STAT committed coverage after(c) Partial = 213
+STAT committed coverage since(c) Empty = 45
+STAT committed coverage since(c) Partial = 211
+STAT committed place After = 802
+STAT committed place At(Both) = 344
+STAT committed place At(End) = 434
+STAT committed place At(Start) = 434
+STAT committed place Before = 43
+STAT committed place Between = 350
+STAT committed place Concurrent(Both) = 250
+STAT committed place Concurrent(End) = 62
+STAT committed place Concurrent(Start) = 66
+STAT committed raw pair ordered = 45
+STAT committed raw pair unordered = 211
+STAT committed shape leaves<=1 depth=0 = 9
+STAT committed shape leaves<=16 depth=4 = 3
+STAT committed shape leaves<=2 depth=1 = 51
+STAT committed shape leaves<=4 depth=2 = 212
+STAT committed shape leaves<=4 depth=3 = 39
+STAT committed shape leaves<=8 depth=3 = 380
+STAT committed shape leaves<=8 depth=4 = 74
+STAT shaped shape leaves<=1 depth<=1 = 22
+STAT shaped shape leaves<=16 depth<=16 = 91
+STAT shaped shape leaves<=16 depth<=4 = 2
+STAT shaped shape leaves<=16 depth<=8 = 9
+STAT shaped shape leaves<=2 depth<=1 = 23
+STAT shaped shape leaves<=32 depth<=16 = 9
+STAT shaped shape leaves<=32 depth<=32 = 240
+STAT shaped shape leaves<=4 depth<=2 = 64
+STAT shaped shape leaves<=4 depth<=4 = 28
+STAT shaped shape leaves<=64 depth<=32 = 22
+STAT shaped shape leaves<=64 depth<=64 = 76
+STAT shaped shape leaves<=8 depth<=4 = 148
+STAT shaped shape leaves<=8 depth<=8 = 37
+test testing::audit_l5::l5_refine_partial_scan_cost ... REFINE cells=64 bytes=102 verdict=Partial walk=Partial total_scan=2030 walk_scan=799 refine_scan=1231 floor<=ceiling=true direct_scan=476
+REFINE cells=128 bytes=202 verdict=Partial walk=Partial total_scan=4062 walk_scan=1599 refine_scan=2463 floor<=ceiling=true direct_scan=956
+REFINE cells=256 bytes=402 verdict=Partial walk=Partial total_scan=8126 walk_scan=3199 refine_scan=4927 floor<=ceiling=true direct_scan=1916
+REFINE cells=512 bytes=802 verdict=Partial walk=Partial total_scan=16254 walk_scan=6399 refine_scan=9855 floor<=ceiling=true direct_scan=3836
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 626 filtered out; finished in 0.67s
+exit=0

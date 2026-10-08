@@ -1,0 +1,5 @@
+# coverage of crates/before/src/bits/stack/bit.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 100/100; branch outcomes 21/22
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):
+B  126  [676428, 0]  if let Some(&word) = self.words.last() {

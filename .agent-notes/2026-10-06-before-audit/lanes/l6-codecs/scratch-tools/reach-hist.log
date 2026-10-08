@@ -1,0 +1,68 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 16s
+     Running unittests src/lib.rs (target/debug/deps/before-332950f26c43de8d)
+
+running 1 test
+== spec harness version inputs (20000) ==
+   16897  collapsible violation present: false
+    3103  collapsible violation present: true
+     788  depth<=   0
+     359  depth<=   1
+     919  depth<=   2
+    3906  depth<=   3
+    4392  depth<=   4
+     697  depth<=   8
+     126  depth<=  32
+     680  depth<= 128
+    1684  depth<= 512
+     428  height bits<=   0
+     237  height bits<=   1
+     647  height bits<=   2
+     344  height bits<=   3
+     128  height bits<=   4
+     150  height bits<=   8
+      50  height bits<=  32
+    4270  height bits<= 128
+    7297  height bits<= 512
+    6449  incomplete tree
+   15543  negative violation present: false
+    4457  negative violation present: true
+== committed arb_oracle_version (20000) ==
+     168  depth<=   0
+    1045  depth<=   1
+    6283  depth<=   2
+   10714  depth<=   3
+    1790  depth<=   4
+      12  height bits<=   0
+       9  height bits<=   1
+      40  height bits<=   2
+      94  height bits<=   3
+      71  height bits<=   4
+       5  height bits<=   8
+      50  height bits<=  32
+   11351  height bits<= 128
+    8368  height bits<= 512
+test testing::l6_spec::l6_reach_histograms has been running for over 60 seconds
+== spec harness party inputs (20000) ==
+     649  depth<=   0
+     695  depth<=   1
+    1256  depth<=   2
+    3791  depth<=   3
+    4955  depth<=   4
+    2058  depth<=   8
+     211  depth<=  32
+     711  depth<= 128
+    1999  depth<= 512
+   14147  owned-pair violation present: false
+    5853  owned-pair violation present: true
+== committed arb_oracle_party_nonempty (20000) ==
+    2228  depth<=   0
+    2085  depth<=   1
+    7478  depth<=   2
+    7205  depth<=   3
+    1004  depth<=   4
+test testing::l6_spec::l6_reach_histograms ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 616 filtered out; finished in 62.61s
+
+exit=0

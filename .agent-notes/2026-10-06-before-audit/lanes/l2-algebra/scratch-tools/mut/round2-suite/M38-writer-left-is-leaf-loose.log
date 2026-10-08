@@ -1,0 +1,545 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.68s
+────────────
+ Nextest run ID edc9770a-4253-4a7f-b7ea-e5486ffc302e with nextest profile: default
+    Starting 693 tests across 12 binaries (1 test and 2 binaries skipped)
+        PASS [   0.062s] (  1/693) before bits::reader::tests::skipping_gamma_records_exactly_the_bits_a_read_records
+        PASS [   0.056s] (  2/693) before bits::tests::flush_stream_carries_a_whole_marker_byte
+        PASS [   0.076s] (  3/693) before bits::reader::tests::mid_stream_opens_read_the_same_suffix
+        PASS [   0.076s] (  4/693) before bits::reader::tests::gamma_reader_matches_decoder_across_the_word_seam
+        PASS [   0.089s] (  5/693) before bits::reader::tests::truncated_codes_reject_at_every_cut_point
+        PASS [   0.067s] (  6/693) before bits::tests::freeze_canonicalizes_storage
+        PASS [   0.062s] (  7/693) before bits::tests::from_canonical_matches_freeze
+        PASS [   0.143s] (  8/693) before bits::reader::tests::unary_reads_match_the_per_bit_loop_across_word_seams
+        PASS [   0.067s] (  9/693) before bits::tests::gamma_roundtrip
+        PASS [   0.064s] ( 10/693) before bits::tests::gamma_roundtrip_just_above_u64_max
+        PASS [   0.077s] ( 11/693) before bits::tests::gamma_costs
+        PASS [   0.135s] ( 12/693) before bits::tests::empty_input_is_truncated
+        PASS [   0.151s] ( 13/693) before bits::tests::decode_never_yields_anonymous_party
+        PASS [   0.105s] ( 14/693) before bits::tests::flush_version_cut_before_its_marker_byte_is_truncated
+        PASS [   0.167s] ( 15/693) before bits::stack::packed_u64::tests::packed_stack_matches_a_vec_across_all_widths
+        PASS [   0.046s] ( 16/693) before bits::tests::gamma_roundtrip_wide_value
+        PASS [   0.170s] ( 17/693) before bits::stack::packed_u64::tests::packed_values_round_trip
+        PASS [   0.192s] ( 18/693) before bits::reader::tests::arbitrary_streams_match_the_slice_cursor
+        PASS [   0.048s] ( 19/693) before bits::tests::gamma_truncated_inside_wide_mantissa
+        PASS [   0.053s] ( 20/693) before bits::tests::gamma_truncated
+        PASS [   0.207s] ( 21/693) before accumulator::tests::shifted_accumulator_entry_points_match_the_oracle
+        PASS [   0.081s] ( 22/693) before bits::tests::gamma_roundtrip_wide
+        PASS [   0.058s] ( 23/693) before bits::tests::gamma_window_edge
+        PASS [   0.058s] ( 24/693) before bits::tests::gamma_window_declines_conservatively
+        PASS [   0.221s] ( 25/693) before accumulator::tests::accumulator_entry_points_match_the_oracle
+        PASS [   0.221s] ( 26/693) before accumulator::tests::signed_accumulator_entry_points_match_the_oracle
+        PASS [   0.062s] ( 27/693) before bits::tests::gamma_word_paths_match_on_arbitrary_bytes
+        PASS [   0.062s] ( 28/693) before bits::tests::malformed_padding_rejected_witness
+        PASS [   0.061s] ( 29/693) before bits::tests::marker_padding_separates_length_collisions
+        PASS [   0.051s] ( 30/693) before bits::tests::marker_validation_agrees_with_storage_canonicality
+        PASS [   0.070s] ( 31/693) before bits::tests::gamma_word_encode_matches_bit_encode
+        PASS [   0.084s] ( 32/693) before bits::tests::gamma_word_decode_matches_bit_loop
+        PASS [   0.054s] ( 33/693) before bits::tests::reject_deep_nested_denormal_id
+        PASS [   0.054s] ( 34/693) before bits::tests::ptr_eq_implies_equality_and_clones_share_nonempty_storage
+        PASS [   0.057s] ( 35/693) before bits::tests::reject_intra_byte_padding
+        PASS [   0.052s] ( 36/693) before bits::tests::reject_trailing_bits
+        PASS [   0.053s] ( 37/693) before bits::tests::reject_noncanonical_id
+        PASS [   0.196s] ( 38/693) before bits::tests::flush_cut_party_reads_truncated_for_party_and_clock
+        PASS [   0.071s] ( 39/693) before bits::tests::reject_truncated
+        PASS [   0.061s] ( 40/693) before bits::tests::transcoding_normalizes_noncanonical_event
+        PASS [   0.048s] ( 41/693) before borsh_impls::tests::borsh_every_type_pair_composes_with_exact_boundaries
+        PASS [   0.048s] ( 42/693) before bits::tests::version_and_clock_decoding_rejects_intra_byte_padding
+        PASS [   0.275s] ( 43/693) before bits::stack::bit::tests::bit_stack_matches_a_vec_of_bools
+        PASS [   0.091s] ( 44/693) before bits::tests::padding_perturbation_rejects
+        PASS [   0.298s] ( 45/693) before bits::tests::build_history_spelling_is_a_function_of_content
+        PASS [   0.291s] ( 46/693) before bits::tests::encode_to_matches_encode
+        PASS [   0.291s] ( 47/693) before bits::tests::canonical_encoding_is_injective
+        PASS [   0.064s] ( 48/693) before borsh_impls::tests::coincident_span_keeps_borsh_container_framing
+        PASS [   0.076s] ( 49/693) before borsh_impls::tests::borsh_sequence_defect_preserves_its_error_class
+        PASS [   0.082s] ( 50/693) before borsh_impls::tests::count_borsh_matches_canonical_limbs
+        PASS [   0.068s] ( 51/693) before borsh_impls::tests::flush_cut_is_truncated_by_both_decoders
+        PASS [   0.069s] ( 52/693) before borsh_impls::tests::deep_trees_roundtrip_through_borsh
+        PASS [   0.069s] ( 53/693) before borsh_impls::tests::count_borsh_rejects_trailing_zero
+        PASS [   0.055s] ( 54/693) before borsh_impls::tests::non_canonical_borsh_bytes_report_invalid_data
+        PASS [   0.060s] ( 55/693) before borsh_impls::tests::joined_party_roundtrips_through_borsh
+        PASS [   0.113s] ( 56/693) before borsh_impls::tests::coincident_span_borsh_rejects_tampered_join_padding
+        PASS [   0.053s] ( 57/693) before borsh_impls::tests::rank_composes_in_a_borsh_stream
+        PASS [   0.339s] ( 58/693) before bits::tests::decode_encode_roundtrip
+        PASS [   0.057s] ( 59/693) before borsh_impls::tests::rank_borsh_preserves_decode_errors
+        PASS [   0.071s] ( 60/693) before borsh_impls::tests::rank_borsh_is_the_canonical_encoding
+        PASS [   0.045s] ( 61/693) before borsh_impls::tests::ranked_borsh_composes_and_preserves_decode_errors
+        PASS [   0.375s] ( 62/693) before bits::tests::build_history_spellings_are_injective
+        PASS [   0.049s] ( 63/693) before borsh_impls::tests::span_borsh_composes_and_preserves_decode_errors
+        PASS [   0.088s] ( 64/693) before borsh_impls::tests::party_wire_decode_matches_bitwise_reference
+        PASS [   0.050s] ( 65/693) before borsh_impls::tests::span_borsh_dedups_the_coincident_span
+        PASS [   0.055s] ( 66/693) before borsh_impls::tests::span_borsh_rejects_collapsible_join
+        PASS [   0.050s] ( 67/693) before borsh_impls::tests::span_borsh_rejects_negative_height_join
+        PASS [   0.092s] ( 68/693) before borsh_impls::tests::rank_wire_decode_matches_slice_reference
+        PASS [   0.182s] ( 69/693) before borsh_impls::tests::clock_wire_decode_matches_bitwise_reference
+        PASS [   0.042s] ( 70/693) before causally::tests::coverage_clamp_refinement_is_exact
+        PASS [   0.075s] ( 71/693) before borsh_impls::tests::truncated_borsh_stream_reports_unexpected_eof
+        PASS [   0.052s] ( 72/693) before causally::tests::conjunction_normalizes
+        PASS [   0.052s] ( 73/693) before causally::tests::conversions_denote
+        PASS [   0.052s] ( 74/693) before causally::tests::degenerate_holes_are_inert
+        PASS [   0.167s] ( 75/693) before borsh_impls::tests::flush_cut_party_is_truncated_by_both_decoders
+        PASS [   0.057s] ( 76/693) before causally::tests::debug_renders_expressions
+        PASS [   0.066s] ( 77/693) before causally::tests::coverage_witness_matrix
+        PASS [   0.048s] ( 78/693) before causally::tests::forms_keep_their_relations
+        PASS [   0.117s] ( 79/693) before borsh_impls::tests::version_wire_decode_matches_bitwise_reference
+        FAIL [   0.102s] ( 80/693) before causally::tests::atom_coverage_matches_query_coverage
+  stdout ───
+
+    running 1 test
+    test causally::tests::atom_coverage_matches_query_coverage ... FAILED
+
+    failures:
+
+    failures:
+        causally::tests::atom_coverage_matches_query_coverage
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.04s
+
+  stderr ───
+
+    thread 'causally::tests::atom_coverage_matches_query_coverage' (2) panicked at crates/before/src/version/io/writer.rs:293:9:
+    assertion `left == right` failed
+      left: 185
+     right: 370
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l2-algebra/crates/before/proptest-regressions/causally/tests.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc 894a2b6d73ee75d518c71de3b1b26e8de7ac5116b9252962b1d5ae20d9cd47a1
+
+    thread 'causally::tests::atom_coverage_matches_query_coverage' (2) panicked at crates/before/src/causally/tests.rs:309:1:
+    Test failed: assertion `left == right` failed
+      left: 185
+     right: 370.
+    minimal failing input: bound = Leaf(
+        4398046511109,
+    ), a = Node(
+        4951760157141521099596496903,
+        Node(
+            0,
+            Leaf(
+                0,
+            ),
+            Leaf(
+                6756981978239384782,
+            ),
+        ),
+        Node(
+            2097149,
+            Leaf(
+                0,
+            ),
+            Leaf(
+                165184987416873116420075522496562882520,
+            ),
+        ),
+    ), b = Node(
+        9,
+        Node(
+            2147483646,
+            Node(
+                218042793678521113381202357695978057945,
+                Leaf(
+                    1958375914335682839,
+                ),
+                Node(
+                    0,
+                    Leaf(
+                        0,
+                    ),
+                    Leaf(
+                        2303591209400008704,
+                    ),
+                ),
+            ),
+            Leaf(
+                0,
+            ),
+        ),
+        Node(
+            0,
+            Leaf(
+                2,
+            ),
+            Leaf(
+                0,
+            ),
+        ),
+    )
+    successes: 19
+    local rejects: 0
+    global rejects: 0
+
+
+  Cancelling due to test failure: 23 tests still running
+        PASS [   0.242s] ( 81/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        PASS [   0.151s] ( 82/693) before borsh_impls::tests::ranked_wire_decode_matches_bitwise_reference
+        PASS [   0.104s] ( 83/693) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.057s] ( 84/693) before clock::tests::churn_orbit_sizes_reach_a_bounded_band
+  stdout ───
+
+    running 1 test
+    test clock::tests::churn_orbit_sizes_reach_a_bounded_band ... FAILED
+
+    failures:
+
+    failures:
+        clock::tests::churn_orbit_sizes_reach_a_bounded_band
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'clock::tests::churn_orbit_sizes_reach_a_bounded_band' (2) panicked at crates/before/src/version/io/tree.rs:69:32:
+    canonical Version: Truncated
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.147s] ( 85/693) before borsh_impls::tests::span_wire_decode_matches_bitwise_reference
+        PASS [   0.040s] ( 86/693) before clock::tests::decoded_seed_version_encodes_canonically
+        FAIL [   0.076s] ( 87/693) before clock::tests::clock_assign_join_matches_oracle
+  stdout ───
+
+    running 1 test
+    test clock::tests::clock_assign_join_matches_oracle ... FAILED
+
+    failures:
+
+    failures:
+        clock::tests::clock_assign_join_matches_oracle
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.03s
+
+  stderr ───
+
+    thread 'clock::tests::clock_assign_join_matches_oracle' (2) panicked at crates/before/src/version/io/tree.rs:74:32:
+    canonical Version: Truncated
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l2-algebra/crates/before/proptest-regressions/clock/tests.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc e530eac91c8bb6ff74483c9d2a1469404396803db773a90b3573797d28a9ef4d
+
+    thread 'clock::tests::clock_assign_join_matches_oracle' (2) panicked at crates/before/src/clock/tests.rs:345:1:
+    Test failed: canonical Version: Truncated.
+    minimal failing input: ops = [
+        Send(
+            Index(
+                4165145013470283583,
+            ),
+            Index(
+                13088983681375206006,
+            ),
+        ),
+        Join(
+            Index(
+                17119210986855402745,
+            ),
+            Index(
+                3213719949807254368,
+            ),
+        ),
+        Tick(
+            Index(
+                11651817249271040665,
+            ),
+        ),
+        Join(
+            Index(
+                12128173617935497179,
+            ),
+            Index(
+                17873246371193312054,
+            ),
+        ),
+        Fork(
+            Index(
+                15058336262886299697,
+            ),
+        ),
+        Send(
+            Index(
+                13826342377113495115,
+            ),
+            Index(
+                6131065674443610896,
+            ),
+        ),
+        Sync(
+            Index(
+                12895295030690293727,
+            ),
+            Index(
+                4872620914073005225,
+            ),
+        ),
+        Join(
+            Index(
+                8929293197827247245,
+            ),
+            Index(
+                8816677795023391648,
+            ),
+        ),
+        Ticks(
+            Index(
+                18168663150625120406,
+            ),
+            3,
+        ),
+        Tick(
+            Index(
+                12060770000840853853,
+            ),
+        ),
+        Ticks(
+            Index(
+                5349344023214729741,
+            ),
+            2,
+        ),
+        Sync(
+            Index(
+                903193685932271237,
+            ),
+            Index(
+                13036129108993026060,
+            ),
+        ),
+        Sync(
+            Index(
+                8746874591096717121,
+            ),
+            Index(
+                6211321064056108654,
+            ),
+        ),
+        Ticks(
+            Index(
+                7534223761899913823,
+            ),
+            6,
+        ),
+        Fork(
+            Index(
+                13941645866616418365,
+            ),
+        ),
+        Sync(
+            Index(
+                2938859452633098044,
+            ),
+            Index(
+                7778802603146393420,
+            ),
+        ),
+        Join(
+            Index(
+                11978797967545922843,
+            ),
+            Index(
+                4123843694070734328,
+            ),
+        ),
+        Ticks(
+            Index(
+                8603098056213454762,
+            ),
+            5,
+        ),
+        Sync(
+            Index(
+                11291106367938780719,
+            ),
+            Index(
+                15158377332633102571,
+            ),
+        ),
+        Send(
+            Index(
+                10728606371059410027,
+            ),
+            Index(
+                11220410005144021469,
+            ),
+        ),
+        Tick(
+            Index(
+                6649434963952553198,
+            ),
+        ),
+        Ticks(
+            Index(
+                12127086481910491449,
+            ),
+            0,
+        ),
+        Sync(
+            Index(
+                16956372442381960800,
+            ),
+            Index(
+                3048677114574123804,
+            ),
+        ),
+        Fork(
+            Index(
+                6059195303008888476,
+            ),
+        ),
+        Tick(
+            Index(
+                8687170136992868431,
+            ),
+        ),
+        Send(
+            Index(
+                2064793828115301207,
+            ),
+            Index(
+                1751947676604920942,
+            ),
+        ),
+        Ticks(
+            Index(
+                5729159770244161803,
+            ),
+            0,
+        ),
+    ], i = 48, j = 49
+    successes: 30
+    local rejects: 0
+    global rejects: 0
+
+
+        PASS [   0.279s] ( 88/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        PASS [   0.099s] ( 89/693) before clock::tests::decode_never_panics
+        PASS [   0.263s] ( 90/693) before borsh_impls::tests::rank_borsh_roundtrips_and_orders
+        PASS [   0.367s] ( 91/693) before bits::tests::truncation_rejects_or_decodes_canonically
+        PASS [   0.275s] ( 92/693) before borsh_impls::tests::ranked_borsh_roundtrips_and_orders
+        PASS [   0.283s] ( 93/693) before borsh_impls::tests::span_borsh_roundtrips
+        PASS [   0.225s] ( 94/693) before clock::tests::borsh_frames_as_canonical_bytes
+        PASS [   0.216s] ( 95/693) before clock::tests::borsh_roundtrip
+        PASS [   0.233s] ( 96/693) before clock::tests::borsh_rejects_non_canonical
+        PASS [   0.216s] ( 97/693) before clock::tests::decode_preserves_component_canonicity
+        PASS [   0.231s] ( 98/693) before clock::tests::clock_observers_match_oracle
+        FAIL [   0.317s] ( 99/693) before causally::tests::public_queries_match_their_relational_denotation
+  stdout ───
+
+    running 1 test
+    test causally::tests::public_queries_match_their_relational_denotation ... FAILED
+
+    failures:
+
+    failures:
+        causally::tests::public_queries_match_their_relational_denotation
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.27s
+
+  stderr ───
+
+    thread 'causally::tests::public_queries_match_their_relational_denotation' (2) panicked at crates/before/src/version/io/writer.rs:293:9:
+    assertion `left == right` failed
+      left: 125
+     right: 252
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l2-algebra/crates/before/proptest-regressions/causally/tests.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc 4dd6a0daa9317d285c92436922aea2177adf5042b06c4b331459fe1f2c9bf8ac
+
+    thread 'causally::tests::public_queries_match_their_relational_denotation' (2) panicked at crates/before/src/causally/tests.rs:309:1:
+    Test failed: assertion `left == right` failed
+      left: 125
+     right: 252.
+    minimal failing input: bounds = [], down = [
+        Delta(
+            3,
+            4,
+        ),
+        Since(
+            2,
+        ),
+        Delta(
+            7,
+            6,
+        ),
+    ], up = [
+        StrictlyBefore(
+            8,
+        ),
+        BeforeOrConcurrent(
+            3,
+        ),
+        Toward(
+            6,
+            8,
+        ),
+        BeforeOrConcurrent(
+            8,
+        ),
+        BeforeOrConcurrent(
+            5,
+        ),
+    ], a = Node(
+        9957744801270649868,
+        Leaf(
+            0,
+        ),
+        Leaf(
+            1,
+        ),
+    ), b = Node(
+        5352540061313684070,
+        Node(
+            0,
+            Leaf(
+                0,
+            ),
+            Node(
+                1175239080656097619358,
+                Leaf(
+                    271179595631947280118957620123597940640,
+                ),
+                Node(
+                    0,
+                    Leaf(
+                        415383748682785029690818988926304255,
+                    ),
+                    Leaf(
+                        0,
+                    ),
+                ),
+            ),
+        ),
+        Node(
+            173954349140236189847011492927742628863,
+            Node(
+                2780758866053962631,
+                Leaf(
+                    0,
+                ),
+                Leaf(
+                    18446744073709551612,
+                ),
+            ),
+            Leaf(
+                0,
+            ),
+        ),
+    ), c = Leaf(
+        13341978000708700640,
+    )
+    successes: 82
+    local rejects: 0
+    global rejects: 0
+
+
+        PASS [   0.410s] (100/693) before clock::tests::clock_join_all_matches_all_models
+        PASS [   0.951s] (101/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+        PASS [   0.834s] (102/693) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        PASS [   4.617s] (103/693) before bits::tests::bit_flip_rejects_or_decodes_canonically
+────────────
+     Summary [   4.619s] 103/693 tests run: 99 passed, 4 failed, 1 skipped
+        FAIL [   0.102s] ( 80/693) before causally::tests::atom_coverage_matches_query_coverage
+        FAIL [   0.057s] ( 84/693) before clock::tests::churn_orbit_sizes_reach_a_bounded_band
+        FAIL [   0.076s] ( 87/693) before clock::tests::clock_assign_join_matches_oracle
+        FAIL [   0.317s] ( 99/693) before causally::tests::public_queries_match_their_relational_denotation
+warning: 590/693 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)
+error: test run failed

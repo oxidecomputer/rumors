@@ -1,0 +1,16 @@
+# coverage of crates/before/src/bits/writer.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 231/238; branch outcomes 50/58
+# never-executed lines:
+L  221  return;
+L  378  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+L  379  f.write_str("BitsWriter[")?;
+L  380  for pos in 0..self.live {
+L  381  f.write_str(if self.bit(pos) { "1" } else { "0" })?;
+L  383  f.write_str("]")
+L  384  }
+# branches with an outcome never taken (outcome hit counts):
+B  159  [26764270, 290238618, 290238618, 0]  len == 64 || value >> len == 0,
+B  220  [0, 68824036]  if bits == 0 {
+B  238  [1565782, 0, 1565782, 0]  len <= 63 && start + u64::from(len) <= self.len(),
+B  353  [6756341, 0, 6756341, 0]  start <= end && end <= bytes.len() as u64 * 8,
+B  381  [0, 0]  f.write_str(if self.bit(pos) { "1" } else { "0" })?;

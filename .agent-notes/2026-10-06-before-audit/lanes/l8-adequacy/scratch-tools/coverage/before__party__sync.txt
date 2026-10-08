@@ -1,0 +1,5 @@
+# coverage of crates/before/src/party/sync.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 70/71; branch outcomes 6/6
+# never-executed lines:
+L  146  (None, None) => unreachable!("a joined branch child is present in some operand"),
+# branches with an outcome never taken (outcome hit counts):

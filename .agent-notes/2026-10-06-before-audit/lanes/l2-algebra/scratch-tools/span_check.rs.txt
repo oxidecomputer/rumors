@@ -1,0 +1,67 @@
+
+fn model_placement(lo: Option<Ordering>, hi: Option<Ordering>) -> Placement {
+    use Ordering::*;
+    match (lo, hi) {
+        (Some(Less), _) => Placement::Before,
+        (Some(Equal), Some(Equal)) => Placement::At(Endpoint::Both),
+        (Some(Equal), _) => Placement::At(Endpoint::Start),
+        (Some(Greater), Some(Less)) => Placement::Between,
+        (Some(Greater), Some(Equal)) => Placement::At(Endpoint::End),
+        (Some(Greater), Some(Greater)) => Placement::After,
+        (Some(Greater), None) => Placement::Concurrent(Endpoint::End),
+        (None, None) => Placement::Concurrent(Endpoint::Both),
+        (None, _) => Placement::Concurrent(Endpoint::Start),
+    }
+}
+
+/// Span placement and its coarsenings against the model relations, over
+/// spans with shared, equal-but-unshared, and distinct endpoints.
+fn check_spans(versions: &[(Version, VM)], ctx: &str) {
+    let mut spans: Vec<(Span<'static>, &VM, &VM, &'static str)> = Vec::new();
+    for (i, (v, mv)) in versions.iter().enumerate() {
+        spans.push((Span::at(v.clone()), mv, mv, "at"));
+        spans.push((Span::new(v, &redecode(v)).unwrap().into_owned(), mv, mv, "unshared point"));
+        for (w, mw) in &versions[i + 1..] {
+            let s = v.span(w);
+            let lo = model::meet(mv, mw);
+            let hi = model::join(mv, mw);
+            // Leak the models into the spans' lifetime by cloning into a Vec
+            // owned by the caller below.
+            let _ = (&lo, &hi);
+            spans.push((s, mv, mw, "hull"));
+        }
+    }
+    for (span, mx, my, kind) in &spans {
+        let lo = model::meet(mx, my);
+        let hi = model::join(mx, my);
+        assert_version(span.lo(), &lo, "span lo", ctx);
+        assert_version(span.hi(), &hi, "span hi", ctx);
+        for (p, mp) in versions {
+            let rl = model::relation(mp, &lo);
+            let rh = model::relation(mp, &hi);
+            let want = model_placement(rl, rh);
+            assert_eq!(span.place(p), want, "place ({kind}): {ctx}");
+            let le_lo = matches!(rl, Some(Ordering::Less | Ordering::Equal));
+            let le_hi = matches!(rh, Some(Ordering::Less | Ordering::Equal));
+            let ge_lo = matches!(rl, Some(Ordering::Greater | Ordering::Equal));
+            let ge_hi = matches!(rh, Some(Ordering::Greater | Ordering::Equal));
+            let dominance = if ge_hi {
+                Dominance::After
+            } else if ge_lo {
+                Dominance::Between
+            } else {
+                Dominance::Before
+            };
+            assert_eq!(span.dominance(p), dominance, "dominance ({kind}): {ctx}");
+            let precedence = if le_lo {
+                Precedence::Before
+            } else if le_hi {
+                Precedence::Between
+            } else {
+                Precedence::After
+            };
+            assert_eq!(span.precedence(p), precedence, "precedence ({kind}): {ctx}");
+            assert_eq!(span.contains(p), ge_lo && le_hi, "contains ({kind}): {ctx}");
+        }
+    }
+}

@@ -1,0 +1,552 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.15s
+────────────
+ Nextest run ID cf521488-f271-4fda-8b14-3a8476474797 with nextest profile: default
+    Starting 693 tests across 12 binaries (1 test and 2 binaries skipped)
+        PASS [   0.064s] (  1/693) before bits::reader::tests::skipping_gamma_records_exactly_the_bits_a_read_records
+        PASS [   0.089s] (  2/693) before bits::reader::tests::mid_stream_opens_read_the_same_suffix
+        PASS [   0.072s] (  3/693) before bits::tests::flush_version_cut_before_its_marker_byte_is_truncated
+        PASS [   0.116s] (  4/693) before bits::stack::packed_u64::tests::packed_values_round_trip
+        PASS [   0.116s] (  5/693) before bits::reader::tests::gamma_reader_matches_decoder_across_the_word_seam
+        PASS [   0.089s] (  6/693) before bits::tests::flush_stream_carries_a_whole_marker_byte
+        PASS [   0.116s] (  7/693) before bits::tests::decode_never_yields_anonymous_party
+        PASS [   0.140s] (  8/693) before bits::tests::empty_input_is_truncated
+        PASS [   0.073s] (  9/693) before bits::tests::freeze_canonicalizes_storage
+        PASS [   0.151s] ( 10/693) before bits::reader::tests::truncated_codes_reject_at_every_cut_point
+        PASS [   0.052s] ( 11/693) before bits::tests::gamma_costs
+        PASS [   0.077s] ( 12/693) before bits::tests::from_canonical_matches_freeze
+        PASS [   0.172s] ( 13/693) before bits::reader::tests::unary_reads_match_the_per_bit_loop_across_word_seams
+        PASS [   0.055s] ( 14/693) before bits::tests::gamma_roundtrip_wide_value
+        PASS [   0.065s] ( 15/693) before bits::tests::gamma_roundtrip_just_above_u64_max
+        PASS [   0.181s] ( 16/693) before bits::stack::packed_u64::tests::packed_stack_matches_a_vec_across_all_widths
+        PASS [   0.182s] ( 17/693) before accumulator::tests::accumulator_entry_points_match_the_oracle
+        PASS [   0.182s] ( 18/693) before bits::reader::tests::arbitrary_streams_match_the_slice_cursor
+        PASS [   0.085s] ( 19/693) before bits::tests::gamma_roundtrip_wide
+        PASS [   0.061s] ( 20/693) before bits::tests::gamma_truncated
+        PASS [   0.061s] ( 21/693) before bits::tests::gamma_truncated_inside_wide_mantissa
+        PASS [   0.202s] ( 22/693) before accumulator::tests::signed_accumulator_entry_points_match_the_oracle
+        PASS [   0.082s] ( 23/693) before bits::tests::gamma_roundtrip
+        PASS [   0.051s] ( 24/693) before bits::tests::gamma_window_declines_conservatively
+        PASS [   0.072s] ( 25/693) before bits::tests::gamma_window_edge
+        PASS [   0.051s] ( 26/693) before bits::tests::malformed_padding_rejected_witness
+        PASS [   0.233s] ( 27/693) before bits::stack::bit::tests::bit_stack_matches_a_vec_of_bools
+        PASS [   0.061s] ( 28/693) before bits::tests::gamma_word_paths_match_on_arbitrary_bytes
+        PASS [   0.062s] ( 29/693) before bits::tests::marker_validation_agrees_with_storage_canonicality
+        PASS [   0.071s] ( 30/693) before bits::tests::gamma_word_encode_matches_bit_encode
+        PASS [   0.222s] ( 31/693) before bits::tests::flush_cut_party_reads_truncated_for_party_and_clock
+        PASS [   0.055s] ( 32/693) before bits::tests::reject_trailing_bits
+        PASS [   0.091s] ( 33/693) before bits::tests::gamma_word_decode_matches_bit_loop
+        PASS [   0.076s] ( 34/693) before bits::tests::marker_padding_separates_length_collisions
+        PASS [   0.085s] ( 35/693) before bits::tests::padding_perturbation_rejects
+        PASS [   0.069s] ( 36/693) before bits::tests::reject_deep_nested_denormal_id
+        PASS [   0.078s] ( 37/693) before bits::tests::reject_truncated
+        PASS [   0.057s] ( 38/693) before bits::tests::transcoding_normalizes_noncanonical_event
+        PASS [   0.048s] ( 39/693) before bits::tests::version_and_clock_decoding_rejects_intra_byte_padding
+        PASS [   0.079s] ( 40/693) before bits::tests::ptr_eq_implies_equality_and_clones_share_nonempty_storage
+        PASS [   0.079s] ( 41/693) before bits::tests::reject_intra_byte_padding
+        PASS [   0.079s] ( 42/693) before bits::tests::reject_noncanonical_id
+        PASS [   0.281s] ( 43/693) before accumulator::tests::shifted_accumulator_entry_points_match_the_oracle
+        PASS [   0.078s] ( 44/693) before borsh_impls::tests::borsh_every_type_pair_composes_with_exact_boundaries
+        PASS [   0.311s] ( 45/693) before bits::tests::build_history_spelling_is_a_function_of_content
+        PASS [   0.060s] ( 46/693) before borsh_impls::tests::coincident_span_borsh_rejects_tampered_join_padding
+        PASS [   0.046s] ( 47/693) before borsh_impls::tests::deep_trees_roundtrip_through_borsh
+        PASS [   0.083s] ( 48/693) before borsh_impls::tests::borsh_sequence_defect_preserves_its_error_class
+        PASS [   0.069s] ( 49/693) before borsh_impls::tests::coincident_span_keeps_borsh_container_framing
+        PASS [   0.327s] ( 50/693) before bits::tests::encode_to_matches_encode
+        FAIL [   0.067s] ( 51/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+  stdout ───
+
+    running 1 test
+    test borsh_impls::tests::borsh_roundtrips_over_impl_history ... FAILED
+
+    failures:
+
+    failures:
+        borsh_impls::tests::borsh_roundtrips_over_impl_history
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'borsh_impls::tests::borsh_roundtrips_over_impl_history' (2) panicked at crates/before/src/borsh_impls/tests.rs:308:70:
+    called `Result::unwrap()` on an `Err` value: Custom { kind: InvalidData, error: NotCanonical }
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+    thread 'borsh_impls::tests::borsh_roundtrips_over_impl_history' (2) panicked at crates/before/src/borsh_impls/tests.rs:283:1:
+    Test failed: called `Result::unwrap()` on an `Err` value: Custom { kind: InvalidData, error: NotCanonical }.
+    minimal failing input: ops = [
+        Sync(
+            Index(
+                17291673943677129325,
+            ),
+            Index(
+                10367461369871489348,
+            ),
+        ),
+        Fork(
+            Index(
+                834040001444723539,
+            ),
+        ),
+        Sync(
+            Index(
+                6117261945658531054,
+            ),
+            Index(
+                9431994001608644361,
+            ),
+        ),
+        Sync(
+            Index(
+                12549203506547751508,
+            ),
+            Index(
+                16168225161087905915,
+            ),
+        ),
+        Fork(
+            Index(
+                14807529860842312927,
+            ),
+        ),
+        Ticks(
+            Index(
+                15898241737408635321,
+            ),
+            4,
+        ),
+        Send(
+            Index(
+                16301778770587325593,
+            ),
+            Index(
+                17287386410829921439,
+            ),
+        ),
+        Send(
+            Index(
+                6781944157039587636,
+            ),
+            Index(
+                16302284697701209178,
+            ),
+        ),
+        Sync(
+            Index(
+                4451700118651981837,
+            ),
+            Index(
+                15709862932132481680,
+            ),
+        ),
+        Ticks(
+            Index(
+                8272589388681430044,
+            ),
+            1,
+        ),
+        Send(
+            Index(
+                8289059958635940784,
+            ),
+            Index(
+                1624844157407950875,
+            ),
+        ),
+        Tick(
+            Index(
+                15509081228735513212,
+            ),
+        ),
+        Sync(
+            Index(
+                11211773113677487146,
+            ),
+            Index(
+                8417038023511985621,
+            ),
+        ),
+        Join(
+            Index(
+                10836517094935526810,
+            ),
+            Index(
+                12668063448100962186,
+            ),
+        ),
+        Join(
+            Index(
+                4394505059104390387,
+            ),
+            Index(
+                7470047881462543335,
+            ),
+        ),
+        Fork(
+            Index(
+                2299809125812561635,
+            ),
+        ),
+        Sync(
+            Index(
+                4397611222823265705,
+            ),
+            Index(
+                8877923275714127173,
+            ),
+        ),
+        Join(
+            Index(
+                590706117886476860,
+            ),
+            Index(
+                2195042528945493746,
+            ),
+        ),
+        Join(
+            Index(
+                16346088470384602776,
+            ),
+            Index(
+                15157025120297972085,
+            ),
+        ),
+        Fork(
+            Index(
+                11894048873197851845,
+            ),
+        ),
+        Ticks(
+            Index(
+                14014416381365580331,
+            ),
+            4,
+        ),
+        Ticks(
+            Index(
+                8368856528217948633,
+            ),
+            3,
+        ),
+        Send(
+            Index(
+                17612215194243985192,
+            ),
+            Index(
+                3429580428405599755,
+            ),
+        ),
+        Fork(
+            Index(
+                3691591138299057296,
+            ),
+        ),
+        Ticks(
+            Index(
+                4228711628985195850,
+            ),
+            3,
+        ),
+        Join(
+            Index(
+                6288069918613418456,
+            ),
+            Index(
+                16436753117484297606,
+            ),
+        ),
+        Send(
+            Index(
+                6708384096747105540,
+            ),
+            Index(
+                527886189868956377,
+            ),
+        ),
+        Send(
+            Index(
+                10902833173876503822,
+            ),
+            Index(
+                16726083377769734575,
+            ),
+        ),
+        Fork(
+            Index(
+                2127226350920198026,
+            ),
+        ),
+    ]
+    successes: 0
+    local rejects: 0
+    global rejects: 0
+
+
+  Cancelling due to test failure: 23 tests still running
+        PASS [   0.078s] ( 52/693) before borsh_impls::tests::count_borsh_matches_canonical_limbs
+        PASS [   0.347s] ( 53/693) before bits::tests::canonical_encoding_is_injective
+        PASS [   0.067s] ( 54/693) before borsh_impls::tests::flush_cut_is_truncated_by_both_decoders
+        PASS [   0.081s] ( 55/693) before borsh_impls::tests::count_borsh_rejects_trailing_zero
+        FAIL [   0.067s] ( 56/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+  stdout ───
+
+    running 1 test
+    test borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding ... FAILED
+
+    failures:
+
+    failures:
+        borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding' (2) panicked at crates/before/src/borsh_impls/tests.rs:786:71:
+    called `Result::unwrap()` on an `Err` value: Custom { kind: InvalidData, error: NotCanonical }
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+    thread 'borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding' (2) panicked at crates/before/src/borsh_impls/tests.rs:755:1:
+    Test failed: called `Result::unwrap()` on an `Err` value: Custom { kind: InvalidData, error: NotCanonical }.
+    minimal failing input: ops = [
+        Sync(
+            Index(
+                17291673943677129325,
+            ),
+            Index(
+                10367461369871489348,
+            ),
+        ),
+        Fork(
+            Index(
+                834040001444723539,
+            ),
+        ),
+        Sync(
+            Index(
+                6117261945658531054,
+            ),
+            Index(
+                9431994001608644361,
+            ),
+        ),
+        Sync(
+            Index(
+                12549203506547751508,
+            ),
+            Index(
+                16168225161087905915,
+            ),
+        ),
+        Fork(
+            Index(
+                14807529860842312927,
+            ),
+        ),
+        Ticks(
+            Index(
+                15898241737408635321,
+            ),
+            4,
+        ),
+        Send(
+            Index(
+                16301778770587325593,
+            ),
+            Index(
+                17287386410829921439,
+            ),
+        ),
+        Send(
+            Index(
+                6781944157039587636,
+            ),
+            Index(
+                16302284697701209178,
+            ),
+        ),
+        Sync(
+            Index(
+                4451700118651981837,
+            ),
+            Index(
+                15709862932132481680,
+            ),
+        ),
+        Ticks(
+            Index(
+                8272589388681430044,
+            ),
+            1,
+        ),
+        Send(
+            Index(
+                8289059958635940784,
+            ),
+            Index(
+                1624844157407950875,
+            ),
+        ),
+        Tick(
+            Index(
+                15509081228735513212,
+            ),
+        ),
+        Sync(
+            Index(
+                11211773113677487146,
+            ),
+            Index(
+                8417038023511985621,
+            ),
+        ),
+        Join(
+            Index(
+                10836517094935526810,
+            ),
+            Index(
+                12668063448100962186,
+            ),
+        ),
+        Join(
+            Index(
+                4394505059104390387,
+            ),
+            Index(
+                7470047881462543335,
+            ),
+        ),
+        Fork(
+            Index(
+                2299809125812561635,
+            ),
+        ),
+        Sync(
+            Index(
+                4397611222823265705,
+            ),
+            Index(
+                8877923275714127173,
+            ),
+        ),
+        Join(
+            Index(
+                590706117886476860,
+            ),
+            Index(
+                2195042528945493746,
+            ),
+        ),
+        Join(
+            Index(
+                16346088470384602776,
+            ),
+            Index(
+                15157025120297972085,
+            ),
+        ),
+        Fork(
+            Index(
+                11894048873197851845,
+            ),
+        ),
+        Ticks(
+            Index(
+                14014416381365580331,
+            ),
+            4,
+        ),
+        Ticks(
+            Index(
+                8368856528217948633,
+            ),
+            3,
+        ),
+        Send(
+            Index(
+                17612215194243985192,
+            ),
+            Index(
+                3429580428405599755,
+            ),
+        ),
+        Fork(
+            Index(
+                3691591138299057296,
+            ),
+        ),
+        Ticks(
+            Index(
+                4228711628985195850,
+            ),
+            3,
+        ),
+        Join(
+            Index(
+                6288069918613418456,
+            ),
+            Index(
+                16436753117484297606,
+            ),
+        ),
+        Send(
+            Index(
+                6708384096747105540,
+            ),
+            Index(
+                527886189868956377,
+            ),
+        ),
+        Send(
+            Index(
+                10902833173876503822,
+            ),
+            Index(
+                16726083377769734575,
+            ),
+        ),
+        Fork(
+            Index(
+                2127226350920198026,
+            ),
+        ),
+    ], trailing = [
+        209,
+        98,
+        191,
+        206,
+        220,
+        132,
+        130,
+        76,
+        81,
+    ]
+    successes: 0
+    local rejects: 0
+    global rejects: 0
+
+
+        PASS [   0.073s] ( 57/693) before borsh_impls::tests::non_canonical_borsh_bytes_report_invalid_data
+        PASS [   0.052s] ( 58/693) before borsh_impls::tests::rank_borsh_preserves_decode_errors
+        PASS [   0.082s] ( 59/693) before borsh_impls::tests::joined_party_roundtrips_through_borsh
+        PASS [   0.364s] ( 60/693) before bits::tests::decode_encode_roundtrip
+        PASS [   0.366s] ( 61/693) before bits::tests::build_history_spellings_are_injective
+        PASS [   0.049s] ( 62/693) before borsh_impls::tests::rank_borsh_is_the_canonical_encoding
+        PASS [   0.124s] ( 63/693) before borsh_impls::tests::clock_wire_decode_matches_bitwise_reference
+        PASS [   0.053s] ( 64/693) before borsh_impls::tests::ranked_borsh_composes_and_preserves_decode_errors
+        PASS [   0.099s] ( 65/693) before borsh_impls::tests::party_wire_decode_matches_bitwise_reference
+        PASS [   0.057s] ( 66/693) before borsh_impls::tests::rank_composes_in_a_borsh_stream
+        PASS [   0.105s] ( 67/693) before borsh_impls::tests::rank_wire_decode_matches_slice_reference
+        PASS [   0.159s] ( 68/693) before borsh_impls::tests::flush_cut_party_is_truncated_by_both_decoders
+        PASS [   0.234s] ( 69/693) before borsh_impls::tests::rank_borsh_roundtrips_and_orders
+        PASS [   0.370s] ( 70/693) before bits::tests::truncation_rejects_or_decodes_canonically
+        PASS [   0.280s] ( 71/693) before borsh_impls::tests::ranked_borsh_roundtrips_and_orders
+        PASS [   0.834s] ( 72/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+        PASS [   0.844s] ( 73/693) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        PASS [   5.168s] ( 74/693) before bits::tests::bit_flip_rejects_or_decodes_canonically
+────────────
+     Summary [   5.170s] 74/693 tests run: 72 passed, 2 failed, 1 skipped
+        FAIL [   0.067s] ( 51/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        FAIL [   0.067s] ( 56/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+warning: 619/693 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)
+error: test run failed

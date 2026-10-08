@@ -1,0 +1,57 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.34s
+────────────
+ Nextest run ID a13ad296-b31e-4d41-bc34-91613fa63398 with nextest profile: default
+    Starting 1 test across 1 binary (1 test skipped)
+       START [         ] (1/1) before::l2_probe census
+
+running 1 test
+a leaves 1                               241
+a leaves 2-8                             438
+a leaves 65+                             641
+a leaves 9-64                            680
+a max depth 0                            241
+a max depth 1-4                          401
+a max depth 17-64                        357
+a max depth 5-16                         642
+a max depth 65+                          359
+family equal                             322
+family independent                       373
+family join-decomposition                317
+family meet-decomposition                333
+family perturbed                         351
+family perturbed-rev                     304
+join has cascade_narrow                  418
+join has cascade_narrow_after_wide       167
+join has cascade_wide                    329
+join has direct_narrow                   550
+join has direct_wide                     375
+join has wide_codes                      1770
+limits depth<=12                         504
+limits depth<=140                        527
+limits depth<=4                          437
+limits depth<=70                         532
+meet has cascade_narrow                  639
+meet has cascade_narrow_after_wide       159
+meet has cascade_wide                    339
+meet has direct_narrow                   877
+meet has direct_wide                     331
+meet has wide_codes                      1656
+proj relation None                       734
+proj relation Some(Equal)                227
+proj relation Some(Greater)              136
+proj relation Some(Less)                 903
+proj trivial false                       1298
+proj trivial true                        702
+relation None                            767
+relation Some(Equal)                     522
+relation Some(Greater)                   312
+relation Some(Less)                      399
+totals CanonStats { direct_narrow: 0, direct_wide: 5452, cascade_narrow: 0, cascade_wide: 1205, cascade_narrow_after_wide: 6062, wide_codes: 0 }
+test census ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1.14s
+
+        PASS [   1.186s] (1/1) before::l2_probe census
+────────────
+     Summary [   1.187s] 1 test run: 1 passed, 1 skipped

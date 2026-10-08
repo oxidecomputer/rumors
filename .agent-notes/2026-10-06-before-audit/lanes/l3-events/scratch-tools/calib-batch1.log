@@ -1,0 +1,325 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 32s
+=== MUT 0 probes
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+────────────
+ Nextest run ID cf4630d4-cf29-49de-a8cb-92d60d5a02e6 with nextest profile: default
+    Starting 7 tests across 12 binaries (697 tests skipped)
+────────────
+     Summary [  51.545s] 7 tests run: 7 passed, 697 skipped
+=== MUT 0 probes exit=0
+=== MUT 0 committed
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+────────────
+ Nextest run ID b76c918a-525d-4b82-9f1b-92f7da3c9620 with nextest profile: default
+    Starting 71 tests across 12 binaries (633 tests skipped)
+────────────
+     Summary [   3.581s] 71 tests run: 71 passed (1 leaky), 633 skipped
+=== MUT 0 committed exit=0
+=== MUT 1 probes
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+────────────
+ Nextest run ID b7886377-52bb-4fbe-aeb9-448fcf61f2b2 with nextest profile: default
+    Starting 7 tests across 12 binaries (697 tests skipped)
+        FAIL [   0.457s] (1/7) before version::tick::l3_probe::l3_cogen_bushy
+  stdout ───
+
+    running 1 test
+    test version::tick::l3_probe::l3_cogen_bushy ... FAILED
+
+    failures:
+
+    failures:
+        version::tick::l3_probe::l3_cogen_bushy
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 613 filtered out; finished in 0.40s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l3-events/crates/before/proptest-regressions/version/tick/l3_probe.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
+    cc 3043328db738aea8dce9586e12c7aada7add28e67e2834f7d98902da1e105c01
+
+    thread 'version::tick::l3_probe::l3_cogen_bushy' (2) panicked at crates/before/src/version/tick/l3_probe.rs:330:1:
+    Test failed: assertion failed: `(left == right)` 
+      left: `Version(0b00011100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011101101010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010)`, 
+     right: `Version(0b000111000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111101011100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100)`: tick differs from oracle event: Node(0, Node(0, Node(0, Leaf(0), Leaf(1361129467683753853853498429727072845825)), Leaf(1361129467683753853853498429727072845825)), Node(0, Leaf(1361129467683753853853498429727072845825), Leaf(0))) Node(Node(Node(Leaf(false), Leaf(true)), Leaf(true)), Node(Leaf(true), Leaf(false))) at crates/before/src/version/tick/l3_probe.rs:226.
+    minimal failing input: pair = Aligned(
+        Aligned(
+            Aligned(
+                Unowned(
+                    Leaf(
+                        88,
+                    ),
+                ),
+                Owned(
+                    Leaf(
+                        0,
+                    ),
+                ),
+            ),
+            Owned(
+                Node(
+                    Leaf(
+                        0,
+                    ),
+                    Node(
+                        Leaf(
+                            0,
+                        ),
+                        Leaf(
+                            57,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        Aligned(
+            Owned(
+                Leaf(
+                    0,
+                ),
+            ),
+            Unowned(
+                Node(
+                    Leaf(
+                        92,
+                    ),
+                    Leaf(
+                        43,
+                    ),
+                ),
+            ),
+        ),
+    ), palette = [
+        1361129467683753853853498429727072845825,
+        0,
+        0,
+    ]
+    successes: 21
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.475s] (2/7) before version::tick::l3_probe::l3_cogen_spine
+  stdout ───
+
+    running 1 test
+    test version::tick::l3_probe::l3_cogen_spine ... FAILED
+
+    failures:
+
+    failures:
+        version::tick::l3_probe::l3_cogen_spine
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 613 filtered out; finished in 0.42s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l3-events/crates/before/proptest-regressions/version/tick/l3_probe.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc d29fca817f11528c18429edf32095b02b6a7edc9d5d78100ae040cd6edee3fc8
+
+    thread 'version::tick::l3_probe::l3_cogen_spine' (2) panicked at crates/before/src/version/tick/l3_probe.rs:330:1:
+    Test failed: assertion failed: `(left == right)` 
+      left: `Version(0b001110111010)`, 
+     right: `Version(0b0110111011)`: tick differs from oracle event: Leaf(0) Node(Node(Node(Leaf(true), Leaf(false)), Leaf(true)), Node(Leaf(false), Leaf(true))) at crates/before/src/version/tick/l3_probe.rs:226.
+    minimal failing input: pair = Aligned(
+        Aligned(
+            Aligned(
+                Owned(
+                    Leaf(
+                        187,
+                    ),
+                ),
+                Unowned(
+                    Leaf(
+                        14,
+                    ),
+                ),
+            ),
+            Owned(
+                Leaf(
+                    0,
+                ),
+            ),
+        ),
+        Aligned(
+            Unowned(
+                Leaf(
+                    32,
+                ),
+            ),
+            Owned(
+                Leaf(
+                    125,
+                ),
+            ),
+        ),
+    ), palette = [
+        0,
+    ]
+    successes: 5
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   1.604s] (4/7) before version::tick::l3_probe::l3_family_spine
+  stdout ───
+
+    running 1 test
+    test version::tick::l3_probe::l3_family_spine ... FAILED
+
+    failures:
+
+    failures:
+        version::tick::l3_probe::l3_family_spine
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 613 filtered out; finished in 1.53s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l3-events/crates/before/proptest-regressions/version/tick/l3_probe.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc ec8cb1add8d60f25479300f677fdaba3f5ad4f295966bedf1546a298c6e0d773
+
+    thread 'version::tick::l3_probe::l3_family_spine' (2) panicked at crates/before/src/version/tick/l3_probe.rs:729:1:
+    Test failed: assertion failed: `(left == right)` 
+      left: `Version(0b001110111010)`, 
+     right: `Version(0b0110111011)`: tick differs from oracle event: Leaf(0) Node(Node(Node(Node(Leaf(true), Leaf(false)), Leaf(true)), Leaf(true)), Node(Leaf(false), Leaf(true))) at crates/before/src/version/tick/l3_probe.rs:226.
+    minimal failing input: pair = Aligned(
+        Aligned(
+            Aligned(
+                Aligned(
+                    Owned(
+                        Leaf(
+                            0,
+                        ),
+                    ),
+                    Unowned(
+                        Leaf(
+                            134,
+                        ),
+                    ),
+                ),
+                Owned(
+                    Node(
+                        Leaf(
+                            100,
+                        ),
+                        Leaf(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+            Owned(
+                Leaf(
+                    0,
+                ),
+            ),
+        ),
+        Aligned(
+            Unowned(
+                Node(
+                    Leaf(
+                        0,
+                    ),
+                    Leaf(
+                        0,
+                    ),
+                ),
+            ),
+            Owned(
+                Leaf(
+                    64,
+                ),
+            ),
+        ),
+    ), palette = [
+        0,
+    ], from_end = 0, tag = 0
+    successes: 16
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   3.853s] (6/7) before version::tick::l3_probe::l3_family_bushy
+  stdout ───
+
+    running 1 test
+    test version::tick::l3_probe::l3_family_bushy ... FAILED
+
+    failures:
+
+    failures:
+        version::tick::l3_probe::l3_family_bushy
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 613 filtered out; finished in 3.78s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l3-events/crates/before/proptest-regressions/version/tick/l3_probe.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc 12403d12600618c2974aa6b82e2d34c2dc1efb6aa38d4477eebfb7cfff607c46
+
+    thread 'version::tick::l3_probe::l3_family_bushy' (2) panicked at crates/before/src/version/tick/l3_probe.rs:729:1:
+    Test failed: assertion failed: `(left == right)` 
+      left: `Version(0b001010101011)`, 
+     right: `Version(0b0110111011)`: tick differs from oracle event: Leaf(0) Node(Node(Leaf(true), Leaf(false)), Node(Node(Leaf(true), Leaf(false)), Leaf(true))) at crates/before/src/version/tick/l3_probe.rs:226.
+    minimal failing input: pair = Aligned(
+        Aligned(
+            Owned(
+                Leaf(
+                    0,
+                ),
+            ),
+            Unowned(
+                Leaf(
+                    107,
+                ),
+            ),
+        ),
+        Aligned(
+            Aligned(
+                Owned(
+                    Leaf(
+                        0,
+                    ),
+                ),
+                Unowned(
+                    Leaf(
+                        0,
+                    ),
+                ),
+            ),
+            Owned(
+                Leaf(
+                    0,
+                ),
+            ),
+        ),
+    ), palette = [
+        0,
+        0,
+        0,
+        0,
+        0,
+    ], from_end = 0, tag = 0
+    successes: 0
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   6.724s] 7 tests run: 3 passed, 4 failed, 697 skipped
+        FAIL [   0.457s] (1/7) before version::tick::l3_probe::l3_cogen_bushy
+        FAIL [   0.475s] (2/7) before version::tick::l3_probe::l3_cogen_spine
+        FAIL [   1.604s] (4/7) before version::tick::l3_probe::l3_family_spine
+        FAIL [   3.853s] (6/7) before version::tick::l3_probe::l3_family_bushy
+error: test run failed
+exit=100

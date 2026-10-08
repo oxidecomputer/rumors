@@ -1,0 +1,37 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `before` (test "audit_l1") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.96s
+────────────
+ Nextest run ID adef77f7-4938-4ac6-84cc-86aad4a84d8d with nextest profile: default
+    Starting 1 test across 1 binary (15 tests skipped)
+       START [         ] (1/1) before::audit_l1 generator_stats
+
+running 1 test
+arb_set depth {0: 431, 1: 102, 2: 130, 3: 149, 4: 137, 8: 381, 16: 377, 32: 423, 64: 958, 128: 912}
+arb_set bytes {1: 594, 2: 307, 3: 217, 4: 204, 8: 419, 16: 567, 32: 1475, 64: 216, 128: 1}
+arb_set both-branches {0: 667, 1: 206, 2: 202, 3: 153, 4: 140, 8: 399, 16: 555, 32: 859, 64: 760, 128: 59}
+arb_set longest-unary {0: 431, 1: 420, 2: 517, 3: 549, 4: 461, 8: 831, 16: 283, 32: 304, 64: 191, 128: 13}
+arb pairs: disjoint 593/4000 nested 2028/4000 equal 52/4000
+disjoint(4) depth {1: 149, 2: 580, 3: 760, 4: 828, 8: 2163, 16: 2384, 32: 2423, 64: 3710, 128: 3003}
+disjoint(4) bytes {1: 690, 2: 1749, 3: 1130, 4: 1084, 8: 2462, 16: 2853, 32: 5167, 64: 856, 128: 9}
+disjoint(4) both-branches {0: 1763, 1: 1242, 2: 939, 3: 836, 4: 753, 8: 2319, 16: 2943, 32: 3238, 64: 1850, 128: 117}
+history final population {1: 27, 2: 30, 3: 27, 4: 12, 8: 90, 16: 147, 32: 167}
+test generator_stats ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 3.25s
+
+        PASS [   3.298s] (1/1) before::audit_l1 generator_stats
+────────────
+     Summary [   3.299s] 1 test run: 1 passed, 15 skipped
+exit=0

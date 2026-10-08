@@ -1,0 +1,36 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.29s
+────────────
+ Nextest run ID 0967f935-a3a2-42d6-805a-84bc19582f5e with nextest profile: default
+    Starting 1 test across 1 binary (608 tests skipped)
+       START [         ] (1/1) before testing::l8_census::l8_census_party_family_success
+
+running 1 test
+== arb_party_family: success 1176 of 20000 (5.88%)
+   arity 0: 1104 of 1104
+   arity 1: 72 of 1115
+   arity 2: 0 of 1120
+   arity 3: 0 of 1085
+   arity 4: 0 of 1068
+   arity 5: 0 of 1111
+   arity 6: 0 of 1058
+   arity 7: 0 of 1143
+   arity 8: 0 of 1155
+   arity 9: 0 of 1077
+   arity 10: 0 of 1122
+   arity 11: 0 of 1141
+   arity 12: 0 of 1141
+   arity 13: 0 of 1124
+   arity 14: 0 of 1125
+   arity 15: 0 of 1082
+   arity 16: 0 of 1132
+   arity 17: 0 of 1097
+== arb_clock_family: success 1111 of 20000 (5.55%)
+test testing::l8_census::l8_census_party_family_success ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 608 filtered out; finished in 23.46s
+
+        PASS [  23.664s] (1/1) before testing::l8_census::l8_census_party_family_success
+────────────
+     Summary [  23.668s] 1 test run: 1 passed, 608 skipped

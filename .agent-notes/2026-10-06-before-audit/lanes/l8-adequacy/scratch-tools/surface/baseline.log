@@ -1,0 +1,2 @@
+surface totality: 211 public function-like items = 134 board-covered + 77 excepted (0 item exceptions, 3 module-scope); 523 trait impls = 453 pinned + 70 module-excepted; 46 items = 3 pinned + 43 module-excepted
+baseline surfacecheck exit=0

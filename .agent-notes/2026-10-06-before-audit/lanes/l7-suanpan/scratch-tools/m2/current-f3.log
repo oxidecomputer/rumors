@@ -1,0 +1,59 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Finished `release` profile [optimized] target(s) in 5m 49s
+     Running tests/pins.rs (../../../target/wasm32-pins/release/deps/pins-c2e1fad8c0bd62a4)
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 3 size 64 op 1 net 1039933
+L7M family 3 size 64 op 3 net 4559008
+L7M family 3 size 64 op 4 net 4532421
+L7M family 3 size 64 op 5 net 4532507
+L7M family 3 size 64 op 6 net 6334236
+L7M family 3 size 64 op 7 net 4916995
+L7M family 3 size 64 op 8 net 5756288
+L7M family 3 size 64 op 9 net 6436211
+L7M family 3 size 64 op 10 net 10173432
+L7M family 3 size 256 op 1 net 4144657
+L7M family 3 size 256 op 3 net 18152333
+L7M family 3 size 256 op 4 net 18027312
+L7M family 3 size 256 op 5 net 18027398
+L7M family 3 size 256 op 6 net 25004715
+L7M family 3 size 256 op 7 net 19335327
+L7M family 3 size 256 op 8 net 22871248
+L7M family 3 size 256 op 9 net 25478074
+L7M family 3 size 256 op 10 net 40496600
+L7M family 3 size 1024 op 1 net 16562149
+L7M family 3 size 1024 op 3 net 72503053
+L7M family 3 size 1024 op 4 net 71984816
+L7M family 3 size 1024 op 5 net 71984902
+L7M family 3 size 1024 op 6 net 99664235
+L7M family 3 size 1024 op 7 net 76982111
+L7M family 3 size 1024 op 8 net 91316496
+L7M family 3 size 1024 op 9 net 101635002
+L7M family 3 size 1024 op 10 net 161707224
+L7M family 3 size 4096 op 1 net 66263959
+L7M family 3 size 4096 op 3 net 289904397
+L7M family 3 size 4096 op 4 net 287813296
+L7M family 3 size 4096 op 5 net 287813382
+L7M family 3 size 4096 op 6 net 398300779
+L7M family 3 size 4096 op 7 net 307567711
+L7M family 3 size 4096 op 8 net 365091344
+L7M family 3 size 4096 op 9 net 406251962
+L7M family 3 size 4096 op 10 net 646546648
+L7M family 3 size 16384 op 1 net 265101190
+L7M family 3 size 16384 op 3 net 1159508237
+L7M family 3 size 16384 op 4 net 1151125680
+L7M family 3 size 16384 op 5 net 1151125766
+L7M family 3 size 16384 op 6 net 1592845419
+L7M family 3 size 16384 op 7 net 1229908575
+L7M family 3 size 16384 op 8 net 1460184592
+L7M family 3 size 16384 op 9 net 1624709050
+L7M family 3 size 16384 op 10 net 2585901272
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 10.84s
+
+exit=255

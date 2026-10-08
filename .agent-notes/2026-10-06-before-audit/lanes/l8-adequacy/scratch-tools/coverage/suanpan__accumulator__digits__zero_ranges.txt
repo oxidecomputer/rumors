@@ -1,0 +1,11 @@
+# coverage of crates/suanpan/src/accumulator/digits/zero_ranges.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 135/139; branch outcomes 37/40
+# never-executed lines:
+L   57  Ranges::Many(ranges) => {
+L   58  for (lo, hi) in ranges {
+L   59  map.entry(lo, hi);
+L   60  }
+# branches with an outcome never taken (outcome hit counts):
+B  141  [4936374, 0, 1425210, 3511164]  Ranges::One(lo, hi) if *lo < above && *hi >= above => {
+B  170  [0, 847421]  Ranges::One(old_lo, old_hi) if *old_lo == lo => *old_hi = hi,
+B  195  [0, 6790509]  Ranges::Many(ranges) if ranges.is_empty() => Some(Ranges::Empty),

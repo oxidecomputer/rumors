@@ -1,0 +1,2270 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:98:9: replace Count::limbs -> Limbs<'_> with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "Count::limbs",
+            "return_type": "-> Limbs<'_>",
+            "span": {
+              "start": {
+                "line": 78,
+                "column": 5
+              },
+              "end": {
+                "line": 101,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 98,
+              "column": 9
+            },
+            "end": {
+              "line": 100,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__count.rs_line_98_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_98_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 28.711010549,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:120:9: replace Count::checked_sub -> Option<Count> with Some(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "Count::checked_sub",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 103,
+                "column": 5
+              },
+              "end": {
+                "line": 121,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 120,
+              "column": 9
+            },
+            "end": {
+              "line": 120,
+              "column": 55
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_120_col_9_001.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_120_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 200.544302812,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.672369517,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:120:9: replace Count::checked_sub -> Option<Count> with None",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "Count::checked_sub",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 103,
+                "column": 5
+              },
+              "end": {
+                "line": 121,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 120,
+              "column": 9
+            },
+            "end": {
+              "line": 120,
+              "column": 55
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_120_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_120_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 205.505762875,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.569055893,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:120:15: replace >= with < in Count::checked_sub",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "Count::checked_sub",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 103,
+                "column": 5
+              },
+              "end": {
+                "line": 121,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 120,
+              "column": 15
+            },
+            "end": {
+              "line": 120,
+              "column": 17
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_120_col_15.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_120_col_15.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 205.837581852,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.420991651,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:120:45: replace - with + in Count::checked_sub",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "Count::checked_sub",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 103,
+                "column": 5
+              },
+              "end": {
+                "line": 121,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 120,
+              "column": 45
+            },
+            "end": {
+              "line": 120,
+              "column": 46
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_120_col_45.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_120_col_45.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 182.680061905,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.96772678,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:120:45: replace - with / in Count::checked_sub",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "Count::checked_sub",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 103,
+                "column": 5
+              },
+              "end": {
+                "line": 121,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 120,
+              "column": 45
+            },
+            "end": {
+              "line": 120,
+              "column": 46
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_120_col_45_001.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_120_col_45_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.290207697,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.166885952,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:139:9: replace Count::saturating_sub -> Count with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "Count::saturating_sub",
+            "return_type": "-> Count",
+            "span": {
+              "start": {
+                "line": 123,
+                "column": 5
+              },
+              "end": {
+                "line": 140,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 139,
+              "column": 9
+            },
+            "end": {
+              "line": 139,
+              "column": 53
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_139_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_139_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.236559815,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.322375644,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:168:9: replace CanonicalLimbs::push with ()",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "CanonicalLimbs::push",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 166,
+                "column": 5
+              },
+              "end": {
+                "line": 171,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 168,
+              "column": 9
+            },
+            "end": {
+              "line": 170,
+              "column": 32
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_168_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_168_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.388553776,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.2227461,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:169:32: replace >> with << in CanonicalLimbs::push",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "CanonicalLimbs::push",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 166,
+                "column": 5
+              },
+              "end": {
+                "line": 171,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 169,
+              "column": 32
+            },
+            "end": {
+              "line": 169,
+              "column": 34
+            }
+          },
+          "replacement": "<<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_169_col_32.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_169_col_32.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.934318092,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.867725796,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:175:9: replace CanonicalLimbs::finish -> Option<Count> with None",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "CanonicalLimbs::finish",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 173,
+                "column": 5
+              },
+              "end": {
+                "line": 176,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 175,
+              "column": 9
+            },
+            "end": {
+              "line": 175,
+              "column": 73
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_175_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_175_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.185080001,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.018397607,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:175:9: replace CanonicalLimbs::finish -> Option<Count> with Some(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "CanonicalLimbs::finish",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 173,
+                "column": 5
+              },
+              "end": {
+                "line": 176,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 175,
+              "column": 9
+            },
+            "end": {
+              "line": 175,
+              "column": 73
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_175_col_9_001.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_175_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.041350347,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.618249513,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:175:20: replace != with == in CanonicalLimbs::finish",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "CanonicalLimbs::finish",
+            "return_type": "-> Option<Count>",
+            "span": {
+              "start": {
+                "line": 173,
+                "column": 5
+              },
+              "end": {
+                "line": 176,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 175,
+              "column": 20
+            },
+            "end": {
+              "line": 175,
+              "column": 22
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_175_col_20.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_175_col_20.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.134481523,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.518527802,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:192:9: replace <impl Iterator for Limbs<'_>>::next -> Option<u64> with None",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::next",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 191,
+                "column": 5
+              },
+              "end": {
+                "line": 193,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 192,
+              "column": 9
+            },
+            "end": {
+              "line": 192,
+              "column": 26
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_192_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_192_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.439159669,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.675967039,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (0, None)",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::size_hint",
+            "return_type": "-> (usize, Option<usize>)",
+            "span": {
+              "start": {
+                "line": 195,
+                "column": 5
+              },
+              "end": {
+                "line": 197,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 196,
+              "column": 9
+            },
+            "end": {
+              "line": 196,
+              "column": 31
+            }
+          },
+          "replacement": "(0, None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_196_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_196_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.990128311,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.168664758,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(0))",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::size_hint",
+            "return_type": "-> (usize, Option<usize>)",
+            "span": {
+              "start": {
+                "line": 195,
+                "column": 5
+              },
+              "end": {
+                "line": 197,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 196,
+              "column": 9
+            },
+            "end": {
+              "line": 196,
+              "column": 31
+            }
+          },
+          "replacement": "(0, Some(0))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_196_col_9_001.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_196_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.040755933,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.029255806,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(1))",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::size_hint",
+            "return_type": "-> (usize, Option<usize>)",
+            "span": {
+              "start": {
+                "line": 195,
+                "column": 5
+              },
+              "end": {
+                "line": 197,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 196,
+              "column": 9
+            },
+            "end": {
+              "line": 196,
+              "column": 31
+            }
+          },
+          "replacement": "(0, Some(1))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_196_col_9_002.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_196_col_9_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.538757513,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.725461873,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (1, None)",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::size_hint",
+            "return_type": "-> (usize, Option<usize>)",
+            "span": {
+              "start": {
+                "line": 195,
+                "column": 5
+              },
+              "end": {
+                "line": 197,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 196,
+              "column": 9
+            },
+            "end": {
+              "line": 196,
+              "column": 31
+            }
+          },
+          "replacement": "(1, None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_196_col_9_003.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_196_col_9_003.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.346363437,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.473781008,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(0))",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::size_hint",
+            "return_type": "-> (usize, Option<usize>)",
+            "span": {
+              "start": {
+                "line": 195,
+                "column": 5
+              },
+              "end": {
+                "line": 197,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 196,
+              "column": 9
+            },
+            "end": {
+              "line": 196,
+              "column": 31
+            }
+          },
+          "replacement": "(1, Some(0))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_196_col_9_004.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_196_col_9_004.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.140869592,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.271439491,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(1))",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::size_hint",
+            "return_type": "-> (usize, Option<usize>)",
+            "span": {
+              "start": {
+                "line": 195,
+                "column": 5
+              },
+              "end": {
+                "line": 197,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 196,
+              "column": 9
+            },
+            "end": {
+              "line": 196,
+              "column": 31
+            }
+          },
+          "replacement": "(1, Some(1))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_196_col_9_005.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_196_col_9_005.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.994835141,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.321277747,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:248:9: replace <impl From<usize> for Count>::from -> Count with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl From<usize> for Count>::from",
+            "return_type": "-> Count",
+            "span": {
+              "start": {
+                "line": 247,
+                "column": 5
+              },
+              "end": {
+                "line": 249,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 248,
+              "column": 9
+            },
+            "end": {
+              "line": 248,
+              "column": 40
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_248_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_248_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.895429912,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.322290263,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:266:9: replace <impl fmt::Display for Count>::fmt -> fmt::Result with Ok(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl fmt::Display for Count>::fmt",
+            "return_type": "-> fmt::Result",
+            "span": {
+              "start": {
+                "line": 265,
+                "column": 5
+              },
+              "end": {
+                "line": 267,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 266,
+              "column": 9
+            },
+            "end": {
+              "line": 266,
+              "column": 38
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_266_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_266_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.947590764,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.372649967,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:288:9: replace <impl core::str::FromStr for Count>::from_str -> Result<Self, ParseValue> with Ok(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 288,
+              "column": 9
+            },
+            "end": {
+              "line": 296,
+              "column": 25
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_288_col_9.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_288_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.436556601,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.6220904879999996,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:291:13: replace || with && in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 291,
+              "column": 13
+            },
+            "end": {
+              "line": 291,
+              "column": 15
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_291_col_13.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_291_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.036662807,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.222254514,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:290:16: delete ! in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 290,
+              "column": 16
+            },
+            "end": {
+              "line": 290,
+              "column": 17
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_290_col_16.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_290_col_16.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 27.846146784,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.62650752,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:290:13: replace || with && in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 290,
+              "column": 13
+            },
+            "end": {
+              "line": 290,
+              "column": 15
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_290_col_13.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_290_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.53562087,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 32.14934058,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:291:33: replace && with || in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 291,
+              "column": 33
+            },
+            "end": {
+              "line": 291,
+              "column": 35
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_291_col_33.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_291_col_33.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 27.245523243,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.079437589,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:291:29: replace > with == in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 291,
+              "column": 29
+            },
+            "end": {
+              "line": 291,
+              "column": 30
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_291_col_29.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_291_col_29.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.298625656,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.772305231,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:291:29: replace > with < in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 291,
+              "column": 29
+            },
+            "end": {
+              "line": 291,
+              "column": 30
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_291_col_29_001.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_291_col_29_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.641735106,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.426019353,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:291:29: replace > with >= in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 291,
+              "column": 29
+            },
+            "end": {
+              "line": 291,
+              "column": 30
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_291_col_29_002.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_291_col_29_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.346215419,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.46915197,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:291:45: replace == with != in <impl core::str::FromStr for Count>::from_str",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl core::str::FromStr for Count>::from_str",
+            "return_type": "-> Result<Self, ParseValue>",
+            "span": {
+              "start": {
+                "line": 287,
+                "column": 5
+              },
+              "end": {
+                "line": 297,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 291,
+              "column": 45
+            },
+            "end": {
+              "line": 291,
+              "column": 47
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_291_col_45.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_291_col_45.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.039604708,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.171733118,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:192:9: replace <impl Iterator for Limbs<'_>>::next -> Option<u64> with Some(1)",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::next",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 191,
+                "column": 5
+              },
+              "end": {
+                "line": 193,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 192,
+              "column": 9
+            },
+            "end": {
+              "line": 192,
+              "column": 26
+            }
+          },
+          "replacement": "Some(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_192_col_9_002.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_192_col_9_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.986353361,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 278.461655606,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/count.rs:192:9: replace <impl Iterator for Limbs<'_>>::next -> Option<u64> with Some(0)",
+          "package": "before",
+          "file": "crates/before/src/count.rs",
+          "function": {
+            "function_name": "<impl Iterator for Limbs<'_>>::next",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 191,
+                "column": 5
+              },
+              "end": {
+                "line": 193,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 192,
+              "column": 9
+            },
+            "end": {
+              "line": 192,
+              "column": 26
+            }
+          },
+          "replacement": "Some(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__count.rs_line_192_col_9_001.log",
+      "diff_path": "diff/crates__before__src__count.rs_line_192_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.240420222,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 289.381549038,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--test-threads",
+            "6"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 32,
+  "missed": 0,
+  "caught": 31,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-10-07T13:39:47.822627211Z",
+  "end_time": null,
+  "cargo_mutants_version": "27.1.0"
+}

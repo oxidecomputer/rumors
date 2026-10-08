@@ -1,0 +1,27 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: function `arb_cluster_points` is never used
+  --> crates/before/tests/audit_l1/gen.rs:32:8
+   |
+32 | pub fn arb_cluster_points() -> impl Strategy<Value = Vec<u128>> {
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+
+warning: `before` (test "audit_l1") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.47s
+────────────
+ Nextest run ID c0d90de3-5cb0-43ce-8a86-b850636df883 with nextest profile: default
+    Starting 1 test across 1 binary (19 tests skipped)
+        PASS [   0.735s] (1/1) before::audit_l1 deep::deep_identity_operations_are_iterative
+────────────
+     Summary [   0.736s] 1 test run: 1 passed, 19 skipped
+exit=0

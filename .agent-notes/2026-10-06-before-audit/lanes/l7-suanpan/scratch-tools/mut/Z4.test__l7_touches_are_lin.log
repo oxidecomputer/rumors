@@ -1,0 +1,59 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.36s
+────────────
+ Nextest run ID 25d4e4f2-1e35-4023-91e5-65bbbb2e6512 with nextest profile: default
+    Starting 2 tests across 2 binaries (70 tests skipped)
+        FAIL [  25.679s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+  stdout ───
+
+    running 1 test
+    test accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work ... FAILED
+
+    failures:
+
+    failures:
+        accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 70 filtered out; finished in 25.50s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l7-suanpan/crates/suanpan/proptest-regressions/accumulator/tests/explore_l7.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
+    cc f12cf55f11bf4816776e42d2f1201d3fad3da4cd9627d6ed28e60497b95da48f
+
+    thread 'accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work' (2) panicked at crates/suanpan/src/accumulator/tests/explore_l7.rs:776:5:
+    Test failed: touches 146 > 8 * work 4 + 64 at crates/suanpan/src/accumulator/tests/explore_l7.rs:790.
+    minimal failing input: ops = [
+        GapRound {
+            t: 0,
+            low: None,
+            inner: 2,
+            top: 143,
+        },
+    ]
+    successes: 6
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        SLOW [> 60.000s] (───) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+        PASS [  86.450s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+────────────
+     Summary [  86.520s] 2 tests run: 1 passed (1 slow), 1 failed, 70 skipped
+        FAIL [  25.679s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+error: test run failed

@@ -1,0 +1,6 @@
+M04-near-to-exact-off-by-one: exit=100 compile_error=False caught_by=['wide::forks_wide_counts'] ['Summary [   2.747s] 20 tests run: 19 passed, 1 failed, 0 skipped']
+M22-skip-recursive: exit=100 compile_error=False caught_by=['SIGABRT)', 'deep::deep_identity_operations_are_iterative'] ['Summary [   2.742s] 20 tests run: 19 passed, 1 failed, 0 skipped']
+M23-overlay-shallow-depth: exit=100 compile_error=False caught_by=['overlay::overlay_is_the_refinement'] ['Summary [   2.753s] 20 tests run: 19 passed, 1 failed, 0 skipped']
+M24-shares-ceil-floor-swapped: exit=100 compile_error=False caught_by=['array_split_matches_model', 'rule_respecting_histories', 'sync_all_matches_model'] ['Summary [   2.732s] 20 tests run: 17 passed, 3 failed, 0 skipped']
+git diff after revert: ' crates/before/tests/audit_l1/gen.rs  | 38 +++++++++++++++++++++++++++---------\n crates/before/tests/audit_l1/main.rs |  3 +++\n 2 files changed, 32 insertions(+), 9 deletions(-)\n'
+exit=0

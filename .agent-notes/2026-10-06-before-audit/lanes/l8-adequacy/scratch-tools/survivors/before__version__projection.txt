@@ -1,0 +1,4 @@
+# survivors of crates/before/src/version/projection.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/projection.rs:110:44: replace + with * in VersionWriter::project
+MISSED   crates/before/src/version/projection.rs:355:36: replace != with == in Comparison<'a>::others_deepest
+MISSED   crates/before/src/version/projection.rs:375:9: replace Comparison<'a>::block_skip with ()

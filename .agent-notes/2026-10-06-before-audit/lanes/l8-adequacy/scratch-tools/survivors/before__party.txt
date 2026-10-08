@@ -1,0 +1,2 @@
+# survivors of crates/before/src/party.rs (party); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/party.rs:150:9: replace <impl core::hash::Hash for Party>::hash with ()

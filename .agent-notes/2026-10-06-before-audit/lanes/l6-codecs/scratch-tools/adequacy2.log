@@ -1,0 +1,84 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 21s
+=== MUT 0 ===
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+────────────
+ Nextest run ID 9c61a3c8-57c7-4f4f-a0ec-b4596f45e097 with nextest profile: default
+    Starting 700 tests across 12 binaries (5 tests skipped)
+────────────
+     Summary [  27.424s] 700 tests run: 700 passed, 5 skipped
+=== END 0 exit=0 ===
+=== MUT 14 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+────────────
+ Nextest run ID c6479ab0-d4b7-42ec-bb98-8eec18988eaa with nextest profile: default
+    Starting 700 tests across 12 binaries (5 tests skipped)
+────────────
+     Summary [  32.937s] 700 tests run: 697 passed, 3 failed, 5 skipped
+        FAIL [   0.077s] ( 65/700) before borsh_impls::tests::span_borsh_rejects_collapsible_join
+        FAIL [   0.179s] (191/700) before span::tests::span_decode_rejects_each_malformed_input_class
+        FAIL [   1.495s] (266/700) before testing::l6_spec::l6_spec_span
+error: test run failed
+=== END 14 exit=100 ===
+=== MUT 15 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+────────────
+ Nextest run ID 3d69897f-dd39-4968-adec-87380ec8d01b with nextest profile: default
+    Starting 700 tests across 12 binaries (5 tests skipped)
+────────────
+     Summary [  29.913s] 700 tests run: 697 passed, 3 failed, 5 skipped
+        FAIL [   0.055s] ( 66/700) before borsh_impls::tests::span_borsh_rejects_collapsible_join
+        FAIL [   0.067s] (179/700) before span::tests::span_decode_rejects_each_malformed_input_class
+        FAIL [   0.579s] (251/700) before testing::l6_spec::l6_spec_span
+error: test run failed
+=== END 15 exit=100 ===
+=== MUT 16 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+────────────
+ Nextest run ID 7373d6de-c6fb-41b3-9bba-f0690bf68cd2 with nextest profile: default
+    Starting 700 tests across 12 binaries (5 tests skipped)
+────────────
+     Summary [  28.801s] 700 tests run: 683 passed, 17 failed, 5 skipped
+        FAIL [   0.088s] (184/700) before span::tests::span_decode_rejects_each_malformed_input_class
+        FAIL [   0.588s] (239/700) before testing::l6_spec::l6_spec_clock
+        FAIL [   0.421s] (245/700) before testing::l6_spec::l6_spec_version
+        FAIL [   0.817s] (256/700) before testing::l6_spec::l6_spec_span
+        FAIL [   1.865s] (278/700) before testing::l6_spec::l6_spec_ranked
+        FAIL [   0.072s] (388/700) before version::io::tests::exhaustive_single_bit_mutations_never_alias
+        FAIL [   0.079s] (395/700) before version::io::tests::planted_collapsible_pairs_are_rejected_at_every_leaf
+        FAIL [   0.059s] (396/700) before version::io::tests::rejects_non_root_collapsible_pair
+        FAIL [   0.062s] (399/700) before version::io::tests::rejects_zero_right_sibling_delta
+        FAIL [   0.202s] (404/700) before version::io::tests::arbitrary_single_bit_mutations_never_alias
+        FAIL [   1.007s] (491/700) before version::projection::tests::collapsible_sibling_pair_sweeps_without_panicking
+        FAIL [   0.386s] (595/700) before::amp_board_smoke board_runs_to_completion
+        FAIL [   0.318s] (597/700) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   0.365s] (603/700) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   0.736s] (611/700) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   0.407s] (612/700) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+        FAIL [   0.717s] (620/700) before::fuzz_seeds decode_seeds_decode_as_named_and_round_trip
+error: test run failed
+=== END 16 exit=100 ===
+=== MUT 17 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+────────────
+ Nextest run ID a7522fbe-fd49-4e3e-89fe-5ac05bb31c01 with nextest profile: default
+    Starting 700 tests across 12 binaries (5 tests skipped)
+────────────
+     Summary [  32.008s] 700 tests run: 689 passed, 11 failed, 5 skipped
+        FAIL [   0.082s] ( 42/700) before bits::tests::reject_deep_nested_denormal_id
+        FAIL [   0.077s] ( 43/700) before bits::tests::reject_noncanonical_id
+        FAIL [   0.084s] ( 61/700) before borsh_impls::tests::non_canonical_borsh_bytes_report_invalid_data
+        FAIL [   0.264s] (238/700) before testing::l6_spec::l6_spec_party
+        FAIL [   0.371s] (239/700) before testing::l6_spec::l6_spec_clock
+        FAIL [   0.092s] (577/700) before version::tick::tests::prescan_raise_shapes::full_sibling_of_full_child_is_undecodable
+        FAIL [   0.540s] (604/700) before::amp_board_smoke shard_protocol_round_trips
+        FAIL [   0.560s] (606/700) before::amp_board_smoke board_runs_to_completion
+        FAIL [   0.228s] (607/700) before::amp_board_smoke merge_refuses_a_silently_shrunk_grid_for_every_family
+        FAIL [   0.228s] (608/700) before::amp_board_smoke worst_map_covers_every_operation_row
+        FAIL [   0.634s] (609/700) before::amp_board_smoke retaining_results_does_not_allocate_measured_heap
+error: test run failed
+=== END 17 exit=100 ===
+exit=0

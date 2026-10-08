@@ -1,0 +1,33 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 58s
+────────────
+ Nextest run ID c69c2caa-b117-421a-9ca7-ac1c13a68622 with nextest profile: default
+    Starting 3 tests across 12 binaries (694 tests skipped)
+       START [         ] (1/3) before version::measure::explore_l4::l4_flat_oracle_agrees_with_tree_oracle
+
+running 1 test
+test version::measure::explore_l4::l4_flat_oracle_agrees_with_tree_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 606 filtered out; finished in 0.44s
+
+        PASS [   0.475s] (1/3) before version::measure::explore_l4::l4_flat_oracle_agrees_with_tree_oracle
+       START [         ] (2/3) before version::measure::explore_l4::l4_generator_coverage
+
+running 1 test
+cases 2000 froze 1678 deferred 842 multi-defer(>=3) 348 max_bits 2208
+test version::measure::explore_l4::l4_generator_coverage ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 606 filtered out; finished in 6.73s
+
+        PASS [   6.761s] (2/3) before version::measure::explore_l4::l4_generator_coverage
+       START [         ] (3/3) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+
+running 1 test
+test version::measure::explore_l4::l4_measures_agree_with_flat_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 606 filtered out; finished in 2.06s
+
+        PASS [   2.090s] (3/3) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+────────────
+     Summary [   9.330s] 3 tests run: 3 passed, 694 skipped

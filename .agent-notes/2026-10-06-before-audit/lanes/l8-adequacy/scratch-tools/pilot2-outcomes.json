@@ -1,0 +1,1943 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:105:9: replace Ranked<'a>::into_owned -> Ranked<'static> with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::into_owned",
+            "return_type": "-> Ranked<'static>",
+            "span": {
+              "start": {
+                "line": 86,
+                "column": 5
+              },
+              "end": {
+                "line": 108,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 105,
+              "column": 9
+            },
+            "end": {
+              "line": 107,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__ranked.rs_line_105_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_105_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 35.372379836,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:61:9: replace Ranked<'a>::version -> &Version with Box::leak(Box::new(Default::default()))",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::version",
+            "return_type": "-> &Version",
+            "span": {
+              "start": {
+                "line": 55,
+                "column": 5
+              },
+              "end": {
+                "line": 62,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 61,
+              "column": 9
+            },
+            "end": {
+              "line": 61,
+              "column": 22
+            }
+          },
+          "replacement": "Box::leak(Box::new(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_61_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_61_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 209.071395151,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.72470922,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:139:9: replace Ranked<'a>::encode -> Vec<u8> with vec![]",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode",
+            "return_type": "-> Vec<u8>",
+            "span": {
+              "start": {
+                "line": 110,
+                "column": 5
+              },
+              "end": {
+                "line": 142,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 139,
+              "column": 9
+            },
+            "end": {
+              "line": 141,
+              "column": 14
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_139_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_139_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 210.624491135,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.125016069,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:139:9: replace Ranked<'a>::encode -> Vec<u8> with vec![0]",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode",
+            "return_type": "-> Vec<u8>",
+            "span": {
+              "start": {
+                "line": 110,
+                "column": 5
+              },
+              "end": {
+                "line": 142,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 139,
+              "column": 9
+            },
+            "end": {
+              "line": 141,
+              "column": 14
+            }
+          },
+          "replacement": "vec![0]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_139_col_9_001.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_139_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 189.994802477,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.119895483,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:83:9: replace Ranked<'a>::rank -> Rank with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::rank",
+            "return_type": "-> Rank",
+            "span": {
+              "start": {
+                "line": 64,
+                "column": 5
+              },
+              "end": {
+                "line": 84,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 83,
+              "column": 9
+            },
+            "end": {
+              "line": 83,
+              "column": 28
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_83_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_83_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 224.750802279,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 15.73283712,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:172:9: replace Ranked<'a>::encode_to -> io::Result<()> with Ok(())",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode_to",
+            "return_type": "-> io::Result<()>",
+            "span": {
+              "start": {
+                "line": 144,
+                "column": 5
+              },
+              "end": {
+                "line": 174,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 172,
+              "column": 9
+            },
+            "end": {
+              "line": 173,
+              "column": 39
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_172_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_172_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 91.504184366,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.919353231,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:139:9: replace Ranked<'a>::encode -> Vec<u8> with vec![1]",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode",
+            "return_type": "-> Vec<u8>",
+            "span": {
+              "start": {
+                "line": 110,
+                "column": 5
+              },
+              "end": {
+                "line": 142,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 139,
+              "column": 9
+            },
+            "end": {
+              "line": 141,
+              "column": 14
+            }
+          },
+          "replacement": "vec![1]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_139_col_9_002.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_139_col_9_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 95.715194359,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.018889193,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:202:9: replace Ranked<'a>::encode_rank -> Vec<u8> with vec![]",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode_rank",
+            "return_type": "-> Vec<u8>",
+            "span": {
+              "start": {
+                "line": 176,
+                "column": 5
+              },
+              "end": {
+                "line": 203,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 202,
+              "column": 9
+            },
+            "end": {
+              "line": 202,
+              "column": 37
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_202_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_202_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 99.034262533,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.068601816,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:277:9: replace Ranked<'a>::decode -> Result<Ranked<'static>, Decode> with Ok(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::decode",
+            "return_type": "-> Result<Ranked<'static>, Decode>",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 5
+              },
+              "end": {
+                "line": 280,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 277,
+              "column": 9
+            },
+            "end": {
+              "line": 279,
+              "column": 39
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__ranked.rs_line_277_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_277_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.314956433,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:285:9: replace Ranked<'a>::decode_bytes -> Result<Ranked<'static>, Decode> with Ok(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::decode_bytes",
+            "return_type": "-> Result<Ranked<'static>, Decode>",
+            "span": {
+              "start": {
+                "line": 282,
+                "column": 5
+              },
+              "end": {
+                "line": 296,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 285,
+              "column": 9
+            },
+            "end": {
+              "line": 295,
+              "column": 34
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__ranked.rs_line_285_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_285_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.517974506,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:202:9: replace Ranked<'a>::encode_rank -> Vec<u8> with vec![0]",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode_rank",
+            "return_type": "-> Vec<u8>",
+            "span": {
+              "start": {
+                "line": 176,
+                "column": 5
+              },
+              "end": {
+                "line": 203,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 202,
+              "column": 9
+            },
+            "end": {
+              "line": 202,
+              "column": 37
+            }
+          },
+          "replacement": "vec![0]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_202_col_9_001.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_202_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 99.883251216,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.727625955,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:233:9: replace Ranked<'a>::encode_rank_to -> io::Result<()> with Ok(())",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode_rank_to",
+            "return_type": "-> io::Result<()>",
+            "span": {
+              "start": {
+                "line": 205,
+                "column": 5
+              },
+              "end": {
+                "line": 234,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 233,
+              "column": 9
+            },
+            "end": {
+              "line": 233,
+              "column": 46
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_233_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_233_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 94.840458395,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.319489533,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:202:9: replace Ranked<'a>::encode_rank -> Vec<u8> with vec![1]",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::encode_rank",
+            "return_type": "-> Vec<u8>",
+            "span": {
+              "start": {
+                "line": 176,
+                "column": 5
+              },
+              "end": {
+                "line": 203,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 202,
+              "column": 9
+            },
+            "end": {
+              "line": 202,
+              "column": 37
+            }
+          },
+          "replacement": "vec![1]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_202_col_9_002.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_202_col_9_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 98.650507874,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.223464399,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:302:9: replace <impl From<&'a Version> for Ranked<'a>>::from -> Ranked<'a> with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl From<&'a Version> for Ranked<'a>>::from",
+            "return_type": "-> Ranked<'a>",
+            "span": {
+              "start": {
+                "line": 301,
+                "column": 5
+              },
+              "end": {
+                "line": 305,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 302,
+              "column": 9
+            },
+            "end": {
+              "line": 304,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__ranked.rs_line_302_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_302_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.366692031,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:311:9: replace <impl From<Version> for Ranked<'static>>::from -> Ranked<'static> with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl From<Version> for Ranked<'static>>::from",
+            "return_type": "-> Ranked<'static>",
+            "span": {
+              "start": {
+                "line": 310,
+                "column": 5
+              },
+              "end": {
+                "line": 314,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 311,
+              "column": 9
+            },
+            "end": {
+              "line": 313,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__ranked.rs_line_311_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_311_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.31638623,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:288:22: replace += with -= in Ranked<'a>::decode_bytes",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::decode_bytes",
+            "return_type": "-> Result<Ranked<'static>, Decode>",
+            "span": {
+              "start": {
+                "line": 282,
+                "column": 5
+              },
+              "end": {
+                "line": 296,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 288,
+              "column": 22
+            },
+            "end": {
+              "line": 288,
+              "column": 24
+            }
+          },
+          "replacement": "-=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_288_col_22.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_288_col_22.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 100.182602032,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.419782991,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:288:22: replace += with *= in Ranked<'a>::decode_bytes",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::decode_bytes",
+            "return_type": "-> Result<Ranked<'static>, Decode>",
+            "span": {
+              "start": {
+                "line": 282,
+                "column": 5
+              },
+              "end": {
+                "line": 296,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 288,
+              "column": 22
+            },
+            "end": {
+              "line": 288,
+              "column": 24
+            }
+          },
+          "replacement": "*=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_288_col_22_001.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_288_col_22_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 104.788859414,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.270554443,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:292:12: delete ! in Ranked<'a>::decode_bytes",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "Ranked<'a>::decode_bytes",
+            "return_type": "-> Result<Ranked<'static>, Decode>",
+            "span": {
+              "start": {
+                "line": 282,
+                "column": 5
+              },
+              "end": {
+                "line": 296,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 292,
+              "column": 12
+            },
+            "end": {
+              "line": 292,
+              "column": 13
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_292_col_12.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_292_col_12.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 89.973994212,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 13.628884351,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:320:9: replace <impl From<Ranked<'_>> for Rank>::from -> Rank with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl From<Ranked<'_>> for Rank>::from",
+            "return_type": "-> Rank",
+            "span": {
+              "start": {
+                "line": 319,
+                "column": 5
+              },
+              "end": {
+                "line": 321,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 320,
+              "column": 9
+            },
+            "end": {
+              "line": 320,
+              "column": 22
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_320_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_320_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 93.506971934,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 19.891279931,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:337:9: replace <impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq -> bool with true",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 336,
+                "column": 5
+              },
+              "end": {
+                "line": 338,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 337,
+              "column": 9
+            },
+            "end": {
+              "line": 337,
+              "column": 42
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_337_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_337_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 94.234482,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 15.280459221,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:328:9: replace <impl core::fmt::Debug for Ranked<'_>>::fmt -> core::fmt::Result with Ok(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl core::fmt::Debug for Ranked<'_>>::fmt",
+            "return_type": "-> core::fmt::Result",
+            "span": {
+              "start": {
+                "line": 327,
+                "column": 5
+              },
+              "end": {
+                "line": 331,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 328,
+              "column": 9
+            },
+            "end": {
+              "line": 330,
+              "column": 22
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_328_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_328_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 94.391038627,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 81.549104345,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:372:9: replace <impl Ord for Ranked<'_>>::cmp -> Ordering with Default::default()",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl Ord for Ranked<'_>>::cmp",
+            "return_type": "-> Ordering",
+            "span": {
+              "start": {
+                "line": 368,
+                "column": 5
+              },
+              "end": {
+                "line": 378,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 372,
+              "column": 9
+            },
+            "end": {
+              "line": 377,
+              "column": 81
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__ranked.rs_line_372_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_372_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.266023996,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:337:9: replace <impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq -> bool with false",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 336,
+                "column": 5
+              },
+              "end": {
+                "line": 338,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 337,
+              "column": 9
+            },
+            "end": {
+              "line": 337,
+              "column": 42
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_337_col_9_001.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_337_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 102.616455746,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.621189361,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:337:24: replace == with != in <impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 336,
+                "column": 5
+              },
+              "end": {
+                "line": 338,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 337,
+              "column": 24
+            },
+            "end": {
+              "line": 337,
+              "column": 26
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_337_col_24.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_337_col_24.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 105.72060367,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 7.221689005,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:384:9: replace <impl PartialOrd<Ranked<'_>> for Ranked<'_>>::partial_cmp -> Option<Ordering> with Some(Default::default())",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl PartialOrd<Ranked<'_>> for Ranked<'_>>::partial_cmp",
+            "return_type": "-> Option<Ordering>",
+            "span": {
+              "start": {
+                "line": 383,
+                "column": 5
+              },
+              "end": {
+                "line": 385,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 384,
+              "column": 9
+            },
+            "end": {
+              "line": 384,
+              "column": 30
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__before__src__ranked.rs_line_384_col_9_001.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_384_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.266093541,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:348:9: replace <impl core::hash::Hash for Ranked<'_>>::hash with ()",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl core::hash::Hash for Ranked<'_>>::hash",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 347,
+                "column": 5
+              },
+              "end": {
+                "line": 349,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 348,
+              "column": 9
+            },
+            "end": {
+              "line": 348,
+              "column": 36
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_348_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_348_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 105.338809361,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 15.634042524,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:372:25: replace == with != in <impl Ord for Ranked<'_>>::cmp",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl Ord for Ranked<'_>>::cmp",
+            "return_type": "-> Ordering",
+            "span": {
+              "start": {
+                "line": 368,
+                "column": 5
+              },
+              "end": {
+                "line": 378,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 372,
+              "column": 25
+            },
+            "end": {
+              "line": 372,
+              "column": 27
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_372_col_25.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_372_col_25.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 96.572480617,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 6.720014988,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/before/src/ranked.rs:384:9: replace <impl PartialOrd<Ranked<'_>> for Ranked<'_>>::partial_cmp -> Option<Ordering> with None",
+          "package": "before",
+          "file": "crates/before/src/ranked.rs",
+          "function": {
+            "function_name": "<impl PartialOrd<Ranked<'_>> for Ranked<'_>>::partial_cmp",
+            "return_type": "-> Option<Ordering>",
+            "span": {
+              "start": {
+                "line": 383,
+                "column": 5
+              },
+              "end": {
+                "line": 385,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 384,
+              "column": 9
+            },
+            "end": {
+              "line": 384,
+              "column": 30
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__before__src__ranked.rs_line_384_col_9.log",
+      "diff_path": "diff/crates__before__src__ranked.rs_line_384_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 101.385386083,
+          "process_status": "Success",
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--no-run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 9.320979109,
+          "process_status": {
+            "Failure": 100
+          },
+          "argv": [
+            "/home/agent/.rustup/toolchains/1.97.1-x86_64-unknown-illumos/bin/cargo",
+            "nextest",
+            "run",
+            "--verbose",
+            "--package=before@0.1.0",
+            "--all-features",
+            "--lib",
+            "--test-threads",
+            "2"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 28,
+  "missed": 1,
+  "caught": 20,
+  "timeout": 0,
+  "unviable": 7,
+  "success": 0,
+  "start_time": "2026-10-07T13:52:46.5551019Z",
+  "end_time": "2026-10-07T14:05:15.522685976Z",
+  "cargo_mutants_version": "27.1.0"
+}

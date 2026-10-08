@@ -1,0 +1,206 @@
+diff --git a/crates/before/src/lib.rs b/crates/before/src/lib.rs
+index 01c37112..191ae608 100644
+--- a/crates/before/src/lib.rs
++++ b/crates/before/src/lib.rs
+@@ -430,6 +430,25 @@
+ #![cfg_attr(target_os = "illumos", allow(clippy::missing_const_for_thread_local))]
+ 
+ pub(crate) mod accumulator;
++
++/// Explore-branch calibration switch: whether mutation `k` is enabled.
++pub(crate) fn l3_mut(k: u32) -> bool {
++    #[cfg(test)]
++    {
++        static M: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
++        *M.get_or_init(|| {
++            std::env::var("L3_MUT")
++                .ok()
++                .and_then(|s| s.parse::<u32>().ok())
++                .unwrap_or(0)
++        }) == k
++    }
++    #[cfg(not(test))]
++    {
++        let _ = k;
++        false
++    }
++}
+ mod bits;
+ mod clock;
+ mod count;
+diff --git a/crates/before/src/version/measure/min_ticks/minima.rs b/crates/before/src/version/measure/min_ticks/minima.rs
+index 4b31b6c2..0e84f0a3 100644
+--- a/crates/before/src/version/measure/min_ticks/minima.rs
++++ b/crates/before/src/version/measure/min_ticks/minima.rs
+@@ -149,6 +149,7 @@ impl SubtreeMinima {
+         // Charge this subtree to the leaf that supplied its minimum before
+         // that contribution continues, settles, or is replaced.
+         match self.ranges.close() {
++            Close::Equal if crate::l3_mut(11) => {}
+             Close::Equal => {
+                 self.contributions.increment(
+                     self.current_contribution
+diff --git a/crates/before/src/version/tick.rs b/crates/before/src/version/tick.rs
+index af7c23dc..4256f7c2 100644
+--- a/crates/before/src/version/tick.rs
++++ b/crates/before/src/version/tick.rs
+@@ -82,7 +82,7 @@ impl StoredAccumulator {
+     fn new(value: Accumulator) -> Self {
+         // At most two held digits make exact conversion constant-width.
+         // A wider representation stays boxed even if its digits might cancel.
+-        if value.stored_digit_count() > 2 {
++        if value.stored_digit_count() > 2 || crate::l3_mut(9) {
+             return Self::Wide(Box::new(value));
+         }
+         match i64::try_from(value) {
+@@ -184,7 +184,11 @@ impl TickWalk<'_> {
+                 if n.bits() == 1 {
+                     return bits;
+                 }
+-                let remaining = n.clone() - &BigUint::from(1u8);
++                let remaining = if crate::l3_mut(13) {
++                    n.clone()
++                } else {
++                    n.clone() - &BigUint::from(1u8)
++                };
+                 let simplified = bits;
+                 match Self::decide(&simplified, party) {
+                     Decision::Raise(route) => route.apply(&simplified, party, &remaining),
+@@ -522,7 +526,10 @@ impl TickWalk<'_> {
+                     arm_offset += &link;
+                     drop(link);
+                 }
+-                if self.minima.compare_above_vs(above, &arm_offset) == Ordering::Less {
++                if self.minima.compare_above_vs(above, &arm_offset) == Ordering::Less
++                    || (crate::l3_mut(6)
++                        && self.minima.compare_above_vs(above, &arm_offset) == Ordering::Equal)
++                {
+                     // The memoized minimum dominates the old maximum.
+                     self.minima.arm_relative(arm_offset);
+                     self.emit_at_min(depth + 1);
+@@ -564,7 +571,7 @@ impl TickWalk<'_> {
+         }
+         let sign = relation.cmp_zero();
+         relation.sub_bigint(above);
+-        if sign == Ordering::Less {
++        if sign == Ordering::Less || (crate::l3_mut(3) && sign == Ordering::Equal) {
+             // The memoized minimum dominates the old maximum, so the new leaf
+             // necessarily differs from the consumed range.
+             let first = self.output.is_unstarted();
+@@ -615,7 +622,9 @@ impl TickWalk<'_> {
+         if !outermost {
+             // The new zero relation is against the true minimum, so make the
+             // anchor exact before storing it.
+-            self.minima.resolve_deferred();
++            if !crate::l3_mut(8) {
++                self.minima.resolve_deferred();
++            }
+             let zero = Accumulator::new();
+             self.minima.follower_set(REL_FOLLOWER, zero);
+             self.memo_reference = MemoReference::Min;
+@@ -865,3 +874,6 @@ impl TickWalk<'_> {
+ 
+ #[cfg(test)]
+ mod tests;
++
++#[cfg(test)]
++mod l3_probe;
+diff --git a/crates/before/src/version/tick/memo.rs b/crates/before/src/version/tick/memo.rs
+index a6e46275..45a5f3d9 100644
+--- a/crates/before/src/version/tick/memo.rs
++++ b/crates/before/src/version/tick/memo.rs
+@@ -62,7 +62,12 @@ impl Block {
+         if self.occupied & bit == 0 {
+             return None;
+         }
+-        let index = (self.occupied & (bit - 1)).count_ones() as usize;
++        let mask = if crate::l3_mut(10) {
++            bit.wrapping_shl(1).wrapping_sub(1) & !1
++        } else {
++            bit - 1
++        };
++        let index = ((self.occupied & mask).count_ones() as usize).min(self.values.len() - 1);
+         Some(core::mem::replace(
+             &mut self.values[index],
+             StoredAccumulator::Small(0),
+diff --git a/crates/before/src/version/tick/prescan.rs b/crates/before/src/version/tick/prescan.rs
+index 892feec0..c308a3e4 100644
+--- a/crates/before/src/version/tick/prescan.rs
++++ b/crates/before/src/version/tick/prescan.rs
+@@ -276,7 +276,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
+             if difference.cmp_zero() == Ordering::Equal {
+                 drop(difference);
+             } else {
+-                if level > 0 {
++                if level > 0 && !crate::l3_mut(5) {
+                     // Add this difference to latest_minimum - first_minimum.
+                     // Work follows the new difference's width, even if the sum
+                     // is wide. Level zero has no deferred first entry.
+@@ -325,7 +325,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
+                 .expect("a nested level records its first lookahead when suspended");
+             let mut link = Accumulator::new();
+             link += &chain_span;
+-            link = -link;
++            if !crate::l3_mut(4) {
++                link = -link;
++            }
+             self.memo.set_link(first_slot, StoredAccumulator::new(link));
+         }
+         // Restore the outer relation:
+@@ -389,7 +391,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
+             .take()
+             .expect("the entry net is retained until the first minimum");
+         if let Some(offset) = offset {
+-            relation.add_bigint(offset);
++            if !crate::l3_mut(14) {
++                relation.add_bigint(offset);
++            }
+         }
+         self.pending_relation = Some(relation);
+     }
+diff --git a/crates/before/src/version/tick/raise.rs b/crates/before/src/version/tick/raise.rs
+index ef219765..32f16e0f 100644
+--- a/crates/before/src/version/tick/raise.rs
++++ b/crates/before/src/version/tick/raise.rs
+@@ -313,7 +313,7 @@ impl<'v, 'p> Raise<'v, 'p> {
+         let mut selected_is_predecessor = true;
+         for level in (0..expansion_depth).rev() {
+             if target.expansion.choice(level) == BranchChoice::Left {
+-                if selected_is_predecessor {
++                if selected_is_predecessor && !crate::l3_mut(7) {
+                     self.output.decrease(self.depth + level + 1, ticks);
+                 } else {
+                     self.output.unchanged(self.depth + level + 1);
+@@ -329,7 +329,7 @@ impl<'v, 'p> Raise<'v, 'p> {
+         // The first following leaf needs `-ticks` only when the selected leaf
+         // remains its predecessor. Once one subtree is copied, every later
+         // boundary has its original predecessor and can be copied verbatim.
+-        let mut repair = if selected_is_predecessor {
++        let mut repair = if selected_is_predecessor && !crate::l3_mut(12) {
+             Repair::Minus(ticks)
+         } else {
+             Repair::None
+diff --git a/crates/before/src/version/tick/route.rs b/crates/before/src/version/tick/route.rs
+index 7f6534a2..6218f3fc 100644
+--- a/crates/before/src/version/tick/route.rs
++++ b/crates/before/src/version/tick/route.rs
+@@ -85,7 +85,9 @@ impl Distance {
+         right: Option<Distance>,
+     ) -> (BranchChoice, Option<Distance>) {
+         match (left, right) {
+-            (Some(left), Some(right)) if left < right => (BranchChoice::Left, Some(left)),
++            (Some(left), Some(right)) if left < right || (crate::l3_mut(2) && left == right) => {
++                (BranchChoice::Left, Some(left))
++            }
+             (Some(_), Some(right)) => (BranchChoice::Right, Some(right)),
+             (Some(left), None) => (BranchChoice::Left, Some(left)),
+             (None, right) => (BranchChoice::Right, right),
+@@ -176,7 +178,7 @@ impl Cost {
+ 
+     /// Select the cheaper child, choosing right on a tie.
+     pub fn prefer(left: Cost, right: Cost) -> (BranchChoice, Cost) {
+-        if left < right {
++        if left < right || (crate::l3_mut(1) && left == right) {
+             (BranchChoice::Left, left)
+         } else {
+             (BranchChoice::Right, right)

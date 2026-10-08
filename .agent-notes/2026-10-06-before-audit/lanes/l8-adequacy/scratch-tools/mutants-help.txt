@@ -1,0 +1,301 @@
+Find inadequately-tested code that can be removed without any tests failing.
+
+See <https://mutants.rs/> for more information.
+
+Usage: cargo mutants [OPTIONS] [-- <CARGO_TEST_ARGS>...]
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Build:
+      --cap-lints <CAP_LINTS>
+          Turn off all rustc lints, so that denied warnings won't make mutants unviable
+          
+          [possible values: true, false]
+
+      --profile <PROFILE>
+          Build with this cargo profile
+
+Config:
+      --config <FILE>
+          Read configuration from this file instead of .cargo/mutants.toml
+
+      --no-config
+          Don't read .cargo/mutants.toml
+
+Copying:
+      --copy-target <COPY_TARGET>
+          Copy the /target directory to build directories
+          
+          [possible values: true, false]
+
+      --copy-vcs <COPY_VCS>
+          Copy `.git` and other VCS directories to the build directory.
+          
+          This is useful if you have tests that depend on the presence of these directories.
+          
+          Known VCS directories are `.git`, `.hg`, `.bzr`, `.svn`, `_darcs`, `.pijul`.
+          
+          [alias: --copy_git]
+          [possible values: true, false]
+
+      --gitignore <GITIGNORE>
+          Don't copy files matching gitignore patterns
+          
+          [possible values: true, false]
+
+      --in-place
+          Test mutations in the source tree, rather than in a copy
+
+Debug:
+      --leak-dirs
+          Don't delete the scratch directories, for debugging
+
+  -L, --level <LEVEL>
+          Log level for stdout (trace, debug, info, warn, error)
+          
+          [env: CARGO_MUTANTS_TRACE_LEVEL=]
+          [default: info]
+
+      --Zmutate-file <FILE>
+          Mutate one Rust source file and list the mutants generated.
+          
+          The file need not be in a workspace, and the workspace manifest (if any) and configuration
+          are ignored.
+          
+          A configuration file can be specified with the `--config` option.
+          
+          This is intended for debugging and testing mutant generation.
+
+Execution:
+      --baseline <BASELINE>
+          Baseline strategy: check that tests pass in an unmutated tree before testing mutants
+
+          Possible values:
+          - run:  Run tests in an unmutated tree before testing mutants
+          - skip: Don't run tests in an unmutated tree: assume that they pass
+          
+          [default: run]
+
+      --build-timeout-multiplier <BUILD_TIMEOUT_MULTIPLIER>
+          Build timeout multiplier (relative to base build time)
+
+      --build-timeout <BUILD_TIMEOUT>
+          Maximum run time for cargo build command, in seconds
+
+  -C, --cargo-arg <CARGO_ARG>
+          Additional args for all cargo invocations
+
+      --cargo-test-arg <CARGO_TEST_ARG>
+          Additional args for cargo test
+
+      --check
+          Cargo check generated mutants, but don't run tests
+
+  -j, --jobs <JOBS>
+          Run this many cargo build/test jobs in parallel
+          
+          [env: CARGO_MUTANTS_JOBS=]
+
+      --jobserver <JOBSERVER>
+          Use a GNU Jobserver to cap concurrency between child processes
+          
+          [default: true]
+          [possible values: true, false]
+
+      --jobserver-tasks <JOBSERVER_TASKS>
+          Allow this many jobserver tasks in parallel, across all child processes.
+          
+          By default, NCPUS.
+
+      --list
+          Just list possible mutants, don't run them
+
+      --list-files
+          List source files, don't run anything
+
+      --minimum-test-timeout <MINIMUM_TEST_TIMEOUT>
+          Minimum timeout for tests, in seconds, as a lower bound on the auto-set time
+          
+          [env: CARGO_MUTANTS_MINIMUM_TEST_TIMEOUT=]
+
+      --no-shuffle
+          Run mutants in the fixed order they occur in the source tree.
+          
+          This is now the default behavior.
+
+      --shard <SHARD>
+          Run only one shard of all generated mutants: specify as e.g. 1/4
+
+      --shuffle
+          Run mutants in random order.
+          
+          Randomization occurs after sharding: each shard will run its assigned mutants in random
+          order.
+
+  -t, --timeout <TIMEOUT>
+          Maximum run time for all cargo commands, in seconds
+
+      --timeout-multiplier <TIMEOUT_MULTIPLIER>
+          Test timeout multiplier (relative to base test time)
+
+      --test-tool <TEST_TOOL>
+          Tool used to run test suites: cargo or nextest
+
+      --sharding <SHARDING>
+          Sharding method to use when running with --shards
+
+          Possible values:
+          - round-robin: Run mutant `i` on shard `i % k`
+          - slice:       Run consecutive ranges of mutants on each shard: the first `n/k` on shard
+            0, etc. (default)
+
+  [CARGO_TEST_ARGS]...
+          Pass remaining arguments to cargo test after all options and after `--`
+
+Features:
+      --features <FEATURES>
+          Space or comma separated list of features to activate
+
+      --no-default-features
+          Do not activate the `default` feature
+
+      --all-features
+          Activate all features
+
+Filters:
+  -F, --re <EXAMINE_RE>
+          Regex for mutations to examine, matched against the names shown by `--list`
+
+  -e, --exclude <EXCLUDE>
+          Glob for files to exclude; with no glob, all files are included; globs containing slash
+          match the entire path. If used together with `--file` argument, then the files to be
+          examined are matched before the files to be excluded
+
+  -E, --exclude-re <EXCLUDE_RE>
+          Regex for mutations to exclude, matched against the names shown by `--list`
+
+  -f, --file <FILE>
+          Glob for files to examine; with no glob, all files are examined; globs containing slash
+          match the entire path. If used together with `--exclude` argument, then the files to be
+          examined are matched before the files to be excluded
+
+  -D, --in-diff <IN_DIFF>
+          Include only mutants in code touched by this diff
+
+      --iterate
+          Skip mutants that were caught in previous runs
+
+  -p, --package <package>
+          Only test mutants from these packages
+
+      --skip-calls <SKIP_CALLS>
+          Skip calls to functions and methods named in this list.
+          
+          The list may contain comma-separated names and may be repeated.
+          
+          If a qualified path is given in the source then this matches only the final component, and
+          it ignores type parameters.
+          
+          This value is combined with the names from the config `skip_calls` key.
+
+      --skip-calls-defaults <SKIP_CALLS_DEFAULTS>
+          Use built-in defaults for `skip_calls`, in addition to any explicit values.
+          
+          The default is `with_capacity`.
+          
+          [possible values: true, false]
+
+      --workspace
+          Generate mutations in every package in the workspace
+
+Generate:
+      --error <ERROR>
+          Return this error values from functions returning Result: for example,
+          `::anyhow::anyhow!("mutated")`
+
+Input:
+  -d, --dir <DIR>
+          Rust crate directory to examine
+
+      --manifest-path <MANIFEST_PATH>
+          Path to Cargo.toml for the package to mutate
+
+Meta:
+      --completions <COMPLETIONS>
+          Generate autocompletions for the given shell
+          
+          [possible values: bash, elvish, fish, powershell, zsh]
+
+      --version
+          Show version and quit
+
+Output:
+      --all-logs
+          Show cargo output for all invocations (very verbose)
+
+      --annotations <ANNOTATIONS>
+          Emit annotations for code review tools
+
+          Possible values:
+          - none:   No annotations
+          - auto:   Auto detect from the execution environment
+          - github: GitHub annotations
+          
+          [default: auto]
+
+  -v, --caught
+          Print mutants that were caught by tests
+
+      --colors <COLORS>
+          Draw colors in output
+          
+          [env: CARGO_TERM_COLOR=]
+          [default: auto]
+          [possible values: auto, always, never]
+
+      --json
+          Output json (only for --list)
+
+      --line-col <LINE_COL>
+          Include line & column numbers in the mutation list
+          
+          [default: true]
+          [possible values: true, false]
+
+      --no-times
+          Don't print times or tree sizes, to make output deterministic
+
+  -o, --output <OUTPUT>
+          Create mutants.out within this directory
+          
+          [env: CARGO_MUTANTS_OUTPUT=]
+
+  -V, --unviable
+          Print mutations that failed to check or build
+
+      --diff
+          Emit diffs showing the mutations, within `--list`
+
+Tests:
+      --test-package <TEST_PACKAGE>
+          Run tests from these packages for all mutants
+
+      --test-workspace <TEST_WORKSPACE>
+          Run all tests in the workspace.
+          
+          If false, only the tests in the mutated package are run.
+          
+          Overrides `--test_package`.
+          
+          [possible values: true, false]
+
+Misc:
+      --emit-schema <EMIT_SCHEMA>
+          Emit a JSON schema for the specified format and exit
+
+          Possible values:
+          - config: Emit JSON schema for the configuration file format
+
+Support and accelerate cargo-mutants at <https://github.com/sponsors/sourcefrog>

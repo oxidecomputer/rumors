@@ -1,0 +1,2 @@
+# survivors of crates/before/src/version/measure/integral/pair.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/measure/integral/pair.rs:71:61: replace > with >= in Integrator::pair

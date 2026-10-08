@@ -1,0 +1,26 @@
+# survivors of crates/before/src/causally/polarity.rs (span); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/causally/polarity.rs:71:13: replace sealed::<impl Sealed for super::Down>::hole_subtracts -> bool with true
+MISSED   crates/before/src/causally/polarity.rs:71:13: replace sealed::<impl Sealed for super::Down>::hole_subtracts -> bool with false
+MISSED   crates/before/src/causally/polarity.rs:72:23: replace < with > in sealed::<impl Sealed for super::Down>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:72:23: replace < with <= in sealed::<impl Sealed for super::Down>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:72:23: replace < with == in sealed::<impl Sealed for super::Down>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:74:23: replace <= with > in sealed::<impl Sealed for super::Down>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:90:31: replace < with <= in sealed::<impl Sealed for super::Down>::hole_survives
+MISSED   crates/before/src/causally/polarity.rs:129:13: replace sealed::<impl Sealed for super::Up>::hole_subtracts -> bool with true
+MISSED   crates/before/src/causally/polarity.rs:129:13: replace sealed::<impl Sealed for super::Up>::hole_subtracts -> bool with false
+MISSED   crates/before/src/causally/polarity.rs:130:34: replace < with == in sealed::<impl Sealed for super::Up>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:130:34: replace < with > in sealed::<impl Sealed for super::Up>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:130:34: replace < with <= in sealed::<impl Sealed for super::Up>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:132:34: replace <= with > in sealed::<impl Sealed for super::Up>::hole_subtracts
+MISSED   crates/before/src/causally/polarity.rs:145:13: replace sealed::<impl Sealed for super::Up>::hole_survives -> bool with true
+MISSED   crates/before/src/causally/polarity.rs:148:42: replace < with <= in sealed::<impl Sealed for super::Up>::hole_survives
+MISSED   crates/before/src/causally/polarity.rs:159:13: replace sealed::<impl Sealed for super::Up>::absorbs -> bool with false
+MISSED   crates/before/src/causally/polarity.rs:161:52: replace || with && in sealed::<impl Sealed for super::Up>::absorbs
+MISSED   crates/before/src/causally/polarity.rs:183:13: replace sealed::<impl Sealed for super::Neutral>::hole_subtracts -> bool with true
+MISSED   crates/before/src/causally/polarity.rs:183:13: replace sealed::<impl Sealed for super::Neutral>::hole_subtracts -> bool with false
+MISSED   crates/before/src/causally/polarity.rs:190:13: replace sealed::<impl Sealed for super::Neutral>::covering_endpoint -> &'a Version with Box::leak(Box::new(Default::default()))
+MISSED   crates/before/src/causally/polarity.rs:198:13: replace sealed::<impl Sealed for super::Neutral>::hole_survives -> bool with true
+MISSED   crates/before/src/causally/polarity.rs:198:13: replace sealed::<impl Sealed for super::Neutral>::hole_survives -> bool with false
+MISSED   crates/before/src/causally/polarity.rs:202:13: replace sealed::<impl Sealed for super::Neutral>::absorbs -> bool with false
+MISSED   crates/before/src/causally/polarity.rs:206:13: replace sealed::<impl Sealed for super::Neutral>::hole_name -> &'static str with ""
+MISSED   crates/before/src/causally/polarity.rs:206:13: replace sealed::<impl Sealed for super::Neutral>::hole_name -> &'static str with "xyzzy"

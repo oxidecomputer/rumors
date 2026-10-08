@@ -1,0 +1,136 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.25
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling quote v1.0.47
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling thiserror v2.0.20
+   Compiling num-primitive v0.2.1
+   Compiling hex v0.4.3
+   Compiling bytes v1.12.1
+   Compiling static_assertions v1.1.0
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/protocol)
+   Compiling num-traits v0.2.19
+   Compiling dsi-bitstream v0.10.1
+   Compiling syn v3.0.6
+   Compiling num-integer v0.1.47
+   Compiling num-bigint v0.4.8
+   Compiling thiserror-impl v2.0.20
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+warning: function `l7_leaves` is never used
+   --> guest/src/l7_builders.rs:152:8
+    |
+152 | pub fn l7_leaves(family: u64, r: u64) -> u64 {
+    |        ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm32-pins-guest` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 30.42s
+
+running 2 tests
+L7 stability huge width (case 9): Passed
+test zz_l7_suanpan_stability_width_compacts ... ok
+test suanpan_rejects_unaddressable_digit_landings ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 38.04s
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.10s
+────────────
+ Nextest run ID aa5ab3d6-cd37-4f09-ac78-a45eca372735 with nextest profile: default
+    Starting 72 tests across 2 binaries (1 test skipped)
+        PASS [   0.119s] ( 1/72) suanpan accumulator::tests::differential::new_and_default_hold_zero
+        PASS [   0.106s] ( 2/72) suanpan accumulator::tests::differential::negative_limb_values_read_back_exactly
+        PASS [   0.123s] ( 3/72) suanpan accumulator::tests::differential::cancelling_prefix_chain_matches_the_oracle
+        PASS [   0.126s] ( 4/72) suanpan accumulator::tests::differential::boundary_comb_oscillation_matches_the_oracle
+        PASS [   0.125s] ( 5/72) suanpan accumulator::tests::differential::redundant_zero_reads_nonzero_until_collapsed
+        PASS [   0.127s] ( 6/72) suanpan accumulator::tests::differential::exact_cancellation_and_unit_nudges_read_correctly
+        PASS [   0.101s] ( 7/72) suanpan accumulator::tests::differential::u64_entry_points_cover_the_full_range
+        PASS [   0.110s] ( 8/72) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme
+        PASS [   0.095s] ( 9/72) suanpan accumulator::tests::metered::alternating_shifted_writes_cost_the_operand_not_the_gap
+        PASS [   0.168s] (10/72) suanpan accumulator::tests::differential::carry_tie_streams_match_the_oracle
+        PASS [   0.136s] (11/72) suanpan accumulator::tests::differential::wide_teeth_across_the_cliff_match_the_oracle
+        PASS [   0.086s] (12/72) suanpan accumulator::tests::metered::decision_bound_top_decides_on_the_first_touch
+        PASS [   0.151s] (13/72) suanpan accumulator::tests::explore_l7::metered::l7_probe_extreme_high_parts
+        PASS [   0.115s] (14/72) suanpan accumulator::tests::explore_l7::metered::l7_probe_repeated_comparison_cost
+        PASS [   0.089s] (15/72) suanpan accumulator::tests::metered::accumulator_operand_rows_cost_the_operand
+        PASS [   0.089s] (16/72) suanpan accumulator::tests::explore_l7::probes::l7_probe_stability_huge_width_compacts
+        PASS [   0.092s] (17/72) suanpan accumulator::tests::explore_l7::metered::l7_replay_touch_repro1
+        PASS [   0.073s] (18/72) suanpan accumulator::tests::metered::domination_reads_cost_one_touch_after_the_first
+        PASS [   0.073s] (19/72) suanpan accumulator::tests::metered::no_collapse_fold_re_scans_the_prefix
+        PASS [   0.083s] (20/72) suanpan accumulator::tests::metered::limb_writes_cost_the_operand_at_any_held_width
+        PASS [   0.083s] (21/72) suanpan accumulator::tests::metered::merge_tie_reads_the_operand
+        PASS [   0.083s] (22/72) suanpan accumulator::tests::metered::held_width_rows_cost_the_held_digits
+        PASS [   0.083s] (23/72) suanpan accumulator::tests::metered::limb_streams_select_word_or_wide_cost
+        PASS [   0.082s] (24/72) suanpan accumulator::tests::metered::scaled_read_costs_the_written_span
+        PASS [   0.077s] (25/72) suanpan accumulator::tests::metered::sign_query_skips_recorded_zero_ranges
+        PASS [   0.091s] (26/72) suanpan accumulator::tests::metered::scaled_read_costs_the_span_not_the_write_count
+        PASS [   0.094s] (27/72) suanpan accumulator::tests::primitives::bit_bounds_cover_requested_adjustments
+        PASS [   0.075s] (28/72) suanpan accumulator::tests::primitives::owned_arithmetic_reuses_storage_and_preserves_order
+        PASS [   0.095s] (29/72) suanpan accumulator::tests::metered::u64_comb_touches_are_flat_and_exact
+        PASS [   0.089s] (30/72) suanpan accumulator::tests::metered::top_settlement_steps_are_metered
+        PASS [   0.093s] (31/72) suanpan accumulator::tests::primitives::full_width_updates_match_the_oracle
+        PASS [   0.078s] (32/72) suanpan accumulator::tests::primitives::primitive_shift_counts_are_checked
+        PASS [   0.199s] (33/72) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history
+        PASS [   0.090s] (34/72) suanpan accumulator::tests::primitives::signed_16
+        PASS [   0.068s] (35/72) suanpan accumulator::tests::primitives::unsigned_16
+        PASS [   0.090s] (36/72) suanpan accumulator::tests::primitives::signed_64
+        PASS [   0.068s] (37/72) suanpan accumulator::tests::primitives::signed_8
+        PASS [   0.090s] (38/72) suanpan accumulator::tests::primitives::signed_32
+        PASS [   0.113s] (39/72) suanpan accumulator::tests::primitives::signed_128
+        PASS [   0.087s] (40/72) suanpan accumulator::tests::primitives::signed_pointer
+        PASS [   0.087s] (41/72) suanpan accumulator::tests::primitives::unsigned_128
+        PASS [   0.072s] (42/72) suanpan accumulator::tests::primitives::unsigned_32
+        PASS [   0.063s] (43/72) suanpan accumulator::tests::primitives::unsigned_pointer
+        PASS [   0.080s] (44/72) suanpan accumulator::tests::primitives::unsigned_64
+        PASS [   0.095s] (45/72) suanpan accumulator::tests::primitives::unsigned_8
+        PASS [   0.068s] (46/72) suanpan accumulator::tests::witnesses::comparison_compaction_lowers_the_scaled_read_shift
+        PASS [   0.068s] (47/72) suanpan accumulator::tests::witnesses::comparison_threshold_survives_extreme_cancellation
+        PASS [   0.068s] (48/72) suanpan accumulator::tests::witnesses::comparison_compaction_tightens_the_stored_width
+        PASS [   0.066s] (49/72) suanpan accumulator::tests::witnesses::flush_right_carry_tie_converts_exactly
+        PASS [   0.057s] (50/72) suanpan accumulator::tests::witnesses::last_addressable_digit_is_accepted
+        PASS [   0.071s] (51/72) suanpan accumulator::tests::witnesses::first_unaddressable_digit_panics
+        PASS [   0.071s] (52/72) suanpan accumulator::tests::witnesses::limb_stream_selects_the_narrowest_representation
+        PASS [   0.344s] (53/72) suanpan accumulator::tests::differential::stored_width_stability_is_sound
+        PASS [   0.076s] (54/72) suanpan accumulator::tests::witnesses::maximum_adjustment_width_never_decides
+        PASS [   0.066s] (55/72) suanpan accumulator::tests::witnesses::normalized_limb_conversion_corners
+        PASS [   0.059s] (56/72) suanpan accumulator::tests::witnesses::small_value_can_decide_before_a_digit_scan_could
+        PASS [   0.057s] (57/72) suanpan accumulator::tests::witnesses::small_value_extremes_spill_exactly
+        PASS [   0.066s] (58/72) suanpan accumulator::tests::witnesses::reserve_digits_is_value_neutral
+        PASS [   0.068s] (59/72) suanpan accumulator::tests::witnesses::small_value_stability_threshold_is_tight_from_below
+        PASS [   0.074s] (60/72) suanpan accumulator::tests::witnesses::small_value_engages_and_retires
+        PASS [   0.057s] (61/72) suanpan accumulator::tests::witnesses::stability_answer_can_depend_on_representation
+        PASS [   0.060s] (62/72) suanpan::amortized_sequences sign_flip_oscillation_has_no_width_product
+        PASS [   0.069s] (63/72) suanpan accumulator::tests::witnesses::stability_needs_two_digits_of_clearance
+        PASS [   0.074s] (64/72) suanpan accumulator::tests::witnesses::stability_covers_extreme_accumulator_operands
+        PASS [   0.414s] (65/72) suanpan accumulator::tests::differential::word_width_stability_is_sound
+        PASS [   0.246s] (66/72) suanpan accumulator::tests::representation::representation_invariants_hold_on_run_forming_streams
+        PASS [   0.436s] (67/72) suanpan accumulator::tests::differential::two_sided_stability_converges_to_exact_comparison
+        PASS [   0.686s] (68/72) suanpan accumulator::tests::differential::pooled_reuse_after_reset_matches_the_oracle
+        PASS [   1.978s] (69/72) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+        PASS [   2.746s] (70/72) suanpan accumulator::tests::surface::complete_surface_matches_bigint
+        PASS [   5.821s] (71/72) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+        PASS [   6.882s] (72/72) suanpan accumulator::tests::representation::representation_invariants_hold_exhaustively
+────────────
+     Summary [   7.152s] 72 tests run: 72 passed, 1 skipped

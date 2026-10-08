@@ -1,0 +1,26 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.77s
+────────────
+ Nextest run ID 4e29bd38-5bbb-443b-941e-97024d5050a8 with nextest profile: high-count
+    Starting 18 tests across 1 binary (3 tests skipped)
+        PASS [   0.207s] ( 1/18) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.328s] ( 2/18) before::l2_probe deep_surfaces_are_stack_safe
+        PASS [  39.449s] ( 3/18) before::l2_probe par03
+        PASS [  40.858s] ( 4/18) before::l2_probe par09
+        PASS [  42.603s] ( 5/18) before::l2_probe par06
+        PASS [  42.713s] ( 6/18) before::l2_probe par15
+        PASS [  43.832s] ( 7/18) before::l2_probe par04
+        PASS [  44.143s] ( 8/18) before::l2_probe par12
+        PASS [  45.950s] ( 9/18) before::l2_probe par08
+        PASS [  46.361s] (10/18) before::l2_probe par10
+        PASS [  46.842s] (11/18) before::l2_probe par05
+        PASS [  47.494s] (12/18) before::l2_probe par11
+        PASS [  48.005s] (13/18) before::l2_probe par14
+        PASS [  48.428s] (14/18) before::l2_probe par13
+        PASS [  49.123s] (15/18) before::l2_probe par07
+        PASS [  51.231s] (16/18) before::l2_probe par00
+        PASS [  53.177s] (17/18) before::l2_probe par01
+        PASS [  54.913s] (18/18) before::l2_probe par02
+────────────
+     Summary [  54.915s] 18 tests run: 18 passed, 3 skipped

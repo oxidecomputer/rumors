@@ -1,0 +1,23 @@
+warning: ignoring --test-threads because --no-capture is specified
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/suanpan)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.54s
+────────────
+ Nextest run ID b9d9dcaa-53f9-4094-8899-3ec16b99c299 with nextest profile: default
+    Starting 1 test across 12 binaries (693 tests skipped)
+       START [         ] (1/1) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_stopping_boundary_is_flat_per_unit
+
+running 1 test
+MEASURED seam_stop: small=14196/8805B large=28361/17573B control_small=9741/8805B control_large=19469/17573B diff_small=4455 diff_large=8892
+MEASURED skyline_comb_seam_stop_touches: small=14196/8805 large=28361/17573 milli_per_byte=1612 -> 1613
+test version_scaling::minimum_boundaries::skyline_min_ticks_stopping_boundary_is_flat_per_unit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 59 filtered out; finished in 0.02s
+
+        PASS [   0.065s] (1/1) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_stopping_boundary_is_flat_per_unit
+────────────
+     Summary [   0.069s] 1 test run: 1 passed, 693 skipped
+58285ca5 done

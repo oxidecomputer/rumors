@@ -1,0 +1,1301 @@
+crates/before/src/version.rs:170:9: replace Version::from_canonical -> Self with Default::default()
+crates/before/src/version.rs:126:9: replace <impl core::fmt::Display for Version>::fmt -> core::fmt::Result with Ok(Default::default())
+crates/before/src/version.rs:220:9: replace Version::is_empty -> bool with false
+crates/before/src/version.rs:220:9: replace Version::is_empty -> bool with true
+crates/before/src/version.rs:147:9: replace <impl core::str::FromStr for Version>::from_str -> Result<Self, ParseValue> with Ok(Default::default())
+crates/before/src/version.rs:220:31: replace == with != in Version::is_empty
+crates/before/src/version.rs:249:9: replace Version::tick with ()
+crates/before/src/version.rs:279:9: replace Version::ticks with ()
+crates/before/src/version.rs:281:23: replace == with != in Version::ticks
+crates/before/src/version.rs:305:9: replace Version::concurrent -> bool with true
+crates/before/src/version.rs:305:9: replace Version::concurrent -> bool with false
+crates/before/src/version.rs:376:9: replace Version::rank -> Rank with Default::default()
+crates/before/src/version.rs:344:9: replace Version::min_ticks -> Count with Default::default()
+crates/before/src/version.rs:443:9: replace Version::distance -> Rank with Default::default()
+crates/before/src/version.rs:443:17: replace == with != in Version::distance
+crates/before/src/version.rs:478:9: replace Version::lag -> Rank with Default::default()
+crates/before/src/version.rs:478:17: replace == with != in Version::lag
+crates/before/src/version.rs:512:9: replace Version::join -> Version with Default::default()
+crates/before/src/version.rs:518:17: replace == with != in Version::join
+crates/before/src/version.rs:560:9: replace Version::join_all -> Version with Default::default()
+crates/before/src/version.rs:561:22: replace |= with &= in Version::join_all
+crates/before/src/version.rs:593:9: replace Version::meet -> Version with Default::default()
+crates/before/src/version.rs:599:17: replace == with != in Version::meet
+crates/before/src/version.rs:645:9: replace Version::meet_all -> Version with Default::default()
+crates/before/src/version.rs:646:22: replace &= with |= in Version::meet_all
+crates/before/src/version.rs:754:24: replace &= with |= in Version::span_all
+crates/before/src/version.rs:755:24: replace |= with &= in Version::span_all
+crates/before/src/version.rs:765:26: replace &= with |= in Version::span_all
+crates/before/src/version.rs:766:26: replace |= with &= in Version::span_all
+crates/before/src/version.rs:895:9: replace Version::balanced_fold -> Option<Version> with Some(Default::default())
+crates/before/src/version.rs:895:9: replace Version::balanced_fold -> Option<Version> with None
+crates/before/src/version.rs:941:9: replace Version::hull -> (Version, Version) with (Default::default(), Default::default())
+crates/before/src/version.rs:926:9: replace Version::with_items -> impl Iterator<Item = FoldInput<'_, I::Item>> with ::std::iter::empty()
+crates/before/src/version.rs:941:17: replace == with != in Version::hull
+crates/before/src/version.rs:991:9: replace Version::encode -> Vec<u8> with vec![]
+crates/before/src/version.rs:991:9: replace Version::encode -> Vec<u8> with vec![0]
+crates/before/src/version.rs:991:9: replace Version::encode -> Vec<u8> with vec![1]
+crates/before/src/version.rs:1038:9: replace Version::encode_rank -> Vec<u8> with vec![0]
+crates/before/src/version.rs:1038:9: replace Version::encode_rank -> Vec<u8> with vec![]
+crates/before/src/version.rs:1038:9: replace Version::encode_rank -> Vec<u8> with vec![1]
+crates/before/src/version.rs:1104:9: replace Version::decode -> Result<Self, Decode> with Ok(Default::default())
+crates/before/src/version.rs:1131:9: replace Version::encoded_bits -> u64 with 0
+crates/before/src/version.rs:1154:9: replace Version::as_bytes -> &[u8] with Vec::leak(Vec::new())
+crates/before/src/version.rs:1131:9: replace Version::encoded_bits -> u64 with 1
+crates/before/src/version.rs:1154:9: replace Version::as_bytes -> &[u8] with Vec::leak(vec![0])
+crates/before/src/version.rs:1154:9: replace Version::as_bytes -> &[u8] with Vec::leak(vec![1])
+crates/before/src/version.rs:1201:9: replace <impl Iterator for DedupRuns<I, F>>::next -> Option<I::Item> with None
+crates/before/src/version.rs:1245:9: replace FoldInput<'_, B>::version -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/version.rs:1256:9: replace <impl Borrow<Version> for FoldInput<'_, B>>::borrow -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/version.rs:1311:79: replace |= with &= in <impl Sum<Version> for Version>::sum
+crates/before/src/version.rs:1347:9: replace <impl FromIterator<Version> for Version>::from_iter -> Version with Default::default()
+crates/before/src/version.rs:1311:9: replace <impl Sum<Version> for Version>::sum -> Version with Default::default()
+crates/before/src/version.rs:1364:9: replace <impl FromIterator<&'a Version> for Version>::from_iter -> Version with Default::default()
+crates/before/src/version.rs:1329:9: replace <impl Sum<&'a Version> for Version>::sum -> Version with Default::default()
+crates/before/src/version.rs:1329:79: replace |= with &= in <impl Sum<&'a Version> for Version>::sum
+crates/before/src/version.rs:1371:9: replace <impl Debug for Version>::fmt -> core::fmt::Result with Ok(Default::default())
+crates/before/src/version.rs:1455:9: replace <impl BitOrAssign<&Version> for Version>::bitor_assign with ()
+crates/before/src/version.rs:1462:17: replace == with != in <impl BitOrAssign<&Version> for Version>::bitor_assign
+crates/before/src/version.rs:1475:9: replace <impl BitAndAssign<&Version> for Version>::bitand_assign with ()
+crates/before/src/version.rs:1614:9: replace <impl PartialEq<Version> for Version>::eq -> bool with true
+crates/before/src/version.rs:1482:17: replace == with != in <impl BitAndAssign<&Version> for Version>::bitand_assign
+crates/before/src/version.rs:1614:9: replace <impl PartialEq<Version> for Version>::eq -> bool with false
+crates/before/src/version.rs:1614:16: replace == with != in <impl PartialEq<Version> for Version>::eq
+crates/before/src/version.rs:1621:9: replace <impl PartialEq<&Version> for Version>::eq -> bool with true
+crates/before/src/version.rs:1621:9: replace <impl PartialEq<&Version> for Version>::eq -> bool with false
+crates/before/src/version.rs:1621:14: replace == with != in <impl PartialEq<&Version> for Version>::eq
+crates/before/src/version.rs:1628:9: replace <impl PartialEq<Version> for &Version>::eq -> bool with true
+crates/before/src/version.rs:1628:9: replace <impl PartialEq<Version> for &Version>::eq -> bool with false
+crates/before/src/version.rs:1628:15: replace == with != in <impl PartialEq<Version> for &Version>::eq
+crates/before/src/version.rs:1643:9: replace <impl PartialOrd<&Version> for Version>::le -> bool with true
+crates/before/src/version.rs:1635:9: replace <impl PartialOrd<&Version> for Version>::partial_cmp -> Option<Ordering> with None
+crates/before/src/version.rs:1639:9: replace <impl PartialOrd<&Version> for Version>::lt -> bool with true
+crates/before/src/version.rs:1639:9: replace <impl PartialOrd<&Version> for Version>::lt -> bool with false
+crates/before/src/version.rs:1643:9: replace <impl PartialOrd<&Version> for Version>::le -> bool with false
+crates/before/src/version.rs:1647:9: replace <impl PartialOrd<&Version> for Version>::gt -> bool with true
+crates/before/src/version.rs:1647:9: replace <impl PartialOrd<&Version> for Version>::gt -> bool with false
+crates/before/src/version.rs:1651:9: replace <impl PartialOrd<&Version> for Version>::ge -> bool with true
+crates/before/src/version.rs:1658:9: replace <impl PartialOrd<Version> for &Version>::partial_cmp -> Option<Ordering> with None
+crates/before/src/version.rs:1651:9: replace <impl PartialOrd<&Version> for Version>::ge -> bool with false
+crates/before/src/version.rs:1662:9: replace <impl PartialOrd<Version> for &Version>::lt -> bool with true
+crates/before/src/version.rs:1662:9: replace <impl PartialOrd<Version> for &Version>::lt -> bool with false
+crates/before/src/version.rs:1666:9: replace <impl PartialOrd<Version> for &Version>::le -> bool with false
+crates/before/src/version.rs:1666:9: replace <impl PartialOrd<Version> for &Version>::le -> bool with true
+crates/before/src/version.rs:1670:9: replace <impl PartialOrd<Version> for &Version>::gt -> bool with false
+crates/before/src/version.rs:1674:9: replace <impl PartialOrd<Version> for &Version>::ge -> bool with true
+crates/before/src/version.rs:1674:9: replace <impl PartialOrd<Version> for &Version>::ge -> bool with false
+crates/before/src/version.rs:1670:9: replace <impl PartialOrd<Version> for &Version>::gt -> bool with true
+crates/before/src/version/instrument.rs:18:5: replace bits -> crate::bits::BitsWriter with Default::default()
+crates/before/src/version/instrument.rs:12:5: replace validate -> Result<(), Decode> with Ok(())
+crates/before/src/version/instrument.rs:27:5: replace join -> Version with Default::default()
+crates/before/src/version/instrument.rs:39:5: replace causal_cmp -> Option<core::cmp::Ordering> with None
+crates/before/src/version/instrument.rs:45:5: replace equal -> bool with true
+crates/before/src/version/instrument.rs:45:5: replace equal -> bool with false
+crates/before/src/version/instrument.rs:69:5: replace densified_digits -> u64 with 0
+crates/before/src/version/instrument.rs:51:5: replace rank -> crate::Rank with Default::default()
+crates/before/src/version/instrument.rs:69:5: replace densified_digits -> u64 with 1
+crates/before/src/version/instrument.rs:75:5: replace reset_densified_digits with ()
+crates/before/src/version/io.rs:30:9: replace Version::decode_bytes -> Result<Self, crate::error::Decode> with Ok(Default::default())
+crates/before/src/version/io.rs:43:9: replace Version::stored_len -> u64 with 0
+crates/before/src/version/io.rs:43:9: replace Version::stored_len -> u64 with 1
+crates/before/src/version/io.rs:48:9: replace Version::ptr_eq -> bool with true
+crates/before/src/version/io.rs:48:9: replace Version::ptr_eq -> bool with false
+crates/before/src/version/io.rs:73:9: replace PayloadRange<'a>::len -> u64 with 0
+crates/before/src/version/io.rs:73:24: replace - with + in PayloadRange<'a>::len
+crates/before/src/version/io.rs:73:9: replace PayloadRange<'a>::len -> u64 with 1
+crates/before/src/version/io.rs:73:24: replace - with / in PayloadRange<'a>::len
+crates/before/src/version/lattice.rs:72:34: replace == with != in Side::switch_delta
+crates/before/src/version/io.rs:78:9: replace PayloadRange<'a>::decode_payload -> BigUint with Default::default()
+crates/before/src/version/lattice.rs:68:9: replace Side::switch_delta -> BigInt with Default::default()
+crates/before/src/version/lattice.rs:71:34: replace == with != in Side::switch_delta
+crates/before/src/version/lattice.rs:77:36: replace + with - in Side::switch_delta
+crates/before/src/version/lattice.rs:77:36: replace + with * in Side::switch_delta
+crates/before/src/version/lattice.rs:96:17: replace == with != in Side::write_delta
+crates/before/src/version/lattice.rs:92:9: replace Side::write_delta with ()
+crates/before/src/version/lattice.rs:266:33: replace && with || in Extreme::emit
+crates/before/src/version/lattice.rs:203:15: delete ! in Version::hull_bits
+crates/before/src/version/lattice.rs:203:33: replace && with || in Version::hull_bits
+crates/before/src/version/lattice.rs:236:9: replace Extreme::emit -> Version with Default::default()
+crates/before/src/version/lattice.rs:266:15: delete ! in Extreme::emit
+crates/before/src/version/order.rs:57:9: replace Version::causal_le -> bool with true
+crates/before/src/version/order.rs:40:9: replace Version::walk_eq -> bool with true
+crates/before/src/version/order.rs:57:9: replace Version::causal_le -> bool with false
+crates/before/src/version/order.rs:40:9: replace Version::walk_eq -> bool with false
+crates/before/src/version/order.rs:66:9: replace Version::causal_lt -> bool with true
+crates/before/src/version/order.rs:66:9: replace Version::causal_lt -> bool with false
+crates/before/src/version/order.rs:81:9: replace <impl PartialOrd<Version> for Version>::partial_cmp -> Option<Ordering> with None
+crates/before/src/version/order.rs:88:9: replace <impl PartialOrd<Version> for Version>::lt -> bool with true
+crates/before/src/version/order.rs:88:9: replace <impl PartialOrd<Version> for Version>::lt -> bool with false
+crates/before/src/version/order.rs:92:9: replace <impl PartialOrd<Version> for Version>::le -> bool with false
+crates/before/src/version/order.rs:92:9: replace <impl PartialOrd<Version> for Version>::le -> bool with true
+crates/before/src/version/order.rs:96:9: replace <impl PartialOrd<Version> for Version>::gt -> bool with true
+crates/before/src/version/order.rs:96:9: replace <impl PartialOrd<Version> for Version>::gt -> bool with false
+crates/before/src/version/order.rs:100:9: replace <impl PartialOrd<Version> for Version>::ge -> bool with true
+crates/before/src/version/order.rs:100:9: replace <impl PartialOrd<Version> for Version>::ge -> bool with false
+crates/before/src/version/order.rs:148:9: replace OrderState::relation -> Option<Ordering> with None
+crates/before/src/version/order.rs:130:9: replace OrderState::fold with ()
+crates/before/src/version/order.rs:158:9: replace OrderState::allows_le -> bool with true
+crates/before/src/version/order.rs:158:9: replace OrderState::allows_le -> bool with false
+crates/before/src/version/order.rs:168:9: replace OrderState::is_equal -> bool with true
+crates/before/src/version/order.rs:163:9: replace OrderState::allows_ge -> bool with false
+crates/before/src/version/order.rs:173:9: replace OrderState::is_concurrent -> bool with true
+crates/before/src/version/order.rs:163:9: replace OrderState::allows_ge -> bool with true
+crates/before/src/version/order.rs:173:9: replace OrderState::is_concurrent -> bool with false
+crates/before/src/version/order.rs:168:9: replace OrderState::is_equal -> bool with false
+crates/before/src/version/order.rs:178:9: replace OrderState::is_lt -> bool with true
+crates/before/src/version/order.rs:178:9: replace OrderState::is_lt -> bool with false
+crates/before/src/version/order.rs:168:14: replace == with != in OrderState::is_equal
+crates/before/src/version/order.rs:238:21: replace && with || in compare
+crates/before/src/version/overlay.rs:56:38: replace <= with > in advance
+crates/before/src/version/order.rs:173:14: replace == with != in OrderState::is_concurrent
+crates/before/src/version/overlay.rs:142:48: replace > with == in advance_set
+crates/before/src/version/order.rs:178:14: replace == with != in OrderState::is_lt
+crates/before/src/version/overlay.rs:70:38: replace <= with > in advance
+crates/before/src/version/overlay.rs:52:5: replace advance -> (Option<A::Crossing>, Option<B::Crossing>) with (None, None)
+crates/before/src/version/overlay.rs:149:17: replace != with == in advance_set
+crates/before/src/version/overlay.rs:142:48: replace > with < in advance_set
+crates/before/src/version/overlay.rs:162:9: replace <impl RegionReader for PartyRegionReader<'_>>::depth -> u64 with 0
+crates/before/src/version/overlay.rs:149:28: replace && with || in advance_set
+crates/before/src/version/overlay.rs:162:9: replace <impl RegionReader for PartyRegionReader<'_>>::depth -> u64 with 1
+crates/before/src/version/overlay.rs:166:9: replace <impl RegionReader for PartyRegionReader<'_>>::done -> bool with true
+crates/before/src/version/overlay.rs:149:47: replace >= with < in advance_set
+crates/before/src/version/overlay.rs:196:9: replace Side::fold with ()
+crates/before/src/version/overlay.rs:137:5: replace advance_set with ()
+crates/before/src/version/overlay.rs:166:9: replace <impl RegionReader for PartyRegionReader<'_>>::done -> bool with false
+crates/before/src/version/overlay.rs:170:9: replace <impl RegionReader for PartyRegionReader<'_>>::step -> (u64, ()) with (1, ())
+crates/before/src/version/overlay.rs:170:9: replace <impl RegionReader for PartyRegionReader<'_>>::step -> (u64, ()) with (0, ())
+crates/before/src/version/overlay.rs:216:5: replace advance_diff -> (Option<HeightChange>, Option<HeightChange>) with (None, None)
+crates/before/src/version/overlay.rs:216:5: replace advance_diff -> (Option<HeightChange>, Option<HeightChange>) with (None, Some(Default::default()))
+crates/before/src/version/overlay.rs:216:5: replace advance_diff -> (Option<HeightChange>, Option<HeightChange>) with (Some(Default::default()), None)
+crates/before/src/version/overlay.rs:216:5: replace advance_diff -> (Option<HeightChange>, Option<HeightChange>) with (Some(Default::default()), Some(Default::default()))
+crates/before/src/version/own.rs:122:9: replace OwnVersion<'_>::to_version -> Version with Default::default()
+crates/before/src/version/place.rs:100:9: replace BoundSide<'a>::read with ()
+crates/before/src/version/place.rs:105:9: replace BoundSide<'a>::relation -> Option<Ordering> with None
+crates/before/src/version/own.rs:151:9: replace <impl From<OwnVersion<'_>> for Version>::from -> Version with Default::default()
+crates/before/src/version/place.rs:111:9: replace BoundSide<'a>::step -> u64 with 0
+crates/before/src/version/place.rs:111:9: replace BoundSide<'a>::step -> u64 with 1
+crates/before/src/version/place.rs:135:12: delete ! in span::on_side
+crates/before/src/version/place.rs:284:5: replace contains -> bool with false
+crates/before/src/version/place.rs:365:13: replace && with || in walk
+crates/before/src/version/place.rs:284:5: replace contains -> bool with true
+crates/before/src/version/place.rs:364:13: replace && with || in walk
+crates/before/src/version/place.rs:399:9: replace Cursors<'_>::step_bound -> u64 with 0
+crates/before/src/version/place.rs:399:9: replace Cursors<'_>::step_bound -> u64 with 1
+crates/before/src/version/place.rs:412:9: replace <impl CursorSet for Cursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(0)
+crates/before/src/version/place.rs:412:9: replace <impl CursorSet for Cursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(1)
+crates/before/src/version/place.rs:412:9: replace <impl CursorSet for Cursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::empty()
+crates/before/src/version/place.rs:417:9: replace <impl CursorSet for Cursors<'_>>::depth -> u64 with 0
+crates/before/src/version/place.rs:417:9: replace <impl CursorSet for Cursors<'_>>::depth -> u64 with 1
+crates/before/src/version/place.rs:418:13: delete match arm Self::PROBE in <impl CursorSet for Cursors<'_>>::depth
+crates/before/src/version/place.rs:419:13: delete match arm Self::START in <impl CursorSet for Cursors<'_>>::depth
+crates/before/src/version/place.rs:420:13: delete match arm Self::END in <impl CursorSet for Cursors<'_>>::depth
+crates/before/src/version/place.rs:437:13: delete match arm Self::START in <impl CursorSet for Cursors<'_>>::step
+crates/before/src/version/place.rs:430:13: delete match arm Self::PROBE in <impl CursorSet for Cursors<'_>>::step
+crates/before/src/version/place.rs:429:9: replace <impl CursorSet for Cursors<'_>>::step -> u64 with 0
+crates/before/src/version/place.rs:438:13: delete match arm Self::END in <impl CursorSet for Cursors<'_>>::step
+crates/before/src/version/projection.rs:86:9: replace <impl Operand for Version>::comparison_parts -> (&Version, Option<&Party>) with (Box::leak(Box::new(Default::default())), None)
+crates/before/src/version/place.rs:429:9: replace <impl CursorSet for Cursors<'_>>::step -> u64 with 1
+crates/before/src/version/projection.rs:92:9: replace <impl Operand for OwnVersion<'_>>::comparison_parts -> (&Version, Option<&Party>) with (Box::leak(Box::new(Default::default())), None)
+crates/before/src/version/projection.rs:99:9: replace VersionWriter::project -> Version with Default::default()
+crates/before/src/version/projection.rs:115:15: delete ! in VersionWriter::project
+crates/before/src/version/projection.rs:110:44: replace + with - in VersionWriter::project
+crates/before/src/version/projection.rs:166:43: replace - with + in VersionWriter::project
+crates/before/src/version/projection.rs:131:35: replace && with || in VersionWriter::project
+crates/before/src/version/projection.rs:119:16: delete ! in VersionWriter::project
+crates/before/src/version/projection.rs:115:32: replace && with || in VersionWriter::project
+crates/before/src/version/projection.rs:166:43: replace - with / in VersionWriter::project
+crates/before/src/version/projection.rs:170:21: delete - in VersionWriter::project
+crates/before/src/version/projection.rs:122:29: replace <= with > in VersionWriter::project
+crates/before/src/version/projection.rs:216:9: replace Comparison<'a>::order -> Option<Ordering> with None
+crates/before/src/version/projection.rs:222:9: replace Comparison<'a>::equal -> bool with true
+crates/before/src/version/projection.rs:234:9: replace Comparison<'a>::le -> bool with true
+crates/before/src/version/projection.rs:222:9: replace Comparison<'a>::equal -> bool with false
+crates/before/src/version/projection.rs:234:9: replace Comparison<'a>::le -> bool with false
+crates/before/src/version/projection.rs:240:9: replace Comparison<'a>::lt -> bool with true
+crates/before/src/version/projection.rs:240:9: replace Comparison<'a>::lt -> bool with false
+crates/before/src/version/projection.rs:343:9: replace Comparison<'a>::done -> bool with false
+crates/before/src/version/projection.rs:343:9: replace Comparison<'a>::done -> bool with true
+crates/before/src/version/projection.rs:345:13: replace && with || in Comparison<'a>::done
+crates/before/src/version/projection.rs:346:13: replace && with || in Comparison<'a>::done
+crates/before/src/version/projection.rs:344:13: replace && with || in Comparison<'a>::done
+crates/before/src/version/projection.rs:378:17: replace && with || in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:377:58: delete ! in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:354:9: replace Comparison<'a>::others_deepest -> u64 with 0
+crates/before/src/version/projection.rs:354:9: replace Comparison<'a>::others_deepest -> u64 with 1
+crates/before/src/version/projection.rs:378:39: replace > with == in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:384:31: replace += with -= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:378:39: replace > with < in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:389:58: delete ! in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:382:27: replace += with -= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:394:27: replace -= with += in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:396:31: replace += with -= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:378:39: replace > with >= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:390:17: replace && with || in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:390:39: replace > with == in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:390:39: replace > with >= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:390:39: replace > with < in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:422:9: replace <impl CursorSet for Comparison<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::empty()
+crates/before/src/version/projection.rs:422:9: replace <impl CursorSet for Comparison<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(0)
+crates/before/src/version/projection.rs:422:9: replace <impl CursorSet for Comparison<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(1)
+crates/before/src/version/projection.rs:428:9: replace <impl CursorSet for Comparison<'_>>::depth -> u64 with 0
+crates/before/src/version/projection.rs:406:9: replace Comparison<'a>::advance with ()
+crates/before/src/version/projection.rs:428:9: replace <impl CursorSet for Comparison<'_>>::depth -> u64 with 1
+crates/before/src/version/projection.rs:429:13: delete match arm Self::A in <impl CursorSet for Comparison<'_>>::depth
+crates/before/src/version/projection.rs:430:13: delete match arm Self::A_PARTY in <impl CursorSet for Comparison<'_>>::depth
+crates/before/src/version/projection.rs:431:13: delete match arm Self::B in <impl CursorSet for Comparison<'_>>::depth
+crates/before/src/version/projection.rs:432:13: delete match arm Self::B_PARTY in <impl CursorSet for Comparison<'_>>::depth
+crates/before/src/version/projection.rs:455:13: delete match arm Self::A_PARTY in <impl CursorSet for Comparison<'_>>::step
+crates/before/src/version/projection.rs:472:13: delete match arm Self::B_PARTY in <impl CursorSet for Comparison<'_>>::step
+crates/before/src/version/projection.rs:445:13: delete match arm Self::A in <impl CursorSet for Comparison<'_>>::step
+crates/before/src/version/projection.rs:462:13: delete match arm Self::B in <impl CursorSet for Comparison<'_>>::step
+crates/before/src/version/range_minima.rs:125:9: replace RangeMinima<P>::armed -> bool with false
+crates/before/src/version/range_minima.rs:125:9: replace RangeMinima<P>::armed -> bool with true
+crates/before/src/version/projection.rs:444:9: replace <impl CursorSet for Comparison<'_>>::step -> u64 with 1
+crates/before/src/version/range_minima.rs:130:9: replace RangeMinima<P>::has_pending -> bool with true
+crates/before/src/version/range_minima.rs:125:20: replace > with >= in RangeMinima<P>::armed
+crates/before/src/version/projection.rs:444:9: replace <impl CursorSet for Comparison<'_>>::step -> u64 with 0
+crates/before/src/version/range_minima.rs:125:20: replace > with == in RangeMinima<P>::armed
+crates/before/src/version/range_minima.rs:130:22: replace > with < in RangeMinima<P>::has_pending
+crates/before/src/version/range_minima.rs:130:22: replace > with == in RangeMinima<P>::has_pending
+crates/before/src/version/range_minima.rs:125:20: replace > with < in RangeMinima<P>::armed
+crates/before/src/version/range_minima.rs:135:9: replace RangeMinima<P>::open with ()
+crates/before/src/version/range_minima.rs:135:22: replace += with *= in RangeMinima<P>::open
+crates/before/src/version/range_minima.rs:135:22: replace += with -= in RangeMinima<P>::open
+crates/before/src/version/range_minima.rs:143:9: replace RangeMinima<P>::fold_height with ()
+crates/before/src/version/range_minima.rs:172:12: delete ! in RangeMinima<P>::arm_at_height
+crates/before/src/version/range_minima.rs:175:48: replace - with + in RangeMinima<P>::arm_at_height
+crates/before/src/version/range_minima.rs:130:9: replace RangeMinima<P>::has_pending -> bool with false
+crates/before/src/version/range_minima.rs:175:48: replace - with / in RangeMinima<P>::arm_at_height
+crates/before/src/version/range_minima.rs:179:20: replace += with -= in RangeMinima<P>::arm_at_height
+crates/before/src/version/range_minima.rs:130:22: replace > with >= in RangeMinima<P>::has_pending
+crates/before/src/version/range_minima.rs:179:20: replace += with *= in RangeMinima<P>::arm_at_height
+crates/before/src/version/range_minima.rs:197:12: delete ! in RangeMinima<P>::arm_below
+crates/before/src/version/range_minima.rs:200:48: replace - with + in RangeMinima<P>::arm_below
+crates/before/src/version/range_minima.rs:200:48: replace - with / in RangeMinima<P>::arm_below
+crates/before/src/version/range_minima.rs:204:20: replace += with -= in RangeMinima<P>::arm_below
+crates/before/src/version/range_minima.rs:170:9: replace RangeMinima<P>::arm_at_height with ()
+crates/before/src/version/range_minima.rs:204:20: replace += with *= in RangeMinima<P>::arm_below
+crates/before/src/version/range_minima.rs:226:52: replace - with + in RangeMinima<P>::finish_arming
+crates/before/src/version/range_minima.rs:234:33: delete - in RangeMinima<P>::finish_arming
+crates/before/src/version/range_minima.rs:246:9: replace RangeMinima<P>::undercuts_here -> bool with true
+crates/before/src/version/range_minima.rs:154:9: replace RangeMinima<P>::fold_accumulator with ()
+crates/before/src/version/range_minima.rs:195:9: replace RangeMinima<P>::arm_below with ()
+crates/before/src/version/range_minima.rs:246:9: replace RangeMinima<P>::undercuts_here -> bool with false
+crates/before/src/version/range_minima.rs:246:38: replace == with != in RangeMinima<P>::undercuts_here
+crates/before/src/version/range_minima.rs:274:57: replace += with -= in RangeMinima<P>::propagate_drop
+crates/before/src/version/range_minima.rs:222:9: replace RangeMinima<P>::finish_arming with ()
+crates/before/src/version/range_minima.rs:274:57: replace += with *= in RangeMinima<P>::propagate_drop
+crates/before/src/version/range_minima.rs:226:52: replace - with / in RangeMinima<P>::finish_arming
+crates/before/src/version/range_minima.rs:278:42: replace += with -= in RangeMinima<P>::propagate_drop
+crates/before/src/version/range_minima.rs:287:42: replace += with -= in RangeMinima<P>::propagate_drop
+crates/before/src/version/range_minima.rs:287:42: replace += with *= in RangeMinima<P>::propagate_drop
+crates/before/src/version/range_minima.rs:307:20: replace -= with += in RangeMinima<P>::close
+crates/before/src/version/range_minima.rs:307:20: replace -= with /= in RangeMinima<P>::close
+crates/before/src/version/range_minima.rs:254:9: replace RangeMinima<P>::undercut with ()
+crates/before/src/version/range_minima.rs:308:12: delete ! in RangeMinima<P>::close
+crates/before/src/version/range_minima.rs:319:26: replace > with == in RangeMinima<P>::close
+crates/before/src/version/range_minima.rs:271:9: replace RangeMinima<P>::propagate_drop with ()
+crates/before/src/version/range_minima.rs:319:26: replace > with < in RangeMinima<P>::close
+crates/before/src/version/range_minima.rs:320:54: replace - with + in RangeMinima<P>::close
+crates/before/src/version/range_minima.rs:320:54: replace - with / in RangeMinima<P>::close
+crates/before/src/version/range_minima.rs:278:42: replace += with *= in RangeMinima<P>::propagate_drop
+crates/before/src/version/range_minima.rs:338:9: replace RangeMinima<P>::deferred_live -> bool with true
+crates/before/src/version/range_minima.rs:338:9: replace RangeMinima<P>::deferred_live -> bool with false
+crates/before/src/version/shape.rs:37:17: replace == with != in VersionWalk<'a>::rise
+crates/before/src/version/shape.rs:63:9: replace VersionWalk<'a>::take_rise -> Option<Rise> with None
+crates/before/src/version/range_minima.rs:333:9: replace RangeMinima<P>::resolve_deferred with ()
+crates/before/src/version/shape.rs:84:9: replace PartyWalk<'a>::owned -> bool with false
+crates/before/src/version/shape.rs:112:9: replace <impl Refine for VersionWalk<'_>>::depth -> u64 with 0
+crates/before/src/version/shape.rs:84:9: replace PartyWalk<'a>::owned -> bool with true
+crates/before/src/version/shape.rs:36:9: replace VersionWalk<'a>::rise -> Option<Rise> with None
+crates/before/src/version/shape.rs:112:9: replace <impl Refine for VersionWalk<'_>>::depth -> u64 with 1
+crates/before/src/version/shape.rs:116:9: replace <impl Refine for VersionWalk<'_>>::done -> bool with true
+crates/before/src/version/shape.rs:116:9: replace <impl Refine for VersionWalk<'_>>::done -> bool with false
+crates/before/src/version/shape.rs:128:9: replace <impl Refine for PartyWalk<'_>>::depth -> u64 with 0
+crates/before/src/version/shape.rs:128:9: replace <impl Refine for PartyWalk<'_>>::depth -> u64 with 1
+crates/before/src/version/shape.rs:132:9: replace <impl Refine for PartyWalk<'_>>::done -> bool with true
+crates/before/src/version/shape.rs:132:9: replace <impl Refine for PartyWalk<'_>>::done -> bool with false
+crates/before/src/version/shape.rs:143:9: replace <impl Refine for &mut T>::depth -> u64 with 0
+crates/before/src/version/shape.rs:143:9: replace <impl Refine for &mut T>::depth -> u64 with 1
+crates/before/src/version/shape.rs:147:9: replace <impl Refine for &mut T>::done -> bool with true
+crates/before/src/version/shape.rs:147:9: replace <impl Refine for &mut T>::done -> bool with false
+crates/before/src/version/shape.rs:120:9: replace <impl Refine for VersionWalk<'_>>::advance -> u64 with 0
+crates/before/src/version/shape.rs:120:9: replace <impl Refine for VersionWalk<'_>>::advance -> u64 with 1
+crates/before/src/version/shape.rs:136:9: replace <impl Refine for PartyWalk<'_>>::advance -> u64 with 0
+crates/before/src/version/shape.rs:136:9: replace <impl Refine for PartyWalk<'_>>::advance -> u64 with 1
+crates/before/src/version/shape.rs:174:48: replace > with == in advance_refinement
+crates/before/src/version/shape.rs:174:48: replace > with < in advance_refinement
+crates/before/src/version/shape.rs:167:5: replace advance_refinement -> bool with true
+crates/before/src/version/shape.rs:183:44: replace && with || in advance_refinement
+crates/before/src/version/shape.rs:183:17: replace != with == in advance_refinement
+crates/before/src/version/shape.rs:183:31: delete ! in advance_refinement
+crates/before/src/version/shape.rs:183:28: replace && with || in advance_refinement
+crates/before/src/version/shape.rs:183:60: replace >= with < in advance_refinement
+crates/before/src/version/tick.rs:96:9: replace StoredAccumulator::restore -> Accumulator with Default::default()
+crates/before/src/version/tick.rs:156:9: replace TickWalk<'_>::tick -> Version with Default::default()
+crates/before/src/version/tick.rs:179:9: replace TickWalk<'_>::ticks -> Version with Default::default()
+crates/before/src/version/shape.rs:151:9: replace <impl Refine for &mut T>::advance -> u64 with 0
+crates/before/src/version/tick.rs:179:21: replace == with != in TickWalk<'_>::ticks
+crates/before/src/version/shape.rs:151:9: replace <impl Refine for &mut T>::advance -> u64 with 1
+crates/before/src/version/tick.rs:184:29: replace == with != in TickWalk<'_>::ticks
+crates/before/src/version/tick.rs:187:43: replace - with + in TickWalk<'_>::ticks
+crates/before/src/version/tick.rs:187:43: replace - with / in TickWalk<'_>::ticks
+crates/before/src/version/tick.rs:304:42: replace - with + in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:304:42: replace - with / in TickWalk<'_>::walk
+crates/before/src/version/shape.rs:167:5: replace advance_refinement -> bool with false
+crates/before/src/version/tick.rs:305:37: replace == with != in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:319:44: replace && with || in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:327:24: delete ! in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:333:48: replace + with - in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:335:49: replace + with - in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:335:49: replace + with * in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:339:48: replace >= with < in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:365:27: replace += with -= in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:283:9: replace TickWalk<'_>::walk with ()
+crates/before/src/version/tick.rs:365:27: replace += with *= in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:374:23: replace += with -= in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:374:23: replace += with *= in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:394:23: replace -= with += in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:333:48: replace + with * in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:414:66: replace == with != in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:415:56: replace + with - in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:415:56: replace + with * in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:417:56: replace + with - in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:417:56: replace + with * in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:424:35: replace += with -= in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:424:35: replace += with *= in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:394:23: replace -= with /= in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:430:53: replace + with - in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:430:53: replace + with * in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:408:34: replace && with || in TickWalk<'_>::walk
+crates/before/src/version/tick.rs:448:9: replace TickWalk<'_>::pos -> u64 with 0
+crates/before/src/version/tick.rs:448:9: replace TickWalk<'_>::pos -> u64 with 1
+crates/before/src/version/tick.rs:460:9: replace TickWalk<'_>::consume_payload -> BigInt with Default::default()
+crates/before/src/version/tick.rs:465:12: delete ! in TickWalk<'_>::consume_payload
+crates/before/src/version/tick.rs:480:9: replace TickWalk<'_>::fold_block with ()
+crates/before/src/version/tick.rs:502:26: replace += with -= in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:502:26: replace += with *= in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:522:32: replace += with -= in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:520:30: delete - in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:525:69: replace == with != in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:492:9: replace TickWalk<'_>::consume_lookahead with ()
+crates/before/src/version/tick.rs:528:44: replace + with - in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:528:44: replace + with * in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:534:34: delete - in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:482:12: delete ! in TickWalk<'_>::fold_block
+crates/before/src/version/tick.rs:536:44: replace + with - in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:560:9: replace TickWalk<'_>::consume_h_anchored with ()
+crates/before/src/version/tick.rs:562:22: replace -= with += in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:567:17: replace == with != in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:576:26: replace += with -= in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:577:26: replace -= with += in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:581:42: replace + with - in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:581:42: replace + with * in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:589:40: replace + with - in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:589:40: replace + with * in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:595:36: replace + with - in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:536:44: replace + with * in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:595:36: replace + with * in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:607:9: replace TickWalk<'_>::pop_lookahead with ()
+crates/before/src/version/tick.rs:615:12: delete ! in TickWalk<'_>::pop_lookahead
+crates/before/src/version/tick.rs:641:9: replace TickWalk<'_>::emit_step with ()
+crates/before/src/version/tick.rs:669:9: replace TickWalk<'_>::emit_offset with ()
+crates/before/src/version/tick.rs:670:38: replace && with || in TickWalk<'_>::emit_offset
+crates/before/src/version/tick.rs:670:60: replace && with || in TickWalk<'_>::emit_offset
+crates/before/src/version/tick.rs:670:77: replace == with != in TickWalk<'_>::emit_offset
+crates/before/src/version/tick.rs:685:49: replace + with - in TickWalk<'_>::emit_offset
+crates/before/src/version/tick.rs:685:49: replace + with * in TickWalk<'_>::emit_offset
+crates/before/src/version/tick.rs:629:9: replace TickWalk<'_>::diverge with ()
+crates/before/src/version/tick.rs:765:29: replace >= with < in TickWalk<'_>::copy_subtree
+crates/before/src/version/tick.rs:782:30: replace + with - in TickWalk<'_>::copy_subtree
+crates/before/src/version/tick.rs:783:29: replace >= with < in TickWalk<'_>::copy_subtree
+crates/before/src/version/tick.rs:761:9: replace TickWalk<'_>::copy_subtree with ()
+crates/before/src/version/tick.rs:719:9: replace TickWalk<'_>::emit_at_min with ()
+crates/before/src/version/tick.rs:807:34: replace + with - in TickWalk<'_>::copy_subtree
+crates/before/src/version/tick.rs:765:34: replace && with || in TickWalk<'_>::copy_subtree
+crates/before/src/version/tick.rs:807:34: replace + with * in TickWalk<'_>::copy_subtree
+crates/before/src/version/tick.rs:782:30: replace + with * in TickWalk<'_>::copy_subtree
+crates/before/src/version/tick.rs:862:18: replace + with - in TickWalk<'_>::scan_min
+crates/before/src/version/tick.rs:822:9: replace TickWalk<'_>::scan_max_consuming -> BigInt with Default::default()
+crates/before/src/version/tick.rs:862:18: replace + with * in TickWalk<'_>::scan_min
+crates/before/src/version/tick.rs:859:9: replace TickWalk<'_>::scan_min -> BigInt with Default::default()
+crates/before/src/version/io/regions.rs:70:69: replace >> with << in PayloadKind::decode
+crates/before/src/version/io/regions.rs:72:59: replace >> with << in PayloadKind::decode
+crates/before/src/version/io/regions.rs:66:9: replace PayloadKind::decode -> BigInt with Default::default()
+crates/before/src/version/io/regions.rs:110:9: replace VersionRegionReader<'a>::max_depth -> u64 with 0
+crates/before/src/version/io/regions.rs:110:9: replace VersionRegionReader<'a>::max_depth -> u64 with 1
+crates/before/src/version/io/regions.rs:70:61: replace + with - in PayloadKind::decode
+crates/before/src/version/io/regions.rs:70:61: replace + with * in PayloadKind::decode
+crates/before/src/version/io/regions.rs:127:32: replace > with >= in VersionRegionReader<'a>::skip_deeper
+crates/before/src/version/io/regions.rs:127:9: replace VersionRegionReader<'a>::skip_deeper with ()
+crates/before/src/version/io/regions.rs:127:32: replace > with == in VersionRegionReader<'a>::skip_deeper
+crates/before/src/version/io/regions.rs:140:42: replace - with + in VersionRegionReader<'a>::descend
+crates/before/src/version/io/regions.rs:140:42: replace - with / in VersionRegionReader<'a>::descend
+crates/before/src/version/io/regions.rs:149:9: replace <impl RegionReader for VersionRegionReader<'_>>::depth -> u64 with 0
+crates/before/src/version/io/regions.rs:135:9: replace VersionRegionReader<'a>::descend -> BigUint with Default::default()
+crates/before/src/version/io/regions.rs:149:9: replace <impl RegionReader for VersionRegionReader<'_>>::depth -> u64 with 1
+crates/before/src/version/io/regions.rs:153:9: replace <impl RegionReader for VersionRegionReader<'_>>::done -> bool with false
+crates/before/src/version/io/regions.rs:153:9: replace <impl RegionReader for VersionRegionReader<'_>>::done -> bool with true
+crates/before/src/version/io/regions.rs:153:30: replace == with != in <impl RegionReader for VersionRegionReader<'_>>::done
+crates/before/src/version/io/regions.rs:127:32: replace > with < in VersionRegionReader<'a>::skip_deeper
+crates/before/src/version/io/regions.rs:223:9: replace VersionSubtreeReader::descend -> Option<u64> with None
+crates/before/src/version/io/regions.rs:223:9: replace VersionSubtreeReader::descend -> Option<u64> with Some(0)
+crates/before/src/version/io/regions.rs:223:9: replace VersionSubtreeReader::descend -> Option<u64> with Some(1)
+crates/before/src/version/io/regions.rs:277:12: delete ! in Extremum::fold
+crates/before/src/version/io/regions.rs:277:9: replace Extremum::fold with ()
+crates/before/src/version/io/regions.rs:290:37: replace == with != in Extremum::fold_armed
+crates/before/src/version/io/regions.rs:285:9: replace Extremum::fold_armed with ()
+crates/before/src/version/io/regions.rs:157:9: replace <impl RegionReader for VersionRegionReader<'_>>::step -> (u64, HeightChange) with (1, Default::default())
+crates/before/src/version/io/regions.rs:300:9: replace Extremum::into_offset -> Accumulator with Default::default()
+crates/before/src/version/io/regions.rs:317:9: replace VersionSubtreeReader::fold_remaining -> Option<(u64, u64)> with Some((1, 0))
+crates/before/src/version/io/regions.rs:334:51: replace - with + in VersionSubtreeReader::fold_remaining
+crates/before/src/version/io/regions.rs:157:9: replace <impl RegionReader for VersionRegionReader<'_>>::step -> (u64, HeightChange) with (0, Default::default())
+crates/before/src/version/io/regions.rs:317:9: replace VersionSubtreeReader::fold_remaining -> Option<(u64, u64)> with Some((0, 0))
+crates/before/src/version/io/regions.rs:317:9: replace VersionSubtreeReader::fold_remaining -> Option<(u64, u64)> with None
+crates/before/src/version/io/regions.rs:334:51: replace - with / in VersionSubtreeReader::fold_remaining
+crates/before/src/version/io/regions.rs:317:9: replace VersionSubtreeReader::fold_remaining -> Option<(u64, u64)> with Some((0, 1))
+crates/before/src/version/io/regions.rs:368:9: replace VersionSubtreeReader::summarize_remaining -> Option<RegionSkip> with None
+crates/before/src/version/io/regions.rs:317:9: replace VersionSubtreeReader::fold_remaining -> Option<(u64, u64)> with Some((1, 1))
+crates/before/src/version/io/regions.rs:345:9: replace VersionSubtreeReader::net_remaining -> Accumulator with Default::default()
+crates/before/src/version/io/tree.rs:50:9: replace VersionTreeReader<'a>::position -> u64 with 0
+crates/before/src/version/io/tree.rs:50:9: replace VersionTreeReader<'a>::position -> u64 with 1
+crates/before/src/version/io/splice.rs:32:9: replace VersionSpliceReader<'a>::leaf -> Option<PayloadRange<'a>> with None
+crates/before/src/version/io/splice.rs:58:9: replace VersionSpliceReader<'a>::position -> u64 with 1
+crates/before/src/version/io/splice.rs:58:9: replace VersionSpliceReader<'a>::position -> u64 with 0
+crates/before/src/version/io/tree.rs:55:9: replace VersionTreeReader<'a>::seek with ()
+crates/before/src/version/io/tree.rs:69:9: replace VersionTreeReader<'a>::descend_left -> u64 with 0
+crates/before/src/version/io/tree.rs:69:9: replace VersionTreeReader<'a>::descend_left -> u64 with 1
+crates/before/src/version/io/tree.rs:74:9: replace VersionTreeReader<'a>::payload -> BigUint with Default::default()
+crates/before/src/version/io/tree.rs:79:9: replace VersionTreeReader<'a>::skip_payload with ()
+crates/before/src/version/io/tree.rs:91:9: replace VersionTreeReader<'a>::source -> &'a Version with Box::leak(Box::new(Default::default()))
+crates/before/src/version/io/validate.rs:53:5: replace prefix -> Result<u64, Decode> with Ok(0)
+crates/before/src/version/io/validate.rs:38:5: replace whole -> Result<(), Decode> with Ok(())
+crates/before/src/version/io/validate.rs:53:5: replace prefix -> Result<u64, Decode> with Ok(1)
+crates/before/src/version/io/validate.rs:75:5: replace from_reader -> Result<(), Decode> with Ok(())
+crates/before/src/version/io/validate.rs:100:31: replace == with != in from_reader
+crates/before/src/version/io/validate.rs:39:26: replace != with == in whole
+crates/before/src/version/io/validate.rs:133:41: replace && with || in from_reader
+crates/before/src/version/io/validate.rs:133:30: replace && with || in from_reader
+crates/before/src/version/io/validate.rs:103:44: replace && with || in from_reader
+crates/before/src/version/io/writer.rs:79:48: replace - with +
+crates/before/src/version/io/validate.rs:103:29: replace == with != in from_reader
+crates/before/src/version/io/validate.rs:103:65: replace == with != in from_reader
+crates/before/src/version/io/writer.rs:79:48: replace - with /
+crates/before/src/version/io/writer.rs:113:9: replace Output::push_leaf with ()
+crates/before/src/version/io/writer.rs:105:9: replace Output::push_internal with ()
+crates/before/src/version/io/validate.rs:123:16: delete ! in from_reader
+crates/before/src/version/io/writer.rs:129:9: replace Output::payload -> &mut BitsWriter with Box::leak(Box::new(Default::default()))
+crates/before/src/version/io/writer.rs:121:9: replace Output::flush with ()
+crates/before/src/version/io/writer.rs:137:9: replace Output::collapse_direct with ()
+crates/before/src/version/io/writer.rs:139:68: replace - with + in Output::collapse_direct
+crates/before/src/version/io/writer.rs:139:68: replace - with / in Output::collapse_direct
+crates/before/src/version/io/writer.rs:140:80: replace - with / in Output::collapse_direct
+crates/before/src/version/io/writer.rs:140:80: replace - with + in Output::collapse_direct
+crates/before/src/version/io/writer.rs:147:58: replace - with + in Output::collapse_direct
+crates/before/src/version/io/writer.rs:147:58: replace - with / in Output::collapse_direct
+crates/before/src/version/io/writer.rs:155:21: replace > with == in Output::take_left
+crates/before/src/version/io/writer.rs:155:21: replace > with < in Output::take_left
+crates/before/src/version/io/writer.rs:168:39: replace - with + in Output::take_left
+crates/before/src/version/io/writer.rs:160:54: replace - with + in Output::take_left
+crates/before/src/version/io/writer.rs:160:54: replace - with / in Output::take_left
+crates/before/src/version/io/writer.rs:168:39: replace - with / in Output::take_left
+crates/before/src/version/io/writer.rs:170:36: replace - with + in Output::take_left
+crates/before/src/version/io/writer.rs:170:36: replace - with / in Output::take_left
+crates/before/src/version/io/writer.rs:177:48: replace - with + in Output::take_left
+crates/before/src/version/io/writer.rs:177:48: replace - with / in Output::take_left
+crates/before/src/version/io/writer.rs:180:58: replace - with + in Output::take_left
+crates/before/src/version/io/writer.rs:180:58: replace - with / in Output::take_left
+crates/before/src/version/io/writer.rs:199:9: replace Output::finish -> BitsWriter with Default::default()
+crates/before/src/version/io/writer.rs:191:9: replace Output::splice_continuation with ()
+crates/before/src/version/io/writer.rs:208:9: replace Output::ensure_split with ()
+crates/before/src/version/io/writer.rs:225:33: replace < with == in SplitOutput::from_interleaved
+crates/before/src/version/io/writer.rs:225:33: replace < with > in SplitOutput::from_interleaved
+crates/before/src/version/io/writer.rs:225:33: replace < with <= in SplitOutput::from_interleaved
+crates/before/src/version/io/writer.rs:247:9: replace SplitOutput::splice_continuation with ()
+crates/before/src/version/io/writer.rs:248:33: replace < with == in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:248:33: replace < with > in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:248:33: replace < with <= in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:255:34: replace > with < in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:275:9: replace SplitOutput::finish -> BitsWriter with Default::default()
+crates/before/src/version/io/writer.rs:280:42: replace < with == in SplitOutput::finish
+crates/before/src/version/io/writer.rs:280:42: replace < with > in SplitOutput::finish
+crates/before/src/version/io/writer.rs:318:9: replace PayloadWriter<'_>::write_gamma with ()
+crates/before/src/version/io/writer.rs:280:42: replace < with <= in SplitOutput::finish
+crates/before/src/version/io/writer.rs:318:30: replace + with - in PayloadWriter<'_>::write_gamma
+crates/before/src/version/io/writer.rs:318:30: replace + with * in PayloadWriter<'_>::write_gamma
+crates/before/src/version/io/writer.rs:319:41: replace - with + in PayloadWriter<'_>::write_gamma
+crates/before/src/version/io/writer.rs:319:41: replace - with / in PayloadWriter<'_>::write_gamma
+crates/before/src/version/io/writer.rs:325:9: replace PayloadWriter<'_>::write_change with ()
+crates/before/src/version/io/writer.rs:330:9: replace PayloadWriter<'_>::write_increase with ()
+crates/before/src/version/io/writer.rs:341:9: replace PayloadWriter<'_>::write_zigzag with ()
+crates/before/src/version/io/writer.rs:335:9: replace PayloadWriter<'_>::write_decrease with ()
+crates/before/src/version/io/writer.rs:344:28: replace != with == in PayloadWriter<'_>::write_zigzag
+crates/before/src/version/io/writer.rs:349:9: replace PayloadWriter<'_>::push_zeros with ()
+crates/before/src/version/io/writer.rs:349:19: replace >= with < in PayloadWriter<'_>::push_zeros
+crates/before/src/version/io/writer.rs:351:17: replace -= with /= in PayloadWriter<'_>::push_zeros
+crates/before/src/version/io/writer.rs:358:9: replace PayloadWriter<'_>::push_magnitude with ()
+crates/before/src/version/io/writer.rs:359:17: replace == with != in PayloadWriter<'_>::push_magnitude
+crates/before/src/version/io/writer.rs:364:58: replace + with - in PayloadWriter<'_>::push_magnitude
+crates/before/src/version/io/writer.rs:364:58: replace + with * in PayloadWriter<'_>::push_magnitude
+crates/before/src/version/io/writer.rs:364:35: replace % with / in PayloadWriter<'_>::push_magnitude
+crates/before/src/version/io/writer.rs:364:35: replace % with + in PayloadWriter<'_>::push_magnitude
+crates/before/src/version/io/writer.rs:364:30: replace - with + in PayloadWriter<'_>::push_magnitude
+crates/before/src/version/io/writer.rs:364:30: replace - with / in PayloadWriter<'_>::push_magnitude
+crates/before/src/version/io/writer.rs:373:9: replace PayloadWriter<'_>::splice with ()
+crates/before/src/version/io/writer.rs:380:23: replace - with + in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:380:23: replace - with / in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:381:26: replace == with != in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:381:31: replace && with || in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:381:67: replace <= with > in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:381:61: replace + with - in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:381:61: replace + with * in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:391:23: replace += with -= in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:396:9: replace PayloadWriter<'_>::push_bit with ()
+crates/before/src/version/io/writer.rs:401:9: replace PayloadWriter<'_>::push_bits with ()
+crates/before/src/version/io/writer.rs:351:17: replace -= with += in PayloadWriter<'_>::push_zeros
+crates/before/src/version/io/writer.rs:406:16: replace == with != in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:391:23: replace += with *= in PayloadWriter<'_>::splice
+crates/before/src/version/io/writer.rs:409:31: replace && with || in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:409:26: replace == with != in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:409:56: replace <= with > in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:409:50: replace + with - in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:409:50: replace + with * in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:410:48: replace | with & in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:411:29: replace += with -= in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:410:40: replace << with >> in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:411:29: replace += with *= in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:416:23: replace += with -= in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:416:23: replace += with *= in PayloadWriter<'_>::push_bits
+crates/before/src/version/io/writer.rs:421:9: replace PayloadWriter<'_>::spill with ()
+crates/before/src/version/io/writer.rs:421:26: replace != with == in PayloadWriter<'_>::spill
+crates/before/src/version/io/writer.rs:434:26: replace == with != in PayloadWriter<'_>::finish
+crates/before/src/version/io/writer.rs:434:9: replace PayloadWriter<'_>::finish with ()
+crates/before/src/version/io/writer.rs:500:9: replace VersionWriter::change with ()
+crates/before/src/version/io/writer.rs:495:9: replace VersionWriter::height with ()
+crates/before/src/version/io/writer.rs:505:9: replace VersionWriter::increase with ()
+crates/before/src/version/io/writer.rs:482:9: replace VersionWriter::payload with ()
+crates/before/src/version/io/writer.rs:515:9: replace VersionWriter::unchanged with ()
+crates/before/src/version/io/writer.rs:510:9: replace VersionWriter::decrease with ()
+crates/before/src/version/io/writer.rs:520:9: replace VersionWriter::copy_payload with ()
+crates/before/src/version/io/writer.rs:544:9: replace VersionWriter::copy_subtree_remainder with ()
+crates/before/src/version/io/writer.rs:557:45: replace - with + in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:557:45: replace - with / in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:557:29: replace - with + in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:571:62: replace + with * in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:571:62: replace + with - in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:586:31: replace > with == in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:586:31: replace > with < in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:586:31: replace > with >= in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:607:9: replace VersionWriter::finish -> Version with Default::default()
+crates/before/src/version/io/writer.rs:625:13: replace && with || in VersionWriter::accept_narrow
+crates/before/src/version/io/writer.rs:557:29: replace - with / in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:624:13: replace && with || in VersionWriter::accept_narrow
+crates/before/src/version/io/writer.rs:623:13: replace && with || in VersionWriter::accept_narrow
+crates/before/src/version/io/writer.rs:622:27: replace == with != in VersionWriter::accept_narrow
+crates/before/src/version/io/writer.rs:624:22: replace == with != in VersionWriter::accept_narrow
+crates/before/src/version/io/writer.rs:569:26: replace <= with > in VersionWriter::copy_subtree_remainder
+crates/before/src/version/io/writer.rs:625:33: replace == with != in VersionWriter::accept_narrow
+crates/before/src/version/io/writer.rs:642:9: replace VersionWriter::begin_wide with ()
+crates/before/src/version/io/writer.rs:622:9: replace VersionWriter::accept_narrow with ()
+crates/before/src/version/io/writer.rs:648:9: replace VersionWriter::begin_leaf with ()
+crates/before/src/version/io/writer.rs:662:35: replace += with -= in VersionWriter::begin_leaf
+crates/before/src/version/io/writer.rs:659:45: replace == with != in VersionWriter::begin_leaf
+crates/before/src/version/io/writer.rs:672:42: replace == with != in VersionWriter::begin_leaf
+crates/before/src/version/io/writer.rs:662:35: replace += with *= in VersionWriter::begin_leaf
+crates/before/src/version/io/writer.rs:687:9: replace VersionWriter::collapse with ()
+crates/before/src/version/io/writer.rs:689:13: replace && with || in VersionWriter::collapse
+crates/before/src/version/io/writer.rs:688:13: replace && with || in VersionWriter::collapse
+crates/before/src/version/io/writer.rs:687:62: replace == with != in VersionWriter::collapse
+crates/before/src/version/io/writer.rs:688:33: replace == with != in VersionWriter::collapse
+crates/before/src/version/io/writer.rs:689:38: replace == with != in VersionWriter::collapse
+crates/before/src/version/measure/integral.rs:171:9: replace Integrator::open_height with ()
+crates/before/src/version/io/writer.rs:700:9: replace VersionWriter::descend_to with ()
+crates/before/src/version/measure/distance.rs:13:9: replace Rank::distance_between -> Rank with Default::default()
+crates/before/src/version/measure/distance.rs:16:31: delete - in Rank::distance_between
+crates/before/src/version/measure/integral.rs:180:9: replace Integrator::open_difference with ()
+crates/before/src/version/measure/integral.rs:181:13: delete match arm 1 in Integrator::open_difference
+crates/before/src/version/measure/integral.rs:181:28: replace += with -= in Integrator::open_difference
+crates/before/src/version/measure/integral.rs:182:13: delete match arm -1 in Integrator::open_difference
+crates/before/src/version/measure/integral.rs:182:29: replace -= with += in Integrator::open_difference
+crates/before/src/version/measure/integral.rs:192:9: replace Integrator::interval with ()
+crates/before/src/version/measure/integral.rs:210:18: replace == with != in Integrator::jump
+crates/before/src/version/measure/integral.rs:192:12: delete ! in Integrator::interval
+crates/before/src/version/measure/integral.rs:210:9: replace Integrator::jump with ()
+crates/before/src/version/measure/integral.rs:220:42: replace == with != in Integrator::jump
+crates/before/src/version/measure/integral.rs:230:58: replace + with - in Integrator::boundary
+crates/before/src/version/measure/integral.rs:221:18: replace == with != in Integrator::jump
+crates/before/src/version/measure/integral.rs:230:43: replace > with < in Integrator::boundary
+crates/before/src/version/measure/integral.rs:230:9: replace Integrator::boundary with ()
+crates/before/src/version/measure/integral.rs:230:43: replace > with == in Integrator::boundary
+crates/before/src/version/measure/integral.rs:238:24: replace == with != in Integrator::freeze
+crates/before/src/version/measure/integral.rs:253:60: replace + with - in Integrator::freeze
+crates/before/src/version/measure/integral.rs:237:9: replace Integrator::freeze with ()
+crates/before/src/version/measure/integral.rs:256:21: replace += with -= in Integrator::freeze
+crates/before/src/version/measure/integral.rs:253:45: replace > with < in Integrator::freeze
+crates/before/src/version/measure/integral.rs:282:19: replace == with != in Integrator::close_segment
+crates/before/src/version/measure/integral.rs:253:45: replace > with == in Integrator::freeze
+crates/before/src/version/measure/integral.rs:269:9: replace Integrator::close_segment -> Option<BigInt> with None
+crates/before/src/version/measure/integral.rs:304:19: replace != with == in Integrator::finish_segment
+crates/before/src/version/measure/integral.rs:269:9: replace Integrator::close_segment -> Option<BigInt> with Some(Default::default())
+crates/before/src/version/measure/integral.rs:322:12: delete ! in Integrator::finish
+crates/before/src/version/measure/integral.rs:253:60: replace + with * in Integrator::freeze
+crates/before/src/version/measure/integral.rs:300:9: replace Integrator::finish_segment with ()
+crates/before/src/version/measure/lag.rs:15:31: delete - in Rank::lag_between
+crates/before/src/version/measure/integral.rs:317:12: delete ! in Integrator::finish
+crates/before/src/version/measure/min_ticks.rs:46:15: delete ! in Count::min_ticks_for
+crates/before/src/version/measure/lag.rs:14:9: replace Rank::lag_between -> Rank with Default::default()
+crates/before/src/version/measure/integral.rs:292:9: replace Integrator::defer_parked with ()
+crates/before/src/version/measure/min_ticks.rs:59:40: replace - with + in Count::min_ticks_for
+crates/before/src/version/measure/lag.rs:15:13: delete match arm Ordering::Less in Rank::lag_between
+crates/before/src/version/measure/min_ticks.rs:59:40: replace - with / in Count::min_ticks_for
+crates/before/src/version/measure/min_ticks.rs:29:9: replace Count::min_ticks_for -> Count with Default::default()
+crates/before/src/version/measure/min_ticks.rs:62:57: replace - with / in Count::min_ticks_for
+crates/before/src/version/measure/min_ticks.rs:69:17: replace > with == in Count::min_ticks_for
+crates/before/src/version/measure/min_ticks.rs:69:69: replace + with - in Count::min_ticks_for
+crates/before/src/version/measure/min_ticks.rs:69:17: replace > with < in Count::min_ticks_for
+crates/before/src/version/measure/rank.rs:15:9: replace Rank::of_version -> Rank with Default::default()
+crates/before/src/version/measure/min_ticks.rs:62:57: replace - with + in Count::min_ticks_for
+crates/before/src/version/place/filter.rs:151:25: replace > with == in HeightWidths::between
+crates/before/src/version/measure/rank.rs:24:41: replace - with / in Rank::of_version
+crates/before/src/version/measure/rank.rs:24:41: replace - with + in Rank::of_version
+crates/before/src/version/place/filter.rs:151:25: replace > with >= in HeightWidths::between
+crates/before/src/version/place/filter.rs:153:32: replace > with == in HeightWidths::between
+crates/before/src/version/place/filter.rs:153:32: replace > with < in HeightWidths::between
+crates/before/src/version/place/filter.rs:185:9: replace Comparison::fold with ()
+crates/before/src/version/place/filter.rs:151:25: replace > with < in HeightWidths::between
+crates/before/src/version/place/filter.rs:196:9: replace Comparison::relation -> Option<Ordering> with None
+crates/before/src/version/place/filter.rs:172:9: replace Comparison::read with ()
+crates/before/src/version/place/filter.rs:153:32: replace > with >= in HeightWidths::between
+crates/before/src/version/place/filter.rs:201:9: replace Comparison::absolute_height -> Accumulator with Default::default()
+crates/before/src/version/place/filter.rs:261:24: replace += with -= in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:262:24: replace -= with += in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:264:24: replace += with -= in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:265:24: replace -= with += in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:266:26: delete - in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:354:34: replace match guard !directions.allows_ge() with true in admits
+crates/before/src/version/place/filter.rs:354:34: replace match guard !directions.allows_ge() with false in admits
+crates/before/src/version/place/filter.rs:355:35: replace match guard !directions.allows_le() with false in admits
+crates/before/src/version/place/filter.rs:355:35: replace match guard !directions.allows_le() with true in admits
+crates/before/src/version/place/filter.rs:358:66: replace match guard !directions.allows_le() with true in admits
+crates/before/src/version/place/filter.rs:358:66: replace match guard !directions.allows_le() with false in admits
+crates/before/src/version/place/filter.rs:362:64: replace match guard !directions.allows_ge() with false in admits
+crates/before/src/version/place/filter.rs:362:64: replace match guard !directions.allows_ge() with true in admits
+crates/before/src/version/place/filter.rs:354:34: delete ! in admits
+crates/before/src/version/place/filter.rs:355:35: delete ! in admits
+crates/before/src/version/place/filter.rs:358:66: delete ! in admits
+crates/before/src/version/place/filter.rs:320:5: replace admits -> bool with true
+crates/before/src/version/place/filter.rs:320:5: replace admits -> bool with false
+crates/before/src/version/place/filter.rs:362:64: delete ! in admits
+crates/before/src/version/place/filter.rs:375:31: replace && with || in admits
+crates/before/src/version/place/filter.rs:389:65: replace != with == in admits
+crates/before/src/version/place/filter.rs:390:64: replace != with == in admits
+crates/before/src/version/place/filter.rs:371:17: replace == with != in admits
+crates/before/src/version/place/filter.rs:420:29: replace + with - in <impl CursorSet for MemberCursors<'_>>::priority
+crates/before/src/version/place/filter.rs:420:29: replace + with * in <impl CursorSet for MemberCursors<'_>>::priority
+crates/before/src/version/place/filter.rs:425:9: replace <impl CursorSet for MemberCursors<'_>>::depth -> u64 with 0
+crates/before/src/version/place/filter.rs:425:9: replace <impl CursorSet for MemberCursors<'_>>::depth -> u64 with 1
+crates/before/src/version/place/filter.rs:420:9: replace <impl CursorSet for MemberCursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::empty()
+crates/before/src/version/place/filter.rs:420:9: replace <impl CursorSet for MemberCursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(0)
+crates/before/src/version/place/filter.rs:420:9: replace <impl CursorSet for MemberCursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(1)
+crates/before/src/version/place/filter.rs:426:13: delete match arm Self::PROBE in <impl CursorSet for MemberCursors<'_>>::depth
+crates/before/src/version/place/filter.rs:427:34: replace - with + in <impl CursorSet for MemberCursors<'_>>::depth
+crates/before/src/version/place/filter.rs:442:13: delete match arm Self::PROBE in <impl CursorSet for MemberCursors<'_>>::step
+crates/before/src/version/place/filter.rs:452:44: replace - with + in <impl CursorSet for MemberCursors<'_>>::step
+crates/before/src/version/place/filter.rs:452:44: replace - with / in <impl CursorSet for MemberCursors<'_>>::step
+crates/before/src/version/place/filter.rs:547:24: delete ! in coverage
+crates/before/src/version/place/filter.rs:553:37: replace && with || in coverage
+crates/before/src/version/place/filter.rs:553:40: delete ! in coverage
+crates/before/src/version/place/filter.rs:427:34: replace - with / in <impl CursorSet for MemberCursors<'_>>::depth
+crates/before/src/version/place/filter.rs:561:24: delete ! in coverage
+crates/before/src/version/place/filter.rs:564:37: replace && with || in coverage
+crates/before/src/version/place/filter.rs:564:40: delete ! in coverage
+crates/before/src/version/place/filter.rs:585:40: delete ! in coverage
+crates/before/src/version/place/filter.rs:585:37: replace && with || in coverage
+crates/before/src/version/place/filter.rs:588:24: delete ! in coverage
+crates/before/src/version/place/filter.rs:593:37: replace && with || in coverage
+crates/before/src/version/place/filter.rs:593:40: delete ! in coverage
+crates/before/src/version/place/filter.rs:596:24: delete ! in coverage
+crates/before/src/version/place/filter.rs:601:30: replace && with || in coverage
+crates/before/src/version/place/filter.rs:601:16: delete ! in coverage
+crates/before/src/version/place/filter.rs:601:33: delete ! in coverage
+crates/before/src/version/place/filter.rs:609:17: replace == with != in coverage
+crates/before/src/version/place/filter.rs:441:9: replace <impl CursorSet for MemberCursors<'_>>::step -> u64 with 1
+crates/before/src/version/place/filter.rs:441:9: replace <impl CursorSet for MemberCursors<'_>>::step -> u64 with 0
+crates/before/src/version/place/filter.rs:625:40: replace || with && in coverage
+crates/before/src/version/place/filter.rs:627:13: replace && with || in coverage
+crates/before/src/version/place/filter.rs:625:26: delete ! in coverage
+crates/before/src/version/place/filter.rs:626:13: replace && with || in coverage
+crates/before/src/version/place/filter.rs:626:31: replace || with && in coverage
+crates/before/src/version/place/filter.rs:626:17: delete ! in coverage
+crates/before/src/version/place/filter.rs:678:49: replace == with != in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:680:48: replace == with != in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:689:35: replace || with && in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:692:35: replace || with && in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:694:38: delete ! in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:695:49: replace != with == in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:696:37: delete ! in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:697:48: replace != with == in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:699:27: replace &= with |= in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:718:29: replace + with - in <impl CursorSet for SpanCursors<'_>>::priority
+crates/before/src/version/place/filter.rs:718:29: replace + with * in <impl CursorSet for SpanCursors<'_>>::priority
+crates/before/src/version/place/filter.rs:723:9: replace <impl CursorSet for SpanCursors<'_>>::depth -> u64 with 0
+crates/before/src/version/place/filter.rs:718:9: replace <impl CursorSet for SpanCursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::empty()
+crates/before/src/version/place/filter.rs:718:9: replace <impl CursorSet for SpanCursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(0)
+crates/before/src/version/place/filter.rs:723:9: replace <impl CursorSet for SpanCursors<'_>>::depth -> u64 with 1
+crates/before/src/version/place/filter.rs:724:13: delete match arm Self::HI in <impl CursorSet for SpanCursors<'_>>::depth
+crates/before/src/version/place/filter.rs:731:13: delete match arm Self::LO in <impl CursorSet for SpanCursors<'_>>::depth
+crates/before/src/version/place/filter.rs:718:9: replace <impl CursorSet for SpanCursors<'_>>::priority -> impl Iterator<Item = usize>+Clone +'static with ::std::iter::once(1)
+crates/before/src/version/place/filter.rs:749:13: delete match arm Self::HI in <impl CursorSet for SpanCursors<'_>>::step
+crates/before/src/version/place/filter.rs:774:44: replace - with + in <impl CursorSet for SpanCursors<'_>>::step
+crates/before/src/version/place/filter.rs:738:34: replace - with + in <impl CursorSet for SpanCursors<'_>>::depth
+crates/before/src/version/place/filter.rs:738:34: replace - with / in <impl CursorSet for SpanCursors<'_>>::depth
+crates/before/src/version/place/filter.rs:774:44: replace - with / in <impl CursorSet for SpanCursors<'_>>::step
+crates/before/src/version/place/filter.rs:761:13: delete match arm Self::LO in <impl CursorSet for SpanCursors<'_>>::step
+crates/before/src/version/range_minima/anchor.rs:52:9: replace Anchor::initialize with ()
+crates/before/src/version/range_minima/anchor.rs:69:9: replace Anchor::fold_height with ()
+crates/before/src/version/range_minima/anchor.rs:79:9: replace Anchor::subtract_offset with ()
+crates/before/src/version/range_minima/anchor.rs:59:9: replace Anchor::clear with ()
+crates/before/src/version/place/filter.rs:748:9: replace <impl CursorSet for SpanCursors<'_>>::step -> u64 with 0
+crates/before/src/version/place/filter.rs:748:9: replace <impl CursorSet for SpanCursors<'_>>::step -> u64 with 1
+crates/before/src/version/range_minima/anchor.rs:84:9: replace Anchor::arm_at_height -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:74:9: replace Anchor::fold_accumulator with ()
+crates/before/src/version/range_minima/anchor.rs:91:9: replace Anchor::arm_below -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:74:18: replace += with -= in Anchor::fold_accumulator
+crates/before/src/version/range_minima/anchor.rs:92:16: replace -= with += in Anchor::arm_below
+crates/before/src/version/range_minima/anchor.rs:98:18: replace -= with += in Anchor::arm_relative
+crates/before/src/version/range_minima/anchor.rs:98:9: replace Anchor::arm_relative -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:108:9: replace Anchor::move_by -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:112:20: replace += with -= in Anchor::move_by
+crates/before/src/version/range_minima/anchor.rs:109:23: replace += with -= in Anchor::move_by
+crates/before/src/version/range_minima/anchor.rs:170:9: replace Anchor::undercut_here -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:127:17: replace != with == in Anchor::compare_height
+crates/before/src/version/range_minima/anchor.rs:171:20: delete - in Anchor::undercut_here
+crates/before/src/version/range_minima/anchor.rs:181:9: replace Anchor::undercut_offset -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:203:9: replace Anchor::lower_by -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:182:20: delete - in Anchor::undercut_offset
+crates/before/src/version/range_minima/anchor.rs:204:23: replace -= with += in Anchor::lower_by
+crates/before/src/version/range_minima/anchor.rs:192:9: replace Anchor::set_gap_below_offset with ()
+crates/before/src/version/range_minima/anchor.rs:232:9: replace Anchor::resolve with ()
+crates/before/src/version/range_minima/anchor.rs:217:9: replace Anchor::defer with ()
+crates/before/src/version/range_minima/anchor.rs:238:18: replace += with -= in Anchor::resolve
+crates/before/src/version/range_minima/anchor.rs:207:22: replace -= with += in Anchor::lower_by
+crates/before/src/version/range_minima/anchor.rs:236:23: replace -= with += in Anchor::resolve
+crates/before/src/version/range_minima/anchor.rs:243:9: replace Anchor::is_deferred -> bool with true
+crates/before/src/version/range_minima/anchor.rs:259:16: replace += with -= in Anchor::add_gap_to
+crates/before/src/version/range_minima/anchor.rs:264:9: replace Anchor::subtract_gap_from with ()
+crates/before/src/version/range_minima/anchor.rs:268:16: replace -= with += in Anchor::subtract_gap_from
+crates/before/src/version/range_minima/anchor.rs:248:9: replace Anchor::set_follower with ()
+crates/before/src/version/range_minima/anchor.rs:254:9: replace Anchor::take_follower -> Accumulator with Default::default()
+crates/before/src/version/range_minima/anchor.rs:243:9: replace Anchor::is_deferred -> bool with false
+crates/before/src/version/range_minima/anchor.rs:281:18: replace += with -= in Anchor::compare_offset_to
+crates/before/src/version/range_minima/anchor.rs:259:9: replace Anchor::add_gap_to with ()
+crates/before/src/version/range_minima/boundaries.rs:59:24: replace == with != in Boundaries<P>::is_empty
+crates/before/src/version/range_minima/anchor.rs:277:18: replace -= with += in Anchor::compare_offset_to
+crates/before/src/version/range_minima/boundaries.rs:64:9: replace Boundaries<P>::flush_zeros with ()
+crates/before/src/version/range_minima/boundaries.rs:59:9: replace Boundaries<P>::is_empty -> bool with false
+crates/before/src/version/range_minima/boundaries.rs:64:27: replace != with == in Boundaries<P>::flush_zeros
+crates/before/src/version/range_minima/boundaries.rs:90:9: replace Boundaries<P>::push_equal with ()
+crates/before/src/version/range_minima/boundaries.rs:90:24: replace += with -= in Boundaries<P>::push_equal
+crates/before/src/version/range_minima/boundaries.rs:59:52: replace == with != in Boundaries<P>::is_empty
+crates/before/src/version/range_minima/boundaries.rs:90:24: replace += with *= in Boundaries<P>::push_equal
+crates/before/src/version/range_minima/boundaries.rs:98:12: delete ! in Boundaries<P>::pop
+crates/before/src/version/range_minima/boundaries.rs:73:9: replace Boundaries<P>::push_positive with ()
+crates/before/src/version/range_minima/boundaries.rs:95:9: replace Boundaries<P>::pop -> Option<Entry<P>> with None
+crates/before/src/version/range_minima/boundary.rs:57:9: replace Boundary::into_accumulator -> Accumulator with Default::default()
+crates/before/src/version/range_minima/boundaries.rs:95:27: replace != with == in Boundaries<P>::pop
+crates/before/src/version/range_minima/boundary.rs:60:23: replace += with -= in Boundary::into_accumulator
+crates/before/src/version/range_minima/boundary.rs:70:43: replace += with -= in Boundary::add_to
+crates/before/src/version/range_minima/boundary.rs:46:44: replace > with == in Boundary::from_positive
+crates/before/src/version/range_minima/boundary.rs:46:44: replace > with < in Boundary::from_positive
+crates/before/src/version/range_minima/boundary.rs:71:43: replace += with -= in Boundary::add_to
+crates/before/src/version/range_minima/boundary.rs:69:9: replace Boundary::add_to with ()
+crates/before/src/version/range_minima/boundary.rs:85:18: replace -= with += in Boundary::lower_word
+crates/before/src/version/range_minima/boundary.rs:90:28: delete - in Boundary::lower_word
+crates/before/src/version/range_minima/boundary.rs:103:75: replace + with - in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:103:75: replace + with * in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:103:42: replace >= with < in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:113:75: replace + with - in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:124:18: replace -= with += in Boundary::lower_wide
+crates/before/src/version/range_minima/emission.rs:49:12: delete ! in RangeMinima<()>::emit_offset
+crates/before/src/version/range_minima/emission.rs:34:26: replace == with != in RangeMinima<()>::emit_offset
+crates/before/src/version/range_minima/boundary.rs:129:28: delete - in Boundary::lower_wide
+crates/before/src/version/range_minima/emission.rs:64:33: replace || with && in RangeMinima<()>::emit_when_gap_dominates
+crates/before/src/version/range_minima/emission.rs:34:9: replace RangeMinima<()>::emit_offset with ()
+crates/before/src/version/range_minima/emission.rs:19:9: replace RangeMinima<()>::emit_here with ()
+crates/before/src/version/range_minima/emission.rs:95:34: replace && with || in RangeMinima<()>::compare_above
+crates/before/src/version/range_minima/emission.rs:127:20: replace += with -= in RangeMinima<()>::arm_relative
+crates/before/src/version/range_minima/emission.rs:84:9: replace RangeMinima<()>::emit_below_accum with ()
+crates/before/src/version/range_minima/emission.rs:64:9: replace RangeMinima<()>::emit_when_gap_dominates -> bool with true
+crates/before/src/version/range_minima/emission.rs:127:20: replace += with *= in RangeMinima<()>::arm_relative
+crates/before/src/version/range_minima/emission.rs:120:9: replace RangeMinima<()>::arm_relative with ()
+crates/before/src/version/range_minima/emission.rs:95:12: delete ! in RangeMinima<()>::compare_above
+crates/before/src/version/range_minima/emission.rs:137:9: replace RangeMinima<()>::follower_set with ()
+crates/before/src/version/range_minima/emission.rs:146:9: replace RangeMinima<()>::follower_take -> Accumulator with Default::default()
+crates/before/src/version/range_minima/emission.rs:153:9: replace RangeMinima<()>::bridge_add_gap with ()
+crates/before/src/version/tick/frames.rs:30:9: replace Position::push with ()
+crates/before/src/version/range_minima/emission.rs:160:9: replace RangeMinima<()>::bridge_sub_gap with ()
+crates/before/src/version/tick/frames.rs:31:30: replace - with + in Position::push
+crates/before/src/version/tick/frames.rs:31:30: replace - with / in Position::push
+crates/before/src/version/tick/frames.rs:37:9: replace Position::pop -> u64 with 1
+crates/before/src/version/tick/frames.rs:37:9: replace Position::pop -> u64 with 0
+crates/before/src/version/tick/frames.rs:38:22: replace -= with /= in Position::pop
+crates/before/src/version/tick/frames.rs:38:22: replace -= with += in Position::pop
+crates/before/src/version/tick/frames.rs:75:9: replace Frames::len -> u64 with 0
+crates/before/src/version/tick/frames.rs:75:9: replace Frames::len -> u64 with 1
+crates/before/src/version/tick/frames.rs:80:9: replace Frames::top -> Option<Frame> with None
+crates/before/src/version/tick/frames.rs:92:9: replace Frames::aux_top -> bool with true
+crates/before/src/version/tick/frames.rs:92:9: replace Frames::aux_top -> bool with false
+crates/before/src/version/tick/frames.rs:99:9: replace Frames::push_node with ()
+crates/before/src/version/tick/frames.rs:107:9: replace Frames::push_lookahead with ()
+crates/before/src/version/tick/frames.rs:115:9: replace Frames::flip_to_await_right with ()
+crates/before/src/version/tick/frames.rs:127:9: replace Frames::pop_key -> u64 with 0
+crates/before/src/version/tick/frames.rs:127:9: replace Frames::pop_key -> u64 with 1
+crates/before/src/version/tick/frames.rs:135:9: replace Frames::pop_await_left -> u64 with 1
+crates/before/src/version/tick/frames.rs:135:9: replace Frames::pop_await_left -> u64 with 0
+crates/before/src/version/tick/frames.rs:147:9: replace Frames::pop_lookahead -> (u64, bool) with (0, true)
+crates/before/src/version/tick/memo.rs:46:9: replace Block::clear with ()
+crates/before/src/version/tick/memo.rs:54:36: replace & with | in Block::set
+crates/before/src/version/tick/frames.rs:147:9: replace Frames::pop_lookahead -> (u64, bool) with (1, true)
+crates/before/src/version/tick/frames.rs:147:9: replace Frames::pop_lookahead -> (u64, bool) with (0, false)
+crates/before/src/version/tick/frames.rs:147:9: replace Frames::pop_lookahead -> (u64, bool) with (1, false)
+crates/before/src/version/tick/memo.rs:54:36: replace & with ^ in Block::set
+crates/before/src/version/tick/memo.rs:52:9: replace Block::set with ()
+crates/before/src/version/tick/memo.rs:61:9: replace Block::take -> Option<StoredAccumulator> with None
+crates/before/src/version/tick/memo.rs:52:24: replace << with >> in Block::set
+crates/before/src/version/tick/memo.rs:62:32: replace == with != in Block::take
+crates/before/src/version/tick/memo.rs:62:26: replace & with | in Block::take
+crates/before/src/version/tick/memo.rs:54:43: replace - with / in Block::set
+crates/before/src/version/tick/memo.rs:54:43: replace - with + in Block::set
+crates/before/src/version/tick/memo.rs:62:26: replace & with ^ in Block::take
+crates/before/src/version/tick/memo.rs:65:36: replace & with | in Block::take
+crates/before/src/version/tick/memo.rs:56:23: replace |= with &= in Block::set
+crates/before/src/version/tick/memo.rs:65:36: replace & with ^ in Block::take
+crates/before/src/version/tick/memo.rs:65:43: replace - with + in Block::take
+crates/before/src/version/tick/memo.rs:65:43: replace - with / in Block::take
+crates/before/src/version/tick/memo.rs:115:9: replace Memo::len -> usize with 0
+crates/before/src/version/tick/memo.rs:61:24: replace << with >> in Block::take
+crates/before/src/version/tick/memo.rs:115:9: replace Memo::len -> usize with 1
+crates/before/src/version/tick/memo.rs:136:31: replace == with != in Memo::reserve
+crates/before/src/version/tick/memo.rs:139:18: replace += with -= in Memo::reserve
+crates/before/src/version/tick/memo.rs:135:9: replace Memo::reserve -> usize with 0
+crates/before/src/version/tick/memo.rs:139:18: replace += with *= in Memo::reserve
+crates/before/src/version/tick/memo.rs:135:9: replace Memo::reserve -> usize with 1
+crates/before/src/version/tick/memo.rs:146:26: replace / with % in Memo::set_link
+crates/before/src/version/tick/memo.rs:136:17: replace / with * in Memo::reserve
+crates/before/src/version/tick/memo.rs:146:50: replace % with / in Memo::set_link
+crates/before/src/version/tick/memo.rs:146:50: replace % with + in Memo::set_link
+crates/before/src/version/tick/memo.rs:152:26: replace / with % in Memo::take_link
+crates/before/src/version/tick/memo.rs:152:26: replace / with * in Memo::take_link
+crates/before/src/version/tick/memo.rs:145:9: replace Memo::set_link with ()
+crates/before/src/version/tick/memo.rs:152:51: replace % with / in Memo::take_link
+crates/before/src/version/tick/memo.rs:152:51: replace % with + in Memo::take_link
+crates/before/src/version/tick/output.rs:47:9: replace Output::is_verbatim -> bool with true
+crates/before/src/version/tick/output.rs:56:9: replace Output::is_unstarted -> bool with true
+crates/before/src/version/tick/output.rs:56:9: replace Output::is_unstarted -> bool with false
+crates/before/src/version/tick/memo.rs:146:26: replace / with * in Memo::set_link
+crates/before/src/version/tick/memo.rs:151:9: replace Memo::take_link -> Option<StoredAccumulator> with None
+crates/before/src/version/tick/output.rs:95:9: replace Output::change with ()
+crates/before/src/version/tick/output.rs:90:9: replace Output::height with ()
+crates/before/src/version/tick/output.rs:118:9: replace Output::copy_subtree_remainder with ()
+crates/before/src/version/tick/output.rs:150:33: replace < with == in Output::materialize
+crates/before/src/version/tick/output.rs:47:9: replace Output::is_verbatim -> bool with false
+crates/before/src/version/tick/output.rs:150:33: replace < with > in Output::materialize
+crates/before/src/version/tick/output.rs:150:33: replace < with <= in Output::materialize
+crates/before/src/version/tick/output.rs:64:9: replace Output::note_match -> bool with true
+crates/before/src/version/tick/output.rs:64:9: replace Output::note_match -> bool with false
+crates/before/src/version/tick/output.rs:142:9: replace Output::materialize with ()
+crates/before/src/version/tick/output.rs:168:9: replace Output::finish -> Option<Version> with None
+crates/before/src/version/tick/output.rs:168:9: replace Output::finish -> Option<Version> with Some(Default::default())
+crates/before/src/version/tick/prescan.rs:139:39: replace == with != in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:121:9: replace PreScan<'a, 'm>::run -> u64 with 0
+crates/before/src/version/tick/prescan.rs:121:9: replace PreScan<'a, 'm>::run -> u64 with 1
+crates/before/src/version/tick/prescan.rs:167:27: replace += with *= in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:151:44: replace && with || in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:157:24: delete ! in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:206:66: replace != with == in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:167:27: replace += with -= in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:233:9: replace PreScan<'a, 'm>::all_levels_resolved -> bool with false
+crates/before/src/version/tick/prescan.rs:239:9: replace PreScan<'a, 'm>::reserve -> usize with 0
+crates/before/src/version/tick/prescan.rs:193:31: replace -= with += in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:201:34: replace && with || in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:193:31: replace -= with /= in PreScan<'a, 'm>::run
+crates/before/src/version/tick/prescan.rs:239:9: replace PreScan<'a, 'm>::reserve -> usize with 1
+crates/before/src/version/tick/prescan.rs:268:36: replace > with == in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:268:36: replace > with >= in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:276:38: replace == with != in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:271:33: replace == with != in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:268:36: replace > with < in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:261:9: replace PreScan<'a, 'm>::record with ()
+crates/before/src/version/tick/prescan.rs:279:26: replace > with == in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:279:26: replace > with < in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:283:44: replace += with -= in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:320:34: replace != with == in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:327:18: replace += with -= in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:319:20: replace += with -= in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:341:17: replace += with -= in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:328:20: delete - in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:358:9: replace PreScan<'a, 'm>::payload -> BigInt with Default::default()
+crates/before/src/version/tick/prescan.rs:369:9: replace PreScan<'a, 'm>::emit_here with ()
+crates/before/src/version/tick/prescan.rs:399:9: replace PreScan<'a, 'm>::install_relation with ()
+crates/before/src/version/tick/prescan.rs:376:9: replace PreScan<'a, 'm>::emit_offset with ()
+crates/before/src/version/tick/prescan.rs:384:9: replace PreScan<'a, 'm>::seed_relation with ()
+crates/before/src/version/tick/prescan.rs:410:9: replace PreScan<'a, 'm>::copy_range with ()
+crates/before/src/version/tick/prescan.rs:318:9: replace PreScan<'a, 'm>::resolve_inner with ()
+crates/before/src/version/tick/prescan.rs:442:9: replace PreScan<'a, 'm>::skip_collapse with ()
+crates/before/src/version/tick/prescan.rs:457:20: replace += with -= in PreScan<'a, 'm>::skip_collapse
+crates/before/src/version/tick/prescan.rs:471:9: replace PreScan<'a, 'm>::max_range -> BigInt with Default::default()
+crates/before/src/version/tick/probe.rs:54:12: delete ! in RaiseProbe::expand
+crates/before/src/version/tick/raise.rs:80:17: replace == with != in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/raise.rs:83:17: replace == with != in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/probe.rs:40:12: delete ! in RaiseProbe::join
+crates/before/src/version/tick/raise.rs:84:23: replace += with -= in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/raise.rs:84:23: replace += with *= in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/raise.rs:88:71: replace - with + in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/raise.rs:88:71: replace - with / in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/raise.rs:89:69: replace - with + in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/raise.rs:89:69: replace - with / in PayloadAdjustment::adjust_delta
+crates/before/src/version/tick/raise.rs:74:9: replace PayloadAdjustment::adjust_delta -> BigInt with Default::default()
+crates/before/src/version/tick/raise.rs:99:43: replace + with * in PayloadAdjustment::write
+crates/before/src/version/tick/raise.rs:99:43: replace + with - in PayloadAdjustment::write
+crates/before/src/version/tick/raise.rs:200:30: replace == with != in Raise<'v, 'p>::descend_version_branch
+crates/before/src/version/tick/raise.rs:217:42: replace + with - in Raise<'v, 'p>::descend_version_branch
+crates/before/src/version/tick/raise.rs:224:20: replace += with -= in Raise<'v, 'p>::descend_version_branch
+crates/before/src/version/tick/raise.rs:96:9: replace PayloadAdjustment::write with ()
+crates/before/src/version/tick/raise.rs:224:20: replace += with *= in Raise<'v, 'p>::descend_version_branch
+crates/before/src/version/tick/raise.rs:251:46: replace && with || in Raise<'v, 'p>::collect_expansion
+crates/before/src/version/tick/raise.rs:143:9: replace Raise<'v, 'p>::apply -> Version with Default::default()
+crates/before/src/version/tick/raise.rs:200:9: replace Raise<'v, 'p>::descend_version_branch with ()
+crates/before/src/version/tick/raise.rs:217:42: replace + with * in Raise<'v, 'p>::descend_version_branch
+crates/before/src/version/tick/raise.rs:283:62: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:283:62: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:283:54: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:283:54: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:269:9: replace Raise<'v, 'p>::raise_target -> bool with true
+crates/before/src/version/tick/raise.rs:251:23: replace == with != in Raise<'v, 'p>::collect_expansion
+crates/before/src/version/tick/raise.rs:286:58: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:286:58: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:286:50: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:295:45: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:269:9: replace Raise<'v, 'p>::raise_target -> bool with false
+crates/before/src/version/tick/raise.rs:295:45: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:304:28: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:281:47: replace == with != in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:304:28: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:317:61: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:317:61: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:317:53: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:317:53: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:319:62: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:319:62: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:319:54: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:319:54: replace + with * in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:332:9: replace Raise<'v, 'p>::copy_trailing_subtrees with ()
+crates/before/src/version/tick/raise.rs:286:50: replace + with - in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:343:41: replace + with - in Raise<'v, 'p>::copy_trailing_subtrees
+crates/before/src/version/tick/raise.rs:343:41: replace + with * in Raise<'v, 'p>::copy_trailing_subtrees
+crates/before/src/version/tick/raise.rs:353:32: replace + with - in Raise<'v, 'p>::feed_subtree
+crates/before/src/version/tick/raise.rs:353:32: replace + with * in Raise<'v, 'p>::feed_subtree
+crates/before/src/version/tick/raise.rs:315:47: replace == with != in Raise<'v, 'p>::raise_target
+crates/before/src/version/tick/raise.rs:351:9: replace Raise<'v, 'p>::feed_subtree with ()
+crates/before/src/version/tick/route.rs:64:9: replace Distance::stack_word -> u64 with 0
+crates/before/src/version/tick/route.rs:59:9: replace Distance::from_stack_word -> Option<Distance> with None
+crates/before/src/version/tick/route.rs:64:9: replace Distance::stack_word -> u64 with 1
+crates/before/src/version/tick/route.rs:72:25: replace >= with < in Distance::deepen
+crates/before/src/version/tick/route.rs:76:46: replace + with - in Distance::deepen
+crates/before/src/version/tick/route.rs:88:42: replace match guard left < right with true in Distance::prefer
+crates/before/src/version/tick/route.rs:76:46: replace + with * in Distance::deepen
+crates/before/src/version/tick/route.rs:88:42: replace match guard left < right with false in Distance::prefer
+crates/before/src/version/tick/route.rs:88:47: replace < with == in Distance::prefer
+crates/before/src/version/tick/route.rs:88:47: replace < with > in Distance::prefer
+crates/before/src/version/tick/route.rs:160:9: replace Cost::stack_words -> (u64, u64) with (0, 1)
+crates/before/src/version/tick/route.rs:160:9: replace Cost::stack_words -> (u64, u64) with (1, 0)
+crates/before/src/version/tick/route.rs:108:39: replace - with /
+crates/before/src/version/tick/route.rs:88:47: replace < with <= in Distance::prefer
+crates/before/src/version/tick/route.rs:171:13: delete match arm (None, None) in Cost::from_stack_words
+crates/before/src/version/tick/route.rs:172:13: delete match arm (Some(expansions), Some(depth)) in Cost::from_stack_words
+crates/before/src/version/tick/route.rs:160:9: replace Cost::stack_words -> (u64, u64) with (0, 0)
+crates/before/src/version/tick/route.rs:200:9: replace <impl PartialOrd for Cost>::partial_cmp -> Option<Ordering> with None
+crates/before/src/version/tick/route.rs:160:9: replace Cost::stack_words -> (u64, u64) with (1, 1)
+crates/before/src/version/tick/route.rs:179:17: replace < with == in Cost::prefer
+crates/before/src/version/tick/route.rs:179:17: replace < with > in Cost::prefer
+crates/before/src/version/tick/route.rs:179:17: replace < with <= in Cost::prefer
+crates/before/src/version/tick/route.rs:240:9: replace BranchDirections::push with ()
+crates/before/src/version/tick/route.rs:240:28: replace == with != in BranchDirections::push
+crates/before/src/version/tick/route.rs:245:9: replace BranchDirections::len -> u64 with 0
+crates/before/src/version/tick/route.rs:245:9: replace BranchDirections::len -> u64 with 1
+crates/before/src/version/tick/route.rs:259:9: replace BranchDirections::set with ()
+crates/before/src/version/tick/route.rs:259:43: replace == with != in BranchDirections::set
+crates/before/src/version/tick/route.rs:273:9: replace Route::record with ()
+crates/before/src/version/io/splice/subtree.rs:33:9: replace VersionSubtree<'a>::first_depth -> u64 with 0
+crates/before/src/version/tick/route.rs:283:9: replace Route::apply -> Version with Default::default()
+crates/before/src/version/io/splice/subtree.rs:33:9: replace VersionSubtree<'a>::first_depth -> u64 with 1
+crates/before/src/version/io/splice/subtree.rs:40:9: replace VersionSubtree<'a>::copy_remainder with ()
+crates/before/src/version/io/splice/subtree.rs:40:29: replace == with != in VersionSubtree<'a>::copy_remainder
+crates/before/src/version/io/splice/subtree.rs:83:9: replace VersionSubtree<'a>::end -> u64 with 0
+crates/before/src/version/io/splice/subtree.rs:83:9: replace VersionSubtree<'a>::end -> u64 with 1
+crates/before/src/version/io/validate/admit.rs:93:9: replace CheckedVersionReader<'a, C>::descend -> Result<BigUint, Decode> with Ok(Default::default())
+crates/before/src/version/io/validate/admit.rs:98:25: replace += with -= in CheckedVersionReader<'a, C>::descend
+crates/before/src/version/io/validate/admit.rs:98:25: replace += with *= in CheckedVersionReader<'a, C>::descend
+crates/before/src/version/io/validate/admit.rs:113:9: replace CheckedVersionReader<'a, C>::done -> bool with false
+crates/before/src/version/io/validate/admit.rs:113:25: replace == with != in CheckedVersionReader<'a, C>::done
+crates/before/src/version/io/validate/admit.rs:108:9: replace CheckedVersionReader<'a, C>::depth -> u64 with 0
+crates/before/src/version/io/validate/admit.rs:125:9: replace CheckedVersionReader<'a, C>::close_ancestor -> Result<(), Decode> with Ok(())
+crates/before/src/version/io/validate/admit.rs:129:38: replace && with || in CheckedVersionReader<'a, C>::close_ancestor
+crates/before/src/version/io/validate/admit.rs:129:26: replace && with || in CheckedVersionReader<'a, C>::close_ancestor
+crates/before/src/version/io/validate/admit.rs:165:37: replace -= with += in CheckedVersionReader<'a, C>::step
+crates/before/src/version/io/validate/admit.rs:148:9: replace CheckedVersionReader<'a, C>::step -> Result<(u64, HeightChange), Decode> with Ok((0, Default::default()))
+crates/before/src/version/io/validate/admit.rs:108:9: replace CheckedVersionReader<'a, C>::depth -> u64 with 1
+crates/before/src/version/io/validate/admit.rs:165:37: replace -= with /= in CheckedVersionReader<'a, C>::step
+crates/before/src/version/io/validate/admit.rs:113:9: replace CheckedVersionReader<'a, C>::done -> bool with true
+crates/before/src/version/io/validate/admit.rs:175:37: replace == with != in CheckedVersionReader<'a, C>::step
+crates/before/src/version/io/validate/admit.rs:185:9: replace CheckedVersionReader<'a, C>::finish -> Result<(), Decode> with Ok(())
+crates/before/src/version/io/validate/admit.rs:274:23: delete ! in dominating_from
+crates/before/src/version/io/validate/admit.rs:283:26: replace && with || in dominating_from
+crates/before/src/version/io/validate/admit.rs:320:24: replace <= with > in advance
+crates/before/src/version/io/validate/admit.rs:332:24: replace <= with > in advance
+crates/before/src/version/measure/integral/deferred.rs:47:9: replace DeferredIntegral::is_empty -> bool with true
+crates/before/src/version/io/writer/pending.rs:22:9: replace PendingPayload::len -> u64 with 0
+crates/before/src/version/io/writer/pending.rs:22:9: replace PendingPayload::len -> u64 with 1
+crates/before/src/version/measure/integral/deferred.rs:52:9: replace DeferredIntegral::add_width with ()
+crates/before/src/version/io/validate/admit.rs:148:9: replace CheckedVersionReader<'a, C>::step -> Result<(u64, HeightChange), Decode> with Ok((1, Default::default()))
+crates/before/src/version/io/validate/admit.rs:316:5: replace advance -> Result<(), Decode> with Ok(())
+crates/before/src/version/measure/integral/deferred.rs:110:44: replace + with - in Aggregate::weight
+crates/before/src/version/measure/integral/deferred.rs:57:9: replace DeferredIntegral::push with ()
+crates/before/src/version/measure/integral/deferred.rs:110:9: replace Aggregate::weight -> u64 with 0
+crates/before/src/version/measure/integral/deferred.rs:68:9: replace DeferredIntegral::finish with ()
+crates/before/src/version/measure/integral/deferred.rs:137:21: replace += with -= in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:121:22: replace += with -= in Aggregate::merge
+crates/before/src/version/measure/integral/deferred.rs:117:9: replace Aggregate::merge with ()
+crates/before/src/version/measure/integral/deferred.rs:151:42: replace match guard hi - lo == 1 with false in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:118:20: replace != with == in Aggregate::merge
+crates/before/src/version/measure/integral/deferred.rs:133:9: replace Aggregate::reduce with ()
+crates/before/src/version/measure/integral/deferred.rs:151:45: replace - with + in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:151:45: replace - with / in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:137:21: replace += with *= in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:151:42: replace match guard hi - lo == 1 with true in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:153:31: replace += with *= in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:151:50: replace == with != in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:153:31: replace += with -= in Aggregate::reduce
+crates/before/src/version/measure/integral/deferred.rs:183:34: replace + with * in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:17: replace + with - in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:183:34: replace + with - in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:17: replace + with * in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:13: replace + with - in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:13: replace + with * in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:29: replace + with - in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:29: replace + with * in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:61: replace < with == in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:61: replace < with > in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:184:61: replace < with <= in Aggregate::split
+crates/before/src/version/measure/integral/deferred.rs:183:9: replace Aggregate::split -> usize with 0
+crates/before/src/version/measure/integral/deferred.rs:183:9: replace Aggregate::split -> usize with 1
+crates/before/src/version/measure/integral/pair.rs:22:9: replace Integrator::pair_rank -> Rank with Default::default()
+crates/before/src/version/measure/integral/pair.rs:51:32: replace != with == in Integrator::pair
+crates/before/src/version/measure/integral/pair.rs:56:37: replace - with + in Integrator::pair
+crates/before/src/version/measure/integral/pair.rs:68:36: replace != with == in Integrator::pair
+crates/before/src/version/measure/integral/pair.rs:56:37: replace - with / in Integrator::pair
+crates/before/src/version/measure/integral/pair.rs:71:61: replace > with < in Integrator::pair
+crates/before/src/version/measure/integral/deferred.rs:184:79: replace - with + in Aggregate::split
+crates/before/src/version/measure/integral/pair.rs:57:32: replace && with || in Integrator::pair
+crates/before/src/version/measure/integral/pair.rs:81:32: replace != with == in Integrator::pair
+crates/before/src/version/measure/integral/pair.rs:85:47: replace - with + in Integrator::pair
+crates/before/src/version/measure/integral/pair.rs:71:61: replace > with == in Integrator::pair
+crates/before/src/version/measure/integral/width.rs:39:9: replace ScaledWidth::is_zero -> bool with true
+crates/before/src/version/measure/integral/width.rs:44:9: replace ScaledWidth::add_to with ()
+crates/before/src/version/measure/integral/pair.rs:85:47: replace - with / in Integrator::pair
+crates/before/src/version/measure/integral/width.rs:49:9: replace ScaledWidth::add_product with ()
+crates/before/src/version/measure/integral/deferred.rs:184:79: replace - with / in Aggregate::split
+crates/before/src/version/measure/integral/width.rs:39:24: replace == with != in ScaledWidth::is_zero
+crates/before/src/version/measure/integral/width.rs:68:39: replace / with % in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:76:41: replace * with + in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:76:41: replace * with / in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:76:37: replace + with - in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:77:31: replace & with | in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:76:37: replace + with * in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:77:31: replace & with ^ in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:79:58: replace + with - in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:68:39: replace / with * in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:79:38: replace * with / in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:79:34: replace + with - in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:79:58: replace + with * in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:79:69: replace >> with << in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:79:34: replace + with * in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:79:38: replace * with + in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:82:41: replace != with == in SparseWidth::from_scaled
+crates/before/src/version/measure/integral/width.rs:116:22: replace == with != in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:101:9: replace SparseWidth::combine with ()
+crates/before/src/version/measure/integral/width.rs:120:22: replace != with == in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:95:9: replace SparseWidth::add with ()
+crates/before/src/version/measure/integral/width.rs:128:21: replace += with -= in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:128:21: replace += with *= in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:131:21: replace += with *= in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:109:38: replace != with == in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:131:21: replace += with -= in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:139:34: replace + with * in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:140:33: replace - with + in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:130:70: replace == with != in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:139:39: replace << with >> in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:140:46: replace << with >> in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:140:33: replace - with / in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:127:65: replace == with != in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:144:26: replace != with == in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:141:26: replace != with == in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:139:34: replace + with - in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:139:47: replace >> with << in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:147:37: replace + with - in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:147:37: replace + with * in SparseWidth::combine
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::empty()
+crates/before/src/version/measure/integral/width.rs:161:23: replace < with == in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:36: replace && with || in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:23: replace < with <= in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:23: replace < with > in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:73: replace <= with > in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:69: replace - with + in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:69: replace - with / in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:51: replace - with + in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:51: replace - with / in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:62: replace - with + in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:161:62: replace - with / in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:162:21: replace += with -= in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:179:9: replace SparseWidth::add_product with ()
+crates/before/src/version/measure/integral/width.rs:187:25: replace *= with += in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:187:25: replace *= with /= in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:190:48: replace * with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:192:48: replace * with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:192:48: replace * with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:189:42: replace != with == in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:189:26: replace == with != in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:197:83: replace + with - in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:190:48: replace * with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:197:83: replace + with * in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:197:69: replace - with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:197:62: replace - with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:197:62: replace - with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:197:69: replace - with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:162:21: replace += with *= in SparseWidth::clusters
+crates/before/src/version/measure/integral/width.rs:205:42: replace * with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:215:20: delete ! in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:211:52: replace - with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:211:52: replace - with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:205:42: replace * with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:216:42: replace * with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:217:29: replace == with != in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:218:52: replace * with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:218:52: replace * with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:220:52: replace * with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:216:42: replace * with + in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:220:52: replace * with / in SparseWidth::add_product
+crates/before/src/version/measure/integral/width.rs:249:9: replace DensePart::insert with ()
+crates/before/src/version/measure/integral/width.rs:249:28: replace * with + in DensePart::insert
+crates/before/src/version/measure/integral/width.rs:249:28: replace * with / in DensePart::insert
+crates/before/src/version/measure/integral/width.rs:250:35: replace + with - in DensePart::insert
+crates/before/src/version/measure/integral/width.rs:250:35: replace + with * in DensePart::insert
+crates/before/src/version/measure/min_ticks/minima.rs:89:9: replace Arming<'_>::settle with ()
+crates/before/src/version/measure/min_ticks/minima.rs:107:9: replace Settlement<'_>::settle with ()
+crates/before/src/version/measure/min_ticks/minima.rs:134:9: replace SubtreeMinima::open_subtrees with ()
+crates/before/src/version/measure/min_ticks/minima.rs:139:9: replace SubtreeMinima::advance_height with ()
+crates/before/src/version/measure/integral/width.rs:263:5: replace densified_digits -> u64 with 0
+crates/before/src/version/measure/integral/width.rs:263:5: replace densified_digits -> u64 with 1
+crates/before/src/version/measure/integral/width.rs:269:5: replace reset_densified_digits with ()
+crates/before/src/version/measure/min_ticks/minima.rs:191:16: delete ! in SubtreeMinima::observe_leaf
+crates/before/src/version/measure/min_ticks/minima.rs:213:12: delete ! in SubtreeMinima::observe_leaf
+crates/before/src/version/measure/min_ticks/minima.rs:217:12: delete ! in SubtreeMinima::observe_leaf
+crates/before/src/version/tick/prescan/frames.rs:67:9: replace Frames::right_present -> bool with true
+crates/before/src/version/tick/prescan/frames.rs:67:9: replace Frames::right_present -> bool with false
+crates/before/src/version/measure/min_ticks/minima.rs:190:9: replace SubtreeMinima::observe_leaf with ()
+crates/before/src/version/tick/prescan/frames.rs:74:9: replace Frames::push_node with ()
+crates/before/src/version/measure/min_ticks/minima.rs:240:9: replace SubtreeMinima::close_all with ()
+crates/before/src/version/tick/prescan/frames.rs:98:9: replace Frames::pop_node with ()
+crates/before/src/version/tick/prescan/frames.rs:51:9: replace Frames::top -> Option<Frame> with None
+crates/before/src/version/tick/prescan/frames.rs:89:9: replace Frames::await_right with ()
+crates/before/src/version/tick/prescan/frames.rs:81:9: replace Frames::push_lookahead with ()
+crates/before/src/version/tick/prescan/frames.rs:105:9: replace Frames::pop_lookahead -> usize with 0
+crates/before/src/version/tick/prescan/frames.rs:105:9: replace Frames::pop_lookahead -> usize with 1
+crates/before/src/version/tick/prescan/suspended.rs:49:9: replace AccumulatorStack::push with ()
+crates/before/src/version/measure/min_ticks/minima.rs:151:9: replace SubtreeMinima::close_subtree with ()
+crates/before/src/version/tick/prescan/suspended.rs:63:9: replace AccumulatorStack::pop -> Option<StoredAccumulator> with None
+crates/before/src/version/tick/prescan/suspended.rs:73:9: replace AccumulatorStack::is_empty -> bool with false
+crates/before/src/version/tick/prescan/suspended.rs:73:25: replace == with != in AccumulatorStack::is_empty
+crates/before/src/version/tick/prescan/suspended.rs:111:9: replace Levels::is_empty -> bool with false
+crates/before/src/version/tick/prescan/suspended.rs:116:9: replace Levels::push with ()
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:38:24: replace == with != in Contribution::settle
+crates/before/src/version/tick/prescan/suspended.rs:130:9: replace Levels::pop -> Option<Level> with None
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:69:45: replace - with +
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:38:9: replace Contribution::settle with ()
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:71:45: replace - with +
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:71:45: replace - with /
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:46:32: replace != with == in Contribution::settle
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:73:43: replace - with /
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:67:24: replace << with >>
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:77:38: replace + with -
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:69:45: replace - with /
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:73:43: replace - with +
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:77:38: replace + with *
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:89:38: replace | with & in StoredContribution::inline
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:85:19: replace > with >= in StoredContribution::inline
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:89:56: replace << with >> in StoredContribution::inline
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:84:9: replace StoredContribution::inline -> Option<Self> with None
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:85:19: replace > with == in StoredContribution::inline
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:85:19: replace > with < in StoredContribution::inline
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:95:16: replace & with ^ in StoredContribution::is_spilled
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:95:9: replace StoredContribution::is_spilled -> bool with true
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:101:30: replace & with | in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:95:9: replace StoredContribution::is_spilled -> bool with false
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:95:26: replace != with == in StoredContribution::is_spilled
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:95:16: replace & with | in StoredContribution::is_spilled
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:102:48: replace & with | in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:102:31: replace >> with << in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:103:46: replace & with | in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:103:46: replace & with ^ in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:103:30: replace >> with << in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:101:30: replace & with ^ in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:114:17: replace & with | in StoredContribution::spill_index
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:114:17: replace & with ^ in StoredContribution::spill_index
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:114:19: delete ! in StoredContribution::spill_index
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:102:48: replace & with ^ in StoredContribution::decode
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:164:36: replace | with & in ContributionStore::spill
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:173:25: replace += with -= in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:173:25: replace += with *= in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:113:9: replace StoredContribution::spill_index -> usize with 1
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:113:9: replace StoredContribution::spill_index -> usize with 0
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:169:9: replace ContributionStore::increment with ()
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:176:54: replace & with | in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:176:54: replace & with ^ in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:178:28: replace += with -= in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:177:19: replace < with <= in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:178:28: replace += with *= in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:176:38: replace >> with << in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:178:33: replace << with >> in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:182:22: replace += with -= in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:182:22: replace += with *= in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:188:12: delete ! in ContributionStore::take
+crates/before/src/version/measure/min_ticks/minima/heights.rs:28:9: replace LeafHeight::offset -> &BigInt with Box::leak(Box::new(Default::default()))
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:177:19: replace < with == in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/heights.rs:33:9: replace LeafHeight::prefix -> usize with 0
+crates/before/src/version/measure/min_ticks/minima/heights.rs:33:9: replace LeafHeight::prefix -> usize with 1
+crates/before/src/version/measure/min_ticks/minima/heights.rs:56:9: replace HeightPrefixes::current -> usize with 0
+crates/before/src/version/measure/min_ticks/minima/heights.rs:56:31: replace - with + in HeightPrefixes::current
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:177:19: replace < with > in ContributionStore::increment
+crates/before/src/version/measure/min_ticks/minima/heights.rs:56:31: replace - with / in HeightPrefixes::current
+crates/before/src/version/measure/min_ticks/minima/heights.rs:65:33: replace == with != in HeightPrefixes::add_leaf
+crates/before/src/version/measure/min_ticks/minima/heights.rs:74:70: replace += with -= in HeightPrefixes::add_leaf
+crates/before/src/version/measure/min_ticks/minima/heights.rs:86:9: replace HeightPrefixes::subtract_minimum with ()
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:206:9: replace ContributionStore::settle with ()
+crates/before/src/version/measure/min_ticks/minima/heights.rs:74:70: replace += with *= in HeightPrefixes::add_leaf
+crates/before/src/version/measure/min_ticks/minima/heights.rs:86:35: replace -= with += in HeightPrefixes::subtract_minimum
+crates/before/src/version/measure/min_ticks/minima/heights.rs:56:9: replace HeightPrefixes::current -> usize with 1
+crates/before/src/version/measure/min_ticks/minima/heights.rs:86:35: replace -= with /= in HeightPrefixes::subtract_minimum
+crates/before/src/version/measure/min_ticks/minima/heights.rs:112:20: replace += with -= in HeightPrefixes::settle
+crates/before/src/version/measure/min_ticks/minima/heights.rs:112:20: replace += with *= in HeightPrefixes::settle
+crates/before/src/version/measure/min_ticks/minima/heights.rs:117:51: replace != with == in HeightPrefixes::settle
+crates/before/src/version/measure/min_ticks/minima/heights.rs:117:35: replace == with != in HeightPrefixes::settle
+crates/before/src/version/measure/min_ticks/minima/heights.rs:117:62: replace < with > in HeightPrefixes::settle
+crates/before/src/version/measure/min_ticks/minima/heights.rs:117:62: replace < with == in HeightPrefixes::settle
+crates/before/src/version/measure/min_ticks/minima/heights.rs:131:9: replace HeightPrefixes::fold_repeated with ()
+crates/before/src/version/measure/min_ticks/minima/heights.rs:110:9: replace HeightPrefixes::settle with ()
+crates/before/src/version/measure/min_ticks/minima/heights.rs:95:29: replace != with == in HeightPrefixes::freeze
+crates/before/src/version/measure/min_ticks/minima/heights.rs:131:18: replace == with != in HeightPrefixes::fold_repeated
+crates/before/src/version/measure/min_ticks/minima/heights.rs:135:17: replace *= with += in HeightPrefixes::fold_repeated
+crates/before/src/version/measure/min_ticks/minima/heights.rs:135:17: replace *= with /= in HeightPrefixes::fold_repeated
+crates/before/src/version/measure/min_ticks/minima/heights.rs:94:9: replace HeightPrefixes::freeze with ()
+crates/before/src/version/measure/min_ticks/minima/heights.rs:131:34: replace == with != in HeightPrefixes::fold_repeated

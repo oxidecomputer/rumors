@@ -1,0 +1,6 @@
+# coverage of crates/before/src/party/io/reader.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 178/179; branch outcomes 14/16
+# never-executed lines:
+L  273  _ => unreachable!("a two-bit word has four values"),
+# branches with an outcome never taken (outcome hit counts):
+B  236  [15163063, 0, 15163063, 0]  pos + 2 <= end && end <= source_len,

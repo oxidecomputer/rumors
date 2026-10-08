@@ -1,0 +1,25 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.83s
+────────────
+ Nextest run ID b917758b-4527-4656-b5d0-294a6f9f7bb3 with nextest profile: default
+    Starting 1 test across 1 binary (19 tests skipped)
+     SIGABRT [   0.154s] (1/1) before::l2_probe deep_calibration_recursion_overflows
+  stdout ───
+
+    running 1 test
+  stderr ───
+
+    thread '<unknown>' (3) has overflowed its stack
+    fatal runtime error: stack overflow, aborting
+
+    (test aborted with signal 6: SIGABRT)
+
+  Cancelling due to test failure: 
+────────────
+     Summary [   0.157s] 1 test run: 0 passed, 1 failed, 19 skipped
+     SIGABRT [   0.154s] (1/1) before::l2_probe deep_calibration_recursion_overflows
+error: test run failed

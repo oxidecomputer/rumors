@@ -1,0 +1,399 @@
+NONE l5 PASS
+NONE base PASS
+M1 l5 FAIL
+M1 base FAIL
+M2 l5 FAIL
+M2 base FAIL
+M3 l5 FAIL
+M3 base FAIL
+M4 l5 FAIL
+M4 base FAIL
+M5 l5 FAIL
+M5 base FAIL
+M6 l5 FAIL
+M6 base FAIL
+M7 l5 FAIL
+M7 base FAIL
+M8 l5 FAIL
+M8 base FAIL
+M9 l5 FAIL
+M9 base FAIL
+M10 l5 FAIL
+M10 base FAIL
+M11 l5 PASS
+M11 base PASS
+M12 l5 FAIL
+M12 base FAIL
+M13 l5 FAIL
+M13 base FAIL
+M14 l5 FAIL
+M14 base FAIL
+M15 l5 FAIL
+M15 base FAIL
+M16 l5 FAIL
+M16 base FAIL
+M17 l5 FAIL
+M17 base FAIL
+M18 l5 PASS
+M18 base FAIL
+M20 l5 FAIL
+M20 base FAIL
+== target/l5mut/M1.base.log
+        FAIL [   0.059s] ( 6/77) before causally::tests::coverage_witness_matrix
+        FAIL [   0.179s] (25/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.042s] (42/77) before version::place::tests::filter_coverage_organic_witnesses
+        FAIL [   0.514s] (53/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.677s] (68/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   2.162s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  44.087s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  44.354s] 77 tests run: 70 passed, 7 failed, 627 skipped
+        FAIL [   0.059s] ( 6/77) before causally::tests::coverage_witness_matrix
+        FAIL [   0.179s] (25/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.042s] (42/77) before version::place::tests::filter_coverage_organic_witnesses
+        FAIL [   0.514s] (53/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.677s] (68/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   2.162s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  44.087s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M1.l5.log
+        FAIL [   0.080s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.163s] (3/8) before testing::audit_l5::l5_antichain_queries
+     Summary [  47.199s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.080s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.163s] (3/8) before testing::audit_l5::l5_antichain_queries
+== target/l5mut/M10.base.log
+        FAIL [   0.113s] (29/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.714s] (65/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   7.272s] (76/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  10.200s] 77 tests run: 74 passed, 3 failed, 627 skipped
+        FAIL [   0.113s] (29/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.714s] (65/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   7.272s] (76/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M10.l5.log
+        FAIL [   0.094s] (1/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.110s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+     Summary [  57.142s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.094s] (1/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.110s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+== target/l5mut/M11.base.log
+     Summary [  22.685s] 77 tests run: 77 passed, 627 skipped
+== target/l5mut/M11.l5.log
+     Summary [  12.604s] 8 tests run: 8 passed, 696 skipped
+== target/l5mut/M12.base.log
+        FAIL [   5.516s] (74/77) before testing::algebraic_laws::tests::version_and_list_laws
+        FAIL [   6.235s] (75/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+     Summary [  32.149s] 77 tests run: 75 passed, 2 failed, 627 skipped
+        FAIL [   5.516s] (74/77) before testing::algebraic_laws::tests::version_and_list_laws
+        FAIL [   6.235s] (75/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+== target/l5mut/M12.l5.log
+        FAIL [   0.635s] (3/8) before testing::audit_l5::l5_span_algebra_matches_vectors
+     Summary [  14.409s] 8 tests run: 7 passed, 1 failed, 696 skipped
+        FAIL [   0.635s] (3/8) before testing::audit_l5::l5_span_algebra_matches_vectors
+== target/l5mut/M13.base.log
+        FAIL [   0.100s] (27/77) before span::tests::span_contains_admits_every_witness
+        FAIL [   0.183s] (28/77) before span::tests::point_span_classification_ignores_buffer_identity
+        FAIL [   1.694s] (73/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   2.209s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  13.240s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  65.309s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  65.584s] 77 tests run: 71 passed, 6 failed, 627 skipped
+        FAIL [   0.100s] (27/77) before span::tests::span_contains_admits_every_witness
+        FAIL [   0.183s] (28/77) before span::tests::point_span_classification_ignores_buffer_identity
+        FAIL [   1.694s] (73/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   2.209s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  13.240s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  65.309s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M13.l5.log
+        FAIL [   0.096s] (1/8) before testing::audit_l5::l5_span_query_agree
+        FAIL [   0.121s] (3/8) before testing::audit_l5::l5_deep_verdicts
+        FAIL [   0.146s] (4/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+     Summary [   2.825s] 8 tests run: 5 passed, 3 failed, 696 skipped
+        FAIL [   0.096s] (1/8) before testing::audit_l5::l5_span_query_agree
+        FAIL [   0.121s] (3/8) before testing::audit_l5::l5_deep_verdicts
+        FAIL [   0.146s] (4/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+== target/l5mut/M14.base.log
+        FAIL [   0.117s] (27/77) before span::tests::own_span_projects_both_endpoints
+        FAIL [   0.302s] (44/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.858s] (69/77) before testing::algebraic_laws::tests::version_pair_party_laws
+     Summary [  27.326s] 77 tests run: 74 passed, 3 failed, 627 skipped
+        FAIL [   0.117s] (27/77) before span::tests::own_span_projects_both_endpoints
+        FAIL [   0.302s] (44/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.858s] (69/77) before testing::algebraic_laws::tests::version_pair_party_laws
+== target/l5mut/M14.l5.log
+        FAIL [   1.147s] (6/8) before testing::audit_l5::l5_own_span_matches_vectors
+     Summary [  26.304s] 8 tests run: 7 passed, 1 failed, 696 skipped
+        FAIL [   1.147s] (6/8) before testing::audit_l5::l5_own_span_matches_vectors
+== target/l5mut/M15.base.log
+        FAIL [   0.101s] (18/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.220s] (27/77) before causally::tests::forms_keep_their_relations
+        FAIL [   0.065s] (46/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.494s] (63/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.722s] (65/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   1.565s] (73/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   1.824s] (74/77) before version::place::tests::filter_admits_matches_the_composed_sweeps
+        FAIL [  10.170s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  26.163s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  26.475s] 77 tests run: 68 passed, 9 failed, 627 skipped
+        FAIL [   0.101s] (18/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.220s] (27/77) before causally::tests::forms_keep_their_relations
+        FAIL [   0.065s] (46/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.494s] (63/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.722s] (65/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   1.565s] (73/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   1.824s] (74/77) before version::place::tests::filter_admits_matches_the_composed_sweeps
+        FAIL [  10.170s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  26.163s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M15.l5.log
+        FAIL [   0.099s] (1/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.104s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+     Summary [  33.960s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.099s] (1/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.104s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+== target/l5mut/M16.base.log
+        FAIL [   0.075s] (26/77) before span::tests::span_precedence_coarsens_every_witness
+        FAIL [   0.252s] (38/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.045s] (45/77) before version::place::tests::precedence_walk_verdicts_organic_witnesses
+        FAIL [   0.436s] (67/77) before version::place::tests::span_walks_match_the_composed_sweeps
+        FAIL [   0.751s] (68/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   9.864s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  53.365s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  53.668s] 77 tests run: 70 passed, 7 failed, 627 skipped
+        FAIL [   0.075s] (26/77) before span::tests::span_precedence_coarsens_every_witness
+        FAIL [   0.252s] (38/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   0.045s] (45/77) before version::place::tests::precedence_walk_verdicts_organic_witnesses
+        FAIL [   0.436s] (67/77) before version::place::tests::span_walks_match_the_composed_sweeps
+        FAIL [   0.751s] (68/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   9.864s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  53.365s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M16.l5.log
+        FAIL [   0.099s] (1/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+        FAIL [   0.103s] (2/8) before testing::audit_l5::l5_deep_verdicts
+     Summary [   2.554s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.099s] (1/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+        FAIL [   0.103s] (2/8) before testing::audit_l5::l5_deep_verdicts
+== target/l5mut/M17.base.log
+        FAIL [   0.155s] (26/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.044s] (43/77) before version::place::tests::filter_coverage_organic_witnesses
+        FAIL [   0.051s] (45/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.765s] (64/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.937s] (68/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   3.407s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  47.239s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  47.547s] 77 tests run: 70 passed, 7 failed, 627 skipped
+        FAIL [   0.155s] (26/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.044s] (43/77) before version::place::tests::filter_coverage_organic_witnesses
+        FAIL [   0.051s] (45/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.765s] (64/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.937s] (68/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   3.407s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  47.239s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M17.l5.log
+        FAIL [   0.453s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.375s] (2/8) before testing::audit_l5::l5_antichain_queries
+     Summary [  54.862s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.453s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.375s] (2/8) before testing::audit_l5::l5_antichain_queries
+== target/l5mut/M18.base.log
+        FAIL [   0.102s] ( 8/77) before causally::tests::conjunction_normalizes
+     Summary [  23.213s] 77 tests run: 76 passed, 1 failed, 627 skipped
+        FAIL [   0.102s] ( 8/77) before causally::tests::conjunction_normalizes
+== target/l5mut/M18.l5.log
+     Summary [  17.087s] 8 tests run: 8 passed, 696 skipped
+== target/l5mut/M2.base.log
+        FAIL [   0.084s] ( 8/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.469s] (48/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   1.343s] (73/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   3.175s] (75/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+     Summary [  22.197s] 77 tests run: 73 passed, 4 failed, 627 skipped
+        FAIL [   0.084s] ( 8/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.469s] (48/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   1.343s] (73/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   3.175s] (75/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+== target/l5mut/M2.l5.log
+        FAIL [   0.097s] (1/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.114s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+     Summary [  14.391s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.097s] (1/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.114s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+== target/l5mut/M20.base.log
+        FAIL [   0.163s] (24/77) before span::tests::point_span_classification_ignores_buffer_identity
+        FAIL [   0.428s] (59/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   1.477s] (73/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   2.320s] (74/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [  10.674s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  61.966s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  62.245s] 77 tests run: 71 passed, 6 failed, 627 skipped
+        FAIL [   0.163s] (24/77) before span::tests::point_span_classification_ignores_buffer_identity
+        FAIL [   0.428s] (59/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   1.477s] (73/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   2.320s] (74/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [  10.674s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  61.966s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M20.l5.log
+        FAIL [   0.105s] (1/8) before testing::audit_l5::l5_deep_verdicts
+        FAIL [   0.161s] (3/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+     Summary [   3.356s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.105s] (1/8) before testing::audit_l5::l5_deep_verdicts
+        FAIL [   0.161s] (3/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+== target/l5mut/M3.base.log
+        FAIL [   0.104s] (14/77) before causally::tests::coverage_witness_matrix
+        FAIL [   0.064s] (18/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.046s] (44/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.556s] (60/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.246s] (65/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   1.833s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   9.144s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  79.700s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  79.979s] 77 tests run: 69 passed, 8 failed, 627 skipped
+        FAIL [   0.104s] (14/77) before causally::tests::coverage_witness_matrix
+        FAIL [   0.064s] (18/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.046s] (44/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.556s] (60/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.246s] (65/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   1.833s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   9.144s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  79.700s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M3.l5.log
+        FAIL [   0.055s] (1/8) before testing::audit_l5::l5_span_query_agree
+        FAIL [   0.095s] (2/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.152s] (4/8) before testing::audit_l5::l5_queries_match_vectors
+     Summary [  19.810s] 8 tests run: 5 passed, 3 failed, 696 skipped
+        FAIL [   0.055s] (1/8) before testing::audit_l5::l5_span_query_agree
+        FAIL [   0.095s] (2/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.152s] (4/8) before testing::audit_l5::l5_queries_match_vectors
+== target/l5mut/M4.base.log
+        FAIL [   0.086s] (16/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.101s] (19/77) before causally::tests::coverage_witness_matrix
+        FAIL [   0.421s] (42/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   2.113s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  44.019s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  44.301s] 77 tests run: 72 passed, 5 failed, 627 skipped
+        FAIL [   0.086s] (16/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.101s] (19/77) before causally::tests::coverage_witness_matrix
+        FAIL [   0.421s] (42/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   2.113s] (74/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [  44.019s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M4.l5.log
+        FAIL [   0.080s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.081s] (2/8) before testing::audit_l5::l5_antichain_queries
+     Summary [  40.662s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.080s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.081s] (2/8) before testing::audit_l5::l5_antichain_queries
+== target/l5mut/M5.base.log
+        FAIL [   0.736s] (18/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.123s] (24/77) before causally::tests::coverage_clamp_refinement_is_exact
+        FAIL [   1.404s] (64/77) before causally::tests::public_queries_match_their_relational_denotation
+     Summary [  24.652s] 77 tests run: 74 passed, 3 failed, 627 skipped
+        FAIL [   0.736s] (18/77) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        FAIL [   0.123s] (24/77) before causally::tests::coverage_clamp_refinement_is_exact
+        FAIL [   1.404s] (64/77) before causally::tests::public_queries_match_their_relational_denotation
+== target/l5mut/M5.l5.log
+        FAIL [   0.095s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.652s] (4/8) before testing::audit_l5::l5_antichain_queries
+     Summary [  10.276s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.095s] (1/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.652s] (4/8) before testing::audit_l5::l5_antichain_queries
+== target/l5mut/M6.base.log
+        FAIL [   0.113s] (21/77) before span::tests::own_span_place_reaches_every_concurrent_corner
+        FAIL [   0.048s] (22/77) before span::tests::span_place_places_every_witness
+        FAIL [   0.047s] (45/77) before version::place::tests::span_walk_places_organic_witnesses
+        FAIL [   0.297s] (64/77) before version::place::tests::span_walks_match_the_composed_sweeps
+        FAIL [   1.041s] (70/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   5.356s] (75/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   9.799s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  38.466s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  38.751s] 77 tests run: 69 passed, 8 failed, 627 skipped
+        FAIL [   0.113s] (21/77) before span::tests::own_span_place_reaches_every_concurrent_corner
+        FAIL [   0.048s] (22/77) before span::tests::span_place_places_every_witness
+        FAIL [   0.047s] (45/77) before version::place::tests::span_walk_places_organic_witnesses
+        FAIL [   0.297s] (64/77) before version::place::tests::span_walks_match_the_composed_sweeps
+        FAIL [   1.041s] (70/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   5.356s] (75/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   9.799s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  38.466s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M6.l5.log
+        FAIL [   0.234s] (2/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+        FAIL [   0.383s] (4/8) before testing::audit_l5::l5_deep_verdicts
+     Summary [   2.016s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.234s] (2/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+        FAIL [   0.383s] (4/8) before testing::audit_l5::l5_deep_verdicts
+== target/l5mut/M7.base.log
+        FAIL [   0.116s] (24/77) before span::tests::own_span_place_reaches_every_concurrent_corner
+        FAIL [   0.200s] (27/77) before span::tests::point_span_classification_ignores_buffer_identity
+        FAIL [   0.070s] (28/77) before span::tests::span_dominance_coarsens_every_witness
+        FAIL [   0.047s] (52/77) before::coincident_span coincident_dominance_collapses_to_one_containment
+        FAIL [   0.362s] (66/77) before version::place::tests::span_walks_match_the_composed_sweeps
+        FAIL [   1.835s] (73/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   3.162s] (75/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   9.507s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  49.277s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  49.546s] 77 tests run: 68 passed, 9 failed, 627 skipped
+        FAIL [   0.116s] (24/77) before span::tests::own_span_place_reaches_every_concurrent_corner
+        FAIL [   0.200s] (27/77) before span::tests::point_span_classification_ignores_buffer_identity
+        FAIL [   0.070s] (28/77) before span::tests::span_dominance_coarsens_every_witness
+        FAIL [   0.047s] (52/77) before::coincident_span coincident_dominance_collapses_to_one_containment
+        FAIL [   0.362s] (66/77) before version::place::tests::span_walks_match_the_composed_sweeps
+        FAIL [   1.835s] (73/77) before testing::algebraic_laws::tests::version_pair_party_laws
+        FAIL [   3.162s] (75/77) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        FAIL [   9.507s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  49.277s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M7.l5.log
+        FAIL [   0.273s] (2/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+        FAIL [   0.324s] (3/8) before testing::audit_l5::l5_deep_verdicts
+     Summary [   5.271s] 8 tests run: 6 passed, 2 failed, 696 skipped
+        FAIL [   0.273s] (2/8) before testing::audit_l5::l5_span_verdicts_match_vectors
+        FAIL [   0.324s] (3/8) before testing::audit_l5::l5_deep_verdicts
+== target/l5mut/M8.base.log
+        FAIL [   0.057s] (46/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.343s] (64/77) before version::place::tests::filter_admits_matches_the_composed_sweeps
+        FAIL [   1.093s] (68/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.709s] (69/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   1.143s] (73/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   9.204s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  32.634s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  32.917s] 77 tests run: 70 passed, 7 failed, 627 skipped
+        FAIL [   0.057s] (46/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.343s] (64/77) before version::place::tests::filter_admits_matches_the_composed_sweeps
+        FAIL [   1.093s] (68/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   0.709s] (69/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   1.143s] (73/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   9.204s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  32.634s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M8.l5.log
+        FAIL [   0.524s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.808s] (3/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   2.113s] (5/8) before testing::audit_l5::l5_span_query_agree
+     Summary [  23.833s] 8 tests run: 5 passed, 3 failed, 696 skipped
+        FAIL [   0.524s] (2/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   0.808s] (3/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   2.113s] (5/8) before testing::audit_l5::l5_span_query_agree
+== target/l5mut/M9.base.log
+        FAIL [   0.046s] (37/77) before version::place::filter::tests::height_comparison_matches_biguint
+        FAIL [   0.052s] (45/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.184s] (62/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   0.221s] (64/77) before version::place::tests::filter_admits_matches_the_composed_sweeps
+        FAIL [   1.226s] (69/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   2.249s] (74/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   9.371s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  27.034s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+     Summary [  27.344s] 77 tests run: 69 passed, 8 failed, 627 skipped
+        FAIL [   0.046s] (37/77) before version::place::filter::tests::height_comparison_matches_biguint
+        FAIL [   0.052s] (45/77) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        FAIL [   0.184s] (62/77) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        FAIL [   0.221s] (64/77) before version::place::tests::filter_admits_matches_the_composed_sweeps
+        FAIL [   1.226s] (69/77) before causally::tests::public_queries_match_their_relational_denotation
+        FAIL [   2.249s] (74/77) before testing::algebraic_laws::tests::version_pair_laws
+        FAIL [   9.371s] (76/77) before::verdict_matrix production_verdicts_agree_across_the_surfaces
+        FAIL [  27.034s] (77/77) before testing::algebraic_laws::tests::version_triple_laws
+== target/l5mut/M9.l5.log
+        FAIL [   0.287s] (2/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.354s] (3/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   1.407s] (5/8) before testing::audit_l5::l5_span_query_agree
+     Summary [  19.251s] 8 tests run: 5 passed, 3 failed, 696 skipped
+        FAIL [   0.287s] (2/8) before testing::audit_l5::l5_antichain_queries
+        FAIL [   0.354s] (3/8) before testing::audit_l5::l5_queries_match_vectors
+        FAIL [   1.407s] (5/8) before testing::audit_l5::l5_span_query_agree
+== target/l5mut/NONE.base.log
+     Summary [  25.567s] 77 tests run: 77 passed, 627 skipped
+== target/l5mut/NONE.l5.log
+     Summary [  10.259s] 8 tests run: 8 passed, 696 skipped
+exit=0

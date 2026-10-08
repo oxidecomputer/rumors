@@ -1,0 +1,40 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+    Finished `release` profile [optimized] target(s) in 4m 59s
+────────────
+ Nextest run ID d55a118e-ee53-4674-916a-9d098edb5338 with nextest profile: default
+    Starting 1 test across 12 binaries (709 tests skipped)
+       START [         ] (1/1) before version::tick::l3_heap::l3_heap_min_ticks_jump_rising_spine
+
+running 1 test
+JUMP min_ticks jump=2^16 n=1024 encoded_bytes=645 peak=12656 ratio=19.62 board_ceiling=13924 green
+JUMP min_ticks jump=2^16 n=4096 encoded_bytes=2565 peak=50480 ratio=19.68 board_ceiling=52324 green
+JUMP min_ticks jump=2^16 n=16384 encoded_bytes=10245 peak=201776 ratio=19.70 board_ceiling=205924 green
+JUMP min_ticks jump=2^16 n=65536 encoded_bytes=40965 peak=806960 ratio=19.70 board_ceiling=820324 green
+JUMP min_ticks jump=2^16 n=98304 encoded_bytes=61445 peak=1613872 ratio=26.27 board_ceiling=1229924 RED
+JUMP min_ticks jump=2^31 n=1024 encoded_bytes=649 peak=78192 ratio=120.48 board_ceiling=14004 RED
+JUMP min_ticks jump=2^31 n=4096 encoded_bytes=2569 peak=312624 ratio=121.69 board_ceiling=52404 RED
+JUMP min_ticks jump=2^31 n=16384 encoded_bytes=10249 peak=1250352 ratio=122.00 board_ceiling=206004 RED
+JUMP min_ticks jump=2^31 n=65536 encoded_bytes=40969 peak=5001264 ratio=122.07 board_ceiling=820404 RED
+JUMP min_ticks jump=2^31 n=98304 encoded_bytes=61449 peak=10002480 ratio=162.78 board_ceiling=1230004 RED
+JUMP min_ticks jump=2^40 n=1024 encoded_bytes=651 peak=78192 ratio=120.11 board_ceiling=14044 RED
+JUMP min_ticks jump=2^40 n=4096 encoded_bytes=2571 peak=312624 ratio=121.60 board_ceiling=52444 RED
+JUMP min_ticks jump=2^40 n=16384 encoded_bytes=10251 peak=1250352 ratio=121.97 board_ceiling=206044 RED
+JUMP min_ticks jump=2^40 n=65536 encoded_bytes=40971 peak=5001264 ratio=122.07 board_ceiling=820444 RED
+JUMP min_ticks jump=2^40 n=98304 encoded_bytes=61451 peak=10002480 ratio=162.77 board_ceiling=1230044 RED
+JUMP min_ticks jump=2^200 n=1024 encoded_bytes=691 peak=95256 ratio=137.85 board_ceiling=14844 RED
+JUMP min_ticks jump=2^200 n=4096 encoded_bytes=2611 peak=378840 ratio=145.09 board_ceiling=53244 RED
+JUMP min_ticks jump=2^200 n=16384 encoded_bytes=10291 peak=1513176 ratio=147.04 board_ceiling=206844 RED
+JUMP min_ticks jump=2^200 n=65536 encoded_bytes=41011 peak=6050520 ratio=147.53 board_ceiling=821244 RED
+JUMP min_ticks jump=2^200 n=98304 encoded_bytes=61491 peak=12100312 ratio=196.78 board_ceiling=1230844 RED
+test version::tick::l3_heap::l3_heap_min_ticks_jump_rising_spine ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 619 filtered out; finished in 1.96s
+
+        PASS [   2.352s] (1/1) before version::tick::l3_heap::l3_heap_min_ticks_jump_rising_spine
+────────────
+     Summary [   2.384s] 1 test run: 1 passed, 709 skipped
+exit=0

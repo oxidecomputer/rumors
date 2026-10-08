@@ -1,0 +1,17 @@
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-run is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `before` (test "audit_l1") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.17s
+exit=0

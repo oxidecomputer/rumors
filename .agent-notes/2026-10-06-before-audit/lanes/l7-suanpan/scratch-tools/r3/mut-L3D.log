@@ -1,0 +1,58 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling autocfg v1.5.1
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling unicode-ident v1.0.25
+   Compiling serde_json v1.0.151
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling thiserror v2.0.20
+   Compiling num-primitive v0.2.1
+   Compiling static_assertions v1.1.0
+   Compiling hex v0.4.3
+   Compiling bytes v1.12.1
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/protocol)
+   Compiling num-traits v0.2.19
+   Compiling dsi-bitstream v0.10.1
+   Compiling syn v3.0.6
+   Compiling num-integer v0.1.47
+   Compiling num-bigint v0.4.8
+   Compiling thiserror-impl v2.0.20
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+warning: function `l7_leaves` is never used
+   --> guest/src/l7_builders.rs:152:8
+    |
+152 | pub fn l7_leaves(family: u64, r: u64) -> u64 {
+    |        ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `wasm32-pins-guest` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 28.43s
+
+running 1 test
+L7 landing case 1: Trapped(UnreachableCodeReached)
+L7 landing case 2: Failed(WrongValue)
+L7 landing case 3: Trapped(UnreachableCodeReached)
+L7 landing case 4: Trapped(UnreachableCodeReached)
+L7 landing case 10: Trapped(UnreachableCodeReached)
+L7 landing case 11: Failed(WrongValue)
+
+thread 'zz_l7_suanpan_add_shifted_landings' (2) panicked at harness/tests/pins.rs:232:9:
+assertion `left == right` failed: landing case 11 returned instead of panicking
+  left: Failed(WrongValue)
+ right: Trapped(UnreachableCodeReached)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test zz_l7_suanpan_add_shifted_landings ... FAILED
+
+failures:
+
+failures:
+    zz_l7_suanpan_add_shifted_landings
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 29.82s
+
+MUTANT L3D status 101

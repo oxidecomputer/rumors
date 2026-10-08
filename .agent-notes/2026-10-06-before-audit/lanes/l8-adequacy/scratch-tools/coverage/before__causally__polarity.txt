@@ -1,0 +1,37 @@
+# coverage of crates/before/src/causally/polarity.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 61/91; branch outcomes 15/20
+# never-executed lines:
+L   70  fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool {
+L   71  if hole.strict {
+L   72  probe < hole.at.as_ref()
+L   74  probe <= hole.at.as_ref()
+L   76  }
+L  128  fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool {
+L  129  if hole.strict {
+L  130  hole.at.as_ref() < probe
+L  132  hole.at.as_ref() <= probe
+L  134  }
+L  168  "!strictly_after"
+L  178  fn hole_demand(_strict: bool) -> Demand {
+L  179  unreachable!("a neutral query holds no holes")
+L  182  fn hole_subtracts(_hole: &Hole<'_>, _probe: &Version) -> bool {
+L  183  unreachable!("a neutral query holds no holes")
+L  186  fn covering_endpoint<'a>(
+L  187  _clamped_lo: &'a Version,
+L  188  _clamped_hi: &'a Version,
+L  189  ) -> &'a Version {
+L  190  unreachable!("a neutral query holds no holes")
+L  193  fn hole_survives(
+L  194  _hole: &Hole<'_>,
+L  195  _floor: Option<&Version>,
+L  196  _ceiling: Option<&Version>,
+L  197  ) -> bool {
+L  198  unreachable!("a neutral query holds no holes")
+L  201  fn absorbs(_a: &Hole<'_>, _b: &Hole<'_>) -> bool {
+L  202  unreachable!("a neutral query holds no holes")
+L  205  fn hole_name(_strict: bool) -> &'static str {
+L  206  unreachable!("a neutral query holds no holes")
+# branches with an outcome never taken (outcome hit counts):
+B   71  [0, 0]  if hole.strict {
+B  129  [0, 0]  if hole.strict {
+B  167  [0, 1]  if strict {

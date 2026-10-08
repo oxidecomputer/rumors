@@ -1,0 +1,5 @@
+# coverage of crates/suanpan/src/accumulator/digits.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 124/124; branch outcomes 21/22
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):
+B  251  [63585426, 187485368, 187485368, 0]  self.highest_nonzero == 0 || self.digits[self.highest_nonzero] != 0,

@@ -1,0 +1,2 @@
+before rebuild j6 secs=12
+suanpan-only rebuild j6 secs=22

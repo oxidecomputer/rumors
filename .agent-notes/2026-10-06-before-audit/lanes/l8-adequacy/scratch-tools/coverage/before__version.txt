@@ -1,0 +1,13 @@
+# coverage of crates/before/src/version.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 337/346; branch outcomes 38/38
+# never-executed lines:
+L  774  (Hull::Input(a), Hull::Merged { mut lo, mut hi }) => {
+L  775  let a = a.version();
+L  776  lo &= a;
+L  777  hi |= a;
+L  778  (lo, hi)
+L  908  (Group::Input(a), Group::Merged(mut b)) => {
+L  909  fold_view(&mut b, a.borrow());
+L  910  b
+L  958  Some(Ordering::Equal) => unreachable!(
+# branches with an outcome never taken (outcome hit counts):

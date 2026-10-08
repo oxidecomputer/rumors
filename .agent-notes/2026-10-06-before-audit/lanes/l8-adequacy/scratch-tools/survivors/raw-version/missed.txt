@@ -1,0 +1,79 @@
+crates/before/src/version.rs:162:9: replace <impl Hash for Version>::hash with ()
+crates/before/src/version.rs:776:24: replace &= with |= in Version::span_all
+crates/before/src/version.rs:777:24: replace |= with &= in Version::span_all
+crates/before/src/version/instrument.rs:33:5: replace meet -> Version with Default::default()
+crates/before/src/version/instrument.rs:57:5: replace min_ticks -> crate::Count with Default::default()
+crates/before/src/version/instrument.rs:63:5: replace project -> Version with Default::default()
+crates/before/src/version/overlay.rs:142:48: replace > with >= in advance_set
+crates/before/src/version/projection.rs:110:44: replace + with * in VersionWriter::project
+crates/before/src/version/projection.rs:355:36: replace != with == in Comparison<'a>::others_deepest
+crates/before/src/version/projection.rs:375:9: replace Comparison<'a>::block_skip with ()
+crates/before/src/version/range_minima.rs:319:26: replace > with >= in RangeMinima<P>::close
+crates/before/src/version/shape.rs:174:48: replace > with >= in advance_refinement
+crates/before/src/version/tick.rs:831:29: replace < with > in TickWalk<'_>::scan_max_consuming
+crates/before/src/version/tick.rs:831:29: replace < with == in TickWalk<'_>::scan_max_consuming
+crates/before/src/version/tick.rs:831:29: replace < with <= in TickWalk<'_>::scan_max_consuming
+crates/before/src/version/io/regions.rs:122:9: replace VersionRegionReader<'a>::peek_flip -> u64 with 0
+crates/before/src/version/io/regions.rs:122:9: replace VersionRegionReader<'a>::peek_flip -> u64 with 1
+crates/before/src/version/io/writer.rs:155:21: replace > with >= in Output::take_left
+crates/before/src/version/io/writer.rs:255:34: replace > with == in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:255:34: replace > with >= in SplitOutput::splice_continuation
+crates/before/src/version/io/writer.rs:410:48: replace | with ^ in PayloadWriter<'_>::push_bits
+crates/before/src/version/measure/integral.rs:230:58: replace + with * in Integrator::boundary
+crates/before/src/version/measure/integral.rs:230:43: replace > with >= in Integrator::boundary
+crates/before/src/version/measure/integral.rs:253:45: replace > with >= in Integrator::freeze
+crates/before/src/version/measure/min_ticks.rs:69:17: replace > with >= in Count::min_ticks_for
+crates/before/src/version/measure/min_ticks.rs:69:69: replace + with * in Count::min_ticks_for
+crates/before/src/version/place/filter.rs:185:38: replace && with || in Comparison::fold
+crates/before/src/version/place/filter.rs:185:77: replace != with == in Comparison::fold
+crates/before/src/version/place/filter.rs:260:39: replace <= with > in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:360:26: replace -= with += in admits
+crates/before/src/version/place/filter.rs:360:26: replace -= with /= in admits
+crates/before/src/version/place/filter.rs:364:26: replace -= with += in admits
+crates/before/src/version/place/filter.rs:364:26: replace -= with /= in admits
+crates/before/src/version/place/filter.rs:603:22: replace -= with += in coverage
+crates/before/src/version/place/filter.rs:603:22: replace -= with /= in coverage
+crates/before/src/version/place/filter.rs:613:37: replace && with || in coverage
+crates/before/src/version/place/filter.rs:614:37: replace && with || in coverage
+crates/before/src/version/place/filter.rs:689:21: delete ! in SpanCursors<'_>::finish
+crates/before/src/version/place/filter.rs:692:21: delete ! in SpanCursors<'_>::finish
+crates/before/src/version/range_minima/anchor.rs:165:9: replace Anchor::gap_dominates_word -> Option<Ordering> with None
+crates/before/src/version/range_minima/boundaries.rs:59:29: replace && with || in Boundaries<P>::is_empty
+crates/before/src/version/range_minima/boundaries.rs:59:9: replace Boundaries<P>::is_empty -> bool with true
+crates/before/src/version/range_minima/boundary.rs:46:44: replace > with >= in Boundary::from_positive
+crates/before/src/version/range_minima/boundary.rs:113:75: replace + with * in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:116:30: replace -= with += in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:106:30: replace -= with += in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:113:42: replace >= with < in Boundary::lower_wide
+crates/before/src/version/range_minima/emission.rs:64:9: replace RangeMinima<()>::emit_when_gap_dominates -> bool with false
+crates/before/src/version/tick/memo.rs:110:9: replace Memo::check_position -> u64 with 0
+crates/before/src/version/tick/memo.rs:110:9: replace Memo::check_position -> u64 with 1
+crates/before/src/version/tick/memo.rs:110:16: replace ^ with | in Memo::check_position
+crates/before/src/version/tick/memo.rs:110:16: replace ^ with & in Memo::check_position
+crates/before/src/version/tick/memo.rs:120:9: replace Memo::begin_scan with ()
+crates/before/src/version/tick/memo.rs:136:17: replace / with % in Memo::reserve
+crates/before/src/version/tick/prescan.rs:233:9: replace PreScan<'a, 'm>::all_levels_resolved -> bool with true
+crates/before/src/version/tick/prescan.rs:279:26: replace > with >= in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:414:29: replace < with == in PreScan<'a, 'm>::copy_range
+crates/before/src/version/tick/prescan.rs:414:29: replace < with > in PreScan<'a, 'm>::copy_range
+crates/before/src/version/tick/prescan.rs:414:29: replace < with <= in PreScan<'a, 'm>::copy_range
+crates/before/src/version/tick/prescan.rs:446:29: replace < with > in PreScan<'a, 'm>::skip_collapse
+crates/before/src/version/tick/prescan.rs:446:29: replace < with <= in PreScan<'a, 'm>::skip_collapse
+crates/before/src/version/tick/prescan.rs:446:29: replace < with == in PreScan<'a, 'm>::skip_collapse
+crates/before/src/version/tick/prescan.rs:480:29: replace < with > in PreScan<'a, 'm>::max_range
+crates/before/src/version/tick/prescan.rs:480:29: replace < with <= in PreScan<'a, 'm>::max_range
+crates/before/src/version/tick/prescan.rs:480:29: replace < with == in PreScan<'a, 'm>::max_range
+crates/before/src/version/tick/probe.rs:31:9: replace RaiseProbe::kill with ()
+crates/before/src/version/measure/integral/deferred.rs:47:9: replace DeferredIntegral::is_empty -> bool with false
+crates/before/src/version/measure/integral/deferred.rs:110:9: replace Aggregate::weight -> u64 with 1
+crates/before/src/version/measure/integral/deferred.rs:110:44: replace + with * in Aggregate::weight
+crates/before/src/version/measure/integral/pair.rs:71:61: replace > with >= in Integrator::pair
+crates/before/src/version/measure/integral/width.rs:39:9: replace ScaledWidth::is_zero -> bool with false
+crates/before/src/version/measure/integral/width.rs:90:9: replace SparseWidth::stored_digit_count -> usize with 0
+crates/before/src/version/measure/integral/width.rs:90:9: replace SparseWidth::stored_digit_count -> usize with 1
+crates/before/src/version/tick/prescan/suspended.rs:73:9: replace AccumulatorStack::is_empty -> bool with true
+crates/before/src/version/tick/prescan/suspended.rs:111:9: replace Levels::is_empty -> bool with true
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:89:38: replace | with ^ in StoredContribution::inline
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:164:36: replace | with ^ in ContributionStore::spill
+crates/before/src/version/measure/min_ticks/minima/heights.rs:117:62: replace < with <= in HeightPrefixes::settle
+crates/before/src/version/measure/min_ticks/minima/heights.rs:131:23: replace || with && in HeightPrefixes::fold_repeated

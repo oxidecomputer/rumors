@@ -1,0 +1,6 @@
+# coverage of crates/before/src/recurse.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 7/8; branch outcomes 1/2
+# never-executed lines:
+L   68  stacker::grow(STACK_GROWTH, f)
+# branches with an outcome never taken (outcome hit counts):
+B   65  [37225584, 0]  if stacker::remaining_stack().is_some_and(|remaining| remaining >= RED_ZONE) {

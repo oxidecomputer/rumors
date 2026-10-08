@@ -1,0 +1,30 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 08s
+────────────
+ Nextest run ID bc8d5d30-9399-47ee-bde4-82f266b0d77d with nextest profile: default
+    Starting 1 test across 12 binaries (699 tests skipped)
+       START [         ] (1/1) before clock::tests::l8_witness_clock_lone_party_bad_padding
+
+running 1 test
+verdict: Err(Truncated)
+
+thread 'clock::tests::l8_witness_clock_lone_party_bad_padding' (2) panicked at crates/before/src/clock/tests.rs:1354:5:
+got Err(Truncated)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test clock::tests::l8_witness_clock_lone_party_bad_padding ... FAILED
+
+failures:
+
+failures:
+    clock::tests::l8_witness_clock_lone_party_bad_padding
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+        FAIL [   0.053s] (1/1) before clock::tests::l8_witness_clock_lone_party_bad_padding
+────────────
+     Summary [   0.057s] 1 test run: 0 passed, 1 failed, 699 skipped
+        FAIL [   0.053s] (1/1) before clock::tests::l8_witness_clock_lone_party_bad_padding
+error: test run failed
+m29 witness status 100
+m29 done

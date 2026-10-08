@@ -1,0 +1,5 @@
+# coverage of crates/before/src/bits/reader/reference.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 29/29; branch outcomes 6/8
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):
+B   22  [1311, 0, 1311, 0]  assert!(position <= len && len <= bytes.len() as u64 * 8);

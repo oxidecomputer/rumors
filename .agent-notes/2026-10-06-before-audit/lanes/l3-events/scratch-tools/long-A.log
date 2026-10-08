@@ -1,0 +1,21 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 26s
+     Running unittests src/lib.rs (target/debug/deps/before-332950f26c43de8d)
+
+running 7 tests
+test version::tick::l3_probe::l3_cogen_bushy has been running for over 60 seconds
+test version::tick::l3_probe::l3_cogen_spine has been running for over 60 seconds
+test version::tick::l3_probe::l3_family_bushy has been running for over 60 seconds
+test version::tick::l3_probe::l3_family_spine has been running for over 60 seconds
+test version::tick::l3_probe::l3_min_ticks_floor_over_histories has been running for over 60 seconds
+test version::tick::l3_probe::l3_min_ticks_tight has been running for over 60 seconds
+test version::tick::l3_probe::l3_min_ticks_tight_spine has been running for over 60 seconds
+test version::tick::l3_probe::l3_min_ticks_tight ... ok
+test version::tick::l3_probe::l3_min_ticks_floor_over_histories ... ok
+test version::tick::l3_probe::l3_cogen_bushy ... ok
+test version::tick::l3_probe::l3_min_ticks_tight_spine ... ok
+test version::tick::l3_probe::l3_family_bushy ... ok
+exit=255

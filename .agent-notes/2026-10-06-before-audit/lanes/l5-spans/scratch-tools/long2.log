@@ -1,0 +1,25 @@
+CARRY-PASS
+CARRY m=256 cells=64 bytes=234 cmp=144 place=293 dominance=167 contains=293 qcontains=395 qcoverage=779
+CARRY m=512 cells=128 bytes=466 cmp=288 place=581 dominance=327 contains=581 qcontains=783 qcoverage=1547
+CARRY m=1024 cells=256 bytes=930 cmp=576 place=1157 dominance=647 contains=1157 qcontains=1559 qcoverage=3083
+CARRY m=2048 cells=512 bytes=1858 cmp=1152 place=2309 dominance=1287 contains=2309 qcontains=3111 qcoverage=6155
+LONG-PASS
+test testing::audit_l5::l5_stats ... ignored
+test testing::audit_l5::l5_stats2 ... ignored
+test testing::audit_l5::l5_touch_carry_family ... ignored
+test testing::audit_l5::l5_census_is_exact_against_a_finer_universe ... ok
+test testing::audit_l5::l5_antichain_queries ... ok
+test testing::audit_l5::l5_deep_verdicts has been running for over 60 seconds
+test testing::audit_l5::l5_own_span_matches_vectors has been running for over 60 seconds
+test testing::audit_l5::l5_queries_match_vectors has been running for over 60 seconds
+test testing::audit_l5::l5_span_algebra_matches_vectors has been running for over 60 seconds
+test testing::audit_l5::l5_span_query_agree has been running for over 60 seconds
+test testing::audit_l5::l5_span_verdicts_match_vectors has been running for over 60 seconds
+test testing::audit_l5::l5_span_query_agree ... ok
+test testing::audit_l5::l5_span_algebra_matches_vectors ... ok
+test testing::audit_l5::l5_queries_match_vectors ... ok
+test testing::audit_l5::l5_own_span_matches_vectors ... ok
+test testing::audit_l5::l5_deep_verdicts ... ok
+test testing::audit_l5::l5_span_verdicts_match_vectors ... ok
+test result: ok. 8 passed; 0 failed; 3 ignored; 0 measured; 604 filtered out; finished in 1439.72s
+exit=0

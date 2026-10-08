@@ -1,0 +1,3 @@
+# survivors of crates/before/src/version/measure/min_ticks/minima/contributions.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/measure/min_ticks/minima/contributions.rs:89:38: replace | with ^ in StoredContribution::inline
+MISSED   crates/before/src/version/measure/min_ticks/minima/contributions.rs:164:36: replace | with ^ in ContributionStore::spill

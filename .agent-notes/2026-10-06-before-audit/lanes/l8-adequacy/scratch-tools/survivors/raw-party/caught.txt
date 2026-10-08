@@ -1,0 +1,339 @@
+crates/before/src/clock.rs:249:9: replace Clock::join -> Result<&Version, Clock> with Ok(Box::leak(Box::new(Default::default())))
+crates/before/src/clock.rs:252:30: replace |= with &= in Clock::join
+crates/before/src/clock.rs:146:9: replace Clock::ticks -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:118:9: replace Clock::tick -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:296:9: replace Clock::join_all -> Result<&Version, Vec<Clock>> with Ok(Box::leak(Box::new(Default::default())))
+crates/before/src/clock.rs:351:22: replace |= with &= in Clock::sync
+crates/before/src/clock.rs:344:9: replace Clock::sync -> Result<&Version, Overlap> with Ok(Box::leak(Box::new(Default::default())))
+crates/before/src/clock.rs:401:9: replace Clock::sync_all -> Result<&Version, Overlap> with Ok(Box::leak(Box::new(Default::default())))
+crates/before/src/clock.rs:468:9: replace Clock::send -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:425:40: replace + with * in Clock::sync_all
+crates/before/src/clock.rs:425:40: replace + with - in Clock::sync_all
+crates/before/src/clock.rs:494:9: replace Clock::recv -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:523:9: replace Clock::absorb -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:523:22: replace |= with &= in Clock::absorb
+crates/before/src/clock.rs:563:9: replace Clock::recv_all -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:599:9: replace Clock::absorb_all -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:774:9: replace Clock::encode -> Vec<u8> with vec![]
+crates/before/src/clock.rs:672:9: replace Clock::version -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/clock.rs:774:9: replace Clock::encode -> Vec<u8> with vec![0]
+crates/before/src/clock.rs:774:9: replace Clock::encode -> Vec<u8> with vec![1]
+crates/before/src/clock.rs:804:9: replace Clock::encode_to -> std::io::Result<()> with Ok(())
+crates/before/src/clock.rs:889:9: replace Clock::encoded_bits -> u64 with 0
+crates/before/src/clock.rs:889:9: replace Clock::encoded_bits -> u64 with 1
+crates/before/src/clock.rs:889:23: replace * with / in Clock::encoded_bits
+crates/before/src/clock.rs:889:23: replace * with + in Clock::encoded_bits
+crates/before/src/clock.rs:889:54: replace + with - in Clock::encoded_bits
+crates/before/src/clock.rs:889:54: replace + with * in Clock::encoded_bits
+crates/before/src/clock.rs:890:15: replace + with * in Clock::encoded_bits
+crates/before/src/clock.rs:890:15: replace + with - in Clock::encoded_bits
+crates/before/src/clock.rs:937:9: replace <impl Debug for Clock>::fmt -> core::fmt::Result with Ok(Default::default())
+crates/before/src/party.rs:92:9: replace <impl core::fmt::Display for Party>::fmt -> core::fmt::Result with Ok(Default::default())
+crates/before/src/party.rs:133:9: replace <impl PartialEq for Party>::eq -> bool with true
+crates/before/src/party.rs:133:9: replace <impl PartialEq for Party>::eq -> bool with false
+crates/before/src/party.rs:133:16: replace == with != in <impl PartialEq for Party>::eq
+crates/before/src/party.rs:211:9: replace Party::is_seed -> bool with true
+crates/before/src/party.rs:211:9: replace Party::is_seed -> bool with false
+crates/before/src/party.rs:211:15: replace == with != in Party::is_seed
+crates/before/src/party.rs:270:9: replace Party::ticks with ()
+crates/before/src/party.rs:240:9: replace Party::tick with ()
+crates/before/src/party.rs:373:9: replace Party::join -> Result<(), Party> with Ok(())
+crates/before/src/party.rs:414:9: replace Party::join_all -> Result<(), Vec<Party>> with Ok(())
+crates/before/src/party.rs:461:9: replace Party::is_disjoint -> bool with false
+crates/before/src/party.rs:461:9: replace Party::is_disjoint -> bool with true
+crates/before/src/party.rs:490:9: replace Party::covers -> bool with true
+crates/before/src/party.rs:490:9: replace Party::covers -> bool with false
+crates/before/src/party.rs:629:9: replace Party::encode -> Vec<u8> with vec![]
+crates/before/src/party.rs:526:9: replace Party::without -> Option<Party> with None
+crates/before/src/party.rs:629:9: replace Party::encode -> Vec<u8> with vec![0]
+crates/before/src/party.rs:629:9: replace Party::encode -> Vec<u8> with vec![1]
+crates/before/src/party.rs:652:9: replace Party::encode_to -> std::io::Result<()> with Ok(())
+crates/before/src/party.rs:677:9: replace Party::encoded_bits -> u64 with 0
+crates/before/src/party.rs:677:9: replace Party::encoded_bits -> u64 with 1
+crates/before/src/party.rs:746:9: replace Party::as_bytes -> &[u8] with Vec::leak(Vec::new())
+crates/before/src/party.rs:746:9: replace Party::as_bytes -> &[u8] with Vec::leak(vec![1])
+crates/before/src/party.rs:746:9: replace Party::as_bytes -> &[u8] with Vec::leak(vec![0])
+crates/before/src/clock/forks.rs:59:9: replace <impl Iterator for ClockForks<'_>>::next -> Option<Clock> with None
+crates/before/src/party.rs:757:9: replace <impl core::fmt::Debug for Party>::fmt -> core::fmt::Result with Ok(Default::default())
+crates/before/src/clock/forks.rs:63:9: replace <impl Iterator for ClockForks<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/clock/forks.rs:63:9: replace <impl Iterator for ClockForks<'_>>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/clock/forks.rs:63:9: replace <impl Iterator for ClockForks<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/clock/forks.rs:63:9: replace <impl Iterator for ClockForks<'_>>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/clock/forks.rs:63:9: replace <impl Iterator for ClockForks<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/clock/forks.rs:63:9: replace <impl Iterator for ClockForks<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/party/compare.rs:26:9: replace PartyReader<'_>::is_disjoint -> bool with false
+crates/before/src/party/compare.rs:26:9: replace PartyReader<'_>::is_disjoint -> bool with true
+crates/before/src/party/compare.rs:43:9: replace PartyReader<'_>::covers -> bool with true
+crates/before/src/party/compare.rs:43:9: replace PartyReader<'_>::covers -> bool with false
+crates/before/src/party/compare.rs:73:9: replace Comparison<'a, 'b>::holds -> bool with false
+crates/before/src/party/compare.rs:73:9: replace Comparison<'a, 'b>::holds -> bool with true
+crates/before/src/party/compare.rs:104:17: delete match arm (Some(PartyNode::Branch(first)), Some(PartyNode::Branch(second))) in Comparison<'a, 'b>::holds
+crates/before/src/party/compare.rs:114:9: replace Comparison<'a, 'b>::read_first -> Option<PartyNode> with None
+crates/before/src/party/compare.rs:141:9: replace Comparison<'a, 'b>::descend with ()
+crates/before/src/party/compare.rs:123:9: replace Comparison<'a, 'b>::read_second -> Option<PartyNode> with None
+crates/before/src/party/compare.rs:145:24: replace || with && in Comparison<'a, 'b>::descend
+crates/before/src/party/compare.rs:145:40: replace && with || in Comparison<'a, 'b>::descend
+crates/before/src/party/compare.rs:145:56: replace || with && in Comparison<'a, 'b>::descend
+crates/before/src/party/fork.rs:101:60: replace + with - in Party::fork_tree
+crates/before/src/party/fork.rs:119:60: replace + with - in Party::fork_tree
+crates/before/src/party/forks.rs:59:9: replace SharePath<'_>::next_decision -> Option<bool> with None
+crates/before/src/party/forks.rs:59:42: replace < with == in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:59:42: replace < with <= in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:60:43: replace - with + in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:59:42: replace < with > in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:59:9: replace SharePath<'_>::next_decision -> Option<bool> with Some(true)
+crates/before/src/party/forks.rs:60:43: replace - with / in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:60:39: replace - with + in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:61:33: replace == with != in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:59:9: replace SharePath<'_>::next_decision -> Option<bool> with Some(false)
+crates/before/src/party/forks.rs:66:23: replace += with -= in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:60:39: replace - with / in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:79:9: replace <impl Iterator for SharePath<'_>>::next -> Option<bool> with None
+crates/before/src/party/forks.rs:79:26: replace == with != in <impl Iterator for SharePath<'_>>::next
+crates/before/src/party/forks.rs:79:40: replace + with - in <impl Iterator for SharePath<'_>>::next
+crates/before/src/party/forks.rs:66:23: replace += with *= in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:79:40: replace + with * in <impl Iterator for SharePath<'_>>::next
+crates/before/src/party/forks.rs:79:9: replace <impl Iterator for SharePath<'_>>::next -> Option<bool> with Some(true)
+crates/before/src/party/forks.rs:137:71: replace - with + in Remaining::advance
+crates/before/src/party/forks.rs:79:9: replace <impl Iterator for SharePath<'_>>::next -> Option<bool> with Some(false)
+crates/before/src/party/forks.rs:136:9: replace Remaining::advance with ()
+crates/before/src/party/forks.rs:137:71: replace - with / in Remaining::advance
+crates/before/src/party/forks.rs:146:9: replace Remaining::is_empty -> bool with false
+crates/before/src/party/forks.rs:146:9: replace Remaining::is_empty -> bool with true
+crates/before/src/party/forks.rs:151:9: replace Remaining::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/party/forks.rs:151:9: replace Remaining::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/party/forks.rs:151:9: replace Remaining::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/party/forks.rs:151:9: replace Remaining::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/party/forks.rs:151:9: replace Remaining::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/party/forks.rs:151:9: replace Remaining::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/party/forks.rs:197:9: replace Plan::is_empty -> bool with true
+crates/before/src/party/forks.rs:197:9: replace Plan::is_empty -> bool with false
+crates/before/src/party/forks.rs:200:13: replace || with && in Plan::is_empty
+crates/before/src/party/forks.rs:210:9: replace Plan::has_saturated_lower_bound -> bool with false
+crates/before/src/party/forks.rs:210:9: replace Plan::has_saturated_lower_bound -> bool with true
+crates/before/src/party/forks.rs:200:62: replace && with || in Plan::is_empty
+crates/before/src/party/forks.rs:213:28: replace || with && in Plan::has_saturated_lower_bound
+crates/before/src/party/forks.rs:213:9: delete ! in Plan::has_saturated_lower_bound
+crates/before/src/party/forks.rs:213:31: delete ! in Plan::has_saturated_lower_bound
+crates/before/src/party/forks.rs:222:9: replace Plan::current_forks_again -> bool with true
+crates/before/src/party/forks.rs:222:9: replace Plan::current_forks_again -> bool with false
+crates/before/src/party/forks.rs:224:55: replace - with + in Plan::current_forks_again
+crates/before/src/party/forks.rs:224:55: replace - with / in Plan::current_forks_again
+crates/before/src/party/forks.rs:226:24: delete ! in Plan::current_forks_again
+crates/before/src/party/forks.rs:225:21: replace != with == in Plan::current_forks_again
+crates/before/src/party/forks.rs:257:24: replace && with || in Plan::advance
+crates/before/src/party/forks.rs:224:51: replace - with + in Plan::current_forks_again
+crates/before/src/party/forks.rs:224:51: replace - with / in Plan::current_forks_again
+crates/before/src/party/forks.rs:257:27: delete ! in Plan::advance
+crates/before/src/party/forks.rs:261:24: replace += with -= in Plan::advance
+crates/before/src/party/forks.rs:261:24: replace += with *= in Plan::advance
+crates/before/src/party/forks.rs:256:9: replace Plan::advance with ()
+crates/before/src/party/forks.rs:267:9: replace Plan::skip_one with ()
+crates/before/src/party/forks.rs:293:9: replace <impl Iterator for Shares>::next -> Option<Party> with None
+crates/before/src/party/forks.rs:301:45: replace / with * in <impl Iterator for Shares>::next
+crates/before/src/party/forks.rs:294:22: replace == with != in <impl Iterator for Shares>::next
+crates/before/src/party/forks.rs:323:9: replace <impl Iterator for Plan>::next -> Option<Party> with None
+crates/before/src/party/forks.rs:311:9: replace Party::into_shares -> impl Iterator<Item = Party> with ::std::iter::empty()
+crates/before/src/party/forks.rs:333:9: replace <impl Iterator for Plan>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/party/forks.rs:333:9: replace <impl Iterator for Plan>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/party/forks.rs:301:45: replace / with % in <impl Iterator for Shares>::next
+crates/before/src/party/forks.rs:333:9: replace <impl Iterator for Plan>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/party/forks.rs:333:9: replace <impl Iterator for Plan>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/party/forks.rs:333:9: replace <impl Iterator for Plan>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/party/forks.rs:335:64: replace && with || in <impl Iterator for Plan>::size_hint
+crates/before/src/party/forks.rs:333:9: replace <impl Iterator for Plan>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/party/forks.rs:409:9: replace <impl Iterator for PartyForks<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/party/forks.rs:409:9: replace <impl Iterator for PartyForks<'_>>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/party/forks.rs:409:9: replace <impl Iterator for PartyForks<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/party/forks.rs:409:9: replace <impl Iterator for PartyForks<'_>>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/party/forks.rs:409:9: replace <impl Iterator for PartyForks<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/party/forks.rs:391:9: replace <impl Iterator for PartyForks<'_>>::next -> Option<Party> with None
+crates/before/src/party/forks.rs:409:9: replace <impl Iterator for PartyForks<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/party/instrument.rs:8:5: replace bits -> BitsWriter with Default::default()
+crates/before/src/party/io.rs:28:34: replace + with - in Party::decode_prefix
+crates/before/src/party/io.rs:29:26: replace > with == in Party::decode_prefix
+crates/before/src/party/io.rs:28:34: replace + with * in Party::decode_prefix
+crates/before/src/party/io.rs:29:26: replace > with < in Party::decode_prefix
+crates/before/src/party/io.rs:49:9: replace Party::stored_len -> u64 with 0
+crates/before/src/party/io.rs:49:9: replace Party::stored_len -> u64 with 1
+crates/before/src/party/join.rs:25:9: replace PartyReader<'_>::join -> Option<Party> with None
+crates/before/src/party/join.rs:63:31: replace == with != in PartyReader<'_>::join
+crates/before/src/party/join.rs:101:47: replace && with || in PartyReader<'_>::join
+crates/before/src/party/sync.rs:71:38: replace && with || in Sync<'a>::fork_joined_branch
+crates/before/src/party/sync.rs:18:9: replace Party::sync -> Option<(Party, Party)> with None
+crates/before/src/party/sync.rs:32:23: replace == with != in Party::sync
+crates/before/src/party/sync.rs:152:9: replace JoinedChild<'a>::append_to with ()
+crates/before/src/party/sync.rs:70:9: replace Sync<'a>::fork_joined_branch -> Option<(Party, Party)> with None
+crates/before/src/party/fork/remove.rs:68:9: replace Selected::is_right -> bool with true
+crates/before/src/party/without.rs:31:9: replace PartyReader<'a>::without -> Option<Party> with None
+crates/before/src/party/fork/remove.rs:68:9: replace Selected::is_right -> bool with false
+crates/before/src/party/fork/remove.rs:101:9: replace Frames::push with ()
+crates/before/src/party/fork/remove.rs:108:33: replace != with == in Frames::push
+crates/before/src/party/fork/remove.rs:108:29: replace & with | in Frames::push
+crates/before/src/party/fork/remove.rs:108:29: replace & with ^ in Frames::push
+crates/before/src/party/fork/remove.rs:109:33: replace != with == in Frames::push
+crates/before/src/party/fork/remove.rs:109:29: replace & with | in Frames::push
+crates/before/src/party/fork/remove.rs:109:29: replace & with ^ in Frames::push
+crates/before/src/party/fork/remove.rs:115:9: replace Frames::pop -> Option<Ancestor> with None
+crates/before/src/party/fork/remove.rs:190:9: replace Removal<'a>::descend with ()
+crates/before/src/party/fork/remove.rs:248:9: replace Removal<'a>::retain_owned_sibling with ()
+crates/before/src/party/fork/remove.rs:257:9: replace Removal<'a>::omit_selected_region with ()
+crates/before/src/party/io/reader.rs:48:18: replace - with / in PartyPath<'a>::stored_len
+crates/before/src/party/io/reader.rs:73:18: replace - with + in PartySubtree<'a>::stored_len
+crates/before/src/party/io/reader.rs:83:9: replace PartySubtree<'a>::is_branch -> bool with false
+crates/before/src/party/io/reader.rs:83:9: delete ! in PartySubtree<'a>::is_branch
+crates/before/src/party/io/reader.rs:122:9: replace PartyNode::branch -> Option<PartyBranch> with None
+crates/before/src/party/io/reader.rs:179:9: replace PartyBranch::has_left_child -> bool with false
+crates/before/src/party/io/reader.rs:164:9: replace BranchChoice::is_right -> bool with true
+crates/before/src/party/io/reader.rs:164:9: replace BranchChoice::is_right -> bool with false
+crates/before/src/party/io/reader.rs:184:9: replace PartyBranch::has_right_child -> bool with true
+crates/before/src/party/io/reader.rs:179:9: replace PartyBranch::has_left_child -> bool with true
+crates/before/src/party/io/reader.rs:191:13: delete match arm (PartyBranch::Right, PartyBranch::Right) in PartyBranch::union
+crates/before/src/party/io/reader.rs:184:9: replace PartyBranch::has_right_child -> bool with false
+crates/before/src/party/io/reader.rs:190:13: delete match arm (PartyBranch::Left, PartyBranch::Left) in PartyBranch::union
+crates/before/src/party/io/reader.rs:248:9: replace PartyReader<'a>::source_len_of -> u64 with 0
+crates/before/src/party/io/reader.rs:248:9: replace PartyReader<'a>::source_len_of -> u64 with 1
+crates/before/src/party/io/reader.rs:253:36: replace - with + in PartyReader<'a>::source_len_of
+crates/before/src/party/io/reader.rs:253:32: replace - with + in PartyReader<'a>::source_len_of
+crates/before/src/party/io/reader.rs:253:36: replace - with / in PartyReader<'a>::source_len_of
+crates/before/src/party/io/reader.rs:253:28: replace * with + in PartyReader<'a>::source_len_of
+crates/before/src/party/io/reader.rs:265:50: replace / with % in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:253:32: replace - with / in PartyReader<'a>::source_len_of
+crates/before/src/party/io/reader.rs:265:50: replace / with * in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:253:28: replace * with / in PartyReader<'a>::source_len_of
+crates/before/src/party/io/reader.rs:266:23: replace - with + in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:266:35: replace % with / in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:266:23: replace - with / in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:266:35: replace % with + in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:269:13: delete match arm 0b00 in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:270:13: delete match arm 0b10 in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:271:13: delete match arm 0b01 in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:272:13: delete match arm 0b11 in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:268:31: replace & with | in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:268:31: replace & with ^ in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:268:21: replace >> with << in PartyReader<'a>::node_at
+crates/before/src/party/io/reader.rs:284:23: replace += with -= in PartyReader<'a>::read
+crates/before/src/party/io/reader.rs:300:23: replace != with == in PartyReader<'a>::skip
+crates/before/src/party/io/reader.rs:301:21: replace -= with += in PartyReader<'a>::skip
+crates/before/src/party/io/reader.rs:299:9: replace PartyReader<'a>::skip with ()
+crates/before/src/party/io/reader.rs:303:25: replace += with -= in PartyReader<'a>::skip
+crates/before/src/party/io/reader.rs:301:21: replace -= with /= in PartyReader<'a>::skip
+crates/before/src/party/io/reader.rs:303:63: replace + with - in PartyReader<'a>::skip
+crates/before/src/party/io/reader.rs:303:25: replace += with *= in PartyReader<'a>::skip
+crates/before/src/party/io/reader.rs:284:23: replace += with *= in PartyReader<'a>::read
+crates/before/src/party/io/reader.rs:303:63: replace + with * in PartyReader<'a>::skip
+crates/before/src/party/io/reader.rs:314:9: replace PartyReader<'a>::skip_present_children with ()
+crates/before/src/party/io/reader.rs:331:18: replace - with / in PartyReader<'a>::stored_len
+crates/before/src/party/io/reader.rs:336:9: replace PartyReader<'a>::offset -> u64 with 0
+crates/before/src/party/io/reader.rs:336:9: replace PartyReader<'a>::offset -> u64 with 1
+crates/before/src/party/io/reader.rs:341:23: replace == with != in PartyReader<'a>::at_end
+crates/before/src/party/io/reader.rs:341:9: replace PartyReader<'a>::at_end -> bool with false
+crates/before/src/party/io/regions.rs:41:9: replace PartyRegionReader<'a>::owned -> bool with false
+crates/before/src/party/io/regions.rs:41:9: replace PartyRegionReader<'a>::owned -> bool with true
+crates/before/src/party/io/regions.rs:51:9: replace PartyRegionReader<'a>::done -> bool with true
+crates/before/src/party/io/regions.rs:46:9: replace PartyRegionReader<'a>::depth -> u64 with 0
+crates/before/src/party/io/regions.rs:51:9: replace PartyRegionReader<'a>::done -> bool with false
+crates/before/src/party/io/regions.rs:51:25: replace == with != in PartyRegionReader<'a>::done
+crates/before/src/party/io/regions.rs:46:9: replace PartyRegionReader<'a>::depth -> u64 with 1
+crates/before/src/party/io/regions.rs:65:25: replace -= with += in PartyRegionReader<'a>::advance
+crates/before/src/party/io/regions.rs:56:9: replace PartyRegionReader<'a>::advance -> u64 with 1
+crates/before/src/party/io/regions.rs:56:9: replace PartyRegionReader<'a>::advance -> u64 with 0
+crates/before/src/party/io/regions.rs:65:25: replace -= with /= in PartyRegionReader<'a>::advance
+crates/before/src/party/io/regions.rs:82:9: replace PartyRegionReader<'a>::descend with ()
+crates/before/src/party/io/regions.rs:85:25: delete ! in PartyRegionReader<'a>::descend
+crates/before/src/party/io/regions.rs:85:16: delete ! in PartyRegionReader<'a>::descend
+crates/before/src/party/io/regions.rs:85:22: replace && with || in PartyRegionReader<'a>::descend
+crates/before/src/party/io/regions.rs:90:29: replace += with *= in PartyRegionReader<'a>::descend
+crates/before/src/party/io/regions.rs:92:16: delete ! in PartyRegionReader<'a>::descend
+crates/before/src/party/io/regions.rs:90:29: replace += with -= in PartyRegionReader<'a>::descend
+crates/before/src/party/io/validate.rs:18:5: replace prefix -> Result<u64, Decode> with Ok(0)
+crates/before/src/party/io/validate.rs:28:5: replace prefix_from_reader -> Result<u64, Decode> with Ok(0)
+crates/before/src/party/io/validate.rs:28:5: replace prefix_from_reader -> Result<u64, Decode> with Ok(1)
+crates/before/src/party/io/validate.rs:18:5: replace prefix -> Result<u64, Decode> with Ok(1)
+crates/before/src/party/io/validate.rs:67:35: replace && with || in from_reader
+crates/before/src/party/io/writer.rs:72:35: replace * with +
+crates/before/src/party/io/validate.rs:37:5: replace from_reader -> Result<(), Decode> with Ok(())
+crates/before/src/party/io/writer.rs:72:35: replace * with /
+crates/before/src/party/io/writer.rs:171:9: replace PartyWriter::copy_unary_path with ()
+crates/before/src/party/io/writer.rs:165:9: replace PartyWriter::copy_subtree with ()
+crates/before/src/party/io/writer.rs:177:9: replace PartyWriter::copy_shared_unary_path with ()
+crates/before/src/party/io/writer.rs:187:9: replace PartyWriter::copy_remaining_subtree with ()
+crates/before/src/party/io/writer.rs:215:38: delete ! in PartyWriter::close_branch
+crates/before/src/party/io/writer.rs:217:37: replace + with - in PartyWriter::close_branch
+crates/before/src/party/io/writer.rs:217:37: replace + with * in PartyWriter::close_branch
+crates/before/src/party/io/writer.rs:217:42: delete ! in PartyWriter::close_branch
+crates/before/src/party/io/writer.rs:228:42: replace - with + in PartyWriter::collapse_owned_children
+crates/before/src/party/io/writer.rs:228:42: replace - with / in PartyWriter::collapse_owned_children
+crates/before/src/party/io/writer.rs:295:9: replace PartyRegionWriter::leaf with ()
+crates/before/src/party/io/writer.rs:323:9: replace PartyRegionWriter::subtree with ()
+crates/before/src/party/io/writer.rs:343:9: replace PartyRegionWriter::finish -> Option<Party> with None
+crates/before/src/party/io/writer.rs:362:9: replace PartyRegionWriter::close_up with ()
+crates/before/src/party/io/writer.rs:387:9: replace PartyRegionWriter::push_kind with ()
+crates/before/src/party/join/frames.rs:34:9: replace Frames::push_pending_right with ()
+crates/before/src/party/join/frames.rs:41:9: replace Frames::push_pending_close with ()
+crates/before/src/party/join/frames.rs:47:9: replace Frames::pop -> Option<Frame> with None
+crates/before/src/party/without/difference.rs:35:9: replace Difference<'a, 'b>::between -> Option<Party> with None
+crates/before/src/party/without/difference.rs:45:9: replace Difference<'a, 'b>::resolve -> Option<Party> with None
+crates/before/src/party/without/difference.rs:55:36: replace && with || in Difference<'a, 'b>::resolve
+crates/before/src/party/without/difference.rs:55:39: delete ! in Difference<'a, 'b>::resolve
+crates/before/src/party/without/difference.rs:78:9: replace Difference<'a, 'b>::resolve_a with ()
+crates/before/src/party/without/difference.rs:88:9: replace Difference<'a, 'b>::resolve_b with ()
+crates/before/src/party/without/difference.rs:97:9: replace Difference<'a, 'b>::resolve_pair with ()
+crates/before/src/party/without/difference.rs:58:30: replace && with || in Difference<'a, 'b>::resolve
+crates/before/src/party/without/difference.rs:67:9: replace Difference<'a, 'b>::advance with ()
+crates/before/src/party/without/difference.rs:107:9: replace Difference<'a, 'b>::descend_pair with ()
+crates/before/src/party/without/reader.rs:77:9: replace DifferenceReader<'a>::owned -> bool with true
+crates/before/src/party/without/reader.rs:62:9: replace DifferenceReader<'a>::take_retained_subtree -> Option<PartySubtree<'a>> with None
+crates/before/src/party/without/reader.rs:77:9: replace DifferenceReader<'a>::owned -> bool with false
+crates/before/src/party/without/reader.rs:93:33: replace += with -= in DifferenceReader<'a>::enter
+crates/before/src/party/without/reader.rs:93:33: replace += with *= in DifferenceReader<'a>::enter
+crates/before/src/party/without/reader.rs:107:9: replace DifferenceReader<'a>::descend with ()
+crates/before/src/party/without/reader.rs:116:9: replace DifferenceReader<'a>::skip_subtree with ()
+crates/before/src/party/without/reader.rs:119:37: replace match guard disposition == SubtreeDisposition::Retain with true in DifferenceReader<'a>::skip_subtree
+crates/before/src/party/without/reader.rs:119:49: replace == with != in DifferenceReader<'a>::skip_subtree
+crates/before/src/party/without/reader.rs:119:37: replace match guard disposition == SubtreeDisposition::Retain with false in DifferenceReader<'a>::skip_subtree
+crates/before/src/party/without/reader.rs:155:9: replace <impl OverlayCursor for DifferenceReader<'_>>::done -> bool with true
+crates/before/src/party/without/reader.rs:150:9: replace <impl OverlayCursor for DifferenceReader<'_>>::depth -> u64 with 0
+crates/before/src/party/without/reader.rs:155:25: replace == with != in <impl OverlayCursor for DifferenceReader<'_>>::done
+crates/before/src/party/without/reader.rs:167:25: replace -= with += in <impl OverlayCursor for DifferenceReader<'_>>::step
+crates/before/src/party/without/reader.rs:150:9: replace <impl OverlayCursor for DifferenceReader<'_>>::depth -> u64 with 1
+crates/before/src/party/without/reader.rs:167:25: replace -= with /= in <impl OverlayCursor for DifferenceReader<'_>>::step
+crates/before/src/party/io/validate/frames.rs:32:34: replace != with == in Frames::push
+crates/before/src/party/without/reader.rs:155:9: replace <impl OverlayCursor for DifferenceReader<'_>>::done -> bool with false
+crates/before/src/party/io/validate/frames.rs:32:27: replace & with | in Frames::push
+crates/before/src/party/io/validate/frames.rs:32:27: replace & with ^ in Frames::push
+crates/before/src/party/io/validate/frames.rs:33:34: replace != with == in Frames::push
+crates/before/src/party/io/validate/frames.rs:33:27: replace & with | in Frames::push
+crates/before/src/party/io/validate/frames.rs:33:27: replace & with ^ in Frames::push
+crates/before/src/party/io/validate/frames.rs:26:9: replace Frames::push with ()
+crates/before/src/party/io/writer/positions.rs:45:28: replace - with + in Positions::push
+crates/before/src/party/io/validate/frames.rs:38:9: replace Frames::pop -> Option<Frame> with None
+crates/before/src/party/io/writer/positions.rs:46:25: replace && with || in Positions::push
+crates/before/src/party/io/writer/positions.rs:44:9: replace Positions::push with ()
+crates/before/src/party/io/writer/positions.rs:45:28: replace - with / in Positions::push
+crates/before/src/party/io/writer/positions.rs:46:37: replace == with != in Positions::push
+crates/before/src/party/io/writer/positions.rs:47:27: replace += with -= in Positions::push
+crates/before/src/party/io/writer/positions.rs:47:27: replace += with *= in Positions::push
+crates/before/src/party/io/writer/positions.rs:52:39: replace + with - in Positions::push
+crates/before/src/party/io/writer/positions.rs:55:18: replace += with -= in Positions::push
+crates/before/src/party/io/writer/positions.rs:55:18: replace += with *= in Positions::push
+crates/before/src/party/io/writer/positions.rs:52:39: replace + with * in Positions::push
+crates/before/src/party/io/writer/positions.rs:63:26: replace > with == in Positions::pop
+crates/before/src/party/io/writer/positions.rs:63:26: replace > with >= in Positions::pop
+crates/before/src/party/io/writer/positions.rs:64:27: replace -= with += in Positions::pop
+crates/before/src/party/io/writer/positions.rs:63:26: replace > with < in Positions::pop
+crates/before/src/party/io/writer/positions.rs:65:22: replace -= with += in Positions::pop
+crates/before/src/party/io/writer/positions.rs:73:35: replace - with + in Positions::pop
+crates/before/src/party/io/writer/positions.rs:64:27: replace -= with /= in Positions::pop
+crates/before/src/party/io/writer/positions.rs:65:22: replace -= with /= in Positions::pop
+crates/before/src/party/io/writer/positions.rs:74:22: replace -= with /= in Positions::pop
+crates/before/src/party/io/writer/positions.rs:73:35: replace - with / in Positions::pop
+crates/before/src/party/io/writer/positions.rs:74:22: replace -= with += in Positions::pop
+crates/before/src/party/io/writer/positions.rs:76:22: replace -= with += in Positions::pop
+crates/before/src/party/io/writer/positions.rs:76:22: replace -= with /= in Positions::pop
+crates/before/src/party/io/writer/positions.rs:76:31: replace - with + in Positions::pop
+crates/before/src/party/io/writer/positions.rs:83:26: replace > with == in Positions::flush_run
+crates/before/src/party/io/writer/positions.rs:76:31: replace - with / in Positions::pop
+crates/before/src/party/io/writer/positions.rs:83:26: replace > with < in Positions::flush_run
+crates/before/src/party/io/writer/positions.rs:83:26: replace > with >= in Positions::flush_run
+crates/before/src/party/io/writer/positions.rs:83:9: replace Positions::flush_run with ()

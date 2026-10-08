@@ -1,0 +1,33 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.31s
+────────────
+ Nextest run ID bf530c47-89ea-4c22-bc07-0f88482a0488 with nextest profile: default
+    Starting 2 tests across 12 binaries (698 tests skipped)
+        PASS [   0.047s] (1/2) before version::range_minima::tests::l8_witness_boundary_dominates_decrease
+        FAIL [   0.061s] (2/2) before version::range_minima::tests::l8_witness_decrease_dominates_inner_boundary
+  stdout ───
+
+    running 1 test
+    test version::range_minima::tests::l8_witness_decrease_dominates_inner_boundary ... FAILED
+
+    failures:
+
+    failures:
+        version::range_minima::tests::l8_witness_decrease_dominates_inner_boundary
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'version::range_minima::tests::l8_witness_decrease_dominates_inner_boundary' (2) panicked at crates/before/src/version/range_minima/tests.rs:439:9:
+    assertion `left == right` failed: retired payloads at 1
+      left: [1606938044258990275541962092341162602522184547038719125749761, 0]
+     right: [1606938044258990275541962092341162602522184547038719125749761]
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.067s] 2 tests run: 1 passed, 1 failed, 698 skipped
+        FAIL [   0.061s] (2/2) before version::range_minima::tests::l8_witness_decrease_dominates_inner_boundary
+error: test run failed
+m106 witness status 100
+m106 done

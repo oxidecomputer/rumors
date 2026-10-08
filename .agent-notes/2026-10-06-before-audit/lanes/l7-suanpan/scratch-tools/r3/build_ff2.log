@@ -1,0 +1,14 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling fuzzfit-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/fuzzfit/guest)
+    Finished `release` profile [optimized] target(s) in 27.02s
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling fuzzfit-harness v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/fuzzfit/harness)
+    Finished `release` profile [optimized] target(s) in 43.80s
+-rwxr-xr-x   2 agent    agent     635616 Oct  7 17:50 ../../../target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm
+explore_l7-49d2f7cfb17c0969
+explore_l7-49d2f7cfb17c0969.d
+EXIT=0

@@ -1,0 +1,4 @@
+# survivors of crates/before/src/version/measure/integral/deferred.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/measure/integral/deferred.rs:47:9: replace DeferredIntegral::is_empty -> bool with false
+MISSED   crates/before/src/version/measure/integral/deferred.rs:110:9: replace Aggregate::weight -> u64 with 1
+MISSED   crates/before/src/version/measure/integral/deferred.rs:110:44: replace + with * in Aggregate::weight

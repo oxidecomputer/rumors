@@ -1,0 +1,27 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 04s
+────────────
+ Nextest run ID ead769d5-9366-434b-b18b-6e5d0ffde250 with nextest profile: default
+    Starting 2 tests across 12 binaries (702 tests skipped)
+       START [         ] (1/2) before version::measure::explore_l4::l4_generator_coverage
+
+running 1 test
+cases 2000 froze 1729 deferred 1061 multi-defer(>=3) 619 max_bits 6000 distinct-ties 545 frozen-ties 476
+test version::measure::explore_l4::l4_generator_coverage ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 613 filtered out; finished in 57.05s
+
+        PASS [  57.143s] (1/2) before version::measure::explore_l4::l4_generator_coverage
+       START [         ] (2/2) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+
+running 1 test
+        SLOW [> 60.000s] (───) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+test version::measure::explore_l4::l4_measures_agree_with_flat_oracle has been running for over 60 seconds
+        SLOW [>120.000s] (───) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+ TERMINATING [>180.000s] (───) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+     TIMEOUT [ 180.059s] (2/2) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+────────────
+     Summary [ 237.206s] 2 tests run: 1 passed, 1 timed out, 702 skipped
+     TIMEOUT [ 180.059s] (2/2) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+error: test run failed

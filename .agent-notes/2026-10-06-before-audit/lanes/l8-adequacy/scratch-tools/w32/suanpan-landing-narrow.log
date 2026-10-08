@@ -1,0 +1,33 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/suanpan)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 15.79s
+────────────
+ Nextest run ID f73f2dca-80ad-41fb-9709-73f30eba520a with nextest profile: default
+    Starting 1 test across 4 binaries (7 tests skipped)
+        FAIL [   0.545s] (1/1) wasm32-pins-harness::pins suanpan_rejects_unaddressable_digit_landings
+  stdout ───
+
+    running 1 test
+    test suanpan_rejects_unaddressable_digit_landings ... FAILED
+
+    failures:
+
+    failures:
+        suanpan_rejects_unaddressable_digit_landings
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.47s
+
+  stderr ───
+
+    thread 'suanpan_rejects_unaddressable_digit_landings' (2) panicked at harness/tests/pins.rs:134:9:
+    assertion `left == right` failed: landing case 1 returned instead of panicking
+      left: Failed(WrongValue)
+     right: Trapped(UnreachableCodeReached)
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.548s] 1 test run: 0 passed, 1 failed, 7 skipped
+        FAIL [   0.545s] (1/1) wasm32-pins-harness::pins suanpan_rejects_unaddressable_digit_landings
+error: test run failed
+suanpan-landing-narrow pins exit=100 secs=31

@@ -1,0 +1,24 @@
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 23s
+────────────
+ Nextest run ID 2158000f-a40f-423d-a1cc-5e761000a855 with nextest profile: default
+    Starting 1 test across 12 binaries (698 tests skipped)
+       START [         ] (1/1) before version::tick::tests::l8_hunt_split_narrow_copy
+
+running 1 test
+        SLOW [> 60.000s] (───) before version::tick::tests::l8_hunt_split_narrow_copy
+test version::tick::tests::l8_hunt_split_narrow_copy has been running for over 60 seconds
+        SLOW [>120.000s] (───) before version::tick::tests::l8_hunt_split_narrow_copy
+        SLOW [>180.000s] (───) before version::tick::tests::l8_hunt_split_narrow_copy
+        SLOW [>240.000s] (───) before version::tick::tests::l8_hunt_split_narrow_copy
+        SLOW [>300.000s] (───) before version::tick::tests::l8_hunt_split_narrow_copy
+NO WITNESS in 300000 cases
+test version::tick::tests::l8_hunt_split_narrow_copy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 608 filtered out; finished in 336.60s
+
+        PASS [ 336.760s] (1/1) before version::tick::tests::l8_hunt_split_narrow_copy
+────────────
+     Summary [ 336.764s] 1 test run: 1 passed (1 slow), 698 skipped

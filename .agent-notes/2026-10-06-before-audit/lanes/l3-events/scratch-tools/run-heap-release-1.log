@@ -1,0 +1,167 @@
+warning: ignoring --test-threads because --no-capture is specified
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling serde_core v1.0.228
+   Compiling zmij v1.0.21
+   Compiling memchr v2.8.1
+   Compiling getrandom v0.3.4
+   Compiling zerocopy v0.8.49
+   Compiling autocfg v1.5.1
+   Compiling serde_json v1.0.150
+   Compiling serde v1.0.228
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling crossbeam-utils v0.8.21
+   Compiling object v0.37.3
+   Compiling rustix v1.1.4
+   Compiling crossbeam-epoch v0.9.20
+   Compiling thiserror v2.0.18
+   Compiling bitflags v2.12.1
+   Compiling once_cell v1.21.4
+   Compiling rayon-core v1.13.0
+   Compiling regex-syntax v0.8.10
+   Compiling fastrand v2.4.1
+   Compiling either v1.16.0
+   Compiling cc v1.2.62
+   Compiling num-traits v0.2.19
+   Compiling itoa v1.0.18
+   Compiling cfg_aliases v0.2.1
+   Compiling borsh v1.6.1
+   Compiling unicode-width v0.2.2
+   Compiling anstyle v1.0.14
+   Compiling ciborium-io v0.2.2
+   Compiling errno v0.3.14
+   Compiling clap_lex v1.1.0
+   Compiling plotters-backend v0.3.7
+   Compiling portable-atomic v1.13.1
+   Compiling wait-timeout v0.2.1
+   Compiling itertools v0.10.5
+   Compiling cast v0.3.0
+   Compiling console v0.16.3
+   Compiling same-file v1.0.6
+   Compiling quick-error v1.2.3
+   Compiling rand_core v0.9.5
+   Compiling clap_builder v4.6.0
+   Compiling bit-vec v0.8.0
+   Compiling stacker v0.1.24
+   Compiling fnv v1.0.7
+   Compiling plotters-svg v0.3.7
+   Compiling num-primitive v0.2.1
+   Compiling walkdir v2.5.0
+   Compiling is-terminal v0.4.17
+   Compiling hex v0.4.3
+   Compiling anes v0.1.6
+   Compiling unarray v0.1.4
+   Compiling syn v2.0.117
+   Compiling crossbeam-deque v0.8.6
+   Compiling bit-set v0.8.0
+   Compiling rand_xorshift v0.4.0
+   Compiling similar v2.7.0
+   Compiling oorandom v11.1.5
+   Compiling bytes v1.11.1
+   Compiling regex-automata v0.4.14
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/suanpan)
+   Compiling unit-prefix v0.5.2
+   Compiling static_assertions v1.1.0
+   Compiling peak_alloc v0.3.0
+   Compiling num-integer v0.1.47
+   Compiling plotters v0.3.7
+   Compiling dsi-bitstream v0.10.1
+   Compiling indicatif v0.18.5
+   Compiling tempfile v3.23.0
+   Compiling criterion-plot v0.5.0
+   Compiling rayon v1.12.0
+   Compiling num-bigint v0.4.8
+   Compiling rusty-fork v0.3.1
+   Compiling insta v1.47.2
+   Compiling clap v4.6.1
+   Compiling serde_bytes v0.11.19
+   Compiling regex v1.12.3
+   Compiling ar_archive_writer v0.5.1
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l3-events/crates/before)
+   Compiling zerocopy-derive v0.8.49
+   Compiling serde_derive v1.0.228
+   Compiling thiserror-impl v2.0.18
+   Compiling psm v0.1.31
+   Compiling cobs v0.3.0
+   Compiling tinytemplate v1.2.1
+   Compiling serde_test v1.0.177
+   Compiling postcard v1.1.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling rand v0.9.4
+   Compiling criterion v0.5.1
+   Compiling proptest v1.11.0
+    Finished `release` profile [optimized] target(s) in 6m 09s
+────────────
+ Nextest run ID cd4f73c1-2fdc-4a0e-8533-38507e00a2d4 with nextest profile: default
+    Starting 2 tests across 12 binaries (706 tests skipped)
+       START [         ] (1/2) before version::tick::l3_heap::l3_heap_memo_families
+
+running 1 test
+HEAP siblings-alternating n=1024 input_bytes=2816 output_bytes=641 peak=19072 ratio=6.77
+HEAP siblings-alternating n=4096 input_bytes=11264 output_bytes=2561 peak=75904 ratio=6.74
+HEAP siblings-alternating n=16384 input_bytes=45056 output_bytes=10241 peak=303232 ratio=6.73
+HEAP siblings-alternating n=65536 input_bytes=180224 output_bytes=40961 peak=1212544 ratio=6.73
+HEAP siblings-constant n=1024 input_bytes=2561 output_bytes=1 peak=2433 ratio=0.95
+HEAP siblings-constant n=4096 input_bytes=10241 output_bytes=1 peak=9345 ratio=0.91
+HEAP siblings-constant n=16384 input_bytes=40961 output_bytes=1 peak=36993 ratio=0.90
+HEAP siblings-constant n=65536 input_bytes=163841 output_bytes=1 peak=147585 ratio=0.90
+HEAP chain n=1024 input_bytes=1797 output_bytes=1029 peak=21057 ratio=11.72
+HEAP chain n=4096 input_bytes=7174 output_bytes=4101 peak=84033 ratio=11.71
+HEAP chain n=16384 input_bytes=28678 output_bytes=16390 peak=335937 ratio=11.71
+HEAP chain n=65536 input_bytes=114695 output_bytes=65542 peak=1343553 ratio=11.71
+test version::tick::l3_heap::l3_heap_memo_families ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 1.21s
+
+        PASS [   1.473s] (1/2) before version::tick::l3_heap::l3_heap_memo_families
+       START [         ] (2/2) before version::tick::l3_heap::l3_heap_min_ticks_rising_spine
+
+running 1 test
+HEAP min_ticks rising-right-spine n=1023 input_bytes=640 peak=12656 ratio=19.77
+HEAP tick-seed rising-right-spine n=1023 input_bytes=640 output_bytes=3 peak=664 ratio=1.04
+HEAP min_ticks rising-right-spine n=1025 input_bytes=641 peak=12656 ratio=19.74
+HEAP tick-seed rising-right-spine n=1025 input_bytes=642 output_bytes=3 peak=665 ratio=1.04
+HEAP min_ticks rising-right-spine n=1536 input_bytes=961 peak=25264 ratio=26.29
+HEAP tick-seed rising-right-spine n=1536 input_bytes=961 output_bytes=3 peak=985 ratio=1.02
+HEAP min_ticks rising-right-spine n=4095 input_bytes=2560 peak=50480 ratio=19.72
+HEAP tick-seed rising-right-spine n=4095 input_bytes=2560 output_bytes=4 peak=2584 ratio=1.01
+HEAP min_ticks rising-right-spine n=4097 input_bytes=2561 peak=50480 ratio=19.71
+HEAP tick-seed rising-right-spine n=4097 input_bytes=2562 output_bytes=4 peak=2585 ratio=1.01
+HEAP min_ticks rising-right-spine n=6144 input_bytes=3841 peak=100912 ratio=26.27
+HEAP tick-seed rising-right-spine n=6144 input_bytes=3841 output_bytes=4 peak=3865 ratio=1.01
+HEAP min_ticks rising-right-spine n=16383 input_bytes=10240 peak=201776 ratio=19.70
+HEAP tick-seed rising-right-spine n=16383 input_bytes=10240 output_bytes=4 peak=10264 ratio=1.00
+HEAP min_ticks rising-right-spine n=16385 input_bytes=10241 peak=201776 ratio=19.70
+HEAP tick-seed rising-right-spine n=16385 input_bytes=10242 output_bytes=4 peak=10265 ratio=1.00
+HEAP min_ticks rising-right-spine n=24576 input_bytes=15361 peak=403504 ratio=26.27
+HEAP tick-seed rising-right-spine n=24576 input_bytes=15361 output_bytes=4 peak=15385 ratio=1.00
+HEAP min_ticks rising-right-spine n=65535 input_bytes=40960 peak=806960 ratio=19.70
+HEAP tick-seed rising-right-spine n=65535 input_bytes=40960 output_bytes=5 peak=40984 ratio=1.00
+HEAP min_ticks rising-right-spine n=65537 input_bytes=40961 peak=806960 ratio=19.70
+HEAP tick-seed rising-right-spine n=65537 input_bytes=40962 output_bytes=5 peak=40985 ratio=1.00
+HEAP min_ticks rising-right-spine n=98304 input_bytes=61441 peak=1613872 ratio=26.27
+HEAP tick-seed rising-right-spine n=98304 input_bytes=61441 output_bytes=5 peak=61465 ratio=1.00
+HEAP min_ticks rising-right-spine n=262143 input_bytes=163840 peak=3227696 ratio=19.70
+HEAP tick-seed rising-right-spine n=262143 input_bytes=163840 output_bytes=5 peak=163864 ratio=1.00
+HEAP min_ticks rising-right-spine n=262145 input_bytes=163841 peak=3227696 ratio=19.70
+HEAP tick-seed rising-right-spine n=262145 input_bytes=163842 output_bytes=5 peak=163865 ratio=1.00
+HEAP min_ticks rising-right-spine n=393216 input_bytes=245761 peak=6455344 ratio=26.27
+HEAP tick-seed rising-right-spine n=393216 input_bytes=245761 output_bytes=5 peak=245785 ratio=1.00
+test version::tick::l3_heap::l3_heap_min_ticks_rising_spine ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 1.43s
+
+        PASS [   1.630s] (2/2) before version::tick::l3_heap::l3_heap_min_ticks_rising_spine
+────────────
+     Summary [   3.108s] 2 tests run: 2 passed, 706 skipped
+exit=0

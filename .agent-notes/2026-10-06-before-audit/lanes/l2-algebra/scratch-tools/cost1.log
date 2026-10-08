@@ -1,0 +1,143 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.55s
+────────────
+ Nextest run ID 02fcf6be-9793-43a6-b0d9-38f301bbcb42 with nextest profile: default
+    Starting 2 tests across 1 binary
+       START [         ] (1/2) before::l2_cost ripple_close_family
+
+running 1 test
+ripple-close(W=n) :: join
+  in_bits=     9295 touch=       2179 (   0.234/bit) scan=      16380 (  1.762/bit)
+  in_bits=    18511 touch=       4355 (   0.235/bit) scan=      32764 (  1.770/bit)
+  in_bits=    36943 touch=       8707 (   0.236/bit) scan=      65532 (  1.774/bit)
+  in_bits=    73807 touch=      17411 (   0.236/bit) scan=     131068 (  1.776/bit)
+ripple-close(W=n) :: meet
+  in_bits=     9295 touch=       2179 (   0.234/bit) scan=      22024 (  2.369/bit)
+  in_bits=    18511 touch=       4355 (   0.235/bit) scan=      44040 (  2.379/bit)
+  in_bits=    36943 touch=       8707 (   0.236/bit) scan=      88072 (  2.384/bit)
+  in_bits=    73807 touch=      17411 (   0.236/bit) scan=     176136 (  2.386/bit)
+ripple-close(W=n) :: span
+  in_bits=     9295 touch=       2179 (   0.234/bit) scan=       9215 (  0.991/bit)
+  in_bits=    18511 touch=       4355 (   0.235/bit) scan=      18431 (  0.996/bit)
+  in_bits=    36943 touch=       8707 (   0.236/bit) scan=      36863 (  0.998/bit)
+  in_bits=    73807 touch=      17411 (   0.236/bit) scan=      73727 (  0.999/bit)
+ripple-close(W=n) :: partial_cmp
+  in_bits=     9295 touch=       2179 (   0.234/bit) scan=       9215 (  0.991/bit)
+  in_bits=    18511 touch=       4355 (   0.235/bit) scan=      18431 (  0.996/bit)
+  in_bits=    36943 touch=       8707 (   0.236/bit) scan=      36863 (  0.998/bit)
+  in_bits=    73807 touch=      17411 (   0.236/bit) scan=      73727 (  0.999/bit)
+ripple-close(W=n) :: le
+  in_bits=     9295 touch=        133 (   0.014/bit) scan=       4110 (  0.442/bit)
+  in_bits=    18511 touch=        261 (   0.014/bit) scan=       8207 (  0.443/bit)
+  in_bits=    36943 touch=        517 (   0.014/bit) scan=      16400 (  0.444/bit)
+  in_bits=    73807 touch=       1029 (   0.014/bit) scan=      32785 (  0.444/bit)
+ripple-close(W=n) :: ge
+  in_bits=     9295 touch=       2179 (   0.234/bit) scan=       9215 (  0.991/bit)
+  in_bits=    18511 touch=       4355 (   0.235/bit) scan=      18431 (  0.996/bit)
+  in_bits=    36943 touch=       8707 (   0.236/bit) scan=      36863 (  0.998/bit)
+  in_bits=    73807 touch=      17411 (   0.236/bit) scan=      73727 (  0.999/bit)
+ripple-close(W=n) :: concurrent
+  in_bits=     9295 touch=       2179 (   0.234/bit) scan=       9215 (  0.991/bit)
+  in_bits=    18511 touch=       4355 (   0.235/bit) scan=      18431 (  0.996/bit)
+  in_bits=    36943 touch=       8707 (   0.236/bit) scan=      36863 (  0.998/bit)
+  in_bits=    73807 touch=      17411 (   0.236/bit) scan=      73727 (  0.999/bit)
+ripple-close(W=n) :: join_all3
+  in_bits=     9295 touch=       4358 (   0.469/bit) scan=      32760 (  3.524/bit)
+  in_bits=    18511 touch=       8710 (   0.471/bit) scan=      65528 (  3.540/bit)
+  in_bits=    36943 touch=      17414 (   0.471/bit) scan=     131064 (  3.548/bit)
+  in_bits=    73807 touch=      34822 (   0.472/bit) scan=     262136 (  3.552/bit)
+ripple-close(W=n) :: view_cmp
+  in_bits=     9295 touch=        182 (   0.020/bit) scan=       4152 (  0.447/bit)
+  in_bits=    18511 touch=        358 (   0.019/bit) scan=       8249 (  0.446/bit)
+  in_bits=    36943 touch=        710 (   0.019/bit) scan=      16442 (  0.445/bit)
+  in_bits=    73807 touch=       1414 (   0.019/bit) scan=      32827 (  0.445/bit)
+ripple-close(W=n) :: version_view_cmp
+  in_bits=     9295 touch=        182 (   0.020/bit) scan=       4152 (  0.447/bit)
+  in_bits=    18511 touch=        358 (   0.019/bit) scan=       8249 (  0.446/bit)
+  in_bits=    36943 touch=        710 (   0.019/bit) scan=      16442 (  0.445/bit)
+  in_bits=    73807 touch=       1414 (   0.019/bit) scan=      32827 (  0.445/bit)
+ripple-close(W=n) :: view_view_cmp
+  in_bits=     9295 touch=       3277 (   0.353/bit) scan=       9375 (  1.009/bit)
+  in_bits=    18511 touch=       6540 (   0.353/bit) scan=      18591 (  1.004/bit)
+  in_bits=    36943 touch=      13067 (   0.354/bit) scan=      37023 (  1.002/bit)
+  in_bits=    73807 touch=      26122 (   0.354/bit) scan=      73887 (  1.001/bit)
+ripple-close(W=n) :: project
+  in_bits=     9295 touch=       1079 (   0.116/bit) scan=      14442 (  1.554/bit)
+  in_bits=    18511 touch=       2151 (   0.116/bit) scan=      28775 (  1.554/bit)
+  in_bits=    36943 touch=       4295 (   0.116/bit) scan=      57444 (  1.555/bit)
+  in_bits=    73807 touch=       8583 (   0.116/bit) scan=     114785 (  1.555/bit)
+test ripple_close_family ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.14s
+
+        PASS [   0.197s] (1/2) before::l2_cost ripple_close_family
+       START [         ] (2/2) before::l2_cost ripple_family
+
+running 1 test
+ripple(W=n) :: join
+  in_bits=     7254 touch=       2071 (   0.285/bit) scan=      14339 (  1.977/bit)
+  in_bits=    14422 touch=       4135 (   0.287/bit) scan=      28675 (  1.988/bit)
+  in_bits=    28758 touch=       8263 (   0.287/bit) scan=      57347 (  1.994/bit)
+  in_bits=    57430 touch=      16519 (   0.288/bit) scan=     114691 (  1.997/bit)
+ripple(W=n) :: meet
+  in_bits=     7254 touch=       2071 (   0.285/bit) scan=       9799 (  1.351/bit)
+  in_bits=    14422 touch=       4135 (   0.287/bit) scan=      19535 (  1.355/bit)
+  in_bits=    28758 touch=       8263 (   0.287/bit) scan=      38999 (  1.356/bit)
+  in_bits=    57430 touch=      16519 (   0.288/bit) scan=      77919 (  1.357/bit)
+ripple(W=n) :: span
+  in_bits=     7254 touch=       2071 (   0.285/bit) scan=       7174 (  0.989/bit)
+  in_bits=    14422 touch=       4135 (   0.287/bit) scan=      14342 (  0.994/bit)
+  in_bits=    28758 touch=       8263 (   0.287/bit) scan=      28678 (  0.997/bit)
+  in_bits=    57430 touch=      16519 (   0.288/bit) scan=      57350 (  0.999/bit)
+ripple(W=n) :: partial_cmp
+  in_bits=     7254 touch=       2071 (   0.285/bit) scan=       7174 (  0.989/bit)
+  in_bits=    14422 touch=       4135 (   0.287/bit) scan=      14342 (  0.994/bit)
+  in_bits=    28758 touch=       8263 (   0.287/bit) scan=      28678 (  0.997/bit)
+  in_bits=    57430 touch=      16519 (   0.288/bit) scan=      57350 (  0.999/bit)
+ripple(W=n) :: le
+  in_bits=     7254 touch=         24 (   0.003/bit) scan=       2065 (  0.285/bit)
+  in_bits=    14422 touch=         40 (   0.003/bit) scan=       4114 (  0.285/bit)
+  in_bits=    28758 touch=         72 (   0.003/bit) scan=       8211 (  0.286/bit)
+  in_bits=    57430 touch=        136 (   0.002/bit) scan=      16404 (  0.286/bit)
+ripple(W=n) :: ge
+  in_bits=     7254 touch=       2073 (   0.286/bit) scan=       7174 (  0.989/bit)
+  in_bits=    14422 touch=       4137 (   0.287/bit) scan=      14342 (  0.994/bit)
+  in_bits=    28758 touch=       8265 (   0.287/bit) scan=      28678 (  0.997/bit)
+  in_bits=    57430 touch=      16521 (   0.288/bit) scan=      57350 (  0.999/bit)
+ripple(W=n) :: concurrent
+  in_bits=     7254 touch=       2073 (   0.286/bit) scan=       7174 (  0.989/bit)
+  in_bits=    14422 touch=       4137 (   0.287/bit) scan=      14342 (  0.994/bit)
+  in_bits=    28758 touch=       8265 (   0.287/bit) scan=      28678 (  0.997/bit)
+  in_bits=    57430 touch=      16521 (   0.288/bit) scan=      57350 (  0.999/bit)
+ripple(W=n) :: join_all3
+  in_bits=     7254 touch=       4142 (   0.571/bit) scan=      28678 (  3.953/bit)
+  in_bits=    14422 touch=       8270 (   0.573/bit) scan=      57350 (  3.977/bit)
+  in_bits=    28758 touch=      16526 (   0.575/bit) scan=     114694 (  3.988/bit)
+  in_bits=    57430 touch=      33038 (   0.575/bit) scan=     229382 (  3.994/bit)
+ripple(W=n) :: view_cmp
+  in_bits=     7254 touch=         26 (   0.004/bit) scan=       2107 (  0.290/bit)
+  in_bits=    14422 touch=         42 (   0.003/bit) scan=       4156 (  0.288/bit)
+  in_bits=    28758 touch=         74 (   0.003/bit) scan=       8253 (  0.287/bit)
+  in_bits=    57430 touch=        138 (   0.002/bit) scan=      16446 (  0.286/bit)
+ripple(W=n) :: version_view_cmp
+  in_bits=     7254 touch=         28 (   0.004/bit) scan=       2107 (  0.290/bit)
+  in_bits=    14422 touch=         44 (   0.003/bit) scan=       4156 (  0.288/bit)
+  in_bits=    28758 touch=         76 (   0.003/bit) scan=       8253 (  0.287/bit)
+  in_bits=    57430 touch=        140 (   0.002/bit) scan=      16446 (  0.286/bit)
+ripple(W=n) :: view_view_cmp
+  in_bits=     7254 touch=       3123 (   0.431/bit) scan=       7334 (  1.011/bit)
+  in_bits=    14422 touch=       6226 (   0.432/bit) scan=      14502 (  1.006/bit)
+  in_bits=    28758 touch=      12433 (   0.432/bit) scan=      28838 (  1.003/bit)
+  in_bits=    57430 touch=      24848 (   0.433/bit) scan=      57510 (  1.001/bit)
+ripple(W=n) :: project
+  in_bits=     7254 touch=       1079 (   0.149/bit) scan=      14442 (  1.991/bit)
+  in_bits=    14422 touch=       2151 (   0.149/bit) scan=      28775 (  1.995/bit)
+  in_bits=    28758 touch=       4295 (   0.149/bit) scan=      57444 (  1.997/bit)
+  in_bits=    57430 touch=       8583 (   0.149/bit) scan=     114785 (  1.999/bit)
+test ripple_family ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.14s
+
+        PASS [   0.188s] (2/2) before::l2_cost ripple_family
+────────────
+     Summary [   0.386s] 2 tests run: 2 passed, 0 skipped

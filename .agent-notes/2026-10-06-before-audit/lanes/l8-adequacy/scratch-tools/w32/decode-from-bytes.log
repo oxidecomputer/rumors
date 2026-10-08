@@ -1,0 +1,32 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 21.11s
+────────────
+ Nextest run ID 6972e7a4-1667-4a82-8e28-c0dcdffe6a6e with nextest profile: default
+    Starting 1 test across 4 binaries (7 tests skipped)
+        FAIL [   2.587s] (1/1) wasm32-pins-harness::pins version_decode_crosses_the_usize_position_boundary
+  stdout ───
+
+    running 1 test
+    test version_decode_crosses_the_usize_position_boundary ... FAILED
+
+    failures:
+
+    failures:
+        version_decode_crosses_the_usize_position_boundary
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.54s
+
+  stderr ───
+
+    thread 'version_decode_crosses_the_usize_position_boundary' (2) panicked at harness/tests/pins.rs:25:5:
+    assertion `left == right` failed: VersionDecode failed for (536870912, 0)
+      left: Failed(DecodeRejected)
+     right: Passed
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   2.589s] 1 test run: 0 passed, 1 failed, 7 skipped
+        FAIL [   2.587s] (1/1) wasm32-pins-harness::pins version_decode_crosses_the_usize_position_boundary
+error: test run failed
+decode-from-bytes pins exit=100 secs=40

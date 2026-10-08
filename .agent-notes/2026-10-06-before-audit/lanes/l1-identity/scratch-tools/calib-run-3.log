@@ -1,0 +1,5 @@
+M19-party-join-all-duplicates-rejected-group: exit=100 compile_error=False caught_by=['join_all_failure_conserves_multiplicity'] ['Summary [  25.123s] 622 tests run: 621 passed, 1 failed, 1 skipped']
+M20-clock-join-all-duplicates-rejected-group: exit=100 compile_error=False caught_by=['clock_join_all_conserves'] ['Summary [  24.719s] 622 tests run: 621 passed, 1 failed, 1 skipped']
+M21-clock-join-all-drops-groups: exit=100 compile_error=False caught_by=['clock::tests::clock_join_all_matches_all_models', 'clock::tests::join_all_agrees_with_oracle_on_forked_and_aliased_populations', 'clock_join_all_conserves', 'testing::algebraic_laws::tests::laws_hold_on_organic_populations'] ['Summary [  24.300s] 622 tests run: 618 passed, 4 failed, 1 skipped']
+git diff after revert: ''
+exit=0

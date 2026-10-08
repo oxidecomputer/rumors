@@ -1,0 +1,13 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 01s
+────────────
+ Nextest run ID 49454ba3-9c32-4c72-9789-7f1cb6e347e4 with nextest profile: default
+    Starting 2 tests across 12 binaries (698 tests skipped)
+        PASS [   0.047s] (1/2) before version::range_minima::tests::l8_witness_boundary_dominates_decrease
+        PASS [   0.051s] (2/2) before version::range_minima::tests::l8_witness_decrease_dominates_inner_boundary
+────────────
+     Summary [   0.055s] 2 tests run: 2 passed, 698 skipped
+original done

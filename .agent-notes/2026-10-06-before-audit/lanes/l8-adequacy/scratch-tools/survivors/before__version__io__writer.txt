@@ -1,0 +1,5 @@
+# survivors of crates/before/src/version/io/writer.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/io/writer.rs:155:21: replace > with >= in Output::take_left
+MISSED   crates/before/src/version/io/writer.rs:255:34: replace > with == in SplitOutput::splice_continuation
+MISSED   crates/before/src/version/io/writer.rs:255:34: replace > with >= in SplitOutput::splice_continuation
+MISSED   crates/before/src/version/io/writer.rs:410:48: replace | with ^ in PayloadWriter<'_>::push_bits

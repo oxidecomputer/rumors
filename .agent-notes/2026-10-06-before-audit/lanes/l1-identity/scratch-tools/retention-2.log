@@ -1,0 +1,40 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.61s
+────────────
+ Nextest run ID 86dad898-6b7b-42af-ab52-9d96b12528ae with nextest profile: default
+    Starting 1 test across 1 binary
+       START [         ] (1/1) before::audit_l1_retention retention_report
+
+running 1 test
+join comb+cell d=100: inputs held 77 B; result is 1 B; result retains 100 B
+without (half+cell) - cell d=100: inputs held 52 B; result is 1 B; result retains 75 B
+fork control d=100: inputs held 26 B; result is 1 B; result retains 1 B
+clock join comb+cell d=100: inputs held 77 B; result is 1 B; result retains 100 B
+forks(1) residual: small left, deep right d=100: inputs held 26 B; result is 1 B; result retains 50 B
+join_all of comb's forks d=100: inputs held 566 B; result is 1 B; result retains 100 B
+join comb+cell d=1000: inputs held 752 B; result is 1 B; result retains 775 B
+without (half+cell) - cell d=1000: inputs held 502 B; result is 1 B; result retains 525 B
+fork control d=1000: inputs held 251 B; result is 1 B; result retains 1 B
+clock join comb+cell d=1000: inputs held 752 B; result is 1 B; result retains 775 B
+forks(1) residual: small left, deep right d=1000: inputs held 251 B; result is 1 B; result retains 275 B
+join_all of comb's forks d=1000: inputs held 1691 B; result is 1 B; result retains 775 B
+join comb+cell d=10000: inputs held 7502 B; result is 1 B; result retains 7525 B
+without (half+cell) - cell d=10000: inputs held 5002 B; result is 1 B; result retains 5025 B
+fork control d=10000: inputs held 2501 B; result is 1 B; result retains 1 B
+clock join comb+cell d=10000: inputs held 7502 B; result is 1 B; result retains 7525 B
+forks(1) residual: small left, deep right d=10000: inputs held 2501 B; result is 1 B; result retains 2525 B
+join_all of comb's forks d=10000: inputs held 12941 B; result is 1 B; result retains 7525 B
+join comb+cell d=100000: inputs held 75002 B; result is 1 B; result retains 75025 B
+without (half+cell) - cell d=100000: inputs held 50002 B; result is 1 B; result retains 50025 B
+fork control d=100000: inputs held 25001 B; result is 1 B; result retains 1 B
+clock join comb+cell d=100000: inputs held 75002 B; result is 1 B; result retains 75025 B
+forks(1) residual: small left, deep right d=100000: inputs held 25001 B; result is 1 B; result retains 25025 B
+join_all of comb's forks d=100000: inputs held 125441 B; result is 1 B; result retains 75025 B
+test retention_report ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+        PASS [   0.135s] (1/1) before::audit_l1_retention retention_report
+────────────
+     Summary [   0.136s] 1 test run: 1 passed, 0 skipped
+exit=0

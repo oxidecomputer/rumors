@@ -1,0 +1,4 @@
+# survivors of crates/before/src/bits/stack/packed_u64.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/stack/packed_u64.rs:38:41: replace & with | in PackedU64Stack::push
+MISSED   crates/before/src/bits/stack/packed_u64.rs:63:30: replace < with > in PackedU64Stack::pop
+MISSED   crates/before/src/bits/stack/packed_u64.rs:80:25: replace | with ^ in PackedU64Stack::pop

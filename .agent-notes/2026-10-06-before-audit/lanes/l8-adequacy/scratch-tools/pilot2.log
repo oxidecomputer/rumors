@@ -1,0 +1,3 @@
+Found 28 mutants to test
+MISSED   crates/before/src/ranked.rs:328:9: replace <impl core::fmt::Debug for Ranked<'_>>::fmt -> core::fmt::Result with Ok(Default::default()) in 94s build + 81s test
+28 mutants tested in 12m: 1 missed, 20 caught, 7 unviable

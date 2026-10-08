@@ -1,0 +1,121 @@
+SHAPE-PASS
+test testing::audit_l5::l5_organic_antichains ... ok
+test testing::audit_l5::l5_organic_queries ... ok
+test testing::audit_l5::l5_organic_verdicts ... ok
+test testing::audit_l5::l5_organic_own_and_algebra ... ok
+test testing::audit_l5::l5_shaped_algebra ... ok
+test testing::audit_l5::l5_shaped_own_span ... ok
+test testing::audit_l5::l5_shaped_queries ... ok
+test testing::audit_l5::l5_shaped_verdicts ... ok
+test testing::audit_l5::l5_shaped_antichains ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 17.15s
+STATS3-PASS
+STAT organic leaves=0 depth=0 pool=2 = 33
+STAT organic leaves=0 depth=1 pool=2 = 4
+STAT organic leaves=0 depth=1 pool=3 = 27
+STAT organic leaves=0 depth=2 pool=2 = 2
+STAT organic leaves=0 depth=2 pool=3 = 5
+STAT organic leaves=0 depth=2 pool=4 = 18
+STAT organic leaves=0 depth=2 pool=5 = 5
+STAT organic leaves=0 depth=3 pool=3 = 2
+STAT organic leaves=0 depth=3 pool=4 = 7
+STAT organic leaves=0 depth=3 pool=5 = 7
+STAT organic leaves=0 depth=3 pool=6 = 2
+STAT organic leaves=0 depth=4 pool=3 = 1
+STAT organic leaves=0 depth=4 pool=4 = 1
+STAT organic leaves=0 depth=4 pool=5 = 2
+STAT organic leaves=0 depth=4 pool=6 = 2
+STAT organic leaves=0 depth=4 pool=7 = 3
+STAT organic leaves=0 depth=4 pool=8 = 2
+STAT organic leaves=0 depth=5 pool=5 = 1
+STAT organic leaves=0 depth=5 pool=7 = 1
+STAT organic leaves=8 depth=4 pool=8 = 1
+STAT organic leaves=8 depth=4 pool=9 = 2
+STAT queries contains n=false d=false u=false = 2761
+STAT queries contains n=false d=false u=true = 547
+STAT queries contains n=false d=true u=false = 466
+STAT queries contains n=false d=true u=true = 67
+STAT queries contains n=true d=false u=false = 1018
+STAT queries contains n=true d=false u=true = 238
+STAT queries contains n=true d=true u=false = 185
+STAT queries contains n=true d=true u=true = 13
+STAT queries down census Some(Empty) point=false = 7700
+STAT queries down census Some(Empty) point=true = 2399
+STAT queries down census Some(Full) point=false = 704
+STAT queries down census Some(Full) point=true = 420
+STAT queries down census Some(Partial) point=false = 1953
+STAT queries holes down=0 up=0 = 12
+STAT queries holes down=0 up=1 = 33
+STAT queries holes down=0 up=2 = 2
+STAT queries holes down=1 up=0 = 27
+STAT queries holes down=1 up=1 = 131
+STAT queries holes down=1 up=2 = 18
+STAT queries holes down=1 up=3 = 1
+STAT queries holes down=1 up=4 = 1
+STAT queries holes down=2 up=0 = 7
+STAT queries holes down=2 up=1 = 17
+STAT queries holes down=2 up=2 = 3
+STAT queries holes down=3 up=0 = 2
+STAT queries holes down=3 up=1 = 2
+STAT queries neutral census Some(Empty) point=false = 6849
+STAT queries neutral census Some(Empty) point=true = 2099
+STAT queries neutral census Some(Full) point=false = 2000
+STAT queries neutral census Some(Full) point=true = 720
+STAT queries neutral census Some(Partial) point=false = 1508
+STAT queries up census Some(Empty) point=false = 7281
+STAT queries up census Some(Empty) point=true = 2308
+STAT queries up census Some(Full) point=false = 1025
+STAT queries up census Some(Full) point=true = 511
+STAT queries up census Some(Partial) point=false = 2051
+STAT shaped leaves=1 depth=0 = 1
+STAT shaped leaves=10 depth=9 = 4
+STAT shaped leaves=11 depth=10 = 3
+STAT shaped leaves=12 depth=11 = 3
+STAT shaped leaves=13 depth=12 = 3
+STAT shaped leaves=14 depth=13 = 1
+STAT shaped leaves=15 depth=14 = 2
+STAT shaped leaves=16 depth=15 = 2
+STAT shaped leaves=17 depth=16 = 4
+STAT shaped leaves=18 depth=17 = 2
+STAT shaped leaves=19 depth=18 = 2
+STAT shaped leaves=2 depth=1 = 3
+STAT shaped leaves=20 depth=19 = 1
+STAT shaped leaves=21 depth=20 = 3
+STAT shaped leaves=22 depth=21 = 2
+STAT shaped leaves=23 depth=22 = 1
+STAT shaped leaves=24 depth=23 = 1
+STAT shaped leaves=25 depth=24 = 2
+STAT shaped leaves=26 depth=25 = 3
+STAT shaped leaves=27 depth=26 = 1
+STAT shaped leaves=28 depth=27 = 3
+STAT shaped leaves=29 depth=28 = 1
+STAT shaped leaves=3 depth=2 = 4
+STAT shaped leaves=30 depth=29 = 1
+STAT shaped leaves=31 depth=30 = 1
+STAT shaped leaves=32 depth=31 = 2
+STAT shaped leaves=33 depth=32 = 2
+STAT shaped leaves=34 depth=33 = 3
+STAT shaped leaves=35 depth=34 = 3
+STAT shaped leaves=36 depth=35 = 5
+STAT shaped leaves=37 depth=36 = 3
+STAT shaped leaves=38 depth=37 = 1
+STAT shaped leaves=39 depth=38 = 1
+STAT shaped leaves=4 depth=2 = 2
+STAT shaped leaves=4 depth=3 = 5
+STAT shaped leaves=40 depth=39 = 2
+STAT shaped leaves=41 depth=40 = 1
+STAT shaped leaves=5 depth=3 = 12
+STAT shaped leaves=6 depth=3 = 12
+STAT shaped leaves=6 depth=4 = 1
+STAT shaped leaves=6 depth=5 = 1
+STAT shaped leaves=7 depth=3 = 2
+STAT shaped leaves=7 depth=4 = 6
+STAT shaped leaves=7 depth=6 = 3
+STAT shaped leaves=8 depth=3 = 1
+STAT shaped leaves=8 depth=4 = 2
+STAT shaped leaves=8 depth=7 = 3
+STAT shaped leaves=9 depth=4 = 1
+EXH-PASS
+EXHAUSTIVE checked=921456 {"down Empty": 263546, "down Full": 65104, "down Partial": 110694, "neutral Empty": 33181, "neutral Full": 2177, "neutral Partial": 7410, "up Empty": 263546, "up Full": 65104, "up Partial": 110694}
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 625 filtered out; finished in 7.74s
+exit=0

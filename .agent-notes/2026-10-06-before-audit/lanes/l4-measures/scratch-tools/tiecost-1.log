@@ -1,0 +1,23 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 26s
+────────────
+ Nextest run ID 33c1d61a-271d-4647-8732-39b90bdce931 with nextest profile: default
+    Starting 1 test across 12 binaries (703 tests skipped)
+       START [         ] (1/1) before version::measure::explore_l4::l4_ranked_cmp_tie_cost
+
+running 1 test
+TIECOST arming-train      bytes=   15304 cmp_touch/B_x1000=  4679 cmp_dense/B_x1000=   379 two_ranks_touch/B_x1000=  2975 two_ranks_dense/B_x1000=   392
+TIECOST arming-train      bytes=   29001 cmp_touch/B_x1000=  4995 cmp_dense/B_x1000=   493 two_ranks_touch/B_x1000=  3257 two_ranks_dense/B_x1000=   550
+TIECOST arming-train      bytes=   56394 cmp_touch/B_x1000=  5236 cmp_dense/B_x1000=   617 two_ranks_touch/B_x1000=  3407 two_ranks_dense/B_x1000=   628
+TIECOST arming-train      bytes=  111179 cmp_touch/B_x1000=  5361 cmp_dense/B_x1000=   678 two_ranks_touch/B_x1000=  3502 two_ranks_dense/B_x1000=   683
+TIECOST plateau-puncture  bytes=   16302 cmp_touch/B_x1000=  4171 cmp_dense/B_x1000=   151 two_ranks_touch/B_x1000=  2307 two_ranks_dense/B_x1000=   101
+TIECOST plateau-puncture  bytes=   32602 cmp_touch/B_x1000=  4158 cmp_dense/B_x1000=   151 two_ranks_touch/B_x1000=  2292 two_ranks_dense/B_x1000=   101
+TIECOST plateau-puncture  bytes=   65202 cmp_touch/B_x1000=  4165 cmp_dense/B_x1000=   151 two_ranks_touch/B_x1000=  2300 two_ranks_dense/B_x1000=   101
+TIECOST plateau-puncture  bytes=  130402 cmp_touch/B_x1000=  4165 cmp_dense/B_x1000=   151 two_ranks_touch/B_x1000=  2300 two_ranks_dense/B_x1000=   101
+test version::measure::explore_l4::l4_ranked_cmp_tie_cost ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 613 filtered out; finished in 7.91s
+
+        PASS [   8.177s] (1/1) before version::measure::explore_l4::l4_ranked_cmp_tie_cost
+────────────
+     Summary [   8.181s] 1 test run: 1 passed, 703 skipped

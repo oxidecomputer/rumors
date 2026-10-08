@@ -1,0 +1,64 @@
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 7.21s
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before/wasm32-pins/protocol)
+   Compiling wasm32-pins-harness v0.0.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before/wasm32-pins/harness)
+    Finished `release` profile [optimized] target(s) in 17.58s
+   Compiling borsh v1.6.1
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+   Compiling wasm32-pins-protocol v0.0.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before/wasm32-pins/protocol)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 37.75s
+────────────
+ Nextest run ID f13656cc-54d0-4add-80f0-05ca03023772 with nextest profile: default
+    Starting 4 tests across 4 binaries (12 tests skipped)
+        PASS [   0.900s] (1/4) wasm32-pins-harness::pins l6_version_wide_leaf_small_control
+  stdout ───
+
+    running 1 test
+    L6 borsh k=1000: Passed
+    L6 reader k=1000: Passed
+    test l6_version_wide_leaf_small_control ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.79s
+
+
+        PASS [  15.711s] (2/4) wasm32-pins-harness::pins l6_version_reader_past_limit
+  stdout ───
+
+    running 1 test
+    L6 reader 2^30+5 bytes: Failed(OutOfMemory)
+    test l6_version_reader_past_limit ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 15.60s
+
+
+        SLOW [> 60.000s] (───) wasm32-pins-harness::pins l6_version_borsh_past_limit
+        SLOW [> 60.000s] (───) wasm32-pins-harness::pins l6_version_borsh_at_limit
+        SLOW [>120.000s] (───) wasm32-pins-harness::pins l6_version_borsh_past_limit
+        SLOW [>120.000s] (───) wasm32-pins-harness::pins l6_version_borsh_at_limit
+        PASS [ 142.258s] (3/4) wasm32-pins-harness::pins l6_version_borsh_past_limit
+  stdout ───
+
+    running 1 test
+    test l6_version_borsh_past_limit has been running for over 60 seconds
+    L6 borsh 2^30+5 bytes: Trapped(UnreachableCodeReached)
+    test l6_version_borsh_past_limit ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 142.15s
+
+
+        PASS [ 148.140s] (4/4) wasm32-pins-harness::pins l6_version_borsh_at_limit
+  stdout ───
+
+    running 1 test
+    test l6_version_borsh_at_limit has been running for over 60 seconds
+    L6 borsh 2^30 bytes: Passed
+    test l6_version_borsh_at_limit ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 148.01s
+
+
+────────────
+     Summary [ 148.142s] 4 tests run: 4 passed (2 slow), 12 skipped
+wasm rc=0
+exit=0

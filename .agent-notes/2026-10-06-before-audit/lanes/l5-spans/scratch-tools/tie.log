@@ -1,0 +1,15 @@
+TIE-L5-PASS
+test result: ok. 17 passed; 0 failed; 7 ignored; 0 measured; 604 filtered out; finished in 237.58s
+TIE-PROBE-PASS
+test testing::audit_l5::l5_exhaustive_boolean_cube ... EXHAUSTIVE checked=921456 {"down Empty": 263546, "down Full": 65104, "down Partial": 110694, "neutral Empty": 33181, "neutral Full": 2177, "neutral Partial": 7410, "up Empty": 263546, "up Full": 65104, "up Partial": 110694}
+test testing::audit_l5::l5_refine_partial_scan_cost ... REFINE cells=64 bytes=102 verdict=Partial walk=Partial total_scan=2030 walk_scan=799 refine_scan=1231 floor<=ceiling=true direct_scan=476
+REFINE cells=128 bytes=202 verdict=Partial walk=Partial total_scan=4062 walk_scan=1599 refine_scan=2463 floor<=ceiling=true direct_scan=956
+REFINE cells=256 bytes=402 verdict=Partial walk=Partial total_scan=8126 walk_scan=3199 refine_scan=4927 floor<=ceiling=true direct_scan=1916
+REFINE cells=512 bytes=802 verdict=Partial walk=Partial total_scan=16254 walk_scan=6399 refine_scan=9855 floor<=ceiling=true direct_scan=3836
+test testing::audit_l5::l5_touch_carry_family ... CARRY m=256 cells=64 bytes=234 cmp=144 place=293 dominance=167 contains=293 qcontains=395 qcoverage=779
+CARRY m=512 cells=128 bytes=466 cmp=288 place=581 dominance=327 contains=581 qcontains=783 qcoverage=1547
+CARRY m=1024 cells=256 bytes=930 cmp=576 place=1157 dominance=647 contains=1157 qcontains=1559 qcoverage=3083
+CARRY m=2048 cells=512 bytes=1858 cmp=1152 place=2309 dominance=1287 contains=2309 qcontains=3111 qcoverage=6155
+TIE-BASE-PASS
+     Summary [  63.691s] 94 tests run: 94 passed (1 slow), 624 skipped
+exit=0

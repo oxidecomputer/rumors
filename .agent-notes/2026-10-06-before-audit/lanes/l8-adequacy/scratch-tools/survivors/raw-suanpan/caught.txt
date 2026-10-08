@@ -1,0 +1,355 @@
+crates/suanpan/src/accumulator.rs:35:9: replace <impl AsRef<[u64]> for MagnitudeLimbs>::as_ref -> &[u64] with Vec::leak(Vec::new())
+crates/suanpan/src/accumulator.rs:35:9: replace <impl AsRef<[u64]> for MagnitudeLimbs>::as_ref -> &[u64] with Vec::leak(vec![1])
+crates/suanpan/src/accumulator.rs:35:9: replace <impl AsRef<[u64]> for MagnitudeLimbs>::as_ref -> &[u64] with Vec::leak(vec![0])
+crates/suanpan/src/accumulator.rs:55:43: replace - with +
+crates/suanpan/src/accumulator.rs:45:5: replace touch with ()
+crates/suanpan/src/accumulator.rs:55:43: replace - with /
+crates/suanpan/src/accumulator.rs:127:9: replace Accumulator::sub_shifted_limbs with ()
+crates/suanpan/src/accumulator.rs:110:9: replace Accumulator::add_shifted_limbs with ()
+crates/suanpan/src/accumulator.rs:164:9: replace Accumulator::sub_shifted with ()
+crates/suanpan/src/accumulator.rs:148:9: replace Accumulator::add_shifted with ()
+crates/suanpan/src/accumulator.rs:177:9: replace Accumulator::reset with ()
+crates/suanpan/src/accumulator.rs:285:9: replace Accumulator::cmp_zero_stable_under -> Option<Ordering> with None
+crates/suanpan/src/accumulator.rs:286:65: replace - with + in Accumulator::cmp_zero_stable_under
+crates/suanpan/src/accumulator.rs:241:9: replace Accumulator::normalize with ()
+crates/suanpan/src/accumulator.rs:286:65: replace - with / in Accumulator::cmp_zero_stable_under
+crates/suanpan/src/accumulator.rs:296:42: replace >= with < in Accumulator::cmp_zero_stable_under
+crates/suanpan/src/accumulator.rs:324:9: replace Accumulator::is_known_zero -> bool with true
+crates/suanpan/src/accumulator.rs:324:9: replace Accumulator::is_known_zero -> bool with false
+crates/suanpan/src/accumulator.rs:325:34: replace == with != in Accumulator::is_known_zero
+crates/suanpan/src/accumulator.rs:342:9: replace Accumulator::stored_digit_count -> usize with 0
+crates/suanpan/src/accumulator.rs:342:9: replace Accumulator::stored_digit_count -> usize with 1
+crates/suanpan/src/accumulator.rs:344:33: replace - with + in Accumulator::stored_digit_count
+crates/suanpan/src/accumulator.rs:414:5: replace digit_index -> usize with 0
+crates/suanpan/src/accumulator.rs:344:33: replace - with / in Accumulator::stored_digit_count
+crates/suanpan/src/accumulator.rs:359:9: replace Accumulator::stored_bits -> u64 with 0
+crates/suanpan/src/accumulator.rs:359:9: replace Accumulator::stored_bits -> u64 with 1
+crates/suanpan/src/accumulator.rs:414:5: replace digit_index -> usize with 1
+crates/suanpan/src/accumulator.rs:416:32: replace < with == in digit_index
+crates/suanpan/src/accumulator.rs:416:32: replace < with > in digit_index
+crates/suanpan/src/touch_meter.rs:22:5: replace record with ()
+crates/suanpan/src/accumulator.rs:416:32: replace < with <= in digit_index
+crates/suanpan/src/touch_meter.rs:32:5: replace touches -> u64 with 0
+crates/suanpan/src/touch_meter.rs:32:5: replace touches -> u64 with 1
+crates/suanpan/src/touch_meter.rs:41:5: replace reset with ()
+crates/suanpan/src/accumulator/conversions.rs:23:9: replace Accumulator::from_magnitude -> Self with Default::default()
+crates/suanpan/src/accumulator/conversions.rs:24:22: replace <= with > in Accumulator::from_magnitude
+crates/suanpan/src/accumulator/conversions.rs:39:9: replace Accumulator::primitive_parts -> Option<(Ordering, u128)> with None
+crates/suanpan/src/accumulator/conversions.rs:45:13: delete match arm [low] in Accumulator::primitive_parts
+crates/suanpan/src/accumulator/conversions.rs:44:13: delete match arm [] in Accumulator::primitive_parts
+crates/suanpan/src/accumulator/conversions.rs:46:13: delete match arm [low, high] in Accumulator::primitive_parts
+crates/suanpan/src/accumulator/conversions.rs:46:57: replace | with & in Accumulator::primitive_parts
+crates/suanpan/src/accumulator/conversions.rs:46:78: replace << with >> in Accumulator::primitive_parts
+crates/suanpan/src/accumulator/conversions.rs:53:9: replace Accumulator::primitive_signed -> Option<i128> with None
+crates/suanpan/src/accumulator/conversions.rs:53:9: replace Accumulator::primitive_signed -> Option<i128> with Some(0)
+crates/suanpan/src/accumulator/conversions.rs:53:9: replace Accumulator::primitive_signed -> Option<i128> with Some(1)
+crates/suanpan/src/accumulator/conversions.rs:53:9: replace Accumulator::primitive_signed -> Option<i128> with Some(-1)
+crates/suanpan/src/accumulator/conversions.rs:54:17: replace == with != in Accumulator::primitive_signed
+crates/suanpan/src/accumulator/conversions.rs:55:26: replace == with != in Accumulator::primitive_signed
+crates/suanpan/src/accumulator/conversions.rs:55:35: replace << with >> in Accumulator::primitive_signed
+crates/suanpan/src/accumulator/conversions.rs:58:60: delete - in Accumulator::primitive_signed
+crates/suanpan/src/accumulator/conversions.rs:67:9: replace Accumulator::primitive_unsigned -> Option<u128> with None
+crates/suanpan/src/accumulator/conversions.rs:67:9: replace Accumulator::primitive_unsigned -> Option<u128> with Some(0)
+crates/suanpan/src/accumulator/conversions.rs:67:9: replace Accumulator::primitive_unsigned -> Option<u128> with Some(1)
+crates/suanpan/src/accumulator/conversions.rs:68:15: replace != with == in Accumulator::primitive_unsigned
+crates/suanpan/src/accumulator/digits.rs:50:29: replace << with >>
+crates/suanpan/src/accumulator/digits.rs:50:44: replace + with -
+crates/suanpan/src/accumulator/digits.rs:50:44: replace + with *
+crates/suanpan/src/accumulator/digits.rs:53:46: replace - with +
+crates/suanpan/src/accumulator/digits.rs:53:31: replace << with >>
+crates/suanpan/src/accumulator/digits.rs:53:46: replace - with /
+crates/suanpan/src/accumulator/digits.rs:90:9: replace Digits::activate with ()
+crates/suanpan/src/accumulator/digits.rs:112:9: replace Digits::stored_digits -> &[i64] with Vec::leak(Vec::new())
+crates/suanpan/src/accumulator/digits.rs:112:9: replace Digits::stored_digits -> &[i64] with Vec::leak(vec![0])
+crates/suanpan/src/accumulator/digits.rs:112:9: replace Digits::stored_digits -> &[i64] with Vec::leak(vec![1])
+crates/suanpan/src/accumulator/digits.rs:112:9: replace Digits::stored_digits -> &[i64] with Vec::leak(vec![-1])
+crates/suanpan/src/accumulator/digits.rs:118:9: replace Digits::stored_digit_count -> usize with 0
+crates/suanpan/src/accumulator/digits.rs:118:9: replace Digits::stored_digit_count -> usize with 1
+crates/suanpan/src/accumulator/digits.rs:118:30: replace + with - in Digits::stored_digit_count
+crates/suanpan/src/accumulator/digits.rs:118:30: replace + with * in Digits::stored_digit_count
+crates/suanpan/src/accumulator/digits.rs:132:9: replace Digits::is_known_zero -> bool with true
+crates/suanpan/src/accumulator/digits.rs:132:9: replace Digits::is_known_zero -> bool with false
+crates/suanpan/src/accumulator/digits.rs:132:35: replace && with || in Digits::is_known_zero
+crates/suanpan/src/accumulator/digits.rs:132:30: replace == with != in Digits::is_known_zero
+crates/suanpan/src/accumulator/digits.rs:132:53: replace == with != in Digits::is_known_zero
+crates/suanpan/src/accumulator/digits.rs:140:22: delete - in Digits::negate
+crates/suanpan/src/accumulator/digits.rs:137:9: replace Digits::negate with ()
+crates/suanpan/src/accumulator/digits.rs:147:9: replace Digits::reset with ()
+crates/suanpan/src/accumulator/digits.rs:166:9: replace Digits::add_at with ()
+crates/suanpan/src/accumulator/digits.rs:181:25: replace >= with < in Digits::add_at
+crates/suanpan/src/accumulator/digits.rs:188:59: replace + with - in Digits::add_at
+crates/suanpan/src/accumulator/digits.rs:188:59: replace + with * in Digits::add_at
+crates/suanpan/src/accumulator/digits.rs:193:26: replace != with == in Digits::add_at
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (0, 0)
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (1, 0)
+crates/suanpan/src/accumulator/digits.rs:192:22: replace == with != in Digits::add_at
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (1, 1)
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (-1, 0)
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (0, 1)
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (0, -1)
+crates/suanpan/src/accumulator/digits.rs:213:24: replace < with == in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:213:24: replace < with > in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:213:24: replace < with <= in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:220:45: replace >> with << in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:220:28: replace + with - in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:220:28: replace + with * in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:221:31: replace - with + in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:221:31: replace - with / in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:221:40: replace << with >> in Digits::recenter
+crates/suanpan/src/accumulator/digits.rs:235:9: replace Digits::trim_high_zeros with ()
+crates/suanpan/src/accumulator/digits.rs:235:40: replace && with || in Digits::trim_high_zeros
+crates/suanpan/src/accumulator/digits.rs:235:36: replace > with == in Digits::trim_high_zeros
+crates/suanpan/src/accumulator/digits.rs:235:36: replace > with < in Digits::trim_high_zeros
+crates/suanpan/src/accumulator/digits.rs:235:36: replace > with >= in Digits::trim_high_zeros
+crates/suanpan/src/accumulator/digits.rs:235:77: replace == with != in Digits::trim_high_zeros
+crates/suanpan/src/accumulator/digits.rs:239:46: replace - with + in Digits::trim_high_zeros
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (1, -1)
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (-1, 1)
+crates/suanpan/src/accumulator/digits.rs:213:9: replace Digits::recenter -> (i64, i128) with (-1, -1)
+crates/suanpan/src/accumulator/digits.rs:268:36: replace != with == in Digits::debug_assert_storage
+crates/suanpan/src/accumulator/operand.rs:32:9: replace Update::apply -> i128 with 0
+crates/suanpan/src/accumulator/operand.rs:32:9: replace Update::apply -> i128 with 1
+crates/suanpan/src/accumulator/operand.rs:32:9: replace Update::apply -> i128 with -1
+crates/suanpan/src/accumulator/operand.rs:39:33: delete - in Update::apply
+crates/suanpan/src/accumulator/operand.rs:52:9: replace Accumulator::apply_magnitude with ()
+crates/suanpan/src/accumulator/operand.rs:52:22: replace == with != in Accumulator::apply_magnitude
+crates/suanpan/src/accumulator/operand.rs:81:9: replace Accumulator::add_word with ()
+crates/suanpan/src/accumulator/operand.rs:62:39: replace <= with > in Accumulator::apply_magnitude
+crates/suanpan/src/accumulator/operand.rs:81:23: replace && with || in Accumulator::add_word
+crates/suanpan/src/accumulator/operand.rs:81:18: replace != with == in Accumulator::add_word
+crates/suanpan/src/accumulator/operand.rs:88:9: replace Accumulator::apply_accumulator with ()
+crates/suanpan/src/accumulator/operand.rs:81:26: delete ! in Accumulator::add_word
+crates/suanpan/src/accumulator/operand.rs:90:30: replace == with != in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:94:22: replace == with != in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:95:20: delete ! in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:98:47: replace || with && in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:98:29: replace > with == in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:98:29: replace > with < in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:98:29: replace > with >= in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:98:50: delete ! in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/digits.rs:239:46: replace - with / in Digits::trim_high_zeros
+crates/suanpan/src/accumulator/operand.rs:98:84: replace << with >> in Accumulator::apply_accumulator
+crates/suanpan/src/accumulator/operand.rs:111:9: replace Accumulator::apply_shifted_word with ()
+crates/suanpan/src/accumulator/operand.rs:111:17: replace == with != in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:114:18: replace <= with > in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:125:20: replace / with % in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:116:42: replace << with >> in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:125:51: replace % with / in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:125:51: replace % with + in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:127:38: replace << with >> in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:125:20: replace / with * in Accumulator::apply_shifted_word
+crates/suanpan/src/accumulator/operand.rs:143:9: replace Accumulator::apply_limbs with ()
+crates/suanpan/src/accumulator/operators.rs:99:9: replace <impl AddAssign<&Accumulator> for Accumulator>::add_assign with ()
+crates/suanpan/src/accumulator/operators.rs:113:9: replace <impl SubAssign<&Accumulator> for Accumulator>::sub_assign with ()
+crates/suanpan/src/accumulator/operators.rs:127:9: replace <impl AddAssign for Accumulator>::add_assign with ()
+crates/suanpan/src/accumulator/operators.rs:127:39: replace + with - in <impl AddAssign for Accumulator>::add_assign
+crates/suanpan/src/accumulator/operators.rs:141:9: replace <impl SubAssign for Accumulator>::sub_assign with ()
+crates/suanpan/src/accumulator/operators.rs:141:15: replace -= with += in <impl SubAssign for Accumulator>::sub_assign
+crates/suanpan/src/accumulator/operators.rs:212:9: replace <impl Add<&Accumulator> for Accumulator>::add -> Self with Default::default()
+crates/suanpan/src/accumulator/operators.rs:212:14: replace += with -= in <impl Add<&Accumulator> for Accumulator>::add
+crates/suanpan/src/accumulator/operators.rs:230:14: replace -= with += in <impl Sub<&Accumulator> for Accumulator>::sub
+crates/suanpan/src/accumulator/operators.rs:230:9: replace <impl Sub<&Accumulator> for Accumulator>::sub -> Self with Default::default()
+crates/suanpan/src/accumulator/operators.rs:244:9: replace <impl Sum<&'a Accumulator> for Accumulator>::sum -> Self with Default::default()
+crates/suanpan/src/accumulator/operators.rs:245:19: replace += with -= in <impl Sum<&'a Accumulator> for Accumulator>::sum
+crates/suanpan/src/accumulator/operators.rs:273:37: replace > with == in <impl Add for Accumulator>::add
+crates/suanpan/src/accumulator/operators.rs:267:9: replace <impl Add for Accumulator>::add -> Self with Default::default()
+crates/suanpan/src/accumulator/operators.rs:273:37: replace > with < in <impl Add for Accumulator>::add
+crates/suanpan/src/accumulator/operators.rs:273:37: replace > with >= in <impl Add for Accumulator>::add
+crates/suanpan/src/accumulator/operators.rs:276:14: replace += with -= in <impl Add for Accumulator>::add
+crates/suanpan/src/accumulator/operators.rs:294:9: replace <impl Sub for Accumulator>::sub -> Self with Default::default()
+crates/suanpan/src/accumulator/operators.rs:294:14: replace -= with += in <impl Sub for Accumulator>::sub
+crates/suanpan/src/accumulator/operators.rs:320:9: replace <impl Neg for Accumulator>::neg -> Self with Default::default()
+crates/suanpan/src/accumulator/operators.rs:309:9: replace <impl Sum for Accumulator>::sum -> Self with Default::default()
+crates/suanpan/src/accumulator/operators.rs:322:22: delete - in <impl Neg for Accumulator>::neg
+crates/suanpan/src/accumulator/operators.rs:382:9: replace Accumulator::shift_left with ()
+crates/suanpan/src/accumulator/operators.rs:382:18: replace == with != in Accumulator::shift_left
+crates/suanpan/src/accumulator/operators.rs:387:22: replace <= with > in Accumulator::shift_left
+crates/suanpan/src/accumulator/operators.rs:388:37: replace << with >> in Accumulator::shift_left
+crates/suanpan/src/accumulator/operators.rs:389:43: replace <= with > in Accumulator::shift_left
+crates/suanpan/src/accumulator/small.rs:22:31: replace << with >>
+crates/suanpan/src/accumulator/small.rs:39:9: replace Accumulator::try_small_add -> bool with true
+crates/suanpan/src/accumulator/small.rs:39:9: replace Accumulator::try_small_add -> bool with false
+crates/suanpan/src/accumulator/small.rs:45:27: replace + with - in Accumulator::try_small_add
+crates/suanpan/src/accumulator/small.rs:45:27: replace + with * in Accumulator::try_small_add
+crates/suanpan/src/accumulator/small.rs:46:31: replace <= with > in Accumulator::try_small_add
+crates/suanpan/src/accumulator/small.rs:60:9: replace Accumulator::ensure_digits with ()
+crates/suanpan/src/accumulator/small.rs:68:9: replace Accumulator::start_digits with ()
+crates/suanpan/src/accumulator/small.rs:79:5: replace limbs_from_u128 -> ([u64; 2], usize) with ([0; 2], 0)
+crates/suanpan/src/accumulator/small.rs:79:5: replace limbs_from_u128 -> ([u64; 2], usize) with ([1; 2], 0)
+crates/suanpan/src/accumulator/small.rs:79:5: replace limbs_from_u128 -> ([u64; 2], usize) with ([0; 2], 1)
+crates/suanpan/src/accumulator/small.rs:79:5: replace limbs_from_u128 -> ([u64; 2], usize) with ([1; 2], 1)
+crates/suanpan/src/accumulator/small.rs:79:39: replace >> with << in limbs_from_u128
+crates/suanpan/src/accumulator/small.rs:80:39: replace + with - in limbs_from_u128
+crates/suanpan/src/accumulator/small.rs:80:39: replace + with * in limbs_from_u128
+crates/suanpan/src/accumulator/small.rs:80:33: replace != with == in limbs_from_u128
+crates/suanpan/src/accumulator/small.rs:80:59: replace > with == in limbs_from_u128
+crates/suanpan/src/accumulator/small.rs:80:59: replace > with < in limbs_from_u128
+crates/suanpan/src/accumulator/small.rs:80:59: replace > with >= in limbs_from_u128
+crates/suanpan/src/accumulator/digits/add.rs:31:9: replace Digits::deposit_value with ()
+crates/suanpan/src/accumulator/digits/add.rs:41:9: replace Digits::deposit_magnitude with ()
+crates/suanpan/src/accumulator/digits/add.rs:42:20: replace / with % in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:42:20: replace / with * in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:42:51: replace % with / in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:42:51: replace % with + in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:46:36: replace & with | in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:46:36: replace & with ^ in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:47:22: replace != with == in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:48:42: replace << with >> in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:51:23: replace >>= with <<= in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:52:22: replace += with -= in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:52:22: replace += with *= in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/add.rs:60:9: replace Digits::add_digits with ()
+crates/suanpan/src/accumulator/digits/add.rs:68:20: replace / with % in Digits::add_digits
+crates/suanpan/src/accumulator/digits/add.rs:68:51: replace % with / in Digits::add_digits
+crates/suanpan/src/accumulator/digits/add.rs:68:51: replace % with + in Digits::add_digits
+crates/suanpan/src/accumulator/digits/add.rs:71:22: replace != with == in Digits::add_digits
+crates/suanpan/src/accumulator/digits/add.rs:74:57: replace + with - in Digits::add_digits
+crates/suanpan/src/accumulator/digits/add.rs:72:54: replace << with >> in Digits::add_digits
+crates/suanpan/src/accumulator/digits/add.rs:74:57: replace + with * in Digits::add_digits
+crates/suanpan/src/accumulator/digits/add.rs:87:9: replace Digits::apply_limbs with ()
+crates/suanpan/src/accumulator/digits/add.rs:88:20: replace / with % in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:88:51: replace % with / in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:88:51: replace % with + in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:93:53: replace << with >> in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:93:39: replace & with | in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:93:39: replace & with ^ in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:94:55: replace << with >> in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:94:40: replace >> with << in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:95:52: replace + with - in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:95:52: replace + with * in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:95:56: replace * with + in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:95:56: replace * with / in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:96:20: replace != with == in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:88:20: replace / with * in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:99:21: replace != with == in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:100:50: replace + with - in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/add.rs:100:50: replace + with * in Digits::apply_limbs
+crates/suanpan/src/accumulator/digits/normalize.rs:37:9: replace Digits::normalize with ()
+crates/suanpan/src/accumulator/digits/normalize.rs:39:17: replace == with != in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:43:32: replace == with != in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:44:13: delete - in Digits::normalize
+crates/suanpan/src/accumulator/digits/add.rs:44:25: replace != with == in Digits::deposit_magnitude
+crates/suanpan/src/accumulator/digits/normalize.rs:48:27: replace << with >> in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:53:65: replace + with - in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:53:65: replace + with * in Digits::normalize
+crates/suanpan/src/accumulator/digits/add.rs:68:20: replace / with * in Digits::add_digits
+crates/suanpan/src/accumulator/digits/normalize.rs:53:44: replace * with + in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:53:44: replace * with / in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:56:32: replace * with + in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:56:32: replace * with / in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:70:24: replace == with != in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:74:46: replace * with + in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:81:27: replace && with || in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:81:51: replace == with != in Digits::normalize
+crates/suanpan/src/accumulator/digits/read.rs:62:43: replace + with - in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:62:43: replace + with * in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:63:42: replace << with >> in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:65:35: replace >> with << in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:65:28: replace - with + in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:65:28: replace - with / in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:68:18: replace < with == in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:68:18: replace < with > in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:68:18: replace < with <= in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:72:67: replace != with == in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:77:73: replace + with - in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:77:73: replace + with * in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:77:52: replace - with + in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:77:52: replace - with / in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:78:44: replace & with | in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:78:44: replace & with ^ in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:79:53: replace >> with << in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:86:45: replace - with + in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:86:45: replace - with / in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:86:29: delete - in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:87:24: replace > with < in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:89:38: replace & with | in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:89:38: replace & with ^ in Digits::read_digits
+crates/suanpan/src/accumulator/digits/normalize.rs:64:21: replace != with == in Digits::normalize
+crates/suanpan/src/accumulator/digits/read.rs:96:24: replace > with < in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:87:24: replace > with >= in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:98:38: replace & with | in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:87:24: replace > with == in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:98:38: replace & with ^ in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:101:67: replace == with != in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:96:24: replace > with == in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:113:5: replace pack_limbs -> Vec<u64> with vec![]
+crates/suanpan/src/accumulator/digits/read.rs:113:5: replace pack_limbs -> Vec<u64> with vec![0]
+crates/suanpan/src/accumulator/digits/read.rs:113:5: replace pack_limbs -> Vec<u64> with vec![1]
+crates/suanpan/src/accumulator/digits/read.rs:115:40: replace | with & in pack_limbs
+crates/suanpan/src/accumulator/digits/read.rs:115:85: replace << with >> in pack_limbs
+crates/suanpan/src/accumulator/digits/sign.rs:44:9: replace Digits::cmp_zero_stable_above -> Option<Ordering> with None
+crates/suanpan/src/accumulator/digits/sign.rs:48:46: replace && with || in Digits::cmp_zero_stable_above
+crates/suanpan/src/accumulator/digits/sign.rs:48:24: replace >= with < in Digits::cmp_zero_stable_above
+crates/suanpan/src/accumulator/digits/sign.rs:48:55: replace >= with < in Digits::cmp_zero_stable_above
+crates/suanpan/src/accumulator/digits/sign.rs:58:9: replace Digits::compact_until_order_known -> (usize, i128) with (0, 0)
+crates/suanpan/src/accumulator/digits/sign.rs:58:9: replace Digits::compact_until_order_known -> (usize, i128) with (0, 1)
+crates/suanpan/src/accumulator/digits/sign.rs:58:9: replace Digits::compact_until_order_known -> (usize, i128) with (0, -1)
+crates/suanpan/src/accumulator/digits/sign.rs:58:9: replace Digits::compact_until_order_known -> (usize, i128) with (1, 0)
+crates/suanpan/src/accumulator/digits/sign.rs:58:9: replace Digits::compact_until_order_known -> (usize, i128) with (1, 1)
+crates/suanpan/src/accumulator/digits/sign.rs:58:9: replace Digits::compact_until_order_known -> (usize, i128) with (1, -1)
+crates/suanpan/src/accumulator/digits/read.rs:96:24: replace > with >= in Digits::read_digits
+crates/suanpan/src/accumulator/digits/sign.rs:65:47: replace + with - in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:65:47: replace + with * in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:66:52: replace || with && in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:65:32: replace << with >> in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:66:30: replace >= with < in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:66:61: replace == with != in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:73:24: replace == with != in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:82:19: replace -= with += in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:82:19: replace -= with /= in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:84:18: replace < with == in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:84:18: replace < with > in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:84:18: replace < with <= in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/sign.rs:91:24: replace != with == in Digits::compact_until_order_known
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:71:9: replace ZeroRanges::rebuild with ()
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:74:22: replace == with != in ZeroRanges::rebuild
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:77:22: replace > with == in ZeroRanges::rebuild
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:77:22: replace > with < in ZeroRanges::rebuild
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:77:22: replace > with >= in ZeroRanges::rebuild
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:91:20: replace > with == in ZeroRanges::record_gap
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:91:9: replace ZeroRanges::record_gap with ()
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:91:20: replace > with < in ZeroRanges::record_gap
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:91:20: replace > with >= in ZeroRanges::record_gap
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:105:25: replace || with && in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:103:9: replace ZeroRanges::remove_written with ()
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:105:19: replace >= with < in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:105:31: replace <= with > in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:109:21: replace > with == in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:109:21: replace > with < in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:109:21: replace > with >= in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:109:26: replace + with - in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:109:26: replace + with * in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:112:19: replace > with == in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:112:19: replace > with < in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:112:19: replace > with >= in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:112:24: replace + with - in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:112:24: replace + with * in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:123:25: replace > with == in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:123:25: replace > with < in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/read.rs:118:24: replace == with != in pack_limbs
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:123:25: replace > with >= in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:123:30: replace + with - in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:126:23: replace > with == in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:123:30: replace + with * in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:126:23: replace > with < in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:126:23: replace > with >= in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:126:28: replace + with - in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:126:28: replace + with * in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:139:9: replace ZeroRanges::take_below -> Option<usize> with None
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:139:9: replace ZeroRanges::take_below -> Option<usize> with Some(0)
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:36: replace match guard *lo < above && *hi >= above with true in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:36: replace match guard *lo < above && *hi >= above with false in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:48: replace && with || in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:40: replace < with == in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:40: replace < with > in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:55: replace >= with < in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:150:23: replace < with == in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:150:23: replace < with > in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:163:9: replace ZeroRanges::clear with ()
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:168:9: replace ZeroRanges::insert with ()
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:170:44: replace match guard *old_lo == lo with true in ZeroRanges::insert
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:170:52: replace == with != in ZeroRanges::insert
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with Some((0, 1))
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with Some((1, 1))
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:119:23: replace <= with > in ZeroRanges::remove_written
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:139:9: replace ZeroRanges::take_below -> Option<usize> with Some(1)

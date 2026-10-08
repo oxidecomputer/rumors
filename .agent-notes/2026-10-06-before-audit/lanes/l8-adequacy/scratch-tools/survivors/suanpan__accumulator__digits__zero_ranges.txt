@@ -1,0 +1,14 @@
+# survivors of crates/suanpan/src/accumulator/digits/zero_ranges.rs (suanpan); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:51:9: replace <impl core::fmt::Debug for ZeroRanges>::fmt -> core::fmt::Result with Ok(Default::default())
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:40: replace < with <= in ZeroRanges::take_below
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:150:23: replace < with <= in ZeroRanges::take_below
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:170:44: replace match guard *old_lo == lo with false in ZeroRanges::insert
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with None
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with Some((0, 0))
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with Some((1, 0))
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:194:9: replace ZeroRanges::compact_storage with ()
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:195:37: replace match guard ranges.is_empty() with true in ZeroRanges::compact_storage
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:195:37: replace match guard ranges.is_empty() with false in ZeroRanges::compact_storage
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:196:37: replace match guard ranges.len() == 1 with true in ZeroRanges::compact_storage
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:196:37: replace match guard ranges.len() == 1 with false in ZeroRanges::compact_storage
+MISSED   crates/suanpan/src/accumulator/digits/zero_ranges.rs:196:50: replace == with != in ZeroRanges::compact_storage

@@ -1,0 +1,15 @@
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 20s
+     Running unittests src/lib.rs (target/debug/deps/before-332950f26c43de8d)
+
+running 3 tests
+test version::tick::l3_probe::l3_deep_spine has been running for over 60 seconds
+test version::tick::l3_probe::l3_family_multi_wide has been running for over 60 seconds
+test version::tick::l3_probe::l3_family_wide has been running for over 60 seconds
+test version::tick::l3_probe::l3_family_wide ... ok
+test version::tick::l3_probe::l3_deep_spine ... ok
+test version::tick::l3_probe::l3_family_multi_wide ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 615 filtered out; finished in 5463.91s
+
+exit=0

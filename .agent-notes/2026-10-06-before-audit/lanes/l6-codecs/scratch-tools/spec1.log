@@ -1,0 +1,135 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 15s
+────────────
+ Nextest run ID be4b9c65-27d9-420f-a553-ad034fe0ea9b with nextest profile: default
+    Starting 7 tests across 1 binary (608 tests skipped)
+        PASS [   0.452s] (1/7) before testing::l6_spec::l6_spec_rank
+  stdout ───
+
+    running 1 test
+    == rank ==
+         1173  rank borsh: accept
+          156  rank borsh: reject NotCanonical
+          566  rank borsh: reject TrailingBits
+          105  rank borsh: reject Truncated
+          981  rank slice: accept
+          156  rank slice: reject NotCanonical
+          662  rank slice: reject TrailingBits
+          201  rank slice: reject Truncated
+    test testing::l6_spec::l6_spec_rank ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.40s
+
+
+        PASS [   0.632s] (2/7) before testing::l6_spec::l6_spec_party
+  stdout ───
+
+    running 1 test
+    == party ==
+          436  party borsh: accept
+          690  party borsh: reject NotCanonical
+          700  party borsh: reject TrailingBits
+          174  party borsh: reject Truncated
+          330  party slice: accept
+          653  party slice: reject NotCanonical
+          637  party slice: reject TrailingBits
+          380  party slice: reject Truncated
+          330  party text: accept
+          653  party text: reject NotCanonical
+          637  party text: reject TrailingBits
+          380  party text: reject Truncated
+    test testing::l6_spec::l6_spec_party ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.58s
+
+
+        PASS [   0.932s] (3/7) before testing::l6_spec::l6_spec_version
+  stdout ───
+
+    running 1 test
+    == version ==
+          693  version borsh: accept
+          642  version borsh: reject NotCanonical
+          385  version borsh: reject TrailingBits
+          280  version borsh: reject Truncated
+          539  version slice: accept
+          569  version slice: reject NotCanonical
+          450  version slice: reject TrailingBits
+          442  version slice: reject Truncated
+          539  version text: accept
+          569  version text: reject NotCanonical
+          450  version text: reject TrailingBits
+          442  version text: reject Truncated
+    test testing::l6_spec::l6_spec_version ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.89s
+
+
+        PASS [   1.368s] (4/7) before testing::l6_spec::l6_spec_clock
+  stdout ───
+
+    running 1 test
+    == clock ==
+          111  clock borsh: accept
+          827  clock borsh: reject NotCanonical
+          954  clock borsh: reject TrailingBits
+          108  clock borsh: reject Truncated
+           77  clock slice: accept
+          795  clock slice: reject NotCanonical
+          964  clock slice: reject TrailingBits
+          164  clock slice: reject Truncated
+    test testing::l6_spec::l6_spec_clock ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 1.30s
+
+
+        PASS [   1.813s] (5/7) before testing::l6_spec::l6_spec_ranked
+  stdout ───
+
+    running 1 test
+    == ranked ==
+          607  ranked borsh: accept
+         1105  ranked borsh: reject NotCanonical
+          151  ranked borsh: reject TrailingBits
+          137  ranked borsh: reject Truncated
+          544  ranked slice: accept
+          968  ranked slice: reject NotCanonical
+          293  ranked slice: reject TrailingBits
+          195  ranked slice: reject Truncated
+    test testing::l6_spec::l6_spec_ranked ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 1.75s
+
+
+        PASS [   1.908s] (6/7) before testing::l6_spec::l6_spec_span
+  stdout ───
+
+    running 1 test
+    == span ==
+          756  span borsh: accept
+          882  span borsh: reject NotCanonical
+          176  span borsh: reject TrailingBits
+          186  span borsh: reject Truncated
+          672  span slice: accept
+          787  span slice: reject NotCanonical
+          299  span slice: reject TrailingBits
+          242  span slice: reject Truncated
+          447  span: accepted equal=false
+          225  span: accepted equal=true
+    test testing::l6_spec::l6_spec_span ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 1.84s
+
+
+        PASS [   2.311s] (7/7) before testing::l6_spec::l6_spec_encoders_agree_with_production
+  stdout ───
+
+    running 1 test
+    test testing::l6_spec::l6_spec_encoders_agree_with_production ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 2.27s
+
+
+────────────
+     Summary [   2.314s] 7 tests run: 7 passed, 608 skipped
+exit=0

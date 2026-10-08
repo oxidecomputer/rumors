@@ -1,0 +1,32 @@
+[
+ {
+  "name": "M27-block-skip-drops-height-a",
+  "file": "crates/before/src/version/projection.rs",
+  "old": "                    *height_a += &net;",
+  "new": "                    let _ = (&height_a, &net);"
+ },
+ {
+  "name": "M28-block-skip-drops-height-b",
+  "file": "crates/before/src/version/projection.rs",
+  "old": "                    *height_b += &net;",
+  "new": "                    let _ = (&height_b, &net);"
+ },
+ {
+  "name": "M17-project-skip-at-ownership-depth",
+  "file": "crates/before/src/version/projection.rs",
+  "old": "if flip <= ownership.depth() {",
+  "new": "if flip < ownership.depth() {"
+ },
+ {
+  "name": "M18-others-deepest-min",
+  "file": "crates/before/src/version/projection.rs",
+  "old": "            .max()",
+  "new": "            .min()"
+ },
+ {
+  "name": "M38-writer-left-is-leaf-loose",
+  "file": "crates/before/src/version/io/writer.rs",
+  "old": "let left_is_leaf = closed_rights == 0;",
+  "new": "let left_is_leaf = closed_rights <= 1;"
+ }
+]

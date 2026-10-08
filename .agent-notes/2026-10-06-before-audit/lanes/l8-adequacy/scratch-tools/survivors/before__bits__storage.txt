@@ -1,0 +1,5 @@
+# survivors of crates/before/src/bits/storage.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/storage.rs:82:9: replace Bits::has_canonical_padding -> bool with true
+MISSED   crates/before/src/bits/storage.rs:83:13: delete match arm [] in Bits::has_canonical_padding
+MISSED   crates/before/src/bits/storage.rs:84:13: delete match arm [0x80] |[.., 0] in Bits::has_canonical_padding
+MISSED   crates/before/src/bits/storage.rs:156:9: replace <impl Hash for Bits>::hash with ()

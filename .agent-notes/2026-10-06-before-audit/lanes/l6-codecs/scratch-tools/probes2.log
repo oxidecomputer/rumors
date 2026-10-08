@@ -1,0 +1,52 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 44s
+────────────
+ Nextest run ID 0f6539d7-b611-4b3f-bc03-02271313d267 with nextest profile: default
+    Starting 4 tests across 12 binaries (694 tests skipped)
+        PASS [   0.050s] (1/4) before testing::l6_probes::probe_cbor_text_and_array_as_bytes
+  stdout ───
+
+    running 1 test
+    PROBE party seed bytes [20]
+    PROBE cbor text [61, 20] -> Err("Semantic(None, \"invalid type: string, expected byte buffer\")")
+    PROBE cbor array [81, 18, 20] -> Ok([32])
+    PROBE cbor text rank [61, 00] -> Err("Semantic(None, \"invalid type: string, expected byte buffer\")") (zero = 0)
+    PROBE cbor bytes as count [42, 01, 02] -> Ok("36893488147419103233")
+    test testing::l6_probes::probe_cbor_text_and_array_as_bytes ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.00s
+
+
+        PASS [   0.058s] (2/4) before testing::l6_probes::probe_json_composites_accept_arrays
+  stdout ───
+
+    running 1 test
+    PROBE json clock array ["20","e0"] -> Ok([32, 224])
+    PROBE json span array ["a8","b8"] -> Ok([168, 184])
+    PROBE json ranked array ["a8"] -> Ok([128, 168])
+    test testing::l6_probes::probe_json_composites_accept_arrays ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.00s
+
+
+        PASS [   0.307s] (3/4) before testing::l6_probes::probe_encoders_under_failing_writers
+  stdout ───
+
+    running 1 test
+    test testing::l6_probes::probe_encoders_under_failing_writers ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.25s
+
+
+        PASS [   0.832s] (4/4) before testing::l6_probes::probe_reader_entries_ignore_chunking
+  stdout ───
+
+    running 1 test
+    test testing::l6_probes::probe_reader_entries_ignore_chunking ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.78s
+
+
+────────────
+     Summary [   0.837s] 4 tests run: 4 passed, 694 skipped
+exit=0

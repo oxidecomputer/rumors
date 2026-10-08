@@ -1,0 +1,4 @@
+surfacecheck: public function-like items with no board disposition and no exception (1):
+  l8_unpriced_probe
+  -> price the operation in BOARD_PRICED, explain why the board does not apply in BOARD_NOT_APPLICABLE, or add an exception in crates/before/surfacecheck/src/check.rs
+unpriced-fn surfacecheck exit=1

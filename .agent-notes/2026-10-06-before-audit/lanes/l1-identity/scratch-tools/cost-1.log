@@ -1,0 +1,56 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.00s
+────────────
+ Nextest run ID 1829439f-b1f9-47e8-81d9-5f5328abbcf8 with nextest profile: default
+    Starting 1 test across 1 binary
+       START [         ] (1/1) before::audit_l1_cost cost_report
+
+running 1 test
+d=1000 without(comb, zigzag): 1.25 scan bits per input bit
+d=1000 without(zigzag, comb): 1.25
+d=1000 covers both ways: 0.50
+d=1000 is_disjoint: 0.00
+d=1000 sync(comb, cell): 2.99
+d=1000 sync(cell, zigzag minus cell) ok=true: 3.00
+d=1000 forks(64) full drain: 4.926 per k(|p|+log k) bit
+d=1000 join_all(65 shares): 0.819 per (|self|+|iter|) log k bit
+d=1000 forks(2^d).next() on |p|=2008: 5.324 per (|p| + log k) bit
+d=1000 shape drain (1001 regions): 1.00
+d=4000 without(comb, zigzag): 1.25 scan bits per input bit
+d=4000 without(zigzag, comb): 1.25
+d=4000 covers both ways: 0.50
+d=4000 is_disjoint: 0.00
+d=4000 sync(comb, cell): 3.00
+d=4000 sync(cell, zigzag minus cell) ok=true: 3.00
+d=4000 forks(64) full drain: 4.924 per k(|p|+log k) bit
+d=4000 join_all(65 shares): 0.820 per (|self|+|iter|) log k bit
+d=4000 forks(2^d).next() on |p|=2008: 5.661 per (|p| + log k) bit
+d=4000 shape drain (4001 regions): 1.00
+d=16000 without(comb, zigzag): 1.25 scan bits per input bit
+d=16000 without(zigzag, comb): 1.25
+d=16000 covers both ways: 0.50
+d=16000 is_disjoint: 0.00
+d=16000 sync(comb, cell): 3.00
+d=16000 sync(cell, zigzag minus cell) ok=true: 3.00
+d=16000 forks(64) full drain: 4.923 per k(|p|+log k) bit
+d=16000 join_all(65 shares): 0.820 per (|self|+|iter|) log k bit
+d=16000 forks(2^d).next() on |p|=2008: 5.887 per (|p| + log k) bit
+d=16000 shape drain (16001 regions): 1.00
+d=64000 without(comb, zigzag): 1.25 scan bits per input bit
+d=64000 without(zigzag, comb): 1.25
+d=64000 covers both ways: 0.50
+d=64000 is_disjoint: 0.00
+d=64000 sync(comb, cell): 3.00
+d=64000 sync(cell, zigzag minus cell) ok=true: 3.00
+d=64000 forks(64) full drain: 4.923 per k(|p|+log k) bit
+d=64000 join_all(65 shares): 0.820 per (|self|+|iter|) log k bit
+d=64000 forks(2^d).next() on |p|=2008: 5.969 per (|p| + log k) bit
+d=64000 shape drain (64001 regions): 1.00
+test cost_report ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+
+        PASS [   1.212s] (1/1) before::audit_l1_cost cost_report
+────────────
+     Summary [   1.213s] 1 test run: 1 passed, 0 skipped
+exit=0

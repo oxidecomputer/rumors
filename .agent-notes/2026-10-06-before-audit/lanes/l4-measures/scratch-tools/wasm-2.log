@@ -1,0 +1,33 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l4-measures/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 1.50s
+   Compiling wasm32-pins-harness v0.0.0 (/home/agent/src/rumors-audit-l4-measures/crates/before/wasm32-pins/harness)
+    Finished `release` profile [optimized] target(s) in 4.11s
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l4-measures/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 1.61s
+────────────
+ Nextest run ID 54f77626-1a81-4d23-909f-e05863c327d6 with nextest profile: default
+    Starting 1 test across 4 binaries (8 tests skipped)
+       START [         ] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+
+running 1 test
+L4SUM case 5: Trapped(UnreachableCodeReached) pages=42014 panic=""
+L4SUM case 6: Trapped(UnreachableCodeReached) pages=42014 panic=""
+        SLOW [> 60.000s] (───) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+test l4_rank_sum_cases_diagnosed has been running for over 60 seconds
+L4SUM case 7: Passed pages=58399 panic=""
+L4SUM case 8: Passed pages=50207 panic=""
+L4SUM case 9: Trapped(UnreachableCodeReached) pages=42014 panic=""
+        SLOW [>120.000s] (───) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+L4SUM case 10: Passed pages=42014 panic=""
+test l4_rank_sum_cases_diagnosed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 120.17s
+
+        PASS [ 120.226s] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+────────────
+     Summary [ 120.227s] 1 test run: 1 passed (1 slow), 8 skipped
+exit=0

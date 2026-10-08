@@ -1,0 +1,22 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:798:17
+    |
+798 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.12s
+────────────
+ Nextest run ID 231ad1d8-f0b0-4679-bb87-c6752973f6cb with nextest profile: default
+    Starting 4 tests across 2 binaries (65 tests skipped)
+        PASS [   0.055s] (1/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme
+        PASS [   0.095s] (2/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history
+        PASS [  10.804s] (3/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+        PASS [  29.708s] (4/4) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+────────────
+     Summary [  29.710s] 4 tests run: 4 passed, 65 skipped

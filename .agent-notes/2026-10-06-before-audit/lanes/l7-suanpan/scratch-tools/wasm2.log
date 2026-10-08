@@ -1,0 +1,65 @@
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 1.03s
+   Compiling wasm32-pins-harness v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/harness)
+    Finished `release` profile [optimized] target(s) in 2.39s
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 1.67s
+────────────
+ Nextest run ID 626faf4c-cd11-4a3b-b33f-361e6e656650 with nextest profile: default
+    Starting 2 tests across 4 binaries (8 tests skipped)
+       START [         ] (1/2) wasm32-pins-harness::pins zz_l7_fuel_readings
+
+running 1 test
+L7FUEL suanpan ranges 64: 371.50 fuel per word update
+L7FUEL suanpan ranges 256: 440.50 fuel per word update
+L7FUEL suanpan ranges 1024: 509.50 fuel per word update
+L7FUEL suanpan ranges 4096: 509.50 fuel per word update
+L7FUEL suanpan ranges 16384: 578.50 fuel per word update
+L7FUEL version ranges 64 leaves 4096: decode 1295.71/leaf, compare 1436.25/leaf
+L7FUEL version ranges 256 leaves 16384: decode 1371.31/leaf, compare 1511.54/leaf
+L7FUEL version ranges 1024 leaves 65536: decode 1447.24/leaf, compare 1587.39/leaf
+L7FUEL version ranges 4096 leaves 262144: decode 1453.97/leaf, compare 1594.10/leaf
+        SLOW [> 60.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+test zz_l7_fuel_readings has been running for over 60 seconds
+        SLOW [>120.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+        SLOW [>180.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+        SLOW [>240.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+        SLOW [>300.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+        SLOW [>360.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+        SLOW [>420.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+        SLOW [>480.000s] (───) wasm32-pins-harness::pins zz_l7_fuel_readings
+L7FUEL version ranges 16384 leaves 1048576: decode 1529.11/leaf, compare 1669.24/leaf
+test zz_l7_fuel_readings ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 521.82s
+
+        PASS [ 521.863s] (1/2) wasm32-pins-harness::pins zz_l7_fuel_readings
+       START [         ] (2/2) wasm32-pins-harness::pins zz_l7_suanpan_limb_index_past_usize_max
+
+running 1 test
+L7 case5 (index 2^31) outcome: Trapped(UnreachableCodeReached)
+L7 case4 (index 2^32) outcome: Failed(WrongValue)
+L7 case6 (classified) outcome: Failed(WrongBytes)
+
+thread 'zz_l7_suanpan_limb_index_past_usize_max' (2) panicked at harness/tests/pins.rs:155:5:
+assertion `left == right` failed: a limb past 2^32 wrapped instead of panicking
+  left: Failed(WrongValue)
+ right: Trapped(UnreachableCodeReached)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test zz_l7_suanpan_limb_index_past_usize_max ... FAILED
+
+failures:
+
+failures:
+    zz_l7_suanpan_limb_index_past_usize_max
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 54.51s
+
+        FAIL [  54.551s] (2/2) wasm32-pins-harness::pins zz_l7_suanpan_limb_index_past_usize_max
+────────────
+     Summary [ 576.416s] 2 tests run: 1 passed (1 slow), 1 failed, 8 skipped
+        FAIL [  54.551s] (2/2) wasm32-pins-harness::pins zz_l7_suanpan_limb_index_past_usize_max
+error: test run failed
+exit=100

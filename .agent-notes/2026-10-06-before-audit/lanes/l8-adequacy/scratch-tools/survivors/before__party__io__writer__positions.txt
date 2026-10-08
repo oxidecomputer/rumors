@@ -1,0 +1,6 @@
+# survivors of crates/before/src/party/io/writer/positions.rs (party); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/party/io/writer/positions.rs:46:21: replace > with < in Positions::push
+MISSED   crates/before/src/party/io/writer/positions.rs:46:21: replace > with == in Positions::push
+MISSED   crates/before/src/party/io/writer/positions.rs:46:21: replace > with >= in Positions::push
+MISSED   crates/before/src/party/io/writer/positions.rs:62:18: replace -= with += in Positions::pop
+MISSED   crates/before/src/party/io/writer/positions.rs:62:18: replace -= with /= in Positions::pop

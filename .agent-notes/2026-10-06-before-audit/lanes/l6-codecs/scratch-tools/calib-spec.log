@@ -1,0 +1,304 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 54s
+=== MUT NONE ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+────────────
+ Nextest run ID 19fb43f7-eff1-4e7d-86f7-ccc54d2be7fe with nextest profile: default
+    Starting 7 tests across 1 binary (608 tests skipped)
+        PASS [   0.449s] (1/7) before testing::l6_spec::l6_spec_rank
+        PASS [   0.629s] (2/7) before testing::l6_spec::l6_spec_party
+        PASS [   0.920s] (3/7) before testing::l6_spec::l6_spec_version
+        PASS [   1.317s] (4/7) before testing::l6_spec::l6_spec_clock
+        PASS [   1.745s] (5/7) before testing::l6_spec::l6_spec_ranked
+        PASS [   1.902s] (6/7) before testing::l6_spec::l6_spec_span
+        PASS [   2.257s] (7/7) before testing::l6_spec::l6_spec_encoders_agree_with_production
+────────────
+     Summary [   2.261s] 7 tests run: 7 passed, 608 skipped
+=== END NONE exit=0 ===
+=== MUT 1 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+────────────
+ Nextest run ID 36487ea6-4a27-442c-875e-5748a1748fbc with nextest profile: default
+    Starting 7 tests across 1 binary (608 tests skipped)
+        FAIL [   0.091s] (1/7) before testing::l6_spec::l6_spec_clock
+        FAIL [   0.093s] (2/7) before testing::l6_spec::l6_spec_version
+        FAIL [   0.129s] (3/7) before testing::l6_spec::l6_spec_span
+        FAIL [   0.292s] (4/7) before testing::l6_spec::l6_spec_ranked
+        PASS [   0.433s] (5/7) before testing::l6_spec::l6_spec_rank
+        PASS [   0.601s] (6/7) before testing::l6_spec::l6_spec_party
+        PASS [   2.244s] (7/7) before testing::l6_spec::l6_spec_encoders_agree_with_production
+────────────
+     Summary [   2.248s] 7 tests run: 3 passed, 4 failed, 608 skipped
+        FAIL [   0.091s] (1/7) before testing::l6_spec::l6_spec_clock
+  stdout ───
+
+    running 1 test
+    == clock ==
+           15  clock borsh: accept
+           19  clock borsh: reject NotCanonical
+           32  clock borsh: reject TrailingBits
+           30  clock borsh: reject Truncated
+           15  clock slice: accept
+           18  clock slice: first-event model said NotCanonical, saw Truncated
+           19  clock slice: reject NotCanonical
+           28  clock slice: reject TrailingBits
+           34  clock slice: reject Truncated
+    test testing::l6_spec::l6_spec_clock ... FAILED
+
+    failures:
+
+    failures:
+        testing::l6_spec::l6_spec_clock
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.03s
+
+  stderr ───
+
+    thread 'testing::l6_spec::l6_spec_clock' (2) panicked at crates/before/src/testing/l6_spec.rs:1592:9:
+    clock: Test failed: clock slice: spec rejects ({NotCanonical}), production said Ok
+    input: [fc, 83, c8, 20, 1c, 00, 00, 00, 00, 00, 00, 00, 01, 00, 00, 00, 00, 00, 00, 00, 00, a0, 00, 00, 00, 00, 00, 00, 00, 0c, 00, 00, 00, 00, 00, 00, 00, 02, 59, 20].
+    minimal failing input: (
+        [
+            252,
+            131,
+            200,
+            32,
+            28,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            160,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            12,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2,
+            89,
+            32,
+        ],
+        [],
+    )
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.093s] (2/7) before testing::l6_spec::l6_spec_version
+  stdout ───
+
+    running 1 test
+    == version ==
+           44  version borsh: accept
+           29  version borsh: reject NotCanonical
+          222  version borsh: reject TrailingBits
+            5  version borsh: reject Truncated
+            3  version slice: accept
+          184  version slice: first-event model said NotCanonical, saw TrailingBits
+           29  version slice: reject NotCanonical
+          253  version slice: reject TrailingBits
+           41  version slice: reject Truncated
+            3  version text: accept
+          184  version text: first-event model said NotCanonical, saw TrailingBits
+           29  version text: reject NotCanonical
+          253  version text: reject TrailingBits
+           41  version text: reject Truncated
+    test testing::l6_spec::l6_spec_version ... FAILED
+
+    failures:
+
+    failures:
+        testing::l6_spec::l6_spec_version
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.02s
+
+  stderr ───
+
+    thread 'testing::l6_spec::l6_spec_version' (2) panicked at crates/before/src/testing/l6_spec.rs:1592:9:
+    version: Test failed: version borsh: production reported TrailingBits, not among applicable {NotCanonical}
+    input: [37, 00, 00, 00, 00, 00, 00, 00, 08, 00, 00, 00, 00, 00, 00, 00, c0, 00, 00, 00, 00, 00, 00, 02, 32, 34, 51, 7b, 7e, df, 34, 46, 60].
+    minimal failing input: (
+        [
+            55,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            8,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            192,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2,
+            50,
+            52,
+            81,
+            123,
+            126,
+            223,
+            52,
+            70,
+            96,
+        ],
+        [],
+    )
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.129s] (3/7) before testing::l6_spec::l6_spec_span
+  stdout ───
+
+    running 1 test
+    == span ==
+            5  span borsh: accept
+           15  span borsh: reject NotCanonical
+          588  span borsh: reject TrailingBits
+           92  span borsh: reject Truncated
+            4  span slice: accept
+          553  span slice: first-event model said NotCanonical, saw TrailingBits
+            2  span slice: first-event model said NotCanonical, saw Truncated
+           14  span slice: reject NotCanonical
+         1142  span slice: reject TrailingBits
+           94  span slice: reject Truncated
+            4  span: accepted equal=false
+    test testing::l6_spec::l6_spec_span ... FAILED
+
+    failures:
+
+    failures:
+        testing::l6_spec::l6_spec_span
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.06s
+
+  stderr ───
+
+    thread 'testing::l6_spec::l6_spec_span' (2) panicked at crates/before/src/testing/l6_spec.rs:1592:9:
+    span: Test failed: span borsh: production reported TrailingBits, not among applicable {NotCanonical}
+    input: [3b, 6b, 80, 00, 00, 00, 00, 00, 00, 00, 40, 00, 00, 00, 80, 00, 1a, 54, 92, c9, c0].
+    minimal failing input: (
+        [
+            59,
+            107,
+            128,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            64,
+            0,
+            0,
+            0,
+            128,
+            0,
+            26,
+            84,
+            146,
+            201,
+            192,
+        ],
+        [],
+    )
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   0.292s] (4/7) before testing::l6_spec::l6_spec_ranked
+  stdout ───
+
+    running 1 test
+    == ranked ==
+            7  ranked borsh: accept
+           18  ranked borsh: reject NotCanonical
+         1768  ranked borsh: reject TrailingBits
+           17  ranked borsh: reject Truncated
+            6  ranked slice: accept
+         1627  ranked slice: first-event model said NotCanonical, saw TrailingBits
+           12  ranked slice: first-event model said NotCanonical, saw Truncated
+           14  ranked slice: reject NotCanonical
+         1773  ranked slice: reject TrailingBits
+           19  ranked slice: reject Truncated
+    test testing::l6_spec::l6_spec_ranked ... FAILED
+
+    failures:
+
+    failures:
+        testing::l6_spec::l6_spec_ranked
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.22s
+
+  stderr ───
+
+    thread 'testing::l6_spec::l6_spec_ranked' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+    thread 'testing::l6_spec::l6_spec_ranked' (2) panicked at crates/before/src/version/measure/rank.rs:34:9:
+    assertion `left != right` failed: heights are nonnegative
+      left: Less
+     right: Less
+
+    thread 'testing::l6_spec::l6_spec_ranked' (2) panicked at crates/before/src/testing/l6_spec.rs:1592:9:
+    ranked: Test failed: ranked borsh: production reported Truncated, not among applicable {NotCanonical}
+    input: [00, 5a, 82, c0, 00, 00, 00, 00, 00, 00, 00, 80, 01, 44, 52, 51, b0, 10, 03].
+    minimal failing input: (
+        [
+            0,
+            90,
+            130,
+            192,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            128,
+            1,
+            68,
+            82,
+            81,
+            176,
+            16,
+            3,
+        ],
+        [],
+    )
+
+error: test run failed
+exit=100

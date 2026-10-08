@@ -1,0 +1,33 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.14s
+────────────
+ Nextest run ID 1a853540-45d3-4496-b50b-2a24fbc1a658 with nextest profile: default
+    Starting 2 tests across 12 binaries (698 tests skipped)
+        PASS [   0.067s] (1/2) before version::range_minima::tests::l8_witness_decrease_dominates_inner_boundary
+        FAIL [   0.072s] (2/2) before version::range_minima::tests::l8_witness_boundary_dominates_decrease
+  stdout ───
+
+    running 1 test
+    test version::range_minima::tests::l8_witness_boundary_dominates_decrease ... FAILED
+
+    failures:
+
+    failures:
+        version::range_minima::tests::l8_witness_boundary_dominates_decrease
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'version::range_minima::tests::l8_witness_boundary_dominates_decrease' (2) panicked at crates/before/src/version/range_minima/tests.rs:434:13:
+    assertion `left == right` failed: undercut verdict at -5
+      left: false
+     right: true
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.079s] 2 tests run: 1 passed, 1 failed, 698 skipped
+        FAIL [   0.072s] (2/2) before version::range_minima::tests::l8_witness_boundary_dominates_decrease
+error: test run failed
+m116 witness status 100
+m116 done

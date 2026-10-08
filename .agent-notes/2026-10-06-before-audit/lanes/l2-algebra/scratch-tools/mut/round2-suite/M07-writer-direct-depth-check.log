@@ -1,0 +1,696 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.93s
+────────────
+ Nextest run ID 41b7b065-19d8-421e-a035-9b2f230233d4 with nextest profile: default
+    Starting 693 tests across 12 binaries (1 test and 2 binaries skipped)
+        PASS [   0.090s] (  1/693) before bits::reader::tests::skipping_gamma_records_exactly_the_bits_a_read_records
+        PASS [   0.090s] (  2/693) before bits::reader::tests::gamma_reader_matches_decoder_across_the_word_seam
+        PASS [   0.103s] (  3/693) before bits::stack::packed_u64::tests::packed_values_round_trip
+        PASS [   0.072s] (  4/693) before bits::tests::decode_never_yields_anonymous_party
+        PASS [   0.116s] (  5/693) before bits::reader::tests::truncated_codes_reject_at_every_cut_point
+        PASS [   0.116s] (  6/693) before bits::reader::tests::mid_stream_opens_read_the_same_suffix
+        PASS [   0.125s] (  7/693) before bits::stack::bit::tests::bit_stack_matches_a_vec_of_bools
+        PASS [   0.060s] (  8/693) before bits::tests::flush_version_cut_before_its_marker_byte_is_truncated
+        PASS [   0.136s] (  9/693) before bits::stack::packed_u64::tests::packed_stack_matches_a_vec_across_all_widths
+        PASS [   0.137s] ( 10/693) before bits::reader::tests::unary_reads_match_the_per_bit_loop_across_word_seams
+        FAIL [   0.093s] ( 11/693) before bits::tests::encode_to_matches_encode
+  stdout ───
+
+    running 1 test
+    test bits::tests::encode_to_matches_encode ... FAILED
+
+    failures:
+
+    failures:
+        bits::tests::encode_to_matches_encode
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'bits::tests::encode_to_matches_encode' (2) panicked at crates/before/src/version/io/writer.rs:667:25:
+    a leaf arrived after the tree was complete
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+    thread 'bits::tests::encode_to_matches_encode' (2) panicked at crates/before/src/bits/tests.rs:745:1:
+    Test failed: a leaf arrived after the tree was complete.
+    minimal failing input: ops = [
+        Sync(
+            Index(
+                510202712910508305,
+            ),
+            Index(
+                1259185825875292340,
+            ),
+        ),
+        Fork(
+            Index(
+                16961643370937484917,
+            ),
+        ),
+        Ticks(
+            Index(
+                5707476811371415310,
+            ),
+            3,
+        ),
+        Tick(
+            Index(
+                11983233675309857444,
+            ),
+        ),
+        Fork(
+            Index(
+                884728129409389902,
+            ),
+        ),
+        Ticks(
+            Index(
+                15875653756919037022,
+            ),
+            3,
+        ),
+        Tick(
+            Index(
+                7712443139524934336,
+            ),
+        ),
+        Send(
+            Index(
+                2077594596863532253,
+            ),
+            Index(
+                13210692054646427756,
+            ),
+        ),
+        Send(
+            Index(
+                4067806736745629548,
+            ),
+            Index(
+                12861909686043489250,
+            ),
+        ),
+        Tick(
+            Index(
+                11951593909432457707,
+            ),
+        ),
+        Fork(
+            Index(
+                8971818749844475628,
+            ),
+        ),
+        Join(
+            Index(
+                7215166557739236262,
+            ),
+            Index(
+                39102625396939080,
+            ),
+        ),
+        Send(
+            Index(
+                14944528675180970338,
+            ),
+            Index(
+                351848694279965255,
+            ),
+        ),
+        Sync(
+            Index(
+                12624972300409763745,
+            ),
+            Index(
+                17953903192266346633,
+            ),
+        ),
+        Fork(
+            Index(
+                13192688757479215413,
+            ),
+        ),
+        Join(
+            Index(
+                2027105118435706384,
+            ),
+            Index(
+                11076593821714093717,
+            ),
+        ),
+        Join(
+            Index(
+                13243917775090842387,
+            ),
+            Index(
+                10850010048602908492,
+            ),
+        ),
+        Fork(
+            Index(
+                5172962033831497144,
+            ),
+        ),
+        Send(
+            Index(
+                14279205658734234597,
+            ),
+            Index(
+                9521164724181332120,
+            ),
+        ),
+        Ticks(
+            Index(
+                10780331305159392646,
+            ),
+            6,
+        ),
+        Tick(
+            Index(
+                4298680943631955921,
+            ),
+        ),
+        Fork(
+            Index(
+                15380940201804747209,
+            ),
+        ),
+        Join(
+            Index(
+                206601851423697239,
+            ),
+            Index(
+                9006612281386263371,
+            ),
+        ),
+        Join(
+            Index(
+                3225332129405159156,
+            ),
+            Index(
+                3128040966836651746,
+            ),
+        ),
+        Tick(
+            Index(
+                17072094386924864710,
+            ),
+        ),
+        Ticks(
+            Index(
+                6002474553417685904,
+            ),
+            1,
+        ),
+        Sync(
+            Index(
+                5139354191858314139,
+            ),
+            Index(
+                7362494441047189613,
+            ),
+        ),
+        Fork(
+            Index(
+                16300096420061813951,
+            ),
+        ),
+    ], i = 43
+    successes: 0
+    local rejects: 0
+    global rejects: 0
+
+
+  Cancelling due to test failure: 23 tests still running
+        FAIL [   0.077s] ( 12/693) before bits::tests::canonical_encoding_is_injective
+  stdout ───
+
+    running 1 test
+    test bits::tests::canonical_encoding_is_injective ... FAILED
+
+    failures:
+
+    failures:
+        bits::tests::canonical_encoding_is_injective
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.03s
+
+  stderr ───
+
+    thread 'bits::tests::canonical_encoding_is_injective' (2) panicked at crates/before/src/version/io/writer.rs:677:9:
+    a leaf depth is above its required right edge
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l2-algebra/crates/before/proptest-regressions/bits/tests.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc cf3448af33a3dad5f6ec16247dbb008fa2e1e06b54154c17e278522e508609dd
+
+    thread 'bits::tests::canonical_encoding_is_injective' (2) panicked at crates/before/src/bits/tests.rs:778:1:
+    Test failed: a leaf depth is above its required right edge.
+    minimal failing input: ops = [
+        Join(
+            Index(
+                14441609831148875953,
+            ),
+            Index(
+                12442044217736110200,
+            ),
+        ),
+        Tick(
+            Index(
+                17798899445829396488,
+            ),
+        ),
+        Sync(
+            Index(
+                14587862860665007895,
+            ),
+            Index(
+                13310116770474113205,
+            ),
+        ),
+        Join(
+            Index(
+                17832441850070680701,
+            ),
+            Index(
+                1861290156798299733,
+            ),
+        ),
+        Send(
+            Index(
+                5916920884251747259,
+            ),
+            Index(
+                11378559444028354039,
+            ),
+        ),
+        Tick(
+            Index(
+                17796893080665149783,
+            ),
+        ),
+        Tick(
+            Index(
+                13354720346653337291,
+            ),
+        ),
+        Sync(
+            Index(
+                13977891359998144207,
+            ),
+            Index(
+                18294491879583241693,
+            ),
+        ),
+        Send(
+            Index(
+                17659707453408795852,
+            ),
+            Index(
+                988168614755482698,
+            ),
+        ),
+        Fork(
+            Index(
+                16863428826168443105,
+            ),
+        ),
+        Tick(
+            Index(
+                16035399334319087027,
+            ),
+        ),
+        Fork(
+            Index(
+                7450889557840277991,
+            ),
+        ),
+        Ticks(
+            Index(
+                3178275442508762773,
+            ),
+            3,
+        ),
+        Tick(
+            Index(
+                1023186164997385004,
+            ),
+        ),
+        Send(
+            Index(
+                16039494695725724748,
+            ),
+            Index(
+                5362906787922947383,
+            ),
+        ),
+        Tick(
+            Index(
+                1483048305340481216,
+            ),
+        ),
+        Ticks(
+            Index(
+                14041450157003234418,
+            ),
+            5,
+        ),
+        Ticks(
+            Index(
+                5607409977160350336,
+            ),
+            3,
+        ),
+        Send(
+            Index(
+                16615610040420434671,
+            ),
+            Index(
+                15298762879916954914,
+            ),
+        ),
+        Fork(
+            Index(
+                12734570431196306508,
+            ),
+        ),
+        Fork(
+            Index(
+                18003763245943025741,
+            ),
+        ),
+        Join(
+            Index(
+                13151246467697963141,
+            ),
+            Index(
+                8917005826811129544,
+            ),
+        ),
+        Fork(
+            Index(
+                17997364194354716918,
+            ),
+        ),
+        Fork(
+            Index(
+                2188498747107613250,
+            ),
+        ),
+        Sync(
+            Index(
+                17476797304586878920,
+            ),
+            Index(
+                16386674634812647020,
+            ),
+        ),
+        Ticks(
+            Index(
+                10347337053327739946,
+            ),
+            4,
+        ),
+        Ticks(
+            Index(
+                2808594753292114233,
+            ),
+            6,
+        ),
+        Sync(
+            Index(
+                16486923630772784100,
+            ),
+            Index(
+                11606880073779486702,
+            ),
+        ),
+        Fork(
+            Index(
+                18428503302676891490,
+            ),
+        ),
+    ], i = 45, j = 19
+    successes: 24
+    local rejects: 0
+    global rejects: 0
+
+
+        FAIL [   0.101s] ( 13/693) before bits::tests::decode_encode_roundtrip
+  stdout ───
+
+    running 1 test
+    test bits::tests::decode_encode_roundtrip ... FAILED
+
+    failures:
+
+    failures:
+        bits::tests::decode_encode_roundtrip
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.02s
+
+  stderr ───
+
+    thread 'bits::tests::decode_encode_roundtrip' (2) panicked at crates/before/src/version/io/writer.rs:667:25:
+    a leaf arrived after the tree was complete
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l2-algebra/crates/before/proptest-regressions/bits/tests.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc 8f8400f434071c9fd70e767f5fe3f1a9f29cb13d40dfb5fadee01f38d4e297c4
+
+    thread 'bits::tests::decode_encode_roundtrip' (2) panicked at crates/before/src/bits/tests.rs:723:1:
+    Test failed: a leaf arrived after the tree was complete.
+    minimal failing input: ops = [
+        Sync(
+            Index(
+                510202712910508305,
+            ),
+            Index(
+                1259185825875292340,
+            ),
+        ),
+        Fork(
+            Index(
+                16961643370937484917,
+            ),
+        ),
+        Ticks(
+            Index(
+                5707476811371415310,
+            ),
+            3,
+        ),
+        Tick(
+            Index(
+                11983233675309857444,
+            ),
+        ),
+        Fork(
+            Index(
+                884728129409389902,
+            ),
+        ),
+        Ticks(
+            Index(
+                15875653756919037022,
+            ),
+            3,
+        ),
+        Tick(
+            Index(
+                7712443139524934336,
+            ),
+        ),
+        Send(
+            Index(
+                2077594596863532253,
+            ),
+            Index(
+                13210692054646427756,
+            ),
+        ),
+        Send(
+            Index(
+                4067806736745629548,
+            ),
+            Index(
+                12861909686043489250,
+            ),
+        ),
+        Tick(
+            Index(
+                11951593909432457707,
+            ),
+        ),
+        Fork(
+            Index(
+                8971818749844475628,
+            ),
+        ),
+        Join(
+            Index(
+                7215166557739236262,
+            ),
+            Index(
+                39102625396939080,
+            ),
+        ),
+        Send(
+            Index(
+                14944528675180970338,
+            ),
+            Index(
+                351848694279965255,
+            ),
+        ),
+        Sync(
+            Index(
+                12624972300409763745,
+            ),
+            Index(
+                17953903192266346633,
+            ),
+        ),
+        Fork(
+            Index(
+                13192688757479215413,
+            ),
+        ),
+        Join(
+            Index(
+                2027105118435706384,
+            ),
+            Index(
+                11076593821714093717,
+            ),
+        ),
+        Join(
+            Index(
+                13243917775090842387,
+            ),
+            Index(
+                10850010048602908492,
+            ),
+        ),
+        Fork(
+            Index(
+                5172962033831497144,
+            ),
+        ),
+        Send(
+            Index(
+                14279205658734234597,
+            ),
+            Index(
+                9521164724181332120,
+            ),
+        ),
+        Ticks(
+            Index(
+                10780331305159392646,
+            ),
+            6,
+        ),
+        Tick(
+            Index(
+                4298680943631955921,
+            ),
+        ),
+        Fork(
+            Index(
+                15380940201804747209,
+            ),
+        ),
+        Join(
+            Index(
+                206601851423697239,
+            ),
+            Index(
+                9006612281386263371,
+            ),
+        ),
+        Join(
+            Index(
+                3225332129405159156,
+            ),
+            Index(
+                3128040966836651746,
+            ),
+        ),
+        Tick(
+            Index(
+                17072094386924864710,
+            ),
+        ),
+        Ticks(
+            Index(
+                6002474553417685904,
+            ),
+            1,
+        ),
+        Sync(
+            Index(
+                5139354191858314139,
+            ),
+            Index(
+                7362494441047189613,
+            ),
+        ),
+        Fork(
+            Index(
+                16300096420061813951,
+            ),
+        ),
+    ], i = 43
+    successes: 8
+    local rejects: 0
+    global rejects: 0
+
+
+        PASS [   0.059s] ( 14/693) before bits::tests::from_canonical_matches_freeze
+        PASS [   0.060s] ( 15/693) before bits::tests::freeze_canonicalizes_storage
+        PASS [   0.150s] ( 16/693) before bits::reader::tests::arbitrary_streams_match_the_slice_cursor
+        PASS [   0.054s] ( 17/693) before bits::tests::gamma_costs
+        PASS [   0.091s] ( 18/693) before bits::tests::flush_stream_carries_a_whole_marker_byte
+        PASS [   0.098s] ( 19/693) before bits::tests::empty_input_is_truncated
+        PASS [   0.051s] ( 20/693) before bits::tests::gamma_roundtrip_just_above_u64_max
+        FAIL [   0.108s] ( 21/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+  stdout ───
+
+    running 1 test
+    test bits::tests::flush_cut_version_reads_truncated_for_every_version_tail ... FAILED
+
+    failures:
+
+    failures:
+        bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.06s
+
+  stderr ───
+
+    thread 'bits::tests::flush_cut_version_reads_truncated_for_every_version_tail' (2) panicked at crates/before/src/version/io/writer.rs:677:9:
+    a leaf depth is above its required right edge
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.048s] ( 22/693) before bits::tests::gamma_roundtrip_wide_value
+        PASS [   0.055s] ( 23/693) before bits::tests::gamma_roundtrip
+        PASS [   0.040s] ( 24/693) before bits::tests::gamma_window_declines_conservatively
+        PASS [   0.052s] ( 25/693) before bits::tests::gamma_truncated
+        PASS [   0.044s] ( 26/693) before bits::tests::gamma_truncated_inside_wide_mantissa
+        PASS [   0.186s] ( 27/693) before accumulator::tests::shifted_accumulator_entry_points_match_the_oracle
+        PASS [   0.187s] ( 28/693) before accumulator::tests::accumulator_entry_points_match_the_oracle
+        PASS [   0.082s] ( 29/693) before bits::tests::gamma_roundtrip_wide
+        PASS [   0.243s] ( 30/693) before accumulator::tests::signed_accumulator_entry_points_match_the_oracle
+        PASS [   0.176s] ( 31/693) before bits::tests::flush_cut_party_reads_truncated_for_party_and_clock
+        PASS [   0.260s] ( 32/693) before bits::tests::build_history_spellings_are_injective
+        PASS [   0.322s] ( 33/693) before bits::tests::build_history_spelling_is_a_function_of_content
+        PASS [   4.292s] ( 34/693) before bits::tests::bit_flip_rejects_or_decodes_canonically
+────────────
+     Summary [   4.333s] 34/693 tests run: 30 passed, 4 failed, 1 skipped
+        FAIL [   0.093s] ( 11/693) before bits::tests::encode_to_matches_encode
+        FAIL [   0.077s] ( 12/693) before bits::tests::canonical_encoding_is_injective
+        FAIL [   0.101s] ( 13/693) before bits::tests::decode_encode_roundtrip
+        FAIL [   0.108s] ( 21/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+warning: 659/693 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)
+error: test run failed

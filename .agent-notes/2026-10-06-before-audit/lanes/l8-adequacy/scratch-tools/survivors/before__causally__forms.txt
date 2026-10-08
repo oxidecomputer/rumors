@@ -1,0 +1,3 @@
+# survivors of crates/before/src/causally/forms.rs (span); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/causally/forms.rs:402:9: replace <impl fmt::Debug for Floor<'_>>::fmt -> fmt::Result with Ok(Default::default())
+MISSED   crates/before/src/causally/forms.rs:408:9: replace <impl fmt::Debug for Ceiling<'_>>::fmt -> fmt::Result with Ok(Default::default())

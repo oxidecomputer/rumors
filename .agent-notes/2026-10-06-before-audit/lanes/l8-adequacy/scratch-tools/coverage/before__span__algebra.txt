@@ -1,0 +1,15 @@
+# coverage of crates/before/src/span/algebra.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 202/213; branch outcomes 20/20
+# never-executed lines:
+L  449  (Group::Input(a), Group::Merged { mut lo, mut hi }) => {
+L  450  let a = a.span();
+L  451  (ops.assign_lo)(&mut lo, a.lo());
+L  452  (ops.assign_hi)(&mut hi, a.hi());
+L  453  (lo, hi)
+L  653  fn $op(self, r: &Span<'b>) -> Span<'static> {
+L  654  Span::$method(&Span::at(&self), r)
+L  655  }
+L  660  fn $op(self, r: Span<'b>) -> Span<'static> {
+L  661  Span::$method(&Span::at(self), r)
+L  662  }
+# branches with an outcome never taken (outcome hit counts):

@@ -1,0 +1,23 @@
+crates/before/src/accumulator.rs:52:9: replace <impl BigIntAccumulator for Accumulator>::scaled_biguint_parts -> (Ordering, BigUint, u64) with (Default::default(), Default::default(), 0)
+crates/before/src/accumulator.rs:46:9: replace <impl BigIntAccumulator for Accumulator>::biguint_parts -> (Ordering, BigUint) with (Default::default(), Default::default())
+crates/before/src/accumulator.rs:52:9: replace <impl BigIntAccumulator for Accumulator>::scaled_biguint_parts -> (Ordering, BigUint, u64) with (Default::default(), Default::default(), 1)
+crates/before/src/rank.rs:916:9: replace <impl Ord for Rank>::cmp -> Ordering with Default::default()
+crates/before/src/rank.rs:924:9: replace <impl PartialOrd for Rank>::partial_cmp -> Option<Ordering> with Some(Default::default())
+crates/before/src/rank.rs:969:15: replace + with - in <impl Add<Rank> for Rank>::add
+crates/before/src/rank.rs:969:15: replace + with * in <impl Add<Rank> for Rank>::add
+crates/before/src/rank.rs:976:15: replace + with - in <impl Add<&Rank> for Rank>::add
+crates/before/src/rank.rs:976:15: replace + with * in <impl Add<&Rank> for Rank>::add
+crates/before/src/rank.rs:983:14: replace + with - in <impl Add<Rank> for &Rank>::add
+crates/before/src/rank.rs:983:14: replace + with * in <impl Add<Rank> for &Rank>::add
+crates/before/src/rank.rs:989:24: replace + with - in <impl AddAssign<&Rank> for Rank>::add_assign
+crates/before/src/rank.rs:989:24: replace + with * in <impl AddAssign<&Rank> for Rank>::add_assign
+crates/before/src/rank.rs:995:24: replace + with - in <impl AddAssign<Rank> for Rank>::add_assign
+crates/before/src/rank.rs:995:24: replace + with * in <impl AddAssign<Rank> for Rank>::add_assign
+crates/before/src/rank.rs:1062:21: replace <<= with >>= in Rank::sum_iter
+crates/before/src/ranked.rs:105:9: replace Ranked<'a>::into_owned -> Ranked<'static> with Default::default()
+crates/before/src/ranked.rs:277:9: replace Ranked<'a>::decode -> Result<Ranked<'static>, Decode> with Ok(Default::default())
+crates/before/src/ranked.rs:285:9: replace Ranked<'a>::decode_bytes -> Result<Ranked<'static>, Decode> with Ok(Default::default())
+crates/before/src/ranked.rs:302:9: replace <impl From<&'a Version> for Ranked<'a>>::from -> Ranked<'a> with Default::default()
+crates/before/src/ranked.rs:311:9: replace <impl From<Version> for Ranked<'static>>::from -> Ranked<'static> with Default::default()
+crates/before/src/ranked.rs:372:9: replace <impl Ord for Ranked<'_>>::cmp -> Ordering with Default::default()
+crates/before/src/ranked.rs:384:9: replace <impl PartialOrd<Ranked<'_>> for Ranked<'_>>::partial_cmp -> Option<Ordering> with Some(Default::default())

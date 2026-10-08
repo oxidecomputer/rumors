@@ -1,0 +1,2 @@
+# survivors of crates/before/src/ranked.rs (rank); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/ranked.rs:328:9: replace <impl core::fmt::Debug for Ranked<'_>>::fmt -> core::fmt::Result with Ok(Default::default())

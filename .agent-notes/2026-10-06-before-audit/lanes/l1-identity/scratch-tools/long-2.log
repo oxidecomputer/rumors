@@ -1,0 +1,28 @@
+warning: function `arb_cluster_points` is never used
+  --> crates/before/tests/audit_l1/gen.rs:32:8
+   |
+32 | pub fn arb_cluster_points() -> impl Strategy<Value = Vec<u128>> {
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+
+warning: `before` (test "audit_l1") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+────────────
+ Nextest run ID 20f98e59-0f67-4124-8207-41382dc46aaf with nextest profile: high-count
+    Starting 2 tests across 1 binary (18 tests skipped)
+        PASS [  10.739s] (1/2) before::audit_l1 wide::clock_forks_wide_counts
+        SLOW [> 60.000s] (───) before::audit_l1 wide::forks_wide_counts
+        PASS [  72.754s] (2/2) before::audit_l1 wide::forks_wide_counts
+────────────
+     Summary [  72.756s] 2 tests run: 2 passed (1 slow), 18 skipped
+exit=0

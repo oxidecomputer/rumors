@@ -1,0 +1,4 @@
+# survivors of crates/before/src/version/measure/integral/width.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/measure/integral/width.rs:39:9: replace ScaledWidth::is_zero -> bool with false
+MISSED   crates/before/src/version/measure/integral/width.rs:90:9: replace SparseWidth::stored_digit_count -> usize with 0
+MISSED   crates/before/src/version/measure/integral/width.rs:90:9: replace SparseWidth::stored_digit_count -> usize with 1

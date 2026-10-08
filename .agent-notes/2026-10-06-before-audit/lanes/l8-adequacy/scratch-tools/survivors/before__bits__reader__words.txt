@@ -1,0 +1,4 @@
+# survivors of crates/before/src/bits/reader/words.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/reader/words.rs:58:9: replace <impl Display for OutOfBytes>::fmt -> fmt::Result with Ok(Default::default())
+MISSED   crates/before/src/bits/reader/words.rs:78:9: replace <impl WordRead for ByteWords<'_>>::read_word_opt -> Option<u32> with None
+MISSED   crates/before/src/bits/reader/words.rs:78:22: replace >= with < in <impl WordRead for ByteWords<'_>>::read_word_opt

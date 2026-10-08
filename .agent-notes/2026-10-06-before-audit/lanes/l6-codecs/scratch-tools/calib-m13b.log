@@ -1,0 +1,49 @@
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 05s
+────────────
+ Nextest run ID 6c265641-624b-49e7-a7e6-4ad2bfb9c2e3 with nextest profile: default
+    Starting 1 test across 1 binary (614 tests skipped)
+        FAIL [   0.209s] (1/1) before testing::l6_spec::l6_spec_span
+────────────
+     Summary [   0.214s] 1 test run: 0 passed, 1 failed, 614 skipped
+        FAIL [   0.209s] (1/1) before testing::l6_spec::l6_spec_span
+  stdout ───
+
+    running 1 test
+    == span ==
+           27  span borsh: accept
+            6  span borsh: reject NotCanonical
+            1  span borsh: reject TrailingBits
+            4  span json: ordered=false
+            3  span json: ordered=true
+            3  span slice: accept
+            1  span slice: first-event model said Truncated, saw NotCanonical
+         1959  span slice: reject NotCanonical
+           24  span slice: reject TrailingBits
+            3  span: accepted equal=true
+    test testing::l6_spec::l6_spec_span ... FAILED
+
+    failures:
+
+    failures:
+        testing::l6_spec::l6_spec_span
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.15s
+
+  stderr ───
+
+    thread 'testing::l6_spec::l6_spec_span' (2) panicked at crates/before/src/testing/l6_spec.rs:1689:9:
+    span: Test failed: span slice: production reported NotCanonical, documented precedence requires {TrailingBits}
+    input: [77, c0].
+    minimal failing input: (
+        [
+            119,
+            192,
+        ],
+        [],
+    )
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+error: test run failed
+rc=100

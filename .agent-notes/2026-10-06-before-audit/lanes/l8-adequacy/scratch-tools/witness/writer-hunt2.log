@@ -1,0 +1,19 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 59s
+────────────
+ Nextest run ID 9ae29861-c776-4ae5-874b-ad5f00f376d3 with nextest profile: default
+    Starting 1 test across 12 binaries (698 tests skipped)
+       START [         ] (1/1) before version::tick::tests::l8_hunt_split_narrow_copy
+
+running 1 test
+        SLOW [> 60.000s] (───) before version::tick::tests::l8_hunt_split_narrow_copy
+test version::tick::tests::l8_hunt_split_narrow_copy has been running for over 60 seconds
+NO WITNESS in 300000 cases
+test version::tick::tests::l8_hunt_split_narrow_copy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 608 filtered out; finished in 98.83s
+
+        PASS [  98.882s] (1/1) before version::tick::tests::l8_hunt_split_narrow_copy
+────────────
+     Summary [  98.886s] 1 test run: 1 passed (1 slow), 698 skipped

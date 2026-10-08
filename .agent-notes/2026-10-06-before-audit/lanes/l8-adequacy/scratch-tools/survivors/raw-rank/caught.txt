@@ -1,0 +1,271 @@
+crates/before/src/accumulator.rs:58:9: replace <impl BigIntAccumulator for Accumulator>::to_bigint -> BigInt with Default::default()
+crates/before/src/accumulator.rs:60:21: replace == with != in <impl BigIntAccumulator for Accumulator>::to_bigint
+crates/before/src/accumulator.rs:37:5: replace digit_len -> usize with 0
+crates/before/src/accumulator.rs:37:5: replace digit_len -> usize with 1
+crates/before/src/accumulator.rs:79:9: replace <impl BigIntAccumulator for Accumulator>::add_bigint with ()
+crates/before/src/accumulator.rs:73:9: replace <impl BigIntAccumulator for Accumulator>::into_bigint -> BigInt with Default::default()
+crates/before/src/accumulator.rs:79:25: replace == with != in <impl BigIntAccumulator for Accumulator>::add_bigint
+crates/before/src/accumulator.rs:88:9: replace <impl BigIntAccumulator for Accumulator>::sub_bigint with ()
+crates/before/src/accumulator.rs:88:25: replace == with != in <impl BigIntAccumulator for Accumulator>::sub_bigint
+crates/before/src/accumulator.rs:98:5: replace magnitude -> BigUint with Default::default()
+crates/before/src/accumulator.rs:101:55: replace | with & in magnitude
+crates/before/src/accumulator.rs:101:75: replace << with >> in magnitude
+crates/before/src/accumulator.rs:105:55: replace >> with << in magnitude
+crates/before/src/rank.rs:193:9: replace Rank::checked_sub -> Option<Rank> with None
+crates/before/src/rank.rs:193:9: replace Rank::checked_sub -> Option<Rank> with Some(Default::default())
+crates/before/src/rank.rs:199:46: replace << with >> in Rank::checked_sub
+crates/before/src/rank.rs:199:52: replace - with + in Rank::checked_sub
+crates/before/src/rank.rs:199:52: replace - with / in Rank::checked_sub
+crates/before/src/rank.rs:200:47: replace << with >> in Rank::checked_sub
+crates/before/src/rank.rs:200:53: replace - with + in Rank::checked_sub
+crates/before/src/rank.rs:200:53: replace - with / in Rank::checked_sub
+crates/before/src/rank.rs:201:50: replace - with + in Rank::checked_sub
+crates/before/src/rank.rs:244:9: replace Rank::saturating_sub -> Rank with Default::default()
+crates/before/src/rank.rs:201:50: replace - with / in Rank::checked_sub
+crates/before/src/rank.rs:289:9: replace Rank::encode -> Vec<u8> with vec![]
+crates/before/src/rank.rs:289:9: replace Rank::encode -> Vec<u8> with vec![0]
+crates/before/src/rank.rs:289:9: replace Rank::encode -> Vec<u8> with vec![1]
+crates/before/src/rank.rs:324:9: replace Rank::encode_to -> io::Result<()> with Ok(())
+crates/before/src/rank.rs:367:9: replace Rank::decode -> Result<Rank, Decode> with Ok(Default::default())
+crates/before/src/rank.rs:373:25: replace += with -= in Rank::decode
+crates/before/src/rank.rs:374:28: replace == with != in Rank::decode
+crates/before/src/rank.rs:373:25: replace += with *= in Rank::decode
+crates/before/src/rank.rs:378:31: replace match guard error.kind() == io::ErrorKind::Interrupted with true in Rank::decode
+crates/before/src/rank.rs:396:39: replace match guard at_eof with true in Rank::decode
+crates/before/src/rank.rs:378:44: replace == with != in Rank::decode
+crates/before/src/rank.rs:403:21: replace < with == in Rank::decode
+crates/before/src/rank.rs:403:21: replace < with > in Rank::decode
+crates/before/src/rank.rs:403:21: replace < with <= in Rank::decode
+crates/before/src/rank.rs:405:22: replace += with -= in Rank::decode
+crates/before/src/rank.rs:419:17: replace < with == in Rank::decode
+crates/before/src/rank.rs:419:17: replace < with > in Rank::decode
+crates/before/src/rank.rs:419:17: replace < with <= in Rank::decode
+crates/before/src/rank.rs:405:22: replace += with *= in Rank::decode
+crates/before/src/rank.rs:434:9: replace Rank::decode_bytes -> Result<Rank, Decode> with Ok(Default::default())
+crates/before/src/rank.rs:453:9: replace Rank::content_bits -> u64 with 0
+crates/before/src/rank.rs:453:25: replace + with - in Rank::content_bits
+crates/before/src/rank.rs:453:9: replace Rank::content_bits -> u64 with 1
+crates/before/src/rank.rs:453:25: replace + with * in Rank::content_bits
+crates/before/src/rank.rs:480:9: replace Rank::from_raw -> Self with Default::default()
+crates/before/src/rank.rs:488:30: replace >> with << in Rank::from_raw
+crates/before/src/rank.rs:466:9: replace Rank::raw_parts -> (&BigUint, u64) with (Box::leak(Box::new(Default::default())), 0)
+crates/before/src/rank.rs:466:9: replace Rank::raw_parts -> (&BigUint, u64) with (Box::leak(Box::new(Default::default())), 1)
+crates/before/src/rank.rs:489:30: replace - with + in Rank::from_raw
+crates/before/src/rank.rs:489:30: replace - with / in Rank::from_raw
+crates/before/src/rank.rs:497:36: replace - with / in Rank::alignment_fits
+crates/before/src/rank.rs:497:83: replace - with / in Rank::alignment_fits
+crates/before/src/rank.rs:539:35: replace + with - in Rank::encode_parts_to
+crates/before/src/rank.rs:539:35: replace + with * in Rank::encode_parts_to
+crates/before/src/rank.rs:539:27: replace >> with << in Rank::encode_parts_to
+crates/before/src/rank.rs:539:9: replace Rank::encode_parts_to -> io::Result<()> with Ok(())
+crates/before/src/rank.rs:541:32: replace - with + in Rank::encode_parts_to
+crates/before/src/rank.rs:541:32: replace - with / in Rank::encode_parts_to
+crates/before/src/rank.rs:553:34: replace == with != in Rank::encode_parts_to
+crates/before/src/rank.rs:553:25: replace >> with << in Rank::encode_parts_to
+crates/before/src/rank.rs:553:30: replace & with ^ in Rank::encode_parts_to
+crates/before/src/rank.rs:556:24: replace - with + in Rank::encode_parts_to
+crates/before/src/rank.rs:556:24: replace - with / in Rank::encode_parts_to
+crates/before/src/rank.rs:568:46: replace + with - in Rank::encode_parts_to
+crates/before/src/rank.rs:568:46: replace + with * in Rank::encode_parts_to
+crates/before/src/rank.rs:568:24: replace * with + in Rank::encode_parts_to
+crates/before/src/rank.rs:568:24: replace * with / in Rank::encode_parts_to
+crates/before/src/rank.rs:553:30: replace & with | in Rank::encode_parts_to
+crates/before/src/rank.rs:568:60: replace * with + in Rank::encode_parts_to
+crates/before/src/rank.rs:568:60: replace * with / in Rank::encode_parts_to
+crates/before/src/rank.rs:569:36: replace && with || in Rank::encode_parts_to
+crates/before/src/rank.rs:568:55: replace + with - in Rank::encode_parts_to
+crates/before/src/rank.rs:568:55: replace + with * in Rank::encode_parts_to
+crates/before/src/rank.rs:569:29: replace <= with > in Rank::encode_parts_to
+crates/before/src/rank.rs:569:51: replace - with / in Rank::encode_parts_to
+crates/before/src/rank.rs:569:51: replace - with + in Rank::encode_parts_to
+crates/before/src/rank.rs:581:9: replace Rank::encoding_matches -> bool with true
+crates/before/src/rank.rs:609:9: replace BitSource<F>::bit -> Result<bool, Decode> with Ok(false)
+crates/before/src/rank.rs:609:9: replace BitSource<F>::bit -> Result<bool, Decode> with Ok(true)
+crates/before/src/rank.rs:581:9: replace Rank::encoding_matches -> bool with false
+crates/before/src/rank.rs:609:22: replace == with != in BitSource<F>::bit
+crates/before/src/rank.rs:613:54: replace != with == in BitSource<F>::bit
+crates/before/src/rank.rs:613:32: replace & with ^ in BitSource<F>::bit
+crates/before/src/rank.rs:613:32: replace & with | in BitSource<F>::bit
+crates/before/src/rank.rs:613:40: replace >> with << in BitSource<F>::bit
+crates/before/src/rank.rs:614:19: replace += with *= in BitSource<F>::bit
+crates/before/src/rank.rs:637:17: replace += with -= in Rank::decode_stream
+crates/before/src/rank.rs:614:19: replace += with -= in BitSource<F>::bit
+crates/before/src/rank.rs:639:16: replace >= with < in Rank::decode_stream
+crates/before/src/rank.rs:637:17: replace += with *= in Rank::decode_stream
+crates/before/src/rank.rs:647:24: replace | with & in Rank::decode_stream
+crates/before/src/rank.rs:647:19: replace << with >> in Rank::decode_stream
+crates/before/src/rank.rs:653:23: replace - with + in Rank::decode_stream
+crates/before/src/rank.rs:629:9: replace Rank::decode_stream -> Result<Rank, Decode> with Ok(Default::default())
+crates/before/src/rank.rs:653:23: replace - with / in Rank::decode_stream
+crates/before/src/rank.rs:656:44: replace - with + in Rank::decode_stream
+crates/before/src/rank.rs:662:16: delete ! in Rank::decode_stream
+crates/before/src/rank.rs:667:36: replace | with & in Rank::decode_stream
+crates/before/src/rank.rs:667:31: replace << with >> in Rank::decode_stream
+crates/before/src/rank.rs:673:25: replace && with || in Rank::decode_stream
+crates/before/src/rank.rs:656:44: replace - with / in Rank::decode_stream
+crates/before/src/rank.rs:673:21: replace < with == in Rank::decode_stream
+crates/before/src/rank.rs:673:21: replace < with > in Rank::decode_stream
+crates/before/src/rank.rs:673:21: replace < with <= in Rank::decode_stream
+crates/before/src/rank.rs:673:61: replace != with == in Rank::decode_stream
+crates/before/src/rank.rs:673:40: replace & with | in Rank::decode_stream
+crates/before/src/rank.rs:673:40: replace & with ^ in Rank::decode_stream
+crates/before/src/rank.rs:673:48: replace >> with << in Rank::decode_stream
+crates/before/src/rank.rs:686:63: replace - with + in Rank::decode_stream
+crates/before/src/rank.rs:686:63: replace - with / in Rank::decode_stream
+crates/before/src/rank.rs:686:41: replace * with / in Rank::decode_stream
+crates/before/src/rank.rs:686:41: replace * with + in Rank::decode_stream
+crates/before/src/rank.rs:696:31: replace == with != in Rank::decode_stream
+crates/before/src/rank.rs:712:62: replace == with != in Rank::decode_stream
+crates/before/src/rank.rs:713:52: replace >> with << in Rank::decode_stream
+crates/before/src/rank.rs:742:9: replace BitSink::push with ()
+crates/before/src/rank.rs:742:22: replace == with != in BitSink::push
+crates/before/src/rank.rs:746:68: replace |= with &= in BitSink::push
+crates/before/src/rank.rs:746:73: replace << with >> in BitSink::push
+crates/before/src/rank.rs:746:79: replace - with + in BitSink::push
+crates/before/src/rank.rs:746:79: replace - with / in BitSink::push
+crates/before/src/rank.rs:748:37: replace % with / in BitSink::push
+crates/before/src/rank.rs:748:37: replace % with + in BitSink::push
+crates/before/src/rank.rs:748:32: replace + with - in BitSink::push
+crates/before/src/rank.rs:748:32: replace + with * in BitSink::push
+crates/before/src/rank.rs:760:32: replace == with != in BitSink::into_num
+crates/before/src/rank.rs:760:9: replace BitSink::into_num -> BigUint with Default::default()
+crates/before/src/rank.rs:760:52: replace - with + in BitSink::into_num
+crates/before/src/rank.rs:760:52: replace - with / in BitSink::into_num
+crates/before/src/rank.rs:761:45: replace >> with << in BitSink::into_num
+crates/before/src/rank.rs:794:9: replace BitWriter<'a, W>::push -> io::Result<()> with Ok(())
+crates/before/src/rank.rs:795:26: replace |= with &= in BitWriter<'a, W>::push
+crates/before/src/rank.rs:795:31: replace << with >> in BitWriter<'a, W>::push
+crates/before/src/rank.rs:797:19: replace += with -= in BitWriter<'a, W>::push
+crates/before/src/rank.rs:795:37: replace - with / in BitWriter<'a, W>::push
+crates/before/src/rank.rs:795:37: replace - with + in BitWriter<'a, W>::push
+crates/before/src/rank.rs:797:19: replace += with *= in BitWriter<'a, W>::push
+crates/before/src/rank.rs:798:22: replace == with != in BitWriter<'a, W>::push
+crates/before/src/rank.rs:810:18: replace += with -= in BitWriter<'a, W>::push_byte
+crates/before/src/rank.rs:810:18: replace += with *= in BitWriter<'a, W>::push_byte
+crates/before/src/rank.rs:806:9: replace BitWriter<'a, W>::push_byte -> io::Result<()> with Ok(())
+crates/before/src/rank.rs:818:9: replace BitWriter<'a, W>::flush -> io::Result<()> with Ok(())
+crates/before/src/rank.rs:825:9: replace BitWriter<'a, W>::finish -> io::Result<()> with Ok(())
+crates/before/src/rank.rs:825:22: replace != with == in BitWriter<'a, W>::finish
+crates/before/src/rank.rs:851:9: replace MatchingWriter<'a>::matches -> bool with true
+crates/before/src/rank.rs:851:9: replace MatchingWriter<'a>::matches -> bool with false
+crates/before/src/rank.rs:851:20: replace && with || in MatchingWriter<'a>::matches
+crates/before/src/rank.rs:851:36: replace == with != in MatchingWriter<'a>::matches
+crates/before/src/rank.rs:858:9: replace <impl Write for MatchingWriter<'_>>::write -> io::Result<usize> with Ok(0)
+crates/before/src/rank.rs:858:9: replace <impl Write for MatchingWriter<'_>>::write -> io::Result<usize> with Ok(1)
+crates/before/src/rank.rs:859:20: replace &= with |= in <impl Write for MatchingWriter<'_>>::write
+crates/before/src/rank.rs:862:46: replace == with != in <impl Write for MatchingWriter<'_>>::write
+crates/before/src/rank.rs:876:9: replace Rank::magnitude_class -> Option<i128> with None
+crates/before/src/rank.rs:876:9: replace Rank::magnitude_class -> Option<i128> with Some(0)
+crates/before/src/rank.rs:876:9: replace Rank::magnitude_class -> Option<i128> with Some(1)
+crates/before/src/rank.rs:876:9: replace Rank::magnitude_class -> Option<i128> with Some(-1)
+crates/before/src/rank.rs:876:26: replace != with == in Rank::magnitude_class
+crates/before/src/rank.rs:876:68: replace - with + in Rank::magnitude_class
+crates/before/src/rank.rs:876:68: replace - with / in Rank::magnitude_class
+crates/before/src/rank.rs:884:9: replace Rank::aligned_words -> impl Iterator<Item = u64>+'_ with ::std::iter::empty()
+crates/before/src/rank.rs:884:9: replace Rank::aligned_words -> impl Iterator<Item = u64>+'_ with ::std::iter::once(0)
+crates/before/src/rank.rs:884:9: replace Rank::aligned_words -> impl Iterator<Item = u64>+'_ with ::std::iter::once(1)
+crates/before/src/rank.rs:884:50: replace % with / in Rank::aligned_words
+crates/before/src/rank.rs:884:50: replace % with + in Rank::aligned_words
+crates/before/src/rank.rs:884:26: replace - with + in Rank::aligned_words
+crates/before/src/rank.rs:884:26: replace - with / in Rank::aligned_words
+crates/before/src/rank.rs:884:44: replace % with / in Rank::aligned_words
+crates/before/src/rank.rs:884:44: replace % with + in Rank::aligned_words
+crates/before/src/rank.rs:890:36: replace == with != in Rank::aligned_words
+crates/before/src/rank.rs:893:54: replace >> with << in Rank::aligned_words
+crates/before/src/rank.rs:893:33: replace | with & in Rank::aligned_words
+crates/before/src/rank.rs:893:61: replace - with + in Rank::aligned_words
+crates/before/src/rank.rs:893:61: replace - with / in Rank::aligned_words
+crates/before/src/rank.rs:893:23: replace << with >> in Rank::aligned_words
+crates/before/src/rank.rs:924:9: replace <impl PartialOrd for Rank>::partial_cmp -> Option<Ordering> with None
+crates/before/src/rank.rs:956:9: replace <impl Add<&Rank> for &Rank>::add -> Rank with Default::default()
+crates/before/src/rank.rs:958:38: replace << with >> in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:958:44: replace - with + in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:958:44: replace - with / in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:959:37: replace << with >> in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:959:43: replace - with + in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:959:43: replace - with / in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:960:37: replace + with - in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:960:37: replace + with * in <impl Add<&Rank> for &Rank>::add
+crates/before/src/rank.rs:969:9: replace <impl Add<Rank> for Rank>::add -> Rank with Default::default()
+crates/before/src/rank.rs:976:9: replace <impl Add<&Rank> for Rank>::add -> Rank with Default::default()
+crates/before/src/rank.rs:1007:9: replace <impl Sum<Rank> for Rank>::sum -> Rank with Default::default()
+crates/before/src/rank.rs:1049:25: replace == with != in Rank::sum_iter
+crates/before/src/rank.rs:1058:25: replace > with == in Rank::sum_iter
+crates/before/src/rank.rs:1044:9: replace Rank::sum_iter -> Rank with Default::default()
+crates/before/src/rank.rs:1058:25: replace > with < in Rank::sum_iter
+crates/before/src/rank.rs:1019:9: replace <impl Sum<&'a Rank> for Rank>::sum -> Rank with Default::default()
+crates/before/src/rank.rs:1059:36: replace - with / in Rank::sum_iter
+crates/before/src/rank.rs:1061:61: replace - with + in Rank::sum_iter
+crates/before/src/rank.rs:1061:61: replace - with / in Rank::sum_iter
+crates/before/src/rank.rs:1063:21: replace += with -= in Rank::sum_iter
+crates/before/src/rank.rs:1063:21: replace += with *= in Rank::sum_iter
+crates/before/src/rank.rs:1065:39: replace - with + in Rank::sum_iter
+crates/before/src/rank.rs:1065:39: replace - with / in Rank::sum_iter
+crates/before/src/rank.rs:1123:9: replace <impl Display for Rank>::fmt -> fmt::Result with Ok(Default::default())
+crates/before/src/rank.rs:1130:43: replace / with % in <impl Display for Rank>::fmt
+crates/before/src/rank.rs:1130:43: replace / with * in <impl Display for Rank>::fmt
+crates/before/src/rank.rs:1130:56: replace - with + in <impl Display for Rank>::fmt
+crates/before/src/rank.rs:1130:56: replace - with / in <impl Display for Rank>::fmt
+crates/before/src/rank.rs:1142:9: replace Rank::text_len -> u64 with 0
+crates/before/src/rank.rs:1130:66: replace / with % in <impl Display for Rank>::fmt
+crates/before/src/rank.rs:1130:66: replace / with * in <impl Display for Rank>::fmt
+crates/before/src/rank.rs:1142:9: replace Rank::text_len -> u64 with 1
+crates/before/src/rank.rs:1145:48: replace == with != in Rank::text_len
+crates/before/src/rank.rs:1154:9: replace Rank::write_binary -> fmt::Result with Ok(Default::default())
+crates/before/src/rank.rs:1158:26: replace == with != in Rank::write_binary
+crates/before/src/rank.rs:1173:20: delete ! in Rank::write_binary
+crates/before/src/rank.rs:1182:26: replace && with || in Rank::write_binary
+crates/before/src/rank.rs:1162:23: replace -= with += in Rank::write_binary
+crates/before/src/rank.rs:1169:25: replace == with != in Rank::write_binary
+crates/before/src/rank.rs:1182:21: replace != with == in Rank::write_binary
+crates/before/src/rank.rs:1184:20: delete ! in Rank::write_binary
+crates/before/src/rank.rs:1162:23: replace -= with /= in Rank::write_binary
+crates/before/src/rank.rs:1232:13: replace && with || in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1223:9: replace <impl FromStr for Rank>::from_str -> Result<Self, Self::Err> with Ok(Default::default())
+crates/before/src/rank.rs:1231:13: replace && with || in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1194:9: replace Rank::write_padding -> fmt::Result with Ok(Default::default())
+crates/before/src/rank.rs:1230:36: delete ! in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1232:36: replace || with && in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1232:31: replace == with != in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1232:50: replace == with != in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1236:65: replace && with || in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1236:36: replace && with || in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1236:17: delete ! in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1236:82: replace == with != in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1239:34: replace || with && in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1239:37: delete ! in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1239:12: delete ! in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1245:48: replace + with - in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1245:48: replace + with * in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1253:23: replace == with != in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1254:60: replace - with + in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1254:60: replace - with / in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1254:51: replace - with + in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1255:37: replace / with % in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1254:51: replace - with / in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1255:37: replace / with * in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1256:36: replace % with / in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1256:36: replace % with + in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1257:30: replace |= with &= in <impl FromStr for Rank>::from_str
+crates/before/src/rank.rs:1257:38: replace << with >> in <impl FromStr for Rank>::from_str
+crates/before/src/ranked.rs:61:9: replace Ranked<'a>::version -> &Version with Box::leak(Box::new(Default::default()))
+crates/before/src/rank.rs:1271:9: replace <impl Debug for Rank>::fmt -> fmt::Result with Ok(Default::default())
+crates/before/src/ranked.rs:83:9: replace Ranked<'a>::rank -> Rank with Default::default()
+crates/before/src/ranked.rs:139:9: replace Ranked<'a>::encode -> Vec<u8> with vec![]
+crates/before/src/ranked.rs:139:9: replace Ranked<'a>::encode -> Vec<u8> with vec![0]
+crates/before/src/ranked.rs:172:9: replace Ranked<'a>::encode_to -> io::Result<()> with Ok(())
+crates/before/src/ranked.rs:139:9: replace Ranked<'a>::encode -> Vec<u8> with vec![1]
+crates/before/src/ranked.rs:202:9: replace Ranked<'a>::encode_rank -> Vec<u8> with vec![0]
+crates/before/src/ranked.rs:202:9: replace Ranked<'a>::encode_rank -> Vec<u8> with vec![]
+crates/before/src/ranked.rs:202:9: replace Ranked<'a>::encode_rank -> Vec<u8> with vec![1]
+crates/before/src/ranked.rs:233:9: replace Ranked<'a>::encode_rank_to -> io::Result<()> with Ok(())
+crates/before/src/ranked.rs:288:22: replace += with -= in Ranked<'a>::decode_bytes
+crates/before/src/ranked.rs:288:22: replace += with *= in Ranked<'a>::decode_bytes
+crates/before/src/ranked.rs:292:12: delete ! in Ranked<'a>::decode_bytes
+crates/before/src/ranked.rs:320:9: replace <impl From<Ranked<'_>> for Rank>::from -> Rank with Default::default()
+crates/before/src/ranked.rs:337:9: replace <impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq -> bool with true
+crates/before/src/ranked.rs:337:9: replace <impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq -> bool with false
+crates/before/src/ranked.rs:337:24: replace == with != in <impl PartialEq<Ranked<'_>> for Ranked<'_>>::eq
+crates/before/src/ranked.rs:348:9: replace <impl core::hash::Hash for Ranked<'_>>::hash with ()
+crates/before/src/ranked.rs:372:25: replace == with != in <impl Ord for Ranked<'_>>::cmp
+crates/before/src/ranked.rs:384:9: replace <impl PartialOrd<Ranked<'_>> for Ranked<'_>>::partial_cmp -> Option<Ordering> with None

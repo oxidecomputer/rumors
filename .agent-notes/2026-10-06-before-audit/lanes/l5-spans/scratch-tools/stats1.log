@@ -1,0 +1,135 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l5-spans/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 53s
+────────────
+ Nextest run ID 59e8cd32-4a0f-4919-ada6-7ed24ecdf4db with nextest profile: default
+    Starting 1 test across 12 binaries (700 tests skipped)
+       START [         ] (1/1) before testing::audit_l5::l5_stats
+
+running 1 test
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+        SLOW [> 60.000s] (───) before testing::audit_l5::l5_stats
+test testing::audit_l5::l5_stats has been running for over 60 seconds
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+proptest: FileFailurePersistence::SourceParallel set, but no source file known
+STAT own After = 64783
+STAT own At(Both) = 763
+STAT own At(End) = 974
+STAT own At(Start) = 1289
+STAT own Before = 2727
+STAT own Between = 1136
+STAT own Concurrent(Both) = 89105
+STAT own Concurrent(End) = 56124
+STAT own Concurrent(Start) = 1243
+STAT queries contains n=false d=false u=false = 2356
+STAT queries contains n=false d=false u=true = 507
+STAT queries contains n=false d=true u=false = 524
+STAT queries contains n=false d=true u=true = 57
+STAT queries contains n=true d=false u=false = 959
+STAT queries contains n=true d=false u=true = 222
+STAT queries contains n=true d=true u=false = 161
+STAT queries contains n=true d=true u=true = 13
+STAT queries down census Some(Empty) point=false = 5770
+STAT queries down census Some(Empty) point=true = 1955
+STAT queries down census Some(Full) point=false = 660
+STAT queries down census Some(Full) point=true = 414
+STAT queries down census Some(Partial) point=false = 1651
+STAT queries holes down=0 up=0 = 6
+STAT queries holes down=0 up=1 = 29
+STAT queries holes down=0 up=2 = 4
+STAT queries holes down=1 up=0 = 33
+STAT queries holes down=1 up=1 = 156
+STAT queries holes down=1 up=2 = 11
+STAT queries holes down=1 up=3 = 1
+STAT queries holes down=2 up=0 = 3
+STAT queries holes down=2 up=1 = 9
+STAT queries holes down=2 up=2 = 3
+STAT queries holes down=3 up=2 = 1
+STAT queries neutral census Some(Empty) point=false = 5403
+STAT queries neutral census Some(Empty) point=true = 1737
+STAT queries neutral census Some(Full) point=false = 1424
+STAT queries neutral census Some(Full) point=true = 632
+STAT queries neutral census Some(Partial) point=false = 1254
+STAT queries up census Some(Empty) point=false = 5714
+STAT queries up census Some(Empty) point=true = 1960
+STAT queries up census Some(Full) point=false = 574
+STAT queries up census Some(Full) point=true = 409
+STAT queries up census Some(Partial) point=false = 1793
+STAT spanquery Empty = 13874
+STAT spanquery Full = 7283
+STAT spanquery Partial = 9702
+STAT verdicts at After = 10076
+STAT verdicts at At(Both) = 13716
+STAT verdicts at Before = 10076
+STAT verdicts at Concurrent(Both) = 18548
+STAT verdicts decoded After = 25277
+STAT verdicts decoded At(Both) = 13716
+STAT verdicts decoded At(End) = 20344
+STAT verdicts decoded At(Start) = 19209
+STAT verdicts decoded Before = 25277
+STAT verdicts decoded Between = 35993
+STAT verdicts decoded Concurrent(Both) = 57692
+STAT verdicts decoded Concurrent(End) = 32482
+STAT verdicts decoded Concurrent(Start) = 33076
+STAT verdicts fresh After = 25277
+STAT verdicts fresh At(Both) = 13716
+STAT verdicts fresh At(End) = 20344
+STAT verdicts fresh At(Start) = 19209
+STAT verdicts fresh Before = 25277
+STAT verdicts fresh Between = 35993
+STAT verdicts fresh Concurrent(Both) = 57692
+STAT verdicts fresh Concurrent(End) = 32482
+STAT verdicts fresh Concurrent(Start) = 33076
+STAT verdicts new After = 25277
+STAT verdicts new At(Both) = 13716
+STAT verdicts new At(End) = 20344
+STAT verdicts new At(Start) = 19209
+STAT verdicts new Before = 25277
+STAT verdicts new Between = 35993
+STAT verdicts new Concurrent(Both) = 57692
+STAT verdicts new Concurrent(End) = 32482
+STAT verdicts new Concurrent(Start) = 33076
+STAT verdicts world kind=0 depth=0 = 4
+STAT verdicts world kind=0 depth=1 = 9
+STAT verdicts world kind=0 depth=2 = 5
+STAT verdicts world kind=0 depth=3 = 6
+STAT verdicts world kind=0 depth=4 = 11
+STAT verdicts world kind=1 depth=0 = 8
+STAT verdicts world kind=1 depth=1 = 8
+STAT verdicts world kind=1 depth=2 = 7
+STAT verdicts world kind=1 depth=3 = 7
+STAT verdicts world kind=1 depth=4 = 6
+STAT verdicts world kind=2 depth=0 = 10
+STAT verdicts world kind=2 depth=1 = 6
+STAT verdicts world kind=2 depth=2 = 8
+STAT verdicts world kind=2 depth=3 = 8
+STAT verdicts world kind=2 depth=4 = 12
+STAT verdicts world kind=3 depth=0 = 11
+STAT verdicts world kind=3 depth=1 = 5
+STAT verdicts world kind=3 depth=2 = 8
+STAT verdicts world kind=3 depth=3 = 8
+STAT verdicts world kind=3 depth=4 = 6
+STAT verdicts world kind=4 depth=0 = 6
+STAT verdicts world kind=4 depth=1 = 9
+STAT verdicts world kind=4 depth=2 = 4
+STAT verdicts world kind=4 depth=3 = 6
+STAT verdicts world kind=4 depth=4 = 6
+STAT verdicts world kind=5 depth=0 = 6
+STAT verdicts world kind=5 depth=1 = 8
+STAT verdicts world kind=5 depth=2 = 8
+STAT verdicts world kind=5 depth=3 = 7
+STAT verdicts world kind=5 depth=4 = 10
+STAT verdicts world kind=6 depth=0 = 6
+STAT verdicts world kind=6 depth=1 = 8
+STAT verdicts world kind=6 depth=2 = 10
+STAT verdicts world kind=6 depth=3 = 3
+STAT verdicts world kind=6 depth=4 = 6
+test testing::audit_l5::l5_stats ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 610 filtered out; finished in 88.23s
+
+        PASS [  88.270s] (1/1) before testing::audit_l5::l5_stats
+────────────
+     Summary [  88.274s] 1 test run: 1 passed (1 slow), 700 skipped

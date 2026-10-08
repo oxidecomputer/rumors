@@ -1,0 +1,71 @@
+warning: ignoring --test-threads because --no-run is specified
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:874:17
+    |
+874 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:874:17
+    |
+874 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/suanpan-7e32c3550bf3d24c)
+
+running 1 test
+test accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work ... FAILED
+
+failures:
+
+---- accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work stdout ----
+proptest: Aborting shrinking after the PROPTEST_MAX_SHRINK_ITERS environment variable or ProptestConfig.max_shrink_iters iterations (set 80000 to a large(r) value to shrink more; current configuration: 80000 iterations)
+proptest: Saving this and future failures in /home/agent/src/rumors-audit-l7-suanpan/crates/suanpan/proptest-regressions/accumulator/tests/explore_l7.txt
+proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
+cc dd579895347ed27cd1afe9b0554c53699d0dff4a08bc5a127d5c03a31a56ee88
+
+thread 'accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work' (2) panicked at crates/suanpan/src/accumulator/tests/explore_l7.rs:736:5:
+Test failed: touches 97 > 8 * work 4 + 64 at crates/suanpan/src/accumulator/tests/explore_l7.rs:750.
+minimal failing input: ops = [
+    Limbs {
+        t: 1,
+        negative: false,
+        limbs: [
+            1,
+        ],
+        shift: 3008,
+    },
+    Acc {
+        t: 0,
+        s: 1,
+        negative: true,
+        shift: 0,
+        form: OwnedClone,
+    },
+]
+	successes: 11520
+	local rejects: 0
+	global rejects: 0
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 68 filtered out; finished in 717.73s
+
+error: test failed, to rerun pass `-p suanpan --lib`
+exit=101

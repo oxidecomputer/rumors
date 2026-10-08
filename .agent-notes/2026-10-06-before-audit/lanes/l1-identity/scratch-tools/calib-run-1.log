@@ -1,0 +1,17 @@
+M01-join-no-collapse: exit=100 compile_error=False caught_by=['clock_join_all_conserves', 'join_all_disjoint', 'join_all_failure_conserves_multiplicity', 'rule_respecting_histories', 'set_algebra_disjoint', 'sync_all_matches_model', 'sync_arbitrary', 'sync_disjoint'] ['Summary [   3.046s] 16 tests run: 8 passed, 8 failed, 0 skipped']
+M02-compare-pending-swap: exit=100 compile_error=False caught_by=['rule_respecting_histories', 'set_algebra_arbitrary', 'set_algebra_disjoint', 'set_algebra_nested'] ['Summary [   3.111s] 16 tests run: 12 passed, 4 failed, 0 skipped']
+M03-sync-forget-b-right: exit=100 compile_error=False caught_by=['rule_respecting_histories', 'sync_arbitrary', 'sync_disjoint'] ['Summary [   2.991s] 16 tests run: 13 passed, 3 failed, 0 skipped']
+M05-forks-again-inverted: exit=100 compile_error=False caught_by=['clock_forks_match_party_forks', 'forks_partial_drain', 'rule_respecting_histories'] ['Summary [   2.985s] 16 tests run: 13 passed, 3 failed, 0 skipped']
+M06-remove-forget-right-sibling: exit=100 compile_error=False caught_by=['clock_forks_match_party_forks', 'forks_partial_drain', 'rule_respecting_histories'] ['Summary [   2.953s] 16 tests run: 13 passed, 3 failed, 0 skipped']
+M07-difference-disposition-swap: exit=100 compile_error=False caught_by=['set_algebra_arbitrary', 'set_algebra_nested'] ['Summary [   3.036s] 16 tests run: 14 passed, 2 failed, 0 skipped']
+M08-fold-drops-back: exit=100 compile_error=False caught_by=['clock_join_all_conserves', 'join_all_failure_conserves_multiplicity'] ['Summary [   2.898s] 16 tests run: 14 passed, 2 failed, 0 skipped']
+M10-sync-all-extra-share: exit=100 compile_error=False caught_by=['rule_respecting_histories', 'sync_all_matches_model'] ['Summary [   3.679s] 16 tests run: 14 passed, 2 failed, 0 skipped']
+M11-join-all-drops-groups: exit=100 compile_error=False caught_by=['join_all_failure_conserves_multiplicity'] ['Summary [   2.723s] 16 tests run: 15 passed, 1 failed, 0 skipped']
+M12-without-fast-path-inverted: exit=100 compile_error=False caught_by=['set_algebra_arbitrary', 'set_algebra_nested'] ['Summary [   2.880s] 16 tests run: 14 passed, 2 failed, 0 skipped']
+M13-regions-absent-right-owned: exit=100 compile_error=False caught_by=['set_algebra_arbitrary', 'set_algebra_disjoint', 'set_algebra_nested'] ['Summary [   3.752s] 16 tests run: 13 passed, 3 failed, 0 skipped']
+M15-fork-owned-halves-swapped: exit=100 compile_error=False caught_by=['array_split_matches_model', 'fork_matches_model', 'rule_respecting_histories', 'sync_all_matches_model', 'sync_disjoint'] ['Summary [   3.395s] 16 tests run: 11 passed, 5 failed, 0 skipped']
+M16-select-path-skip-inverted: exit=100 compile_error=False caught_by=['clock_forks_match_party_forks', 'forks_partial_drain', 'rule_respecting_histories'] ['Summary [   2.763s] 16 tests run: 13 passed, 3 failed, 0 skipped']
+M17-sync-prefix-always-left: exit=100 compile_error=False caught_by=['rule_respecting_histories', 'sync_arbitrary', 'sync_disjoint'] ['Summary [   2.811s] 16 tests run: 13 passed, 3 failed, 0 skipped']
+M18-clock-join-all-drops-version: exit=100 compile_error=False caught_by=['clock_join_all_conserves'] ['Summary [   3.352s] 16 tests run: 15 passed, 1 failed, 0 skipped']
+git diff after revert: ''
+exit=0

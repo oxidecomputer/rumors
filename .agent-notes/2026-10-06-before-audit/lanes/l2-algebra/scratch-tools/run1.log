@@ -1,0 +1,7 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+────────────
+ Nextest run ID bfef0310-1bdb-4df4-b5af-0d3409a7a605 with nextest profile: default
+    Starting 1 test across 1 binary
+        PASS [   6.738s] (1/1) before::l2_probe algebra_matches_model
+────────────
+     Summary [   6.739s] 1 test run: 1 passed, 0 skipped

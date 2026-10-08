@@ -1,0 +1,35 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+warning: unused variable: `state`
+   --> crates/before/src/version.rs:161:43
+    |
+161 |     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+    |                                           ^^^^^ help: if this is intentional, prefix it with an underscore: `_state`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `before` (lib) generated 1 warning (run `cargo fix --lib -p before` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.93s
+────────────
+ Nextest run ID e3b9aaed-6a28-447c-acf4-267f4ecba94b with nextest profile: high-count
+    Starting 18 tests across 1 binary (3 tests skipped)
+        PASS [   0.215s] ( 1/18) before::l2_probe deep_fork_halves_are_stack_safe
+        PASS [   0.362s] ( 2/18) before::l2_probe deep_surfaces_are_stack_safe
+        PASS [  35.568s] ( 3/18) before::l2_probe par11
+        PASS [  35.734s] ( 4/18) before::l2_probe par02
+        PASS [  39.129s] ( 5/18) before::l2_probe par07
+        PASS [  39.448s] ( 6/18) before::l2_probe par01
+        PASS [  42.260s] ( 7/18) before::l2_probe par00
+        PASS [  43.489s] ( 8/18) before::l2_probe par15
+        PASS [  44.850s] ( 9/18) before::l2_probe par12
+        PASS [  45.692s] (10/18) before::l2_probe par14
+        PASS [  49.316s] (11/18) before::l2_probe par13
+        PASS [  50.300s] (12/18) before::l2_probe par10
+        PASS [  51.504s] (13/18) before::l2_probe par09
+        PASS [  51.585s] (14/18) before::l2_probe par03
+        PASS [  54.011s] (15/18) before::l2_probe par06
+        PASS [  55.820s] (16/18) before::l2_probe par04
+        PASS [  59.312s] (17/18) before::l2_probe par08
+        SLOW [> 60.000s] (─────) before::l2_probe par05
+        PASS [  60.892s] (18/18) before::l2_probe par05
+────────────
+     Summary [  60.894s] 18 tests run: 18 passed (1 slow), 3 skipped

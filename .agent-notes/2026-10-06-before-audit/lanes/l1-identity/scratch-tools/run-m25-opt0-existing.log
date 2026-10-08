@@ -1,0 +1,53 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.09s
+────────────
+ Nextest run ID 35edad3d-1321-45d3-a5dc-48e0ea84c216 with nextest profile: default
+    Starting 33 tests across 2 binaries (631 tests skipped)
+        PASS [   0.117s] ( 1/33) before party::tests::without_constructed::without_covered_subtree_scan_never_exceeds_the_complement_walk
+        PASS [   0.117s] ( 2/33) before party::tests::sync_constructed::deep_targeted_branch_with_collapsing_merged_child
+        PASS [   0.109s] ( 3/33) before version::lattice::tests::flat_over_deep_collapses_totally
+        PASS [   0.118s] ( 4/33) before borsh_impls::tests::deep_trees_roundtrip_through_borsh
+        PASS [   0.118s] ( 5/33) before party::tests::sync_constructed::deep_overlap_is_refused
+        PASS [   0.118s] ( 6/33) before bits::tests::reject_deep_nested_denormal_id
+        PASS [   0.146s] ( 7/33) before bits::stack::packed_u64::tests::packed_values_round_trip
+        PASS [   0.146s] ( 8/33) before party::tests::sync_constructed::deep_subtree_splices_verbatim
+        PASS [   0.151s] ( 9/33) before party::tests::sync_constructed::deep_adjacent_cells_collapse_at_the_branch
+        PASS [   0.162s] (10/33) before version::io::writer::tests::absorb_cascade_climbs_a_left_spine
+        PASS [   0.161s] (11/33) before version::io::writer::tests::deep_uniform_collapse_preserves_the_wide_payload
+        PASS [   0.164s] (12/33) before party::tests::without_constructed::deep_subtree_under_owned_cover_vanishes
+        PASS [   0.133s] (13/33) before testing::meter::tests::id_spine_decodes_canonically_at_predicted_length
+        PASS [   0.176s] (14/33) before bits::stack::packed_u64::tests::packed_stack_matches_a_vec_across_all_widths
+        PASS [   0.185s] (15/33) before party::tests::without_constructed::deep_subtree_under_unowned_cover_splices_verbatim
+        PASS [   0.074s] (16/33) before version::order::tests::deep_versus_empty_agrees
+        PASS [   0.079s] (17/33) before version::own::tests::mirror_cells_agree_on_deep_unowned_spines
+        PASS [   0.199s] (18/33) before party::tests::sync_constructed::deep_delegated_merge_cascade_collapses
+        PASS [   0.207s] (19/33) before bits::stack::bit::tests::bit_stack_matches_a_vec_of_bools
+        PASS [   0.100s] (20/33) before version::tests::ranked_fused_walk_survives_deep_cancellation
+        PASS [   0.221s] (21/33) before party::tests::without_constructed::seed_without_deep_cell_is_its_complement
+        PASS [   0.139s] (22/33) before version::tests::deep_spine_marginal_cost_is_three_bits_per_level
+        PASS [   0.290s] (23/33) before clock::tests::deep_tree_min_ticks_stack_safety
+        PASS [   0.206s] (24/33) before version::tick::tests::wide_region_under_a_left_full_spine_ticks_identically
+        PASS [   0.394s] (25/33) before testing::meter::tests::alt_spine_decodes_canonically_at_predicted_length
+        PASS [   0.253s] (26/33) before version::tick::tests::tick_deep_orbits_stay_banded
+        PASS [   0.343s] (27/33) before version::tick::raise::tests::deep_spines_grow_identically
+        PASS [   0.362s] (28/33) before version::tick::tests::deep_spines_tick_and_flag_identically
+        PASS [   0.556s] (29/33) before party::io::writer::tests::position_stack_matches_a_vec
+        PASS [   0.937s] (30/33) before version::tick::tests::deep_and_wide_ticks_match_iterated
+        PASS [   1.683s] (31/33) before testing::meter::tests::deeper_hoisted_window_has_no_greater_rank
+        PASS [   1.767s] (32/33) before clock::tests::deep_tree_stack_safety
+     SIGABRT [   2.893s] (33/33) before clock::tests::deep_tree_query_and_causal_stack_safety
+  stdout ───
+
+    running 1 test
+  stderr ───
+
+    thread 'clock::tests::deep_tree_query_and_causal_stack_safety' (2) has overflowed its stack
+    fatal runtime error: stack overflow, aborting
+
+    (test aborted with signal 6: SIGABRT)
+
+────────────
+     Summary [   2.899s] 33 tests run: 32 passed, 1 failed, 631 skipped
+     SIGABRT [   2.893s] (33/33) before clock::tests::deep_tree_query_and_causal_stack_safety
+error: test run failed
+exit=100

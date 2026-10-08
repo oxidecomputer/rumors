@@ -1,0 +1,26 @@
+crates/suanpan/src/accumulator.rs:55:28: replace << with >>
+crates/suanpan/src/accumulator.rs:213:9: replace Accumulator::cmp_zero -> Ordering with Default::default()
+crates/suanpan/src/accumulator.rs:285:9: replace Accumulator::cmp_zero_stable_under -> Option<Ordering> with Some(Default::default())
+crates/suanpan/src/accumulator/conversions.rs:39:9: replace Accumulator::primitive_parts -> Option<(Ordering, u128)> with Some((Default::default(), 0))
+crates/suanpan/src/accumulator/conversions.rs:39:9: replace Accumulator::primitive_parts -> Option<(Ordering, u128)> with Some((Default::default(), 1))
+crates/suanpan/src/accumulator/operators.rs:127:39: replace + with * in <impl AddAssign for Accumulator>::add_assign
+crates/suanpan/src/accumulator/operators.rs:141:15: replace -= with /= in <impl SubAssign for Accumulator>::sub_assign
+crates/suanpan/src/accumulator/operators.rs:212:14: replace += with *= in <impl Add<&Accumulator> for Accumulator>::add
+crates/suanpan/src/accumulator/operators.rs:230:14: replace -= with /= in <impl Sub<&Accumulator> for Accumulator>::sub
+crates/suanpan/src/accumulator/operators.rs:245:19: replace += with *= in <impl Sum<&'a Accumulator> for Accumulator>::sum
+crates/suanpan/src/accumulator/operators.rs:276:14: replace += with *= in <impl Add for Accumulator>::add
+crates/suanpan/src/accumulator/operators.rs:294:14: replace -= with /= in <impl Sub for Accumulator>::sub
+crates/suanpan/src/accumulator/digits/read.rs:28:9: replace Digits::normalized_limbs -> (Ordering, Vec<u64>) with (Default::default(), vec![])
+crates/suanpan/src/accumulator/digits/read.rs:28:9: replace Digits::normalized_limbs -> (Ordering, Vec<u64>) with (Default::default(), vec![0])
+crates/suanpan/src/accumulator/digits/read.rs:28:9: replace Digits::normalized_limbs -> (Ordering, Vec<u64>) with (Default::default(), vec![1])
+crates/suanpan/src/accumulator/digits/read.rs:41:9: replace Digits::normalized_limbs_with_shift -> (Ordering, Vec<u64>, u64) with (Default::default(), vec![], 0)
+crates/suanpan/src/accumulator/digits/read.rs:41:9: replace Digits::normalized_limbs_with_shift -> (Ordering, Vec<u64>, u64) with (Default::default(), vec![0], 0)
+crates/suanpan/src/accumulator/digits/read.rs:41:9: replace Digits::normalized_limbs_with_shift -> (Ordering, Vec<u64>, u64) with (Default::default(), vec![], 1)
+crates/suanpan/src/accumulator/digits/read.rs:41:9: replace Digits::normalized_limbs_with_shift -> (Ordering, Vec<u64>, u64) with (Default::default(), vec![0], 1)
+crates/suanpan/src/accumulator/digits/read.rs:41:9: replace Digits::normalized_limbs_with_shift -> (Ordering, Vec<u64>, u64) with (Default::default(), vec![1], 0)
+crates/suanpan/src/accumulator/digits/read.rs:41:9: replace Digits::normalized_limbs_with_shift -> (Ordering, Vec<u64>, u64) with (Default::default(), vec![1], 1)
+crates/suanpan/src/accumulator/digits/read.rs:56:9: replace Digits::read_digits -> (Ordering, Vec<u32>) with (Default::default(), vec![])
+crates/suanpan/src/accumulator/digits/read.rs:56:9: replace Digits::read_digits -> (Ordering, Vec<u32>) with (Default::default(), vec![0])
+crates/suanpan/src/accumulator/digits/read.rs:56:9: replace Digits::read_digits -> (Ordering, Vec<u32>) with (Default::default(), vec![1])
+crates/suanpan/src/accumulator/digits/sign.rs:39:9: replace Digits::cmp_zero -> Ordering with Default::default()
+crates/suanpan/src/accumulator/digits/sign.rs:44:9: replace Digits::cmp_zero_stable_above -> Option<Ordering> with Some(Default::default())

@@ -1,0 +1,32 @@
+warning: ignoring --test-threads because --no-run is specified
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.09s
+warning: ignoring --test-threads because --no-capture is specified
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+────────────
+ Nextest run ID 5b390fe3-e935-4cee-9bf0-e356ac96f052 with nextest profile: default
+    Starting 2 tests across 2 binaries (64 tests skipped)
+       START [         ] (1/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+
+running 1 test
+
+thread 'accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle' (2) panicked at /home/agent/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proptest-1.11.0/src/strategy/unions.rs:83:9:
+Union option has a weight of 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle ... FAILED
+
+failures:
+
+failures:
+    accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.00s
+
+        FAIL [   0.057s] (1/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+  Cancelling due to test failure: 
+────────────
+     Summary [   0.061s] 1/2 tests run: 0 passed, 1 failed, 64 skipped
+        FAIL [   0.057s] (1/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+warning: 1/2 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)
+error: test run failed
+exit=100

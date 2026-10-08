@@ -1,0 +1,21 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/suanpan)
+   Compiling surface-scan v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/surface-scan)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.85s
+────────────
+ Nextest run ID c7c73012-4d22-4140-b18d-7e21df079b64 with nextest profile: default
+    Starting 1 test across 1 binary (142 tests skipped)
+       START [         ] (1/1) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_stopping_boundary_is_flat_per_unit
+
+running 1 test
+MEASURED seam_stop: small=14196/8805B large=28361/17573B control_small=9741/8805B control_large=19469/17573B diff_small=4455 diff_large=8892
+MEASURED skyline_comb_seam_stop_touches: small=14196/8805 large=28361/17573 milli_per_byte=1612 -> 1613
+test version_scaling::minimum_boundaries::skyline_min_ticks_stopping_boundary_is_flat_per_unit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 142 filtered out; finished in 0.03s
+
+        PASS [   0.084s] (1/1) before::meter version_scaling::minimum_boundaries::skyline_min_ticks_stopping_boundary_is_flat_per_unit
+────────────
+     Summary [   0.086s] 1 test run: 1 passed, 142 skipped
+fdd1bf47c done

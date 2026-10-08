@@ -1,0 +1,5 @@
+Found 57 mutants to test
+MISSED   crates/before/src/count.rs:303:9: replace <impl fmt::Debug for Count>::fmt -> fmt::Result with Ok(Default::default()) in 20s build + 44s test
+MISSED   crates/before/src/count.rs:324:9: replace <impl Add<&Count> for Count>::add -> Count with Default::default() in 20s build + 49s test
+MISSED   crates/before/src/count.rs:360:9: replace <impl Sum<&'a Count> for Count>::sum -> Count with Default::default() in 20s build + 41s test
+57 mutants tested in 12m: 3 missed, 41 caught, 13 unviable

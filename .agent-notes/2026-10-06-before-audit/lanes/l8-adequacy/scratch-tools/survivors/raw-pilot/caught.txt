@@ -1,0 +1,41 @@
+crates/before/src/count.rs:120:9: replace Count::checked_sub -> Option<Count> with Some(Default::default())
+crates/before/src/count.rs:120:9: replace Count::checked_sub -> Option<Count> with None
+crates/before/src/count.rs:120:15: replace >= with < in Count::checked_sub
+crates/before/src/count.rs:120:45: replace - with + in Count::checked_sub
+crates/before/src/count.rs:120:45: replace - with / in Count::checked_sub
+crates/before/src/count.rs:139:9: replace Count::saturating_sub -> Count with Default::default()
+crates/before/src/count.rs:168:9: replace CanonicalLimbs::push with ()
+crates/before/src/count.rs:169:32: replace >> with << in CanonicalLimbs::push
+crates/before/src/count.rs:175:9: replace CanonicalLimbs::finish -> Option<Count> with None
+crates/before/src/count.rs:175:9: replace CanonicalLimbs::finish -> Option<Count> with Some(Default::default())
+crates/before/src/count.rs:175:20: replace != with == in CanonicalLimbs::finish
+crates/before/src/count.rs:192:9: replace <impl Iterator for Limbs<'_>>::next -> Option<u64> with None
+crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/count.rs:196:9: replace <impl Iterator for Limbs<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/count.rs:248:9: replace <impl From<usize> for Count>::from -> Count with Default::default()
+crates/before/src/count.rs:266:9: replace <impl fmt::Display for Count>::fmt -> fmt::Result with Ok(Default::default())
+crates/before/src/count.rs:288:9: replace <impl core::str::FromStr for Count>::from_str -> Result<Self, ParseValue> with Ok(Default::default())
+crates/before/src/count.rs:291:13: replace || with && in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:290:16: delete ! in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:290:13: replace || with && in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:291:33: replace && with || in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:291:29: replace > with == in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:291:29: replace > with < in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:291:29: replace > with >= in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:291:45: replace == with != in <impl core::str::FromStr for Count>::from_str
+crates/before/src/count.rs:192:9: replace <impl Iterator for Limbs<'_>>::next -> Option<u64> with Some(1)
+crates/before/src/count.rs:192:9: replace <impl Iterator for Limbs<'_>>::next -> Option<u64> with Some(0)
+crates/before/src/count.rs:310:9: replace <impl Add<&Count> for &Count>::add -> Count with Default::default()
+crates/before/src/count.rs:310:23: replace + with - in <impl Add<&Count> for &Count>::add
+crates/before/src/count.rs:310:23: replace + with * in <impl Add<&Count> for &Count>::add
+crates/before/src/count.rs:317:9: replace <impl Add<Count> for Count>::add -> Count with Default::default()
+crates/before/src/count.rs:337:9: replace <impl AddAssign<&Count> for Count>::add_assign with ()
+crates/before/src/count.rs:337:16: replace += with -= in <impl AddAssign<&Count> for Count>::add_assign
+crates/before/src/count.rs:331:9: replace <impl Add<Count> for &Count>::add -> Count with Default::default()
+crates/before/src/count.rs:337:16: replace += with *= in <impl AddAssign<&Count> for Count>::add_assign
+crates/before/src/count.rs:343:9: replace <impl AddAssign<Count> for Count>::add_assign with ()
+crates/before/src/count.rs:350:9: replace <impl Sum<Count> for Count>::sum -> Count with Default::default()

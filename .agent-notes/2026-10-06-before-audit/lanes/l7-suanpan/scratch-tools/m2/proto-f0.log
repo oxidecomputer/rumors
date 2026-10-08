@@ -1,0 +1,39 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Finished `release` profile [optimized] target(s) in 5m 49s
+     Running tests/pins.rs (../../../target/wasm32-pins/release/deps/pins-c2e1fad8c0bd62a4)
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 0 size 64 op 1 net 27590658
+L7M family 0 size 64 op 3 net 4623083
+L7M family 0 size 64 op 4 net 5131085
+L7M family 0 size 64 op 5 net 5167970
+L7M family 0 size 64 op 6 net 9399354
+L7M family 0 size 64 op 7 net 8189840
+L7M family 0 size 64 op 8 net 5301177
+L7M family 0 size 64 op 9 net 8639690
+L7M family 0 size 64 op 10 net 11368053
+L7M family 0 size 256 op 1 net 27590658
+L7M family 0 size 256 op 3 net 18540525
+L7M family 0 size 256 op 4 net 20567575
+L7M family 0 size 256 op 5 net 20715052
+L7M family 0 size 256 op 6 net 37610677
+L7M family 0 size 256 op 7 net 32797876
+L7M family 0 size 256 op 8 net 21317278
+L7M family 0 size 256 op 9 net 34658818
+L7M family 0 size 256 op 10 net 45670886
+L7M family 0 size 1024 op 1 net 27590658
+L7M family 0 size 1024 op 3 net 74375000
+L7M family 0 size 1024 op 4 net 82478410
+L7M family 0 size 1024 op 5 net 83068255
+L7M family 0 size 1024 op 6 net 150620317
+L7M family 0 size 1024 op 7 net 131391228
+L7M family 0 size 1024 op 8 net 85895213
+L7M family 0 size 1024 op 9 net 139240792
+L7M family 0 size 1024 op 10 net 183578699
+L7M family 0 size 4096 op 1 net 27590658
+L7M family 0 size 4096 op 3 net 298392313
+exit=255

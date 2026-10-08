@@ -1,0 +1,6 @@
+# coverage of crates/before/src/version/tick.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 449/451; branch outcomes 76/76
+# never-executed lines:
+L  191  Decision::Simplified(_) => unreachable!("simplification is idempotent"),
+L  608  MemoReference::None => unreachable!("a consumed lookahead keeps a reference"),
+# branches with an outcome never taken (outcome hit counts):

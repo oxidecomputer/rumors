@@ -1,0 +1,5 @@
+# survivors of crates/before/src/bits/reader/gamma/window.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/reader/gamma/window.rs:47:25: replace | with ^ in load
+MISSED   crates/before/src/bits/reader/gamma/window.rs:47:48: replace >> with << in load
+MISSED   crates/before/src/bits/reader/gamma/window.rs:47:54: replace - with + in load
+MISSED   crates/before/src/bits/reader/gamma/window.rs:47:54: replace - with / in load

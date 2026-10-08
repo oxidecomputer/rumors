@@ -1,0 +1,706 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `before` (test "audit_l1") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 48s
+────────────
+ Nextest run ID 4eac3997-c03e-4a02-9288-fcc80509abb0 with nextest profile: default
+    Starting 622 tests across 3 binaries (1 test skipped)
+        PASS [   0.082s] (  1/622) before bits::reader::tests::gamma_reader_matches_decoder_across_the_word_seam
+        PASS [   0.082s] (  2/622) before bits::reader::tests::skipping_gamma_records_exactly_the_bits_a_read_records
+        PASS [   0.085s] (  3/622) before bits::stack::packed_u64::tests::packed_values_round_trip
+        PASS [   0.099s] (  4/622) before bits::reader::tests::truncated_codes_reject_at_every_cut_point
+        PASS [   0.103s] (  5/622) before bits::reader::tests::unary_reads_match_the_per_bit_loop_across_word_seams
+        PASS [   0.066s] (  6/622) before bits::tests::empty_input_is_truncated
+        PASS [   0.132s] (  7/622) before bits::reader::tests::mid_stream_opens_read_the_same_suffix
+        PASS [   0.132s] (  8/622) before bits::stack::packed_u64::tests::packed_stack_matches_a_vec_across_all_widths
+        PASS [   0.097s] (  9/622) before bits::tests::flush_version_cut_before_its_marker_byte_is_truncated
+        PASS [   0.116s] ( 10/622) before bits::tests::flush_stream_carries_a_whole_marker_byte
+        PASS [   0.049s] ( 11/622) before bits::tests::freeze_canonicalizes_storage
+        PASS [   0.118s] ( 12/622) before bits::tests::decode_never_yields_anonymous_party
+        PASS [   0.162s] ( 13/622) before bits::reader::tests::arbitrary_streams_match_the_slice_cursor
+        PASS [   0.170s] ( 14/622) before bits::stack::bit::tests::bit_stack_matches_a_vec_of_bools
+        PASS [   0.061s] ( 15/622) before bits::tests::gamma_roundtrip
+        PASS [   0.067s] ( 16/622) before bits::tests::from_canonical_matches_freeze
+        PASS [   0.051s] ( 17/622) before bits::tests::gamma_roundtrip_wide_value
+        PASS [   0.075s] ( 18/622) before bits::tests::gamma_roundtrip_just_above_u64_max
+        PASS [   0.053s] ( 19/622) before bits::tests::gamma_truncated
+        PASS [   0.077s] ( 20/622) before bits::tests::gamma_roundtrip_wide
+        PASS [   0.056s] ( 21/622) before bits::tests::gamma_window_declines_conservatively
+        PASS [   0.068s] ( 22/622) before bits::tests::gamma_truncated_inside_wide_mantissa
+        PASS [   0.052s] ( 23/622) before bits::tests::gamma_window_edge
+        PASS [   0.110s] ( 24/622) before bits::tests::gamma_costs
+        PASS [   0.205s] ( 25/622) before accumulator::tests::accumulator_entry_points_match_the_oracle
+        PASS [   0.205s] ( 26/622) before accumulator::tests::signed_accumulator_entry_points_match_the_oracle
+        PASS [   0.054s] ( 27/622) before bits::tests::marker_padding_separates_length_collisions
+        PASS [   0.059s] ( 28/622) before bits::tests::malformed_padding_rejected_witness
+        PASS [   0.046s] ( 29/622) before bits::tests::marker_validation_agrees_with_storage_canonicality
+        PASS [   0.230s] ( 30/622) before accumulator::tests::shifted_accumulator_entry_points_match_the_oracle
+        PASS [   0.043s] ( 31/622) before bits::tests::reject_deep_nested_denormal_id
+        PASS [   0.077s] ( 32/622) before bits::tests::gamma_word_encode_matches_bit_encode
+        PASS [   0.068s] ( 33/622) before bits::tests::gamma_word_paths_match_on_arbitrary_bytes
+        PASS [   0.047s] ( 34/622) before bits::tests::ptr_eq_implies_equality_and_clones_share_nonempty_storage
+        PASS [   0.202s] ( 35/622) before bits::tests::flush_cut_party_reads_truncated_for_party_and_clock
+        PASS [   0.100s] ( 36/622) before bits::tests::gamma_word_decode_matches_bit_loop
+        PASS [   0.057s] ( 37/622) before bits::tests::reject_noncanonical_id
+        PASS [   0.057s] ( 38/622) before bits::tests::transcoding_normalizes_noncanonical_event
+        PASS [   0.057s] ( 39/622) before bits::tests::reject_truncated
+        PASS [   0.070s] ( 40/622) before bits::tests::reject_intra_byte_padding
+        PASS [   0.058s] ( 41/622) before bits::tests::version_and_clock_decoding_rejects_intra_byte_padding
+        PASS [   0.054s] ( 42/622) before borsh_impls::tests::borsh_every_type_pair_composes_with_exact_boundaries
+        PASS [   0.100s] ( 43/622) before bits::tests::padding_perturbation_rejects
+        PASS [   0.078s] ( 44/622) before bits::tests::reject_trailing_bits
+        PASS [   0.054s] ( 45/622) before borsh_impls::tests::coincident_span_borsh_rejects_tampered_join_padding
+        PASS [   0.063s] ( 46/622) before borsh_impls::tests::borsh_sequence_defect_preserves_its_error_class
+        PASS [   0.280s] ( 47/622) before bits::tests::encode_to_matches_encode
+        PASS [   0.272s] ( 48/622) before bits::tests::canonical_encoding_is_injective
+        PASS [   0.078s] ( 49/622) before borsh_impls::tests::count_borsh_matches_canonical_limbs
+        PASS [   0.054s] ( 50/622) before borsh_impls::tests::deep_trees_roundtrip_through_borsh
+        PASS [   0.284s] ( 51/622) before bits::tests::decode_encode_roundtrip
+        PASS [   0.093s] ( 52/622) before borsh_impls::tests::count_borsh_rejects_trailing_zero
+        PASS [   0.070s] ( 53/622) before borsh_impls::tests::flush_cut_is_truncated_by_both_decoders
+        PASS [   0.048s] ( 54/622) before borsh_impls::tests::joined_party_roundtrips_through_borsh
+        PASS [   0.093s] ( 55/622) before borsh_impls::tests::coincident_span_keeps_borsh_container_framing
+        PASS [   0.059s] ( 56/622) before borsh_impls::tests::rank_borsh_is_the_canonical_encoding
+        PASS [   0.351s] ( 57/622) before bits::tests::build_history_spelling_is_a_function_of_content
+        PASS [   0.063s] ( 58/622) before borsh_impls::tests::non_canonical_borsh_bytes_report_invalid_data
+        PASS [   0.132s] ( 59/622) before borsh_impls::tests::clock_wire_decode_matches_bitwise_reference
+        PASS [   0.077s] ( 60/622) before borsh_impls::tests::rank_borsh_preserves_decode_errors
+        PASS [   0.070s] ( 61/622) before borsh_impls::tests::rank_composes_in_a_borsh_stream
+        PASS [   0.065s] ( 62/622) before borsh_impls::tests::ranked_borsh_composes_and_preserves_decode_errors
+        PASS [   0.098s] ( 63/622) before borsh_impls::tests::party_wire_decode_matches_bitwise_reference
+        PASS [   0.373s] ( 64/622) before bits::tests::build_history_spellings_are_injective
+        PASS [   0.064s] ( 65/622) before borsh_impls::tests::span_borsh_composes_and_preserves_decode_errors
+        PASS [   0.074s] ( 66/622) before borsh_impls::tests::span_borsh_rejects_negative_height_join
+        PASS [   0.101s] ( 67/622) before borsh_impls::tests::rank_wire_decode_matches_slice_reference
+        PASS [   0.081s] ( 68/622) before borsh_impls::tests::span_borsh_dedups_the_coincident_span
+        PASS [   0.090s] ( 69/622) before borsh_impls::tests::span_borsh_rejects_collapsible_join
+        PASS [   0.079s] ( 70/622) before borsh_impls::tests::truncated_borsh_stream_reports_unexpected_eof
+        PASS [   0.056s] ( 71/622) before causally::tests::conjunction_normalizes
+        PASS [   0.057s] ( 72/622) before causally::tests::coverage_clamp_refinement_is_exact
+        PASS [   0.181s] ( 73/622) before borsh_impls::tests::flush_cut_party_is_truncated_by_both_decoders
+        PASS [   0.061s] ( 74/622) before causally::tests::conversions_denote
+        PASS [   0.061s] ( 75/622) before causally::tests::coverage_witness_matrix
+        PASS [   0.061s] ( 76/622) before causally::tests::debug_renders_expressions
+        PASS [   0.061s] ( 77/622) before causally::tests::degenerate_holes_are_inert
+        PASS [   0.061s] ( 78/622) before causally::tests::forms_keep_their_relations
+        PASS [   0.088s] ( 79/622) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        PASS [   0.150s] ( 80/622) before borsh_impls::tests::ranked_wire_decode_matches_bitwise_reference
+        PASS [   0.137s] ( 81/622) before borsh_impls::tests::version_wire_decode_matches_bitwise_reference
+        PASS [   0.162s] ( 82/622) before borsh_impls::tests::span_wire_decode_matches_bitwise_reference
+        PASS [   0.262s] ( 83/622) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        PASS [   0.045s] ( 84/622) before clock::tests::decoded_seed_version_encodes_canonically
+        PASS [   0.308s] ( 85/622) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        PASS [   0.038s] ( 86/622) before clock::tests::fork_join_round_trip_orbit_is_byte_stationary
+        PASS [   0.099s] ( 87/622) before clock::tests::decode_never_panics
+        PASS [   0.076s] ( 88/622) before clock::tests::deep_tree_min_ticks_stack_safety
+        PASS [   0.045s] ( 89/622) before clock::tests::fork_tick_join_orbit_returns_party_and_grows_gamma
+        PASS [   0.285s] ( 90/622) before borsh_impls::tests::rank_borsh_roundtrips_and_orders
+        PASS [   0.389s] ( 91/622) before bits::tests::truncation_rejects_or_decodes_canonically
+        PASS [   0.047s] ( 92/622) before clock::tests::join_all_agrees_with_oracle_on_forked_and_aliased_populations
+        PASS [   0.342s] ( 93/622) before borsh_impls::tests::ranked_borsh_roundtrips_and_orders
+        PASS [   0.244s] ( 94/622) before clock::tests::borsh_frames_as_canonical_bytes
+        PASS [   0.243s] ( 95/622) before clock::tests::borsh_rejects_non_canonical
+        PASS [   0.238s] ( 96/622) before clock::tests::clock_assign_join_matches_oracle
+        PASS [   0.254s] ( 97/622) before clock::tests::borsh_roundtrip
+        PASS [   0.360s] ( 98/622) before borsh_impls::tests::span_borsh_roundtrips
+        PASS [   0.246s] ( 99/622) before clock::tests::clock_observers_match_oracle
+        PASS [   0.282s] (100/622) before clock::tests::churn_orbit_sizes_reach_a_bounded_band
+        PASS [   0.042s] (101/622) before clock::tests::worked_example
+        PASS [   0.271s] (102/622) before clock::tests::decode_preserves_component_canonicity
+        PASS [   0.080s] (103/622) before clock::tests::static_orbit_ids_freeze_and_versions_grow_log
+        PASS [   0.055s] (104/622) before count::tests::addition_behaves_like_the_naturals
+        PASS [   0.055s] (105/622) before count::tests::from_impls_agree_across_widths
+        PASS [   0.261s] (106/622) before clock::tests::encoding_views_agree_over_impl_history
+        PASS [   0.274s] (107/622) before clock::tests::deep_tree_stack_safety
+        PASS [   0.423s] (108/622) before causally::tests::atom_coverage_matches_query_coverage
+        PASS [   0.048s] (109/622) before count::tests::wide_counts_order_and_render
+        PASS [   0.077s] (110/622) before count::tests::limbs_respell_the_count
+        PASS [   0.064s] (111/622) before count::tests::unsigned_conversions_match_their_ranges
+        PASS [   0.078s] (112/622) before count::tests::subtraction_matches_the_naturals
+        PASS [   0.054s] (113/622) before error::tests::io_decode_error_preserves_its_source
+        PASS [   0.240s] (114/622) before clock::tests::serde_bytes_pin_the_canonical_encoding
+        PASS [   0.254s] (115/622) before clock::tests::heterogeneous_joins
+        PASS [   0.069s] (116/622) before count::tests::zero_forms_agree
+        PASS [   0.249s] (117/622) before clock::tests::ops_preserve_normal_form
+        PASS [   0.050s] (118/622) before error::tests::value_parse_error_preserves_its_source
+        PASS [   0.242s] (119/622) before clock::tests::serde_rejects_non_canonical
+        PASS [   0.057s] (120/622) before party::forks::tests::adjacent_wide_count_becomes_exact
+        PASS [   0.052s] (121/622) before party::forks::tests::distant_size_hint_stays_sound_near_exhaustion
+        PASS [   0.246s] (122/622) before clock::tests::serde_roundtrip
+        PASS [   0.413s] (123/622) before clock::tests::clock_join_all_matches_all_models
+        PASS [   0.055s] (124/622) before party::forks::tests::first_distant_count_handles_word_width_depth
+        PASS [   0.055s] (125/622) before party::forks::tests::two_to_128_count_stays_iterable
+        PASS [   0.315s] (126/622) before clock::tests::master_differential
+        PASS [   0.066s] (127/622) before party::forks::tests::small_size_hints_are_exact
+        PASS [   0.071s] (128/622) before party::forks::tests::every_small_arity_is_balanced
+        PASS [   0.095s] (129/622) before party::forks::tests::compact_plan_matches_recursive_forking
+        PASS [   0.249s] (130/622) before clock::tests::serde_roundtrip_binary_formats
+        PASS [   0.104s] (131/622) before party::forks::tests::consuming_traversal_matches_recursive_forking
+        PASS [   0.057s] (132/622) before party::tests::asymmetric_fork_sizes_the_small_result_independently
+        PASS [   0.109s] (133/622) before party::forks::tests::every_partial_drop_conserves_the_party
+        PASS [   0.090s] (134/622) before party::tests::as_bytes_matches_encode_after_fork
+        PASS [   0.235s] (135/622) before clock::tests::sync_all_reconciles_one_world
+        PASS [   0.059s] (136/622) before party::tests::fork_chain_orbit_sizes_are_exactly_affine
+        PASS [   0.255s] (137/622) before clock::tests::sync
+        PASS [   0.058s] (138/622) before party::tests::join_all_preserves_regions_on_overlap
+        PASS [   0.085s] (139/622) before party::tests::decode_encode_arbitrary
+        PASS [   0.059s] (140/622) before party::tests::fork_fan_orbit_grows_affine_and_unwinds_to_seed
+        PASS [   0.129s] (141/622) before party::forks::tests::wide_count_prefixes_conserve_the_party
+        PASS [   0.073s] (142/622) before party::tests::join_all_agrees_with_oracle_when_none_overlap
+        PASS [   0.114s] (143/622) before party::tests::byte_equality_matches_bit_equality
+        PASS [   0.096s] (144/622) before party::tests::fork_arbitrary
+        PASS [   0.070s] (145/622) before party::tests::sync_constructed::deep_adjacent_cells_collapse_at_the_branch
+        PASS [   0.150s] (146/622) before party::tests::as_bytes_matches_encode
+        PASS [   0.060s] (147/622) before party::tests::sync_constructed::deep_subtree_splices_verbatim
+        PASS [   0.060s] (148/622) before party::tests::sync_constructed::deep_overlap_is_refused
+        PASS [   0.050s] (149/622) before party::tests::sync_constructed::deep_targeted_branch_with_collapsing_merged_child
+        PASS [   0.066s] (150/622) before party::tests::sync_constructed::deep_delegated_merge_cascade_collapses
+        PASS [   0.062s] (151/622) before party::tests::sync_constructed::root_owner_overlaps_nested_parties
+        PASS [   0.053s] (152/622) before party::tests::sync_constructed::sync_scan_work_never_exceeds_join_then_fork
+        PASS [   0.061s] (153/622) before party::tests::sync_handles_a_join_that_collapses_to_a_terminal
+        PASS [   0.061s] (154/622) before party::tests::without_constructed::deep_subtree_under_owned_cover_vanishes
+        PASS [   0.132s] (155/622) before party::tests::join_arbitrary
+        PASS [   0.060s] (156/622) before party::tests::without_constructed::deep_subtree_under_unowned_cover_splices_verbatim
+        PASS [   0.989s] (157/622) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+        PASS [   0.117s] (158/622) before party::tests::party_sync_matches_join_then_fork_for_arbitrary_trees
+        PASS [   0.051s] (159/622) before party::tests::without_constructed::without_covered_subtree_scan_never_exceeds_the_complement_walk
+        PASS [   0.056s] (160/622) before serde_impls::tests::serde_composes_rank_and_span_in_larger_values
+        PASS [   0.056s] (161/622) before serde_impls::tests::serde_rejects_defective_payloads
+        PASS [   0.065s] (162/622) before serde_impls::tests::count_binary_serde_is_canonical
+        PASS [   0.056s] (163/622) before serde_impls::tests::serde_data_model_matches_each_format_class
+        PASS [   0.081s] (164/622) before party::tests::without_constructed::seed_without_deep_cell_is_its_complement
+        PASS [   0.057s] (165/622) before shape::tests::empty_combine_is_the_trivial_cell
+        PASS [   0.048s] (166/622) before shape::tests::shape_walks_fuse
+        PASS [   0.157s] (167/622) before party::tests::party_join_all_matches_all_models
+        PASS [   0.057s] (168/622) before shape::tests::single_input_combine_is_the_shape
+        PASS [   0.049s] (169/622) before span::tests::at_builds_a_point_span_with_shared_storage
+        PASS [   0.064s] (170/622) before span::tests::decoded_point_span_shares_one_buffer
+        PASS [   0.064s] (171/622) before span::tests::containment_operators_on_chain_witnesses
+        PASS [   0.069s] (172/622) before span::tests::decoded_strict_span_keeps_distinct_endpoints
+        PASS [   0.069s] (173/622) before shape::tests::trivial_values_walk_whole
+        PASS [   0.063s] (174/622) before span::tests::own_span_projects_both_endpoints
+        PASS [   0.063s] (175/622) before span::tests::multi_input_operations_match_sequential_folds_on_a_mixed_family
+        PASS [   0.253s] (176/622) before party::tests::d_fork_join_roundtrip
+        PASS [   0.059s] (177/622) before span::tests::pointwise_operators_restrict_to_versions_on_points
+        PASS [   0.073s] (178/622) before span::tests::own_span_place_reaches_every_concurrent_corner
+        PASS [   0.073s] (179/622) before span::tests::multi_input_operations_copy_the_receiver_on_empty_input
+        PASS [   0.059s] (180/622) before span::tests::span_decode_structural_errors_outrank_the_pair_verdict
+        PASS [   0.064s] (181/622) before span::tests::span_contains_admits_every_witness
+        PASS [   0.058s] (182/622) before span::tests::span_decode_validates_equal_components_before_sharing_storage
+        PASS [   0.073s] (183/622) before span::tests::span_decode_rejects_each_malformed_input_class
+        PASS [   0.073s] (184/622) before span::tests::span_constructors_accept_owned_and_borrowed_endpoints
+        PASS [   0.640s] (185/622) before clock::tests::deep_tree_query_and_causal_stack_safety
+        PASS [   0.054s] (186/622) before span::tests::span_derives_the_hull
+        PASS [   0.050s] (187/622) before span::tests::span_new_rejects_unordered_pairs
+        PASS [   0.060s] (188/622) before span::tests::span_dominance_coarsens_every_witness
+        PASS [   0.050s] (189/622) before span::tests::span_precedence_coarsens_every_witness
+        PASS [   0.049s] (190/622) before span::tests::span_place_places_every_witness
+        PASS [   0.394s] (191/622) before party::io::writer::tests::position_stack_matches_a_vec
+        PASS [   0.079s] (192/622) before testing::algebraic_laws::tests::party_solo_laws
+        PASS [   0.111s] (193/622) before testing::algebraic_laws::tests::party_pair_laws
+        PASS [   0.278s] (194/622) before shape::tests::join_and_meet_are_pointwise_extrema
+        PASS [   0.312s] (195/622) before serde_impls::tests::binary_serde_preserves_existing_canonical_encodings
+        PASS [   0.144s] (196/622) before testing::algebraic_laws::tests::party_and_list_laws
+        PASS [   0.131s] (197/622) before testing::algebraic_laws::tests::party_triple_laws
+        PASS [   1.042s] (198/622) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        PASS [   0.328s] (199/622) before shape::tests::comparison_agrees_with_pointwise_order
+        PASS [   0.302s] (200/622) before span::tests::point_span_classification_ignores_buffer_identity
+        PASS [   0.260s] (201/622) before span::tests::span_decode_verdict_matches_the_composed_form_off_corpus
+        PASS [   0.270s] (202/622) before span::tests::span_decode_verdict_matches_the_composed_form
+        PASS [   0.971s] (203/622) before causally::tests::public_queries_match_their_relational_denotation
+        PASS [   0.045s] (204/622) before testing::asymptotics::mul_bound_embedding_is_alive
+        PASS [   0.412s] (205/622) before serde_impls::tests::serde_roundtrips_every_supported_type
+        PASS [   0.044s] (206/622) before testing::asymptotics::mul_bound_pair_embedding_is_alive
+        PASS [   0.050s] (207/622) before testing::asymptotics::mul_bound_key_embedding_is_alive
+        PASS [   0.302s] (208/622) before span::tests::span_single_bit_mutations_never_alias
+        PASS [   0.050s] (209/622) before testing::bridge::tests::empty_party_is_rejected_at_the_conversion_boundary
+        PASS [   0.038s] (210/622) before testing::bridge::tests::non_normal_party_is_rejected_at_the_conversion_boundary
+        PASS [   0.318s] (211/622) before testing::algebraic_laws::tests::clock_solo_laws
+        PASS [   0.296s] (212/622) before testing::algebraic_laws::tests::rank_triple_laws
+        PASS [   0.328s] (213/622) before testing::algebraic_laws::tests::clock_pair_laws
+        PASS [   0.039s] (214/622) before testing::bridge::tests::non_normal_version_is_rejected_at_the_conversion_boundary
+        PASS [   0.043s] (215/622) before testing::diff_ops::tests::function_space_checks_reject_a_mistranscribed_operation
+        PASS [   0.048s] (216/622) before testing::diff_ops::tests::descriptor_checks_reject_a_mistranscribed_operation
+        PASS [   0.253s] (217/622) before testing::algebraic_laws::tests::version_party_pair_laws
+        PASS [   0.069s] (218/622) before testing::diff_ops::tests::party_disjoint_pair_ops
+        PASS [   0.066s] (219/622) before testing::diff_ops::tests::party_solo_ops
+        PASS [   0.092s] (220/622) before testing::diff_ops::tests::party_pair_ops
+        PASS [   0.312s] (221/622) before testing::algebraic_laws::tests::version_solo_laws
+        PASS [   0.466s] (222/622) before testing::algebraic_laws::tests::clock_version_laws
+        PASS [   0.342s] (223/622) before testing::algebraic_laws::tests::version_pair_party_pair_laws
+        PASS [   0.260s] (224/622) before testing::asymptotics::party_join_all_log_factor_is_alive
+        PASS [   0.375s] (225/622) before testing::algebraic_laws::tests::version_party_laws
+        PASS [   0.047s] (226/622) before testing::exhaustive::tests::corpus_counts_are_exact
+        PASS [   0.050s] (227/622) before testing::exhaustive::tests::corpus_is_canonical
+        PASS [   0.223s] (228/622) before testing::diff_ops::tests::clock_solo_ops
+        PASS [   0.235s] (229/622) before testing::diff_ops::tests::version_party_ops
+        PASS [   0.850s] (230/622) before testing::algebraic_laws::tests::version_list_laws
+        PASS [   0.478s] (231/622) before testing::diff_ops::tests::version_party_version_party_ops
+        PASS [   0.946s] (232/622) before testing::algebraic_laws::tests::clock_and_list_laws
+        PASS [   0.499s] (233/622) before testing::diff_ops::tests::version_party_version_ops
+        PASS [   0.466s] (234/622) before testing::diff_ops::tests::version_solo_ops
+        PASS [   0.561s] (235/622) before testing::diff_ops::tests::version_pair_ops
+        PASS [   0.508s] (236/622) before testing::exhaustive::tests::id_is_disjoint_is_symmetric
+        PASS [   0.918s] (237/622) before testing::diff_ops::tests::diff_ops_match_the_oracle_on_organic_populations
+        PASS [   0.277s] (238/622) before testing::laws::tests::conservation::conservation_laws_cover_multiple_aliases
+        PASS [   0.278s] (239/622) before testing::laws::tests::registration::law_names_are_unique_across_groups
+        PASS [   0.269s] (240/622) before testing::meter::board::coverage::tests::board_coverage_is_consistent
+        PASS [   0.395s] (241/622) before testing::laws::tests::registration::every_law_group_is_registered
+        PASS [   0.940s] (242/622) before testing::exhaustive::tests::event_meet_is_commutative
+        PASS [   0.937s] (243/622) before testing::exhaustive::tests::event_partial_cmp_is_antisymmetric
+        PASS [   0.800s] (244/622) before testing::exhaustive::tests::id_join_is_commutative
+        PASS [   0.214s] (245/622) before testing::meter::board::tests::bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors
+        PASS [   0.117s] (246/622) before testing::meter::board::tests::exponent_guard_depends_on_denominator_span
+        PASS [   0.410s] (247/622) before testing::meter::board::tests::acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red
+        PASS [   0.529s] (248/622) before testing::fuelscape_islands::every_island_is_included_or_exempted
+        PASS [   0.107s] (249/622) before testing::meter::board::tests::flat_denominator_stored_fit_manufactures_an_exponent
+        PASS [   0.948s] (250/622) before testing::exhaustive::tests::event_merge_is_commutative
+        PASS [   0.304s] (251/622) before testing::meter::board::tests::wide_query_probe_exercises_shared_numeric_state
+        PASS [   0.412s] (252/622) before testing::meter::board::tests::heap_ceiling_checks_both_samples_without_hiding_raw_cost
+        PASS [   0.304s] (253/622) before testing::meter::board::tests::many_hole_query_operands_exercise_both_fused_walks
+        PASS [   0.305s] (254/622) before testing::meter::board::tests::party_fork_heap_floor_is_complete_child_storage
+        PASS [   0.316s] (255/622) before testing::meter::board::tests::heap_trend_resolution_does_not_exempt_peaks_from_the_ceiling
+        PASS [   0.312s] (256/622) before testing::meter::board::tests::many_hole_conjunction_preserves_both_antichains
+        PASS [   0.305s] (257/622) before testing::meter::board::tests::model_ceiling_tightens_only_the_constant
+        PASS [   1.819s] (258/622) before span::tests::span_decode_verdict_matches_the_composed_form_exhaustively
+        PASS [   0.384s] (259/622) before testing::meter::board::tests::declared_fold_model_admits_the_log_factor_and_rejects_quadratic
+        PASS [   0.300s] (260/622) before testing::meter::board::tests::version_output_denominator_includes_boundary_marker_byte
+        PASS [   0.296s] (261/622) before testing::meter::board::tests::worst_rank_excludes_zero_readings
+        PASS [   0.231s] (262/622) before testing::meter::board::tests::worst_rank_records_ties_whole_and_runner_up_strictly_below
+        PASS [   1.915s] (263/622) before testing::algebraic_laws::tests::version_pair_laws
+        PASS [   1.888s] (264/622) before testing::algebraic_laws::tests::version_pair_party_laws
+        PASS [   0.585s] (265/622) before testing::meter::board::tests::resource_model_preserves_constant_and_exponent_checks
+        PASS [   0.097s] (266/622) before testing::meter::registry::tests::every_family_reaches_board_operations
+        PASS [   0.156s] (267/622) before testing::meter::board::tests::worst_rankings_pin_is_well_formed
+        PASS [   0.140s] (268/622) before testing::meter::registry::tests::family_names_are_unique
+        PASS [   0.132s] (269/622) before testing::meter::board::tests::worst_row_flags_near_ties_strictly_under_the_ratio
+        PASS [   0.150s] (270/622) before testing::meter::registry::tests::roster_order_is_committed
+        PASS [   0.248s] (271/622) before testing::meter::registry::tests::every_shape_is_cited_by_a_family
+        PASS [   0.183s] (272/622) before testing::meter::tests::bigroot_decodes_canonically_at_predicted_length
+        PASS [   0.354s] (273/622) before testing::meter::tests::alt_spine_decodes_canonically_at_predicted_length
+        PASS [   2.091s] (274/622) before testing::asymptotics::version_meet_all_log_factor_is_alive
+        PASS [   2.096s] (275/622) before testing::asymptotics::version_join_all_log_factor_is_alive
+        PASS [   0.287s] (276/622) before testing::meter::tests::descending_boundary_control_decodes_at_predicted_length
+        PASS [   2.644s] (277/622) before testing::asymptotics::clock_join_all_log_factor_is_alive
+        PASS [   1.842s] (278/622) before testing::generators::tests::generator_classes_stay_under_mass
+        PASS [   2.558s] (279/622) before testing::asymptotics::version_span_all_log_factor_is_alive
+        PASS [   0.212s] (280/622) before testing::meter::tests::dominated_undercut_decodes_canonically_at_predicted_length
+        PASS [   0.865s] (281/622) before testing::meter::tests::arming_train_decodes_canonically_at_predicted_length
+        PASS [   0.521s] (282/622) before testing::meter::tests::cancelling_chain_decodes_canonically_at_predicted_length
+        PASS [   0.621s] (283/622) before testing::meter::tests::deeper_hoisted_window_has_no_greater_rank
+        PASS [   0.625s] (284/622) before testing::meter::tests::concurrent_pair_alternates_dominance_at_every_boundary
+        PASS [   0.490s] (285/622) before testing::meter::tests::cliff_fan_decodes_canonically_at_predicted_length
+        PASS [   0.399s] (286/622) before testing::meter::tests::dense_suffix_decodes_canonically_at_predicted_length
+        PASS [   0.357s] (287/622) before testing::meter::tests::dense_decodes_canonically_at_predicted_length
+        PASS [   0.190s] (288/622) before testing::meter::tests::dominated_undercut_id_decodes_canonically_at_predicted_length
+        PASS [   0.063s] (289/622) before testing::meter::tests::harmonic_rank_matches_its_closed_form_at_boundaries
+        PASS [   0.084s] (290/622) before testing::meter::tests::id_spine_decodes_canonically_at_predicted_length
+        PASS [   0.643s] (291/622) before testing::meter::tests::cliff_comb_decodes_canonically_at_predicted_length
+        PASS [   0.801s] (292/622) before testing::meter::tests::descending_boundary_decodes_canonically_at_predicted_length
+        PASS [   2.922s] (293/622) before testing::algebraic_laws::tests::laws_hold_on_organic_populations
+        PASS [   0.106s] (294/622) before testing::meter::tests::hugeleaf_decodes_canonically_at_predicted_length
+        PASS [   0.113s] (295/622) before testing::meter::tests::masked_hole_decodes_canonically_and_realizes_less
+        PASS [   0.041s] (296/622) before testing::meter::tests::scan_meter_counts_deterministically_and_resets
+        PASS [   0.087s] (297/622) before testing::meter::tests::meet_shade_is_the_dominated_carrier
+        PASS [   0.131s] (298/622) before testing::meter::tests::jump_comb_decodes_canonically_at_predicted_length
+        PASS [   0.135s] (299/622) before testing::meter::tests::lone_freeze_decodes_canonically_at_predicted_length
+        PASS [   0.161s] (300/622) before testing::meter::tests::harmonic_decodes_canonically_at_predicted_length
+        PASS [   0.067s] (301/622) before testing::meter::tests::scattered_id_decodes_canonically_at_predicted_length
+        PASS [   0.179s] (302/622) before testing::meter::tests::mask_drift_triple_decodes_canonically_and_realizes_less
+        PASS [   0.095s] (303/622) before testing::meter::tests::scattered_id_projection_retains_each_selected_tooth
+        PASS [   0.712s] (304/622) before testing::meter::tests::dense_suffix_mate_decodes_canonically_at_predicted_length
+        PASS [   0.119s] (305/622) before testing::meter::tests::stagger_id_decodes_canonically_at_predicted_length
+        PASS [   0.191s] (306/622) before testing::meter::tests::tooth_tail_decodes_canonically_at_predicted_length
+        PASS [   0.333s] (307/622) before testing::meter::tests::mask_drift_quadruple_decodes_canonically_and_realizes_less
+        PASS [   0.327s] (308/622) before testing::meter::tests::jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves
+        PASS [   0.416s] (309/622) before testing::meter::tests::latent_ladder_decodes_canonically_at_predicted_length
+        PASS [   0.257s] (310/622) before testing::meter::tests::wide_tooth_comb_decodes_canonically_at_predicted_length
+        PASS [   0.325s] (311/622) before testing::meter::tests::stopping_boundary_decodes_canonically_at_predicted_length
+        PASS [   0.216s] (312/622) before testing::optrace::tests::population_selectors_reach_appended_members
+        PASS [   0.335s] (313/622) before testing::meter::tests::stopping_boundary_control_decodes_at_predicted_length
+        PASS [   0.743s] (314/622) before testing::meter::tests::freeze_parade_decodes_canonically_at_predicted_length
+        PASS [   0.216s] (315/622) before testing::oracles::function::tests::embedding_matches_known_values
+        PASS [   0.341s] (316/622) before testing::meter::tests::stagger_comb_decodes_canonically_at_predicted_length
+        PASS [   0.110s] (317/622) before testing::oracles::function::tests::lifted_event_is_constant_within_a_leaf_interval
+        PASS [   0.422s] (318/622) before testing::oracles::function::tests::fork_partitions
+        PASS [   0.755s] (319/622) before testing::meter::tests::hoisted_window_decodes_canonically_at_predicted_length
+        PASS [   0.829s] (320/622) before testing::meter::tests::freeze_position_decodes_canonically_at_predicted_length
+        PASS [   0.422s] (321/622) before testing::oracles::function::tests::event_dominates_local_and_advances
+        PASS [   0.565s] (322/622) before testing::meter::tests::wide_arming_decodes_canonically_at_predicted_length
+        PASS [   0.581s] (323/622) before testing::meter::tests::weight_comb_decodes_canonically_at_predicted_length
+        PASS [   0.755s] (324/622) before testing::meter::tests::hole_pairs_decode_canonically_at_predicted_lengths
+        PASS [   0.392s] (325/622) before testing::oracles::function::tests::fork_chain_raises_resolution_one_level_per_fork
+        PASS [   0.182s] (326/622) before testing::oracles::function::tests::worked_value_samples_reject_a_mirrored_embedding
+        PASS [   0.076s] (327/622) before testing::oracles::function::tests::rank_differential_rejects_a_cell_dropping_riemann_sum
+        PASS [   0.053s] (328/622) before testing::oracles::tree::tests::event_normalization
+        PASS [   3.634s] (329/622) before testing::algebraic_laws::tests::version_and_list_laws
+        PASS [   0.073s] (330/622) before testing::oracles::tree::tests::event_fills_to_single_integer
+        PASS [   0.079s] (331/622) before testing::oracles::tree::tests::genesis
+        PASS [   0.042s] (332/622) before testing::oracles::tree::tests::id_normalization
+        PASS [   0.042s] (333/622) before testing::oracles::tree::tests::independent_forks_are_concurrent
+        PASS [   0.038s] (334/622) before testing::oracles::tree::tests::meet_is_pointwise_min
+        PASS [   0.448s] (335/622) before testing::oracles::function::tests::grid_cap_is_never_reached
+        PASS [   0.175s] (336/622) before testing::oracles::tree::tests::best_inflation_is_a_min_cost_candidate
+        PASS [   0.190s] (337/622) before testing::oracles::tree::tests::grow_cost_is_globally_minimal
+        PASS [   0.188s] (338/622) before testing::oracles::tree::tests::grow_dominates_no_more_than_needed
+        PASS [   0.190s] (339/622) before testing::oracles::tree::tests::grow_matches_brute_force_choice
+        PASS [   0.468s] (340/622) before testing::oracles::function::tests::order_is_a_partial_order
+        PASS [   0.236s] (341/622) before testing::oracles::tree::tests::clock_own_version
+        PASS [   0.438s] (342/622) before testing::oracles::function::tests::join_is_the_lub
+        PASS [   0.246s] (343/622) before testing::oracles::tree::tests::disjointness_invariant
+        PASS [   0.416s] (344/622) before testing::oracles::function::tests::meet_is_the_glb
+        PASS [   0.266s] (345/622) before testing::oracles::tree::tests::dominated_receive
+        PASS [   0.241s] (346/622) before testing::oracles::tree::tests::heterogeneous_joins
+        PASS [   0.043s] (347/622) before testing::oracles::tree::tests::receive_carries_knowledge
+        PASS [   0.042s] (348/622) before testing::oracles::tree::tests::split_equations
+        PASS [   0.043s] (349/622) before testing::oracles::tree::tests::sum_and_join
+        PASS [   0.247s] (350/622) before testing::oracles::tree::tests::join_identity
+        PASS [   0.235s] (351/622) before testing::oracles::tree::tests::lattice_absorption
+        PASS [   0.256s] (352/622) before testing::oracles::tree::tests::lattice
+        PASS [   0.103s] (353/622) before testing::oracles::tree::tests::party_without
+        PASS [   0.126s] (354/622) before testing::oracles::tree::tests::party_covers
+        PASS [   0.044s] (355/622) before testing::oracles::tree::tests::worked_example
+        PASS [   0.077s] (356/622) before testing::oracles::tree::tests::without_inverts_sum
+        PASS [   0.262s] (357/622) before testing::oracles::tree::tests::meet_semilattice
+        PASS [   0.259s] (358/622) before testing::oracles::tree::tests::monotone
+        PASS [   0.253s] (359/622) before testing::oracles::tree::tests::normal_form
+        PASS [   0.115s] (360/622) before testing::snapshots::clock_canonical_form
+        PASS [   0.113s] (361/622) before testing::snapshots::error_display_strings
+        PASS [   0.275s] (362/622) before testing::oracles::tree::tests::oracle_fork_join_roundtrip
+        PASS [   0.254s] (363/622) before testing::oracles::tree::tests::order_from_join
+        PASS [   0.264s] (364/622) before testing::oracles::tree::tests::oracle_fork_preserves_version
+        PASS [   0.047s] (365/622) before text::tests::count_rejects_noncanonical_decimal
+        PASS [   3.553s] (366/622) before testing::exhaustive::tests::exhaustive_small
+        PASS [   0.247s] (367/622) before testing::oracles::tree::tests::peek_does_not_advance
+        PASS [   0.122s] (368/622) before testing::snapshots::gamma_bit_layout_table
+        PASS [   0.041s] (369/622) before text::tests::invalid_canonical_bytes_are_an_encoding_error
+        PASS [   0.065s] (370/622) before text::tests::count_text_round_trips
+        PASS [   0.046s] (371/622) before version::io::tests::accepts_zero_delta_across_a_subtree_boundary
+        PASS [   0.118s] (372/622) before testing::snapshots::rank_rendered_forms
+        PASS [   0.124s] (373/622) before testing::snapshots::party_canonical_forms
+        PASS [   0.249s] (374/622) before testing::oracles::tree::tests::sync
+        PASS [   0.243s] (375/622) before testing::oracles::tree::tests::version_min_ticks
+        PASS [   0.126s] (376/622) before testing::snapshots::version_canonical_forms
+        PASS [   0.054s] (377/622) before version::io::tests::empty_version_is_the_two_bit_stream
+        PASS [   0.089s] (378/622) before text::tests::party_text_round_trips
+        PASS [   0.272s] (379/622) before testing::oracles::tree::tests::tick_advances
+        PASS [   0.261s] (380/622) before testing::oracles::tree::tests::version_partial_order
+        PASS [   0.044s] (381/622) before version::io::tests::one_fork_matches_hand_derivation
+        PASS [   0.257s] (382/622) before testing::oracles::tree::tests::version_projection
+        PASS [   0.059s] (383/622) before version::io::tests::generator_families_round_trip
+        PASS [   0.083s] (384/622) before version::io::tests::exhaustive_single_bit_mutations_never_alias
+        PASS [   0.051s] (385/622) before version::io::tests::rejects_every_truncation
+        PASS [   0.076s] (386/622) before version::io::tests::exhaustive_small_scope_round_trips_and_is_injective
+        PASS [   0.050s] (387/622) before version::io::tests::rejects_negative_height_midstream
+        PASS [   0.051s] (388/622) before version::io::tests::rejects_negative_running_height
+        PASS [   0.044s] (389/622) before version::io::tests::rejects_trailing_bits
+        PASS [   0.051s] (390/622) before version::io::tests::rejects_non_root_collapsible_pair
+        PASS [   0.045s] (391/622) before version::io::tests::rejects_zero_right_sibling_delta
+        PASS [   0.165s] (392/622) before text::tests::decorations_are_rejected
+        PASS [   0.166s] (393/622) before text::tests::version_text_round_trips
+        PASS [   0.047s] (394/622) before version::io::writer::tests::absorb_cascade_climbs_a_left_spine
+        PASS [   0.159s] (395/622) before version::io::tests::arbitrary_trees_round_trip
+        PASS [   0.062s] (396/622) before version::io::tests::topology_flag_bijection_on_generator_families
+        PASS [   0.072s] (397/622) before version::io::tests::signed_payload_mapping_round_trips
+        PASS [   0.047s] (398/622) before version::io::writer::tests::collapse_after_a_splice_matches_per_leaf_feeding
+        PASS [   0.055s] (399/622) before version::io::writer::tests::copy_subtree_remainder_matches_per_leaf_feeding
+        PASS [   0.050s] (400/622) before version::io::writer::tests::copy_subtree_remainder_reanchors_across_levels
+        PASS [   0.181s] (401/622) before version::io::tests::arbitrary_single_bit_mutations_never_alias
+        PASS [   0.060s] (402/622) before version::io::writer::tests::deep_uniform_collapse_preserves_the_wide_payload
+        PASS [   0.058s] (403/622) before version::io::writer::tests::distinct_siblings_stay_a_pair
+        PASS [   0.049s] (404/622) before version::io::writer::tests::equal_siblings_absorb
+        PASS [   0.083s] (405/622) before version::io::tests::zigzag_is_a_bijection_without_negative_zero
+        PASS [   0.062s] (406/622) before version::io::writer::tests::merged_right_subtree_reanchors_over_left_leaf
+        PASS [   0.055s] (407/622) before version::io::writer::tests::partial_equality_collapses_only_the_equal_pair
+        PASS [   0.050s] (408/622) before version::io::writer::tests::reanchor_cascade_climbs_chained_levels
+        PASS [   0.169s] (409/622) before version::io::tests::planted_collapsible_pairs_are_rejected_at_every_leaf
+        PASS [   0.061s] (410/622) before version::io::writer::tests::split_output_splices_like_leaf_feeding
+        PASS [   0.061s] (411/622) before version::io::writer::tests::single_leaf_is_flag_plus_code
+        PASS [   0.060s] (412/622) before version::io::writer::tests::zero_delta_against_internal_sibling_survives
+        PASS [   0.055s] (413/622) before version::io::writer::tests::uniform_region_cascades_to_one_leaf
+        PASS [   0.084s] (414/622) before version::io::writer::tests::signed_payload_emission_matches_the_composition
+        PASS [   0.070s] (415/622) before version::io::writer::tests::zero_delta_has_the_lone_shortest_code
+        PASS [   0.168s] (416/622) before version::io::tests::topology_flag_bijection_on_arbitrary_trees
+        PASS [   0.068s] (417/622) before version::lattice::tests::family_lattice_laws_hold
+        PASS [   0.101s] (418/622) before version::measure::integral::deferred::tests::exponential_and_uniform_weights_have_expected_depths
+        PASS [   0.123s] (419/622) before version::lattice::tests::flat_over_deep_collapses_totally
+        PASS [   0.123s] (420/622) before version::lattice::tests::reanchor_join_scan_is_linear_per_input_bit
+        PASS [   0.417s] (421/622) before version::lattice::tests::cliff_staircase_pairs_emit_identically
+        PASS [   1.788s] (422/622) before testing::meter::tests::plateau_puncture_decodes_canonically_at_predicted_length
+        PASS [   0.260s] (423/622) before version::measure::integral::width::tests::scaled_width_addition_preserves_values_and_balanced_digits
+        PASS [   0.344s] (424/622) before version::measure::integral::width::tests::clustered_products_match_dense_integer_multiplication
+        PASS [   0.331s] (425/622) before version::measure::integral::width::tests::five_positions_split_at_the_selected_gap_limits
+        PASS [   0.371s] (426/622) before version::measure::integral::deferred::tests::arbitrary_weights_keep_splits_nonempty_and_depth_bounded
+        PASS [   0.566s] (427/622) before version::io::tests::op_paths_yield_identical_bytes
+        PASS [   0.697s] (428/622) before version::lattice::tests::arbitrary_pairs_emit_identically
+        PASS [   0.675s] (429/622) before version::lattice::tests::family_associativity_holds_on_the_kernel
+        PASS [   1.442s] (430/622) before testing::oracles::function::tests::replay_matches_across_references
+        PASS [   0.636s] (431/622) before version::measure::integral::deferred::tests::deferred_products_match_the_ordered_pair_sum
+        PASS [   0.646s] (432/622) before version::lattice::tests::wide_grid_pairs_emit_identically
+        PASS [   0.659s] (433/622) before version::lattice::tests::organic_histories_emit_identically
+        PASS [   0.693s] (434/622) before version::lattice::tests::arbitrary_triples_hold_the_lattice_laws
+        PASS [   0.373s] (435/622) before version::measure::min_ticks::minima::contributions::tests::contribution_storage_preserves_every_representation_boundary
+        PASS [   0.777s] (436/622) before version::lattice::tests::family_pairs_emit_identically
+        PASS [   0.304s] (437/622) before version::measure::tests::arbitrary_projections_agree
+        PASS [   0.423s] (438/622) before version::measure::tests::arbitrary_concurrent_pairs_agree
+        PASS [   2.289s] (439/622) before testing::meter::tests::promotion_rearm_mate_decodes_canonically_at_predicted_length
+        PASS [   1.387s] (440/622) before version::io::tests::organic_histories_round_trip
+        PASS [   0.406s] (441/622) before version::measure::tests::zero_drift_freezes_keep_the_totals_exact
+        PASS [   0.598s] (442/622) before version::measure::tests::arbitrary_factors_embed_their_product_in_exact_rank
+        PASS [   0.555s] (443/622) before version::measure::tests::rank_cmp_agrees_with_the_oracle_in_the_freeze_regime
+        PASS [   0.567s] (444/622) before version::measure::tests::arbitrary_jump_pairs_agree
+        PASS [   6.669s] (445/622) before bits::tests::bit_flip_rejects_or_decodes_canonically
+        PASS [   0.521s] (446/622) before version::measure::tests::parked_cancellation_settles_and_defers_exactly
+        PASS [   1.088s] (447/622) before version::measure::tests::exhaustive_small_scope_agrees
+        PASS [   1.101s] (448/622) before version::measure::tests::arbitrary_mirrored_arming_trains_cancel_to_equal
+        PASS [   0.482s] (449/622) before version::order::tests::directed_comparisons_stop_before_full_comparison
+        PASS [   0.418s] (450/622) before version::order::tests::family_pairs_agree
+        PASS [   0.940s] (451/622) before version::order::tests::arbitrary_pairs_agree
+        PASS [   1.088s] (452/622) before version::measure::tests::arbitrary_trees_agree
+        PASS [   0.533s] (453/622) before version::order::tests::organic_histories_agree
+        PASS [   3.147s] (454/622) before testing::meter::tests::promotion_rearm_decodes_canonically_at_predicted_length
+        PASS [   1.088s] (455/622) before version::measure::tests::organic_histories_agree
+        PASS [   1.093s] (456/622) before version::measure::tests::deferral_families_agree_with_the_oracle
+        PASS [   0.745s] (457/622) before version::order::tests::deep_versus_empty_agrees
+        PASS [   1.054s] (458/622) before version::measure::tests::pair_families_agree
+        PASS [   0.103s] (459/622) before version::own::tests::from_impl_is_to_version
+        PASS [   0.940s] (460/622) before version::order::tests::all_four_outcomes_agree
+        PASS [   1.538s] (461/622) before version::measure::tests::arbitrary_arming_trains_agree
+        PASS [   0.800s] (462/622) before version::order::tests::flush_right_ties_agree
+        PASS [   1.607s] (463/622) before version::measure::tests::families_agree_with_the_encodings
+        PASS [   0.519s] (464/622) before version::place::filter::tests::height_comparison_matches_biguint
+        PASS [   0.252s] (465/622) before version::place::tests::filter_coverage_organic_witnesses
+        PASS [   0.519s] (466/622) before version::projection::tests::collapsible_sibling_pair_sweeps_without_panicking
+        PASS [   1.663s] (467/622) before version::measure::tests::parked_cancellation_family_agrees
+        PASS [   0.584s] (468/622) before version::own::tests::mirror_cells_agree_on_deep_unowned_spines
+        PASS [   0.552s] (469/622) before version::place::tests::filters_materialize_a_difference_only_when_needed
+        PASS [   0.633s] (470/622) before version::own::tests::view_equality_requires_zero_outside_the_region
+        PASS [   0.164s] (471/622) before version::range_minima::tests::a_deferred_50_does_not_enlarge_the_propagated_2_pow_34_drop
+        PASS [   0.416s] (472/622) before version::place::tests::filter_admits_organic_witnesses
+        PASS [   1.216s] (473/622) before version::own::tests::mirror_cells_agree_on_arbitrary_triples
+        PASS [   0.232s] (474/622) before version::range_minima::tests::a_wide_deferred_distance_survives_a_drop_of_fifty
+        PASS [   0.899s] (475/622) before version::place::tests::contains_walk_verdicts_organic_witnesses
+        PASS [   0.264s] (476/622) before version::range_minima::tests::batch_armed_closes_consume_exactly_one_range_record
+        PASS [   0.286s] (477/622) before version::range_minima::tests::followers_share_the_anchor_across_deferred_transitions
+        PASS [   0.235s] (478/622) before version::range_minima::tests::a_wide_undercut_moves_live_followers_by_the_exact_drop
+        PASS [   0.235s] (479/622) before version::range_minima::tests::a_word_deferred_distance_survives_a_drop_of_fifty
+        PASS [   1.388s] (480/622) before version::order::tests::exhaustive_small_scope_agrees
+        PASS [   0.350s] (481/622) before version::range_minima::tests::values_between_anchor_and_minimum_preserve_the_minimum
+        PASS [   0.281s] (482/622) before version::tests::decode_encode_arbitrary
+        PASS [   0.333s] (483/622) before version::range_minima::tests::emitting_25_resolves_a_deferred_1000_without_moving_the_minimum
+        PASS [   0.609s] (484/622) before version::tests::compare_matrix_matches_oracle
+        PASS [   0.211s] (485/622) before version::tests::div_can_fragment_and_raise_min_ticks
+        PASS [   0.211s] (486/622) before version::tests::div_view_matches_materialization
+        PASS [   1.026s] (487/622) before version::place::tests::span_walk_places_organic_witnesses
+        PASS [   0.631s] (488/622) before version::tests::byte_equality_matches_bit_equality
+        PASS [   5.595s] (489/622) before testing::meter::tests::ascend_cliff_band_guard_admits_exactly_the_documented_frontier
+        PASS [   0.334s] (490/622) before version::tests::deep_spine_marginal_cost_is_three_bits_per_level
+        PASS [   0.536s] (491/622) before version::tests::composite_streaming_encoders_match_their_buffered_forms
+        PASS [   0.334s] (492/622) before version::tests::div_decomposes_along_fork
+        PASS [   1.136s] (493/622) before version::place::tests::span_walks_match_the_composed_sweeps
+        PASS [   0.371s] (494/622) before version::tests::eq_matches_causal_walk
+        PASS [   0.354s] (495/622) before version::tests::join_identity_byte_parity
+        PASS [   0.782s] (496/622) before version::range_minima::tests::nested_operations_preserve_minima_and_payload_lifetimes
+        PASS [   1.602s] (497/622) before version::place::tests::precedence_walk_verdicts_organic_witnesses
+        PASS [   0.244s] (498/622) before version::tests::identity_fast_paths_agree_across_buffer_identity
+        PASS [   0.057s] (499/622) before version::tests::meet_all_returns_the_carrier_on_the_shade_population
+        PASS [   0.811s] (500/622) before version::tests::at_rest_size_is_one_container_per_stream
+        PASS [   0.782s] (501/622) before version::tests::boundary_arity_fan_folds_match_the_sequential_fold
+        PASS [   0.050s] (502/622) before version::tests::min_ticks_known_values
+        PASS [   0.048s] (503/622) before version::tests::no_maximum_tick_count
+        PASS [   0.053s] (504/622) before version::tests::new_is_join_identity
+        PASS [   0.046s] (505/622) before version::tests::path_sum_beyond_u64_compares_greater
+        PASS [   0.854s] (506/622) before version::tests::as_bytes_matches_encode_after_ticks
+        PASS [   0.044s] (507/622) before version::tests::rank_decoding_rejects_each_malformed_input_class
+        PASS [   0.049s] (508/622) before version::tests::rank_decode_preserves_late_reader_errors
+        PASS [   0.049s] (509/622) before version::tests::rank_encode_to_streams_the_canonical_encoding
+        PASS [   0.502s] (510/622) before version::tests::fold_clone_collapse_is_value_invisible
+        PASS [   1.851s] (511/622) before version::place::tests::filter_admits_matches_the_composed_sweeps
+        PASS [   0.045s] (512/622) before version::tests::rank_encoding_is_suffix_safe_at_the_padding_boundary
+        PASS [   1.013s] (513/622) before version::tests::as_bytes_matches_encode
+        PASS [   0.050s] (514/622) before version::tests::rank_encoding_known_values
+        PASS [   0.331s] (515/622) before version::tests::join_assign_matrix_matches_oracle
+        PASS [   0.053s] (516/622) before version::tests::rank_encoding_size_is_provenance_linear
+        PASS [   0.260s] (517/622) before version::tests::meet_absorbing_byte_parity
+        PASS [   0.046s] (518/622) before version::tests::rank_formatting_behaves_as_text
+        PASS [   0.255s] (519/622) before version::tests::join_stored_size_is_subadditive
+        PASS [   0.064s] (520/622) before version::tests::rank_known_values
+        PASS [   0.121s] (521/622) before version::tests::rank_encoding_exhaustive_small_scope
+        PASS [   0.049s] (522/622) before version::tests::rank_text_known_values_and_boundaries
+        PASS [   0.180s] (523/622) before version::tests::rank_decode_is_independent_of_reader_chunks
+        PASS [   0.272s] (524/622) before version::tests::join_matrix_matches_oracle
+        PASS [   0.280s] (525/622) before version::tests::meet_assign_matrix_matches_oracle
+        PASS [   0.295s] (526/622) before version::tests::join_stored_size_is_subadditive_arbitrary
+        PASS [   0.284s] (527/622) before version::tests::meet_matrix_matches_oracle
+        PASS [   0.278s] (528/622) before version::tests::meet_stored_size_is_subadditive
+        PASS [   0.278s] (529/622) before version::tests::meet_stored_size_is_subadditive_arbitrary
+        PASS [   0.278s] (530/622) before version::tests::min_ticks_floors_every_history
+        PASS [   0.082s] (531/622) before version::tests::rank_text_rejects_noncanonical_forms
+        PASS [   0.042s] (532/622) before version::tests::ranked_decode_rejects_each_composite_error
+        PASS [   0.058s] (533/622) before version::tests::ranked_composite_key_is_suffix_safe_at_the_tiebreak_boundary
+        PASS [   0.045s] (534/622) before version::tests::ranked_orders_equal_rank_concurrent_pairs_by_bytes
+        PASS [   0.060s] (535/622) before version::tests::ranked_fused_walk_survives_deep_cancellation
+        PASS [   0.046s] (536/622) before version::tests::stored_base_beyond_u64_ticks_and_merges
+        PASS [   0.050s] (537/622) before version::tests::version_encoding_is_prefix_free_on_growth_chains
+        PASS [   0.049s] (538/622) before version::tick::memo::tests::selected_out_of_order_values_cross_block_boundaries
+        PASS [   0.048s] (539/622) before version::tick::raise::tests::worked_examples_grow_exactly
+        PASS [   0.212s] (540/622) before version::tests::rank_text_roundtrips
+        PASS [   0.621s] (541/622) before version::tests::grow_matches_brute_force
+        PASS [   0.117s] (542/622) before version::tick::raise::tests::family_pairs_grow_identically
+        PASS [   0.140s] (543/622) before version::tick::raise::tests::deep_spines_grow_identically
+        PASS [   0.396s] (544/622) before version::tests::rank_prefix_orders_fixed_suffix_row_keys
+        PASS [   2.258s] (545/622) before version::place::tests::filter_coverage_matches_the_composed_sweeps
+        PASS [   0.719s] (546/622) before version::tests::grow_minimal
+        PASS [   0.277s] (547/622) before version::tick::raise::tests::arbitrary_pairs_grow_identically
+        PASS [   0.148s] (548/622) before version::tick::tests::comparable_scales_collapse_under_the_true_minimum
+        PASS [   4.040s] (549/622) before version::lattice::tests::exhaustive_small_scope_emits_identically
+        PASS [   0.727s] (550/622) before version::tests::rank_lex_encoding_is_suffix_safe
+        PASS [   0.245s] (551/622) before version::tick::tests::dominated_undercut_family_ticks_identically
+        PASS [   0.479s] (552/622) before version::tick::tests::comparable_scales_collapse_above_the_true_minimum
+        PASS [   0.195s] (553/622) before version::tick::tests::dominated_undercut_moves_the_live_memo_reference
+        PASS [   0.602s] (554/622) before version::tick::raise::tests::organic_histories_grow_identically
+        PASS [   0.671s] (555/622) before version::tests::tick_and_ticks_match_the_recursive_oracle
+        PASS [   0.699s] (556/622) before version::tests::ranked_composite_encoding_is_suffix_safe
+        PASS [   0.752s] (557/622) before version::tests::rank_sum_equals_the_pairwise_fold
+        PASS [   0.549s] (558/622) before version::tick::tests::arbitrary_pairs_tick_and_flag_identically
+        PASS [   0.662s] (559/622) before version::tests::version_assign_join_matches_oracle
+        PASS [   0.495s] (560/622) before version::tick::tests::deep_and_wide_ticks_match_iterated
+        PASS [   0.512s] (561/622) before version::tick::tests::chain_one_past_the_ceiling_stays_feasible
+        PASS [   0.680s] (562/622) before version::tests::ranked_sort_respects_causality
+        PASS [   0.662s] (563/622) before version::tests::version_collection_folds_match_all_models
+        PASS [   0.349s] (564/622) before version::tick::tests::deep_spines_tick_and_flag_identically
+        PASS [   0.060s] (565/622) before version::tick::tests::flag_reads_plateau_divergence_not_arm_firing
+        PASS [   0.125s] (566/622) before version::tick::tests::dominated_undercut_residue_carries_its_offset
+        PASS [   0.276s] (567/622) before version::tick::tests::tick_deep_orbits_stay_banded
+        PASS [   0.336s] (568/622) before version::tick::tests::flag_compares_offsets_at_full_width
+        PASS [   0.336s] (569/622) before version::tick::tests::expansion_chains_saturate_strictly_feasible
+        PASS [   0.294s] (570/622) before version::tick::tests::latent_ladder_ticks_identically
+        PASS [   0.298s] (571/622) before version::tick::tests::materialize_is_a_noop_once_built
+        PASS [   1.018s] (572/622) before version::tick::raise::tests::exhaustive_small_scope_grows_identically
+        PASS [   0.321s] (573/622) before version::tick::tests::left_full_raise_decides_at_the_site_not_its_close
+        PASS [   0.322s] (574/622) before version::tick::tests::prescan_raise_shapes::full_sibling_of_full_child_is_undecodable
+        PASS [   0.330s] (575/622) before version::tick::tests::narrow_undercut_moves_the_live_memo_reference
+        PASS [   0.525s] (576/622) before version::tick::tests::tick_splices_fill_and_grow
+        PASS [   0.856s] (577/622) before version::tick::tests::family_pairs_tick_and_flag_identically
+        PASS [   0.525s] (578/622) before version::tick::tests::ticks_composes_at_wide_n
+        PASS [   0.762s] (579/622) before version::tick::tests::prescan_raise_shapes::suspended_and_skipping_site_raises_match_oracle
+        PASS [   0.579s] (580/622) before version::tick::tests::tick_is_ticks_one
+        PASS [   0.797s] (581/622) before version::tick::tests::simplification_is_idempotent
+        PASS [   0.818s] (582/622) before version::tick::tests::grow_branch_is_absorbing
+        PASS [   0.526s] (583/622) before version::tick::tests::ticks_from_empty_is_the_counter
+        PASS [   0.797s] (584/622) before version::tick::tests::prescan_raise_shapes::chain_raise_grid_matches_oracle
+        PASS [   0.679s] (585/622) before version::tick::tests::ticks_covers_fill_changed_branch
+        PASS [   0.765s] (586/622) before version::tick::tests::undercut_under_a_live_relation_family_ticks_identically
+        PASS [   1.064s] (587/622) before version::tick::tests::organic_histories_tick_and_flag_identically
+        PASS [   0.765s] (588/622) before version::tick::tests::undercut_residue_at_the_domination_clearance_ticks_identically
+        PASS [   0.819s] (589/622) before version::tick::tests::tick_orbit_growth_is_transient_plus_log
+        PASS [   1.569s] (590/622) before version::tick::tests::exhaustive_small_scope_ticks_and_flags_identically
+        PASS [   0.390s] (591/622) before version::tick::tests::wide_drop_dominates_a_word_scale_latent
+        PASS [   0.300s] (592/622) before::audit_l1 fork_matches_model
+        PASS [   0.300s] (593/622) before version::tick::tests::worked_examples_tick_exactly
+        PASS [   1.168s] (594/622) before version::tick::tests::tick_output_is_input_bounded
+        PASS [   0.403s] (595/622) before version::tick::tests::wide_region_under_a_left_full_spine_ticks_identically
+        PASS [   0.253s] (596/622) before version::tick::tests::wide_latent_dominates_a_word_scale_drop
+        PASS [   0.490s] (597/622) before::audit_l1 array_split_matches_model
+        PASS [   1.168s] (598/622) before version::tick::tests::ticks_matches_iterated_ticks_arbitrary
+        PASS [   0.521s] (599/622) before::audit_l1 clock_forks_match_party_forks
+        PASS [   0.447s] (600/622) before::audit_l1 forks_partial_drain
+        PASS [   2.447s] (601/622) before version::tests::rank_triple_laws_on_seeded_ranks
+        PASS [   0.407s] (602/622) before::audit_l1 model_roundtrip
+        PASS [   0.442s] (603/622) before::audit_l1 set_algebra_arbitrary
+        PASS [   0.057s] (604/622) before::forks_count clock_forks_accept_an_unbounded_count
+        PASS [   0.494s] (605/622) before::audit_l1 join_all_disjoint
+        PASS [   0.226s] (606/622) before::forks_count party_forks_accept_an_unbounded_count
+        PASS [   0.283s] (607/622) before::audit_l1 set_algebra_disjoint
+        FAIL [   0.501s] (608/622) before::audit_l1 join_all_failure_conserves_multiplicity
+  stdout ───
+
+    running 1 test
+    test join_all_failure_conserves_multiplicity ... FAILED
+
+    failures:
+
+    failures:
+        join_all_failure_conserves_multiplicity
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.10s
+
+  stderr ───
+    proptest: Aborting shrinking after the PROPTEST_MAX_SHRINK_ITERS environment variable or ProptestConfig.max_shrink_iters iterations (set 2048 to a large(r) value to shrink more; current configuration: 2048 iterations)
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l1-identity/crates/before/tests/proptest-regressions/main.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
+    cc 2e0ee724445cd023c81f12306618e9a13baf7fb92f0c980cab25d16c54b5dc7c
+
+    thread 'join_all_failure_conserves_multiplicity' (2) panicked at crates/before/tests/audit_l1/main.rs:36:1:
+    Test failed: regions lost or duplicated at crates/before/tests/audit_l1/main.rs:222.
+    minimal failing input: v = [
+        Set(
+            [
+                (
+                    63802943797675961899382738893456539648,
+                    85070591730234615865843651857942052864,
+                ),
+            ],
+        ),
+        Set(
+            [
+                (
+                    0,
+                    42535295865117307932921825928971026432,
+                ),
+            ],
+        ),
+        Set(
+            [
+                (
+                    42535295865117307932921825928971026432,
+                    63802943797675961899382738893456539648,
+                ),
+            ],
+        ),
+    ], intruder = Set(
+        [
+            (
+                0,
+                85070591730234615865843651857942052864,
+            ),
+        ],
+    ), dup = Index(
+        15973047694606820350,
+    ), mode = 0, pos = Index(
+        4029422480430495892,
+    ), order = 6274257461294597418
+    successes: 1
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.325s] (609/622) before::audit_l1 set_algebra_nested
+        PASS [   2.812s] (610/622) before version::tests::rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs
+        PASS [   1.980s] (611/622) before version::tick::tests::exhaustive_small_scope_ticks_n_matches_iterated
+        PASS [   1.597s] (612/622) before version::tick::tests::ticks_matches_iterated_ticks_shapes
+        PASS [   0.355s] (613/622) before::audit_l1 sync_disjoint
+        PASS [   0.500s] (614/622) before::audit_l1 sync_arbitrary
+        PASS [   0.700s] (615/622) before::audit_l1 rule_respecting_histories
+        PASS [   0.570s] (616/622) before::forks_count party_forks_yield_the_requested_count
+        PASS [   0.961s] (617/622) before::audit_l1 clock_join_all_conserves
+        PASS [   0.998s] (618/622) before::audit_l1 sync_all_matches_model
+        PASS [   7.158s] (619/622) before version::measure::tests::exhaustive_small_scope_pairs_agree
+        PASS [   2.914s] (620/622) before::audit_l1 generator_stats
+        PASS [   8.521s] (621/622) before version::tests::ranked_composite_bit_flip_rejects_or_decodes_canonically
+        PASS [  23.808s] (622/622) before testing::algebraic_laws::tests::version_triple_laws
+────────────
+     Summary [  25.123s] 622 tests run: 621 passed, 1 failed, 1 skipped
+        FAIL [   0.501s] (608/622) before::audit_l1 join_all_failure_conserves_multiplicity
+error: test run failed

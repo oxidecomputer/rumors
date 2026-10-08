@@ -1,0 +1,5 @@
+# coverage of crates/before/src/version/io.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 33/33; branch outcomes 2/4
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):
+B   67  [11597175, 0, 11597175, 0]  assert!(range.start <= range.end && range.end <= version.stored_len());

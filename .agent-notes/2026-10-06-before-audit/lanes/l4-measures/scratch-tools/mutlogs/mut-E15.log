@@ -1,0 +1,7 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+────────────
+ Nextest run ID ea7b3a1d-8e4d-489d-98d1-bbf3deccfaab with nextest profile: default
+    Starting 1 test across 12 binaries (696 tests skipped)
+        PASS [   7.078s] (1/1) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+────────────
+     Summary [   7.082s] 1 test run: 1 passed, 696 skipped

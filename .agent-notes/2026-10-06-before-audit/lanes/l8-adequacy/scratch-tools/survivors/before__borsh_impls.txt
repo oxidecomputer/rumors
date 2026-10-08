@@ -1,0 +1,6 @@
+# survivors of crates/before/src/borsh_impls.rs (rest); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/borsh_impls.rs:116:9: replace <impl BitRead for StreamBitsReader<'_, R>>::position -> u64 with 0
+MISSED   crates/before/src/borsh_impls.rs:116:9: replace <impl BitRead for StreamBitsReader<'_, R>>::position -> u64 with 1
+MISSED   crates/before/src/borsh_impls.rs:129:80: replace * with / in <impl BitRead for StreamBitsReader<'_, R>>::read_gamma
+MISSED   crates/before/src/borsh_impls.rs:131:40: replace - with + in <impl BitRead for StreamBitsReader<'_, R>>::read_gamma
+MISSED   crates/before/src/borsh_impls.rs:131:40: replace - with / in <impl BitRead for StreamBitsReader<'_, R>>::read_gamma

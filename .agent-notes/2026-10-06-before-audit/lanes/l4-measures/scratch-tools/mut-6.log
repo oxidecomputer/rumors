@@ -1,0 +1,16 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l4-measures/crates/before)
+warning: calls to `std::mem::drop` with a value that implements `Copy` does nothing
+   --> crates/before/src/version/measure/explore_l4.rs:633:30
+    |
+633 |             ("rank_cmp", &|| drop(a.rank_cmp(&b))),
+    |                              ^^^^^--------------^
+    |                                   |
+    |                                   argument has type `std::cmp::Ordering`
+    |
+    = note: use `let _ = ...` to ignore the expression or result
+    = note: `#[warn(dropping_copy_types)]` on by default
+
+warning: `before` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 02s
+mutant none harness=0
+mutant M25 harness=100

@@ -1,0 +1,21 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.52s
+────────────
+ Nextest run ID fdca1eff-af17-4000-8f32-20b64ceba331 with nextest profile: default
+    Starting 1 test across 12 binaries (699 tests skipped)
+       START [         ] (1/1) before clock::tests::l8_witness_clock_lone_party_bad_padding
+
+running 1 test
+verdict: Err(TrailingBits)
+test clock::tests::l8_witness_clock_lone_party_bad_padding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+        PASS [   0.046s] (1/1) before clock::tests::l8_witness_clock_lone_party_bad_padding
+────────────
+     Summary [   0.051s] 1 test run: 1 passed, 699 skipped
+original done

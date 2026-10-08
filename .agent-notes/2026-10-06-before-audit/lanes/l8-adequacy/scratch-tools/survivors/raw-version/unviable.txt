@@ -1,0 +1,216 @@
+crates/before/src/version.rs:409:9: replace Version::ranked -> Ranked<'_> with Default::default()
+crates/before/src/version.rs:684:9: replace Version::span -> Span<'static> with Default::default()
+crates/before/src/version.rs:746:9: replace Version::span_all -> Span<'static> with Default::default()
+crates/before/src/version.rs:820:9: replace Version::project -> OwnVersion<'a> with Default::default()
+crates/before/src/version.rs:873:9: replace Version::shape -> crate::shape::Plateaus<'_> with Default::default()
+crates/before/src/version.rs:926:9: replace Version::with_items -> impl Iterator<Item = FoldInput<'_, I::Item>> with ::std::iter::once(FoldInput::new())
+crates/before/src/version.rs:926:9: replace Version::with_items -> impl Iterator<Item = FoldInput<'_, I::Item>> with ::std::iter::once(FoldInput::from_iter([Default::default()]))
+crates/before/src/version.rs:926:9: replace Version::with_items -> impl Iterator<Item = FoldInput<'_, I::Item>> with ::std::iter::once(FoldInput::new(Default::default()))
+crates/before/src/version.rs:926:9: replace Version::with_items -> impl Iterator<Item = FoldInput<'_, I::Item>> with ::std::iter::once(FoldInput::from(Default::default()))
+crates/before/src/version.rs:1014:9: replace Version::encode_to -> IoResult<()> with IoResult::new()
+crates/before/src/version.rs:1014:9: replace Version::encode_to -> IoResult<()> with IoResult::from_iter([()])
+crates/before/src/version.rs:1014:9: replace Version::encode_to -> IoResult<()> with IoResult::new(())
+crates/before/src/version.rs:1014:9: replace Version::encode_to -> IoResult<()> with IoResult::from(())
+crates/before/src/version.rs:1069:9: replace Version::encode_rank_to -> IoResult<()> with IoResult::new()
+crates/before/src/version.rs:1069:9: replace Version::encode_rank_to -> IoResult<()> with IoResult::from_iter([()])
+crates/before/src/version.rs:1069:9: replace Version::encode_rank_to -> IoResult<()> with IoResult::new(())
+crates/before/src/version.rs:1069:9: replace Version::encode_rank_to -> IoResult<()> with IoResult::from(())
+crates/before/src/version.rs:1201:9: replace <impl Iterator for DedupRuns<I, F>>::next -> Option<I::Item> with Some(Default::default())
+crates/before/src/version.rs:1607:9: replace <impl Div<&'a Party> for &'a Version>::div -> OwnVersion<'a> with Default::default()
+crates/before/src/version.rs:1635:9: replace <impl PartialOrd<&Version> for Version>::partial_cmp -> Option<Ordering> with Some(Default::default())
+crates/before/src/version.rs:1658:9: replace <impl PartialOrd<Version> for &Version>::partial_cmp -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/instrument.rs:39:5: replace causal_cmp -> Option<core::cmp::Ordering> with Some(Default::default())
+crates/before/src/version/io.rs:92:9: replace PayloadRange<'a>::storage -> (&'a Bits, Range<u64>) with (Box::leak(Box::new(Default::default())), Range::new())
+crates/before/src/version/io.rs:92:9: replace PayloadRange<'a>::storage -> (&'a Bits, Range<u64>) with (Box::leak(Box::new(Default::default())), Range::from_iter([0]))
+crates/before/src/version/io.rs:92:9: replace PayloadRange<'a>::storage -> (&'a Bits, Range<u64>) with (Box::leak(Box::new(Default::default())), Range::new(0))
+crates/before/src/version/io.rs:92:9: replace PayloadRange<'a>::storage -> (&'a Bits, Range<u64>) with (Box::leak(Box::new(Default::default())), Range::from(0))
+crates/before/src/version/io.rs:92:9: replace PayloadRange<'a>::storage -> (&'a Bits, Range<u64>) with (Box::leak(Box::new(Default::default())), Range::from_iter([1]))
+crates/before/src/version/io.rs:92:9: replace PayloadRange<'a>::storage -> (&'a Bits, Range<u64>) with (Box::leak(Box::new(Default::default())), Range::new(1))
+crates/before/src/version/io.rs:92:9: replace PayloadRange<'a>::storage -> (&'a Bits, Range<u64>) with (Box::leak(Box::new(Default::default())), Range::from(1))
+crates/before/src/version/lattice.rs:120:9: replace Extreme::pick -> Side with Default::default()
+crates/before/src/version/lattice.rs:152:9: replace Version::hull_bits -> Hull with Default::default()
+crates/before/src/version/order.rs:81:9: replace <impl PartialOrd<Version> for Version>::partial_cmp -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/order.rs:148:9: replace OrderState::relation -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/order.rs:183:9: replace OrderState::exit_le -> ControlFlow<bool> with ControlFlow::new()
+crates/before/src/version/order.rs:183:9: replace OrderState::exit_le -> ControlFlow<bool> with ControlFlow::from_iter([true])
+crates/before/src/version/order.rs:183:9: replace OrderState::exit_le -> ControlFlow<bool> with ControlFlow::new(true)
+crates/before/src/version/order.rs:183:9: replace OrderState::exit_le -> ControlFlow<bool> with ControlFlow::from(true)
+crates/before/src/version/order.rs:183:9: replace OrderState::exit_le -> ControlFlow<bool> with ControlFlow::from_iter([false])
+crates/before/src/version/order.rs:183:9: replace OrderState::exit_le -> ControlFlow<bool> with ControlFlow::new(false)
+crates/before/src/version/order.rs:183:9: replace OrderState::exit_le -> ControlFlow<bool> with ControlFlow::from(false)
+crates/before/src/version/order.rs:192:9: replace OrderState::exit_order -> ControlFlow<Option<Ordering>> with ControlFlow::new()
+crates/before/src/version/order.rs:192:9: replace OrderState::exit_order -> ControlFlow<Option<Ordering>> with ControlFlow::from_iter([None])
+crates/before/src/version/order.rs:192:9: replace OrderState::exit_order -> ControlFlow<Option<Ordering>> with ControlFlow::new(None)
+crates/before/src/version/order.rs:192:9: replace OrderState::exit_order -> ControlFlow<Option<Ordering>> with ControlFlow::from(None)
+crates/before/src/version/order.rs:192:9: replace OrderState::exit_order -> ControlFlow<Option<Ordering>> with ControlFlow::from_iter([Some(Default::default())])
+crates/before/src/version/order.rs:192:9: replace OrderState::exit_order -> ControlFlow<Option<Ordering>> with ControlFlow::new(Some(Default::default()))
+crates/before/src/version/order.rs:192:9: replace OrderState::exit_order -> ControlFlow<Option<Ordering>> with ControlFlow::from(Some(Default::default()))
+crates/before/src/version/order.rs:201:9: replace OrderState::exit_equality -> ControlFlow<bool> with ControlFlow::new()
+crates/before/src/version/order.rs:201:9: replace OrderState::exit_equality -> ControlFlow<bool> with ControlFlow::from_iter([true])
+crates/before/src/version/order.rs:201:9: replace OrderState::exit_equality -> ControlFlow<bool> with ControlFlow::new(true)
+crates/before/src/version/order.rs:201:9: replace OrderState::exit_equality -> ControlFlow<bool> with ControlFlow::from(true)
+crates/before/src/version/order.rs:201:9: replace OrderState::exit_equality -> ControlFlow<bool> with ControlFlow::from_iter([false])
+crates/before/src/version/order.rs:201:9: replace OrderState::exit_equality -> ControlFlow<bool> with ControlFlow::new(false)
+crates/before/src/version/order.rs:201:9: replace OrderState::exit_equality -> ControlFlow<bool> with ControlFlow::from(false)
+crates/before/src/version/order.rs:224:5: replace compare -> V with Default::default()
+crates/before/src/version/overlay.rs:52:5: replace advance -> (Option<A::Crossing>, Option<B::Crossing>) with (None, Some(Default::default()))
+crates/before/src/version/overlay.rs:52:5: replace advance -> (Option<A::Crossing>, Option<B::Crossing>) with (Some(Default::default()), None)
+crates/before/src/version/overlay.rs:52:5: replace advance -> (Option<A::Crossing>, Option<B::Crossing>) with (Some(Default::default()), Some(Default::default()))
+crates/before/src/version/overlay.rs:188:9: replace Side::other -> Side with Default::default()
+crates/before/src/version/overlay.rs:256:9: replace OpenedPair<'a>::open -> OpenedPair<'a> with Default::default()
+crates/before/src/version/place.rs:87:9: replace BoundSide<'a>::open -> BoundSide<'a> with Default::default()
+crates/before/src/version/place.rs:105:9: replace BoundSide<'a>::relation -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/place.rs:128:5: replace span -> Placement with Default::default()
+crates/before/src/version/place.rs:135:9: replace span::on_side -> ControlFlow<Placement, Fate> with Default::default()
+crates/before/src/version/place.rs:185:5: replace dominance -> Dominance with Default::default()
+crates/before/src/version/place.rs:235:5: replace precedence -> Precedence with Default::default()
+crates/before/src/version/place.rs:337:5: replace walk -> V with Default::default()
+crates/before/src/version/projection.rs:86:9: replace <impl Operand for Version>::comparison_parts -> (&Version, Option<&Party>) with (Box::leak(Box::new(Default::default())), Some(Box::leak(Box::new(Default::default()))))
+crates/before/src/version/projection.rs:92:9: replace <impl Operand for OwnVersion<'_>>::comparison_parts -> (&Version, Option<&Party>) with (Box::leak(Box::new(Default::default())), Some(Box::leak(Box::new(Default::default()))))
+crates/before/src/version/projection.rs:216:9: replace Comparison<'a>::order -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/projection.rs:252:9: replace Comparison<'a>::open -> Comparison<'a> with Default::default()
+crates/before/src/version/projection.rs:297:9: replace Comparison<'a>::resolve -> V with Default::default()
+crates/before/src/version/projection.rs:382:27: replace += with *= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:384:31: replace += with *= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:394:27: replace -= with /= in Comparison<'a>::block_skip
+crates/before/src/version/projection.rs:396:31: replace += with *= in Comparison<'a>::block_skip
+crates/before/src/version/range_minima.rs:302:9: replace RangeMinima<P>::close -> Close<P> with Close::new()
+crates/before/src/version/range_minima.rs:302:9: replace RangeMinima<P>::close -> Close<P> with Close::from_iter([Default::default()])
+crates/before/src/version/range_minima.rs:302:9: replace RangeMinima<P>::close -> Close<P> with Close::new(Default::default())
+crates/before/src/version/range_minima.rs:302:9: replace RangeMinima<P>::close -> Close<P> with Close::from(Default::default())
+crates/before/src/version/shape.rs:36:9: replace VersionWalk<'a>::rise -> Option<Rise> with Some(Default::default())
+crates/before/src/version/shape.rs:50:9: replace VersionWalk<'a>::open -> Self with Default::default()
+crates/before/src/version/shape.rs:63:9: replace VersionWalk<'a>::take_rise -> Option<Rise> with Some(Default::default())
+crates/before/src/version/shape.rs:77:9: replace PartyWalk<'a>::open -> Self with Default::default()
+crates/before/src/version/tick.rs:207:9: replace TickWalk<'_>::decide -> Decision with Default::default()
+crates/before/src/version/tick.rs:453:9: replace TickWalk<'_>::read_node -> VersionNode with Default::default()
+crates/before/src/version/tick.rs:522:32: replace += with *= in TickWalk<'_>::consume_lookahead
+crates/before/src/version/tick.rs:562:22: replace -= with /= in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:576:26: replace += with *= in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/tick.rs:577:26: replace -= with /= in TickWalk<'_>::consume_h_anchored
+crates/before/src/version/io/regions.rs:98:9: replace VersionRegionReader<'a>::open -> (Self, BigUint) with (Default::default(), Default::default())
+crates/before/src/version/io/regions.rs:253:9: replace Extremum::max -> Self with Default::default()
+crates/before/src/version/io/regions.rs:265:9: replace Extremum::min -> Self with Default::default()
+crates/before/src/version/io/regions.rs:368:9: replace VersionSubtreeReader::summarize_remaining -> Option<RegionSkip> with Some(Default::default())
+crates/before/src/version/io/regions.rs:395:9: replace RegionSkip::read_subtree -> Self with Default::default()
+crates/before/src/version/io/splice.rs:32:9: replace VersionSpliceReader<'a>::leaf -> Option<PayloadRange<'a>> with Some(Default::default())
+crates/before/src/version/io/splice.rs:51:9: replace VersionSpliceReader<'a>::subtree -> VersionSubtree<'a> with Default::default()
+crates/before/src/version/io/tree.rs:42:9: replace VersionTreeReader<'a>::at -> Self with Default::default()
+crates/before/src/version/io/tree.rs:60:9: replace VersionTreeReader<'a>::node -> VersionNode with Default::default()
+crates/before/src/version/io/tree.rs:84:9: replace VersionTreeReader<'a>::payload_range -> PayloadRange<'a> with Default::default()
+crates/before/src/version/io/writer.rs:100:9: replace Output::with_capacity -> Self with Default::default()
+crates/before/src/version/io/writer.rs:155:9: replace Output::take_left -> PendingPayload with Default::default()
+crates/before/src/version/io/writer.rs:222:9: replace SplitOutput::from_interleaved -> Self with Default::default()
+crates/before/src/version/io/writer.rs:466:9: replace VersionWriter::with_capacity -> Self with Default::default()
+crates/before/src/version/measure/integral.rs:181:28: replace += with *= in Integrator::open_difference
+crates/before/src/version/measure/integral.rs:182:29: replace -= with /= in Integrator::open_difference
+crates/before/src/version/measure/integral.rs:256:21: replace += with *= in Integrator::freeze
+crates/before/src/version/measure/integral.rs:316:9: replace Integrator::finish -> (Ordering, BigUint) with (Default::default(), Default::default())
+crates/before/src/version/measure/rank.rs:47:9: replace Version::rank_cmp -> Ordering with Default::default()
+crates/before/src/version/place/filter.rs:149:9: replace HeightWidths::between -> Self with Default::default()
+crates/before/src/version/place/filter.rs:196:9: replace Comparison::relation -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/place/filter.rs:220:9: replace Comparison::compare_heights -> (Ordering, Option<Accumulator>) with (Default::default(), None)
+crates/before/src/version/place/filter.rs:220:9: replace Comparison::compare_heights -> (Ordering, Option<Accumulator>) with (Default::default(), Some(Default::default()))
+crates/before/src/version/place/filter.rs:261:24: replace += with *= in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:262:24: replace -= with /= in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:264:24: replace += with *= in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:265:24: replace -= with /= in Comparison::compare_heights
+crates/before/src/version/place/filter.rs:496:5: replace coverage -> Coverage with Default::default()
+crates/before/src/version/place/filter.rs:671:9: replace SpanCursors<'_>::finish -> Coverage with Default::default()
+crates/before/src/version/range_minima/anchor.rs:74:18: replace += with *= in Anchor::fold_accumulator
+crates/before/src/version/range_minima/anchor.rs:92:16: replace -= with /= in Anchor::arm_below
+crates/before/src/version/range_minima/anchor.rs:98:18: replace -= with /= in Anchor::arm_relative
+crates/before/src/version/range_minima/anchor.rs:109:23: replace += with *= in Anchor::move_by
+crates/before/src/version/range_minima/anchor.rs:112:20: replace += with *= in Anchor::move_by
+crates/before/src/version/range_minima/anchor.rs:123:9: replace Anchor::compare_height -> Ordering with Default::default()
+crates/before/src/version/range_minima/anchor.rs:140:9: replace Anchor::compare_below_anchor -> Ordering with Default::default()
+crates/before/src/version/range_minima/anchor.rs:165:9: replace Anchor::gap_dominates_word -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/range_minima/anchor.rs:204:23: replace -= with /= in Anchor::lower_by
+crates/before/src/version/range_minima/anchor.rs:207:22: replace -= with /= in Anchor::lower_by
+crates/before/src/version/range_minima/anchor.rs:236:23: replace -= with /= in Anchor::resolve
+crates/before/src/version/range_minima/anchor.rs:238:18: replace += with *= in Anchor::resolve
+crates/before/src/version/range_minima/anchor.rs:259:16: replace += with *= in Anchor::add_gap_to
+crates/before/src/version/range_minima/anchor.rs:268:16: replace -= with /= in Anchor::subtract_gap_from
+crates/before/src/version/range_minima/anchor.rs:277:9: replace Anchor::compare_offset_to -> Ordering with Default::default()
+crates/before/src/version/range_minima/anchor.rs:277:18: replace -= with /= in Anchor::compare_offset_to
+crates/before/src/version/range_minima/anchor.rs:281:18: replace += with *= in Anchor::compare_offset_to
+crates/before/src/version/range_minima/boundaries.rs:95:9: replace Boundaries<P>::pop -> Option<Entry<P>> with Some(Entry::new())
+crates/before/src/version/range_minima/boundaries.rs:95:9: replace Boundaries<P>::pop -> Option<Entry<P>> with Some(Entry::from_iter([Default::default()]))
+crates/before/src/version/range_minima/boundaries.rs:95:9: replace Boundaries<P>::pop -> Option<Entry<P>> with Some(Entry::new(Default::default()))
+crates/before/src/version/range_minima/boundaries.rs:95:9: replace Boundaries<P>::pop -> Option<Entry<P>> with Some(Entry::from(Default::default()))
+crates/before/src/version/range_minima/boundary.rs:41:9: replace Boundary::from_positive -> Self with Default::default()
+crates/before/src/version/range_minima/boundary.rs:60:23: replace += with *= in Boundary::into_accumulator
+crates/before/src/version/range_minima/boundary.rs:70:43: replace += with *= in Boundary::add_to
+crates/before/src/version/range_minima/boundary.rs:71:43: replace += with *= in Boundary::add_to
+crates/before/src/version/range_minima/boundary.rs:77:9: replace Boundary::lowered_by -> Remainder with Default::default()
+crates/before/src/version/range_minima/boundary.rs:85:9: replace Boundary::lower_word -> Remainder with Default::default()
+crates/before/src/version/range_minima/boundary.rs:85:18: replace -= with /= in Boundary::lower_word
+crates/before/src/version/range_minima/boundary.rs:103:9: replace Boundary::lower_wide -> Remainder with Default::default()
+crates/before/src/version/range_minima/boundary.rs:106:30: replace -= with /= in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:116:30: replace -= with /= in Boundary::lower_wide
+crates/before/src/version/range_minima/boundary.rs:124:18: replace -= with /= in Boundary::lower_wide
+crates/before/src/version/range_minima/emission.rs:94:9: replace RangeMinima<()>::compare_above -> Ordering with Default::default()
+crates/before/src/version/range_minima/emission.rs:111:9: replace RangeMinima<()>::compare_above_vs -> Ordering with Default::default()
+crates/before/src/version/tick/frames.rs:80:9: replace Frames::top -> Option<Frame> with Some(Default::default())
+crates/before/src/version/tick/frames.rs:140:9: replace Frames::pop_await_right -> (u64, Cost) with (0, Default::default())
+crates/before/src/version/tick/frames.rs:140:9: replace Frames::pop_await_right -> (u64, Cost) with (1, Default::default())
+crates/before/src/version/tick/memo.rs:61:9: replace Block::take -> Option<StoredAccumulator> with Some(Default::default())
+crates/before/src/version/tick/memo.rs:151:9: replace Memo::take_link -> Option<StoredAccumulator> with Some(Default::default())
+crates/before/src/version/tick/output.rs:80:9: replace Output::writer -> &mut VersionWriter with Box::leak(Box::new(Default::default()))
+crates/before/src/version/tick/prescan.rs:283:44: replace += with *= in PreScan<'a, 'm>::record
+crates/before/src/version/tick/prescan.rs:319:20: replace += with *= in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:327:18: replace += with *= in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:341:17: replace += with *= in PreScan<'a, 'm>::resolve_inner
+crates/before/src/version/tick/prescan.rs:457:20: replace += with *= in PreScan<'a, 'm>::skip_collapse
+crates/before/src/version/tick/probe.rs:40:9: replace RaiseProbe::join -> Cost with Default::default()
+crates/before/src/version/tick/probe.rs:54:9: replace RaiseProbe::expand -> Cost with Default::default()
+crates/before/src/version/tick/probe.rs:83:9: replace RaiseProbe::take_route -> Route with Default::default()
+crates/before/src/version/tick/probe.rs:91:9: replace RaiseProbe::route -> &mut Route with Box::leak(Box::new(Default::default()))
+crates/before/src/version/tick/probe.rs:110:9: replace RaiseProbe::expand_subtree -> Cost with Default::default()
+crates/before/src/version/tick/raise.rs:169:9: replace Raise<'v, 'p>::descend -> Target<'v> with Default::default()
+crates/before/src/version/tick/raise.rs:238:9: replace Raise<'v, 'p>::collect_expansion -> BranchDirections with Default::default()
+crates/before/src/version/tick/route.rs:59:9: replace Distance::from_stack_word -> Option<Distance> with Some(Default::default())
+crates/before/src/version/tick/route.rs:69:9: replace Distance::deepen -> Distance with Default::default()
+crates/before/src/version/tick/route.rs:87:9: replace Distance::prefer -> (BranchChoice, Option<Distance>) with (Default::default(), None)
+crates/before/src/version/tick/route.rs:87:9: replace Distance::prefer -> (BranchChoice, Option<Distance>) with (Default::default(), Some(Default::default()))
+crates/before/src/version/tick/route.rs:108:39: replace - with +
+crates/before/src/version/tick/route.rs:136:9: replace Cost::descend -> Cost with Default::default()
+crates/before/src/version/tick/route.rs:144:9: replace Cost::expand -> Cost with Default::default()
+crates/before/src/version/tick/route.rs:152:9: replace Cost::expansion_path -> Cost with Default::default()
+crates/before/src/version/tick/route.rs:167:9: replace Cost::from_stack_words -> Cost with Default::default()
+crates/before/src/version/tick/route.rs:179:9: replace Cost::prefer -> (BranchChoice, Cost) with (Default::default(), Default::default())
+crates/before/src/version/tick/route.rs:189:9: replace <impl Ord for Cost>::cmp -> Ordering with Default::default()
+crates/before/src/version/tick/route.rs:200:9: replace <impl PartialOrd for Cost>::partial_cmp -> Option<Ordering> with Some(Default::default())
+crates/before/src/version/tick/route.rs:235:9: replace BranchDirections::for_party_span -> Self with Default::default()
+crates/before/src/version/tick/route.rs:250:9: replace BranchDirections::choice -> BranchChoice with Default::default()
+crates/before/src/version/tick/route.rs:278:9: replace Route::choice -> BranchChoice with Default::default()
+crates/before/src/version/io/splice/subtree.rs:28:9: replace VersionSubtree<'a>::first_payload -> PayloadRange<'a> with Default::default()
+crates/before/src/version/io/splice/subtree.rs:57:9: replace VersionSubtree<'a>::scan -> Self with Default::default()
+crates/before/src/version/io/validate/admit.rs:78:9: replace CheckedVersionReader<'a, C>::open -> Result<(Self, BigUint), Decode> with Ok((Default::default(), Default::default()))
+crates/before/src/version/io/validate/admit.rs:253:5: replace dominating_from -> Result<Admission, Decode> with Ok(Default::default())
+crates/before/src/version/measure/integral/deferred.rs:121:22: replace += with *= in Aggregate::merge
+crates/before/src/version/measure/integral/pair.rs:29:9: replace Integrator::pair_order -> Ordering with Default::default()
+crates/before/src/version/measure/integral/pair.rs:41:9: replace Integrator::pair -> (Ordering, BigUint, u64) with (Default::default(), Default::default(), 0)
+crates/before/src/version/measure/integral/pair.rs:41:9: replace Integrator::pair -> (Ordering, BigUint, u64) with (Default::default(), Default::default(), 1)
+crates/before/src/version/measure/integral/width.rs:32:9: replace ScaledWidth::read -> Self with Default::default()
+crates/before/src/version/measure/integral/width.rs:67:9: replace SparseWidth::from_scaled -> Self with Default::default()
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::once(Vec::leak(Vec::new()))
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::once(Vec::leak(vec![(0, 0)]))
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::once(Vec::leak(vec![(0, 1)]))
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::once(Vec::leak(vec![(0, -1)]))
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::once(Vec::leak(vec![(1, 0)]))
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::once(Vec::leak(vec![(1, 1)]))
+crates/before/src/version/measure/integral/width.rs:155:9: replace SparseWidth::clusters -> impl Iterator<Item =&[(u64, i64)]> with ::std::iter::once(Vec::leak(vec![(1, -1)]))
+crates/before/src/version/measure/min_ticks/minima.rs:82:9: replace Arming<'_>::replace_current -> StoredContribution with Default::default()
+crates/before/src/version/tick/prescan/frames.rs:51:9: replace Frames::top -> Option<Frame> with Some(Default::default())
+crates/before/src/version/tick/prescan/suspended.rs:63:9: replace AccumulatorStack::pop -> Option<StoredAccumulator> with Some(Default::default())
+crates/before/src/version/tick/prescan/suspended.rs:130:9: replace Levels::pop -> Option<Level> with Some(Default::default())
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:69:29: replace << with >>
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:71:29: replace << with >>
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:73:28: replace << with >>
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:84:9: replace StoredContribution::inline -> Option<Self> with Some(Default::default())
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:100:9: replace StoredContribution::decode -> Contribution with Default::default()
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:140:9: replace ContributionStore::store -> StoredContribution with Default::default()
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:153:9: replace ContributionStore::spill -> StoredContribution with Default::default()
+crates/before/src/version/measure/min_ticks/minima/contributions.rs:188:9: replace ContributionStore::take -> Contribution with Default::default()
+crates/before/src/version/measure/min_ticks/minima/heights.rs:64:9: replace HeightPrefixes::add_leaf -> LeafHeight with Default::default()

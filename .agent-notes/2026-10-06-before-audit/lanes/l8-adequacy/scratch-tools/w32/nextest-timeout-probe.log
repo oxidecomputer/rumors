@@ -1,0 +1,15 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/suanpan)
+   Compiling wasm32-pins-harness v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/harness)
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 29.86s
+────────────
+ Nextest run ID 501f1d57-3db2-42d8-8789-775889a62ef8 with nextest profile: default
+    Starting 1 test across 5 binaries (8 tests skipped)
+        SLOW [> 60.000s] (───) wasm32-pins-harness::l8_sleep l8_sleeps_past_the_root_limit
+        SLOW [>120.000s] (───) wasm32-pins-harness::l8_sleep l8_sleeps_past_the_root_limit
+        SLOW [>180.000s] (───) wasm32-pins-harness::l8_sleep l8_sleeps_past_the_root_limit
+        PASS [ 200.059s] (1/1) wasm32-pins-harness::l8_sleep l8_sleeps_past_the_root_limit
+────────────
+     Summary [ 200.060s] 1 test run: 1 passed (1 slow), 8 skipped
+sleep-probe exit=0

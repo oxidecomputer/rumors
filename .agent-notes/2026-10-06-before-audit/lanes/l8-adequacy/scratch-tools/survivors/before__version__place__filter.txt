@@ -1,0 +1,14 @@
+# survivors of crates/before/src/version/place/filter.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/place/filter.rs:185:38: replace && with || in Comparison::fold
+MISSED   crates/before/src/version/place/filter.rs:185:77: replace != with == in Comparison::fold
+MISSED   crates/before/src/version/place/filter.rs:260:39: replace <= with > in Comparison::compare_heights
+MISSED   crates/before/src/version/place/filter.rs:360:26: replace -= with += in admits
+MISSED   crates/before/src/version/place/filter.rs:360:26: replace -= with /= in admits
+MISSED   crates/before/src/version/place/filter.rs:364:26: replace -= with += in admits
+MISSED   crates/before/src/version/place/filter.rs:364:26: replace -= with /= in admits
+MISSED   crates/before/src/version/place/filter.rs:603:22: replace -= with += in coverage
+MISSED   crates/before/src/version/place/filter.rs:603:22: replace -= with /= in coverage
+MISSED   crates/before/src/version/place/filter.rs:613:37: replace && with || in coverage
+MISSED   crates/before/src/version/place/filter.rs:614:37: replace && with || in coverage
+MISSED   crates/before/src/version/place/filter.rs:689:21: delete ! in SpanCursors<'_>::finish
+MISSED   crates/before/src/version/place/filter.rs:692:21: delete ! in SpanCursors<'_>::finish

@@ -1,0 +1,4 @@
+# survivors of crates/before/src/version/measure/integral.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/measure/integral.rs:230:58: replace + with * in Integrator::boundary
+MISSED   crates/before/src/version/measure/integral.rs:230:43: replace > with >= in Integrator::boundary
+MISSED   crates/before/src/version/measure/integral.rs:253:45: replace > with >= in Integrator::freeze

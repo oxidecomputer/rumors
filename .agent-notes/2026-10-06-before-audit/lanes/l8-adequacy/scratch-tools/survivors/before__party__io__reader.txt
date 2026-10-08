@@ -1,0 +1,14 @@
+# survivors of crates/before/src/party/io/reader.rs (party); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/party/io/reader.rs:48:9: replace PartyPath<'a>::stored_len -> u64 with 0
+MISSED   crates/before/src/party/io/reader.rs:48:9: replace PartyPath<'a>::stored_len -> u64 with 1
+MISSED   crates/before/src/party/io/reader.rs:48:18: replace - with + in PartyPath<'a>::stored_len
+MISSED   crates/before/src/party/io/reader.rs:73:9: replace PartySubtree<'a>::stored_len -> u64 with 0
+MISSED   crates/before/src/party/io/reader.rs:73:9: replace PartySubtree<'a>::stored_len -> u64 with 1
+MISSED   crates/before/src/party/io/reader.rs:73:18: replace - with / in PartySubtree<'a>::stored_len
+MISSED   crates/before/src/party/io/reader.rs:83:9: replace PartySubtree<'a>::is_branch -> bool with true
+MISSED   crates/before/src/party/io/reader.rs:220:9: replace PartyReader<'a>::source_len -> u64 with 0
+MISSED   crates/before/src/party/io/reader.rs:220:9: replace PartyReader<'a>::source_len -> u64 with 1
+MISSED   crates/before/src/party/io/reader.rs:331:18: replace - with + in PartyReader<'a>::stored_len
+MISSED   crates/before/src/party/io/reader.rs:331:9: replace PartyReader<'a>::stored_len -> u64 with 0
+MISSED   crates/before/src/party/io/reader.rs:331:9: replace PartyReader<'a>::stored_len -> u64 with 1
+MISSED   crates/before/src/party/io/reader.rs:341:9: replace PartyReader<'a>::at_end -> bool with true

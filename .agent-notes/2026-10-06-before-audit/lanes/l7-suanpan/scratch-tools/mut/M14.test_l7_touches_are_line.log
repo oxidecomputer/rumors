@@ -1,0 +1,60 @@
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:914:17
+    |
+914 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.84s
+────────────
+ Nextest run ID 7e318879-4be7-4e0f-808c-639e90322f55 with nextest profile: default
+    Starting 1 test across 2 binaries (69 tests skipped)
+        FAIL [  11.112s] (1/1) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+  stdout ───
+
+    running 1 test
+    test accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work ... FAILED
+
+    failures:
+
+    failures:
+        accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 68 filtered out; finished in 11.06s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l7-suanpan/crates/suanpan/proptest-regressions/accumulator/tests/explore_l7.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
+    cc f2cce88e8253edf30ddd6012da056fcc1af3b59a4d54fff04ef3afcb547f16c4
+
+    thread 'accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work' (2) panicked at crates/suanpan/src/accumulator/tests/explore_l7.rs:776:5:
+    Test failed: touches 216 > 8 * work 5 + 64 at crates/suanpan/src/accumulator/tests/explore_l7.rs:790.
+    minimal failing input: ops = [
+        Limbs {
+            t: 0,
+            negative: false,
+            limbs: [],
+            shift: 0,
+        },
+        GapRound {
+            t: 0,
+            low: None,
+            inner: 2,
+            top: 213,
+        },
+    ]
+    successes: 24
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [  11.115s] 1 test run: 0 passed, 1 failed, 69 skipped
+        FAIL [  11.112s] (1/1) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+error: test run failed

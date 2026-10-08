@@ -1,0 +1,18 @@
+SHAPE2-PASS
+test testing::audit_l5::l5_organic_antichains ... ok
+test testing::audit_l5::l5_organic_queries ... ok
+test testing::audit_l5::l5_organic_verdicts ... ok
+test testing::audit_l5::l5_organic_own_and_algebra has been running for over 60 seconds
+test testing::audit_l5::l5_shaped_algebra has been running for over 60 seconds
+test testing::audit_l5::l5_shaped_antichains has been running for over 60 seconds
+test testing::audit_l5::l5_shaped_own_span has been running for over 60 seconds
+test testing::audit_l5::l5_shaped_queries has been running for over 60 seconds
+test testing::audit_l5::l5_shaped_verdicts has been running for over 60 seconds
+test testing::audit_l5::l5_organic_own_and_algebra ... ok
+test testing::audit_l5::l5_shaped_algebra ... ok
+test testing::audit_l5::l5_shaped_queries ... ok
+test testing::audit_l5::l5_shaped_verdicts ... ok
+test testing::audit_l5::l5_shaped_own_span ... ok
+test testing::audit_l5::l5_shaped_antichains ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 1543.02s
+exit=0

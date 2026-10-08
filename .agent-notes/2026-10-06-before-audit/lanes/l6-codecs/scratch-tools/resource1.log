@@ -1,0 +1,34 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.53s
+     Running tests/l6_resource.rs (target/debug/deps/l6_resource-eb113f9c7fcbcf4c)
+
+running 1 test
+test l6_hostile_decoder_resources ... ranked: wide integral prefix       input     16390 B  peak      81935 B  (5.00/B)  touches         1  scan          6  -> Err(NotCanonical)
+ranked borsh: wide integral prefix input     16390 B  peak      98313 B  (6.00/B)  touches         1  scan         12  -> Err(InvalidData)
+ranked: long fraction prefix       input     16385 B  peak      60088 B  (3.67/B)  touches         1  scan          6  -> Err(NotCanonical)
+rank: truncated wide integral      input     16387 B  peak      24576 B  (1.50/B)  touches         0  scan          0  -> Err(Truncated)
+ranked: tiny prefix, wide version  input     16386 B  peak      81994 B  (5.00/B)  touches      6151  scan     393222  -> Err(NotCanonical)
+version: wide leaf (reference)     input     16385 B  peak      40985 B  (2.50/B)  touches      1026  scan     131074  -> Ok(())
+ranked: wide integral prefix       input     65542 B  peak     327695 B  (5.00/B)  touches         1  scan          6  -> Err(NotCanonical)
+ranked borsh: wide integral prefix input     65542 B  peak     393225 B  (6.00/B)  touches         1  scan         12  -> Err(InvalidData)
+ranked: long fraction prefix       input     65537 B  peak     240310 B  (3.67/B)  touches         1  scan          6  -> Err(NotCanonical)
+rank: truncated wide integral      input     65539 B  peak      98304 B  (1.50/B)  touches         0  scan          0  -> Err(Truncated)
+ranked: tiny prefix, wide version  input     65538 B  peak     327754 B  (5.00/B)  touches     24583  scan    1572870  -> Err(NotCanonical)
+version: wide leaf (reference)     input     65537 B  peak     163865 B  (2.50/B)  touches      4098  scan     524290  -> Ok(())
+ranked: wide integral prefix       input    262151 B  peak    1310736 B  (5.00/B)  touches         1  scan          6  -> Err(NotCanonical)
+ranked borsh: wide integral prefix input    262151 B  peak    1572873 B  (6.00/B)  touches         1  scan         12  -> Err(InvalidData)
+ranked: long fraction prefix       input    262145 B  peak     961202 B  (3.67/B)  touches         1  scan          6  -> Err(NotCanonical)
+rank: truncated wide integral      input    262148 B  peak     393216 B  (1.50/B)  touches         0  scan          0  -> Err(Truncated)
+ranked: tiny prefix, wide version  input    262146 B  peak    1310794 B  (5.00/B)  touches     98311  scan    6291462  -> Err(NotCanonical)
+version: wide leaf (reference)     input    262145 B  peak     655385 B  (2.50/B)  touches     16386  scan    2097154  -> Ok(())
+ranked: wide integral prefix       input   1048583 B  peak    5242896 B  (5.00/B)  touches         1  scan          6  -> Err(NotCanonical)
+ranked borsh: wide integral prefix input   1048583 B  peak    6291465 B  (6.00/B)  touches         1  scan         12  -> Err(InvalidData)
+ranked: long fraction prefix       input   1048577 B  peak    3844792 B  (3.67/B)  touches         1  scan          6  -> Err(NotCanonical)
+rank: truncated wide integral      input   1048580 B  peak    1572864 B  (1.50/B)  touches         0  scan          0  -> Err(Truncated)
+ranked: tiny prefix, wide version  input   1048578 B  peak    5242954 B  (5.00/B)  touches    393223  scan   25165830  -> Err(NotCanonical)
+version: wide leaf (reference)     input   1048577 B  peak    2621465 B  (2.50/B)  touches     65538  scan    8388610  -> Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+exit=0

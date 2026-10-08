@@ -1,0 +1,8 @@
+# survivors of crates/before/src/bits/writer.rs (bits); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/bits/writer.rs:194:47: replace | with ^ in BitsWriter::append_bits
+MISSED   crates/before/src/bits/writer.rs:244:32: replace | with ^ in BitsWriter::read_word
+MISSED   crates/before/src/bits/writer.rs:328:9: replace BitsWriter::tail_is_zeroed -> bool with true
+MISSED   crates/before/src/bits/writer.rs:363:18: replace > with == in BitsWriter::splice_storage
+MISSED   crates/before/src/bits/writer.rs:363:18: replace > with < in BitsWriter::splice_storage
+MISSED   crates/before/src/bits/writer.rs:363:18: replace > with >= in BitsWriter::splice_storage
+MISSED   crates/before/src/bits/writer.rs:379:9: replace <impl core::fmt::Debug for BitsWriter>::fmt -> core::fmt::Result with Ok(Default::default())

@@ -1,0 +1,51 @@
+
+running 1 test
+test zz_l7_fuel_matrix ... L7M family 4 size 64 op 1 net 2803103
+L7M family 4 size 64 op 3 net 4763567
+L7M family 4 size 64 op 4 net 4740654
+L7M family 4 size 64 op 5 net 4740836
+L7M family 4 size 64 op 6 net 6415170
+L7M family 4 size 64 op 7 net 4936046
+L7M family 4 size 64 op 8 net 6443415
+L7M family 4 size 64 op 9 net 7196318
+L7M family 4 size 64 op 10 net 12990408
+L7M family 4 size 256 op 1 net 12901187
+L7M family 4 size 256 op 3 net 19843830
+L7M family 4 size 256 op 4 net 19723674
+L7M family 4 size 256 op 5 net 19723856
+L7M family 4 size 256 op 6 net 26265461
+L7M family 4 size 256 op 7 net 20353982
+L7M family 4 size 256 op 8 net 27382058
+L7M family 4 size 256 op 9 net 30359937
+L7M family 4 size 256 op 10 net 57817111
+L7M family 4 size 1024 op 1 net 57813959
+L7M family 4 size 1024 op 3 net 82395122
+L7M family 4 size 1024 op 4 net 81880693
+L7M family 4 size 1024 op 5 net 81880875
+L7M family 4 size 1024 op 6 net 107881271
+L7M family 4 size 1024 op 7 net 84243187
+L7M family 4 size 1024 op 8 net 115715362
+L7M family 4 size 1024 op 9 net 128036487
+L7M family 4 size 1024 op 10 net 256347977
+L7M family 4 size 4096 op 1 net 252402020
+L7M family 4 size 4096 op 3 net 340100033
+L7M family 4 size 4096 op 4 net 338012783
+L7M family 4 size 4096 op 5 net 338012965
+L7M family 4 size 4096 op 6 net 441859210
+L7M family 4 size 4096 op 7 net 347305171
+L7M family 4 size 4096 op 8 net 484731092
+L7M family 4 size 4096 op 9 net 536035229
+L7M family 4 size 4096 op 10 net 1120054708
+L7M family 4 size 16384 op 1 net 1105485685
+L7M family 4 size 16384 op 3 net 1408349839
+L7M family 4 size 16384 op 4 net 1399971133
+L7M family 4 size 16384 op 5 net 1399971315
+L7M family 4 size 16384 op 6 net 1815192408
+L7M family 4 size 16384 op 7 net 1436982177
+L7M family 4 size 16384 op 8 net 2037630730
+L7M family 4 size 16384 op 9 net 2249573163
+L7M family 4 size 16384 op 10 net 4838852941
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 10.17s
+

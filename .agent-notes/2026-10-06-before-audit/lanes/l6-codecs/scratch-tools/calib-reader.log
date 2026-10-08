@@ -1,0 +1,57 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l6-codecs/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.93s
+────────────
+ Nextest run ID 1b173896-0c1a-489e-ab05-bf799c8cd0ba with nextest profile: default
+    Starting 1 test across 12 binaries (697 tests skipped)
+        FAIL [   0.333s] (1/1) before testing::l6_probes::probe_reader_entries_ignore_chunking
+  stdout ───
+
+    running 1 test
+    test testing::l6_probes::probe_reader_entries_ignore_chunking ... FAILED
+
+    failures:
+
+    failures:
+        testing::l6_probes::probe_reader_entries_ignore_chunking
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.29s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l6-codecs/crates/before/proptest-regressions/testing/l6_probes.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
+    cc 0140c98d107917860ecb9ff56fbba2eadbecc56c0d8e0fcc5fafa71f125d2c09
+
+    thread 'testing::l6_probes::probe_reader_entries_ignore_chunking' (2) panicked at crates/before/src/testing/l6_probes.rs:194:1:
+    Test failed: assertion failed: `(left == right)` 
+      left: `"Err(Truncated)"`, 
+     right: `"Err(TrailingBits)"`: rank short/interrupted reader diverged on [fd, 6b, 30, 42, 90, 93, d9, 7c, 95, 16, b1, 86, d3, e9, 55, e0, 00, 00] (max 1, every 2) at crates/before/src/testing/l6_probes.rs:170.
+    minimal failing input: p = Leaf(
+        true,
+    ), a = Node(
+        1,
+        Node(
+            0,
+            Leaf(
+                1815440465880152717610109168994982,
+            ),
+            Leaf(
+                0,
+            ),
+        ),
+        Leaf(
+            0,
+        ),
+    ), b = Leaf(
+        0,
+    ), how = 30, at = 0, max = 1, every = 2, fail_at = 1, wide_rank = false
+    successes: 1
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.339s] 1 test run: 0 passed, 1 failed, 697 skipped
+        FAIL [   0.333s] (1/1) before testing::l6_probes::probe_reader_entries_ignore_chunking
+error: test run failed
+exit=100

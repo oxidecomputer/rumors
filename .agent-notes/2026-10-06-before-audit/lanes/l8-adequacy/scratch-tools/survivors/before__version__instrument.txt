@@ -1,0 +1,4 @@
+# survivors of crates/before/src/version/instrument.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/instrument.rs:33:5: replace meet -> Version with Default::default()
+MISSED   crates/before/src/version/instrument.rs:57:5: replace min_ticks -> crate::Count with Default::default()
+MISSED   crates/before/src/version/instrument.rs:63:5: replace project -> Version with Default::default()

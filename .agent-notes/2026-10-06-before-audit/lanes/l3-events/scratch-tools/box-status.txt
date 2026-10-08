@@ -1,0 +1,32 @@
+13:39:12    up 19 min(s),  0 users,  load average: 17.05, 15.62, 8.03
+agent-a01c89ed9db157cf5
+agent-a1849f641dc3f6898
+agent-a18518956fab7f40c
+agent-a7993c4177d8e0ac8
+analyze.sh
+before-p1-board
+before-p1-fuzz
+before-p1-gate
+before-p1-gate-calib
+before-p1-gate-precodec
+before-p1-gate-presweep
+before-p1-survivors
+before-p2-census
+before-p2-generators
+before-p2-surface
+before-p2-widths
+before-p2-widths-parent
+before-p8-tagwalk
+branch.bundle
+canonical-edk2-debug-20260916
+canonical-edk2-inputs-20260916
+canonical-edk2-observer-failure-20260916
+canonical-edk2-release-20260916
+canonical-integration-debug-20260916
+canonical-integration-inputs-20260916
+canonical-observation-activation-rejected-20260916
+canonical-observation-activation-reviewed-20260916
+canonical-observation-context-edk2-20260916
+canonical-observation-context-xcvradm-20260916
+canonical-observer-edk2-prepared-20260916
+rpool/home            2.82T  1.08T      1.24T    47%    /home

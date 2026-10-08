@@ -1,0 +1,5 @@
+# survivors of crates/before/src/accumulator.rs (rank); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/accumulator.rs:99:9: delete match arm [] in magnitude
+MISSED   crates/before/src/accumulator.rs:100:9: delete match arm &[low] in magnitude
+MISSED   crates/before/src/accumulator.rs:101:9: delete match arm &[low, high] in magnitude
+MISSED   crates/before/src/accumulator.rs:101:55: replace | with ^ in magnitude

@@ -1,0 +1,29 @@
+campaign-bits 269 {'Unviable': 10, 'CaughtMutant': 249, 'MissedMutant': 10}
+crates/before/src/bits/reader.rs:182:23: replace += with *= in BitsReader<'a>::read_word
+crates/before/src/bits/reader.rs:201:38: replace + with * in BitsReader<'a>::unary_raw
+crates/before/src/bits/reader.rs:218:40: replace - with + in BitsReader<'a>::truncated
+crates/before/src/bits/reader.rs:298:33: replace + with * in <impl BitRead for BitsReader<'_>>::read_unary
+crates/before/src/bits/storage.rs:82:9: replace Bits::has_canonical_padding -> bool with true
+crates/before/src/bits/storage.rs:83:13: delete match arm [] in Bits::has_canonical_padding
+crates/before/src/bits/storage.rs:84:13: delete match arm [0x80] |[.., 0] in Bits::has_canonical_padding
+crates/before/src/bits/storage.rs:156:9: replace <impl Hash for Bits>::hash with ()
+crates/before/src/bits/writer.rs:194:47: replace | with ^ in BitsWriter::append_bits
+crates/before/src/bits/writer.rs:244:32: replace | with ^ in BitsWriter::read_word
+campaign2-party 277 {'Unviable': 69, 'CaughtMutant': 193, 'MissedMutant': 15}
+crates/before/src/party.rs:150:9: replace <impl core::hash::Hash for Party>::hash with ()
+crates/before/src/party/compare.rs:149:30: replace || with && in Comparison<'a, 'b>::descend
+crates/before/src/party/fork.rs:101:60: replace + with * in Party::fork_tree
+crates/before/src/party/fork.rs:119:60: replace + with * in Party::fork_tree
+crates/before/src/party/forks.rs:61:47: replace && with || in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:139:63: replace - with + in Remaining::advance
+crates/before/src/party/forks.rs:139:63: replace - with / in Remaining::advance
+crates/before/src/party/io.rs:29:26: replace > with >= in Party::decode_prefix
+crates/before/src/party/io/reader.rs:48:9: replace PartyPath<'a>::stored_len -> u64 with 0
+crates/before/src/party/io/reader.rs:48:9: replace PartyPath<'a>::stored_len -> u64 with 1
+crates/before/src/party/io/reader.rs:48:18: replace - with + in PartyPath<'a>::stored_len
+crates/before/src/party/io/reader.rs:73:9: replace PartySubtree<'a>::stored_len -> u64 with 0
+crates/before/src/party/io/reader.rs:73:9: replace PartySubtree<'a>::stored_len -> u64 with 1
+crates/before/src/party/io/reader.rs:73:18: replace - with / in PartySubtree<'a>::stored_len
+crates/before/src/party/io/reader.rs:83:9: replace PartySubtree<'a>::is_branch -> bool with true
+October  7, 2026 at 11:13:43 PM GMT
+23:13:43    up  9:54,  1 user,  load average: 153.60, 119.50, 119.12

@@ -1,0 +1,4 @@
+# survivors of crates/before/src/version.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version.rs:162:9: replace <impl Hash for Version>::hash with ()
+MISSED   crates/before/src/version.rs:776:24: replace &= with |= in Version::span_all
+MISSED   crates/before/src/version.rs:777:24: replace |= with &= in Version::span_all

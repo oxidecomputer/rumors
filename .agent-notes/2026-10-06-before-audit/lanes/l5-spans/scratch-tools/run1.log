@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+────────────
+ Nextest run ID 8485e391-dc2d-4e92-98d8-2bae47ff770f with nextest profile: default
+    Starting 6 tests across 12 binaries (694 tests skipped)
+        PASS [   0.170s] (1/6) before testing::audit_l5::l5_census_is_exact_against_a_finer_universe
+        PASS [   0.472s] (2/6) before testing::audit_l5::l5_queries_match_vectors
+        PASS [   0.667s] (3/6) before testing::audit_l5::l5_span_query_agree
+        PASS [   0.849s] (4/6) before testing::audit_l5::l5_span_algebra_matches_vectors
+        PASS [   2.729s] (5/6) before testing::audit_l5::l5_own_span_matches_vectors
+        PASS [  12.700s] (6/6) before testing::audit_l5::l5_span_verdicts_match_vectors
+────────────
+     Summary [  12.705s] 6 tests run: 6 passed, 694 skipped

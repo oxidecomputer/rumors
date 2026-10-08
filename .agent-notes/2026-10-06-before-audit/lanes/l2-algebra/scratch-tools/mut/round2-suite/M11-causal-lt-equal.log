@@ -1,0 +1,439 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l2-algebra/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 55s
+────────────
+ Nextest run ID 08381d00-3f8c-4b6f-894c-2195b66dfed7 with nextest profile: default
+    Starting 693 tests across 12 binaries (1 test and 2 binaries skipped)
+        PASS [   0.098s] (  1/693) before bits::reader::tests::gamma_reader_matches_decoder_across_the_word_seam
+        PASS [   0.098s] (  2/693) before bits::reader::tests::truncated_codes_reject_at_every_cut_point
+        PASS [   0.099s] (  3/693) before bits::reader::tests::mid_stream_opens_read_the_same_suffix
+        PASS [   0.080s] (  4/693) before bits::tests::empty_input_is_truncated
+        PASS [   0.103s] (  5/693) before bits::reader::tests::skipping_gamma_records_exactly_the_bits_a_read_records
+        PASS [   0.057s] (  6/693) before bits::tests::flush_version_cut_before_its_marker_byte_is_truncated
+        PASS [   0.103s] (  7/693) before bits::reader::tests::unary_reads_match_the_per_bit_loop_across_word_seams
+        PASS [   0.088s] (  8/693) before bits::stack::packed_u64::tests::packed_values_round_trip
+        PASS [   0.126s] (  9/693) before bits::tests::decode_never_yields_anonymous_party
+        PASS [   0.105s] ( 10/693) before bits::tests::flush_stream_carries_a_whole_marker_byte
+        PASS [   0.050s] ( 11/693) before bits::tests::from_canonical_matches_freeze
+        PASS [   0.056s] ( 12/693) before bits::tests::freeze_canonicalizes_storage
+        PASS [   0.061s] ( 13/693) before bits::tests::gamma_costs
+        PASS [   0.066s] ( 14/693) before bits::tests::gamma_roundtrip_just_above_u64_max
+        PASS [   0.174s] ( 15/693) before bits::reader::tests::arbitrary_streams_match_the_slice_cursor
+        PASS [   0.048s] ( 16/693) before bits::tests::gamma_roundtrip_wide_value
+        PASS [   0.070s] ( 17/693) before bits::tests::gamma_roundtrip
+        PASS [   0.049s] ( 18/693) before bits::tests::gamma_truncated
+        PASS [   0.188s] ( 19/693) before accumulator::tests::accumulator_entry_points_match_the_oracle
+        PASS [   0.157s] ( 20/693) before bits::stack::bit::tests::bit_stack_matches_a_vec_of_bools
+        PASS [   0.045s] ( 21/693) before bits::tests::gamma_window_declines_conservatively
+        PASS [   0.058s] ( 22/693) before bits::tests::gamma_truncated_inside_wide_mantissa
+        PASS [   0.105s] ( 23/693) before bits::tests::gamma_roundtrip_wide
+        PASS [   0.055s] ( 24/693) before bits::tests::gamma_window_edge
+        PASS [   0.049s] ( 25/693) before bits::tests::malformed_padding_rejected_witness
+        PASS [   0.229s] ( 26/693) before accumulator::tests::shifted_accumulator_entry_points_match_the_oracle
+        PASS [   0.051s] ( 27/693) before bits::tests::marker_validation_agrees_with_storage_canonicality
+        PASS [   0.229s] ( 28/693) before accumulator::tests::signed_accumulator_entry_points_match_the_oracle
+        PASS [   0.078s] ( 29/693) before bits::tests::gamma_word_decode_matches_bit_loop
+        PASS [   0.050s] ( 30/693) before bits::tests::reject_intra_byte_padding
+        PASS [   0.064s] ( 31/693) before bits::tests::marker_padding_separates_length_collisions
+        PASS [   0.050s] ( 32/693) before bits::tests::reject_deep_nested_denormal_id
+        PASS [   0.187s] ( 33/693) before bits::stack::packed_u64::tests::packed_stack_matches_a_vec_across_all_widths
+        PASS [   0.086s] ( 34/693) before bits::tests::gamma_word_encode_matches_bit_encode
+        PASS [   0.058s] ( 35/693) before bits::tests::ptr_eq_implies_equality_and_clones_share_nonempty_storage
+        PASS [   0.058s] ( 36/693) before bits::tests::reject_noncanonical_id
+        PASS [   0.053s] ( 37/693) before bits::tests::reject_truncated
+        PASS [   0.266s] ( 38/693) before bits::tests::flush_cut_party_reads_truncated_for_party_and_clock
+        PASS [   0.054s] ( 39/693) before bits::tests::reject_trailing_bits
+        PASS [   0.096s] ( 40/693) before bits::tests::padding_perturbation_rejects
+        PASS [   0.277s] ( 41/693) before bits::tests::canonical_encoding_is_injective
+        PASS [   0.110s] ( 42/693) before bits::tests::gamma_word_paths_match_on_arbitrary_bytes
+        PASS [   0.060s] ( 43/693) before bits::tests::transcoding_normalizes_noncanonical_event
+        PASS [   0.050s] ( 44/693) before bits::tests::version_and_clock_decoding_rejects_intra_byte_padding
+        PASS [   0.249s] ( 45/693) before bits::tests::encode_to_matches_encode
+        PASS [   0.063s] ( 46/693) before borsh_impls::tests::borsh_every_type_pair_composes_with_exact_boundaries
+        PASS [   0.057s] ( 47/693) before borsh_impls::tests::coincident_span_borsh_rejects_tampered_join_padding
+        PASS [   0.057s] ( 48/693) before borsh_impls::tests::borsh_sequence_defect_preserves_its_error_class
+        PASS [   0.057s] ( 49/693) before borsh_impls::tests::coincident_span_keeps_borsh_container_framing
+        PASS [   0.058s] ( 50/693) before borsh_impls::tests::deep_trees_roundtrip_through_borsh
+        PASS [   0.046s] ( 51/693) before borsh_impls::tests::flush_cut_is_truncated_by_both_decoders
+        PASS [   0.286s] ( 52/693) before bits::tests::decode_encode_roundtrip
+        PASS [   0.294s] ( 53/693) before bits::tests::build_history_spelling_is_a_function_of_content
+        PASS [   0.074s] ( 54/693) before borsh_impls::tests::count_borsh_matches_canonical_limbs
+        PASS [   0.093s] ( 55/693) before borsh_impls::tests::count_borsh_rejects_trailing_zero
+        PASS [   0.060s] ( 56/693) before borsh_impls::tests::joined_party_roundtrips_through_borsh
+        PASS [   0.048s] ( 57/693) before borsh_impls::tests::rank_borsh_preserves_decode_errors
+        PASS [   0.063s] ( 58/693) before borsh_impls::tests::rank_borsh_is_the_canonical_encoding
+        PASS [   0.328s] ( 59/693) before bits::tests::build_history_spellings_are_injective
+        PASS [   0.067s] ( 60/693) before borsh_impls::tests::ranked_borsh_composes_and_preserves_decode_errors
+        PASS [   0.087s] ( 61/693) before borsh_impls::tests::non_canonical_borsh_bytes_report_invalid_data
+        PASS [   0.071s] ( 62/693) before borsh_impls::tests::rank_composes_in_a_borsh_stream
+        PASS [   0.055s] ( 63/693) before borsh_impls::tests::span_borsh_rejects_collapsible_join
+        PASS [   0.074s] ( 64/693) before borsh_impls::tests::span_borsh_composes_and_preserves_decode_errors
+        PASS [   0.068s] ( 65/693) before borsh_impls::tests::span_borsh_dedups_the_coincident_span
+        PASS [   0.115s] ( 66/693) before borsh_impls::tests::party_wire_decode_matches_bitwise_reference
+        PASS [   0.047s] ( 67/693) before borsh_impls::tests::truncated_borsh_stream_reports_unexpected_eof
+        PASS [   0.057s] ( 68/693) before borsh_impls::tests::span_borsh_rejects_negative_height_join
+        PASS [   0.109s] ( 69/693) before borsh_impls::tests::rank_wire_decode_matches_slice_reference
+        PASS [   0.045s] ( 70/693) before causally::tests::conjunction_normalizes
+        PASS [   0.050s] ( 71/693) before causally::tests::conversions_denote
+        PASS [   0.045s] ( 72/693) before causally::tests::coverage_clamp_refinement_is_exact
+        PASS [   0.187s] ( 73/693) before borsh_impls::tests::clock_wire_decode_matches_bitwise_reference
+        PASS [   0.172s] ( 74/693) before borsh_impls::tests::flush_cut_party_is_truncated_by_both_decoders
+        PASS [   0.047s] ( 75/693) before causally::tests::coverage_witness_matrix
+        PASS [   0.133s] ( 76/693) before borsh_impls::tests::ranked_wire_decode_matches_bitwise_reference
+        PASS [   0.047s] ( 77/693) before causally::tests::degenerate_holes_are_inert
+        PASS [   0.057s] ( 78/693) before causally::tests::debug_renders_expressions
+        PASS [   0.044s] ( 79/693) before causally::tests::forms_keep_their_relations
+        PASS [   0.078s] ( 80/693) before causally::tests::coverage_is_exact_on_the_two_party_grid
+        PASS [   0.237s] ( 81/693) before borsh_impls::tests::borsh_roundtrips_over_impl_history
+        PASS [   0.137s] ( 82/693) before borsh_impls::tests::span_wire_decode_matches_bitwise_reference
+        PASS [   0.128s] ( 83/693) before borsh_impls::tests::version_wire_decode_matches_bitwise_reference
+        FAIL [   0.049s] ( 84/693) before clock::tests::clock_observers_match_oracle
+  stdout ───
+
+    running 1 test
+    test clock::tests::clock_observers_match_oracle ... FAILED
+
+    failures:
+
+    failures:
+        clock::tests::clock_observers_match_oracle
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'clock::tests::clock_observers_match_oracle' (2) panicked at crates/before/src/clock/tests.rs:182:1:
+    Test failed: assertion failed: `(left == right)` 
+      left: `true`,
+     right: `false` at crates/before/src/clock/tests.rs:197.
+    minimal failing input: ops = [
+        Send(
+            Index(
+                6987111351693520561,
+            ),
+            Index(
+                2856007062536718252,
+            ),
+        ),
+        Send(
+            Index(
+                6352485637992633809,
+            ),
+            Index(
+                5368100460707255233,
+            ),
+        ),
+        Fork(
+            Index(
+                12393917105599264701,
+            ),
+        ),
+        Send(
+            Index(
+                12000742890173282816,
+            ),
+            Index(
+                17991581502323535388,
+            ),
+        ),
+        Join(
+            Index(
+                13099386914453194710,
+            ),
+            Index(
+                15459476492588819768,
+            ),
+        ),
+        Send(
+            Index(
+                9524541739879443975,
+            ),
+            Index(
+                3018146000926298262,
+            ),
+        ),
+        Sync(
+            Index(
+                1511157260191446674,
+            ),
+            Index(
+                4161087085417024243,
+            ),
+        ),
+        Send(
+            Index(
+                1530385397772307675,
+            ),
+            Index(
+                3294101178770204913,
+            ),
+        ),
+        Send(
+            Index(
+                8857722413875822193,
+            ),
+            Index(
+                18096909741800841357,
+            ),
+        ),
+        Tick(
+            Index(
+                17387523199281580758,
+            ),
+        ),
+        Ticks(
+            Index(
+                15668821063833341375,
+            ),
+            4,
+        ),
+        Sync(
+            Index(
+                8166076811682377714,
+            ),
+            Index(
+                727212764895929283,
+            ),
+        ),
+        Fork(
+            Index(
+                960883753574555599,
+            ),
+        ),
+        Sync(
+            Index(
+                380858103257396030,
+            ),
+            Index(
+                8122097750543196369,
+            ),
+        ),
+        Fork(
+            Index(
+                17722535087955413297,
+            ),
+        ),
+        Sync(
+            Index(
+                9532924557826165891,
+            ),
+            Index(
+                1277774353071561409,
+            ),
+        ),
+        Join(
+            Index(
+                7939650401518485768,
+            ),
+            Index(
+                4160693785321577379,
+            ),
+        ),
+        Sync(
+            Index(
+                17575500661076354282,
+            ),
+            Index(
+                8926595022029514970,
+            ),
+        ),
+        Join(
+            Index(
+                18153437625479983803,
+            ),
+            Index(
+                5949934515824562410,
+            ),
+        ),
+        Sync(
+            Index(
+                6109389232496799147,
+            ),
+            Index(
+                6100432185792481178,
+            ),
+        ),
+    ], i = 46, j = 16
+    successes: 0
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  Cancelling due to test failure: 23 tests still running
+        FAIL [   0.093s] ( 85/693) before causally::tests::public_queries_match_their_relational_denotation
+  stdout ───
+
+    running 1 test
+    test causally::tests::public_queries_match_their_relational_denotation ... FAILED
+
+    failures:
+
+    failures:
+        causally::tests::public_queries_match_their_relational_denotation
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 603 filtered out; finished in 0.05s
+
+  stderr ───
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l2-algebra/crates/before/proptest-regressions/causally/tests.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file.
+    cc 037cdc8e91ae098d66047141b8802f014748bcf1372ebcee1d50577ff0c8072d
+
+    thread 'causally::tests::public_queries_match_their_relational_denotation' (2) panicked at crates/before/src/causally/tests.rs:309:1:
+    Test failed: assertion failed: `(left == right)` 
+      left: `false`, 
+     right: `true`: large downward expression after(Version(0b0000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101110001011110011111100000100010100110100011100111001001101011100000001011110011111011000011011111000101101111000101011011111100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010111000101111001111110000010001010011001111110011100100101111110000000101111001111101100001101111100010110111100010101101100001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000001101110110110110011111110100111010110001001100110101101111110100001100000101111011101110010000000010110001001000010110111010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010100101001100111000011000100000011000101010010101100011001111111110100111000011010010100111111100011001100110001111101000011001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101010010111000110011110011100011101000010001001110111011010111001000000010000110101110000011001000110000001100010100011101100010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010011111111111111111111111111111111111111111111111111111111111111111111111111111110101111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101000100011101001110000101000111110101100111111001110010000011000010011000110110101000110110100011100110101000110010110011111011010)) & !before(Version(0b0000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101110001011110011111100000100010100110100011100111001001101011100000001011110011111011000011011111000101101111000101011011111100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010111000101111001111110000010001010011001111110011100100101111110000000101111001111101100001101111100010110111100010101101100001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000001101110110110110011111110100111010110001001100110101101111110100001100000101111011101110010000000010110001001000010110111010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010100101001100111000011000100000011000101010010101100011001111111110100111000011010010100111111100011001100110001111101000011001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101010010111000110011110011100011101000010001001110111011010111001000000010000110101110000011001000110000001100010100011101100010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010011111111111111111111111111111111111111111111111111111111111111111111111111111110101111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101000100011101001110000101000111110101100111111001110010000011000010011000110110101000110110100011100110101000110010110011111011010)) at Version(0b0000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101110001011110011111100000100010100110100011100111001001101011100000001011110011111011000011011111000101101111000101011011111100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010111000101111001111110000010001010011001111110011100100101111110000000101111001111101100001101111100010110111100010101101100001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000001101110110110110011111110100111010110001001100110101101111110100001100000101111011101110010000000010110001001000010110111010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010100101001100111000011000100000011000101010010101100011001111111110100111000011010010100111111100011001100110001111101000011001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101010010111000110011110011100011101000010001001110111011010111001000000010000110101110000011001000110000001100010100011101100010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010011111111111111111111111111111111111111111111111111111111111111111111111111111110101111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101000100011101001110000101000111110101100111111001110010000011000010011000110110101000110110100011100110101000110010110011111011010) at crates/before/src/causally/tests.rs:391.
+    minimal failing input: bounds = [], down = [
+        AfterOrConcurrent(
+            5,
+        ),
+        StrictlyAfter(
+            3,
+        ),
+        StrictlyAfter(
+            8,
+        ),
+    ], up = [
+        StrictlyBefore(
+            7,
+        ),
+        BeforeOrConcurrent(
+            5,
+        ),
+        Until(
+            2,
+        ),
+        Toward(
+            7,
+            4,
+        ),
+    ], a = Node(
+        95109743677454840889,
+        Node(
+            34017464838512020427,
+            Leaf(
+                0,
+            ),
+            Leaf(
+                203173380219047460090415210343769618650,
+            ),
+        ),
+        Node(
+            0,
+            Leaf(
+                0,
+            ),
+            Leaf(
+                292271881870445743048,
+            ),
+        ),
+    ), b = Node(
+        9671517237381475654959110,
+        Node(
+            0,
+            Node(
+                0,
+                Node(
+                    0,
+                    Leaf(
+                        61389803892938635361965629249410271960,
+                    ),
+                    Leaf(
+                        0,
+                    ),
+                ),
+                Leaf(
+                    174745979822928247709967233211935301998,
+                ),
+            ),
+            Node(
+                119848443109674758351347700108783969000,
+                Leaf(
+                    0,
+                ),
+                Leaf(
+                    1334991897450568801496888566355970071626690326472907981216843478442662211636596680599946524381656,
+                ),
+            ),
+        ),
+        Node(
+            6455624695217271474139797930007529685824264482073058782076648391351619055042102986574113383200344578479077465489611423741,
+            Leaf(
+                1,
+            ),
+            Leaf(
+                0,
+            ),
+        ),
+    ), c = Node(
+        126099419587050884,
+        Node(
+            0,
+            Node(
+                0,
+                Leaf(
+                    0,
+                ),
+                Leaf(
+                    18320644654122500737,
+                ),
+            ),
+            Node(
+                48186219449586081995,
+                Node(
+                    37279322261133417963525293103901281421,
+                    Leaf(
+                        0,
+                    ),
+                    Leaf(
+                        18446744073709551607,
+                    ),
+                ),
+                Leaf(
+                    0,
+                ),
+            ),
+        ),
+        Node(
+            8423568036359518796,
+            Leaf(
+                1,
+            ),
+            Leaf(
+                0,
+            ),
+        ),
+    )
+    successes: 8
+    local rejects: 0
+    global rejects: 0
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.047s] ( 86/693) before clock::tests::decoded_seed_version_encodes_canonically
+        PASS [   0.261s] ( 87/693) before borsh_impls::tests::embedded_decode_consumes_exactly_the_encoding
+        PASS [   0.086s] ( 88/693) before clock::tests::decode_never_panics
+        PASS [   0.069s] ( 89/693) before clock::tests::deep_tree_min_ticks_stack_safety
+        PASS [   0.263s] ( 90/693) before borsh_impls::tests::rank_borsh_roundtrips_and_orders
+        PASS [   0.281s] ( 91/693) before borsh_impls::tests::ranked_borsh_roundtrips_and_orders
+        PASS [   0.384s] ( 92/693) before bits::tests::truncation_rejects_or_decodes_canonically
+        PASS [   0.286s] ( 93/693) before borsh_impls::tests::span_borsh_roundtrips
+        PASS [   0.222s] ( 94/693) before clock::tests::borsh_rejects_non_canonical
+        PASS [   0.219s] ( 95/693) before clock::tests::borsh_roundtrip
+        PASS [   0.232s] ( 96/693) before clock::tests::borsh_frames_as_canonical_bytes
+        PASS [   0.228s] ( 97/693) before clock::tests::clock_assign_join_matches_oracle
+        PASS [   0.221s] ( 98/693) before clock::tests::decode_preserves_component_canonicity
+        PASS [   0.248s] ( 99/693) before clock::tests::churn_orbit_sizes_reach_a_bounded_band
+        PASS [   0.234s] (100/693) before clock::tests::encoding_views_agree_over_impl_history
+        PASS [   0.363s] (101/693) before causally::tests::atom_coverage_matches_query_coverage
+        PASS [   0.255s] (102/693) before clock::tests::deep_tree_stack_safety
+        PASS [   0.398s] (103/693) before clock::tests::clock_join_all_matches_all_models
+        PASS [   0.526s] (104/693) before clock::tests::deep_tree_query_and_causal_stack_safety
+        PASS [   0.949s] (105/693) before bits::tests::flush_cut_version_reads_truncated_for_every_version_tail
+        PASS [   0.868s] (106/693) before borsh_impls::tests::flush_cut_version_is_truncated_by_both_decoders
+        PASS [   5.029s] (107/693) before bits::tests::bit_flip_rejects_or_decodes_canonically
+────────────
+     Summary [   5.074s] 107/693 tests run: 105 passed, 2 failed, 1 skipped
+        FAIL [   0.049s] ( 84/693) before clock::tests::clock_observers_match_oracle
+        FAIL [   0.093s] ( 85/693) before causally::tests::public_queries_match_their_relational_denotation
+warning: 586/693 tests were not run due to test failure (run with --no-fail-fast to run all tests, or run with --max-fail)
+error: test run failed

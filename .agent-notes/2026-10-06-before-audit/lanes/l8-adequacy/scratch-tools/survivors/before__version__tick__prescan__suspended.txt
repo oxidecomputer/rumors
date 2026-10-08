@@ -1,0 +1,3 @@
+# survivors of crates/before/src/version/tick/prescan/suspended.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/tick/prescan/suspended.rs:73:9: replace AccumulatorStack::is_empty -> bool with true
+MISSED   crates/before/src/version/tick/prescan/suspended.rs:111:9: replace Levels::is_empty -> bool with true

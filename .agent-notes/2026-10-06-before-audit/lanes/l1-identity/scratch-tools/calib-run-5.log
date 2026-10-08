@@ -1,0 +1,3 @@
+M22-skip-recursive: exit=100 compile_error=False caught_by=['SIGABRT)', 'party::tests::without_constructed::deep_subtree_under_owned_cover_vanishes', 'party::tests::without_constructed::deep_subtree_under_unowned_cover_splices_verbatim'] ['Summary [  23.975s] 663 tests run: 661 passed, 2 failed, 1 skipped']
+git diff after revert: ''
+exit=0

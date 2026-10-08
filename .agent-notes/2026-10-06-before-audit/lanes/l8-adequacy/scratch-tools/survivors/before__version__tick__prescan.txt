@@ -1,0 +1,12 @@
+# survivors of crates/before/src/version/tick/prescan.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/tick/prescan.rs:233:9: replace PreScan<'a, 'm>::all_levels_resolved -> bool with true
+MISSED   crates/before/src/version/tick/prescan.rs:279:26: replace > with >= in PreScan<'a, 'm>::record
+MISSED   crates/before/src/version/tick/prescan.rs:414:29: replace < with == in PreScan<'a, 'm>::copy_range
+MISSED   crates/before/src/version/tick/prescan.rs:414:29: replace < with > in PreScan<'a, 'm>::copy_range
+MISSED   crates/before/src/version/tick/prescan.rs:414:29: replace < with <= in PreScan<'a, 'm>::copy_range
+MISSED   crates/before/src/version/tick/prescan.rs:446:29: replace < with > in PreScan<'a, 'm>::skip_collapse
+MISSED   crates/before/src/version/tick/prescan.rs:446:29: replace < with <= in PreScan<'a, 'm>::skip_collapse
+MISSED   crates/before/src/version/tick/prescan.rs:446:29: replace < with == in PreScan<'a, 'm>::skip_collapse
+MISSED   crates/before/src/version/tick/prescan.rs:480:29: replace < with > in PreScan<'a, 'm>::max_range
+MISSED   crates/before/src/version/tick/prescan.rs:480:29: replace < with <= in PreScan<'a, 'm>::max_range
+MISSED   crates/before/src/version/tick/prescan.rs:480:29: replace < with == in PreScan<'a, 'm>::max_range

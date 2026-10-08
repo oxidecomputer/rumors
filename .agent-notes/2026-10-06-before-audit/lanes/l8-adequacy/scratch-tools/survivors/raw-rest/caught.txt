@@ -1,0 +1,45 @@
+crates/before/src/fold.rs:22:5: replace balanced_try_fold -> Result<Vec<T>, Vec<T>> with Ok(vec![])
+crates/before/src/fold.rs:32:28: replace += with -= in balanced_try_fold
+crates/before/src/fold.rs:57:5: replace balanced_reduce -> Option<T> with None
+crates/before/src/text.rs:13:5: replace write_hex -> fmt::Result with Ok(Default::default())
+crates/before/src/shape.rs:160:9: replace <impl Iterator for Plateaus<'_>>::next -> Option<Plateau> with None
+crates/before/src/shape.rs:212:9: replace <impl Iterator for Regions<'_>>::next -> Option<Region> with None
+crates/before/src/shape.rs:270:9: replace <impl Iterator for Overlay<'_>>::next -> Option<(Plateau, bool)> with None
+crates/before/src/shape.rs:361:9: replace <impl Iterator for Cells<'_, N>>::next -> Option<Cell<N>> with None
+crates/before/src/serde_impls.rs:130:9: replace <impl Deserialize<'de> for Version>::deserialize -> Result<Self, D::Error> with Ok(Default::default())
+crates/before/src/serde_impls.rs:183:9: replace <impl Deserialize<'de> for Rank>::deserialize -> Result<Self, D::Error> with Ok(Default::default())
+crates/before/src/serde_impls.rs:272:9: replace <impl Deserialize<'de> for Count>::deserialize -> Result<Self, D::Error> with Ok(Default::default())
+crates/before/src/serde_impls.rs:291:9: replace <impl Visitor<'de> for CountVisitor>::visit_seq -> Result<Count, A::Error> with Ok(Default::default())
+crates/before/src/borsh_impls.rs:82:9: replace StreamBitsReader<'a, R>::finish -> Result<Vec<u8>, Decode> with Ok(vec![])
+crates/before/src/borsh_impls.rs:82:9: replace StreamBitsReader<'a, R>::finish -> Result<Vec<u8>, Decode> with Ok(vec![0])
+crates/before/src/borsh_impls.rs:82:9: replace StreamBitsReader<'a, R>::finish -> Result<Vec<u8>, Decode> with Ok(vec![1])
+crates/before/src/borsh_impls.rs:82:12: delete ! in StreamBitsReader<'a, R>::finish
+crates/before/src/borsh_impls.rs:85:15: delete ! in StreamBitsReader<'a, R>::finish
+crates/before/src/borsh_impls.rs:101:9: replace <impl BitRead for StreamBitsReader<'_, R>>::read_bit -> Result<bool, Decode> with Ok(false)
+crates/before/src/borsh_impls.rs:101:53: replace * with + in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:101:26: replace == with != in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:101:9: replace <impl BitRead for StreamBitsReader<'_, R>>::read_bit -> Result<bool, Decode> with Ok(true)
+crates/before/src/borsh_impls.rs:101:53: replace * with / in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:92: replace != with == in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:60: replace & with | in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:60: replace & with ^ in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:45: replace / with % in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:45: replace / with * in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:68: replace >> with << in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:86: replace % with / in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:107:86: replace % with + in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:111:23: replace += with -= in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:128:9: replace <impl BitRead for StreamBitsReader<'_, R>>::read_gamma -> Result<BigUint, Decode> with Ok(Default::default())
+crates/before/src/borsh_impls.rs:111:23: replace += with *= in <impl BitRead for StreamBitsReader<'_, R>>::read_bit
+crates/before/src/borsh_impls.rs:129:80: replace * with + in <impl BitRead for StreamBitsReader<'_, R>>::read_gamma
+crates/before/src/borsh_impls.rs:151:9: replace <impl BorshSerialize for Party>::serialize -> borsh::io::Result<()> with Ok(())
+crates/before/src/borsh_impls.rs:169:9: replace <impl BorshSerialize for Version>::serialize -> borsh::io::Result<()> with Ok(())
+crates/before/src/borsh_impls.rs:204:9: replace <impl BorshSerialize for Rank>::serialize -> borsh::io::Result<()> with Ok(())
+crates/before/src/borsh_impls.rs:184:9: replace <impl BorshSerialize for Clock>::serialize -> borsh::io::Result<()> with Ok(())
+crates/before/src/borsh_impls.rs:229:9: replace <impl BorshSerialize for Ranked<'_>>::serialize -> borsh::io::Result<()> with Ok(())
+crates/before/src/borsh_impls.rs:175:9: replace <impl BorshDeserialize for Version>::deserialize_reader -> borsh::io::Result<Self> with Ok(Default::default())
+crates/before/src/borsh_impls.rs:265:9: replace <impl BorshSerialize for Span<'_>>::serialize -> borsh::io::Result<()> with Ok(())
+crates/before/src/borsh_impls.rs:250:12: delete ! in <impl BorshDeserialize for Ranked<'static>>::deserialize_reader
+crates/before/src/borsh_impls.rs:212:9: replace <impl BorshDeserialize for Rank>::deserialize_reader -> borsh::io::Result<Self> with Ok(Default::default())
+crates/before/src/borsh_impls.rs:318:9: replace <impl BorshDeserialize for Count>::deserialize_reader -> borsh::io::Result<Self> with Ok(Default::default())
+crates/before/src/borsh_impls.rs:304:9: replace <impl BorshSerialize for Count>::serialize -> borsh::io::Result<()> with Ok(())

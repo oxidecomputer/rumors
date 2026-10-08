@@ -1,0 +1,2058 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+warning: function `arb_cluster_points` is never used
+  --> crates/before/tests/audit_l1/gen.rs:32:8
+   |
+32 | pub fn arb_cluster_points() -> impl Strategy<Value = Vec<u128>> {
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `depth` is never used
+   --> crates/before/tests/audit_l1/model.rs:268:12
+    |
+ 24 | impl Set {
+    | -------- method in this implementation
+...
+268 |     pub fn depth(&self) -> u32 {
+    |            ^^^^^
+
+warning: `before` (test "audit_l1") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.76s
+────────────
+ Nextest run ID e7a2fe46-7ff0-482d-b07d-9228c9aed8ce with nextest profile: default
+    Starting 20 tests across 1 binary
+        PASS [   0.163s] ( 1/20) before::audit_l1 fork_matches_model
+        PASS [   0.183s] ( 2/20) before::audit_l1 model_roundtrip
+        PASS [   0.209s] ( 3/20) before::audit_l1 set_algebra_disjoint
+        PASS [   0.218s] ( 4/20) before::audit_l1 clock_forks_match_party_forks
+        PASS [   0.226s] ( 5/20) before::audit_l1 set_algebra_arbitrary
+        PASS [   0.258s] ( 6/20) before::audit_l1 forks_partial_drain
+        PASS [   0.253s] ( 7/20) before::audit_l1 overlay::overlay_is_the_refinement
+        PASS [   0.263s] ( 8/20) before::audit_l1 join_all_disjoint
+        PASS [   0.292s] ( 9/20) before::audit_l1 set_algebra_nested
+        PASS [   0.263s] (10/20) before::audit_l1 wide::clock_forks_wide_counts
+        PASS [   0.317s] (11/20) before::audit_l1 array_split_matches_model
+        PASS [   0.312s] (12/20) before::audit_l1 sync_arbitrary
+        PASS [   0.336s] (13/20) before::audit_l1 join_all_failure_conserves_multiplicity
+        PASS [   0.310s] (14/20) before::audit_l1 sync_disjoint
+        FAIL [   0.460s] (15/20) before::audit_l1 wide::forks_wide_counts
+  stdout ───
+
+    running 1 test
+    test wide::forks_wide_counts ... FAILED
+
+    failures:
+
+    failures:
+        wide::forks_wide_counts
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.39s
+
+  stderr ───
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:76:36:
+    count not exhausted
+    proptest: Saving this and future failures in /home/agent/src/rumors-audit-l1-identity/crates/before/tests/proptest-regressions/wide.txt
+    proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
+    cc c259e5358902cb7937e9448c2b1a159c761170604159326cda6940acfbec83f3
+
+    thread 'wide::forks_wide_counts' (2) panicked at crates/before/tests/audit_l1/wide.rs:53:1:
+    Test failed: count not exhausted.
+    minimal failing input: a = Set(
+        [
+            (
+                0,
+                85070591730234615865843651857942052864,
+            ),
+        ],
+    ), k = 1, taken = 2
+    successes: 75
+    local rejects: 0
+    global rejects: 0
+
+
+        PASS [   0.512s] (16/20) before::audit_l1 rule_respecting_histories
+        PASS [   0.592s] (17/20) before::audit_l1 deep::deep_identity_operations_are_iterative
+        PASS [   0.827s] (18/20) before::audit_l1 clock_join_all_conserves
+        PASS [   0.949s] (19/20) before::audit_l1 sync_all_matches_model
+        PASS [   2.732s] (20/20) before::audit_l1 generator_stats
+────────────
+     Summary [   2.734s] 20 tests run: 19 passed, 1 failed, 0 skipped
+        FAIL [   0.460s] (15/20) before::audit_l1 wide::forks_wide_counts
+error: test run failed
+exit=100

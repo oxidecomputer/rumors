@@ -1,0 +1,29 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:914:17
+    |
+914 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.16s
+     Running unittests src/lib.rs (target/debug/deps/suanpan-7e32c3550bf3d24c)
+
+running 1 test
+test accumulator::tests::explore_l7::metered::l7_adversarial_touch_search ... ADVERSARY seed 0: best 2.276 len 304 | x1: 17649/7756=2.276 worst-step 10.0 | x2: 31090/14105=2.204 worst-step 9.0 | x4: 54822/27149=2.019 worst-step 10.0 | x8: 100771/53546=1.882 worst-step 11.0
+ADVERSARY seed 1: best 4.627 len 311 | x1: 1698/367=4.627 worst-step 12.0 | x2: 1297/367=3.534 worst-step 11.0 | x4: 1300/367=3.542 worst-step 11.0 | x8: 1301/367=3.545 worst-step 11.0
+ADVERSARY seed 2: best 2.904 len 309 | x1: 4454/1534=2.904 worst-step 4.3 | x2: 4507/1534=2.938 worst-step 4.3 | x4: 4506/1534=2.937 worst-step 4.2 | x8: 4506/1534=2.937 worst-step 4.2
+ADVERSARY seed 3: best 6.913 len 341 | x1: 2233/323=6.913 worst-step 12.0 | x2: 2135/323=6.610 worst-step 12.0 | x4: 2136/323=6.613 worst-step 12.0 | x8: 2136/323=6.613 worst-step 12.0
+ADVERSARY seed 4: best 6.724 len 306 | x1: 1876/279=6.724 worst-step 15.0 | x2: 1875/279=6.720 worst-step 15.0 | x4: 1874/279=6.717 worst-step 15.0 | x8: 1874/279=6.717 worst-step 15.0
+ADVERSARY seed 5: best 4.796 len 326 | x1: 2211/461=4.796 worst-step 14.0 | x2: 2186/508=4.303 worst-step 14.0 | x4: 2290/607=3.773 worst-step 14.0 | x8: 2454/812=3.022 worst-step 14.0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 68 filtered out; finished in 8.90s
+
+exit=0

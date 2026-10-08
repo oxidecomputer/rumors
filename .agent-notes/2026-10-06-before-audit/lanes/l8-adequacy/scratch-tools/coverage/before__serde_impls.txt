@@ -1,0 +1,7 @@
+# coverage of crates/before/src/serde_impls.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 107/110; branch outcomes 30/30
+# never-executed lines:
+L  286  fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+L  287  f.write_str("canonical least-significant-first u64 limbs")
+L  288  }
+# branches with an outcome never taken (outcome hit counts):

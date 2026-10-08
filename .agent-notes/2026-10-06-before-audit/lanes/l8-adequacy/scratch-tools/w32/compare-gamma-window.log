@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling wasm32-pins-guest v0.0.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before/wasm32-pins/guest)
+    Finished `release` profile [optimized] target(s) in 20.26s
+────────────
+ Nextest run ID a07e2813-f082-4c32-a9fe-4e225c165f5f with nextest profile: default
+    Starting 1 test across 4 binaries (7 tests skipped)
+        PASS [  44.043s] (1/1) wasm32-pins-harness::pins version_compare_crosses_the_usize_position_boundary
+────────────
+     Summary [  44.044s] 1 test run: 1 passed, 7 skipped
+compare-gamma-window pins exit=0 secs=80

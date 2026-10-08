@@ -1,0 +1,31 @@
+Cells as Iterator                             size_hint                    -> output
+ClockForks as Iterator                        size_hint                    -> output
+Count as From                                 from                         n
+FamilyId                                      index                        -> output
+Limbs as Iterator                             size_hint                    -> output
+Overlay as Iterator                           size_hint                    -> output
+PartyForks as Iterator                        size_hint                    -> output
+Plateaus as Iterator                          size_hint                    -> output
+Regions as Iterator                           size_hint                    -> output
+Shape                                         build1                       a
+Shape                                         build2                       a, b
+Shape                                         build3                       a, b, c
+Shape                                         build_flagged                a
+Shape                                         build_pair                   a, b
+Shape                                         build_pair3                  a, b, c
+Shape                                         build_quadruple              a, b
+Shape                                         build_train                  n, w, g
+Shape                                         build_triple                 a, b
+Shape                                         population                   a, b
+Shape                                         version_pair                 n
+Shape                                         versions                     a, b
+before::testing::meter::board::shard::check_worst_map check_worst_map              shards
+before::testing::meter::board::shard::emit_shard emit_shard                   index, count
+before::testing::meter::board::shard::max_useful_shards max_useful_shards            -> output
+before::testing::meter::board::shard::run     run                          shards
+before::testing::meter::board::shard::run_acceptance run_acceptance               shards
+before::testing::meter::board::shard::worst_map worst_map                    shards
+before::testing::meter::dense_factor          dense_factor                 digits
+before::testing::meter::plateau_puncture_factors plateau_puncture_factors     w, d
+{"primitive": "usize"} as TryFrom             try_from                     -> output
+# 30 public function-like items mention usize

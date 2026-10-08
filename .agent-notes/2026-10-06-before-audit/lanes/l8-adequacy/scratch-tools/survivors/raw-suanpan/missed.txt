@@ -1,0 +1,30 @@
+crates/suanpan/src/accumulator.rs:197:9: replace Accumulator::reserve_digits with ()
+crates/suanpan/src/accumulator.rs:432:9: replace <impl core::fmt::Debug for Accumulator>::fmt -> core::fmt::Result with Ok(Default::default())
+crates/suanpan/src/accumulator/conversions.rs:46:57: replace | with ^ in Accumulator::primitive_parts
+crates/suanpan/src/accumulator/digits.rs:106:9: replace Digits::reserve with ()
+crates/suanpan/src/accumulator/digits.rs:123:9: replace Digits::debug_fields with ()
+crates/suanpan/src/accumulator/digits.rs:247:9: replace Digits::debug_assert_valid with ()
+crates/suanpan/src/accumulator/digits.rs:260:9: replace Digits::debug_assert_storage with ()
+crates/suanpan/src/accumulator/operators.rs:382:23: replace || with && in Accumulator::shift_left
+crates/suanpan/src/accumulator/digits/normalize.rs:74:46: replace * with / in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:81:23: replace > with == in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:81:23: replace > with < in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:81:23: replace > with >= in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:83:21: replace -= with += in Digits::normalize
+crates/suanpan/src/accumulator/digits/normalize.rs:83:21: replace -= with /= in Digits::normalize
+crates/suanpan/src/accumulator/digits/read.rs:90:22: replace >>= with <<= in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:99:22: replace >>= with <<= in Digits::read_digits
+crates/suanpan/src/accumulator/digits/read.rs:115:40: replace | with ^ in pack_limbs
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:51:9: replace <impl core::fmt::Debug for ZeroRanges>::fmt -> core::fmt::Result with Ok(Default::default())
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:141:40: replace < with <= in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:150:23: replace < with <= in ZeroRanges::take_below
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:170:44: replace match guard *old_lo == lo with false in ZeroRanges::insert
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with None
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with Some((0, 0))
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:185:9: replace ZeroRanges::last -> Option<(usize, usize)> with Some((1, 0))
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:194:9: replace ZeroRanges::compact_storage with ()
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:195:37: replace match guard ranges.is_empty() with true in ZeroRanges::compact_storage
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:195:37: replace match guard ranges.is_empty() with false in ZeroRanges::compact_storage
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:196:37: replace match guard ranges.len() == 1 with true in ZeroRanges::compact_storage
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:196:37: replace match guard ranges.len() == 1 with false in ZeroRanges::compact_storage
+crates/suanpan/src/accumulator/digits/zero_ranges.rs:196:50: replace == with != in ZeroRanges::compact_storage

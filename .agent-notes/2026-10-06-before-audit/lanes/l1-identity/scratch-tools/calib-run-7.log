@@ -1,0 +1,3 @@
+M25-region-descend-recursive: exit=0 compile_error=False caught_by=[] ['Summary [   2.763s] 20 tests run: 20 passed, 0 skipped']
+git diff after revert: ' crates/before/tests/audit_l1/deep.rs | 46 +++++++++++++++++++++++++++++++++++-\n 1 file changed, 45 insertions(+), 1 deletion(-)\n'
+exit=0

@@ -1,0 +1,674 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-run is specified
+    Blocking waiting for file lock on package cache
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.55s
+warning: ignoring --test-threads because --no-capture is specified
+warning: variable does not need to be mutable
+   --> crates/suanpan/src/accumulator/tests/explore_l7.rs:932:17
+    |
+932 |             let mut fresh =
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `suanpan` (lib test) generated 1 warning (run `cargo fix --lib -p suanpan --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+────────────
+ Nextest run ID e57d9323-3f6b-402b-866c-e1d871134e90 with nextest profile: default
+    Starting 70 tests across 2 binaries (1 test skipped)
+       START [         ] ( 1/70) suanpan accumulator::tests::differential::boundary_comb_oscillation_matches_the_oracle
+
+running 1 test
+test accumulator::tests::differential::boundary_comb_oscillation_matches_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.076s] ( 1/70) suanpan accumulator::tests::differential::boundary_comb_oscillation_matches_the_oracle
+       START [         ] ( 2/70) suanpan accumulator::tests::differential::cancelling_prefix_chain_matches_the_oracle
+
+running 1 test
+test accumulator::tests::differential::cancelling_prefix_chain_matches_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.073s] ( 2/70) suanpan accumulator::tests::differential::cancelling_prefix_chain_matches_the_oracle
+       START [         ] ( 3/70) suanpan accumulator::tests::differential::carry_tie_streams_match_the_oracle
+
+running 1 test
+test accumulator::tests::differential::carry_tie_streams_match_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.10s
+
+        PASS [   0.167s] ( 3/70) suanpan accumulator::tests::differential::carry_tie_streams_match_the_oracle
+       START [         ] ( 4/70) suanpan accumulator::tests::differential::exact_cancellation_and_unit_nudges_read_correctly
+
+running 1 test
+test accumulator::tests::differential::exact_cancellation_and_unit_nudges_read_correctly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.073s] ( 4/70) suanpan accumulator::tests::differential::exact_cancellation_and_unit_nudges_read_correctly
+       START [         ] ( 5/70) suanpan accumulator::tests::differential::negative_limb_values_read_back_exactly
+
+running 1 test
+test accumulator::tests::differential::negative_limb_values_read_back_exactly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.067s] ( 5/70) suanpan accumulator::tests::differential::negative_limb_values_read_back_exactly
+       START [         ] ( 6/70) suanpan accumulator::tests::differential::new_and_default_hold_zero
+
+running 1 test
+test accumulator::tests::differential::new_and_default_hold_zero ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.068s] ( 6/70) suanpan accumulator::tests::differential::new_and_default_hold_zero
+       START [         ] ( 7/70) suanpan accumulator::tests::differential::pooled_reuse_after_reset_matches_the_oracle
+
+running 1 test
+test accumulator::tests::differential::pooled_reuse_after_reset_matches_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.74s
+
+        PASS [   0.815s] ( 7/70) suanpan accumulator::tests::differential::pooled_reuse_after_reset_matches_the_oracle
+       START [         ] ( 8/70) suanpan accumulator::tests::differential::redundant_zero_reads_nonzero_until_collapsed
+
+running 1 test
+test accumulator::tests::differential::redundant_zero_reads_nonzero_until_collapsed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.080s] ( 8/70) suanpan accumulator::tests::differential::redundant_zero_reads_nonzero_until_collapsed
+       START [         ] ( 9/70) suanpan accumulator::tests::differential::stored_width_stability_is_sound
+
+running 1 test
+test accumulator::tests::differential::stored_width_stability_is_sound ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.25s
+
+        PASS [   0.324s] ( 9/70) suanpan accumulator::tests::differential::stored_width_stability_is_sound
+       START [         ] (10/70) suanpan accumulator::tests::differential::two_sided_stability_converges_to_exact_comparison
+
+running 1 test
+test accumulator::tests::differential::two_sided_stability_converges_to_exact_comparison ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.41s
+
+        PASS [   0.486s] (10/70) suanpan accumulator::tests::differential::two_sided_stability_converges_to_exact_comparison
+       START [         ] (11/70) suanpan accumulator::tests::differential::u64_entry_points_cover_the_full_range
+
+running 1 test
+test accumulator::tests::differential::u64_entry_points_cover_the_full_range ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.079s] (11/70) suanpan accumulator::tests::differential::u64_entry_points_cover_the_full_range
+       START [         ] (12/70) suanpan accumulator::tests::differential::wide_teeth_across_the_cliff_match_the_oracle
+
+running 1 test
+test accumulator::tests::differential::wide_teeth_across_the_cliff_match_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.081s] (12/70) suanpan accumulator::tests::differential::wide_teeth_across_the_cliff_match_the_oracle
+       START [         ] (13/70) suanpan accumulator::tests::differential::word_width_stability_is_sound
+
+running 1 test
+test accumulator::tests::differential::word_width_stability_is_sound ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.38s
+
+        PASS [   0.451s] (13/70) suanpan accumulator::tests::differential::word_width_stability_is_sound
+       START [         ] (14/70) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+
+running 1 test
+test accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 31.40s
+
+        PASS [  31.481s] (14/70) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle
+       START [         ] (15/70) suanpan accumulator::tests::explore_l7::metered::l7_probe_repeated_comparison_cost
+
+running 1 test
+PROBE repeated cmp_zero on 1 * 2^2048: 1 touches per read after the first
+PROBE repeated cmp_zero on 2 * 2^2048: 2 touches per read after the first
+PROBE repeated cmp_zero on 3 * 2^2048: 1 touches per read after the first
+test accumulator::tests::explore_l7::metered::l7_probe_repeated_comparison_cost ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.06s
+
+        PASS [   0.194s] (15/70) suanpan accumulator::tests::explore_l7::metered::l7_probe_repeated_comparison_cost
+       START [         ] (16/70) suanpan accumulator::tests::explore_l7::metered::l7_replay_touch_repro1
+
+running 1 test
+REPLAY step 0: touches 0 work 1 counts [1, 1, 1]->[1, 1, 1] op Reserve { t: 2, digits: 27 }
+REPLAY   target after: Accumulator { small: Some(0), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 1: touches 1 work 2 counts [1, 1, 1]->[1, 1, 1] op Neg { t: 0 }
+REPLAY   target after: Accumulator { small: Some(0), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 2: touches 1 work 2 counts [1, 1, 1]->[1, 1, 1] op Acc { t: 0, s: 0, negative: true, shift: 1, form: OwnedClone }
+REPLAY   target after: Accumulator { small: Some(0), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 3: touches 0 work 2 counts [1, 1, 1]->[1, 1, 1] op Acc { t: 1, s: 0, negative: false, shift: 3, form: OwnedClone }
+REPLAY   target after: Accumulator { small: Some(0), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 4: touches 1 work 1 counts [1, 1, 1]->[1, 1, 1] op StablePool { t: 0, s: 1 }
+REPLAY   target after: Accumulator { small: Some(0), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 5: touches 6 work 1 counts [1, 1, 1]->[1, 1, 4] op WideU { t: 2, negative: true, value: 170141183460469231731687303715884105728 }
+REPLAY   target after: Accumulator { small: None, digits: [0, 0, 0, -2147483648], highest_nonzero: 3, lowest_written: 3, zero_ranges: {0: 3} }
+REPLAY step 6: touches 1 work 1 counts [1, 1, 4]->[1, 1, 4] op Stable { t: 1, bits: 157 }
+REPLAY   target after: Accumulator { small: Some(0), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 7: touches 1 work 1 counts [1, 1, 4]->[1, 1, 4] op Stable { t: 1, bits: 9223372036854775815 }
+REPLAY   target after: Accumulator { small: Some(0), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 8: touches 1 work 1 counts [1, 1, 4]->[2, 1, 4] op Word { t: 0, value: 3173021695853935 }
+REPLAY   target after: Accumulator { small: Some(3173021695853935), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 9: touches 1 work 1 counts [2, 1, 4]->[2, 2, 4] op Word { t: 1, value: -1776702664954095 }
+REPLAY   target after: Accumulator { small: Some(-1776702664954095), digits: [], highest_nonzero: 0, lowest_written: 18446744073709551615, zero_ranges: {} }
+REPLAY step 10: touches 0 work 1 counts [2, 2, 4]->[2, 2, 4] op Reserve { t: 2, digits: 42 }
+REPLAY   target after: Accumulator { small: None, digits: [0, 0, 0, -2147483648], highest_nonzero: 3, lowest_written: 3, zero_ranges: {0: 3} }
+REPLAY step 11: touches 1 work 1 counts [2, 2, 4]->[2, 2, 4] op Stable { t: 2, bits: 207 }
+REPLAY   target after: Accumulator { small: None, digits: [0, 0, 0, -2147483648], highest_nonzero: 3, lowest_written: 3, zero_ranges: {0: 3} }
+REPLAY step 12: touches 13 work 9 counts [2, 2, 4]->[4, 2, 4] op SumPool { t: 0, owned: false }
+REPLAY   target after: Accumulator { small: None, digits: [3688133760, 325105, 0, -2147483648], highest_nonzero: 3, lowest_written: 0, zero_ranges: {1: 3} }
+REPLAY step 13: touches 9 work 5 counts [4, 2, 4]->[4, 2, 7] op Acc { t: 2, s: 0, negative: false, shift: 66, form: Shifted }
+REPLAY   target after: Accumulator { small: None, digits: [0, 0, 1867633152, -2146183225, 0, 0, -2], highest_nonzero: 6, lowest_written: 2, zero_ranges: {0: 2, 3: 5} }
+REPLAY step 14: touches 1 work 1 counts [4, 2, 7]->[4, 2, 7] op WordU { t: 0, negative: true, value: 4294967295 }
+REPLAY   target after: Accumulator { small: None, digits: [-606833535, 325105, 0, -2147483648], highest_nonzero: 3, lowest_written: 0, zero_ranges: {1: 3} }
+REPLAY step 15: touches 10 work 8 counts [4, 2, 7]->[7, 2, 7] op Acc { t: 0, s: 2, negative: true, shift: 4, form: Borrowed }
+REPLAY   target after: Accumulator { small: None, digits: [-606833535, 325105, -1867633152, -1300423, 0, 0, 2], highest_nonzero: 6, lowest_written: 0, zero_ranges: {3: 6} }
+REPLAY step 16: touches 10 work 8 counts [7, 2, 7]->[7, 2, 13] op Shl { t: 2, shift: 192 }
+REPLAY   target after: Accumulator { small: None, digits: [0, 0, 0, 0, 0, 0, 0, 0, 1867633152, -2146183225, 0, 0, -2], highest_nonzero: 12, lowest_written: 8, zero_ranges: {0: 8, 9: 12} }
+test accumulator::tests::explore_l7::metered::l7_replay_touch_repro1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.01s
+
+        PASS [   0.181s] (16/70) suanpan accumulator::tests::explore_l7::metered::l7_replay_touch_repro1
+       START [         ] (17/70) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+
+running 1 test
+test accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 13.10s
+
+        PASS [  13.272s] (17/70) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work
+       START [         ] (18/70) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme
+
+running 1 test
+
+thread 'accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme' (2) panicked at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library/alloc/src/raw_vec/mod.rs:28:5:
+capacity overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+PROBE reserve_digits(usize::MAX): panicked: capacity overflow
+test accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.10s
+
+        PASS [   0.262s] (18/70) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme
+       START [         ] (19/70) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history
+
+running 1 test
+PROBE zero-shift known zero <<=: stored_digit_count 1, is_known_zero true, cmp_zero Equal
+PROBE zero-shift redundant zero <<=: stored_digit_count 1048578, is_known_zero false, cmp_zero Equal
+PROBE zero-shift redundant zero <<: stored_digit_count 1048578, is_known_zero false, cmp_zero Equal
+PROBE zero-shift add_shifted(redundant zero): stored_digit_count 1048578, is_known_zero false, cmp_zero Equal
+PROBE zero-shift normalized redundant zero <<=: stored_digit_count 1, is_known_zero true, cmp_zero Equal
+test accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.17s
+
+        PASS [   0.438s] (19/70) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history
+       START [         ] (20/70) suanpan accumulator::tests::metered::accumulator_operand_rows_cost_the_operand
+
+running 1 test
+test accumulator::tests::metered::accumulator_operand_rows_cost_the_operand ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.215s] (20/70) suanpan accumulator::tests::metered::accumulator_operand_rows_cost_the_operand
+       START [         ] (21/70) suanpan accumulator::tests::metered::alternating_shifted_writes_cost_the_operand_not_the_gap
+
+running 1 test
+test accumulator::tests::metered::alternating_shifted_writes_cost_the_operand_not_the_gap ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.08s
+
+        PASS [   0.291s] (21/70) suanpan accumulator::tests::metered::alternating_shifted_writes_cost_the_operand_not_the_gap
+       START [         ] (22/70) suanpan accumulator::tests::metered::decision_bound_top_decides_on_the_first_touch
+
+running 1 test
+test accumulator::tests::metered::decision_bound_top_decides_on_the_first_touch ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.04s
+
+        PASS [   0.149s] (22/70) suanpan accumulator::tests::metered::decision_bound_top_decides_on_the_first_touch
+       START [         ] (23/70) suanpan accumulator::tests::metered::domination_reads_cost_one_touch_after_the_first
+
+running 1 test
+test accumulator::tests::metered::domination_reads_cost_one_touch_after_the_first ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.03s
+
+        PASS [   0.223s] (23/70) suanpan accumulator::tests::metered::domination_reads_cost_one_touch_after_the_first
+       START [         ] (24/70) suanpan accumulator::tests::metered::held_width_rows_cost_the_held_digits
+
+running 1 test
+test accumulator::tests::metered::held_width_rows_cost_the_held_digits ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.06s
+
+        PASS [   0.202s] (24/70) suanpan accumulator::tests::metered::held_width_rows_cost_the_held_digits
+       START [         ] (25/70) suanpan accumulator::tests::metered::limb_streams_select_word_or_wide_cost
+
+running 1 test
+test accumulator::tests::metered::limb_streams_select_word_or_wide_cost ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.02s
+
+        PASS [   0.151s] (25/70) suanpan accumulator::tests::metered::limb_streams_select_word_or_wide_cost
+       START [         ] (26/70) suanpan accumulator::tests::metered::limb_writes_cost_the_operand_at_any_held_width
+
+running 1 test
+test accumulator::tests::metered::limb_writes_cost_the_operand_at_any_held_width ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.04s
+
+        PASS [   0.150s] (26/70) suanpan accumulator::tests::metered::limb_writes_cost_the_operand_at_any_held_width
+       START [         ] (27/70) suanpan accumulator::tests::metered::merge_tie_reads_the_operand
+
+running 1 test
+test accumulator::tests::metered::merge_tie_reads_the_operand ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.10s
+
+        PASS [   0.303s] (27/70) suanpan accumulator::tests::metered::merge_tie_reads_the_operand
+       START [         ] (28/70) suanpan accumulator::tests::metered::no_collapse_fold_re_scans_the_prefix
+
+running 1 test
+test accumulator::tests::metered::no_collapse_fold_re_scans_the_prefix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.12s
+
+        PASS [   0.377s] (28/70) suanpan accumulator::tests::metered::no_collapse_fold_re_scans_the_prefix
+       START [         ] (29/70) suanpan accumulator::tests::metered::scaled_read_costs_the_span_not_the_write_count
+
+running 1 test
+test accumulator::tests::metered::scaled_read_costs_the_span_not_the_write_count ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.02s
+
+        PASS [   0.286s] (29/70) suanpan accumulator::tests::metered::scaled_read_costs_the_span_not_the_write_count
+       START [         ] (30/70) suanpan accumulator::tests::metered::scaled_read_costs_the_written_span
+
+running 1 test
+test accumulator::tests::metered::scaled_read_costs_the_written_span ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.11s
+
+        PASS [   0.267s] (30/70) suanpan accumulator::tests::metered::scaled_read_costs_the_written_span
+       START [         ] (31/70) suanpan accumulator::tests::metered::sign_query_skips_recorded_zero_ranges
+
+running 1 test
+test accumulator::tests::metered::sign_query_skips_recorded_zero_ranges ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.06s
+
+        PASS [   0.250s] (31/70) suanpan accumulator::tests::metered::sign_query_skips_recorded_zero_ranges
+       START [         ] (32/70) suanpan accumulator::tests::metered::top_settlement_steps_are_metered
+
+running 1 test
+test accumulator::tests::metered::top_settlement_steps_are_metered ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.05s
+
+        PASS [   0.213s] (32/70) suanpan accumulator::tests::metered::top_settlement_steps_are_metered
+       START [         ] (33/70) suanpan accumulator::tests::metered::u64_comb_touches_are_flat_and_exact
+
+running 1 test
+test accumulator::tests::metered::u64_comb_touches_are_flat_and_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.05s
+
+        PASS [   0.215s] (33/70) suanpan accumulator::tests::metered::u64_comb_touches_are_flat_and_exact
+       START [         ] (34/70) suanpan accumulator::tests::primitives::bit_bounds_cover_requested_adjustments
+
+running 1 test
+test accumulator::tests::primitives::bit_bounds_cover_requested_adjustments ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.14s
+
+        PASS [   0.218s] (34/70) suanpan accumulator::tests::primitives::bit_bounds_cover_requested_adjustments
+       START [         ] (35/70) suanpan accumulator::tests::primitives::full_width_updates_match_the_oracle
+
+running 1 test
+test accumulator::tests::primitives::full_width_updates_match_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.05s
+
+        PASS [   0.151s] (35/70) suanpan accumulator::tests::primitives::full_width_updates_match_the_oracle
+       START [         ] (36/70) suanpan accumulator::tests::primitives::owned_arithmetic_reuses_storage_and_preserves_order
+
+running 1 test
+test accumulator::tests::primitives::owned_arithmetic_reuses_storage_and_preserves_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.08s
+
+        PASS [   0.254s] (36/70) suanpan accumulator::tests::primitives::owned_arithmetic_reuses_storage_and_preserves_order
+       START [         ] (37/70) suanpan accumulator::tests::primitives::primitive_shift_counts_are_checked
+
+running 1 test
+test accumulator::tests::primitives::primitive_shift_counts_are_checked ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.01s
+
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(NegOverflow)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(NegOverflow)
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(NegOverflow)
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(NegOverflow)
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(NegOverflow)
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(NegOverflow)
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(PosOverflow)
+
+thread 'accumulator::tests::primitives::primitive_shift_counts_are_checked' (2) panicked at crates/suanpan/src/accumulator/operators.rs:376:1:
+shift count must fit u64: TryFromIntError(PosOverflow)
+        PASS [   0.337s] (37/70) suanpan accumulator::tests::primitives::primitive_shift_counts_are_checked
+       START [         ] (38/70) suanpan accumulator::tests::primitives::signed_128
+
+running 1 test
+test accumulator::tests::primitives::signed_128 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.03s
+
+        PASS [   0.133s] (38/70) suanpan accumulator::tests::primitives::signed_128
+       START [         ] (39/70) suanpan accumulator::tests::primitives::signed_16
+
+running 1 test
+test accumulator::tests::primitives::signed_16 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.55s
+
+        PASS [   0.721s] (39/70) suanpan accumulator::tests::primitives::signed_16
+       START [         ] (40/70) suanpan accumulator::tests::primitives::signed_32
+
+running 1 test
+test accumulator::tests::primitives::signed_32 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.09s
+
+        PASS [   0.496s] (40/70) suanpan accumulator::tests::primitives::signed_32
+       START [         ] (41/70) suanpan accumulator::tests::primitives::signed_64
+
+running 1 test
+test accumulator::tests::primitives::signed_64 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.15s
+
+        PASS [   0.415s] (41/70) suanpan accumulator::tests::primitives::signed_64
+       START [         ] (42/70) suanpan accumulator::tests::primitives::signed_8
+
+running 1 test
+test accumulator::tests::primitives::signed_8 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.06s
+
+        PASS [   0.240s] (42/70) suanpan accumulator::tests::primitives::signed_8
+       START [         ] (43/70) suanpan accumulator::tests::primitives::signed_pointer
+
+running 1 test
+test accumulator::tests::primitives::signed_pointer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.03s
+
+        PASS [   0.130s] (43/70) suanpan accumulator::tests::primitives::signed_pointer
+       START [         ] (44/70) suanpan accumulator::tests::primitives::unsigned_128
+
+running 1 test
+test accumulator::tests::primitives::unsigned_128 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.10s
+
+        PASS [   0.261s] (44/70) suanpan accumulator::tests::primitives::unsigned_128
+       START [         ] (45/70) suanpan accumulator::tests::primitives::unsigned_16
+
+running 1 test
+test accumulator::tests::primitives::unsigned_16 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.14s
+
+        PASS [   0.359s] (45/70) suanpan accumulator::tests::primitives::unsigned_16
+       START [         ] (46/70) suanpan accumulator::tests::primitives::unsigned_32
+
+running 1 test
+test accumulator::tests::primitives::unsigned_32 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.06s
+
+        PASS [   0.260s] (46/70) suanpan accumulator::tests::primitives::unsigned_32
+       START [         ] (47/70) suanpan accumulator::tests::primitives::unsigned_64
+
+running 1 test
+test accumulator::tests::primitives::unsigned_64 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.15s
+
+        PASS [   0.264s] (47/70) suanpan accumulator::tests::primitives::unsigned_64
+       START [         ] (48/70) suanpan accumulator::tests::primitives::unsigned_8
+
+running 1 test
+test accumulator::tests::primitives::unsigned_8 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.06s
+
+        PASS [   0.226s] (48/70) suanpan accumulator::tests::primitives::unsigned_8
+       START [         ] (49/70) suanpan accumulator::tests::primitives::unsigned_pointer
+
+running 1 test
+test accumulator::tests::primitives::unsigned_pointer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.298s] (49/70) suanpan accumulator::tests::primitives::unsigned_pointer
+       START [         ] (50/70) suanpan accumulator::tests::representation::representation_invariants_hold_exhaustively
+
+running 1 test
+test accumulator::tests::representation::representation_invariants_hold_exhaustively ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 14.59s
+
+        PASS [  14.877s] (50/70) suanpan accumulator::tests::representation::representation_invariants_hold_exhaustively
+       START [         ] (51/70) suanpan accumulator::tests::representation::representation_invariants_hold_on_run_forming_streams
+
+running 1 test
+test accumulator::tests::representation::representation_invariants_hold_on_run_forming_streams ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.30s
+
+        PASS [   0.390s] (51/70) suanpan accumulator::tests::representation::representation_invariants_hold_on_run_forming_streams
+       START [         ] (52/70) suanpan accumulator::tests::surface::complete_surface_matches_bigint
+
+running 1 test
+test accumulator::tests::surface::complete_surface_matches_bigint ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 4.97s
+
+        PASS [   5.056s] (52/70) suanpan accumulator::tests::surface::complete_surface_matches_bigint
+       START [         ] (53/70) suanpan accumulator::tests::witnesses::comparison_compaction_lowers_the_scaled_read_shift
+
+running 1 test
+test accumulator::tests::witnesses::comparison_compaction_lowers_the_scaled_read_shift ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.081s] (53/70) suanpan accumulator::tests::witnesses::comparison_compaction_lowers_the_scaled_read_shift
+       START [         ] (54/70) suanpan accumulator::tests::witnesses::comparison_compaction_tightens_the_stored_width
+
+running 1 test
+test accumulator::tests::witnesses::comparison_compaction_tightens_the_stored_width ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.074s] (54/70) suanpan accumulator::tests::witnesses::comparison_compaction_tightens_the_stored_width
+       START [         ] (55/70) suanpan accumulator::tests::witnesses::comparison_threshold_survives_extreme_cancellation
+
+running 1 test
+test accumulator::tests::witnesses::comparison_threshold_survives_extreme_cancellation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.175s] (55/70) suanpan accumulator::tests::witnesses::comparison_threshold_survives_extreme_cancellation
+       START [         ] (56/70) suanpan accumulator::tests::witnesses::first_unaddressable_digit_panics
+
+running 1 test
+
+thread 'accumulator::tests::witnesses::first_unaddressable_digit_panics' (2) panicked at crates/suanpan/src/accumulator.rs:417:10:
+a nonzero contribution needs an addressable digit position
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test accumulator::tests::witnesses::first_unaddressable_digit_panics - should panic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.10s
+
+        PASS [   0.305s] (56/70) suanpan accumulator::tests::witnesses::first_unaddressable_digit_panics
+       START [         ] (57/70) suanpan accumulator::tests::witnesses::flush_right_carry_tie_converts_exactly
+
+running 1 test
+test accumulator::tests::witnesses::flush_right_carry_tie_converts_exactly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.152s] (57/70) suanpan accumulator::tests::witnesses::flush_right_carry_tie_converts_exactly
+       START [         ] (58/70) suanpan accumulator::tests::witnesses::last_addressable_digit_is_accepted
+
+running 1 test
+test accumulator::tests::witnesses::last_addressable_digit_is_accepted ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.118s] (58/70) suanpan accumulator::tests::witnesses::last_addressable_digit_is_accepted
+       START [         ] (59/70) suanpan accumulator::tests::witnesses::limb_stream_selects_the_narrowest_representation
+
+running 1 test
+test accumulator::tests::witnesses::limb_stream_selects_the_narrowest_representation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.079s] (59/70) suanpan accumulator::tests::witnesses::limb_stream_selects_the_narrowest_representation
+       START [         ] (60/70) suanpan accumulator::tests::witnesses::maximum_adjustment_width_never_decides
+
+running 1 test
+test accumulator::tests::witnesses::maximum_adjustment_width_never_decides ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.068s] (60/70) suanpan accumulator::tests::witnesses::maximum_adjustment_width_never_decides
+       START [         ] (61/70) suanpan accumulator::tests::witnesses::normalized_limb_conversion_corners
+
+running 1 test
+test accumulator::tests::witnesses::normalized_limb_conversion_corners ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.09s
+
+        PASS [   0.229s] (61/70) suanpan accumulator::tests::witnesses::normalized_limb_conversion_corners
+       START [         ] (62/70) suanpan accumulator::tests::witnesses::reserve_digits_is_value_neutral
+
+running 1 test
+test accumulator::tests::witnesses::reserve_digits_is_value_neutral ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.136s] (62/70) suanpan accumulator::tests::witnesses::reserve_digits_is_value_neutral
+       START [         ] (63/70) suanpan accumulator::tests::witnesses::small_value_can_decide_before_a_digit_scan_could
+
+running 1 test
+test accumulator::tests::witnesses::small_value_can_decide_before_a_digit_scan_could ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.065s] (63/70) suanpan accumulator::tests::witnesses::small_value_can_decide_before_a_digit_scan_could
+       START [         ] (64/70) suanpan accumulator::tests::witnesses::small_value_engages_and_retires
+
+running 1 test
+test accumulator::tests::witnesses::small_value_engages_and_retires ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.066s] (64/70) suanpan accumulator::tests::witnesses::small_value_engages_and_retires
+       START [         ] (65/70) suanpan accumulator::tests::witnesses::small_value_extremes_spill_exactly
+
+running 1 test
+test accumulator::tests::witnesses::small_value_extremes_spill_exactly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.04s
+
+        PASS [   0.180s] (65/70) suanpan accumulator::tests::witnesses::small_value_extremes_spill_exactly
+       START [         ] (66/70) suanpan accumulator::tests::witnesses::small_value_stability_threshold_is_tight_from_below
+
+running 1 test
+test accumulator::tests::witnesses::small_value_stability_threshold_is_tight_from_below ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+        PASS [   0.109s] (66/70) suanpan accumulator::tests::witnesses::small_value_stability_threshold_is_tight_from_below
+       START [         ] (67/70) suanpan accumulator::tests::witnesses::stability_answer_can_depend_on_representation
+
+running 1 test
+test accumulator::tests::witnesses::stability_answer_can_depend_on_representation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.02s
+
+        PASS [   0.165s] (67/70) suanpan accumulator::tests::witnesses::stability_answer_can_depend_on_representation
+       START [         ] (68/70) suanpan accumulator::tests::witnesses::stability_covers_extreme_accumulator_operands
+
+running 1 test
+test accumulator::tests::witnesses::stability_covers_extreme_accumulator_operands ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.02s
+
+        PASS [   0.133s] (68/70) suanpan accumulator::tests::witnesses::stability_covers_extreme_accumulator_operands
+       START [         ] (69/70) suanpan accumulator::tests::witnesses::stability_needs_two_digits_of_clearance
+
+running 1 test
+test accumulator::tests::witnesses::stability_needs_two_digits_of_clearance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.02s
+
+        PASS [   0.145s] (69/70) suanpan accumulator::tests::witnesses::stability_needs_two_digits_of_clearance
+       START [         ] (70/70) suanpan::amortized_sequences sign_flip_oscillation_has_no_width_product
+
+running 1 test
+MEASURED s1_sign_flip: grid [28674, 57346, 28674, 57346] mixed 0 bound 5735
+test sign_flip_oscillation_has_no_width_product ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+        PASS [   0.407s] (70/70) suanpan::amortized_sequences sign_flip_oscillation_has_no_width_product
+────────────
+     Summary [  79.752s] 70 tests run: 70 passed, 1 skipped
+exit=0

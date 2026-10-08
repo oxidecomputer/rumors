@@ -1,0 +1,26 @@
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 10s
+────────────
+ Nextest run ID 788c3353-e2c1-432c-b5fa-a21bbbe9f6cb with nextest profile: default
+    Starting 1 test across 1 binary (605 tests skipped)
+       START [         ] (1/1) before party::tests::explore_committed_generator_stats
+
+running 1 test
+committed arb party depth {0: 458, 1: 396, 2: 1530, 3: 1440, 4: 176}
+committed arb party bytes {1: 1423, 2: 2271, 3: 304, 4: 2}
+committed arb party both-branches {0: 1607, 1: 1649, 2: 633, 3: 105, 4: 6}
+committed arb party longest-unary {0: 458, 1: 2137, 2: 1191, 3: 202, 4: 12}
+committed arb pairs: disjoint 578/4000 nested 1943/4000 equal 128/4000
+committed party families: join_all accepted 222/4000
+organic population sizes {1: 285, 2: 276, 3: 179, 4: 125, 8: 129, 16: 6}
+organic party depth {0: 285, 1: 738, 2: 787, 3: 537, 4: 228, 8: 111}
+organic party bytes {1: 1755, 2: 915, 3: 16}
+organic party both-branches {0: 2502, 1: 168, 2: 14, 4: 2}
+test party::tests::explore_committed_generator_stats ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 605 filtered out; finished in 2.57s
+
+        PASS [   2.636s] (1/1) before party::tests::explore_committed_generator_stats
+────────────
+     Summary [   2.640s] 1 test run: 1 passed, 605 skipped
+exit=0

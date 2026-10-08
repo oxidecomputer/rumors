@@ -1,0 +1,22 @@
+23:02:17    up  9:42,  1 user,  load average: 205.74, 148.93, 127.25
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l1-identity/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 15s
+────────────
+ Nextest run ID 675b6693-9d65-4c14-88fd-8b3fc0f49b3f with nextest profile: default
+    Starting 11 tests across 1 binary (598 tests skipped)
+        PASS [   0.087s] ( 1/11) before borsh_impls::tests::deep_trees_roundtrip_through_borsh
+        PASS [   0.098s] ( 2/11) before party::tests::without_constructed::deep_subtree_under_owned_cover_vanishes
+        PASS [   0.161s] ( 3/11) before clock::tests::deep_tree_min_ticks_stack_safety
+        PASS [   0.082s] ( 4/11) before party::tests::without_constructed::deep_subtree_under_unowned_cover_splices_verbatim
+        PASS [   0.098s] ( 5/11) before party::tests::without_constructed::seed_without_deep_cell_is_its_complement
+        PASS [   0.052s] ( 6/11) before party::tests::without_constructed::without_covered_subtree_scan_never_exceeds_the_complement_walk
+        PASS [   0.720s] ( 7/11) before clock::tests::deep_tree_stack_safety
+        PASS [   1.608s] ( 8/11) before clock::tests::deep_tree_query_and_causal_stack_safety
+        PASS [   2.136s] ( 9/11) before clock::tests::deep_identity_stack_safety
+        PASS [   2.172s] (10/11) before clock::tests::deep_tree_shape_hull_and_fold_stack_safety
+        PASS [   4.320s] (11/11) before clock::tests::deep_tree_remaining_surfaces_stack_safety
+────────────
+     Summary [   4.322s] 11 tests run: 11 passed, 598 skipped
+exit=0

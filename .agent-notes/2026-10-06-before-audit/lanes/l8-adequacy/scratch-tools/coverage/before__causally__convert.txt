@@ -1,0 +1,7 @@
+# coverage of crates/before/src/causally/convert.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 29/32; branch outcomes 0/0
+# never-executed lines:
+L   44  fn from(query: &Query<'a, P>) -> Query<'a, P> {
+L   45  query.clone()
+L   46  }
+# branches with an outcome never taken (outcome hit counts):

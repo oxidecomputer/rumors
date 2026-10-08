@@ -1,0 +1,26 @@
+crates/before/src/party.rs:150:9: replace <impl core::hash::Hash for Party>::hash with ()
+crates/before/src/party/compare.rs:149:30: replace || with && in Comparison<'a, 'b>::descend
+crates/before/src/party/fork.rs:101:60: replace + with * in Party::fork_tree
+crates/before/src/party/fork.rs:119:60: replace + with * in Party::fork_tree
+crates/before/src/party/forks.rs:61:47: replace && with || in SharePath<'_>::next_decision
+crates/before/src/party/forks.rs:139:63: replace - with + in Remaining::advance
+crates/before/src/party/forks.rs:139:63: replace - with / in Remaining::advance
+crates/before/src/party/io.rs:29:26: replace > with >= in Party::decode_prefix
+crates/before/src/party/io/reader.rs:48:9: replace PartyPath<'a>::stored_len -> u64 with 0
+crates/before/src/party/io/reader.rs:48:9: replace PartyPath<'a>::stored_len -> u64 with 1
+crates/before/src/party/io/reader.rs:48:18: replace - with + in PartyPath<'a>::stored_len
+crates/before/src/party/io/reader.rs:73:9: replace PartySubtree<'a>::stored_len -> u64 with 0
+crates/before/src/party/io/reader.rs:73:9: replace PartySubtree<'a>::stored_len -> u64 with 1
+crates/before/src/party/io/reader.rs:73:18: replace - with / in PartySubtree<'a>::stored_len
+crates/before/src/party/io/reader.rs:83:9: replace PartySubtree<'a>::is_branch -> bool with true
+crates/before/src/party/io/reader.rs:220:9: replace PartyReader<'a>::source_len -> u64 with 0
+crates/before/src/party/io/reader.rs:220:9: replace PartyReader<'a>::source_len -> u64 with 1
+crates/before/src/party/io/reader.rs:331:18: replace - with + in PartyReader<'a>::stored_len
+crates/before/src/party/io/reader.rs:331:9: replace PartyReader<'a>::stored_len -> u64 with 0
+crates/before/src/party/io/reader.rs:331:9: replace PartyReader<'a>::stored_len -> u64 with 1
+crates/before/src/party/io/reader.rs:341:9: replace PartyReader<'a>::at_end -> bool with true
+crates/before/src/party/io/writer/positions.rs:46:21: replace > with < in Positions::push
+crates/before/src/party/io/writer/positions.rs:46:21: replace > with == in Positions::push
+crates/before/src/party/io/writer/positions.rs:46:21: replace > with >= in Positions::push
+crates/before/src/party/io/writer/positions.rs:62:18: replace -= with += in Positions::pop
+crates/before/src/party/io/writer/positions.rs:62:18: replace -= with /= in Positions::pop

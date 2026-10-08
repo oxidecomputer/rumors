@@ -1,0 +1,4 @@
+# coverage of crates/before/src/version/measure/min_ticks.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 31/31; branch outcomes 4/4
+# never-executed lines:
+# branches with an outcome never taken (outcome hit counts):

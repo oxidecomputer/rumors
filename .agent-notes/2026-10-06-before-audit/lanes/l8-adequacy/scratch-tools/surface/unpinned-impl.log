@@ -1,0 +1,4 @@
+surfacecheck: reachable trait impls with no census pin and no exception (1):
+  Count: impl core::fmt::Binary for Count
+  -> a new impl is a deliberate API event: pin it in TRAIT_IMPLS (crates/before/surfacecheck/src/census.rs) and account for its resource cost
+unpinned-impl surfacecheck exit=1

@@ -1,0 +1,13 @@
+# coverage of crates/before/src/version/instrument.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 27/36; branch outcomes 0/0
+# never-executed lines:
+L   32  pub fn meet(a: &Version, b: &Version) -> Version {
+L   33  super::lattice::Extreme::Lower.emit(a, b)
+L   34  }
+L   56  pub fn min_ticks(version: &Version) -> crate::Count {
+L   57  version.min_ticks()
+L   58  }
+L   62  pub fn project(version: &Version, party: &crate::Party) -> Version {
+L   63  version.project(party).to_version()
+L   64  }
+# branches with an outcome never taken (outcome hit counts):

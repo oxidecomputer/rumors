@@ -1,0 +1,2 @@
+# survivors of crates/before/src/version/range_minima/anchor.rs (version); MISSED = no test failed, TIMEOUT = hung
+MISSED   crates/before/src/version/range_minima/anchor.rs:165:9: replace Anchor::gap_dominates_word -> Option<Ordering> with None

@@ -1,0 +1,129 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling serde_core v1.0.228
+   Compiling zmij v1.0.21
+   Compiling getrandom v0.3.4
+   Compiling memchr v2.8.1
+   Compiling zerocopy v0.8.49
+   Compiling serde_json v1.0.150
+   Compiling autocfg v1.5.1
+   Compiling serde v1.0.228
+   Compiling object v0.37.3
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling crossbeam-utils v0.8.21
+   Compiling rustix v1.1.4
+   Compiling crossbeam-epoch v0.9.20
+   Compiling once_cell v1.21.4
+   Compiling bitflags v2.12.1
+   Compiling thiserror v2.0.18
+   Compiling cfg_aliases v0.2.1
+   Compiling itoa v1.0.18
+   Compiling regex-syntax v0.8.10
+   Compiling fastrand v2.4.1
+   Compiling rayon-core v1.13.0
+   Compiling either v1.16.0
+   Compiling plotters-backend v0.3.7
+   Compiling portable-atomic v1.13.1
+   Compiling anstyle v1.0.14
+   Compiling clap_lex v1.1.0
+   Compiling ciborium-io v0.2.2
+   Compiling unicode-width v0.2.2
+   Compiling quick-error v1.2.3
+   Compiling bit-vec v0.8.0
+   Compiling num-primitive v0.2.1
+   Compiling fnv v1.0.7
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling bytes v1.11.1
+   Compiling hex v0.4.3
+   Compiling unarray v0.1.4
+   Compiling similar v2.7.0
+   Compiling anes v0.1.6
+   Compiling unit-prefix v0.5.2
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/suanpan)
+   Compiling static_assertions v1.1.0
+   Compiling oorandom v11.1.5
+   Compiling peak_alloc v0.3.0
+   Compiling borsh v1.6.1
+   Compiling num-traits v0.2.19
+   Compiling plotters-svg v0.3.7
+   Compiling walkdir v2.5.0
+   Compiling cc v1.2.62
+   Compiling bit-set v0.8.0
+   Compiling clap_builder v4.6.0
+   Compiling itertools v0.10.5
+   Compiling dsi-bitstream v0.10.1
+   Compiling errno v0.3.14
+   Compiling console v0.16.3
+   Compiling wait-timeout v0.2.1
+   Compiling is-terminal v0.4.17
+   Compiling rand_core v0.9.5
+   Compiling rand_xorshift v0.4.0
+   Compiling indicatif v0.18.5
+   Compiling stacker v0.1.24
+   Compiling syn v2.0.117
+   Compiling crossbeam-deque v0.8.6
+   Compiling num-integer v0.1.47
+   Compiling plotters v0.3.7
+   Compiling criterion-plot v0.5.0
+   Compiling tempfile v3.23.0
+   Compiling num-bigint v0.4.8
+   Compiling regex-automata v0.4.14
+   Compiling clap v4.6.1
+   Compiling rayon v1.12.0
+   Compiling rusty-fork v0.3.1
+   Compiling insta v1.47.2
+   Compiling serde_bytes v0.11.19
+   Compiling ar_archive_writer v0.5.1
+   Compiling regex v1.12.3
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l7-suanpan/crates/before)
+   Compiling psm v0.1.31
+   Compiling zerocopy-derive v0.8.49
+   Compiling serde_derive v1.0.228
+   Compiling thiserror-impl v2.0.18
+   Compiling cobs v0.3.0
+   Compiling tinytemplate v1.2.1
+   Compiling postcard v1.1.3
+   Compiling serde_test v1.0.177
+   Compiling ppv-lite86 v0.2.21
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling rand v0.9.4
+   Compiling criterion v0.5.1
+   Compiling proptest v1.11.0
+warning: function `l7_sparse_limbs` is never used
+  --> crates/before/tests/explore_l7.rs:65:4
+   |
+65 | fn l7_sparse_limbs(r: u64) -> impl Iterator<Item = u64> {
+   |    ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `before` (test "explore_l7") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 3m 44s
+────────────
+ Nextest run ID 66e2422d-7874-45a4-af88-08eea69d28b9 with nextest profile: default
+    Starting 1 test across 13 binaries (694 tests skipped)
+       START [         ] (1/1) before::explore_l7 l7_probe_version_sizes
+
+running 1 test
+L7SIZE ranges 64: 3569 encoded bytes, 4096 leaves
+L7SIZE ranges 256: 14321 encoded bytes, 16384 leaves
+L7SIZE ranges 1024: 57329 encoded bytes, 65536 leaves
+L7SIZE ranges 4096: 229361 encoded bytes, 262144 leaves
+L7SIZE ranges 16384: 917489 encoded bytes, 1048576 leaves
+test l7_probe_version_sizes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 59.64s
+
+        PASS [  59.678s] (1/1) before::explore_l7 l7_probe_version_sizes
+────────────
+     Summary [  59.682s] 1 test run: 1 passed, 694 skipped
+exit=0

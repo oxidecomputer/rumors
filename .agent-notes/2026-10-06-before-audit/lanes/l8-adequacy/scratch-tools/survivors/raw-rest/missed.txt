@@ -1,0 +1,36 @@
+crates/before/src/fold.rs:32:28: replace += with *= in balanced_try_fold
+crates/before/src/fold.rs:27:52: replace == with != in balanced_try_fold
+crates/before/src/recurse.rs:45:29: replace * with +
+crates/before/src/recurse.rs:49:34: replace * with +
+crates/before/src/recurse.rs:45:29: replace * with /
+crates/before/src/recurse.rs:49:34: replace * with /
+crates/before/src/shape.rs:176:9: replace <impl Iterator for Plateaus<'_>>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/shape.rs:176:9: replace <impl Iterator for Plateaus<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/shape.rs:176:9: replace <impl Iterator for Plateaus<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/shape.rs:176:9: replace <impl Iterator for Plateaus<'_>>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/shape.rs:176:9: replace <impl Iterator for Plateaus<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/shape.rs:176:9: replace <impl Iterator for Plateaus<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/shape.rs:228:9: replace <impl Iterator for Regions<'_>>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/shape.rs:228:9: replace <impl Iterator for Regions<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/shape.rs:228:9: replace <impl Iterator for Regions<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/shape.rs:228:9: replace <impl Iterator for Regions<'_>>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/shape.rs:228:9: replace <impl Iterator for Regions<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/shape.rs:228:9: replace <impl Iterator for Regions<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/shape.rs:286:9: replace <impl Iterator for Overlay<'_>>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/shape.rs:286:9: replace <impl Iterator for Overlay<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/shape.rs:286:9: replace <impl Iterator for Overlay<'_>>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/shape.rs:286:9: replace <impl Iterator for Overlay<'_>>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/shape.rs:286:9: replace <impl Iterator for Overlay<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/shape.rs:286:9: replace <impl Iterator for Overlay<'_>>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/shape.rs:371:9: replace <impl Iterator for Cells<'_, N>>::size_hint -> (usize, Option<usize>) with (0, None)
+crates/before/src/shape.rs:371:9: replace <impl Iterator for Cells<'_, N>>::size_hint -> (usize, Option<usize>) with (0, Some(0))
+crates/before/src/shape.rs:371:9: replace <impl Iterator for Cells<'_, N>>::size_hint -> (usize, Option<usize>) with (0, Some(1))
+crates/before/src/shape.rs:371:9: replace <impl Iterator for Cells<'_, N>>::size_hint -> (usize, Option<usize>) with (1, None)
+crates/before/src/shape.rs:371:9: replace <impl Iterator for Cells<'_, N>>::size_hint -> (usize, Option<usize>) with (1, Some(0))
+crates/before/src/shape.rs:371:9: replace <impl Iterator for Cells<'_, N>>::size_hint -> (usize, Option<usize>) with (1, Some(1))
+crates/before/src/serde_impls.rs:287:9: replace <impl Visitor<'de> for CountVisitor>::expecting -> fmt::Result with Ok(Default::default())
+crates/before/src/borsh_impls.rs:116:9: replace <impl BitRead for StreamBitsReader<'_, R>>::position -> u64 with 0
+crates/before/src/borsh_impls.rs:116:9: replace <impl BitRead for StreamBitsReader<'_, R>>::position -> u64 with 1
+crates/before/src/borsh_impls.rs:129:80: replace * with / in <impl BitRead for StreamBitsReader<'_, R>>::read_gamma
+crates/before/src/borsh_impls.rs:131:40: replace - with + in <impl BitRead for StreamBitsReader<'_, R>>::read_gamma
+crates/before/src/borsh_impls.rs:131:40: replace - with / in <impl BitRead for StreamBitsReader<'_, R>>::read_gamma

@@ -1,0 +1,5 @@
+# coverage of crates/before/src/version/measure/integral.rs (mac llvm-cov, explore tip f27c324a, PROPTEST_RNG_SEED=8008)
+# lines 111/112; branch outcomes 32/32
+# never-executed lines:
+L  183  _ => panic!("an active orientation is either -1 or 1"),
+# branches with an outcome never taken (outcome hit counts):

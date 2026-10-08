@@ -1,0 +1,4 @@
+M25-region-descend-recursive: exit=0 compile_error=False caught_by=[] ['Summary [  23.478s] 686 tests run: 686 passed, 1 skipped']
+M26-removal-descent-recursive: exit=100 compile_error=False caught_by=['SIGABRT)', 'deep::deep_identity_operations_are_iterative'] ['Summary [  25.519s] 686 tests run: 685 passed, 1 failed, 1 skipped']
+git diff after revert: ''
+exit=0
