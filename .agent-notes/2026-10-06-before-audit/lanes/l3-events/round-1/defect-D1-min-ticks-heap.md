@@ -245,3 +245,23 @@ reintroduces a second regime that regresses, the pattern the owner rejected
 earlier. The defect is revisited later. Deliverable: a first-principles
 write-up of the issue, capturing what is known, under
 `.agent-notes/` for the owner.
+
+## Correction: which design each real-scale figure measures
+
+Two figures above and in the coordinator's reports to the owner were
+attributed to the wrong code.
+- *About 6.1 GB at 91 MB* was measured on design A (re-anchoring with a
+  packed word, `7222d49b`) after its 23-bit prefix field overflowed (the
+  reviewer's `reviewer_spill_regime_real_scale` probe:
+  `bytes=91226247 peak=6135222240`). It is not a measurement of `main`. No
+  log measures `main` on that input; from the code, `main` spills every
+  level of it, estimated at about 2.7 GB before `Vec` slack (the write-up's
+  estimate, not measured).
+- *About 305 MB* was measured on the variable-width records design without
+  re-anchoring (`61f55dcb`, and its chunked variant `de4ac861`), not on the
+  final `1a31f8d1`, which had no real-scale probe.
+
+`main`'s measured defect is the board's 124.9 heap bytes per input byte on
+`jump-rising-spine`. The write-up in
+`.agent-notes/2026-10-08-min-ticks-transient-heap/` carries the corrected
+attributions.
