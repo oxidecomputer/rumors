@@ -306,8 +306,8 @@ impl Party {
     ///
     /// Unlike repeatedly calling [`fork`](Party::fork), which deepens its
     /// representation into a biased linear tree (see its warning), every
-    /// resultant [`Party`] produced here increases in size by only a
-    /// logarithmic factor.
+    /// [`Party`] produced here has size `O(|self| + log k)`: the balanced plan
+    /// adds only `O(log k)` levels.
     ///
     /// A [`Party`] is never empty, so `self` retains one residual share. It also
     /// retains every share the iterator has not returned.
