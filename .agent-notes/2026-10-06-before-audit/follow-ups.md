@@ -129,3 +129,13 @@ audit. Each entry names its source and what it would catch.
   `num-bigint`'s `try_from`, the same call the impl makes. The measures
   lane's exhaustive boundary sweep judges it independently (rescue entry,
   `instrument-rescue/04-measures.md`). Source: the same.
+- **Does `before`'s integral measure absorb suanpan's logarithmic factor?**
+  The time-bound derivation shows adding an accumulator at a nonzero shift
+  costs O(`A` log(`W`+1) + `G`). `before`'s `version/measure/integral.rs`
+  calls `add_shifted` and `sub_shifted` with mixed-sign accumulators at
+  nonzero bit offsets (`jump` at shift 1, `interval` at `weight_shift`), so
+  the factor may apply to `before`'s linear-time claims there. Unverified;
+  for the measures or suanpan lane. Source: the time-bound builder.
+- **Unmetered suanpan costs.** A cancelled shifted transient zero-fills and
+  keeps about `s` digits, invisible to the touch meter; bitset word
+  operations are metered nowhere. Source: the same.
