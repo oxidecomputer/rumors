@@ -745,3 +745,14 @@ For now, raise the global nextest time limit in `.config/nextest.toml` so
 stop failing under load, and restate that file's comment to what is true
 (it claims the slowest tests finish well under 60 seconds). Measuring and
 speeding up the two tests is deferred.
+
+## Owner's correction of the survey's scope
+
+The survey's governing rule (a named, constructed or observed failure) was
+the coordinator's misreading of the owner's caution. The owner's intent:
+rescue the highest-value instruments the audit *already constructed*,
+ranked by the coverage they add against future issues, whether or not they
+caught a defect. The caution applies only to constructing *new*
+instruments against ever more exotic imagined threats. The explore-branch
+instruments in section 2.1 are candidates for folding in; the owner's
+question 99 sets the next step.
