@@ -95,3 +95,20 @@ versions, which is the caller's monotonicity discipline, not a linearity
 violation; restoring while any live party holds part of it (the source, a
 party that has since received part of it, or another restoration of the same
 bytes) violates linearity.
+
+## Owner's direction on the linearity asymmetry (question 105)
+
+The owner's model, in their words: "if you want `Version` monotonicity you
+have to treat `Version` as affine. But some callers may not want that, so it's
+optional. Whereas treating `Party` as non-affine leads to in-actuality
+concurrent `Version`s which are potentially comparable as equal or
+sequential. So `Party` non-linearity breaks `Version`'s causal ordering,
+whereas `Version` non-linearity merely breaks monotonicity relative to some
+application notion which the caller must be ultimately responsible, because
+they're the ones who have to decide what `Version`s are even meant to
+represent or tag." Direction: fold this notion into the docs, on the crate
+page and restated in brief in the `Version` or `Clock` docs, in terms of
+`Party` and `Version`. `Clock` is optional, a convenient wrapper for a 1:1
+pairing of one `Party` with the `Version` it ticks; `rumors` does not use
+`Clock` in its tree, because one `Party` ticks many `Version`s. The
+coordinator's proposed wording was not accepted; the text is drafted afresh.
