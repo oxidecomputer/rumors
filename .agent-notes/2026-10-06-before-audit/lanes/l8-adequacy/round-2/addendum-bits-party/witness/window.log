@@ -1,0 +1,122 @@
+    Blocking waiting for file lock on package cache
+warning: ignoring --test-threads because --no-capture is specified
+    Blocking waiting for file lock on package cache
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 00s
+────────────
+ Nextest run ID 3c3ae2ca-0da2-4a3b-ae17-22a3555cb8ec with nextest profile: default
+    Starting 1 test across 12 binaries (699 tests skipped)
+       START [         ] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+
+running 1 test
+L8_MUT=Some("base") window failures: 0 of 42
+test bits::tests::l8_witness_window_unaligned_long_codes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+        PASS [   0.054s] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+────────────
+     Summary [   0.059s] 1 test run: 1 passed, 699 skipped
+base done
+warning: ignoring --test-threads because --no-capture is specified
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+────────────
+ Nextest run ID 34c9a044-336c-40e9-be1c-dd34771db309 with nextest profile: default
+    Starting 1 test across 12 binaries (699 tests skipped)
+       START [         ] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+
+running 1 test
+L8_MUT=Some("plus") window failures: 26 of 42
+  (2, 4294967294, 63, Some((4294967293, 65)))
+  (2, 2863311530, 63, Some((2863311529, 65)))
+  (2, 2147483648, 63, Some((2147483647, 65)))
+  (3, 4294967294, 63, Some((4294967291, 66)))
+
+thread 'bits::tests::l8_witness_window_unaligned_long_codes' (2) panicked at crates/before/src/bits/tests.rs:1406:5:
+assertion failed: failures.is_empty()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test bits::tests::l8_witness_window_unaligned_long_codes ... FAILED
+
+failures:
+
+failures:
+    bits::tests::l8_witness_window_unaligned_long_codes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+        FAIL [   0.046s] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+────────────
+     Summary [   0.051s] 1 test run: 0 passed, 1 failed, 699 skipped
+        FAIL [   0.046s] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+error: test run failed
+plus witness status 100
+plus done
+warning: ignoring --test-threads because --no-capture is specified
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+────────────
+ Nextest run ID c70ebf39-16a9-43b3-8fbf-45b7409b87b2 with nextest profile: default
+    Starting 1 test across 12 binaries (699 tests skipped)
+       START [         ] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+
+running 1 test
+test bits::tests::l8_witness_window_unaligned_long_codes ... FAILED
+
+failures:
+
+failures:
+    bits::tests::l8_witness_window_unaligned_long_codes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+L8_MUT=Some("div") window failures: 20 of 42
+  (2, 4294967294, 63, Some((4294967293, 65)))
+  (2, 2863311530, 63, Some((2863311533, 65)))
+  (2, 2147483648, 63, Some((2147483653, 65)))
+  (3, 4294967294, 63, Some((4294967291, 66)))
+
+thread 'bits::tests::l8_witness_window_unaligned_long_codes' (2) panicked at crates/before/src/bits/tests.rs:1406:5:
+assertion failed: failures.is_empty()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+        FAIL [   0.051s] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+────────────
+     Summary [   0.055s] 1 test run: 0 passed, 1 failed, 699 skipped
+        FAIL [   0.051s] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+error: test run failed
+div witness status 100
+div done
+warning: ignoring --test-threads because --no-capture is specified
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+────────────
+ Nextest run ID ea1e1111-bd73-4749-b565-9ed0184cca27 with nextest profile: default
+    Starting 1 test across 12 binaries (699 tests skipped)
+       START [         ] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+
+running 1 test
+L8_MUT=Some("shl") window failures: 39 of 42
+  (1, 2863311530, 63, Some((2863312554, 64)))
+  (1, 1431655765, 61, Some((1431655893, 62)))
+  (1, 536883257, 59, Some((536883385, 60)))
+  (1, 2147483648, 63, Some((2147492992, 64)))
+
+thread 'bits::tests::l8_witness_window_unaligned_long_codes' (2) panicked at crates/before/src/bits/tests.rs:1406:5:
+assertion failed: failures.is_empty()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test bits::tests::l8_witness_window_unaligned_long_codes ... FAILED
+
+failures:
+
+failures:
+    bits::tests::l8_witness_window_unaligned_long_codes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 609 filtered out; finished in 0.00s
+
+        FAIL [   0.050s] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+────────────
+     Summary [   0.055s] 1 test run: 0 passed, 1 failed, 699 skipped
+        FAIL [   0.050s] (1/1) before bits::tests::l8_witness_window_unaligned_long_codes
+error: test run failed
+shl witness status 100
+shl done

@@ -36,3 +36,16 @@ audit. Each entry names its source and what it would catch.
 - **No variadic rejection row on the board.** `clock_sync_all` and
   `clock_join_all` are metered only on success, so their rejection paths'
   allocations are unmetered. Source: the `sync_all` reviewer.
+- **The gamma window's general contract is untested.** `pub(crate)` window
+  decoding promises one complete code from the word at `position`, but
+  `gamma_window_edge` tests a 63-bit code only at position 0, and three
+  value mutants in `window.rs:47` (`load`'s ninth-byte merge) survive. They
+  are unreachable today because borsh's stream reader buffers at most 7 bits
+  past `position`; a future caller with a fuller buffer would expose them.
+  `lanes/l8-adequacy/round-2/addendum-bits-party/witness/window_witness.rs`
+  (59- to 63-bit codes at every unaligned start) kills all three and is a
+  ready-made regression test. Source: the adequacy lane, round 2 addendum.
+- **The borsh gamma window decodes only short codes in production.** For
+  the same reason, the window in `borsh_impls.rs:129` saves at most 7 bit
+  reads per code. Its doc is accurate but omits that ceiling; a candidate
+  simplification, not a defect. Source: the adequacy lane, round 2 addendum.

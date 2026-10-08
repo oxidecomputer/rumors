@@ -1,0 +1,76 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling before v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/before)
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-audit-l8-adequacy/l8/probe/crates/suanpan)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 11s
+────────────
+ Nextest run ID 7ad741bd-486d-4d66-aa62-0533a25a9549 with nextest profile: default
+    Starting 2 tests across 12 binaries (696 tests skipped)
+       START [         ] (1/2) before clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits
+
+running 1 test
+L8_MUT=Some("base") clock bad: Err(TrailingBits)
+test clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.00s
+
+        PASS [   0.041s] (1/2) before clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits
+       START [         ] (2/2) before span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits
+
+running 1 test
+L8_MUT=Some("base") span bad: Err(TrailingBits)
+test span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.00s
+
+        PASS [   0.034s] (2/2) before span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits
+────────────
+     Summary [   0.079s] 2 tests run: 2 passed, 696 skipped
+base done
+warning: ignoring --test-threads because --no-capture is specified
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+────────────
+ Nextest run ID 77d963bd-6eb4-4bab-9169-02f9e826024b with nextest profile: default
+    Starting 2 tests across 12 binaries (696 tests skipped)
+       START [         ] (1/2) before clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits
+
+running 1 test
+L8_MUT=Some("lt") clock bad: Err(Truncated)
+
+thread 'clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits' (2) panicked at crates/before/src/clock/tests.rs:1354:5:
+assertion failed: matches!(bad, Err(crate::error::Decode::TrailingBits))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits ... FAILED
+
+failures:
+
+failures:
+    clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.00s
+
+        FAIL [   0.037s] (1/2) before clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits
+       START [         ] (2/2) before span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits
+
+running 1 test
+L8_MUT=Some("lt") span bad: Err(Truncated)
+
+thread 'span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits' (2) panicked at crates/before/src/span/tests.rs:1030:5:
+assertion failed: matches!(bad, Err(crate::error::Decode::TrailingBits))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits ... FAILED
+
+failures:
+
+failures:
+    span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 607 filtered out; finished in 0.00s
+
+        FAIL [   0.041s] (2/2) before span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits
+────────────
+     Summary [   0.082s] 2 tests run: 0 passed, 2 failed, 696 skipped
+        FAIL [   0.037s] (1/2) before clock::tests::l8_brief_lone_party_with_bad_padding_is_trailing_bits
+        FAIL [   0.041s] (2/2) before span::tests::l8_brief_lone_endpoint_with_bad_padding_is_trailing_bits
+error: test run failed
+lt witness status 100
+lt done
