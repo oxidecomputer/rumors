@@ -103,7 +103,11 @@ audit. Each entry names its source and what it would catch.
   raising a leaf that starts past bit `2^32`, or a join copying such a
   subtree) would. The gamma window's narrowing (`gamma/window.rs:28`) needs
   `borsh` in the guest and a borsh decode check. Both are new `Check`
-  variants, so after #58. Source: the compare-pin proposal branch (slot 42).
+  variants, so after #58. More generally, every random-access position-to-byte
+  conversion is unpinned at or past `2^32` on 32-bit: a reader opening
+  mid-stream, `splice_storage`, the writer's `bit`/`patch_bit`/`read_word`,
+  and the window. Source: the compare-pin proposal branch (slot 42) and its
+  reviewer.
 - **Two more wasm32 pin docs overclaim:** the join output pin and the
   rank-arithmetic route (the latter rewritten by #63). Source: the adequacy
   lane's wasm32-pins calibration, confirmed by the slot 42 builder.
