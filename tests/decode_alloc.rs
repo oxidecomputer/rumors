@@ -11,10 +11,7 @@
 //! driving the decode, so test-harness work on other threads cannot perturb
 //! its bounds.
 
-#[path = "support/allocation.rs"]
-mod allocation;
-
-use allocation::measure as metered;
+use alloc_meter::measure as metered;
 use rumors::testing::{CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
 
 /// The payload length a corrupt stream or conformance-buggy peer declares

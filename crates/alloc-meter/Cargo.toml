@@ -1,0 +1,19 @@
+[package]
+name = "alloc-meter"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "A per-thread counting global allocator for the workspace's resource tests"
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+
+# The crate exists to hold the allocator's `unsafe`; every block must carry
+# its safety argument.
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

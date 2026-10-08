@@ -9,16 +9,13 @@
 //! meter counts only the thread driving the write, so test-harness work on
 //! other threads cannot perturb an exact result.
 
-#[path = "support/allocation.rs"]
-mod allocation;
-
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::thread;
 
-use allocation::{Stats, measure};
+use alloc_meter::{Stats, measure};
 use rumors::testing::{FrameShape, PreparedFrame, prepare_frame, write_prepared_frame};
 
 /// Capacity reserved for the written frame ahead of the meter: above any

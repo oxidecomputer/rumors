@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/alloc-meter",
     "crates/before",
     "crates/before-viz",
     "crates/rumors-tracing",
@@ -15,6 +16,7 @@ members = [
 # a version, path, or other source of its own; the gate's manifestlint leg
 # holds every member manifest to this.
 [workspace.dependencies]
+alloc-meter = { path = "crates/alloc-meter" }
 async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
@@ -176,6 +178,8 @@ rand = { workspace = true }
 # platforms and Rand versions, so a committed seed continues to name one corpus.
 rand_chacha = { workspace = true }
 pollster = { workspace = true }
+# The allocation-pricing suites read per-thread allocator traffic from it.
+alloc-meter = { workspace = true }
 
 [profile.dev]
 debug = "line-tables-only"

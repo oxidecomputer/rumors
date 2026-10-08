@@ -11,9 +11,6 @@
 //! *item*, a *quiet* observer (no change to report, actors live), or an
 //! *ended* one (final state fully delivered).
 
-#[path = "support/allocation.rs"]
-mod allocation;
-
 use rumors_testkit::common;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -42,7 +39,7 @@ fn causal_staging_has_no_per_version_allocation() {
     rumors.send_all(0..ALLOCATION_BACKLOG).unwrap();
     let mut messages = rumors.causal_messages();
 
-    let (stats, first) = allocation::measure(|| messages.try_next());
+    let (stats, first) = alloc_meter::measure(|| messages.try_next());
 
     assert!(matches!(first, rumors::TryNext::Message(_)));
     assert!(
