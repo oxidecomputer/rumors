@@ -144,3 +144,14 @@ The `Below::Mask(u64)` variant removes every heap rise against the fuel-ladder
 commit, but 314 fitted heap exponents rose by 0.01 to 0.03 and 14 top-scale
 per-byte readings by 0.1. The owner: "a tiny negligible increase like this is
 not a big deal." The variant stands without further attribution.
+
+## Owner's ruling on the W fix's remaining costs (question 70)
+
+Question 70 asked whether the W fix's remaining small costs are an acceptable
+trade. The mask variant removed the 94 heap rises above 0.1 B/B, including the
+two that grew with input, and `BAND_PERCENT` has a working known-bad again
+(each write recorded twice). What remained were seven near-tied heap
+worst-case rankings flipping from `arming-train` to `wide-arming` (re-pinned
+in `b9b7e953`) and the Opening family's dense control rows at +0.72% fuel,
+inside the ladder's ±2% band. The owner ruled the small increases acceptable
+and confirmed that this settles question 70.
