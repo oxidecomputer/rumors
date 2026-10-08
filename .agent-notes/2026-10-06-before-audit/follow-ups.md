@@ -107,3 +107,11 @@ audit. Each entry names its source and what it would catch.
 - **Two more wasm32 pin docs overclaim:** the join output pin and the
   rank-arithmetic route (the latter rewritten by #63). Source: the adequacy
   lane's wasm32-pins calibration, confirmed by the slot 42 builder.
+- **`gate-streams`' comment omits the board stream from the root
+  `target/` users.** It says every leg that builds into the root `target/`
+  sits in one stream, but `amp_board_command` has no `--target-dir`, so the
+  board and workspace streams share the root `target/` and wait on each
+  other's build lock. No verdict changes. Separately, `gate-streams` and
+  `_gate-board` call `just` by name, which drops command-line overrides and
+  breaks under `-d`; `{{ just_executable() }} --justfile {{ justfile() }}`
+  would fix the second for both. Source: the worst-case-pin reviewer.
