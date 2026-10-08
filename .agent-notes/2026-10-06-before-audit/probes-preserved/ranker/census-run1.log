@@ -1,0 +1,498 @@
+warning: ignoring --test-threads because --no-capture is specified
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling memchr v2.8.1
+   Compiling serde_core v1.0.228
+   Compiling zerocopy v0.8.49
+   Compiling getrandom v0.3.4
+   Compiling autocfg v1.5.1
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.150
+   Compiling serde v1.0.228
+   Compiling object v0.37.3
+   Compiling itoa v1.0.18
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling crossbeam-utils v0.8.21
+   Compiling crossbeam-epoch v0.9.20
+   Compiling rustix v1.1.4
+   Compiling thiserror v2.0.18
+   Compiling once_cell v1.21.4
+   Compiling bitflags v2.12.1
+   Compiling regex-syntax v0.8.10
+   Compiling cfg_aliases v0.2.1
+   Compiling either v1.16.0
+   Compiling rayon-core v1.13.0
+   Compiling cc v1.2.62
+   Compiling fastrand v2.4.1
+   Compiling borsh v1.6.1
+   Compiling anstyle v1.0.14
+   Compiling num-traits v0.2.19
+   Compiling clap_lex v1.1.0
+   Compiling plotters-backend v0.3.7
+   Compiling ciborium-io v0.2.2
+   Compiling portable-atomic v1.13.1
+   Compiling unicode-width v0.2.2
+   Compiling itertools v0.10.5
+   Compiling same-file v1.0.6
+   Compiling bit-vec v0.8.0
+   Compiling num-primitive v0.2.1
+   Compiling clap_builder v4.6.0
+   Compiling fnv v1.0.7
+   Compiling quick-error v1.2.3
+   Compiling cast v0.3.0
+   Compiling plotters-svg v0.3.7
+   Compiling walkdir v2.5.0
+   Compiling bit-set v0.8.0
+   Compiling suanpan v0.1.0 (/home/agent/src/rumors-rescue/crates/suanpan)
+   Compiling static_assertions v1.1.0
+   Compiling unarray v0.1.4
+   Compiling similar v2.7.0
+   Compiling errno v0.3.14
+   Compiling wait-timeout v0.2.1
+   Compiling console v0.16.3
+   Compiling is-terminal v0.4.17
+   Compiling anes v0.1.6
+   Compiling hex v0.4.3
+   Compiling unit-prefix v0.5.2
+   Compiling rand_core v0.9.5
+   Compiling crossbeam-deque v0.8.6
+   Compiling oorandom v11.1.5
+   Compiling bytes v1.11.1
+   Compiling dsi-bitstream v0.10.1
+   Compiling peak_alloc v0.3.0
+   Compiling rand_xorshift v0.4.0
+   Compiling syn v2.0.117
+   Compiling stacker v0.1.24
+   Compiling regex-automata v0.4.14
+   Compiling criterion-plot v0.5.0
+   Compiling indicatif v0.18.5
+   Compiling num-integer v0.1.47
+   Compiling plotters v0.3.7
+   Compiling rayon v1.12.0
+   Compiling tempfile v3.23.0
+   Compiling num-bigint v0.4.8
+   Compiling clap v4.6.1
+   Compiling rusty-fork v0.3.1
+   Compiling insta v1.47.2
+   Compiling serde_bytes v0.11.19
+   Compiling regex v1.12.3
+   Compiling ar_archive_writer v0.5.1
+   Compiling before v0.1.0 (/home/agent/src/rumors-rescue/crates/before)
+   Compiling zerocopy-derive v0.8.49
+   Compiling serde_derive v1.0.228
+   Compiling thiserror-impl v2.0.18
+   Compiling psm v0.1.31
+   Compiling cobs v0.3.0
+   Compiling tinytemplate v1.2.1
+   Compiling serde_test v1.0.177
+   Compiling postcard v1.1.3
+   Compiling half v2.7.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling rand v0.9.4
+   Compiling criterion v0.5.1
+   Compiling proptest v1.11.0
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 29s
+────────────
+ Nextest run ID dfdb6d8e-e6f0-429b-b405-9302ccebffa7 with nextest profile: default
+    Starting 7 tests across 12 binaries (695 tests skipped)
+       START [         ] (1/7) before testing::generators::tests::generator_classes_stay_under_mass
+
+running 1 test
+test testing::generators::tests::generator_classes_stay_under_mass ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 611 filtered out; finished in 1.18s
+
+census over 3000 trees per strategy: wide 2674, three_limb 1151, beyond_narrow 1150, aligned 204, deep 255, deep_and_wide 248, party_deep 157
+        PASS [   1.224s] (1/7) before testing::generators::tests::generator_classes_stay_under_mass
+       START [         ] (2/7) before testing::l8_census::l8_census_pairs
+
+running 1 test
+== arbitrary version pair: partial_cmp (n = 20000)
+   "None": 13052 (65.26%)
+   "Some(Greater)": 3437 (17.18%)
+   "Some(Less)": 3511 (17.55%)
+== arbitrary nonempty party pair: relation (n = 20000)
+   "a covers b": 4522 (22.61%)
+   "b covers a": 4497 (22.48%)
+   "disjoint": 2781 (13.90%)
+   "equal": 628 (3.14%)
+   "partial overlap": 7572 (37.86%)
+== arbitrary version / party: projection (n = 40000)
+   "identity": 4644 (11.61%)
+   "other": 35343 (88.36%)
+   "zero": 13 (0.03%)
+test testing::l8_census::l8_census_pairs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 611 filtered out; finished in 16.22s
+
+        PASS [  16.284s] (2/7) before testing::l8_census::l8_census_pairs
+       START [         ] (3/7) before testing::l8_census::l8_census_parties
+
+running 1 test
+== arb_oracle_party: depth (n = 20000)
+   0: 2364 (11.82%)
+   1: 2067 (10.34%)
+   2: 7473 (37.37%)
+   3: 7157 (35.78%)
+   4: 939 (4.70%)
+   summary depth: min 0 p50 2 p90 3 p99 4 max 4
+== arb_oracle_party: leaves (n = 20000)
+   1: 2364 (11.82%)
+   2: 2067 (10.34%)
+   3: 5390 (26.95%)
+   4: 5189 (25.95%)
+   5: 3093 (15.46%)
+   6: 1457 (7.29%)
+   7: 374 (1.87%)
+   8: 56 (0.28%)
+   9: 8 (0.04%)
+   10: 2 (0.01%)
+   summary leaves: min 1 p50 4 p90 5 p99 7 max 10
+== arb_oracle_party: owned leaves (n = 20000)
+   0: 1215 (6.08%)
+   1: 6750 (33.75%)
+   2: 8131 (40.66%)
+   3: 3328 (16.64%)
+   4: 534 (2.67%)
+   5: 41 (0.20%)
+   6: 1 (0.01%)
+   summary owned leaves: min 0 p50 2 p90 3 p99 4 max 6
+== arb_oracle_party: root kind (n = 20000)
+   "anonymous": 1215 (6.08%)
+   "node": 17636 (88.18%)
+   "seed": 1149 (5.75%)
+== arb_oracle_party: encoded bits (nonempty) (n = 18785)
+   2: 1149 (6.12%)
+   4: 2067 (11.00%)
+   6: 2733 (14.55%)
+   8: 3424 (18.23%)
+   10: 3637 (19.36%)
+   12: 2375 (12.64%)
+   14: 1741 (9.27%)
+   16: 942 (5.01%)
+   18: 474 (2.52%)
+   20: 176 (0.94%)
+   22: 42 (0.22%)
+   24: 19 (0.10%)
+   26: 4 (0.02%)
+   28: 2 (0.01%)
+   summary encoded bits (nonempty): min 2 p50 10 p90 14 p99 20 max 28
+== arb_oracle_party_nonempty: depth (n = 20000)
+   0: 2295 (11.47%)
+   1: 2096 (10.48%)
+   2: 7316 (36.58%)
+   3: 7337 (36.69%)
+   4: 956 (4.78%)
+   summary depth: min 0 p50 2 p90 3 p99 4 max 4
+== arb_oracle_party_nonempty: leaves (n = 20000)
+   1: 2295 (11.47%)
+   2: 2096 (10.48%)
+   3: 5335 (26.68%)
+   4: 5241 (26.20%)
+   5: 3197 (15.98%)
+   6: 1377 (6.88%)
+   7: 377 (1.89%)
+   8: 74 (0.37%)
+   9: 8 (0.04%)
+   summary leaves: min 1 p50 4 p90 5 p99 7 max 9
+== arb_oracle_party_nonempty: owned leaves (n = 20000)
+   1: 7916 (39.58%)
+   2: 8205 (41.02%)
+   3: 3315 (16.57%)
+   4: 528 (2.64%)
+   5: 36 (0.18%)
+   summary owned leaves: min 1 p50 2 p90 3 p99 4 max 5
+== arb_oracle_party_nonempty: root kind (n = 20000)
+   "node": 17705 (88.53%)
+   "seed": 2295 (11.47%)
+== arb_oracle_party_nonempty: encoded bits (nonempty) (n = 20000)
+   2: 2295 (11.47%)
+   4: 2096 (10.48%)
+   6: 2701 (13.51%)
+   8: 3420 (17.10%)
+   10: 3667 (18.34%)
+   12: 2435 (12.18%)
+   14: 1833 (9.16%)
+   16: 822 (4.11%)
+   18: 468 (2.34%)
+   20: 180 (0.90%)
+   22: 63 (0.32%)
+   24: 18 (0.09%)
+   26: 2 (0.01%)
+   summary encoded bits (nonempty): min 2 p50 8 p90 14 p99 20 max 26
+test testing::l8_census::l8_census_parties ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 611 filtered out; finished in 3.02s
+
+        PASS [   3.059s] (3/7) before testing::l8_census::l8_census_parties
+       START [         ] (4/7) before testing::l8_census::l8_census_party_family_success
+
+running 1 test
+== arb_party_family: success 1176 of 20000 (5.88%)
+   arity 0: 1104 of 1104
+   arity 1: 72 of 1115
+   arity 2: 0 of 1120
+   arity 3: 0 of 1085
+   arity 4: 0 of 1068
+   arity 5: 0 of 1111
+   arity 6: 0 of 1058
+   arity 7: 0 of 1143
+   arity 8: 0 of 1155
+   arity 9: 0 of 1077
+   arity 10: 0 of 1122
+   arity 11: 0 of 1141
+   arity 12: 0 of 1141
+   arity 13: 0 of 1124
+   arity 14: 0 of 1125
+   arity 15: 0 of 1082
+   arity 16: 0 of 1132
+   arity 17: 0 of 1097
+== arb_clock_family: success 1111 of 20000 (5.55%)
+test testing::l8_census::l8_census_party_family_success ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 611 filtered out; finished in 21.76s
+
+        PASS [  21.831s] (4/7) before testing::l8_census::l8_census_party_family_success
+       START [         ] (5/7) before testing::l8_census::l8_census_traces
+
+running 1 test
+== world_strategy: trace length (power-of-two bucket) (n = 5000)
+   1: 346 (6.92%)
+   2: 168 (3.36%)
+   4: 311 (6.22%)
+   8: 676 (13.52%)
+   16: 1333 (26.66%)
+   32: 2166 (43.32%)
+   summary trace length: min 0 p50 14 p90 26 p99 29 max 29
+== world_strategy: final population (n = 5000)
+   1: 1547 (30.94%)
+   2: 1346 (26.92%)
+   3: 894 (17.88%)
+   4: 590 (11.80%)
+   5: 310 (6.20%)
+   6: 194 (3.88%)
+   7: 79 (1.58%)
+   8: 27 (0.54%)
+   9: 9 (0.18%)
+   10: 3 (0.06%)
+   11: 1 (0.02%)
+   summary final population: min 1 p50 2 p90 5 p99 7 max 11
+== world_strategy: op kinds (n = 72429)
+   "fork": 12168 (16.80%)
+   "join": 12106 (16.71%)
+   "send": 12008 (16.58%)
+   "sync": 12092 (16.69%)
+   "tick": 12027 (16.61%)
+   "ticks": 12028 (16.61%)
+== world_strategy: degenerate ops (n = 25109)
+   "join": 7824 (31.16%)
+   "send": 7744 (30.84%)
+   "sync": 7836 (31.21%)
+   "ticks": 1705 (6.79%)
+== world_strategy: max party depth (n = 5000)
+   0: 1547 (30.94%)
+   1: 1139 (22.78%)
+   2: 1018 (20.36%)
+   3: 772 (15.44%)
+   4: 372 (7.44%)
+   5: 120 (2.40%)
+   6: 25 (0.50%)
+   7: 7 (0.14%)
+   summary max party depth: min 0 p50 1 p90 4 p99 5 max 7
+== world_strategy: max version depth (n = 5000)
+   0: 1890 (37.80%)
+   1: 1114 (22.28%)
+   2: 1002 (20.04%)
+   3: 656 (13.12%)
+   4: 257 (5.14%)
+   5: 70 (1.40%)
+   6: 11 (0.22%)
+   summary max version depth: min 0 p50 1 p90 3 p99 5 max 6
+== world_strategy: widest absolute height bits (n = 5000)
+   0: 350 (7.00%)
+   1: 177 (3.54%)
+   2: 428 (8.56%)
+   3: 946 (18.92%)
+   4: 1764 (35.28%)
+   5: 1255 (25.10%)
+   6: 80 (1.60%)
+   summary widest absolute height bits: min 0 p50 4 p90 5 p99 6 max 6
+== organic picks: same clock (n = 5000)
+   false: 2239 (44.78%)
+   true: 2761 (55.22%)
+== organic picks: v[0] vs v[1] partial_cmp (n = 5000)
+   "None": 695 (13.90%)
+   "Some(Equal)": 3362 (67.24%)
+   "Some(Greater)": 495 (9.90%)
+   "Some(Less)": 448 (8.96%)
+test testing::l8_census::l8_census_traces ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 611 filtered out; finished in 3.32s
+
+        PASS [   3.368s] (5/7) before testing::l8_census::l8_census_traces
+       START [         ] (6/7) before testing::l8_census::l8_census_versions
+
+running 1 test
+== arb_oracle_version: depth (n = 20000)
+   0: 179 (0.90%)
+   1: 1027 (5.13%)
+   2: 6229 (31.14%)
+   3: 10718 (53.59%)
+   4: 1847 (9.23%)
+   summary depth: min 0 p50 3 p90 3 p99 4 max 4
+== arb_oracle_version: nodes (n = 20000)
+   1: 179 (0.90%)
+   3: 1027 (5.13%)
+   5: 2143 (10.71%)
+   7: 5243 (26.21%)
+   9: 5874 (29.37%)
+   11: 3662 (18.31%)
+   13: 1443 (7.21%)
+   15: 365 (1.82%)
+   17: 58 (0.29%)
+   19: 5 (0.03%)
+   21: 1 (0.01%)
+   summary nodes: min 1 p50 9 p90 11 p99 15 max 21
+== arb_oracle_version: leaves (n = 20000)
+   1: 179 (0.90%)
+   2: 1027 (5.13%)
+   3: 2143 (10.71%)
+   4: 5243 (26.21%)
+   5: 5874 (29.37%)
+   6: 3662 (18.31%)
+   7: 1443 (7.21%)
+   8: 365 (1.82%)
+   9: 58 (0.29%)
+   10: 5 (0.03%)
+   11: 1 (0.01%)
+   summary leaves: min 1 p50 5 p90 6 p99 8 max 11
+== arb_oracle_version: widest base bits (power-of-two bucket) (n = 20000)
+   1: 22 (0.11%)
+   2: 60 (0.30%)
+   4: 166 (0.83%)
+   8: 7 (0.04%)
+   16: 16 (0.08%)
+   32: 33 (0.17%)
+   64: 1885 (9.43%)
+   128: 9934 (49.67%)
+   256: 2225 (11.12%)
+   512: 5612 (28.06%)
+   1024: 40 (0.20%)
+   summary widest base bits: min 0 p50 128 p90 431 p99 505 max 514
+== arb_oracle_version: widest absolute height bits (power-of-two bucket) (n = 20000)
+   1: 18 (0.09%)
+   2: 34 (0.17%)
+   4: 191 (0.95%)
+   8: 11 (0.06%)
+   16: 17 (0.09%)
+   32: 30 (0.15%)
+   64: 808 (4.04%)
+   128: 10556 (52.78%)
+   256: 2679 (13.39%)
+   512: 5616 (28.08%)
+   1024: 40 (0.20%)
+   summary widest absolute height bits: min 0 p50 128 p90 431 p99 505 max 514
+== arb_oracle_version: nonzero interior bases (n = 20000)
+   0: 192 (0.96%)
+   1: 2179 (10.89%)
+   2: 8755 (43.77%)
+   3: 6670 (33.35%)
+   4: 1947 (9.73%)
+   5: 246 (1.23%)
+   6: 11 (0.06%)
+   summary nonzero interior bases: min 0 p50 2 p90 4 p99 5 max 6
+== arb_oracle_version: root kind (n = 20000)
+   "node": 19821 (99.11%)
+   "nonzero leaf": 172 (0.86%)
+   "zero leaf": 7 (0.04%)
+== arb_oracle_version: encoded bits (power-of-two bucket) (n = 20000)
+   2: 7 (0.04%)
+   4: 21 (0.10%)
+   8: 45 (0.23%)
+   16: 105 (0.53%)
+   32: 67 (0.34%)
+   64: 30 (0.15%)
+   128: 74 (0.37%)
+   256: 556 (2.78%)
+   512: 3161 (15.80%)
+   1024: 7928 (39.64%)
+   2048: 5747 (28.73%)
+   4096: 2225 (11.12%)
+   8192: 34 (0.17%)
+   summary encoded bits: min 2 p50 844 p90 2125 p99 3306 max 5015
+test testing::l8_census::l8_census_versions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 611 filtered out; finished in 6.93s
+
+        PASS [   6.982s] (6/7) before testing::l8_census::l8_census_versions
+       START [         ] (7/7) before testing::l8_census::rescue_census_families
+
+running 1 test
+== arb_version_family: pairwise partial_cmp (receiver and items) (n = 267850)
+   "None": 33706 (12.58%)
+   "Some(Equal)": 97341 (36.34%)
+   "Some(Greater)": 68448 (25.55%)
+   "Some(Less)": 68355 (25.52%)
+== arb_version_family: item count (n = 5000)
+   0: 266 (5.32%)
+   1: 316 (6.32%)
+   2: 268 (5.36%)
+   3: 275 (5.50%)
+   4: 264 (5.28%)
+   5: 263 (5.26%)
+   6: 284 (5.68%)
+   7: 276 (5.52%)
+   8: 258 (5.16%)
+   9: 309 (6.18%)
+   10: 289 (5.78%)
+   11: 281 (5.62%)
+   12: 273 (5.46%)
+   13: 297 (5.94%)
+   14: 257 (5.14%)
+   15: 292 (5.84%)
+   16: 269 (5.38%)
+   17: 263 (5.26%)
+   summary item count: min 0 p50 9 p90 16 p99 17 max 17
+== arb_version_family: distinct values per family (n = 5000)
+   1: 456 (9.12%)
+   2: 1939 (38.78%)
+   3: 1634 (32.68%)
+   4: 971 (19.42%)
+   summary distinct values per family: min 1 p50 3 p90 4 p99 4 max 4
+== arb_version_family: families with an equal pair 4474, with a strictly ordered pair 4394, receiver repeated among items 4177, holding the empty version 4441 (of 5000)
+== arb_party_family: pairwise relation (receiver and items) (n = 265619)
+   "disjoint": 17879 (6.73%)
+   "equal": 142688 (53.72%)
+   "nested": 57871 (21.79%)
+   "partial overlap": 47181 (17.76%)
+== arb_party_family: distinct values per family (n = 5000)
+   1: 1638 (32.76%)
+   2: 1517 (30.34%)
+   3: 1193 (23.86%)
+   4: 652 (13.04%)
+   summary distinct values per family: min 1 p50 2 p90 4 p99 4 max 4
+== arb_party_family: families with an equal pair 4554, pairwise disjoint 280 (of 5000)
+== arb_clock_family: pairwise party relation (n = 270567)
+   "disjoint": 14825 (5.48%)
+   "equal": 167593 (61.94%)
+   "overlapping": 88149 (32.58%)
+== arb_clock_family: pairwise version partial_cmp (n = 270567)
+   "None": 33358 (12.33%)
+   "Some(Equal)": 97887 (36.18%)
+   "Some(Greater)": 70444 (26.04%)
+   "Some(Less)": 68878 (25.46%)
+test testing::l8_census::rescue_census_families ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 611 filtered out; finished in 10.08s
+
+        PASS [  10.138s] (7/7) before testing::l8_census::rescue_census_families
+────────────
+     Summary [  62.889s] 7 tests run: 7 passed, 695 skipped
+exit 0

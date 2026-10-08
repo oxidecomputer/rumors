@@ -1,0 +1,34 @@
+M1 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/sign.rs
+M1 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/sign.rs
+M1 exit=100  FAIL [ 22.559s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 22.559s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+M2 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M2 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M2 exit=100  PASS [ 5.343s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 39.211s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 39.211s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M3 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M3 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M3 exit=100  PASS [ 5.136s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 7.145s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 7.145s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M4 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/read.rs
+M4 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/read.rs
+M4 exit=100  FAIL [ 2.040s] (1/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; PASS [ 7.535s] (2/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 2.040s] (1/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M5 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/conversions.rs
+M5 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/conversions.rs
+M5 exit=100  PASS [ 5.337s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 14.214s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 14.214s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M6 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/../accumulator.rs
+M6 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/../accumulator.rs
+M6 exit=0  PASS [ 5.605s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; PASS [ 7.131s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M7 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/sign.rs
+M7 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/sign.rs
+M7 exit=100  PASS [ 5.299s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 79.550s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 79.550s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M8 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits.rs
+M8 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits.rs
+M8 exit=100  FAIL [ 0.555s] (1/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 3.275s] (2/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 0.555s] (1/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 3.275s] (2/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+M9 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/sign.rs
+M9 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/sign.rs
+M9 exit=100  FAIL [ 7.447s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 8.554s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 7.447s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 8.554s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M12 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M12 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M12 exit=0  PASS [ 5.391s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; PASS [ 6.819s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M13 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits.rs
+M13 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits.rs
+M13 exit=0  PASS [ 5.354s] (1/2) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; PASS [ 6.857s] (2/2) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+done

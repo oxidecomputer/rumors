@@ -1,0 +1,333 @@
+diff --git a/crates/before/src/testing/meter.rs b/crates/before/src/testing/meter.rs
+index 3c45ccb2..337f6ebb 100644
+--- a/crates/before/src/testing/meter.rs
++++ b/crates/before/src/testing/meter.rs
+@@ -3655,3 +3655,91 @@ pub fn reset_scan_bits() {
+ 
+ #[cfg(test)]
+ mod tests;
++
++/// REVIEWER SCRATCH: probe entries for the spill regime; never committed.
++pub mod reviewer_probe {
++    use super::{ev_leaf, ev_leaf_wide, BigUint, BitsWriter, Encoding};
++
++    /// A right spine whose first `wide` levels each step by `2^step_bits`
++    /// and whose next `unit` levels each step by one; every left leaf is 0
++    /// relative to its node, and the deepest right leaf steps by one more.
++    /// `min_ticks` is the deepest leaf's height: `wide·2^b + unit + 1`.
++    pub fn stepped_spine(step_bits: usize, wide: usize, unit: usize) -> Encoding {
++        let step = BigUint::from(1u8) << step_bits;
++        let one = BigUint::from(1u8);
++        let mut bits = BitsWriter::with_capacity(0);
++        bits.push(true);
++        bits.write_gamma(&BigUint::ZERO);
++        ev_leaf(&mut bits, 0);
++        for _ in 0..wide {
++            bits.push(true);
++            bits.write_gamma(&step);
++            ev_leaf(&mut bits, 0);
++        }
++        for _ in 0..unit {
++            bits.push(true);
++            bits.write_gamma(&one);
++            ev_leaf(&mut bits, 0);
++        }
++        ev_leaf_wide(&mut bits, &one);
++        Encoding::from_bits(bits)
++    }
++
++    use core::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
++    pub static REPLACE_LIVE: AtomicBool = AtomicBool::new(false);
++    pub static REANCHORS: AtomicU64 = AtomicU64::new(0);
++    pub static COMPONENTS: AtomicU64 = AtomicU64::new(0);
++    pub static LEAF_READ: AtomicU64 = AtomicU64::new(0);
++    pub static OFFSET_ADD: AtomicU64 = AtomicU64::new(0);
++    pub static ADVANCE: AtomicU64 = AtomicU64::new(0);
++    pub static WIDTH_FREEZE: AtomicU64 = AtomicU64::new(0);
++    pub static REANCHOR_RESET: AtomicU64 = AtomicU64::new(0);
++    pub static SETTLE: AtomicU64 = AtomicU64::new(0);
++    pub fn now() -> u64 {
++        #[cfg(feature = "touch-meter")]
++        return suanpan::touch_meter::touches();
++        #[cfg(not(feature = "touch-meter"))]
++        0
++    }
++    pub fn charge(counter: &AtomicU64, t0: u64) {
++        counter.fetch_add(now().wrapping_sub(t0), Relaxed);
++    }
++    pub struct Charge(pub &'static AtomicU64, pub u64);
++    impl Drop for Charge {
++        fn drop(&mut self) {
++            charge(self.0, self.1);
++        }
++    }
++    pub fn reset_phases() {
++        for c in [
++            &REANCHORS,
++            &COMPONENTS,
++            &LEAF_READ,
++            &OFFSET_ADD,
++            &ADVANCE,
++            &WIDTH_FREEZE,
++            &REANCHOR_RESET,
++            &SETTLE,
++        ] {
++            c.store(0, Relaxed);
++        }
++    }
++    pub fn phases() -> [u64; 8] {
++        [
++            &REANCHORS,
++            &COMPONENTS,
++            &LEAF_READ,
++            &OFFSET_ADD,
++            &ADVANCE,
++            &WIDTH_FREEZE,
++            &REANCHOR_RESET,
++            &SETTLE,
++        ]
++        .map(|c| c.load(Relaxed))
++    }
++
++    /// `min_ticks` with only prefix indices below `inline` stored inline.
++    pub fn min_ticks_inline(v: &crate::Version, inline: usize) -> crate::Count {
++        crate::Count::min_ticks_with_inline_prefixes(v, inline)
++    }
++}
+diff --git a/crates/before/src/version/measure/min_ticks.rs b/crates/before/src/version/measure/min_ticks.rs
+index cd1b1b1f..1f4d30fd 100644
+--- a/crates/before/src/version/measure/min_ticks.rs
++++ b/crates/before/src/version/measure/min_ticks.rs
+@@ -35,7 +35,7 @@ impl Count {
+     ///
+     /// Production spills a contribution's prefix index only past `2^23`
+     /// re-anchorings; a small bound reaches that path at test sizes.
+-    #[cfg(test)]
++    #[cfg(any(test, feature = "meter"))]
+     pub(crate) fn min_ticks_with_inline_prefixes(
+         version: &Version,
+         inline_prefixes: usize,
+@@ -83,8 +83,13 @@ impl Count {
+             subtree_minima.open_subtrees(leaves.depth() - turn_depth);
+ 
+             let mut leaf = height_prefixes.add_leaf();
+-            subtree_minima.observe_leaf(&mut leaf, &mut answer, &mut height_prefixes);
+-            leaf.add_offset_to(&mut answer);
++            if std::env::var("REVIEWER_MUTANT").as_deref() == Ok("1") {
++                answer.add_bigint(leaf.offset());
++                subtree_minima.observe_leaf(&mut leaf, &mut answer, &mut height_prefixes);
++            } else {
++                subtree_minima.observe_leaf(&mut leaf, &mut answer, &mut height_prefixes);
++                leaf.add_offset_to(&mut answer);
++            }
+         }
+ 
+         // The final leaf closes every remaining subtree. Their minimum
+diff --git a/crates/before/src/version/measure/min_ticks/minima.rs b/crates/before/src/version/measure/min_ticks/minima.rs
+index a342a298..538b4fdc 100644
+--- a/crates/before/src/version/measure/min_ticks/minima.rs
++++ b/crates/before/src/version/measure/min_ticks/minima.rs
+@@ -141,7 +141,7 @@ impl SubtreeMinima {
+     /// Construct an empty tracker whose contributions inline only prefix
+     /// indices below `inline_prefixes`, as
+     /// [`ContributionStore::with_inline_prefixes`] does.
+-    #[cfg(test)]
++    #[cfg(any(test, feature = "meter"))]
+     pub fn with_inline_prefixes(inline_prefixes: usize) -> SubtreeMinima {
+         Self::with_contributions(ContributionStore::with_inline_prefixes(inline_prefixes))
+     }
+diff --git a/crates/before/src/version/measure/min_ticks/minima/contributions.rs b/crates/before/src/version/measure/min_ticks/minima/contributions.rs
+index f47d828d..79c0683b 100644
+--- a/crates/before/src/version/measure/min_ticks/minima/contributions.rs
++++ b/crates/before/src/version/measure/min_ticks/minima/contributions.rs
+@@ -154,7 +154,7 @@ impl ContributionStore {
+ 
+     /// Construct an empty store that inlines only prefix indices below
+     /// `inline_prefixes`, spilling the rest as past the field's capacity.
+-    #[cfg(test)]
++    #[cfg(any(test, feature = "meter"))]
+     pub fn with_inline_prefixes(inline_prefixes: usize) -> Self {
+         assert!(
+             (1..=INLINE_PREFIXES).contains(&inline_prefixes),
+diff --git a/crates/before/src/version/measure/min_ticks/minima/heights.rs b/crates/before/src/version/measure/min_ticks/minima/heights.rs
+index 82664834..3989e809 100644
+--- a/crates/before/src/version/measure/min_ticks/minima/heights.rs
++++ b/crates/before/src/version/measure/min_ticks/minima/heights.rs
+@@ -41,7 +41,12 @@ impl LeafHeight {
+     /// [narrow](HeightPrefixes::narrow) it to zero, moving its whole height
+     /// onto a new prefix.
+     pub fn add_offset_to(self, total: &mut Accumulator) {
++        let t0 = crate::testing::meter::reviewer_probe::now();
+         total.add_bigint(&self.offset);
++        crate::testing::meter::reviewer_probe::charge(
++            &crate::testing::meter::reviewer_probe::OFFSET_ADD,
++            t0,
++        );
+     }
+ }
+ 
+@@ -77,11 +82,21 @@ impl HeightPrefixes {
+     /// The allowance absorbs small width fluctuations without changing the
+     /// asymptotic rule.
+     pub fn advance(&mut self, delta: &BigInt) {
++        let t0 = crate::testing::meter::reviewer_probe::now();
+         self.live.add_bigint(delta);
++        crate::testing::meter::reviewer_probe::charge(
++            &crate::testing::meter::reviewer_probe::ADVANCE,
++            t0,
++        );
+         if self.live.stored_digit_count()
+             > accumulator::digit_len(delta.magnitude()) + HEIGHT_FREEZE_ALLOWANCE_DIGITS
+         {
++            let t0 = crate::testing::meter::reviewer_probe::now();
+             self.freeze();
++            crate::testing::meter::reviewer_probe::charge(
++                &crate::testing::meter::reviewer_probe::WIDTH_FREEZE,
++                t0,
++            );
+         }
+     }
+ 
+@@ -92,7 +107,12 @@ impl HeightPrefixes {
+     /// counted here and settled at the end; the caller adds the offset with
+     /// [`LeafHeight::add_offset_to`] after observing the leaf.
+     pub fn add_leaf(&mut self) -> LeafHeight {
++        let t0 = crate::testing::meter::reviewer_probe::now();
+         let offset = self.live.to_bigint();
++        crate::testing::meter::reviewer_probe::charge(
++            &crate::testing::meter::reviewer_probe::LEAF_READ,
++            t0,
++        );
+         *self
+             .coefficients
+             .last_mut()
+@@ -123,13 +143,28 @@ impl HeightPrefixes {
+             self.current(),
+             "only the newest leaf can be re-anchored"
+         );
+-        self.coefficients[leaf.prefix] -= 1;
++        if std::env::var("REVIEWER_MUTANT").as_deref() != Ok("2") {
++            self.coefficients[leaf.prefix] -= 1;
++        }
+         self.push_component(core::mem::take(&mut leaf.offset));
+         *self
+             .coefficients
+             .last_mut()
+             .expect("the re-anchored offset is nonzero, so it adds a prefix") += 1;
+-        self.live.reset();
++        let t0 = crate::testing::meter::reviewer_probe::now();
++        if crate::testing::meter::reviewer_probe::REPLACE_LIVE
++            .load(core::sync::atomic::Ordering::Relaxed)
++        {
++            self.live = Accumulator::new();
++        } else {
++            self.live.reset();
++        }
++        crate::testing::meter::reviewer_probe::charge(
++            &crate::testing::meter::reviewer_probe::REANCHOR_RESET,
++            t0,
++        );
++        crate::testing::meter::reviewer_probe::REANCHORS
++            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+         leaf.prefix = self.current();
+     }
+ 
+@@ -163,6 +198,15 @@ impl HeightPrefixes {
+     ///
+     /// `Σ_p coefficient_p · F_p = Σ_c component_c · Σ_{p ≥ c} coefficient_p`.
+     pub fn settle(self, total: &mut Accumulator) {
++        let t0 = crate::testing::meter::reviewer_probe::now();
++        crate::testing::meter::reviewer_probe::COMPONENTS.fetch_add(
++            self.components.len() as u64,
++            core::sync::atomic::Ordering::Relaxed,
++        );
++        let _guard = crate::testing::meter::reviewer_probe::Charge(
++            &crate::testing::meter::reviewer_probe::SETTLE,
++            t0,
++        );
+         let mut suffix = 0i128;
+         for (component, coefficient) in self.components.iter().zip(&self.coefficients).rev() {
+             suffix += coefficient;
+diff --git a/crates/before/tests/meter/version_scaling/minimum_boundaries.rs b/crates/before/tests/meter/version_scaling/minimum_boundaries.rs
+index 87c177c2..ced70bcd 100644
+--- a/crates/before/tests/meter/version_scaling/minimum_boundaries.rs
++++ b/crates/before/tests/meter/version_scaling/minimum_boundaries.rs
+@@ -154,21 +154,65 @@ fn skyline_min_ticks_descending_boundary_is_flat_per_unit() {
+          propagation's work left the metered representation",
+         large.touches,
+     );
+-    let surplus = i64::try_from(large_control.touches).expect("touch counts fit i64")
+-        - i64::try_from(large.touches).expect("touch counts fit i64");
+-    assert!(
+-        surplus >= DESCENDING_PARK_SURPLUS_BAND.0,
+-        "seam_plunge: the control-minus-plunge surplus {surplus} fell below its \
+-         band floor {} — a per-hop read of the surviving residue's width is \
+-         back in the cascade (or the parks got cheaper: attribute and re-pin)",
+-        DESCENDING_PARK_SURPLUS_BAND.0,
++    if let Err(failure) = descending_park_surplus(large.touches, large_control.touches) {
++        panic!("{failure}");
++    }
++}
++
++/// Judge the descending run's control-minus-plunge touch surplus against
++/// [`DESCENDING_PARK_SURPLUS_BAND`], returning the surplus or the failure.
++fn descending_park_surplus(plunge: u64, control: u64) -> Result<i64, String> {
++    let surplus = i64::try_from(control).expect("touch counts fit i64")
++        - i64::try_from(plunge).expect("touch counts fit i64");
++    let (floor, ceiling) = DESCENDING_PARK_SURPLUS_BAND;
++    if surplus < floor {
++        return Err(format!(
++            "seam_plunge: the control-minus-plunge surplus {surplus} fell below its \
++             band floor {floor} — a per-hop read of the surviving residue's width is \
++             back in the cascade (or the parks got cheaper: attribute and re-pin)"
++        ));
++    }
++    if surplus > ceiling {
++        return Err(format!(
++            "seam_plunge: the control-minus-plunge surplus {surplus} exceeds its \
++             band ceiling {ceiling} — the drain parks picked up width, or the hops \
++             got cheaper: attribute and re-pin"
++        ));
++    }
++    Ok(surplus)
++}
++
++/// The surplus band alone fails a plunge that reads the surviving residue's
++/// width at every domination hop, the regression its floor guards.
++///
++/// That regression reads the `r`-digit residue once at each of the `k` hops,
++/// one touch per digit, and leaves the control unchanged, so it adds `k·r`
++/// touches to the plunge. The measured pair must pass the band, and the same
++/// pair with that cost added must fail it. The absolute ceiling is not
++/// consulted, so the band cannot be widened past the regression unnoticed
++/// even while the ceiling would still catch it.
++#[test]
++fn descending_park_surplus_band_fails_a_per_hop_residue_read() {
++    let k = 2 * BOUNDARY_SMALL_K;
++    let plunge = min_ticks_family_run(
++        Shape::SeamPlunge.build2(k, BOUNDARY_CLEARANCE),
++        &descending_boundary_ticks(k, BOUNDARY_CLEARANCE),
++    );
++    let control = min_ticks_family_run(
++        Shape::SeamPlungeControl.build2(k, BOUNDARY_CLEARANCE),
++        &descending_boundary_control_ticks(k, BOUNDARY_CLEARANCE),
+     );
++    let surplus = descending_park_surplus(plunge.touches, control.touches)
++        .expect("the measured plunge and control sit inside the band");
++    let per_hop_residue_reads = (k * BOUNDARY_CLEARANCE) as u64;
++    let regressed =
++        descending_park_surplus(plunge.touches + per_hop_residue_reads, control.touches);
+     assert!(
+-        surplus <= DESCENDING_PARK_SURPLUS_BAND.1,
+-        "seam_plunge: the control-minus-plunge surplus {surplus} exceeds its \
+-         band ceiling {} — the drain parks picked up width, or the hops got \
+-         cheaper: attribute and re-pin",
+-        DESCENDING_PARK_SURPLUS_BAND.1,
++        regressed.is_err(),
++        "a per-hop read of the {BOUNDARY_CLEARANCE}-digit residue over {k} hops adds \
++         {per_hop_residue_reads} touches, moving the surplus from {surplus} to {}, \
++         which the band still accepts",
++        surplus - per_hop_residue_reads as i64,
+     );
+ }
+ 

@@ -1,0 +1,25 @@
+Z1 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z1 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z1 exit=0 [ Summary [ 100.380s] 2 tests run: 2 passed (1 slow), 70 skipped] failed: 
+Z2 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z2 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z2 exit=0 [ Summary [ 49.052s] 2 tests run: 2 passed, 70 skipped] failed: 
+Z3 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z3 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z3 exit=100 [ Summary [ 146.314s] 2 tests run: 1 passed (1 slow), 1 failed, 70 skipped] failed: accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+Z4 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z4 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z4 exit=100 [ Summary [ 86.520s] 2 tests run: 1 passed (1 slow), 1 failed, 70 skipped] failed: accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+Z5 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z5 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z5 exit=100 [ Summary [ 74.466s] 2 tests run: 1 passed (1 slow), 1 failed, 70 skipped] failed: accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+N1 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/normalize.rs
+N1 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/normalize.rs
+N1 exit=100 [ Summary [ 180.061s] 2 tests run: 0 passed, 1 failed, 1 timed out, 70 skipped] failed: accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+N2 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/normalize.rs
+N2 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/normalize.rs
+N2 exit=0 [ Summary [ 37.677s] 2 tests run: 2 passed, 70 skipped] failed: 
+N3 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/normalize.rs
+N3 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/normalize.rs
+N3 exit=0 [ Summary [ 36.173s] 2 tests run: 2 passed, 70 skipped] failed: 
+done

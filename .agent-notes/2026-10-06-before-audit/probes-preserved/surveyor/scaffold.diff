@@ -1,0 +1,75 @@
+diff --git a/crates/before/src/bits/reader/words.rs b/crates/before/src/bits/reader/words.rs
+index abeece431..d236ac53c 100644
+--- a/crates/before/src/bits/reader/words.rs
++++ b/crates/before/src/bits/reader/words.rs
+@@ -75,7 +75,12 @@ impl WordRead for ByteWords<'_> {
+     }
+ 
+     fn read_word_opt(&mut self) -> Option<u32> {
+-        if self.next >= self.total {
++        const SURVEY_WORDS_NONE: bool = crate::survey_mutant("words_none");
++        const SURVEY_WORDS_LT: bool = crate::survey_mutant("words_lt");
++        if SURVEY_WORDS_NONE {
++            return None;
++        }
++        if (if SURVEY_WORDS_LT { self.next < self.total } else { self.next >= self.total }) {
+             return None;
+         }
+         let word = self.gather();
+diff --git a/crates/before/src/bits/stack/packed_u64.rs b/crates/before/src/bits/stack/packed_u64.rs
+index 4f0019600..a22bf9a58 100644
+--- a/crates/before/src/bits/stack/packed_u64.rs
++++ b/crates/before/src/bits/stack/packed_u64.rs
+@@ -60,7 +60,8 @@ impl PackedU64Stack {
+         // Most widths fit in the two registers inspected by this bounded
+         // count. Only the widest values fall back to individual bit pops.
+         let quick = self.widths.trailing_ones_capped();
+-        let width = if quick < 62 {
++        const SURVEY_PACKED: bool = crate::survey_mutant("packed");
++        let width = if (if SURVEY_PACKED { quick > 62 } else { quick < 62 }) {
+             self.widths.pop_bits(quick + 1);
+             quick + 1
+         } else {
+diff --git a/crates/before/src/bits/writer.rs b/crates/before/src/bits/writer.rs
+index 59915af04..76b011f03 100644
+--- a/crates/before/src/bits/writer.rs
++++ b/crates/before/src/bits/writer.rs
+@@ -360,7 +360,8 @@ impl BitsWriter {
+             position += 1;
+         }
+         let whole = ((end - position) / 8) as usize;
+-        if whole > 0 {
++        const SURVEY_SPLICE: bool = crate::survey_mutant("splice");
++        if (if SURVEY_SPLICE { whole == 0 } else { whole > 0 }) {
+             let byte = (position / 8) as usize;
+             self.extend_bytes(&bytes[byte..byte + whole]);
+             position += whole as u64 * 8;
+diff --git a/crates/before/src/lib.rs b/crates/before/src/lib.rs
+index 01c37112f..2a09637fc 100644
+--- a/crates/before/src/lib.rs
++++ b/crates/before/src/lib.rs
+@@ -465,3 +465,24 @@ mod borsh_impls;
+ pub mod testing;
+ #[cfg(not(any(test, feature = "laws", feature = "meter", feature = "oracle")))]
+ mod testing;
++
++/// Surveyor scratch switch (never committed): whether the compile-time
++/// `SURVEY_MUTANT` environment variable names `name`.
++pub(crate) const fn survey_mutant(name: &str) -> bool {
++    let actual = match option_env!("SURVEY_MUTANT") {
++        Some(s) => s.as_bytes(),
++        None => return false,
++    };
++    let wanted = name.as_bytes();
++    if actual.len() != wanted.len() {
++        return false;
++    }
++    let mut i = 0;
++    while i < actual.len() {
++        if actual[i] != wanted[i] {
++            return false;
++        }
++        i += 1;
++    }
++    true
++}

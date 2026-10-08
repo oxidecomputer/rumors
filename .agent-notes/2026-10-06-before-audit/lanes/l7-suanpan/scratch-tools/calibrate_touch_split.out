@@ -1,0 +1,6 @@
+M14 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M14 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M14 exit=0 [ Summary [ 11.209s] 1 test run: 1 passed, 69 skipped] failed: 
+M15 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M15 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M15 exit=0 [ Summary [ 15.537s] 1 test run: 1 passed, 69 skipped] failed: 

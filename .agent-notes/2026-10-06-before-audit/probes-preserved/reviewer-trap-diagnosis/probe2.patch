@@ -1,0 +1,74 @@
+diff --git a/crates/before/wasm32-pins/guest/src/checks.rs b/crates/before/wasm32-pins/guest/src/checks.rs
+index 61789b88..b46d7756 100644
+--- a/crates/before/wasm32-pins/guest/src/checks.rs
++++ b/crates/before/wasm32-pins/guest/src/checks.rs
+@@ -27,6 +27,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
+         Check::RankArithmetic => rank_arithmetic(a),
+         Check::SuanpanLanding => suanpan_landing(a),
+         Check::HarnessAllocationFailure => exhaust_memory(),
++        Check::Probe => review_probe(a),
+     }
+ }
+ 
+@@ -257,3 +258,24 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
+     // landing position returns a small digit count, so a normal return is red.
+     Err(Failure::WrongValue)
+ }
++
++/// REVIEW PROBE (temporary).
++fn review_deep(n: u64) -> u64 {
++    if black_box(n) == 0 {
++        0
++    } else {
++        black_box(review_deep(n - 1)) + 1
++    }
++}
++
++/// REVIEW PROBE (temporary).
++fn review_probe(mode: u64) -> Result<(), Failure> {
++    match mode {
++        0 => {
++            black_box(review_deep(black_box(u64::MAX)));
++        }
++        1 => std::process::abort(),
++        _ => return Err(Failure::InvalidArguments),
++    }
++    Err(Failure::WrongValue)
++}
+diff --git a/crates/before/wasm32-pins/harness/tests/pins.rs b/crates/before/wasm32-pins/harness/tests/pins.rs
+index 7766dc80..ffe31281 100644
+--- a/crates/before/wasm32-pins/harness/tests/pins.rs
++++ b/crates/before/wasm32-pins/harness/tests/pins.rs
+@@ -163,3 +163,11 @@ fn suanpan_rejects_unaddressable_digit_landings() {
+         assert_panics(Check::SuanpanLanding, case, 0, UNADDRESSABLE_LANDING);
+     }
+ }
++
++/// REVIEW PROBE (temporary).
++#[test]
++fn zz_review_probe() {
++    for mode in 0..=1 {
++        eprintln!("PROBE {mode}: {:?}", wasm32_pins_harness::run_raw(10, mode, 0));
++    }
++}
+diff --git a/crates/before/wasm32-pins/protocol/src/lib.rs b/crates/before/wasm32-pins/protocol/src/lib.rs
+index a2d63c3f..cdcbcdb7 100644
+--- a/crates/before/wasm32-pins/protocol/src/lib.rs
++++ b/crates/before/wasm32-pins/protocol/src/lib.rs
+@@ -34,6 +34,8 @@ pub enum Check {
+     /// Deliberately exhaust the guest's memory, proving that the harness tells
+     /// an allocation-failure abort from a panic.
+     HarnessAllocationFailure = 9,
++    /// REVIEW PROBE (temporary).
++    Probe = 10,
+ }
+ 
+ impl TryFrom<u32> for Check {
+@@ -52,6 +54,7 @@ impl TryFrom<u32> for Check {
+             7 => Ok(Self::RankArithmetic),
+             8 => Ok(Self::SuanpanLanding),
+             9 => Ok(Self::HarnessAllocationFailure),
++            10 => Ok(Self::Probe),
+             _ => Err(()),
+         }
+     }

@@ -1,0 +1,16 @@
+Z1 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z1 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z1 exit=0 [ Summary [ 66.605s] 2 tests run: 2 passed (1 slow), 70 skipped] failed: 
+Z2 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z2 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z2 exit=0 [ Summary [ 64.961s] 2 tests run: 2 passed (1 slow), 70 skipped] failed: 
+Z3 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z3 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z3 exit=0 [ Summary [ 82.122s] 2 tests run: 2 passed (1 slow), 70 skipped] failed: 
+Z4 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z4 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z4 exit=0 [ Summary [ 72.376s] 2 tests run: 2 passed (1 slow), 70 skipped] failed: 
+Z5 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z5 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+Z5 exit=0 [ Summary [ 38.089s] 2 tests run: 2 passed, 70 skipped] failed: 
+done

@@ -1,0 +1,109 @@
+diff --git a/crates/before/wasm32-pins/guest/src/checks.rs b/crates/before/wasm32-pins/guest/src/checks.rs
+index e77a7dc8..9ad4f9d3 100644
+--- a/crates/before/wasm32-pins/guest/src/checks.rs
++++ b/crates/before/wasm32-pins/guest/src/checks.rs
+@@ -28,6 +28,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
+         Check::RankArithmetic => rank_arithmetic(a),
+         Check::SuanpanLanding => suanpan_landing(a),
+         Check::HarnessAllocationFailure => exhaust_memory(),
++        Check::Probe => review_probe(a),
+     }
+ }
+ 
+@@ -263,3 +264,39 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
+     // normally, so any return is a failure.
+     Err(Failure::WrongValue)
+ }
++
++/// REVIEW PROBE (temporary): fills memory without aborting.
++fn review_fill() -> Vec<Vec<u8>> {
++    let mut held: Vec<Vec<u8>> = Vec::with_capacity(4096);
++    let mut size: usize = 1 << 30;
++    while held.len() < held.capacity() {
++        let mut v: Vec<u8> = Vec::new();
++        match v.try_reserve_exact(size) {
++            Ok(()) => held.push(v),
++            Err(_) => {
++                if size == 1 {
++                    break;
++                }
++                size /= 2;
++            }
++        }
++    }
++    held
++}
++
++/// REVIEW PROBE (temporary).
++fn review_probe(mode: u64) -> Result<(), Failure> {
++    let held = review_fill();
++    black_box(&held);
++    match mode {
++        0 => {
++            black_box(None::<u8>).unwrap();
++        }
++        1 => {
++            black_box(Err::<(), u8>(3)).unwrap();
++        }
++        _ => return Err(Failure::InvalidArguments),
++    }
++    black_box(&held);
++    Err(Failure::WrongValue)
++}
+diff --git a/crates/before/wasm32-pins/harness/src/lib.rs b/crates/before/wasm32-pins/harness/src/lib.rs
+index b77e3b95..ddc8067c 100644
+--- a/crates/before/wasm32-pins/harness/src/lib.rs
++++ b/crates/before/wasm32-pins/harness/src/lib.rs
+@@ -70,7 +70,11 @@ pub fn run_raw(check: u32, a: u64, b: u64) -> Outcome {
+         },
+         Err(error) => match error.downcast_ref::<Trap>() {
+             Some(&trap) => Outcome::Trapped {
+-                trap,
++                trap: {
++                    let pages = instance.get_memory(&mut store, "memory").unwrap().size(&store);
++                    eprintln!("REVIEW PAGES check={check} a={a}: {pages}");
++                    trap
++                },
+                 panic: recorded_panic(&instance, &mut store),
+             },
+             None => panic!("guest check failed outside wasm: {error}"),
+diff --git a/crates/before/wasm32-pins/harness/tests/pins.rs b/crates/before/wasm32-pins/harness/tests/pins.rs
+index 5602a663..48612332 100644
+--- a/crates/before/wasm32-pins/harness/tests/pins.rs
++++ b/crates/before/wasm32-pins/harness/tests/pins.rs
+@@ -165,3 +165,14 @@ fn suanpan_rejects_unaddressable_digit_landings() {
+         assert_panics(Check::SuanpanLanding, case, 0, UNADDRESSABLE_LANDING);
+     }
+ }
++
++/// REVIEW PROBE (temporary).
++#[test]
++fn zz_review_probe() {
++    for mode in 0..=1 {
++        eprintln!("PROBE {mode}: {:?}", run_raw(10, mode, 0));
++    }
++    for case in 1..=4 {
++        eprintln!("LANDING {case}: {:?}", run(Check::SuanpanLanding, case, 0));
++    }
++}
+diff --git a/crates/before/wasm32-pins/protocol/src/lib.rs b/crates/before/wasm32-pins/protocol/src/lib.rs
+index 199feeae..12599df8 100644
+--- a/crates/before/wasm32-pins/protocol/src/lib.rs
++++ b/crates/before/wasm32-pins/protocol/src/lib.rs
+@@ -34,6 +34,8 @@ pub enum Check {
+     /// Deliberately exhaust the guest's memory, proving that the harness tells
+     /// an allocation-failure abort from a panic.
+     HarnessAllocationFailure = 9,
++    /// REVIEW PROBE (temporary).
++    Probe = 10,
+ }
+ 
+ impl TryFrom<u32> for Check {
+@@ -52,6 +54,7 @@ impl TryFrom<u32> for Check {
+             7 => Ok(Self::RankArithmetic),
+             8 => Ok(Self::SuanpanLanding),
+             9 => Ok(Self::HarnessAllocationFailure),
++            10 => Ok(Self::Probe),
+             _ => Err(()),
+         }
+     }

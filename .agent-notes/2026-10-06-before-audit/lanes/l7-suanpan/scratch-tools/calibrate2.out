@@ -1,0 +1,10 @@
+M12 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M12 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M12 exit=100  PASS [ 0.049s] (1/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme; PASS [ 0.120s] (2/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history; PASS [ 30.552s] (3/4) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 34.339s] (4/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 34.339s] (4/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+M13 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits.rs
+M13 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits.rs
+M13 exit=0  PASS [ 0.055s] (1/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme; PASS [ 0.095s] (2/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history; PASS [ 10.804s] (3/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; PASS [ 29.708s] (4/4) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle;
+M6 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/../accumulator.rs
+M6 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/../accumulator.rs
+M6 exit=100  PASS [ 0.060s] (1/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_reserve_digits_extreme; PASS [ 0.107s] (2/4) suanpan accumulator::tests::explore_l7::probes::l7_probe_zero_shift_history; PASS [ 35.160s] (3/4) suanpan accumulator::tests::explore_l7::l7_pool_programs_match_the_oracle; FAIL [ 70.614s] (4/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work; FAIL [ 70.614s] (4/4) suanpan accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+done

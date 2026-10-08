@@ -1,0 +1,13 @@
+diff --git a/crates/before/src/version/measure/min_ticks.rs b/crates/before/src/version/measure/min_ticks.rs
+index 5f6df2ebb..44018ecf5 100644
+--- a/crates/before/src/version/measure/min_ticks.rs
++++ b/crates/before/src/version/measure/min_ticks.rs
+@@ -79,6 +79,8 @@ impl Count {
+         // contributions and the deferred frozen prefixes complete the identity
+         // stated in the module documentation.
+         subtree_minima.close_all(&mut answer, &mut height_prefixes);
++        #[cfg(test)]
++        crate::testing::meter::reviewer_probe::mark("after close_all");
+         height_prefixes.settle(&mut answer);
+         let (sign, magnitude) = answer.biguint_parts();
+         debug_assert_ne!(

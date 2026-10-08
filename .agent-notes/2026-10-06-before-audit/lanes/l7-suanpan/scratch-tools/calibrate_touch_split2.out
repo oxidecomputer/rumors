@@ -1,0 +1,12 @@
+M14 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M14 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M14 exit=100 [ Summary [ 11.115s] 1 test run: 0 passed, 1 failed, 69 skipped] failed: accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+M15 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M15 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M15 exit=100 [ Summary [ 12.180s] 1 test run: 0 passed, 1 failed, 69 skipped] failed: accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+M16 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M16 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M16 exit=100 [ Summary [ 11.234s] 1 test run: 0 passed, 1 failed, 69 skipped] failed: accumulator::tests::explore_l7::metered::l7_touches_are_linear_in_table_work;
+M12 applyd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M12 revertd in /Users/oxide/src/rumors-audit-l7-suanpan/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+M12 exit=0 [ Summary [ 12.206s] 1 test run: 1 passed, 69 skipped] failed: 

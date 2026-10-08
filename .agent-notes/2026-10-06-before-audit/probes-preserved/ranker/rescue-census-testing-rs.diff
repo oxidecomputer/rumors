@@ -1,0 +1,13 @@
+diff --git a/crates/before/src/testing.rs b/crates/before/src/testing.rs
+index 28408ce28..258e808b2 100644
+--- a/crates/before/src/testing.rs
++++ b/crates/before/src/testing.rs
+@@ -43,6 +43,8 @@ pub(crate) mod exhaustive;
+ #[cfg(test)]
+ mod fuelscape_islands;
+ #[cfg(test)]
++mod l8_census;
++#[cfg(test)]
+ mod snapshots;
+ #[cfg(test)]
+ pub mod validation_index;
