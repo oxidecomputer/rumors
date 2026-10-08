@@ -235,3 +235,13 @@ time currencies count suanpan digit work and touches, not `num-bigint`
 work. Under the owner's ruling that asymptotics must not regress to fix a
 constant multiple, the branch stops here pending the owner's question 87.
 Probe and logs: the reviewer's scratch directory `reviewer-min-ticks-final/`.
+
+## Owner's ruling: stop (question 87)
+
+Stop. `main`'s `min_ticks` stays as the status quo: it may use more
+transient heap than hoped on certain corner-case inputs. The owner suspects
+the proposed per-push repair (a short packed difference or a whole record)
+reintroduces a second regime that regresses, the pattern the owner rejected
+earlier. The defect is revisited later. Deliverable: a first-principles
+write-up of the issue, capturing what is known, under
+`.agent-notes/` for the owner.

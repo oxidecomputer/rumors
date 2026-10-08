@@ -53,3 +53,10 @@ no rule reproduces either value:
 - One landing check, at the tip of option (a).
 - Report each moved ceiling as old value and new value, with the reading
   that drives it.
+
+## Owner's ruling (question 65)
+
+Option 1: one derivation rule for every board ceiling, stated identically in
+each doc, and the three ceilings the rule says must rise are raised (QUERY to
+109). #53's two rank ceiling docs are restated in the same terms by this
+branch, which stacks on #53. Values move only as the reviewed table shows.

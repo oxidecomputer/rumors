@@ -69,3 +69,11 @@ pin must *lower* where moves land. Restate its doc to match.
   prose.
 - **Landing check.** One run at the tip. Expect the post-board-pin baseline
   plus #36's and #30's own counts.
+
+## Owner's ruling (question 69)
+
+Option 1: keep the lookahead filter. Its rustdoc names the trade (the
+adapter holds one input ahead of the consumer), and the commit message states
+the measured heap rise with the family that shows it. The reviewer's meter
+test is added: for each fold entry point, scan over a run of duplicates must
+equal scan over a single copy, which fails with the filter off.

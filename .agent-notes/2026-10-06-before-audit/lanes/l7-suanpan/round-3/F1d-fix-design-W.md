@@ -155,3 +155,11 @@ worst-case rankings flipping from `arming-train` to `wide-arming` (re-pinned
 in `b9b7e953`) and the Opening family's dense control rows at +0.72% fuel,
 inside the ladder's ±2% band. The owner ruled the small increases acceptable
 and confirmed that this settles question 70.
+
+## Owner's ruling on the time-bounds table (question 71)
+
+Option 1: publish the table of amortized time bounds in suanpan's public
+docs after a reviewer verifies every bound; a bound the reviewer cannot
+verify goes back to the owner rather than being softened. The table was
+derived before the inline mask, so it is re-derived against W's final code
+(`b9ec1fbd`) first.

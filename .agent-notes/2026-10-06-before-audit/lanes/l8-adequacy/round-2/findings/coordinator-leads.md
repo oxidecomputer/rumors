@@ -138,3 +138,13 @@ carry boundaries), but only regular, balanced split shapes. No mutant in the
 campaign demonstrates a failure behind this, so it is a reach gap, not a G.
 
 Proposed rebalance: briefs/machinery-disjoint-families.md.
+
+## Owner's ruling on the PeakAlloc race (question 91)
+
+Factor `rumors`' counting allocator (`tests/support/allocation.rs`,
+`MeteredSystem`) out into a shared crate that both `rumors` and `before`
+depend on as a dev-dependency, and use it in `before`'s three heap-measuring
+test binaries. The no-`unsafe` rule guards production code; `unsafe` in a
+test-only allocator is fine. The libtest race probe
+(`builder-peakalloc-single-thread/zz_libtest_race_probe.rs` in the session
+scratchpad) is the calibration the fix must pass.

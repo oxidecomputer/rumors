@@ -78,3 +78,12 @@ for the owner per the pinned-instrument rules.
 Version writers finalize through the same `BitsWriter::finalize`; any that
 reserve by input size and then collapse (for example, joins of versions)
 likely share this. That belongs to the algebra and measures lanes.
+
+## Owner's ruling (question 73)
+
+Option 1: adopt variant B (release a writer's slack when a result is
+sealed) as a declared trade. The 13 worst-case rankings it moves are
+re-pinned with their movement recorded, and the branch goes to review. The
+cost, a transient heap rise of at most about one result's size on the
+measured shapes, is stated in the commit message. The variant is saved in
+`S1-retention-variants/variant-b-header.patch`.

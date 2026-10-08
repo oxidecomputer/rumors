@@ -75,3 +75,13 @@ See [`coverage.md`](coverage.md) and [`NOTES.md`](NOTES.md).
 On `Clock::from_parts`: yes. Its rustdoc states that pairing a party with a
 version older than its latest tick reproduces stamps the party already
 issued, linking the crate page's model.
+
+## Owner's ruling on the crate page's linearity rule (question 84)
+
+Option 1: only identity is linear. In the owner's words: "If you want
+versions to be monotonic, don't disassemble the clock and use its parts, but
+the ability to have non-monotonic versions is not enforced by the library;
+only identity linearity is meant to be." The crate page's rule 2 is restated
+around identity, with `dangerously_alias` and bytes as its two exceptions,
+and a paragraph says a `Version` records knowledge and is freely `Clone`.
+`tests/stale_state.rs`'s "Valid by the model" stands.

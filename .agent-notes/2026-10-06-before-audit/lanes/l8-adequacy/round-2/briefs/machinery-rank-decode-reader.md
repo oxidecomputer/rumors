@@ -121,3 +121,9 @@ The campaign's rank group lists eleven class-G survivors in `Rank::decode`
 Equivalent or cost-only neighbours, which the brief need not target:
 `387:25` to `false` (one extra read reaching the same verdict) and `396:39`
 to `false` (the incremental path rereads and reports the same `Truncated`).
+
+## Owner's ruling (question 77)
+
+Option 1: `Rank::decode`'s `# Errors` documents that it retries
+`Interrupted` and reports the first other reader error, as `Read::read_exact`
+does. The contract commit on `audit/rank-decode-reader` stays.
