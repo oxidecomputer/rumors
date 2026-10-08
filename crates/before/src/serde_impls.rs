@@ -1,6 +1,12 @@
 //! `serde` support (feature-gated).
 //!
 //! Binary formats use each type's canonical byte encoding and strict decoder.
+//! The deserializers also accept two bridgings between byte strings and
+//! sequences: a byte string that a format presents as a sequence of its
+//! bytes, where a sequence is requested, and a sequence of byte-sized
+//! integers where bytes are requested. CBOR makes both: it decodes a byte
+//! string as [`Count`]'s limbs, and an array of byte-sized integers as the
+//! bytes of a byte-encoded type. The content must still be canonical.
 //! Human-readable formats use the public text forms for scalar values and
 //! named records for composite values.
 //!
