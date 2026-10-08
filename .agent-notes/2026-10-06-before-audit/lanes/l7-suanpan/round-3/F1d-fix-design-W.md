@@ -181,3 +181,10 @@ Option 1: `G` and `W` count each update's span, its shift plus its
 operand's width, as `docs/suanpan-time-bounds` states. A shifted operand
 that cancels is charged for the positions its span reaches, even when the
 working width does not change. The deposit path is not redesigned.
+
+## Owner's ruling on retained space (question 114)
+
+Option 1: state retained space as amortized wherever storage can grow, and
+state `normalize`'s temporary O(`V`) growth, as `docs/suanpan-time-bounds`
+does. In the owner's words: "say amortized everywhere; that's what this
+crate is all about." Buffers are not grown exactly.
