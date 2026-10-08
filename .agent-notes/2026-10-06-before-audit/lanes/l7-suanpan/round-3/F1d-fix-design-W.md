@@ -129,3 +129,11 @@ Stop and report instead of committing when any of these occurs:
 
 - Other branches touch the same files: the zero-shift fix (`fix/suanpan-zero-shift`, in `Shl` and the shift path), the reserve-hint fix (`fix/suanpan-reserve-digits-hint`, in `reserve_digits`), and the O1 brief from round 2 (`S2-comparison-fixed-point.md`, in the sign scan) if it is dispatched. Ask the coordinator which have landed, and rebase onto them before tuning, because each changes the fuel of the paths you measure.
 - The touch-bound property (MB1), if landed, drives gap-split rounds through the zero-range code. It must hold unchanged under W.
+
+## Owner's ruling on suanpan's public space promise under W
+
+Keep the public promise. `lib.rs`, its README, and `normalize`'s rustdoc keep
+"rebuilt skip metadata occupies O(`Q`) space". The fix makes it true in every
+case: `normalize` drops the written-position bitset (back to the inline
+state) instead of clearing it in place, at the cost of one reallocation if
+two or more gaps return afterwards.
