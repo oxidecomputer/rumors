@@ -116,6 +116,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "causally::Floor::coverage",
         &[
             "query_coverage",
+            "query_coverage_neutral",
             "query_coverage_many",
             "query_coverage_wide_up",
             "query_coverage_wide_down",
@@ -125,6 +126,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "causally::Ceiling::coverage",
         &[
             "query_coverage",
+            "query_coverage_neutral",
             "query_coverage_many",
             "query_coverage_wide_up",
             "query_coverage_wide_down",
@@ -152,6 +154,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "causally::Query::coverage",
         &[
             "query_coverage",
+            "query_coverage_neutral",
             "query_coverage_many",
             "query_coverage_wide_up",
             "query_coverage_wide_down",

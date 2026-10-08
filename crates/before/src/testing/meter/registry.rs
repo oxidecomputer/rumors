@@ -909,16 +909,16 @@ const DESERIALIZATION_FORMATS: usize =
     cfg!(feature = "serde") as usize + cfg!(feature = "borsh") as usize;
 
 /// Board rows reached by a family with version operands.
-const VERSION_BUNDLE_CELLS: usize = 79 + 6 * DESERIALIZATION_FORMATS;
+const VERSION_BUNDLE_CELLS: usize = 80 + 6 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with party operands.
 const PARTY_BUNDLE_CELLS: usize = 39 + 2 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with version, party, and clock operands.
-const CROSS_BUNDLE_CELLS: usize = 100 + 7 * DESERIALIZATION_FORMATS;
+const CROSS_BUNDLE_CELLS: usize = 101 + 7 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 117 + 7 * DESERIALIZATION_FORMATS;
+const FULL_BUNDLE_CELLS: usize = 118 + 7 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a population family.
 const POPULATION_BUNDLE_CELLS: usize = 28;
