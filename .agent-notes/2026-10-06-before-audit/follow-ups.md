@@ -119,3 +119,13 @@ audit. Each entry names its source and what it would catch.
   `_gate-board` call `just` by name, which drops command-line overrides and
   breaks under `-d`; `{{ just_executable() }} --justfile {{ justfile() }}`
   would fix the second for both. Source: the worst-case-pin reviewer.
+- **Stale generator premise in `version/measure/tests.rs`.** Lines 198-201
+  and 588-589 say `arb_magnitude` "tops out near 2^128" or has a "128-bit
+  ceiling"; it reaches 514 bits, and 24% of arbitrary pairs freeze. The
+  conclusion (arbitrary trees never defer) still holds. For the second docs
+  pass. Source: the measures lane's rescue cataloguer.
+- **`Count`'s conversion test shares its oracle with the code.**
+  `unsigned_conversions_match_their_ranges` judges `Count`'s conversion by
+  `num-bigint`'s `try_from`, the same call the impl makes. The measures
+  lane's exhaustive boundary sweep judges it independently (rescue entry,
+  `instrument-rescue/04-measures.md`). Source: the same.
