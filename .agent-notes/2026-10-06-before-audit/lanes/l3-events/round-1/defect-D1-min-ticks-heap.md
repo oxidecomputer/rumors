@@ -220,3 +220,18 @@ from its neighbor's), so no field has a capacity the board cannot reach.
 If `min_ticks` cannot be made to keep transient heap small this way, or can
 only by tolerating a small family of unlikely inputs, stop: asymptotics must
 never regress to fix a constant multiple.
+
+## Final review of the variable-width records design (no re-anchoring)
+
+The branch `fix/before-min-ticks-heap` (demo `08573e15`, fix `1a31f8d1`)
+fixes the heap defect (`jump-rising-spine` 124.9 → 5.1 B/B; the 91 MB input
+6.1 GB → 305 MB) but is quadratic in time on constructible inputs. Every
+push and pop subtracts against the outer neighbour's offset at full width,
+so a narrow record cycling above a wide-offset neighbour pays that width per
+cycle. The reviewer's probe (a k-tooth comb under an outer minimum of offset
+about 2^(64k)) reads about 2k² big-integer limbs on the branch against k on
+`main`, with identical answers and flat heap. The board did not see it: its
+time currencies count suanpan digit work and touches, not `num-bigint`
+work. Under the owner's ruling that asymptotics must not regress to fix a
+constant multiple, the branch stops here pending the owner's question 87.
+Probe and logs: the reviewer's scratch directory `reviewer-min-ticks-final/`.
