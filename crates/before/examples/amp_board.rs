@@ -33,6 +33,21 @@
 //! committed ranking pin, exiting nonzero on any drift (`just
 //! worst-cases-pin`).
 //!
+//! Two developer modes compare the board across a change without judging
+//! either side. `capture <file>` sweeps the acceptance ladder and writes
+//! every cell's exact readings at every size to `<file>`, replacing it only
+//! once the whole capture is written; `compare <before> <after>` reads two
+//! captures and prints, per cell and currency, the exact difference at each
+//! size, classified as unchanged, constant, growing (with
+//! its slope), or uneven. Use them where a rendered board's rounded exponent
+//! moves and the question is whether a cost grows with input or only shifts: a
+//! fixed-cost change alone moves a fitted exponent. Run both captures through
+//! `just amp-board capture <file>`, so each is a release reading, and on one
+//! host: a capture records its target and debug-assertion setting, and the
+//! comparison refuses captures that differ in either. `board::compare`
+//! documents the capture format, the classification rule, and what the rule
+//! cannot distinguish.
+//!
 //! # Process sharding
 //!
 //! The sweep is single-threaded within a process by design — the
@@ -47,11 +62,14 @@
 //! setting and never an input to a reading: `AMP_BOARD_SHARDS` overrides
 //! it (default: available parallelism).
 
-use std::io;
+use std::fs;
+use std::io::{self, Write as _};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use before::testing::meter::board::{self, HeapMeter};
 use peak_alloc::PeakAlloc;
+use tempfile::NamedTempFile;
 
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
@@ -122,6 +140,15 @@ fn spawner(count: usize) -> impl Fn(f64) -> io::Result<Vec<Vec<u8>>> {
     }
 }
 
+/// Unwrap a capture mode's file or format result, or report its error and
+/// exit nonzero.
+fn exit_on_error<T>(result: io::Result<T>, doing: &str) -> T {
+    result.unwrap_or_else(|error| {
+        eprintln!("amp-board: {doing}: {error}");
+        std::process::exit(1)
+    })
+}
+
 /// Parse the child-mode shard argument `i/N`.
 fn parse_shard_spec(spec: &str) -> (usize, usize) {
     let parsed = spec
@@ -186,6 +213,35 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("capture") => {
+            let [_, path] = args.as_slice() else {
+                panic!("amp-board: capture takes exactly one output path");
+            };
+            // The capture is written to a temporary file beside `path` and
+            // renamed into place, so a failed sweep or write leaves any
+            // existing capture intact and no temporary file behind.
+            let mut text = Vec::new();
+            exit_on_error(
+                board::capture(shards, &spawner(shards), &mut text),
+                "sweeping the board",
+            );
+            let written = write_atomically(Path::new(path), &text);
+            exit_on_error(written, &format!("writing capture {path:?}"));
+        }
+        Some("compare") => {
+            let [_, before, after] = args.as_slice() else {
+                panic!("amp-board: compare takes exactly two capture paths, before then after");
+            };
+            let read = |path: &String| {
+                let text = fs::read_to_string(path);
+                exit_on_error(text, &format!("reading capture {path:?}"))
+            };
+            let (before, after) = (read(before), read(after));
+            exit_on_error(
+                board::compare(&before, &after, &mut out),
+                "comparing captures",
+            );
+        }
         // A single-scale render is a debugging view: its verdict colors
         // ride per-window fits and never bind (the acceptance mode above
         // is the one verdict of record).
@@ -199,4 +255,19 @@ fn main() {
             board::run(scale, shards, &spawner(shards), &mut out).expect("stdout stays writable");
         }
     }
+}
+
+/// Replace `path` with `bytes` in one rename, or leave it untouched.
+///
+/// The temporary file lives in `path`'s directory so the rename stays on one
+/// filesystem, and it deletes itself if the write or rename fails.
+fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let dir = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut file = NamedTempFile::new_in(dir)?;
+    file.write_all(bytes)?;
+    file.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }

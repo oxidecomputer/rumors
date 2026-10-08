@@ -181,7 +181,9 @@
 //!   as `StackOverflow`.
 //! - a board cell or focused resource check fails → the cost moved; measure at
 //!   the parent commit before attributing, then either cure or bring
-//!   the owner a declared-model case with the derivation.
+//!   the owner a declared-model case with the derivation. The board's
+//!   `capture` and `compare` modes give a cell's exact difference at every
+//!   size, classified by how it changes with input size.
 //! - a liveness floor or band floor fails → a meter stopped watching,
 //!   or a valid input legitimately did less work than the floor's
 //!   premise — the latter is a floor-premise finding, not a meter bug.

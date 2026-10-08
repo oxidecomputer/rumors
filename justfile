@@ -828,13 +828,16 @@ bench-quick target *filter:
 # A bare run (any single scale) is a debugging view whose verdicts never
 # bind; the verdict of record is the acceptance invocation below, which
 # measures each cell's whole ladder in one judgment. Optional scale
-# multiplies the input sizes, e.g. `just amp-board 4`.
+# multiplies the input sizes, e.g. `just amp-board 4`. The same recipe runs
+# the developer modes that compare two builds' exact readings,
+# `just amp-board capture <file>` and `just amp-board compare <before> <after>`
+# (the amp_board example's doc describes them).
 
 # One command serves every board recipe, keeping the production profile part
 # of the instrument rather than a convention each entry point must repeat.
 amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter,serde,borsh"
 
-# Render the amplification board at one scale: a debugging view of the red-green matrix.
+# Render the board at one scale (a debugging view), or `capture` and `compare` exact readings.
 amp-board *args:
     {{ amp_board_command }} -- {{ args }}
 
