@@ -1,0 +1,338 @@
+diff --git a/crates/before/src/bits/writer.rs b/crates/before/src/bits/writer.rs
+index 59915af04..99564ca0d 100644
+--- a/crates/before/src/bits/writer.rs
++++ b/crates/before/src/bits/writer.rs
+@@ -296,9 +296,22 @@ impl BitsWriter {
+         self.mask_tail();
+     }
+ 
+-    /// Seal the completed stream into immutable canonical storage.
++    /// Seal the completed stream into immutable canonical storage that
++    /// retains at most twice the stream's encoded length.
++    ///
++    /// Domain writers reserve for their inputs' worst case, and
++    /// normalization can collapse the result far below that reservation:
++    /// joining a deep party with its complement yields one byte from a buffer
++    /// sized for both operands. Sealing the reservation as it stands would
++    /// keep it alive for as long as the result lives. Releasing slack costs a
++    /// reallocation, so we release it only when the slack exceeds the stream
++    /// itself; a writer sized exactly never pays for it.
+     pub(crate) fn finalize(mut self) -> Bits {
+         self.seal_padding();
++        let len = self.bytes.len();
++        if self.bytes.capacity() - len > len {
++            self.bytes.shrink_to_fit();
++        }
+         Bits::from_canonical(Bytes::from(self.bytes))
+     }
+ 
+diff --git a/crates/before/src/party/fork.rs b/crates/before/src/party/fork.rs
+index 259d2179b..03ffabb48 100644
+--- a/crates/before/src/party/fork.rs
++++ b/crates/before/src/party/fork.rs
+@@ -96,8 +96,9 @@ impl Party {
+         match source.next_fork() {
+             ForkPoint::Owned(common_path) => {
+                 // The shared unary path and the newly divided terminal have
+-                // known exact sizes. Sizing each result here prevents a small
+-                // half from retaining storage proportional to the source.
++                // known exact sizes. Sizing each result here lets a small half
++                // seal without the shrinking reallocation that a reservation
++                // proportional to the source would need.
+                 let output_bits = common_path.stored_len() + 4;
+                 let mut keep = PartyWriter::with_capacity(output_bits);
+                 let mut give = PartyWriter::with_capacity(output_bits);
+diff --git a/crates/before/src/party/tests.rs b/crates/before/src/party/tests.rs
+index 4e0342165..e97160d7d 100644
+--- a/crates/before/src/party/tests.rs
++++ b/crates/before/src/party/tests.rs
+@@ -143,6 +143,143 @@ fn asymmetric_fork_sizes_the_small_result_independently() {
+     assert_eq!(parent.0.allocation_capacity(), 1);
+ }
+ 
++// ───────────────────────────── result retention ─────────────────────────────
++
++/// The deepest operand the retention families build.
++const MAX_RETENTION_DEPTH: usize = 2_048;
++
++/// Describe how `party` breaks the retention bound, if it keeps alive more
++/// than twice its encoded bytes.
++///
++/// Writers reserve storage for their operands, and a result that collapses
++/// below that reservation must not keep it. The seed's static storage keeps
++/// no heap at all. The caller must already have dropped every other value
++/// sharing the result's buffer. The families collect every case's excess
++/// before asserting, so one failure reports each operation that retains too
++/// much.
++fn retention_excess(case: &str, party: Party) -> Option<String> {
++    let encoded = party.as_bytes().len();
++    let retained = if party.0.ptr_eq(&Party::seed().0) {
++        0
++    } else {
++        party.0.allocation_capacity()
++    };
++    (retained > 2 * encoded)
++        .then(|| format!("{case}: a {encoded}-byte party keeps a {retained}-byte allocation alive"))
++}
++
++proptest! {
++    /// Joining the leftmost `2^-depth` cell with its complement collapses to
++    /// the one-byte seed, and the seed retains at most twice its encoding
++    /// although `join` and `join_all` reserve room for both operands.
++    #[test]
++    fn collapsing_join_retains_at_most_twice_its_encoding(
++        depth in 1..=MAX_RETENTION_DEPTH,
++    ) {
++        let cell = || Party::from_test_bits(constructed::leftmost(depth));
++        let complement = || Party::from_test_bits(constructed::complement_leftmost(depth));
++        let mut excess = Vec::new();
++
++        let mut joined = cell();
++        joined.join(complement()).expect("a cell and its complement are disjoint");
++        prop_assert!(joined.is_seed());
++        excess.extend(retention_excess("join", joined));
++
++        let mut folded = cell();
++        folded.join_all([complement()]).expect("a cell and its complement are disjoint");
++        prop_assert!(folded.is_seed());
++        excess.extend(retention_excess("join_all", folded));
++
++        prop_assert!(excess.is_empty(), "{}", excess.join("; "));
++    }
++
++    /// Removing the rightmost `2^-depth` cell from `[0, 1/2) ∪ cell` leaves
++    /// the one-byte left half, which retains at most twice its encoding
++    /// although `without` reserves room for both operands.
++    #[test]
++    fn collapsing_difference_retains_at_most_twice_its_encoding(
++        depth in 2..=MAX_RETENTION_DEPTH,
++    ) {
++        let cell = |depth| constructed::spine(depth, false, constructed::full());
++        let half_and_cell = Party::from_test_bits(constructed::node(
++            Some(&constructed::full()),
++            Some(&cell(depth - 1)),
++        ));
++
++        let half = half_and_cell
++            .without(&Party::from_test_bits(cell(depth)))
++            .expect("the left half remains");
++        prop_assert_eq!(&half, &Party::from_test_bits(constructed::leftmost(1)));
++        let excess = retention_excess("without", half);
++        prop_assert!(excess.is_none(), "{}", excess.unwrap_or_default());
++    }
++
++    /// Taking the rightmost `2^-depth` cell as the one share of `forks(1)`
++    /// from `[0, 1/4) ∪ cell` leaves the one-byte residual `[0, 1/4)`. The
++    /// residual is reserved like the deep share, and both retain at most
++    /// twice their encodings.
++    #[test]
++    fn small_forks_residual_retains_at_most_twice_its_encoding(
++        depth in 1..=MAX_RETENTION_DEPTH,
++    ) {
++        let mut residual = Party::from_test_bits(constructed::node(
++            Some(&constructed::leftmost(1)),
++            Some(&constructed::spine(depth - 1, false, constructed::full())),
++        ));
++        let mut excess = Vec::new();
++
++        let shares: Vec<Party> = residual.forks(1u8).collect();
++        prop_assert_eq!(&residual, &Party::from_test_bits(constructed::leftmost(2)));
++        excess.extend(retention_excess("forks residual", residual));
++        for share in shares {
++            excess.extend(retention_excess("forks share", share));
++        }
++
++        prop_assert!(excess.is_empty(), "{}", excess.join("; "));
++    }
++
++    /// Every party that `join`, `join_all`, `without`, `fork`, and `forks`
++    /// build retains at most twice its encoding, over arbitrary operands.
++    #[test]
++    fn built_parties_retain_at_most_twice_their_encoding(
++        a in arb_oracle_party_nonempty(),
++        b in arb_oracle_party_nonempty(),
++        count in 1u8..=4,
++    ) {
++        // Each result is bound in its own statement, so the operand
++        // temporaries are gone before the result's buffer is inspected.
++        let party = from_oracle_party;
++        let mut excess = Vec::new();
++
++        let mut joined = party(&a);
++        if joined.join(party(&b)).is_ok() {
++            excess.extend(retention_excess("join", joined));
++        }
++        let mut folded = party(&a);
++        if folded.join_all([party(&b)]).is_ok() {
++            excess.extend(retention_excess("join_all", folded));
++        }
++        let rest = party(&a).without(&party(&b));
++        if let Some(rest) = rest {
++            excess.extend(retention_excess("without", rest));
++        }
++
++        let mut kept = party(&a);
++        let given = kept.fork();
++        excess.extend(retention_excess("fork, kept half", kept));
++        excess.extend(retention_excess("fork, given half", given));
++
++        let mut residual = party(&a);
++        let shares: Vec<Party> = residual.forks(count).collect();
++        excess.extend(retention_excess("forks residual", residual));
++        for share in shares {
++            excess.extend(retention_excess("forks share", share));
++        }
++
++        prop_assert!(excess.is_empty(), "{}", excess.join("; "));
++    }
++}
++
+ // ───────────────────────────── differential vs oracle ─────────────────────────────
+ 
+ proptest! {
+diff --git a/crates/before/src/version/tests.rs b/crates/before/src/version/tests.rs
+index f4cea9bbe..45a34ffdc 100644
+--- a/crates/before/src/version/tests.rs
++++ b/crates/before/src/version/tests.rs
+@@ -12,6 +12,7 @@ use num_bigint::BigUint;
+ use proptest::prelude::*;
+ 
+ use super::{Ranked, Version};
++use crate::bits::BitsWriter;
+ use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
+ use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+ use crate::testing::grow_brute_force::{all_inflations, best_inflation};
+@@ -480,6 +481,133 @@ proptest! {
+     }
+ }
+ 
++// ───────────────────────────── result retention ─────────────────────────────
++
++/// The deepest event tree the retention families build.
++const MAX_RETENTION_DEPTH: usize = 2_048;
++
++/// The rightmost `2^-depth` cell of party space.
++fn rightmost_cell(depth: usize) -> Party {
++    let mut bits = BitsWriter::new();
++    for _ in 0..depth {
++        bits.push(false);
++        bits.push(true);
++    }
++    bits.push(false);
++    bits.push(false);
++    Party::from_test_bits(bits)
++}
++
++/// `base` events everywhere, and two more on the rightmost `2^-depth` cell:
++/// an event tree as deep as the cell.
++fn deep_bump(base: u64, depth: usize) -> Version {
++    let mut version = uniform(base);
++    version.ticks(&rightmost_cell(depth), 2u8);
++    version
++}
++
++/// Describe how `version` breaks the retention bound, if it keeps alive more
++/// than twice its encoded bytes.
++///
++/// Writers reserve storage for their operands, and a result that collapses
++/// below that reservation must not keep it. The empty version's static
++/// storage keeps no heap at all. The caller must already have dropped every
++/// other value sharing the result's buffer. The families collect every case's
++/// excess before asserting, so one failure reports each operation that
++/// retains too much.
++fn retention_excess(case: &str, version: Version) -> Option<String> {
++    let encoded = version.as_bytes().len();
++    let retained = if version.ptr_eq(&Version::new()) {
++        0
++    } else {
++        version.0.allocation_capacity()
++    };
++    (retained > 2 * encoded).then(|| {
++        format!("{case}: a {encoded}-byte version keeps a {retained}-byte allocation alive")
++    })
++}
++
++proptest! {
++    /// A deep event tree collapses to one leaf when joined with a uniform
++    /// version above it, when met with a uniform version below it, and when
++    /// ticked by the seed. Each one-leaf result retains at most twice its
++    /// encoding, although the lattice writers reserve room for both operands
++    /// and the tick writers for the whole input tree.
++    #[test]
++    fn collapsing_version_results_retain_at_most_twice_their_encoding(
++        depth in 1..=MAX_RETENTION_DEPTH,
++    ) {
++        let mut excess = Vec::new();
++
++        let join = &deep_bump(0, depth) | &uniform(3u8);
++        prop_assert_eq!(&join, &uniform(3u8));
++        excess.extend(retention_excess("join", join));
++
++        let join_all = deep_bump(0, depth).join_all([uniform(3u8)]);
++        prop_assert_eq!(&join_all, &uniform(3u8));
++        excess.extend(retention_excess("join_all", join_all));
++
++        let meet = &deep_bump(1, depth) & &uniform(1u8);
++        prop_assert_eq!(&meet, &uniform(1u8));
++        excess.extend(retention_excess("meet", meet));
++
++        let meet_all = deep_bump(1, depth).meet_all([uniform(1u8)]);
++        prop_assert_eq!(&meet_all, &uniform(1u8));
++        excess.extend(retention_excess("meet_all", meet_all));
++
++        let mut ticked = deep_bump(0, depth);
++        ticked.tick(&Party::seed());
++        prop_assert_eq!(&ticked, &uniform(2u8));
++        excess.extend(retention_excess("tick", ticked));
++
++        prop_assert!(excess.is_empty(), "{}", excess.join("; "));
++    }
++
++    /// Every version that the lattice operations, `tick`, `ticks`, and
++    /// projection build retains at most twice its encoding, over arbitrary
++    /// operands.
++    #[test]
++    fn built_versions_retain_at_most_twice_their_encoding(
++        oa in arb_oracle_version(),
++        ob in arb_oracle_version(),
++        party in arb_oracle_party_nonempty(),
++        count in 0u64..24,
++    ) {
++        // Each result is bound in its own statement, so the operand
++        // temporaries are gone before the result's buffer is inspected.
++        let version = from_oracle_version;
++        let party = from_oracle_party(&party);
++        let mut excess = Vec::new();
++
++        let join = &version(&oa) | &version(&ob);
++        excess.extend(retention_excess("join", join));
++        let meet = &version(&oa) & &version(&ob);
++        excess.extend(retention_excess("meet", meet));
++        let join_all = version(&oa).join_all([version(&ob)]);
++        excess.extend(retention_excess("join_all", join_all));
++        let meet_all = version(&oa).meet_all([version(&ob)]);
++        excess.extend(retention_excess("meet_all", meet_all));
++        let mut joined = version(&oa);
++        joined |= &version(&ob);
++        excess.extend(retention_excess("join in place", joined));
++        let mut met = version(&oa);
++        met &= &version(&ob);
++        excess.extend(retention_excess("meet in place", met));
++
++        let mut ticked = version(&oa);
++        ticked.tick(&party);
++        excess.extend(retention_excess("tick", ticked));
++        let mut ticked = version(&oa);
++        ticked.ticks(&party, count);
++        excess.extend(retention_excess("ticks", ticked));
++
++        let projection = (&version(&oa) / &party).to_version();
++        excess.extend(retention_excess("projection", projection));
++
++        prop_assert!(excess.is_empty(), "{}", excess.join("; "));
++    }
++}
++
+ // ───────────── grow optimality, impl side ─────────────
+ //
+ // The defining causality property (§3, §5.3.4): an event registers a *minimal*

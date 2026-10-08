@@ -1,0 +1,38 @@
+| op | falls | rises | largest fall | largest rise |
+|---|---:|---:|---|---|
+| clock_forks | 26 | 3 | benign@x0.01 12.7/B->8.4/B | memo-chain@x0.01 9.9/B->10.0/B |
+| clock_forks_full | 17 | 0 | scatter@x0.01 12.7/B->2.6/B | - |
+| clock_join | 42 | 9 | cliff-fan@x0.01 5.2/B->1.0/B | concurrent-pair@x1 1.0/B->1.5/B |
+| clock_own_version_to_version | 17 | 9 | mirror-wide@x0.01 3.9/B->1.5/B | mirror-narrow@x1 2.5/B->2.8/B |
+| clock_recv | 41 | 2 | benign@x0.01 5.4/B->0.9/B | id-pair@x0.01 6.9/B->7.6/B |
+| clock_recv_all | 10 | 1 | benign@x0.01 22.3/B->15.8/B | benign@x1 0.8/B->0.9/B |
+| clock_sync | 79 | 7 | benign@x0.01 11.6/B->2.5/B | propagate-seam@x1 1.1/B->1.6/B |
+| clock_sync_all | 7 | 0 | scatter@x0.01 15.2/B->14.0/B | - |
+| clock_tick | 23 | 5 | benign@x0.01 6.8/B->1.0/B | pure-comb@x4 1.8/B->2.2/B |
+| own_span_to_span | 52 | 1 | masked-hole@x0.01 4.5/B->0.9/B | benign@x4 0.9/B->1.0/B |
+| own_version_to_version | 29 | 13 | benign@x0.01 7.0/B->1.5/B | concurrent-pair@x1 1.0/B->1.5/B |
+| party_forks | 26 | 0 | benign@x0.01 13.6/B->8.6/B | - |
+| party_forks_full | 17 | 0 | scatter@x0.01 13.5/B->2.8/B | - |
+| party_join | 8 | 3 | benign@x0.01 6.8/B->1.0/B | id-pair@x1 2.0/B->2.2/B |
+| party_join_all | 4 | 1 | stagger@x0.01 12.0/B->10.9/B | stagger-arity@x0.01 1.2/B->1.3/B |
+| party_without | 18 | 9 | raise-hole@x0.01 7.0/B->1.8/B | mirror-narrow@x1 2.5/B->2.9/B |
+| query_coverage | 0 | 2 | - | concurrent-pair@x4 0.5/B->0.7/B |
+| span_intersect | 37 | 12 | benign@x0.01 5.7/B->3.3/B | concurrent-pair@x1 0.5/B->0.8/B |
+| span_intersect_all | 12 | 7 | stagger-arity@x0.01 2.1/B->1.3/B | scatter@x1 0.5/B->2.7/B |
+| span_join | 40 | 11 | benign@x0.01 5.7/B->3.5/B | concurrent-pair@x1 0.5/B->0.8/B |
+| span_join_all | 6 | 8 | stagger@x0.01 20.3/B->19.5/B | scatter@x1 0.9/B->3.0/B |
+| span_meet | 43 | 13 | benign@x0.01 5.7/B->3.1/B | meet-shade@x0.01 4.7/B->5.2/B |
+| span_meet_all | 12 | 8 | stagger-arity@x0.01 2.2/B->1.2/B | scatter@x1 0.5/B->2.6/B |
+| span_union | 49 | 10 | benign@x0.01 5.7/B->3.3/B | meet-shade@x0.01 4.7/B->5.2/B |
+| span_union_all | 6 | 8 | stagger@x0.01 20.3/B->19.4/B | scatter@x1 0.7/B->2.9/B |
+| version_join | 34 | 7 | benign@x0.01 7.0/B->1.2/B | concurrent-pair@x1 1.0/B->1.5/B |
+| version_join_all | 7 | 0 | meet-shade@x0.01 52.7/B->48.2/B | - |
+| version_join_assign | 34 | 8 | benign@x0.01 7.0/B->1.2/B | concurrent-pair@x1 1.0/B->1.5/B |
+| version_meet | 26 | 11 | benign@x0.01 7.0/B->1.8/B | concurrent-pair@x1 1.0/B->1.5/B |
+| version_meet_all | 11 | 0 | meet-shade@x0.01 52.7/B->48.5/B | - |
+| version_meet_assign | 26 | 11 | benign@x0.01 7.0/B->1.8/B | concurrent-pair@x1 1.0/B->1.5/B |
+| version_span | 1 | 2 | concurrent-pair@x0.01 3.9/B->2.4/B | concurrent-pair@x1 2.0/B->2.5/B |
+| version_span_all | 15 | 1 | benign@x0.01 66.8/B->60.9/B | benign@x4 1.4/B->1.5/B |
+| version_tick | 23 | 5 | benign@x0.01 6.8/B->1.0/B | pure-comb@x4 1.8/B->2.2/B |
+| version_tick_adv_party | 23 | 0 | benign@x0.01 12.0/B->6.7/B | - |
+| version_ticks | 33 | 5 | benign@x0.01 15.5/B->3.8/B | pure-comb@x4 1.8/B->2.2/B |
