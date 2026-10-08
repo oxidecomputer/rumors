@@ -76,3 +76,22 @@ audit. Each entry names its source and what it would catch.
   efficient ... in the worst case" implies iterated `recv` is
   interchangeable with it, but iterated `recv` records `k` events, not one.
   Source: the documentation branch's reviewer.
+- **A late-first-split COMB family.** `from_interleaved` keeps the writer
+  and split streams alive together; a family whose first split comes late
+  is inferred to read about 4 B/B against COMB's ceiling of 3. If built and
+  confirmed, it is a defect finding, not an instrument, and it bears on
+  question 65's choice of COMB's rule. Source: the board-ceiling reviewer;
+  the instrument survey, section 2.2.
+- **The verification map.** The validation index lacks entries for the
+  worst-case ranking pin, the generator census floors, the stack-safety
+  tests at depth, the `PeakAlloc` heap checks outside the board, the
+  compile-time trait assertions and the fuelscape islands test, and every
+  suanpan instrument; its last section points at a scaffolding index in
+  `testing.rs`'s module doc that does not exist. `before`'s `## Testing`
+  section omits the resource and 32-bit instruments; suanpan has none.
+  For the second docs pass. Source: the instrument survey, section 3.
+- **Three cost-only survivors no instrument sees.** `packed_u64.rs:63` and
+  the two `words.rs:78` survivors pass every meter and the fuel bands
+  (verified by the surveyor). Catching them needs a fuel-ladder family
+  whose fuel those pops dominate; nobody has constructed one, and the cost
+  is a constant factor. Source: the instrument survey, section 1.9.
