@@ -139,3 +139,9 @@ audit. Each entry names its source and what it would catch.
 - **Unmetered suanpan costs.** A cancelled shifted transient zero-fills and
   keeps about `s` digits, invisible to the touch meter; bitset word
   operations are metered nowhere. Source: the same.
+- **Audit `rumors`' share-receiving paths for the knowledge-with-identity
+  discipline** (question 108). A party that receives a share of identity
+  must merge the events earlier holders recorded in it before ticking, or
+  its ticks can dominate events it never saw. `rumors` appears to do so at
+  `src/peer/gossip.rs:647`; the other paths are unaudited. Outside the
+  audit's scope. Source: #104's reviewer.
