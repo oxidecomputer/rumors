@@ -116,7 +116,7 @@ likely the triggering input is: "unreachable in practice" carries no weight.
     process per hardware thread (192) unless told otherwise, and that
     includes every nextest run inside `just gate`. Several such runs at
     once push the load past 500, which slows every agent and risks
-    spurious timeouts against nextest's 180-second limit.
+    spurious timeouts against nextest's 300-second limit.
 - The verification of record during the audit is the box's landing check,
   `~/bin/audit-check`, run through the box's admission wrapper:
   `unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check`.
@@ -158,7 +158,7 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   - Run long investigative jobs under `nice -n 10`.
   - Separate `--no-run` builds from test runs.
   - Never repeat a run hoping for a different result.
-  - Committed tests must finish inside nextest's 180-second limit at the
+  - Committed tests must finish inside nextest's 300-second limit at the
     default case count. Raise `PROPTEST_CASES` only in investigative runs.
 - Never launch services or daemons, never spawn agents, and never message
   other agents. Everything routes through the coordinator: requests for more
