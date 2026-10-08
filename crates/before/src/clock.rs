@@ -636,6 +636,21 @@ impl Clock {
     ///
     /// Inverse to [`into_parts`](Clock::into_parts).
     ///
+    /// # Warning
+    ///
+    /// A party's tick depends only on the version it advances, so a clock
+    /// built over a version missing some of the events the party has recorded
+    /// can record new events that the party's earlier stamps already contain.
+    /// When that version is one the party's clock held just before a
+    /// [`tick`](Clock::tick), with this same party, the new clock's first tick
+    /// reproduces that tick's stamp exactly, and two distinct events share one
+    /// [`Version`]. Neither outcome breaks the crate's
+    /// [safety rules](crate#safety-rules): linearity constrains identity, not
+    /// versions, and the party remains the only holder of its identity. To
+    /// keep each new stamp outside the party's earlier ones, pair the party
+    /// with a version that contains every event it has recorded, such as the
+    /// version its clock last held.
+    ///
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_from_parts.html")))]
