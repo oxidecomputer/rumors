@@ -95,3 +95,15 @@ audit. Each entry names its source and what it would catch.
   (verified by the surveyor). Catching them needs a fuel-ladder family
   whose fuel those pops dominate; nobody has constructed one, and the cost
   is a constant factor. Source: the instrument survey, section 1.9.
+- **Catching a narrowed cursor position on 32-bit.** No wasm32 pin opens a
+  reader partway into a stream at a position of `2^32` or more, so narrowing
+  a position before it becomes a byte index (`bits/reader.rs:148`) passes
+  every pin. `Version::partial_cmp` cannot catch it, since it opens each
+  operand at bit 0. A check over an operation that opens mid-stream (`tick`
+  raising a leaf that starts past bit `2^32`, or a join copying such a
+  subtree) would. The gamma window's narrowing (`gamma/window.rs:28`) needs
+  `borsh` in the guest and a borsh decode check. Both are new `Check`
+  variants, so after #58. Source: the compare-pin proposal branch (slot 42).
+- **Two more wasm32 pin docs overclaim:** the join output pin and the
+  rank-arithmetic route (the latter rewritten by #63). Source: the adequacy
+  lane's wasm32-pins calibration, confirmed by the slot 42 builder.
