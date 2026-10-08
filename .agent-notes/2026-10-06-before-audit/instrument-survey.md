@@ -724,3 +724,16 @@ in section 2.2.
 11. **`instruments.md`'s inventory commits are stale** for four lanes
     (section 2.1); nothing depends on it, but the triage should read the
     tips.
+
+---
+
+## Coordinator's addendum: 1.6 is wrong
+
+The proposal branch for 1.6 found, by a probe run on the box, that running
+libtest single-threaded does not close the race: libtest's main thread
+still allocates inside the measurement window when it registers as a
+waiter on the test channel (a 24-byte mutex box and a 96-byte waiter list
+on illumos, together the recorded failure's 120 bytes). The fix needs
+per-thread attribution or a runner without a harness thread; the owner's
+question 91 asks which. The probe is in the session scratchpad,
+`builder-peakalloc-single-thread/`.
