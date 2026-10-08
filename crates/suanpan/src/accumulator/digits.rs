@@ -21,8 +21,8 @@
 //!
 //! Three facts about the stored form make later work bounded:
 //!
-//! - `highest_nonzero` names the highest nonzero position, or zero when the
-//!   value is zero;
+//! - `highest_nonzero` names the highest nonzero position, or zero when every
+//!   digit is zero;
 //! - every position below `lowest_written` is zero;
 //! - `written` records which positions updates have written, and its field
 //!   states what that guarantees about the digits.
