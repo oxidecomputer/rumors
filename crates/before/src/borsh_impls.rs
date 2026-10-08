@@ -255,8 +255,8 @@ impl BorshDeserialize for Ranked<'static> {
     }
 }
 
-/// The canonical composite of [`Span::encode`], unframed: the meet's
-/// canonical bytes, then the join's.
+/// The canonical composite of [`Span::encode`], unframed: the lower
+/// endpoint's canonical bytes, then the upper endpoint's.
 ///
 /// Borsh is a transport for the one wire form, never a second format;
 /// both components are byte-aligned and self-delimiting, so the
@@ -272,7 +272,7 @@ impl BorshSerialize for Span<'_> {
 /// fused pass.
 ///
 /// [`Span::decode`]'s contract exactly — crossed and concurrent pairs
-/// rejected — with the bytes after the join belonging to the next
+/// rejected — with the bytes after the upper endpoint belonging to the next
 /// borsh field.
 impl BorshDeserialize for Span<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
