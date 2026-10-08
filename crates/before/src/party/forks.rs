@@ -15,6 +15,8 @@
 //! party always owns the residual and every untaken share; dropping the
 //! iterator requires no cleanup.
 
+use core::iter::FusedIterator;
+
 use num_bigint::BigUint;
 
 use super::Party;
@@ -340,6 +342,9 @@ impl Iterator for PartyForks<'_> {
         self.plan.size_hint()
     }
 }
+
+/// Once `next` returns `None`, it returns `None` forever.
+impl FusedIterator for PartyForks<'_> {}
 
 #[cfg(test)]
 mod tests;

@@ -1,5 +1,7 @@
 //! Checks for compact balanced forking at every count width.
 
+use core::iter::FusedIterator;
+
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
@@ -19,6 +21,24 @@ fn arb_wide_count() -> impl Strategy<Value = Count> {
         *bytes.last_mut().expect("a wide count has bytes") |= 0x80;
         Count(BigUint::from_bytes_le(&bytes))
     })
+}
+
+/// Drains a fork iterator of its `count` items, then checks that `extra`
+/// further calls each return `None` with an empty size hint.
+///
+/// The `FusedIterator` bound is part of the check: an iterator that stops
+/// promising fusion no longer compiles here.
+fn assert_stays_exhausted<I: FusedIterator>(
+    mut forks: I,
+    count: usize,
+    extra: usize,
+) -> Result<(), TestCaseError> {
+    prop_assert_eq!(forks.by_ref().count(), count);
+    for _ in 0..extra {
+        prop_assert!(forks.next().is_none());
+        prop_assert_eq!(forks.size_hint(), (0, Some(0)));
+    }
+    Ok(())
 }
 
 /// Plan a party through the recursive ceil-left/floor-right definition.
@@ -91,6 +111,21 @@ proptest! {
         let returned: Vec<Party> = keeper.forks(count).take(taken).collect();
         prop_assert!(keeper.join_all(returned).is_ok());
         prop_assert!(keeper == original);
+    }
+
+    /// Party and clock fork iterators stay exhausted once drained: after the
+    /// `None` that ends a full drain, every later `next` returns `None` and
+    /// the size hint reads empty, as their `FusedIterator` impls promise.
+    #[test]
+    fn drained_forks_stay_exhausted(
+        party in arb_oracle_party_nonempty(),
+        count in 0usize..65,
+        extra in 1usize..=4,
+    ) {
+        let mut keeper = from_oracle_party(&party);
+        assert_stays_exhausted(keeper.forks(count), count, extra)?;
+        let mut clock = Clock::from_parts(from_oracle_party(&party), Version::new());
+        assert_stays_exhausted(clock.forks(count), count, extra)?;
     }
 }
 

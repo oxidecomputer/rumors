@@ -4,6 +4,8 @@
 //! returned share with a clone of the parent's version; the consuming array
 //! conversion applies the same pairing to a fixed-size party split.
 
+use core::iter::FusedIterator;
+
 use crate::{party, Clock, Count, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
@@ -59,6 +61,9 @@ impl Iterator for ClockForks<'_> {
         self.parties.size_hint()
     }
 }
+
+/// Once `next` returns `None`, it returns `None` forever.
+impl FusedIterator for ClockForks<'_> {}
 
 /// Splits a [`Clock`] into exactly `N` balanced child clocks, consuming it.
 ///
