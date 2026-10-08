@@ -21,10 +21,11 @@ use crate::{party, Clock, Count, Party, Version};
 /// # Complexity
 ///
 /// Construction costs `O(log k)` for the count representation. Each `next`
-/// costs `O(|p| + log k)`, with `|p|` the size of the borrowed clock's party;
-/// the child's version shares the parent's stored bytes through an `O(1)`
-/// clone. A full drain takes at most `O(|c| + k (|c| + log k))` time, with
-/// `|c|` the borrowed clock's size; measured on [`Clock::forks`].
+/// costs `O(|p| + log k)`, with `|p|` the size of the borrowed clock's party
+/// when the iterator was created; the child's version shares the parent's
+/// stored bytes through an `O(1)` clone. A full drain takes at most
+/// `O(|c| + k (|c| + log k))` time, with `|c|` the borrowed clock's size;
+/// measured on [`Clock::forks`].
 #[must_use = "`ClockForks` produces no child clocks unless consumed"]
 pub struct ClockForks<'a> {
     /// The lazy partition of party shares.

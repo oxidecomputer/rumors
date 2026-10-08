@@ -294,8 +294,8 @@ impl Iterator for Plan {
 ///
 /// Construction costs `O(log k)` for the count representation. Each `next`
 /// costs `O(|p| + log k)` and dropping the iterator costs `O(1)`, with `|p|`
-/// the borrowed party's size. A full drain takes `O(|p| + k (|p| + log k))`
-/// time; measured on [`Party::forks`].
+/// the borrowed party's size when the iterator was created. A full drain
+/// takes `O(|p| + k (|p| + log k))` time; measured on [`Party::forks`].
 #[must_use = "`PartyForks` produces no child parties unless consumed"]
 pub struct PartyForks<'a> {
     /// The borrowed party, containing the residual and every untaken share.
