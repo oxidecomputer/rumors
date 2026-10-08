@@ -392,7 +392,7 @@ fn exhaustive_small() {
 /// ```
 ///
 /// (`cargo test`, not nextest: the workspace's nextest profile terminates
-/// any test at 180 seconds, which this enumeration exceeds).
+/// any test within minutes, long before this enumeration finishes).
 #[test]
 #[ignore = "exhaustive deep enumeration: O(corpus^2) over 65536 ids; hour-scale, run detached"]
 fn exhaustive_deep() {

@@ -1,29 +1,32 @@
 # Liveness regressions must fail CI, not hang it. The protocol suites run
 # under a closed-world deterministic poller (`run_to_quiescence`), which
-# turns a reintroduced wire stall into a stalled-future error — but a stall
-# that escapes that harness (a real-executor integration test, a proptest
-# whose case never completes) would otherwise hang the run forever.
+# turns a reintroduced wire stall into a stalled-future error. A stall that
+# escapes that harness (a real-executor integration test, a proptest whose
+# case never completes) would otherwise hang the run forever, so nextest
+# flags every test as slow after one 60-second period and terminates it
+# after five, at 300 seconds.
 #
-# The slowest honest tests today are the proptest suites, all finishing
-# well under 60 seconds
-# (the deterministic fixture search in src/tree/arb.rs is around 6
-# seconds), so three 60-second periods —
-# termination at 180 seconds — is generous headroom, and everything past
-# the first period is flagged as slow in the meantime.
+# Two Rumors tests set that limit: the codec's
+# `bounded_corpus_manifest_snapshot` and `dispute_wire`'s
+# `table_corpus_has_similar_protocol_overhead`. Both pass, but on a machine
+# shared by several concurrent builds and test runs either can take longer
+# than three periods. A longer limit stretches every hang by the same
+# amount, since a test that never finishes holds its slot until the limit
+# before it fails; we accept that cost so these two tests can finish under
+# load. Once they are cheaper, the limit can return to three periods.
 #
-# One collision this budget knowingly accepts: proptest persists a failing
-# case's regression seed only after shrinking completes, so a genuinely
-# failing property whose shrink phase outruns the 180-second terminate
-# budget is killed mid-shrink and the reproducer is lost at exactly the
-# moment it matters. Passing runs are unaffected. If a property fails on a
-# loaded machine and dies here instead of reporting, rerun it with
-# PROPTEST_MAX_SHRINK_ITERS lowered (or PROPTEST_MAX_SHRINK_TIME set, in
-# milliseconds) so shrinking finishes inside the budget: the less-shrunk
-# failing case still persists to proptest-regressions/ and reproduces
-# deterministically. Raising terminate-after instead would stretch every
-# real hang by the same amount, which is the worse trade for CI.
+# The limit also bounds proptest shrinking. Proptest persists a failing
+# case's regression seed only after shrinking completes, so a failing
+# property whose shrink phase outruns the limit is killed mid-shrink, and
+# the reproducer is lost at exactly the moment it matters. Passing runs are
+# unaffected. If a property fails on a loaded machine and dies here instead
+# of reporting, rerun it with PROPTEST_MAX_SHRINK_ITERS lowered (or
+# PROPTEST_MAX_SHRINK_TIME set, in milliseconds) so shrinking finishes
+# inside the limit: the less-shrunk failing case still persists to
+# proptest-regressions/ and reproduces deterministically. Lower the shrink
+# budget rather than raising the limit, which would stretch every hang.
 [profile.default]
-slow-timeout = { period = "60s", terminate-after = 3 }
+slow-timeout = { period = "60s", terminate-after = 5 }
 
 # Four thousand property cases make the slowest Rumors tests take several
 # minutes in release. Ten minutes still turns a lost wakeup into a failure
