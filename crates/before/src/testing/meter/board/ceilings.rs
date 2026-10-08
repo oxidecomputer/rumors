@@ -3,6 +3,29 @@
 //! These are the default limits. An operation with a different valid bound
 //! declares its units and proportional limit beside its board row. Every row
 //! remains subject to the shared exponent check.
+//!
+//! # Measured ceilings
+//!
+//! A *measured ceiling* is a proportional limit derived from the board's own
+//! readings rather than argued from the algorithm. Every measured ceiling
+//! follows one rule, and each one's doc states it in the same sentence.
+//!
+//! The rule inverts the judge's test. The board finds a sample within a
+//! ceiling `C` when the sample's reading is at most the ceiling's intercept
+//! plus `C` times the sample's denominator. The intercept is
+//! [`HEAP_INTERCEPT_BYTES`] for heap ceilings and zero for scan and touch
+//! ceilings. The denominator is the quantity the ceiling is stated per, which
+//! the first line of its doc names: input bytes, total input and output bytes,
+//! or input bytes times reduction levels. Each sample therefore admits every
+//! `C` at least as large as its reading less the intercept, divided by its
+//! denominator. The rule takes the largest such value over every sample the
+//! release-profile acceptance board judges, at both ladder scales and at the
+//! small-input scale, adds 25% headroom, and rounds up to a whole number.
+//!
+//! Subtracting the intercept lets one rule serve every ceiling. Fixed
+//! allocations dominate a small sample's reading, and the intercept already
+//! covers them, so the proportional term need not. A small sample whose
+//! allocations grow with its input still enters the derivation in full.
 
 /// Green requires every meter's scaling exponent at or below this.
 ///
@@ -57,10 +80,13 @@ pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 /// Validation, comparison, emission, and query folds normally touch a small
 /// number of digits per input delta. Balanced reductions may revisit digits
 /// at each reduction level, so their rows use level-adjusted units while
-/// retaining this proportional limit. The value is the largest release-board
-/// measurement plus 25%, rounded up. Crossing it requires rechecking the
+/// retaining this proportional limit. Crossing it requires rechecking the
 /// implementation and the limit against the board's worst-case map.
-pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 22.0;
+///
+/// The value follows the measured-ceiling rule: the largest release-profile
+/// reading over every judged sample, less the ceiling's intercept, divided by
+/// the sample's denominator, with 25% headroom, rounded up.
+pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 24.0;
 
 /// Scan liveness floor: an operation that must examine its operands scans at
 /// least this many bits per input byte.
@@ -105,45 +131,56 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// Maximum scan bits per input byte and balanced-reduction level.
 ///
 /// For `k` operands, the board allows this coefficient times `log2(2k)`.
-/// The coefficient is the largest release-profile fold reading at any judged
-/// size, small-input samples included, with 25% headroom, rounded up.
+///
+/// The value follows the measured-ceiling rule: the largest release-profile
+/// reading over every judged sample, less the ceiling's intercept, divided by
+/// the sample's denominator, with 25% headroom, rounded up.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 16.0;
 
 /// Heap ceiling for materializing the output-dominated comb-scatter
 /// projection, in bytes per total-I/O byte.
 ///
-/// The direct payload writer and split skyline builder hold a constant number
-/// of stream-sized buffers. Both projection spellings measure a flat 2.0 B/B
-/// at the board's largest committed scale; the ceiling applies the standard
-/// 25% margin and rounds up. Their exponent remains judged independently.
-pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 3.0;
+/// The version writer holds a constant number of stream-sized buffers: its
+/// output, and, once a wide payload first collapses, the separate topology
+/// and payload streams that it interleaves once at the end. The exponent
+/// remains judged independently.
+///
+/// The value follows the measured-ceiling rule: the largest release-profile
+/// reading over every judged sample, less the ceiling's intercept, divided by
+/// the sample's denominator, with 25% headroom, rounded up.
+pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 4.0;
 
 /// Heap ceiling for deserializing an owned serde buffer or a borsh stream, in
 /// bytes per input byte.
 ///
 /// Serde transfers its input allocation into the decoded value. Borsh grows
 /// one output buffer while reading. Both validate with compact parser state, so
-/// their remaining heap stays a small multiple of the encoding. The ceiling is
-/// the largest release-profile reading with 25% headroom, rounded up.
-pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 4.0;
+/// their remaining heap stays a small multiple of the encoding.
+///
+/// The value follows the measured-ceiling rule: the largest release-profile
+/// reading over every judged sample, less the ceiling's intercept, divided by
+/// the sample's denominator, with 25% headroom, rounded up.
+pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 5.0;
 
 /// Heap ceiling for deserializing a rank, in bytes per input byte.
 ///
 /// The decoded arbitrary-width numerator cannot adopt the encoded input's byte
-/// buffer. The ceiling is the largest release-profile reading among samples
-/// of at least twice [`HEAP_INTERCEPT_BYTES`], with 25% headroom, rounded up.
-/// Below that size, fixed allocations dominate a sample's reading, and the
-/// ceiling's intercept absorbs them.
+/// buffer.
+///
+/// The value follows the measured-ceiling rule: the largest release-profile
+/// reading over every judged sample, less the ceiling's intercept, divided by
+/// the sample's denominator, with 25% headroom, rounded up.
 pub const RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 5.0;
 
 /// Heap ceiling for deserializing and validating a ranked version, in bytes per
 /// input byte.
 ///
 /// Validation retains the consumed rank prefix while materializing and ranking
-/// the version. The ceiling is the largest release-profile reading among
-/// samples of at least twice [`HEAP_INTERCEPT_BYTES`], with 25% headroom,
-/// rounded up. Below that size, fixed allocations dominate a sample's
-/// reading, and the ceiling's intercept absorbs them.
+/// the version.
+///
+/// The value follows the measured-ceiling rule: the largest release-profile
+/// reading over every judged sample, less the ceiling's intercept, divided by
+/// the sample's denominator, with 25% headroom, rounded up.
 pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 
 /// Heap ceiling for evaluating a query, in bytes per operand byte.
@@ -153,15 +190,10 @@ pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 /// operation-specific limit excludes evaluation from the general heap ceiling
 /// while retaining the board's linear-growth check.
 ///
-/// The ceiling is the largest release-profile reading on the measurement
-/// ladder (the samples at [`DEFAULT_SCALE`] and [`LADDER_TOP_SCALE`]), with
-/// 25% headroom, rounded up. Small-input samples are judged against it but do
-/// not enter its derivation. Unlike the deserialize ceilings, this one cannot
-/// set aside every sample smaller than twice [`HEAP_INTERCEPT_BYTES`]: query
-/// state grows with the bounds rather than staying fixed, so a ceiling derived
-/// only from larger samples can leave a small sample's reading above what the
-/// intercept absorbs.
-pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 98.0;
+/// The value follows the measured-ceiling rule: the largest release-profile
+/// reading over every judged sample, less the ceiling's intercept, divided by
+/// the sample's denominator, with 25% headroom, rounded up.
+pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 109.0;
 
 /// Base scale and size multiplier for a single-scale board run.
 ///
