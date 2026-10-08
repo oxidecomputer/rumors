@@ -42,3 +42,16 @@ wrong, saying why.
 
 One landing check at the tip. Expect the post-board-pin baseline, plus any
 deep test that item 2 adds.
+
+## Owner's ruling: remove the stack guard (question 68)
+
+Remove `recurse.rs`, its `descend!` macro, and the `stacker` dev-dependency,
+in one branch after #40, #72, and #74 land (each adds or edits a use). Every
+test helper that recursed through the guard recurses directly and states its
+depth bound at the site, where the bound holds by construction; the one deep
+test (`deep_spines_grow_identically`) runs its reference probe on a thread
+with an explicit stack size. `crates/before/AGENTS.md`'s rule becomes: no
+library traversal recurses on input depth; a test helper recurses only on
+input bounded by construction, stated where it recurses; a test that needs
+more depth runs on a thread with an explicit stack size. The docs branch's
+`RED_ZONE` item disappears with the constant.

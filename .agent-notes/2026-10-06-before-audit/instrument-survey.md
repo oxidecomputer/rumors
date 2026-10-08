@@ -737,3 +737,11 @@ on illumos, together the recorded failure's 120 bytes). The fix needs
 per-thread attribution or a runner without a harness thread; the owner's
 question 91 asks which. The probe is in the session scratchpad,
 `builder-peakalloc-single-thread/`.
+
+## Owner's ruling on the slow `rumors` tests (question 90)
+
+For now, raise the global nextest time limit in `.config/nextest.toml` so
+`bounded_corpus_manifest_snapshot` and `table_corpus_has_similar_protocol_overhead`
+stop failing under load, and restate that file's comment to what is true
+(it claims the slowest tests finish well under 60 seconds). Measuring and
+speeding up the two tests is deferred.
