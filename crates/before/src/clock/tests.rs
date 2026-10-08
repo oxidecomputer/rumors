@@ -818,6 +818,132 @@ fn deep_tree_shape_hull_and_fold_stack_safety() {
     }
 }
 
+/// The identity entry points survive a cell `STACK_SAFETY_DEPTH` levels deep
+/// and its complement, and every split rejoins to the party it divided.
+///
+/// The cell owns one leaf at the end of a unary spine. Its complement, the
+/// *comb*, owns one sibling subtree beside every level of that spine, so each
+/// of the comb's levels is a two-child branch. The test runs once with the
+/// cell at the end of a left spine and once at the end of a right spine.
+///
+/// `Party::forks` reaches walks that the other stack-safety tests do not: the
+/// fork plan's spatial path (`SharePath`), share construction
+/// (`PartyReader::select_path`), and the removal of each share from the keeper
+/// (`Removal`). The board's `party_forks` cells drive them deep as well, but
+/// through the levels a wide fork count adds below an owned region; here the
+/// path also descends through every stored level of the spine. The other
+/// calls reach walks that the sibling tests drive, each through an entry point
+/// of its own (covering, `without`, the party codec and parser, the array
+/// splits, the clock's `ticks`, `forks`, and `*_all` folds, and the
+/// heterogeneous joins); for those, the test catches an entry point that
+/// recurses instead of delegating to an iterative walk.
+#[test]
+fn deep_identity_stack_safety() {
+    use crate::Count;
+
+    for cell in [
+        deep_left_spine_party(STACK_SAFETY_DEPTH),
+        deep_right_spine_party(STACK_SAFETY_DEPTH),
+    ] {
+        let comb = Party::seed()
+            .without(&cell)
+            .expect("the seed minus one cell leaves the cell's complement");
+
+        // Covering, both ways: the seed covers the cell and the comb covers
+        // itself, but neither disjoint complement covers the other.
+        assert!(Party::seed().covers(&cell));
+        assert!(!cell.covers(&comb) && !comb.covers(&cell));
+        assert!(comb.covers(&comb.dangerously_alias()));
+
+        // `without` through the public entry point: a disjoint operand returns
+        // the receiver unchanged, and a covering operand leaves nothing.
+        assert!(comb.is_disjoint(&cell));
+        assert_eq!(
+            comb.dangerously_alias().without(&cell),
+            Some(comb.dangerously_alias())
+        );
+        assert!(comb.dangerously_alias().without(&comb).is_none());
+
+        // The binary codec and the text parser round-trip the comb.
+        assert_eq!(
+            Party::decode(&comb.encode()[..]).expect("an encoded party is canonical"),
+            comb
+        );
+        assert_eq!(
+            comb.to_string()
+                .parse::<Party>()
+                .expect("a rendered party is canonical"),
+            comb
+        );
+
+        // Every way of splitting a party hands out disjoint shares that rejoin
+        // to the original: a fully drained `forks`, a `forks` dropped after
+        // three of a thousand shares, a count above `u128::MAX`, and the array
+        // split, which leaves no residual.
+        for party in [&cell, &comb] {
+            let mut keeper = party.dangerously_alias();
+            let shares: Vec<Party> = keeper.forks(5u8).collect();
+            keeper.join_all(shares).expect("forked shares are disjoint");
+            assert_eq!(&keeper, party);
+
+            let taken: Vec<Party> = keeper.forks(1000u16).take(3).collect();
+            keeper.join_all(taken).expect("forked shares are disjoint");
+            assert_eq!(&keeper, party);
+
+            let wide = Count::from(u128::MAX) + Count::from(1u8);
+            let taken: Vec<Party> = keeper.forks(wide).take(2).collect();
+            keeper.join_all(taken).expect("forked shares are disjoint");
+            assert_eq!(&keeper, party);
+
+            let [mut first, rest @ ..]: [Party; 5] = keeper.into();
+            first.join_all(rest).expect("split shares are disjoint");
+            assert_eq!(&first, party);
+        }
+
+        // `ticks` advances a version exactly as the same number of single
+        // ticks would, through both the party and the clock.
+        let mut v = Version::new();
+        cell.ticks(&mut v, 3u8);
+        let mut stepped = Version::new();
+        for _ in 0..3 {
+            cell.tick(&mut stepped);
+        }
+        assert_eq!(v, stepped);
+        let mut c = Clock::from_parts(comb.dangerously_alias(), Version::new());
+        let mut stepped = c.dangerously_alias();
+        c.ticks(2u8);
+        stepped.tick();
+        stepped.tick();
+        assert_eq!(c.version(), stepped.version());
+
+        // The clock's folds: `sync_all` leaves every participant on one
+        // version, `recv_all` rises strictly above every message, and
+        // `absorb_all` of versions the clock already holds changes nothing.
+        // The clock's own version lies at or below everything it holds.
+        let mut d = Clock::from_parts(cell.dangerously_alias(), v);
+        let mut kids: Vec<Clock> = c.forks(4u8).collect();
+        c.sync_all(kids.iter_mut().chain([&mut d]))
+            .expect("forked clocks and the cell's clock are disjoint");
+        assert!(kids.iter().chain([&d]).all(|k| k.version() == c.version()));
+        let msgs: Vec<Version> = kids.iter().map(|k| k.version().clone()).collect();
+        let held = c.recv_all(&msgs).clone();
+        assert!(msgs.iter().all(|m| held > *m));
+        assert_eq!(c.absorb_all(msgs.iter()), &held);
+        assert!(c.own_version().to_version() <= held);
+
+        // The heterogeneous joins merge a version the clock already holds, and
+        // the array split and `join_all` restore the whole seed.
+        let mut c = c | d.version();
+        c |= d.version().clone();
+        let c = d.version().clone() | c;
+        assert_eq!(c.version(), &held);
+        let [mut x, y, z]: [Clock; 3] = c.into();
+        x.join_all([y, z, d].into_iter().chain(kids))
+            .expect("the clocks are disjoint");
+        assert!(x.party().is_seed());
+    }
+}
+
 /// `min_ticks` handles a version `STACK_SAFETY_DEPTH` levels deep without
 /// keeping a call frame per level.
 #[test]
