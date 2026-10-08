@@ -137,3 +137,10 @@ Keep the public promise. `lib.rs`, its README, and `normalize`'s rustdoc keep
 case: `normalize` drops the written-position bitset (back to the inline
 state) instead of clearing it in place, at the cost of one reallocation if
 two or more gaps return afterwards.
+
+## Owner's ruling on the mask variant's exponent fits
+
+The `Below::Mask(u64)` variant removes every heap rise against the fuel-ladder
+commit, but 314 fitted heap exponents rose by 0.01 to 0.03 and 14 top-scale
+per-byte readings by 0.1. The owner: "a tiny negligible increase like this is
+not a big deal." The variant stands without further attribution.

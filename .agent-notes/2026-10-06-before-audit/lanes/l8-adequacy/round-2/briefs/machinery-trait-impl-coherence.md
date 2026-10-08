@@ -90,3 +90,10 @@ The bits group adds a third `Hash` survivor: `Hash for Bits` replaced by `()`
 and `Hash for Party` delegate to it (`self.0.hash(state)`), so the
 content-dependence law for `Version` and `Party` kills this mutant as well;
 it needs no test of its own.
+
+## Owner's ruling on the hash contract (question 79)
+
+`Version` and `Party` hash exactly as their byte views do: "it should hash
+exactly like its bytes. Why should anything not?" The trait-coherence branch
+promises this in the public rustdoc of both types, and the byte-hash laws
+stand as written.
