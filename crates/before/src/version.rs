@@ -40,7 +40,8 @@ mod tests;
 ///
 /// [`Version::tick`] and [`ticks`](Version::ticks) record new events for
 /// a [`Party`]. Comparison asks whether one [`Version`] contains all events in
-/// another: `a < b` means every event in `a` is present in `b`, while
+/// another: `a <= b` means every event in `a` is present in `b`, `a < b`
+/// means that and also that `b` contains an event `a` lacks, and
 /// [`Version::concurrent`] means neither contains the other.
 /// [`Version::join`] (`|`) combines histories, and
 /// [`meet`](Version::meet) (`&`) retains only their common history. Neither
@@ -49,7 +50,8 @@ mod tests;
 /// | Operation                                | Meaning                                                        |
 /// |------------------------------------------|----------------------------------------------------------------|
 /// | `a == b`                                 | identical causal history                                       |
-/// | `a < b`, `a <= b`                        | every event in `a` is present in `b`                            |
+/// | `a <= b`                                 | every event in `a` is present in `b`                            |
+/// | `a < b`                                  | `a <= b`, and `b` contains an event `a` lacks                   |
 /// | [`a.concurrent(b)`](Version::concurrent) | neither version contains the other                              |
 /// | `a \| b`, `a \|= b`                      | join: the least version containing both histories               |
 /// | `a & b`, `a &= b`                        | meet: the greatest history common to both                       |
