@@ -1018,15 +1018,41 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// cost by the number of summands.
 impl Rank {
     fn sum_iter<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
-        // The accumulator's shifted entry points document a panic at digit
-        // positions past `usize` (`shift / 32 > usize::MAX`, so from
-        // `shift = 2^37` on a 32-bit target). The exponent gaps fed here stay
-        // orders of magnitude below it on any addressable input: a decoded
-        // rank's exponent is counted from fraction bits actually read — under
-        // 2^35 even if a whole 32-bit address space were one fraction — and a
-        // version-derived exponent is bounded by its tree's stored bit length
-        // (under 2^32, the storage bound), so the documented panic is
-        // unreachable from this fold.
+        // The accumulator's shifted entry points and its left shift panic when
+        // the result needs more storage than a buffer can address. That panic
+        // has two halves, and this fold can reach only the second.
+        //
+        // The digit-index half fires when a nonzero contribution would land
+        // at or beyond digit position `usize::MAX`; on a 32-bit target that is
+        // bit position `32 * (2^32 - 1)`, just under 2^37. The fold stays
+        // below it:
+        //
+        // - `exp` is at most one summand's exponent plus the accumulator's
+        //   held working width, because the widening shift below starts
+        //   under that summand's exponent and moves by at most the larger of
+        //   the gap and the held width.
+        // - Every contribution lands at most a summand's numerator width, or
+        //   the held working width, above `exp`.
+        // - Each of these three quantities counts bits held in one buffer. A
+        //   rank's exponent was counted from bits held when it was built
+        //   (fraction bits the decoder or parser held, or a version's depth,
+        //   which its stored bits bound), and arithmetic never raises the
+        //   largest operand's exponent. Numerators and the accumulator's
+        //   digits are stored densely.
+        //
+        // One buffer holds at most `isize::MAX` bytes, so on a 32-bit target
+        // each quantity is under 2^34 bits, and every position is under
+        // `3 * 2^34` plus the few digits a carry can climb above the highest
+        // contribution. The same count holds at any pointer width `w`: each
+        // quantity is under `2^(w + 2)` bits, against a threshold just under
+        // `2^(w + 5)`.
+        //
+        // The capacity half can fire. The accumulator stores each 32-bit
+        // digit in a 64-bit word, so on a 32-bit target its buffer reaches
+        // `isize::MAX` bytes at about 2^28 digit positions, a working width
+        // near 2^33 bits, which summands held in memory can exceed. A sum
+        // whose working width needs more than a buffer can address panics
+        // there, as the accumulator documents for its allocation limit.
         let mut acc = Accumulator::new();
         let mut exp = 0u64;
         let mut has_value = false;
