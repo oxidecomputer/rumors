@@ -203,3 +203,20 @@ the owner if that invariant does not hold.
 The owner also set the bar for the finished branch: a rigorous review must
 confirm that no vestigial structure of the earlier designs remains, and that
 the result is as clean as it can be and production-ready.
+
+## Owner's ruling on the boundary-derived spike
+
+The single-regime spike that derived suspended heights from popped
+boundaries was correct but quadratic in time on the committed
+`reveal-comb` family (touch exponent 1.00 to 1.97): `RangeMinima` moves
+boundary buffers, so one boundary's width can be read at every pop. The
+owner ruled that `min_ticks` must not ship with a quadratic case; keeping
+the current implementation is much better than that.
+
+Try the variable-width approach instead: keep re-anchoring, and replace the
+fixed packed contribution word and its spill store with variable-width
+records (offset, close count, and the frozen-prefix index as a difference
+from its neighbor's), so no field has a capacity the board cannot reach.
+If `min_ticks` cannot be made to keep transient heap small this way, or can
+only by tolerating a small family of unlikely inputs, stop: asymptotics must
+never regress to fix a constant multiple.
