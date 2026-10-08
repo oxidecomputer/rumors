@@ -501,7 +501,24 @@ gate-streams:
 # checks; CI reuses the same coherent groups where its cadence overlaps.
 _gate-workspace: clippy clippy-default docs test-all future-size
 _gate-doctest: doctest
-_gate-board: amp-board-acceptance worst-cases-pin
+
+# Acceptance judges each cell; the pin judges which family reads worst. The
+# pin runs whatever acceptance's verdict, so ranking drift is attributed to the
+# commit that causes it. The stream fails naming each leg that failed.
+_gate-board:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # A nested `just` stopped by Ctrl-C exits 130 rather than dying, which
+    # would read as a failed leg; stop on the interrupt instead.
+    trap 'exit 130' INT
+    failed=""
+    just amp-board-acceptance || failed="$failed amp-board-acceptance"
+    just worst-cases-pin || failed="$failed worst-cases-pin"
+    if [ -n "$failed" ]; then
+        echo "board: FAILED:$failed"
+        exit 1
+    fi
+
 _gate-wasm: fuzzfit fuelscape-test wasm32-pins
 _gate-fuzz: fuzz-build
 _gate-surface: surface-totality
