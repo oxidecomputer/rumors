@@ -1,0 +1,110 @@
+diff --git a/crates/before/wasm32-pins/guest/src/checks.rs b/crates/before/wasm32-pins/guest/src/checks.rs
+index 91949702..7d7c1ebc 100644
+--- a/crates/before/wasm32-pins/guest/src/checks.rs
++++ b/crates/before/wasm32-pins/guest/src/checks.rs
+@@ -228,6 +228,30 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
+         // 2^32, one past the largest index a 32-bit `usize` counter can hold.
+         // The stream is lazy, so the guest allocates nothing for it.
+         4 => accumulator.add_shifted_limbs(0, iter::repeat_n(0, usize::MAX).chain([0, 1])),
++        // SCRATCH probes.
++        5 => accumulator.add_shifted_limbs(0, iter::repeat_n(0u64, 1usize << 31).chain([1])),
++        6 => {
++            accumulator.add_shifted_limbs(0, iter::repeat_n(0u64, usize::MAX).chain([0, 1]));
++            let (sign, limbs) = accumulator.signed_magnitude();
++            let wrapped_to_zero = sign == Ordering::Greater && limbs.as_ref() == [1];
++            return Err(if wrapped_to_zero { Failure::WrongBytes } else { Failure::WrongLength });
++        }
++        9 => accumulator.sub_shifted_limbs(0, iter::repeat_n(0, usize::MAX).chain([0, 1])),
++        10 => accumulator.add_shifted_limbs(0, iter::repeat_n(0, usize::MAX).chain([0, 1 << 32])),
++        11 => {
++            accumulator.add_shifted_limbs(0, iter::repeat_n(0, usize::MAX).chain([0, 0]));
++            return if accumulator.cmp_zero() == Ordering::Equal && accumulator.stored_digit_count() == 1 {
++                Ok(())
++            } else {
++                Err(Failure::WrongValue)
++            };
++        }
++        12 => accumulator.add_shifted_limbs(64, iter::repeat_n(0, usize::MAX).chain([0, 1])),
++        13 => {
++            let a: Vec<u8> = Vec::with_capacity(isize::MAX as usize);
++            let b: Vec<u8> = Vec::with_capacity(isize::MAX as usize);
++            core::hint::black_box((&a, &b));
++        }
+         _ => return Err(Failure::InvalidArguments),
+     }
+ 
+diff --git a/crates/before/wasm32-pins/guest/src/lib.rs b/crates/before/wasm32-pins/guest/src/lib.rs
+index d8b4e88d..ee023562 100644
+--- a/crates/before/wasm32-pins/guest/src/lib.rs
++++ b/crates/before/wasm32-pins/guest/src/lib.rs
+@@ -20,6 +20,14 @@ use wasm32_pins_protocol::{Check, Failure, PASS};
+ /// Runs one typed boundary check.
+ #[no_mangle]
+ pub extern "C" fn check(number: u32, a: u64, b: u64) -> i32 {
++    std::panic::set_hook(Box::new(|info| {
++        let class = if info.to_string().contains("a nonzero contribution needs an addressable digit position") {
++            1
++        } else {
++            2
++        };
++        PANIC_CLASS.store(class, std::sync::atomic::Ordering::SeqCst);
++    }));
+     let check = match Check::try_from(number) {
+         Ok(check) => check,
+         Err(()) => return Failure::UnknownCheck.code(),
+@@ -29,3 +37,12 @@ pub extern "C" fn check(number: u32, a: u64, b: u64) -> i32 {
+         Err(failure) => failure.code(),
+     }
+ }
++
++/// SCRATCH: 0 = no panic hook ran, 1 = suanpan landing panic, 2 = other panic.
++static PANIC_CLASS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
++
++/// SCRATCH: reads the panic class after a trap.
++#[no_mangle]
++pub extern "C" fn panic_class() -> u32 {
++    PANIC_CLASS.load(std::sync::atomic::Ordering::SeqCst)
++}
+diff --git a/crates/before/wasm32-pins/harness/src/lib.rs b/crates/before/wasm32-pins/harness/src/lib.rs
+index 85a2c678..97a00089 100644
+--- a/crates/before/wasm32-pins/harness/src/lib.rs
++++ b/crates/before/wasm32-pins/harness/src/lib.rs
+@@ -81,3 +81,18 @@ fn engine_and_module() -> &'static (Engine, Module) {
+         (engine, module)
+     })
+ }
++
++/// SCRATCH: runs a check and reads the guest's panic class from the same instance.
++pub fn run_classified(check: Check, a: u64, b: u64) -> (Outcome, u32) {
++    let (engine, module) = engine_and_module();
++    let mut store = Store::new(engine, ());
++    let instance = Instance::new(&mut store, module, &[]).unwrap();
++    let function = instance.get_typed_func::<(u32, u64, u64), i32>(&mut store, "check").unwrap();
++    let outcome = match function.call(&mut store, (check as u32, a, b)) {
++        Ok(wasm32_pins_protocol::PASS) => Outcome::Passed,
++        Ok(code) => Outcome::Failed(Failure::from_code(code).unwrap()),
++        Err(error) => Outcome::Trapped(*error.downcast_ref::<Trap>().unwrap()),
++    };
++    let class = instance.get_typed_func::<(), u32>(&mut store, "panic_class").unwrap();
++    (outcome, class.call(&mut store, ()).unwrap())
++}
+diff --git a/crates/before/wasm32-pins/harness/tests/zz_scratch.rs b/crates/before/wasm32-pins/harness/tests/zz_scratch.rs
+new file mode 100644
+index 00000000..c8d79e47
+--- /dev/null
++++ b/crates/before/wasm32-pins/harness/tests/zz_scratch.rs
+@@ -0,0 +1,14 @@
++//! SCRATCH: classify trap causes for the limb-index fix.
++use std::time::Instant;
++use wasm32_pins_harness::{run_classified, Check};
++
++/// SCRATCH: prints the outcome and panic class of each probe case.
++#[test]
++fn zz_scratch_classify() {
++    let cases: Vec<u64> = std::env::var("ZZ_CASES").unwrap().split(',').map(|c| c.parse().unwrap()).collect();
++    for case in cases {
++        let start = Instant::now();
++        let (outcome, class) = run_classified(Check::SuanpanLanding, case, 0);
++        eprintln!("ZZ case {case}: outcome {outcome:?}, panic class {class}, {:.1?}", start.elapsed());
++    }
++}

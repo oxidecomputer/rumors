@@ -1,0 +1,312 @@
+diff --git a/crates/before/src/rank.rs b/crates/before/src/rank.rs
+index 60a72c26..f78fcc23 100644
+--- a/crates/before/src/rank.rs
++++ b/crates/before/src/rank.rs
+@@ -58,6 +58,12 @@ use suanpan::Accumulator;
+ use crate::accumulator::BigIntAccumulator as _;
+ use crate::error::{Decode, ParseRank};
+ 
++/// REVIEW SCAFFOLD (temporary): the alignment variant selected at build time.
++const REVIEW_VARIANT: u8 = match option_env!("REVIEW_RANK_VARIANT") {
++    Some(s) => s.as_bytes()[0],
++    None => b't',
++};
++
+ /// An exact nonnegative measure of causal history.
+ ///
+ /// Conceptually, a [`Version`](crate::Version) records an event count at every
+@@ -193,10 +199,44 @@ impl Rank {
+         match self.cmp(other) {
+             Ordering::Less => None,
+             Ordering::Equal => Some(Rank::ZERO),
+-            Ordering::Greater => {
+-                let (a, b, exp) = self.aligned(other);
+-                Some(Rank::from_raw(a - &b, exp))
+-            }
++            Ordering::Greater => match REVIEW_VARIANT {
++                b'p' => {
++                    let e = self.exp.max(other.exp);
++                    if Self::alignment_fits(self.exp, other.exp, e) {
++                        let a = self.num.clone() << (e - self.exp);
++                        let b = other.num.clone() << (e - other.exp);
++                        return Some(Rank::from_raw(a - &b, e));
++                    }
++                    let difference = self.accumulate(other, e, true);
++                    debug_assert!(
++                        difference > Rank::ZERO,
++                        "the Greater pre-check promises a strictly positive difference"
++                    );
++                    Some(difference)
++                }
++                b'c' => {
++                    let exp = self.exp.max(other.exp);
++                    let a = self.num.clone() << (exp - self.exp);
++                    let b = other.num.clone() << (exp - other.exp);
++                    Some(Rank::from_raw(a - &b, exp))
++                }
++                b'e' => {
++                    let exp = self.exp.max(other.exp);
++                    let a = &self.num << (exp - self.exp);
++                    let b = &other.num << (exp - other.exp);
++                    Some(Rank::from_raw(a - &b, exp))
++                }
++                _ => {
++                    let (a, b, exp) = match REVIEW_VARIANT {
++                        b'b' => self.aligned_always(other),
++                        b'd' => self.aligned_borrowed(other),
++                        b'f' => self.aligned_always_borrowed(other),
++                        b'A' | b'N' | b'S' => self.aligned_mutant(other),
++                        _ => self.aligned(other),
++                    };
++                    Some(Rank::from_raw(a - &b, exp))
++                }
++            },
+         }
+     }
+ 
+@@ -498,6 +538,86 @@ impl Rank {
+         (a, b, exp)
+     }
+ 
++    /// REVIEW SCAFFOLD: tip helper forced inline.
++    #[inline(always)]
++    fn aligned_always(&self, other: &Rank) -> (BigUint, BigUint, u64) {
++        let exp = self.exp.max(other.exp);
++        let a = self.num.clone() << (exp - self.exp);
++        let b = other.num.clone() << (exp - other.exp);
++        (a, b, exp)
++    }
++
++    /// REVIEW SCAFFOLD: helper with borrowed shifts.
++    fn aligned_borrowed(&self, other: &Rank) -> (BigUint, BigUint, u64) {
++        let exp = self.exp.max(other.exp);
++        let a = &self.num << (exp - self.exp);
++        let b = &other.num << (exp - other.exp);
++        (a, b, exp)
++    }
++
++    /// REVIEW SCAFFOLD: borrowed shifts, forced inline.
++    #[inline(always)]
++    fn aligned_always_borrowed(&self, other: &Rank) -> (BigUint, BigUint, u64) {
++        let exp = self.exp.max(other.exp);
++        let a = &self.num << (exp - self.exp);
++        let b = &other.num << (exp - other.exp);
++        (a, b, exp)
++    }
++
++    /// REVIEW SCAFFOLD: mutants A (b by self's gap), N (self gap narrowed), S (swapped).
++    fn aligned_mutant(&self, other: &Rank) -> (BigUint, BigUint, u64) {
++        let exp = self.exp.max(other.exp);
++        match REVIEW_VARIANT {
++            b'A' => {
++                let a = self.num.clone() << (exp - self.exp);
++                let b = other.num.clone() << (exp - self.exp);
++                (a, b, exp)
++            }
++            b'N' => {
++                let a = self.num.clone() << ((exp - self.exp) as usize as u64);
++                let b = other.num.clone() << (exp - other.exp);
++                (a, b, exp)
++            }
++            _ => {
++                let a = self.num.clone() << (exp - self.exp);
++                let b = other.num.clone() << (exp - other.exp);
++                (b, a, exp)
++            }
++        }
++    }
++
++    /// REVIEW SCAFFOLD: the parent's guard, verbatim.
++    fn alignment_fits(a_exp: u64, b_exp: u64, common_exp: u64) -> bool {
++        usize::try_from(common_exp - a_exp).is_ok() && usize::try_from(common_exp - b_exp).is_ok()
++    }
++
++    /// REVIEW SCAFFOLD: the parent's accumulator route, verbatim.
++    fn accumulate(&self, rhs: &Rank, exp: u64, subtract_rhs: bool) -> Rank {
++        let mut acc = Accumulator::new();
++        let aligned_bits = |rank: &Rank| {
++            if rank.num.bits() == 0 {
++                0
++            } else {
++                rank.num.bits().saturating_add(exp - rank.exp)
++            }
++        };
++        let sum_bits = aligned_bits(self).max(aligned_bits(rhs)).saturating_add(1);
++        acc.reserve_bits(sum_bits.saturating_add(1 + 32));
++        acc.add_shifted_limbs(exp - self.exp, self.num.iter_u64_digits());
++        if subtract_rhs {
++            acc.sub_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
++        } else {
++            acc.add_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());
++        }
++        let (sign, num) = acc.biguint_parts();
++        debug_assert_ne!(
++            sign,
++            Ordering::Less,
++            "rank addition and pre-checked subtraction are nonnegative"
++        );
++        Rank::from_raw(num, exp)
++    }
++
+     /// Write the canonical prefix-ascending stream for `num · 2⁻ᵉˣᵖ`.
+     fn encode_parts_to<W: Write>(num: &BigUint, exp: u64, writer: &mut W) -> io::Result<()> {
+         // The header encodes the integer part: m = ⌊r⌋ + 1,
+@@ -919,8 +1039,39 @@ impl PartialOrd for Rank {
+ impl Add<&Rank> for &Rank {
+     type Output = Rank;
+     fn add(self, rhs: &Rank) -> Rank {
+-        let (a, b, exp) = self.aligned(rhs);
+-        Rank::from_raw(a + &b, exp)
++        match REVIEW_VARIANT {
++            b'p' => {
++                let e = self.exp.max(rhs.exp);
++                if Rank::alignment_fits(self.exp, rhs.exp, e) {
++                    let a = self.num.clone() << (e - self.exp);
++                    let b = rhs.num.clone() << (e - rhs.exp);
++                    return Rank::from_raw(a + &b, e);
++                }
++                self.accumulate(rhs, e, false)
++            }
++            b'c' => {
++                let exp = self.exp.max(rhs.exp);
++                let a = self.num.clone() << (exp - self.exp);
++                let b = rhs.num.clone() << (exp - rhs.exp);
++                Rank::from_raw(a + &b, exp)
++            }
++            b'e' => {
++                let exp = self.exp.max(rhs.exp);
++                let a = &self.num << (exp - self.exp);
++                let b = &rhs.num << (exp - rhs.exp);
++                Rank::from_raw(a + &b, exp)
++            }
++            _ => {
++                let (a, b, exp) = match REVIEW_VARIANT {
++                    b'b' => self.aligned_always(rhs),
++                    b'd' => self.aligned_borrowed(rhs),
++                    b'f' => self.aligned_always_borrowed(rhs),
++                    b'A' | b'N' | b'S' => self.aligned_mutant(rhs),
++                    _ => self.aligned(rhs),
++                };
++                Rank::from_raw(a + &b, exp)
++            }
++        }
+     }
+ }
+ 
+@@ -1232,3 +1383,52 @@ impl Debug for Rank {
+         <Self as Display>::fmt(self, f)
+     }
+ }
++
++/// REVIEW SCAFFOLD (temporary): edge probe for the alignment variants.
++#[cfg(test)]
++mod review_edges {
++    use super::Rank;
++    use core::cmp::Ordering;
++
++    /// `+` and `checked_sub` agree with the `Sum` fold and their inverse
++    /// identities over every pair from a grid of integer parts and fraction
++    /// exponents straddling the 32- and 64-bit digit boundaries, zero included.
++    #[test]
++    fn review_rank_alignment_edges() {
++        let long = "1".repeat(70);
++        let integers = ["0", "1", "11", "1011", long.as_str()];
++        let mut texts: Vec<String> = Vec::new();
++        for int in integers {
++            texts.push(int.to_string());
++            for exp in [1usize, 2, 7, 31, 32, 33, 63, 64, 65, 95, 96, 97, 127, 128, 129, 200] {
++                texts.push(format!("{int}.{}1", "0".repeat(exp - 1)));
++                texts.push(format!("{int}.{}", "1".repeat(exp)));
++                if exp > 2 {
++                    texts.push(format!("{int}.1{}1", "0".repeat(exp - 2)));
++                }
++            }
++        }
++        let ranks: Vec<Rank> = texts.iter().map(|t| t.parse().expect(t)).collect();
++        let mut pairs = 0u64;
++        for a in &ranks {
++            for b in &ranks {
++                let sum = a + b;
++                let fold: Rank = [a, b].into_iter().sum();
++                assert_eq!(sum, fold, "{a} + {b}");
++                assert_eq!(sum.checked_sub(b).as_ref(), Some(a), "({a} + {b}) - {b}");
++                assert_eq!(sum.checked_sub(a).as_ref(), Some(b), "({a} + {b}) - {a}");
++                match a.cmp(b) {
++                    Ordering::Less => assert!(a.checked_sub(b).is_none()),
++                    Ordering::Equal => assert_eq!(a.checked_sub(b), Some(Rank::ZERO)),
++                    Ordering::Greater => {
++                        let d = a.checked_sub(b).expect("greater");
++                        assert!(d > Rank::ZERO);
++                        assert_eq!(&d + b, *a, "({a} - {b}) + {b}");
++                    }
++                }
++                pairs += 1;
++            }
++        }
++        eprintln!("REVIEW_EDGES pairs={pairs} variant={}", super::REVIEW_VARIANT as char);
++    }
++}
+diff --git a/crates/before/wasm32-pins/guest/src/checks.rs b/crates/before/wasm32-pins/guest/src/checks.rs
+index 0c41d7af..3538d176 100644
+--- a/crates/before/wasm32-pins/guest/src/checks.rs
++++ b/crates/before/wasm32-pins/guest/src/checks.rs
+@@ -185,6 +185,9 @@ fn version_join_emitted(k: u64, j: u64) -> Result<(), Failure> {
+ /// Checks exact rank arithmetic at one alignment gap on either side of the
+ /// largest gap a wasm32 `usize` can hold.
+ fn rank_arithmetic(case: u64) -> Result<(), Failure> {
++    if case >= 5 {
++        return review_rank_gap(case);
++    }
+     let deep =
+         Rank::decode(&synthesis::rank(1u64 << 32)?[..]).map_err(|_| Failure::DecodeRejected)?;
+ 
+@@ -257,3 +260,32 @@ fn suanpan_reserve(bits: u64) -> Result<(), Failure> {
+     }
+     Ok(())
+ }
++
++/// REVIEW SCAFFOLD (temporary): gaps 2^32 - 1, 2^32, 2^32 + 1 against one
++/// operand of exponent 2^32 + 8, on both sides of `aligned`.
++fn review_rank_gap(case: u64) -> Result<(), Failure> {
++    let (text, add) = match case {
++        5 => ("0.000000001", true),
++        6 => ("0.00000001", true),
++        7 => ("0.0000001", true),
++        8 => ("0.000000001", false),
++        9 => ("0.00000001", false),
++        10 => ("0.0000001", false),
++        _ => return Err(Failure::InvalidArguments),
++    };
++    let small: Rank = text.parse().map_err(|_| Failure::Synthesis)?;
++    let deep = Rank::decode(&synthesis::rank((1u64 << 32) + 8)?[..])
++        .map_err(|_| Failure::DecodeRejected)?;
++    if add {
++        let sum = &deep + &small;
++        if sum.checked_sub(&small).as_ref() != Some(&deep) {
++            return Err(Failure::WrongValue);
++        }
++    } else {
++        let difference = small.checked_sub(&deep).ok_or(Failure::WrongValue)?;
++        if &difference + &deep != small {
++            return Err(Failure::WrongValue);
++        }
++    }
++    Ok(())
++}
+diff --git a/crates/before/wasm32-pins/harness/tests/pins.rs b/crates/before/wasm32-pins/harness/tests/pins.rs
+index f2771f83..b2ebfc90 100644
+--- a/crates/before/wasm32-pins/harness/tests/pins.rs
++++ b/crates/before/wasm32-pins/harness/tests/pins.rs
+@@ -156,3 +156,12 @@ fn suanpan_ignores_unsatisfiable_reservations() {
+         assert_passes(Check::SuanpanReserve, bits, 0);
+     }
+ }
++
++/// REVIEW SCAFFOLD (temporary): rank arithmetic at gaps 2^32 - 1, 2^32, and
++/// 2^32 + 1 against an exponent-(2^32 + 8) operand, add and sub.
++#[test]
++fn review_rank_gap_cases() {
++    for case in 5..=10 {
++        assert_passes(Check::RankArithmetic, case, 0);
++    }
++}

@@ -1,0 +1,78 @@
+diff --git a/crates/before/wasm32-pins/guest/src/checks.rs b/crates/before/wasm32-pins/guest/src/checks.rs
+index fdc8a21f..5b9dbcff 100644
+--- a/crates/before/wasm32-pins/guest/src/checks.rs
++++ b/crates/before/wasm32-pins/guest/src/checks.rs
+@@ -30,6 +30,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
+         Check::SuanpanLanding => suanpan_landing(a),
+         Check::RankDecodeGroups => rank_decode_groups(a),
+         Check::VersionBorshWideLeaf => version_borsh_wide_leaf(a),
++        Check::VersionChainSplit => version_chain_split(a, b),
+     }
+ }
+ 
+@@ -305,3 +306,20 @@ fn version_borsh_wide_leaf(k: u64) -> Result<(), Failure> {
+     }
+     Ok(())
+ }
++
++/// Reviewer probe: `Version::decode` of the wide-leaf stream, its first `head`
++/// bytes as a slice chained before the lazily streamed rest.
++fn version_chain_split(k: u64, head: u64) -> Result<(), Failure> {
++    use std::io::Read;
++    let mut stream = synthesis::wide_leaf_stream(k)?;
++    let mut first = vec![0u8; usize::try_from(head).map_err(|_| Failure::InvalidArguments)?];
++    stream.read_exact(&mut first).map_err(|_| Failure::Synthesis)?;
++    let version = Version::decode(first.as_slice().chain(stream)).map_err(|error| match error {
++        before::error::Decode::Io(io) if io.kind() == std::io::ErrorKind::OutOfMemory => Failure::Exhausted,
++        _ => Failure::DecodeRejected,
++    })?;
++    if version.encoded_bits() != 2 * k + 2 {
++        return Err(Failure::WrongLength);
++    }
++    Ok(())
++}
+diff --git a/crates/before/wasm32-pins/harness/tests/pins.rs b/crates/before/wasm32-pins/harness/tests/pins.rs
+index aee76529..27ef348e 100644
+--- a/crates/before/wasm32-pins/harness/tests/pins.rs
++++ b/crates/before/wasm32-pins/harness/tests/pins.rs
+@@ -171,6 +171,19 @@ fn version_borsh_decode_streams_bytes_past_the_doubling_limit() {
+     assert_passes(Check::VersionBorshWideLeaf, WIDE_LEAF_PAST_LIMIT, 0);
+ }
+ 
++/// Reviewer probe: `Version::decode` of a `2^30 + 1`-byte wide leaf whose first
++/// `2^30` bytes arrive as a slice chained before a default-`read_to_end` reader.
++#[test]
++fn reviewer_probe_version_decode_chain_split_at_the_doubling_limit() {
++    eprintln!("probe outcome: {:?}", run(Check::VersionChainSplit, WIDE_LEAF_PAST_LIMIT, DOUBLING_LIMIT));
++}
++
++/// Reviewer probe control: the same split with a 1 MiB head.
++#[test]
++fn reviewer_probe_version_decode_chain_split_small_head() {
++    eprintln!("probe outcome: {:?}", run(Check::VersionChainSplit, WIDE_LEAF_PAST_LIMIT, 1 << 20));
++}
++
+ /// Rank addition and checked subtraction are exact when alignment shifts by
+ /// `usize::MAX` bits and by `usize::MAX + 1` bits.
+ ///
+diff --git a/crates/before/wasm32-pins/protocol/src/lib.rs b/crates/before/wasm32-pins/protocol/src/lib.rs
+index 8bdc4110..dddbaa9f 100644
+--- a/crates/before/wasm32-pins/protocol/src/lib.rs
++++ b/crates/before/wasm32-pins/protocol/src/lib.rs
+@@ -34,6 +34,8 @@ pub enum Check {
+     RankDecodeGroups = 9,
+     /// Borsh-decode a streamed one-leaf version whose leaf height is `2^a`.
+     VersionBorshWideLeaf = 10,
++    /// Reviewer probe: decode a version split across a `Chain`.
++    VersionChainSplit = 11,
+ }
+ 
+ impl TryFrom<u32> for Check {
+@@ -53,6 +55,7 @@ impl TryFrom<u32> for Check {
+             8 => Ok(Self::SuanpanLanding),
+             9 => Ok(Self::RankDecodeGroups),
+             10 => Ok(Self::VersionBorshWideLeaf),
++            11 => Ok(Self::VersionChainSplit),
+             _ => Err(()),
+         }
+     }

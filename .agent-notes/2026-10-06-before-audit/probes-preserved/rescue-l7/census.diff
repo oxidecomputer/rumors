@@ -1,0 +1,1501 @@
+diff --git a/crates/suanpan/src/accumulator/digits.rs b/crates/suanpan/src/accumulator/digits.rs
+index 92134d649..bcf3d8d82 100644
+--- a/crates/suanpan/src/accumulator/digits.rs
++++ b/crates/suanpan/src/accumulator/digits.rs
+@@ -83,6 +83,20 @@ pub struct Digits {
+     tagged: Vec<bool>,
+ }
+ 
++/// Rescue census (scratch only): read the representation's shape.
++#[cfg(test)]
++impl Digits {
++    /// The recorded zero ranges, and the stored digits of magnitude `2^33 - 1`.
++    pub fn census(&self) -> (usize, usize) {
++        let extreme = self
++            .digits
++            .iter()
++            .filter(|digit| digit.unsigned_abs() == (1 << 33) - 1)
++            .count();
++        (self.zero_ranges.census_count(), extreme)
++    }
++}
++
+ /// Maintain the signed digits and their known-zero ranges.
+ impl Digits {
+     /// Construct inactive digit storage without allocating.
+diff --git a/crates/suanpan/src/accumulator/digits/tests.rs b/crates/suanpan/src/accumulator/digits/tests.rs
+index 5f5ec2253..682e33138 100644
+--- a/crates/suanpan/src/accumulator/digits/tests.rs
++++ b/crates/suanpan/src/accumulator/digits/tests.rs
+@@ -68,3 +68,12 @@ impl Digits {
+         }
+     }
+ }
++
++/// Inject a lost zero range (copied from `audit/suanpan-touch-bound` for the rescue census).
++#[cfg(feature = "touch-meter")]
++impl Digits {
++    /// Discard the known-zero range whose lower endpoint is `lo`, keeping every digit.
++    pub fn forget_zero_range(&mut self, lo: usize) {
++        self.zero_ranges.forget(lo);
++    }
++}
+diff --git a/crates/suanpan/src/accumulator/digits/zero_ranges.rs b/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+index e4abf2d47..8e073e76b 100644
+--- a/crates/suanpan/src/accumulator/digits/zero_ranges.rs
++++ b/crates/suanpan/src/accumulator/digits/zero_ranges.rs
+@@ -44,6 +44,19 @@ enum Ranges {
+     Many(BTreeMap<usize, usize>),
+ }
+ 
++/// Rescue census (scratch only): count the recorded ranges.
++#[cfg(test)]
++impl ZeroRanges {
++    /// The number of recorded ranges.
++    pub fn census_count(&self) -> usize {
++        match &self.ranges {
++            Ranges::Empty => 0,
++            Ranges::One(..) => 1,
++            Ranges::Many(ranges) => ranges.len(),
++        }
++    }
++}
++
+ /// Display known-zero ranges as their ordered endpoint map.
+ impl core::fmt::Debug for ZeroRanges {
+     /// Preserve the map representation in the accumulator's debug output.
+@@ -248,6 +261,28 @@ impl ZeroRanges {
+         }
+     }
+ 
++    /// Discard the range whose lower endpoint is `lo`, keeping every digit.
++    ///
++    /// This leaves the state that a split dropping its upper part would, so a
++    /// test can run the real trim over it.
++    ///
++    /// # Panics
++    ///
++    /// Panics if no range starts at `lo`.
++    #[cfg(all(test, feature = "touch-meter"))]
++    pub fn forget(&mut self, lo: usize) {
++        let forgotten = match &mut self.ranges {
++            Ranges::One(start, _) if *start == lo => {
++                self.ranges = Ranges::Empty;
++                true
++            }
++            Ranges::Many(ranges) => ranges.remove(&lo).is_some(),
++            Ranges::Empty | Ranges::One(_, _) => false,
++        };
++        assert!(forgotten, "no zero range starts at {lo}");
++        self.compact_storage();
++    }
++
+     /// Check that inactive digit storage has no known-zero ranges.
+     #[cfg(test)]
+     pub fn assert_empty(&self, schedule: &[u8]) {
+diff --git a/crates/suanpan/src/accumulator/tests/metered.rs b/crates/suanpan/src/accumulator/tests/metered.rs
+index 81ed09d61..0c591b048 100644
+--- a/crates/suanpan/src/accumulator/tests/metered.rs
++++ b/crates/suanpan/src/accumulator/tests/metered.rs
+@@ -1,10 +1,21 @@
+-//! Exact digit-touch pins for the accumulator's documented cost bounds.
++//! Digit-touch checks of the accumulator's documented cost bounds.
+ //!
+ //! Exact counts show both that the meter observes the work and that the count
+ //! stays independent of the dimensions excluded by each complexity bound.
+ //! `no_collapse_fold_re_scans_the_prefix` supplies a deliberately inefficient
+ //! control: removing the sign fold's collapse makes its per-read cost grow with
+ //! the cancelling prefix.
++//!
++//! The exact pins measure canonical shapes, one operation at a time. The
++//! `touch_bound` property samples the interleavings between them: arbitrary
++//! programs whose running touch total must stay within a constant multiple
++//! of the cost table's work, plus a fixed allowance. It catches amortization
++//! regressions that no single shape exercises, such as a split zero range
++//! losing its upper part: every value stays correct, and the cost appears
++//! only when a later cancellation descends through the unrecorded gap.
++//!
++//! The meter is process-global, so every check here assumes it runs alone in
++//! its process, as nextest runs tests.
+ 
+ use core::cmp::Ordering;
+ 
+@@ -14,6 +25,8 @@ use super::{fresh, from_limbs, Accumulator, TestBig as _};
+ use crate::accumulator::operand::Update;
+ use crate::touch_meter;
+ 
++mod touch_bound;
++
+ /// A scaled read skips an untouched low prefix; an unscaled read visits it.
+ ///
+ /// A two-limb value at bit 32,000 takes at most sixteen scaled-read touches
+diff --git a/crates/suanpan/src/accumulator/tests/metered/touch_bound.rs b/crates/suanpan/src/accumulator/tests/metered/touch_bound.rs
+new file mode 100644
+index 000000000..439353d21
+--- /dev/null
++++ b/crates/suanpan/src/accumulator/tests/metered/touch_bound.rs
+@@ -0,0 +1,1151 @@
++//! Touches stay linear in the cost table's work over arbitrary programs.
++//!
++//! The exact pins beside this module measure canonical shapes. This property
++//! samples the interleavings between them: generated programs over a small
++//! pool of accumulators, each of which can be another's operand, so operands
++//! carry arbitrary histories. Every prefix of a program must spend at most
++//! [`TOUCHES_PER_UNIT`] touches per work unit, plus [`ALLOWANCE`]. The
++//! property's doc comment derives both constants from the crate's cost
++//! arguments.
++//!
++//! Random steps rarely line up the interleavings that exercise the
++//! zero-range split and the compacting sign scan, so the generator embeds two
++//! patterns that do: a [`Step::GapRound`] writes inside a recorded zero range,
++//! and a [`Step::CancelledChain`] cancels a long run of redundant digits and
++//! then compares repeatedly.
++//!
++//! The surface differential suite cannot serve here: it builds every operand
++//! fresh and compares with zero after every step, which compacts exactly the
++//! cross-step histories whose cost this property bounds.
++
++use core::mem::take;
++
++use proptest::prelude::*;
++
++use super::super::{park_extreme_negative_digit, Accumulator};
++use crate::touch_meter;
++
++/// Accumulators whose histories feed one another as operands.
++const POOL: usize = 3;
++
++/// `K`: the touches one work unit may spend, amortized over a program prefix.
++const TOUCHES_PER_UNIT: u64 = 15;
++
++/// The touches one move from the small form into digits spends beyond its
++/// step: up to four 32-bit pieces deposited into zeroed digits, at most 5
++/// touches each.
++const ACTIVATION_TOUCHES: u64 = 20;
++
++/// `D`: the touches a program may spend beyond `K` per unit, once: the first
++/// activation of each pool member.
++const ALLOWANCE: u64 = ACTIVATION_TOUCHES * POOL as u64;
++
++/// Embedded patterns draw their top digit position below this bound.
++const GAP_TOP_LIMIT: u64 = 1 << 14;
++
++/// Appended to a failing bound: the reading is meaningful only one test per process.
++const ISOLATION_NOTE: &str = "note: the touch meter is process-global, so this reading is \
++     meaningful only one test per process: run under cargo nextest, not a shared-process \
++     cargo test";
++
++/// Stored digit counts of the pool members, read without touching.
++type Widths = [u64; POOL];
++
++/// One primitive operand, keeping the width that selects its update path.
++#[derive(Clone, Copy, Debug)]
++enum Primitive {
++    /// A signed 64-bit operand, deposited whole.
++    I64(i64),
++    /// An unsigned 64-bit operand, deposited whole.
++    U64(u64),
++    /// A signed 128-bit operand, deposited into digits in 32-bit pieces.
++    I128(i128),
++    /// An unsigned 128-bit operand, deposited into digits in 32-bit pieces.
++    U128(u128),
++}
++
++/// How another pool member enters an update.
++#[derive(Clone, Copy, Debug)]
++enum OperandForm {
++    /// `+= &operand` or `-= &operand`.
++    Borrowed,
++    /// `add_shifted` or `sub_shifted` at this shift.
++    Shifted(u64),
++    /// `target = take(target) ± operand.clone()`.
++    OwnedClone,
++    /// `target = take(target) ± take(operand)`, leaving the operand zero.
++    OwnedTake,
++}
++
++/// One generated instruction on one pool member: a public operation, or a
++/// short fixed sequence of them.
++#[derive(Clone, Debug)]
++enum Step {
++    /// `+=` or `-=` with a primitive integer.
++    Primitive {
++        /// The receiving pool member.
++        target: usize,
++        /// Whether to subtract rather than add.
++        subtract: bool,
++        /// The operand.
++        value: Primitive,
++    },
++    /// `add_shifted_limbs` or `sub_shifted_limbs`.
++    Limbs {
++        /// The receiving pool member.
++        target: usize,
++        /// Whether to subtract rather than add.
++        subtract: bool,
++        /// The power-of-two scale.
++        shift: u64,
++        /// Little-endian limbs, possibly empty or padded with high zeros.
++        limbs: Vec<u64>,
++    },
++    /// An update by another pool member, possibly the target itself.
++    Accumulator {
++        /// The receiving pool member.
++        target: usize,
++        /// The operand pool member.
++        operand: usize,
++        /// Whether to subtract rather than add.
++        subtract: bool,
++        /// How the operand is passed.
++        form: OperandForm,
++    },
++    /// Force the digit form, then subtract `2^33 - 1` at a digit with two
++    /// one-limb writes that do not carry when the digit was zero.
++    ///
++    /// On a zero digit this leaves the most negative stored coefficient,
++    /// `-(2^33 - 1)`; on other states it is an ordinary pair of writes.
++    ParkExtremeDigit {
++        /// The receiving pool member.
++        target: usize,
++        /// The digit position.
++        index: u64,
++    },
++    /// `<<=`.
++    ShiftLeft {
++        /// The receiving pool member.
++        target: usize,
++        /// The shift count.
++        shift: u64,
++    },
++    /// Unary `-`.
++    Negate {
++        /// The receiving pool member.
++        target: usize,
++    },
++    /// `reset`.
++    Reset {
++        /// The receiving pool member.
++        target: usize,
++    },
++    /// `normalize`.
++    Normalize {
++        /// The receiving pool member.
++        target: usize,
++    },
++    /// `cmp_zero`.
++    CmpZero {
++        /// The compared pool member.
++        target: usize,
++    },
++    /// `cmp_zero_stable_under` with a literal width.
++    StableUnder {
++        /// The compared pool member.
++        target: usize,
++        /// The adjustment width in bits.
++        bits: u64,
++    },
++    /// `cmp_zero_stable_under` with another member's `stored_bits`.
++    StableUnderMember {
++        /// The compared pool member.
++        target: usize,
++        /// The member whose working width bounds the adjustment.
++        member: usize,
++    },
++    /// `reserve_digits`.
++    Reserve {
++        /// The receiving pool member.
++        target: usize,
++        /// The requested capacity in digits.
++        digits: usize,
++    },
++    /// Replace a member by its own clone.
++    CloneReplace {
++        /// The replaced pool member.
++        target: usize,
++    },
++    /// Replace a member by the sum of the whole pool.
++    Sum {
++        /// The replaced pool member.
++        target: usize,
++        /// Whether to sum clones rather than borrows.
++        owned: bool,
++    },
++    /// A value-neutral round of one-limb writes that splits a recorded zero range.
++    ///
++    /// Write 1 at digit `low` if present, then at `top`, then at `inner`
++    /// inside the gap below `top`; then cancel `top`, `inner`, and `low` in
++    /// that order. Positions satisfy `low < inner < top`. A `low` write at
++    /// least two digits above the member's highest digit records a second
++    /// range, so the split happens in the ordered map rather than the inline
++    /// single range.
++    GapRound {
++        /// The receiving pool member.
++        target: usize,
++        /// The optional digit written first and cancelled last.
++        low: Option<u64>,
++        /// The digit written inside the gap below `top`.
++        inner: u64,
++        /// The highest digit, cancelled first.
++        top: u64,
++    },
++    /// A value-neutral run of redundant digits that cancels exactly, then a
++    /// burst of comparisons with zero.
++    ///
++    /// Write 1 at digit `top`, then subtract `width / 2` limbs of
++    /// `u64::MAX` and a final 1 at digit `top - width`. On a member whose
++    /// value lies below the chain, the `width` digits below `top` then each
++    /// hold about `-2^32` and together with `top` spell zero. The first
++    /// comparison scans and compacts the whole run and crosses the gap below
++    /// it in one step; every later comparison must cost a constant.
++    CancelledChain {
++        /// The receiving pool member.
++        target: usize,
++        /// The digit written first; `width < top`.
++        top: u64,
++        /// The number of redundant digits below `top`; even and nonzero.
++        width: u64,
++        /// The number of comparisons after the chain is built.
++        comparisons: usize,
++        /// `cmp_zero_stable_under` at this width for every comparison, or
++        /// `cmp_zero` when absent.
++        bounded: Option<u64>,
++    },
++}
++
++/// Interpret and price generated steps.
++impl Step {
++    /// The work units the crate-level cost table entitles this step to.
++    ///
++    /// `before` holds the pool's stored digit counts before the step and
++    /// `after` those after it; only normalization reads `after`. Growth of
++    /// the receiver is never priced; the property's doc comment explains why.
++    fn work(&self, before: &Widths, after: &Widths) -> u64 {
++        match *self {
++            Step::Primitive { value, .. } => match value {
++                Primitive::I64(_) | Primitive::U64(_) => 1,
++                // Four 32-bit pieces.
++                Primitive::I128(_) | Primitive::U128(_) => 4,
++            },
++            Step::Limbs { ref limbs, .. } => limbs.len() as u64 + 1,
++            Step::Accumulator {
++                target,
++                operand,
++                subtract,
++                form,
++            } => {
++                let read = before[operand] + 1;
++                // Owned addition reads whichever input is narrower; every
++                // other form reads the operand.
++                let owned_read = if subtract {
++                    read
++                } else {
++                    before[target].min(before[operand]) + 1
++                };
++                match form {
++                    OperandForm::Borrowed | OperandForm::Shifted(_) => read,
++                    OperandForm::OwnedTake if target != operand => owned_read,
++                    // A clone, including the one a member taken as its own
++                    // operand needs, copies the operand's prepared
++                    // cancellation, which a later scan may then pay for a
++                    // second time.
++                    OperandForm::OwnedClone | OperandForm::OwnedTake => read + owned_read,
++                }
++            }
++            // Two one-limb writes, `L + 1 = 2` each.
++            Step::ParkExtremeDigit { .. } => 4,
++            Step::ShiftLeft { target, .. }
++            | Step::Negate { target }
++            | Step::Reset { target }
++            | Step::CloneReplace { target } => before[target] + 1,
++            Step::Normalize { target } => before[target] + after[target] + 1,
++            Step::CmpZero { .. }
++            | Step::StableUnder { .. }
++            | Step::StableUnderMember { .. }
++            | Step::Reserve { .. } => 1,
++            Step::Sum { owned, .. } => {
++                let reads: u64 = before.iter().map(|&width| width + 1).sum();
++                // Summing clones first copies every member.
++                if owned {
++                    2 * reads
++                } else {
++                    reads
++                }
++            }
++            // A pattern's parts never normalize, so the widths they see do
++            // not matter.
++            Step::GapRound { .. } | Step::CancelledChain { .. } => self
++                .parts()
++                .iter()
++                .map(|part| part.work(before, after))
++                .sum(),
++        }
++    }
++
++    /// The single steps this step stands for, in order: an embedded
++    /// pattern's operations, or the step itself.
++    fn parts(&self) -> Vec<Step> {
++        let write = |target, position: u64, subtract| Step::Limbs {
++            target,
++            subtract,
++            shift: 32 * position,
++            limbs: vec![1],
++        };
++        match *self {
++            Step::GapRound {
++                target,
++                low,
++                inner,
++                top,
++            } => {
++                let mut parts = Vec::new();
++                parts.extend(low.map(|low| write(target, low, false)));
++                parts.push(write(target, top, false));
++                parts.push(write(target, inner, false));
++                parts.push(write(target, top, true));
++                parts.push(write(target, inner, true));
++                parts.extend(low.map(|low| write(target, low, true)));
++                parts
++            }
++            Step::CancelledChain {
++                target,
++                top,
++                width,
++                comparisons,
++                bounded,
++            } => {
++                let bottom = top - width;
++                let mut parts = vec![
++                    write(target, top, false),
++                    Step::Limbs {
++                        target,
++                        subtract: true,
++                        shift: 32 * bottom,
++                        limbs: vec![
++                            u64::MAX;
++                            usize::try_from(width / 2)
++                                .expect("a chain is narrower than GAP_TOP_LIMIT")
++                        ],
++                    },
++                    write(target, bottom, true),
++                ];
++                parts.extend((0..comparisons).map(|_| match bounded {
++                    Some(bits) => Step::StableUnder { target, bits },
++                    None => Step::CmpZero { target },
++                }));
++                parts
++            }
++            _ => vec![self.clone()],
++        }
++    }
++
++    /// Apply this step to the pool.
++    fn apply(&self, pool: &mut [Accumulator; POOL]) {
++        match *self {
++            Step::Primitive {
++                target,
++                subtract,
++                value,
++            } => {
++                let receiver = &mut pool[target];
++                match (value, subtract) {
++                    (Primitive::I64(value), false) => *receiver += value,
++                    (Primitive::I64(value), true) => *receiver -= value,
++                    (Primitive::U64(value), false) => *receiver += value,
++                    (Primitive::U64(value), true) => *receiver -= value,
++                    (Primitive::I128(value), false) => *receiver += value,
++                    (Primitive::I128(value), true) => *receiver -= value,
++                    (Primitive::U128(value), false) => *receiver += value,
++                    (Primitive::U128(value), true) => *receiver -= value,
++                }
++            }
++            Step::Limbs {
++                target,
++                subtract,
++                shift,
++                ref limbs,
++            } => {
++                let limbs = limbs.iter().copied();
++                if subtract {
++                    pool[target].sub_shifted_limbs(shift, limbs);
++                } else {
++                    pool[target].add_shifted_limbs(shift, limbs);
++                }
++            }
++            Step::Accumulator {
++                target,
++                operand,
++                subtract,
++                form,
++            } => apply_accumulator(pool, target, operand, subtract, form),
++            Step::ParkExtremeDigit { target, index } => {
++                park_extreme_negative_digit(&mut pool[target], index);
++            }
++            Step::ShiftLeft { target, shift } => pool[target] <<= shift,
++            Step::Negate { target } => pool[target] = -take(&mut pool[target]),
++            Step::Reset { target } => pool[target].reset(),
++            Step::Normalize { target } => pool[target].normalize(),
++            Step::CmpZero { target } => {
++                pool[target].cmp_zero();
++            }
++            Step::StableUnder { target, bits } => {
++                pool[target].cmp_zero_stable_under(bits);
++            }
++            Step::StableUnderMember { target, member } => {
++                let bits = pool[member].stored_bits();
++                pool[target].cmp_zero_stable_under(bits);
++            }
++            Step::Reserve { target, digits } => pool[target].reserve_digits(digits),
++            Step::CloneReplace { target } => pool[target] = pool[target].clone(),
++            Step::Sum { target, owned } => {
++                pool[target] = if owned {
++                    pool.iter().cloned().sum()
++                } else {
++                    pool.iter().sum()
++                };
++            }
++            Step::GapRound { .. } | Step::CancelledChain { .. } => {
++                for part in self.parts() {
++                    part.apply(pool);
++                }
++            }
++        }
++    }
++}
++
++/// Update `target` by pool member `operand` in the requested form.
++///
++/// A borrowed or shifted operand is moved out and restored, so no copy
++/// enters the count; a member used as its own operand is read from a clone
++/// instead, because the API cannot borrow one value both mutably and
++/// immutably. An owned-clone operand is a clone, and an owned take of another
++/// member leaves that member zero.
++fn apply_accumulator(
++    pool: &mut [Accumulator; POOL],
++    target: usize,
++    operand: usize,
++    subtract: bool,
++    form: OperandForm,
++) {
++    let aliased = target == operand;
++    let value = match form {
++        OperandForm::OwnedClone => pool[operand].clone(),
++        OperandForm::Borrowed | OperandForm::Shifted(_) | OperandForm::OwnedTake if aliased => {
++            pool[operand].clone()
++        }
++        OperandForm::Borrowed | OperandForm::Shifted(_) | OperandForm::OwnedTake => {
++            take(&mut pool[operand])
++        }
++    };
++    match form {
++        OperandForm::Borrowed | OperandForm::Shifted(_) => {
++            match (form, subtract) {
++                (OperandForm::Shifted(shift), true) => pool[target].sub_shifted(shift, &value),
++                (OperandForm::Shifted(shift), false) => pool[target].add_shifted(shift, &value),
++                (_, true) => pool[target] -= &value,
++                (_, false) => pool[target] += &value,
++            }
++            if !aliased {
++                pool[operand] = value;
++            }
++        }
++        OperandForm::OwnedClone | OperandForm::OwnedTake => {
++            let receiver = take(&mut pool[target]);
++            pool[target] = if subtract {
++                receiver - value
++            } else {
++                receiver + value
++            };
++        }
++    }
++}
++
++/// Word operands at the digit and limb boundaries, small values, and arbitrary words.
++fn arb_word() -> BoxedStrategy<u64> {
++    prop_oneof![
++        3 => proptest::sample::select(vec![
++            0u64,
++            1,
++            2,
++            3,
++            4,
++            5,
++            (1 << 31) - 1,
++            1 << 31,
++            (1 << 32) - 1,
++            1 << 32,
++            (1 << 32) + 1,
++            (1 << 33) - 1,
++            1 << 33,
++            3 << 31,
++            (1 << 63) - 1,
++            1 << 63,
++            u64::MAX - 1,
++            u64::MAX,
++        ]),
++        2 => 0u64..16,
++        2 => any::<u64>(),
++    ]
++    .boxed()
++}
++
++/// Signed values within `2^33` of `k * 2^(32 d)`, for `k` in `1..=4` and `d` in `1..=2`.
++///
++/// These straddle the small form's stability threshold, three times a power
++/// of `2^32`, and the carries into the second and third digits.
++fn near_digit_multiple() -> BoxedStrategy<i128> {
++    (
++        1i128..=4,
++        1u32..=2,
++        -(1i128 << 33)..(1i128 << 33),
++        any::<bool>(),
++    )
++        .prop_map(|(k, d, offset, negative)| {
++            let value = (k << (32 * d)) + offset;
++            if negative {
++                -value
++            } else {
++                value
++            }
++        })
++        .boxed()
++}
++
++/// Primitive operands of both widths, biased toward the representation's limits.
++fn arb_primitive() -> BoxedStrategy<Primitive> {
++    prop_oneof![
++        // Shifting spreads magnitudes over every bit length.
++        (any::<i64>(), 0u32..64).prop_map(|(value, shift)| Primitive::I64(value >> shift)),
++        arb_word().prop_map(Primitive::U64),
++        prop_oneof![
++            any::<i128>(),
++            Just(i128::MIN),
++            Just(i128::MAX),
++            Just(1i128 << 96),
++            Just(-(1i128 << 96)),
++            Just((1i128 << 96) + 1),
++            near_digit_multiple(),
++        ]
++        .prop_map(Primitive::I128),
++        prop_oneof![
++            any::<u128>(),
++            Just(u128::MAX),
++            Just(1u128 << 127),
++            Just(1u128 << 96),
++        ]
++        .prop_map(Primitive::U128),
++    ]
++    .boxed()
++}
++
++/// Shifts at the representation's boundaries, between them, and repeated large values.
++///
++/// The boundaries are the small form's 30-bit shift limit and each multiple
++/// of 32 through 256. The large values recur across a program, so writes
++/// re-cross the same gaps.
++fn arb_shift() -> BoxedStrategy<u64> {
++    let boundaries: Vec<u64> = [29, 30]
++        .into_iter()
++        .chain((1u64..=8).flat_map(|k| [32 * k - 1, 32 * k, 32 * k + 1]))
++        .collect();
++    prop_oneof![
++        3 => 0u64..=4,
++        3 => proptest::sample::select(boundaries),
++        1 => (0u64..64).prop_map(|k| 32 * k),
++        1 => (0u64..64).prop_map(|k| 32 * k + 31),
++        2 => 0u64..=6_000,
++        2 => proptest::sample::select(vec![3_200u64, 3_207, 32_000, 32_031, 64_000]),
++    ]
++    .boxed()
++}
++
++/// Adjustment widths for stability queries: digit multiples, small values, and extremes.
++fn arb_bits() -> BoxedStrategy<u64> {
++    prop_oneof![
++        3 => (0u64..12).prop_map(|k| 32 * k),
++        2 => 0u64..400,
++        1 => proptest::sample::select(vec![u64::MAX, u64::MAX - 1, 1 << 40, (1 << 63) + 7]),
++    ]
++    .boxed()
++}
++
++/// Limb streams: empty, short, and padded with high zero limbs.
++fn arb_limbs() -> BoxedStrategy<Vec<u64>> {
++    (proptest::collection::vec(arb_word(), 0..=6), 0usize..=2)
++        .prop_map(|(mut limbs, high_zeros)| {
++            limbs.extend(core::iter::repeat_n(0, high_zeros));
++            limbs
++        })
++        .boxed()
++}
++
++/// A pool member.
++fn arb_member() -> impl Strategy<Value = usize> {
++    0..POOL
++}
++
++/// Every operand form, with shifts drawn like other updates.
++fn arb_form() -> BoxedStrategy<OperandForm> {
++    prop_oneof![
++        Just(OperandForm::Borrowed),
++        arb_shift().prop_map(OperandForm::Shifted),
++        Just(OperandForm::OwnedClone),
++        Just(OperandForm::OwnedTake),
++    ]
++    .boxed()
++}
++
++/// Gap rounds whose top digit is spread evenly over bit lengths up to [`GAP_TOP_LIMIT`].
++///
++/// A round's cost under a defective range split grows with `top - inner`,
++/// so large gaps must be common, not merely possible.
++fn arb_gap_round() -> BoxedStrategy<Step> {
++    let top_bits = 2..GAP_TOP_LIMIT.trailing_zeros();
++    (arb_member(), top_bits, any::<u64>(), any::<bool>())
++        .prop_map(|(target, bits, choice, with_low)| {
++            // `top` lies in [2^bits, 2^(bits + 1)), `inner` in [1, top),
++            // and `low` in [0, inner).
++            let top = (1 << bits) + choice % (1 << bits);
++            let inner = 1 + (choice >> 16) % (top - 1);
++            let low = with_low.then(|| (choice >> 40) % inner);
++            Step::GapRound {
++                target,
++                low,
++                inner,
++                top,
++            }
++        })
++        .boxed()
++}
++
++/// Cancelled chains whose top digit and width are each spread evenly over bit lengths.
++///
++/// A scan that stopped compacting, or paid for the gap below the chain,
++/// costs each comparison the chain's width or the gap's, so wide chains over
++/// wide gaps must be common, not merely possible.
++fn arb_cancelled_chain() -> BoxedStrategy<Step> {
++    let top_bits = 2..GAP_TOP_LIMIT.trailing_zeros();
++    (
++        arb_member(),
++        top_bits,
++        any::<u64>(),
++        1usize..=16,
++        prop_oneof![Just(None), arb_bits().prop_map(Some)],
++    )
++        .prop_map(|(target, bits, choice, comparisons, bounded)| {
++            // `top` lies in [2^bits, 2^(bits + 1)). The chain spans `2 *
++            // limbs` digits with `limbs` in [2^l, 2^(l + 1)) for `l` in
++            // [0, bits - 2], so `width < 2^bits <= top`.
++            let top = (1 << bits) + choice % (1 << bits);
++            let limb_bits = (choice >> 16) % u64::from(bits - 1);
++            let limbs = (1 << limb_bits) + (choice >> 24) % (1 << limb_bits);
++            Step::CancelledChain {
++                target,
++                top,
++                width: 2 * limbs,
++                comparisons,
++                bounded,
++            }
++        })
++        .boxed()
++}
++
++/// The step kinds, in the order of the swarm weight vector.
++fn step_kinds() -> Vec<BoxedStrategy<Step>> {
++    let member = arb_member;
++    vec![
++        (member(), any::<bool>(), arb_primitive())
++            .prop_map(|(target, subtract, value)| Step::Primitive {
++                target,
++                subtract,
++                value,
++            })
++            .boxed(),
++        (member(), any::<bool>(), arb_shift(), arb_limbs())
++            .prop_map(|(target, subtract, shift, limbs)| Step::Limbs {
++                target,
++                subtract,
++                shift,
++                limbs,
++            })
++            .boxed(),
++        (member(), member(), any::<bool>(), arb_form())
++            .prop_map(|(target, operand, subtract, form)| Step::Accumulator {
++                target,
++                operand,
++                subtract,
++                form,
++            })
++            .boxed(),
++        (member(), 0u64..12)
++            .prop_map(|(target, index)| Step::ParkExtremeDigit { target, index })
++            .boxed(),
++        (member(), arb_shift())
++            .prop_map(|(target, shift)| Step::ShiftLeft { target, shift })
++            .boxed(),
++        member().prop_map(|target| Step::Negate { target }).boxed(),
++        member().prop_map(|target| Step::Reset { target }).boxed(),
++        member()
++            .prop_map(|target| Step::Normalize { target })
++            .boxed(),
++        member().prop_map(|target| Step::CmpZero { target }).boxed(),
++        (member(), arb_bits())
++            .prop_map(|(target, bits)| Step::StableUnder { target, bits })
++            .boxed(),
++        (member(), member())
++            .prop_map(|(target, member)| Step::StableUnderMember { target, member })
++            .boxed(),
++        (member(), 0usize..300)
++            .prop_map(|(target, digits)| Step::Reserve { target, digits })
++            .boxed(),
++        member()
++            .prop_map(|target| Step::CloneReplace { target })
++            .boxed(),
++        (member(), any::<bool>())
++            .prop_map(|(target, owned)| Step::Sum { target, owned })
++            .boxed(),
++        arb_gap_round(),
++        arb_cancelled_chain(),
++    ]
++}
++
++/// Programs whose operation mix varies per case (swarm testing).
++///
++/// Each case first draws one weight per step kind, zero with probability one
++/// third, so some cases omit comparisons and let cancellation pile up while
++/// others repeat a few kinds densely. Shrinking keeps the weights and
++/// minimizes only the program: shrinking the weights would discard the
++/// failing program and draw an unrelated one.
++fn arb_program() -> impl Strategy<Value = Vec<Step>> {
++    let kinds = step_kinds().len();
++    proptest::collection::vec(prop_oneof![1 => Just(0u32), 2 => 1u32..=6], kinds).prop_ind_flat_map(
++        |mut weights| {
++            if weights.iter().all(|&weight| weight == 0) {
++                // An empty mix cannot build a union; keep the limb writes.
++                weights[1] = 1;
++            }
++            let arms: Vec<(u32, BoxedStrategy<Step>)> = weights
++                .into_iter()
++                .zip(step_kinds())
++                .filter(|&(weight, _)| weight > 0)
++                .collect();
++            proptest::collection::vec(proptest::strategy::Union::new_weighted(arms), 1..=100)
++        },
++    )
++}
++
++/// Stored digit counts of the pool, read without touching.
++fn widths(pool: &[Accumulator; POOL]) -> Widths {
++    core::array::from_fn(|member| pool[member].stored_digit_count() as u64)
++}
++
++/// A prefix whose touches exceed the bound for its work.
++#[derive(Debug)]
++struct Overrun {
++    /// Touches spent by the prefix.
++    touches: u64,
++    /// Work units the prefix is entitled to.
++    work: u64,
++}
++
++/// The running work total of one program, checked against the meter step by step.
++struct Meter {
++    /// Work units of the steps applied so far.
++    work: u64,
++}
++
++/// Apply single steps and check the bound on every prefix.
++impl Meter {
++    /// Start a measurement, zeroing the process-global counter.
++    fn start() -> Meter {
++        touch_meter::reset();
++        Meter { work: 0 }
++    }
++
++    /// The touches spent since the measurement started.
++    fn touches(&self) -> u64 {
++        touch_meter::touches()
++    }
++
++    /// Apply one single step, then check `touches <= K * work + D` for the
++    /// prefix it completes.
++    fn step(&mut self, pool: &mut [Accumulator; POOL], step: &Step) -> Result<(), Overrun> {
++        let before = widths(pool);
++        step.apply(pool);
++        self.work += step.work(&before, &widths(pool));
++        let touches = self.touches();
++        if touches <= TOUCHES_PER_UNIT * self.work + ALLOWANCE {
++            Ok(())
++        } else {
++            Err(Overrun {
++                touches,
++                work: self.work,
++            })
++        }
++    }
++}
++
++/// Run `program` on a fresh pool, checking the bound after every single step,
++/// including each part of an embedded pattern.
++fn check_program(program: &[Step]) -> Result<(), TestCaseError> {
++    let mut pool: [Accumulator; POOL] = Default::default();
++    let mut meter = Meter::start();
++    for (index, step) in program.iter().enumerate() {
++        for part in step.parts() {
++            if let Err(Overrun { touches, work }) = meter.step(&mut pool, &part) {
++                let bound = TOUCHES_PER_UNIT * work + ALLOWANCE;
++                return Err(TestCaseError::fail(format!(
++                    "after step {index} ({step:?}), at {part:?}: {touches} touches exceed \
++                     {TOUCHES_PER_UNIT} * {work} units + {ALLOWANCE} = {bound}; {ISOLATION_NOTE}"
++                )));
++            }
++        }
++    }
++    Ok(())
++}
++
++proptest! {
++    /// Every prefix of an arbitrary program spends at most `K = 15` touches
++    /// per work unit, plus `D = 60`.
++    ///
++    /// A step's *work units* are what the [crate-level cost
++    /// table](crate#costs-and-storage) prices for it, in the meter's
++    /// denomination (see [`Step::work`]): one per 64-bit primitive, four per
++    /// 128-bit primitive, `L + 1` for an `L`-limb stream, the operand's
++    /// stored digits plus one for an accumulator operand, the receiver's
++    /// stored digits plus one for whole-width operations, the stored digits
++    /// before and after plus one for normalization, and one for a comparison
++    /// or reservation. Receiver growth `G` is never priced: touches never pay
++    /// for allocation, so pricing growth would pay for exactly the gap
++    /// crossings this property exists to catch. The table's `log(W + 1)`
++    /// factor is the zero-range map's bookkeeping, which the meter does not
++    /// count, so a constant per unit bounds the touches.
++    ///
++    /// # Deriving `K` and `D`
++    ///
++    /// Charge every touch either to the step that makes it or to the earlier
++    /// step that prepared it. Three of the crate's arguments supply the
++    /// charges.
++    ///
++    /// - *Recentering.* Each internal digit write (a *deposit*) leaves a
++    ///   remainder of magnitude at most `2^31` wherever it carries. A deposit
++    ///   of at most `2^64` therefore carries at most once on its own: the
++    ///   carry it sends is at most `2^32 + 2`, so a second carry needs a
++    ///   digit that an earlier deposit *loaded* to magnitude `2^32 - 4` or
++    ///   more, and unloads it. Only a whole one-limb word and a small
++    ///   accumulator operand, of up to `2^96`, can carry twice on their own.
++    /// - *The compacting sign scan.* The scan and the high-zero trim pass, one
++    ///   at a time, only positions written since their last pass. The scan
++    ///   pays a read and a clear per position, the trim one touch.
++    /// - *Zero ranges.* Every unwritten position below the highest digit lies
++    ///   inside a recorded range, crossed in one step.
++    ///
++    /// So a deposit pays for its first two positions (2 touches), for a later
++    /// pass over each (2 × 2), and for the loaded digit it may leave behind
++    /// (1): at most 7. Positions past the second are paid by the loaded
++    /// digits they unload. The two `2^96` deposits pay for three positions:
++    /// at most 10. Charging each operand read one touch, per step:
++    ///
++    /// | Step | Touches charged | Units | Per unit |
++    /// |---|---|---|---|
++    /// | `L`-limb stream, `L >= 2` | `L` reads and `2L` deposits: `15L` | `L + 1` | below 15 |
++    /// | One-limb write, as in a park or gap round | one `2^96` deposit: 10 | 2 | 5 |
++    /// | 64-bit primitive | one deposit: 7 | 1 | 7 |
++    /// | 128-bit primitive | one touch, then four reads and deposits: 33 | 4 | 8.25 |
++    /// | Accumulator operand of `A` digits, or each member of a sum | `A` reads and deposits: `8A`; a small operand: 11 | `A + 1` | below 8 |
++    /// | `<<=` | `W` reads and deposits: `8W` | `W + 1` | below 8 |
++    /// | Comparison | stop read, clear, one deposit: 9 | 1 | 9 |
++    /// | Normalization | a comparison (9), `W` rewrites, a carried digit, `W` trim steps, and `3Q` for the rewritten digits | `W + Q + 1` | at most 5 |
++    /// | Clone | at most 3 prepaid touches per copied digit | `W + 1` | below 3 |
++    /// | Unary `-`, `reset` | one touch per digit | `W + 1` | below 1 |
++    ///
++    /// A clone, in [`Step::CloneReplace`], an owned-clone operand, or an
++    /// owned sum, duplicates the copied value's prepaid passes and loaded
++    /// digits, which is why its copy is priced.
++    ///
++    /// One charge is not proportional to its step. Moving a value from the
++    /// small form into digits deposits up to four 32-bit pieces into zeroed
++    /// digits, at most 5 touches each: 20 ([`ACTIVATION_TOUCHES`]). That
++    /// happens once per activation. Each pool member's first activation is
++    /// charged to the program: `D = 3 × 20 = 60` ([`ALLOWANCE`]). Every
++    /// later one is charged to the step that returned the member to its small
++    /// form: a reset (at most `(W + 20) / (W + 1) <= 10.5` per unit), an
++    /// owned take (at most `(8 + 20) / 2 = 14`), or a sum (at least 6 units,
++    /// so below 4 more). A `<<=` on a small value is the exception: it moves
++    /// the value with pieces shifted by up to 31 bits, which can carry, and
++    /// that move is the shift's own work, charged in its row at 8 per digit.
++    /// Hence `K = 15`, set by long limb streams.
++    ///
++    /// The derivation is a ceiling with headroom, not a fit. The costliest
++    /// family constructed against it writes limb streams whose deposits each
++    /// carry once, then crosses them with one comparison: per limb, a read,
++    /// two deposits of two positions each, and a read and clear of its two
++    /// positions, 9 touches.
++    ///
++    /// # What it catches
++    ///
++    /// Amortization regressions on interleavings that no exact pin
++    /// exercises. For example, a write strictly inside a recorded zero range
++    /// must keep the range's part above the write. Dropping that part keeps
++    /// every value correct, but the next trim steps down the whole gap one
++    /// digit at a time, so each [`Step::GapRound`] costs its gap;
++    /// [`remnant_dropping_trim_exceeds_the_bound`] keeps that defect failing
++    /// the bound. Likewise, a comparison that scans without compacting, or
++    /// that pays for each zero range it crosses, makes every comparison in a
++    /// [`Step::CancelledChain`] cost the chain's width or the gap below it. A
++    /// constant-factor change, such as one extra touch per range crossing,
++    /// is below this property's resolution; the exact pins detect those.
++    ///
++    /// The meter is process-global, so this property assumes nextest's one
++    /// test per process. Under a shared-process runner, other tests' work
++    /// raises a reading and their resets lower it, so its verdicts mean
++    /// nothing in either direction.
++    #[test]
++    fn touches_stay_linear_in_priced_work(program in arb_program()) {
++        check_program(&program)?;
++    }
++}
++
++/// A trim that loses a split range's upper part pays each gap round its whole
++/// gap, which the bound rejects even at the generator's smaller gaps.
++///
++/// Two gap rounds on a fresh accumulator, with `inner = 2^8` and
++/// `top = 2^9`, split the zero range below `top` once as the single inline
++/// range and once, after a `low` write, in the ordered map. Sound, they cost
++/// exactly six and nine touches: one per deposit, plus one trim step per
++/// cancelled digit, each crossing a recorded range in one step.
++///
++/// The negative control forgets the range above `inner` right after the
++/// write that split it, which is the state a split dropping its upper part
++/// leaves. Cancelling `top` then sends the real trim down the `top - inner`
++/// zero digits one at a time, and the bound rejects that prefix: 260 touches
++/// for 8 units with `low`, against `8K + D = 180`. The margin is deliberately
++/// small. Raising `K` to 25 lets that defect through and fails this test, and
++/// the round's 256-digit gap is one the generator draws, because its top lies
++/// below [`GAP_TOP_LIMIT`].
++#[test]
++fn remnant_dropping_trim_exceeds_the_bound() {
++    let (inner, top) = (1 << 8, 1 << 9);
++    assert!(top < GAP_TOP_LIMIT, "the generator draws this round's gap");
++    // (low digit, exact touches of the sound round)
++    for (low, sound_touches) in [(None, 6), (Some(inner / 2), 9)] {
++        let round = Step::GapRound {
++            target: 0,
++            low,
++            inner,
++            top,
++        };
++        let parts = round.parts();
++        // The writes come first; the rest cancel them, `top` first.
++        let (writes, cancels) = parts.split_at(parts.len() / 2);
++        for forget in [false, true] {
++            let mut pool: [Accumulator; POOL] = Default::default();
++            let mut meter = Meter::start();
++            for write in writes {
++                meter
++                    .step(&mut pool, write)
++                    .expect("writing the round fits the bound");
++            }
++            if forget {
++                let inner = usize::try_from(inner).expect("the digit is addressable");
++                pool[0].digits.forget_zero_range(inner);
++            }
++            let verdict = cancels
++                .iter()
++                .try_for_each(|cancel| meter.step(&mut pool, cancel));
++            if forget {
++                assert!(
++                    verdict.is_err(),
++                    "a remnant-dropping {round:?} fits the bound at {} touches: the property \
++                     could no longer reject it",
++                    meter.touches()
++                );
++            } else {
++                assert!(
++                    verdict.is_ok(),
++                    "the sound {round:?} fits the bound: {verdict:?}"
++                );
++                assert_eq!(
++                    meter.touches(),
++                    sound_touches,
++                    "one touch per deposit and per range-crossing trim step in {round:?}; \
++                     {ISOLATION_NOTE}"
++                );
++            }
++        }
++    }
++}
++
++/// Rescue census (scratch only): the reach of this generator, on the metrics
++/// the rescue census reads from the pool model and the surface suite.
++mod rescue_census {
++    use super::*;
++    use proptest::strategy::ValueTree;
++    use proptest::test_runner::TestRunner;
++
++    #[derive(Default, Debug)]
++    struct Tally {
++        programs: u64,
++        steps: u64,
++        redundant2: u64,
++        redundant8: u64,
++        redundant64: u64,
++        max_redundancy: i64,
++        programs_redundant2: u64,
++        query_steps: u64,
++        query_redundant2: u64,
++        operand_uses: u64,
++        operand_redundant2: u64,
++        operand_many_ranges: u64,
++        aliased_operand_uses: u64,
++        many_ranges: u64,
++        max_ranges: usize,
++        programs_many_ranges: u64,
++        extreme_after: u64,
++        programs_extreme: u64,
++        normalize_steps: u64,
++        normalize_on_extreme: u64,
++        shift_steps: u64,
++        shift_on_extreme: u64,
++        redundant_zero: u64,
++        max_digits: usize,
++        digits_over_64: u64,
++        digits_over_512: u64,
++    }
++
++    /// Stored digits beyond the exact width, read back without mutation.
++    fn redundancy(acc: &Accumulator) -> i64 {
++        let (_, limbs) = acc.signed_magnitude();
++        let limbs = limbs.as_ref();
++        let bits = match limbs.last() {
++            None => 0,
++            Some(&top) => 64 * (limbs.len() as u64 - 1) + u64::from(64 - top.leading_zeros()),
++        };
++        acc.stored_digit_count() as i64 - bits.div_ceil(32).max(1) as i64
++    }
++
++    fn shape(acc: &Accumulator) -> (usize, usize) {
++        if acc.small.is_some() {
++            (0, 0)
++        } else {
++            acc.digits.census()
++        }
++    }
++
++    fn target(step: &Step) -> usize {
++        match *step {
++            Step::Primitive { target, .. }
++            | Step::Limbs { target, .. }
++            | Step::Accumulator { target, .. }
++            | Step::ParkExtremeDigit { target, .. }
++            | Step::ShiftLeft { target, .. }
++            | Step::Negate { target }
++            | Step::Reset { target }
++            | Step::Normalize { target }
++            | Step::CmpZero { target }
++            | Step::StableUnder { target, .. }
++            | Step::StableUnderMember { target, .. }
++            | Step::Reserve { target, .. }
++            | Step::CloneReplace { target }
++            | Step::Sum { target, .. }
++            | Step::GapRound { target, .. }
++            | Step::CancelledChain { target, .. } => target,
++        }
++    }
++
++    fn operand(tally: &mut Tally, acc: &Accumulator) {
++        tally.operand_uses += 1;
++        tally.operand_redundant2 += u64::from(redundancy(acc) >= 2);
++        tally.operand_many_ranges += u64::from(shape(acc).0 >= 2);
++    }
++
++    /// Print this generator's tally over `RESCUE_N` programs.
++    #[test]
++    fn rescue_census_touch_bound_generator() {
++        let n: u64 = std::env::var("RESCUE_N")
++            .ok()
++            .and_then(|s| s.parse().ok())
++            .unwrap_or(1_000);
++        let started = std::time::Instant::now();
++        let mut runner = TestRunner::deterministic();
++        let strategy = arb_program();
++        let mut tally = Tally::default();
++        for _ in 0..n {
++            let program = strategy.new_tree(&mut runner).unwrap().current();
++            let mut pool: [Accumulator; POOL] = Default::default();
++            let mut flags = [false; 3];
++            for step in &program {
++                for part in step.parts() {
++                    let t = target(&part);
++                    match part {
++                        Step::Accumulator { operand: o, .. } => {
++                            operand(&mut tally, &pool[o]);
++                            tally.aliased_operand_uses += u64::from(o == t);
++                        }
++                        Step::Sum { .. } => {
++                            for member in &pool {
++                                operand(&mut tally, member);
++                            }
++                        }
++                        Step::Normalize { .. } => {
++                            tally.normalize_steps += 1;
++                            tally.normalize_on_extreme += u64::from(shape(&pool[t]).1 > 0);
++                        }
++                        Step::ShiftLeft { .. } => {
++                            tally.shift_steps += 1;
++                            tally.shift_on_extreme += u64::from(shape(&pool[t]).1 > 0);
++                        }
++                        Step::CmpZero { .. }
++                        | Step::StableUnder { .. }
++                        | Step::StableUnderMember { .. } => {
++                            tally.query_steps += 1;
++                            tally.query_redundant2 += u64::from(redundancy(&pool[t]) >= 2);
++                        }
++                        _ => {}
++                    }
++                    part.apply(&mut pool);
++                    tally.steps += 1;
++                    let acc = &pool[t];
++                    let r = redundancy(acc);
++                    tally.max_redundancy = tally.max_redundancy.max(r);
++                    tally.redundant2 += u64::from(r >= 2);
++                    tally.redundant8 += u64::from(r >= 8);
++                    tally.redundant64 += u64::from(r >= 64);
++                    let (ranges, extreme) = shape(acc);
++                    tally.max_ranges = tally.max_ranges.max(ranges);
++                    tally.many_ranges += u64::from(ranges >= 2);
++                    tally.extreme_after += u64::from(extreme > 0);
++                    let zero = acc.signed_magnitude().0 == core::cmp::Ordering::Equal;
++                    tally.redundant_zero += u64::from(zero && !acc.is_known_zero());
++                    let digits = acc.stored_digit_count();
++                    tally.max_digits = tally.max_digits.max(digits);
++                    tally.digits_over_64 += u64::from(digits > 64);
++                    tally.digits_over_512 += u64::from(digits > 512);
++                    flags[0] |= r >= 2;
++                    flags[1] |= ranges >= 2;
++                    flags[2] |= extreme > 0;
++                }
++            }
++            tally.programs += 1;
++            tally.programs_redundant2 += u64::from(flags[0]);
++            tally.programs_many_ranges += u64::from(flags[1]);
++            tally.programs_extreme += u64::from(flags[2]);
++        }
++        println!(
++            "RESCUE touch_bound n={n} secs={:.1} {tally:?}",
++            started.elapsed().as_secs_f64()
++        );
++    }
++}
+diff --git a/crates/suanpan/src/accumulator/tests/surface.rs b/crates/suanpan/src/accumulator/tests/surface.rs
+index 35aef6cd0..37d7a9994 100644
+--- a/crates/suanpan/src/accumulator/tests/surface.rs
++++ b/crates/suanpan/src/accumulator/tests/surface.rs
+@@ -806,3 +806,208 @@ proptest! {
+         }
+     }
+ }
++
++/// Rescue census (scratch only): the reach of the pool model's generator
++/// against this suite's generator, on the same metrics.
++mod rescue_census {
++    use super::super::explore_l7::{self as pool, Op, POOL};
++    use super::*;
++    use proptest::strategy::ValueTree;
++    use proptest::test_runner::TestRunner;
++
++    /// Counts over one generator's programs.
++    #[derive(Default, Debug)]
++    struct Tally {
++        programs: u64,
++        steps: u64,
++        redundant2: u64,
++        redundant8: u64,
++        redundant64: u64,
++        max_redundancy: i64,
++        programs_redundant2: u64,
++        query_steps: u64,
++        query_redundant2: u64,
++        operand_uses: u64,
++        operand_redundant2: u64,
++        operand_many_ranges: u64,
++        aliased_operand_uses: u64,
++        many_ranges: u64,
++        max_ranges: usize,
++        programs_many_ranges: u64,
++        extreme_after: u64,
++        programs_extreme: u64,
++        normalize_steps: u64,
++        normalize_on_extreme: u64,
++        shift_steps: u64,
++        shift_on_extreme: u64,
++        redundant_zero: u64,
++        max_digits: usize,
++        digits_over_64: u64,
++        digits_over_512: u64,
++    }
++
++    /// Stored digits beyond the value's exact width; negative when an
++    /// extreme top digit carries the value one digit past its stored width.
++    fn redundancy(acc: &Accumulator, oracle: &BigInt) -> i64 {
++        let exact = oracle.magnitude().bits().div_ceil(32).max(1) as i64;
++        acc.stored_digit_count() as i64 - exact
++    }
++
++    /// Recorded zero ranges and extreme digits, or none in the small form.
++    fn shape(acc: &Accumulator) -> (usize, usize) {
++        if acc.small.is_some() {
++            (0, 0)
++        } else {
++            acc.digits.census()
++        }
++    }
++
++    /// Tally one operand use.
++    fn operand(tally: &mut Tally, acc: &Accumulator, oracle: &BigInt) {
++        tally.operand_uses += 1;
++        if redundancy(acc, oracle) >= 2 {
++            tally.operand_redundant2 += 1;
++        }
++        if shape(acc).0 >= 2 {
++            tally.operand_many_ranges += 1;
++        }
++    }
++
++    /// Tally a receiver's state after a step; returns (redundant2, many, extreme).
++    fn after(tally: &mut Tally, acc: &Accumulator, oracle: &BigInt) -> [bool; 3] {
++        tally.steps += 1;
++        let r = redundancy(acc, oracle);
++        tally.max_redundancy = tally.max_redundancy.max(r);
++        tally.redundant2 += u64::from(r >= 2);
++        tally.redundant8 += u64::from(r >= 8);
++        tally.redundant64 += u64::from(r >= 64);
++        let (ranges, extreme) = shape(acc);
++        tally.max_ranges = tally.max_ranges.max(ranges);
++        tally.many_ranges += u64::from(ranges >= 2);
++        tally.extreme_after += u64::from(extreme > 0);
++        tally.redundant_zero += u64::from(*oracle == BigInt::ZERO && !acc.is_known_zero());
++        let digits = acc.stored_digit_count();
++        tally.max_digits = tally.max_digits.max(digits);
++        tally.digits_over_64 += u64::from(digits > 64);
++        tally.digits_over_512 += u64::from(digits > 512);
++        [r >= 2, ranges >= 2, extreme > 0]
++    }
++
++    /// Close one program's per-program flags.
++    fn close(tally: &mut Tally, flags: [bool; 3]) {
++        tally.programs += 1;
++        tally.programs_redundant2 += u64::from(flags[0]);
++        tally.programs_many_ranges += u64::from(flags[1]);
++        tally.programs_extreme += u64::from(flags[2]);
++    }
++
++    fn merge(flags: &mut [bool; 3], new: [bool; 3]) {
++        for (flag, value) in flags.iter_mut().zip(new) {
++            *flag |= value;
++        }
++    }
++
++    /// Print both generators' tallies over the same number of programs.
++    #[test]
++    fn rescue_census_pool_vs_surface() {
++        let n: u64 = std::env::var("RESCUE_N")
++            .ok()
++            .and_then(|s| s.parse().ok())
++            .unwrap_or(1_000);
++
++        let started = std::time::Instant::now();
++        let mut runner = TestRunner::deterministic();
++        let strategy = pool::arb_program();
++        let mut tally = Tally::default();
++        for _ in 0..n {
++            let ops = strategy.new_tree(&mut runner).unwrap().current();
++            let mut accs: [Accumulator; POOL] = Default::default();
++            let mut oracles: [BigInt; POOL] = Default::default();
++            let mut flags = [false; 3];
++            for op in &ops {
++                let t = op.target();
++                match op {
++                    Op::Acc { t: target, s, .. } => {
++                        operand(&mut tally, &accs[*s], &oracles[*s]);
++                        tally.aliased_operand_uses += u64::from(target == s);
++                    }
++                    Op::SumPool { .. } => {
++                        for i in 0..POOL {
++                            operand(&mut tally, &accs[i], &oracles[i]);
++                        }
++                    }
++                    Op::Normalize { .. } => {
++                        tally.normalize_steps += 1;
++                        tally.normalize_on_extreme += u64::from(shape(&accs[t]).1 > 0);
++                    }
++                    Op::Shl { .. } => {
++                        tally.shift_steps += 1;
++                        tally.shift_on_extreme += u64::from(shape(&accs[t]).1 > 0);
++                    }
++                    Op::CmpZero { .. } | Op::Stable { .. } | Op::StablePool { .. } => {
++                        tally.query_steps += 1;
++                        tally.query_redundant2 += u64::from(redundancy(&accs[t], &oracles[t]) >= 2);
++                    }
++                    _ => {}
++                }
++                pool::apply(&mut accs, &mut oracles, op, "census");
++                let new = after(&mut tally, &accs[t], &oracles[t]);
++                merge(&mut flags, new);
++            }
++            close(&mut tally, flags);
++        }
++        println!(
++            "RESCUE pool n={n} secs={:.1} {tally:?}",
++            started.elapsed().as_secs_f64()
++        );
++
++        let started = std::time::Instant::now();
++        let mut runner = TestRunner::deterministic();
++        let strategy = proptest::collection::vec(arb_step(), 1..=80);
++        let mut tally = Tally::default();
++        for _ in 0..n {
++            let steps = strategy.new_tree(&mut runner).unwrap().current();
++            let mut actual = Accumulator::default();
++            let mut oracle = BigInt::ZERO;
++            let mut trace = Vec::new();
++            let mut flags = [false; 3];
++            for step in steps {
++                match &step.operation {
++                    Operation::Accumulator { operand: o, .. }
++                    | Operation::ShiftedAccumulator { operand: o, .. } => {
++                        let (value, value_oracle) = o.values();
++                        operand(&mut tally, &value, &value_oracle);
++                    }
++                    Operation::Sum { operands, .. } => {
++                        for o in operands {
++                            let (value, value_oracle) = o.values();
++                            operand(&mut tally, &value, &value_oracle);
++                        }
++                    }
++                    Operation::Normalize => {
++                        tally.normalize_steps += 1;
++                        tally.normalize_on_extreme += u64::from(shape(&actual).1 > 0);
++                    }
++                    Operation::Shift { .. } => {
++                        tally.shift_steps += 1;
++                        tally.shift_on_extreme += u64::from(shape(&actual).1 > 0);
++                    }
++                    _ => {}
++                }
++                step.operation.apply(&mut actual, &mut oracle);
++                trace.push(step.operation.tag());
++                let new = after(&mut tally, &actual, &oracle);
++                merge(&mut flags, new);
++                // Every step ends in the property's observations, which query the sign.
++                tally.query_steps += 1;
++                tally.query_redundant2 += u64::from(new[0]);
++                assert_observations(&mut actual, &oracle, step.comparison_bits, &trace);
++            }
++            close(&mut tally, flags);
++        }
++        println!(
++            "RESCUE surface n={n} secs={:.1} {tally:?}",
++            started.elapsed().as_secs_f64()
++        );
++    }
++}

@@ -1,0 +1,4 @@
+unmutated: exit=0      Summary [   5.552s] 65 tests run: 65 passed, 0 skipped
+base neg drop_touch:      Summary [   5.642s] 65 tests run: 64 passed, 1 failed, 0 skipped
+base pos drop_touch:      Summary [   6.856s] 65 tests run: 64 passed, 1 failed, 0 skipped
+(end)

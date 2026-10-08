@@ -1,0 +1,104 @@
+diff --git a/crates/before/wasm32-pins/guest/src/checks.rs b/crates/before/wasm32-pins/guest/src/checks.rs
+index 61789b88..b0e999af 100644
+--- a/crates/before/wasm32-pins/guest/src/checks.rs
++++ b/crates/before/wasm32-pins/guest/src/checks.rs
+@@ -27,6 +27,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
+         Check::RankArithmetic => rank_arithmetic(a),
+         Check::SuanpanLanding => suanpan_landing(a),
+         Check::HarnessAllocationFailure => exhaust_memory(),
++        Check::Probe => review_probe(a),
+     }
+ }
+ 
+@@ -257,3 +258,54 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
+     // landing position returns a small digit count, so a normal return is red.
+     Err(Failure::WrongValue)
+ }
++
++/// REVIEW PROBE (temporary): fills memory without aborting.
++fn review_fill() -> Vec<Vec<u8>> {
++    let mut held: Vec<Vec<u8>> = Vec::with_capacity(4096);
++    let mut size: usize = 1 << 30;
++    while held.len() < held.capacity() {
++        let mut v: Vec<u8> = Vec::new();
++        match v.try_reserve_exact(size) {
++            Ok(()) => held.push(v),
++            Err(_) => {
++                if size == 1 {
++                    break;
++                }
++                size /= 2;
++            }
++        }
++    }
++    held
++}
++
++/// REVIEW PROBE (temporary).
++fn review_probe(mode: u64) -> Result<(), Failure> {
++    if mode == 4 {
++        None::<()>.expect("a nonzero contribution needs an addressable digit position");
++        return Err(Failure::WrongValue);
++    }
++    let held = review_fill();
++    black_box(&held);
++    match mode {
++        0 => panic!("deliberate harness panic"),
++        1 => {
++            None::<()>.expect("a nonzero contribution needs an addressable digit position");
++        }
++        2 => panic!("formatted {}", black_box(7_u32)),
++        3 => {
++            let r = suanpan_landing(1);
++            black_box(&r);
++        }
++        5 => {
++            let mut v: Vec<u8> = Vec::new();
++            return if v.try_reserve_exact(1).is_err() && held.len() < held.capacity() {
++                Ok(())
++            } else {
++                Err(Failure::WrongValue)
++            };
++        }
++        _ => return Err(Failure::InvalidArguments),
++    }
++    black_box(&held);
++    Err(Failure::WrongValue)
++}
+diff --git a/crates/before/wasm32-pins/harness/tests/pins.rs b/crates/before/wasm32-pins/harness/tests/pins.rs
+index 7766dc80..dc28e5bc 100644
+--- a/crates/before/wasm32-pins/harness/tests/pins.rs
++++ b/crates/before/wasm32-pins/harness/tests/pins.rs
+@@ -163,3 +163,11 @@ fn suanpan_rejects_unaddressable_digit_landings() {
+         assert_panics(Check::SuanpanLanding, case, 0, UNADDRESSABLE_LANDING);
+     }
+ }
++
++/// REVIEW PROBE (temporary).
++#[test]
++fn zz_review_probe() {
++    for mode in 0..=5 {
++        eprintln!("PROBE {mode}: {:?}", wasm32_pins_harness::run_raw(10, mode, 0));
++    }
++}
+diff --git a/crates/before/wasm32-pins/protocol/src/lib.rs b/crates/before/wasm32-pins/protocol/src/lib.rs
+index a2d63c3f..cdcbcdb7 100644
+--- a/crates/before/wasm32-pins/protocol/src/lib.rs
++++ b/crates/before/wasm32-pins/protocol/src/lib.rs
+@@ -34,6 +34,8 @@ pub enum Check {
+     /// Deliberately exhaust the guest's memory, proving that the harness tells
+     /// an allocation-failure abort from a panic.
+     HarnessAllocationFailure = 9,
++    /// REVIEW PROBE (temporary).
++    Probe = 10,
+ }
+ 
+ impl TryFrom<u32> for Check {
+@@ -52,6 +54,7 @@ impl TryFrom<u32> for Check {
+             7 => Ok(Self::RankArithmetic),
+             8 => Ok(Self::SuanpanLanding),
+             9 => Ok(Self::HarnessAllocationFailure),
++            10 => Ok(Self::Probe),
+             _ => Err(()),
+         }
+     }

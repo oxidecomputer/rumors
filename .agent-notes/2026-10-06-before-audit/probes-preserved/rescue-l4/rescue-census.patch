@@ -1,0 +1,356 @@
+diff --git a/crates/before/src/version/measure/explore_l4.rs b/crates/before/src/version/measure/explore_l4.rs
+index 89ccfa360..23507ef5e 100644
+--- a/crates/before/src/version/measure/explore_l4.rs
++++ b/crates/before/src/version/measure/explore_l4.rs
+@@ -755,3 +755,197 @@ fn ranked_cmp_tie_cost_body() {
+         }
+     }
+ }
++
++/// Instrument-rescue census (scratch worktree only, never committed): the
++/// regimes the L4 pair generator reaches beside the committed generators that
++/// feed the same measures.
++mod rescue_census {
++    use super::*;
++    use crate::testing::generators::arb_oracle_version;
++    use crate::testing::optrace;
++    use crate::Clock;
++    use proptest::strategy::ValueTree;
++    use proptest::test_runner::TestRunner;
++
++    /// Tallies of one generator's pairs.
++    #[derive(Default)]
++    struct Tally {
++        cases: u64,
++        froze: u64,
++        deferred: u64,
++        multi: u64,
++        ties: u64,
++        frozen_ties: u64,
++        equal: u64,
++        less: u64,
++        greater: u64,
++        concurrent: u64,
++        depth: Vec<u64>,
++        leaves: Vec<u64>,
++        bits: Vec<u64>,
++        bytes: Vec<u64>,
++    }
++
++    impl Tally {
++        /// Runs the coverage census's operations on one ordered pair.
++        fn pair(&mut self, a: &Version, b: &Version) {
++            let (f0, d0) = (freeze_hits(), defer_hits());
++            let _ = a.rank();
++            let _ = a.distance(b);
++            let tie = a != b && a.rank_cmp(b) == Ordering::Equal;
++            let (f1, d1) = (freeze_hits(), defer_hits());
++            self.cases += 1;
++            self.froze += u64::from(f1 > f0);
++            self.deferred += u64::from(d1 > d0);
++            self.multi += u64::from(d1 >= d0 + 3);
++            self.ties += u64::from(tie);
++            self.frozen_ties += u64::from(tie && f1 > f0);
++            match a.partial_cmp(b) {
++                Some(Ordering::Equal) => self.equal += 1,
++                Some(Ordering::Less) => self.less += 1,
++                Some(Ordering::Greater) => self.greater += 1,
++                None => self.concurrent += 1,
++            }
++        }
++
++        /// Records one version's shape.
++        fn shape(&mut self, depth: u64, leaves: u64, bits: u64, bytes: u64) {
++            self.depth.push(depth);
++            self.leaves.push(leaves);
++            self.bits.push(bits);
++            self.bytes.push(bytes);
++        }
++
++        fn report(&mut self, name: &str) {
++            let pct = |x: u64| 100.0 * x as f64 / self.cases.max(1) as f64;
++            eprintln!(
++                "CENSUS {name}: pairs {} froze {} ({:.1}%) deferred {} ({:.1}%) defer>=3 {} ({:.1}%) distinct-rank-ties {} ({:.1}%) frozen-ties {} ({:.1}%)",
++                self.cases,
++                self.froze,
++                pct(self.froze),
++                self.deferred,
++                pct(self.deferred),
++                self.multi,
++                pct(self.multi),
++                self.ties,
++                pct(self.ties),
++                self.frozen_ties,
++                pct(self.frozen_ties),
++            );
++            eprintln!(
++                "CENSUS {name}: relation equal {} ({:.1}%) less {} ({:.1}%) greater {} ({:.1}%) concurrent {} ({:.1}%)",
++                self.equal,
++                pct(self.equal),
++                self.less,
++                pct(self.less),
++                self.greater,
++                pct(self.greater),
++                self.concurrent,
++                pct(self.concurrent),
++            );
++            for (label, values) in [
++                ("depth", &mut self.depth),
++                ("leaves", &mut self.leaves),
++                ("height-bits", &mut self.bits),
++                ("encoded-bytes", &mut self.bytes),
++            ] {
++                values.sort_unstable();
++                let at = |q: usize| values[(values.len() - 1) * q / 100];
++                eprintln!(
++                    "CENSUS {name}: {label} n {} min {} p50 {} p90 {} p99 {} max {}",
++                    values.len(),
++                    values[0],
++                    at(50),
++                    at(90),
++                    at(99),
++                    values[values.len() - 1]
++                );
++            }
++        }
++    }
++
++    /// Depth, leaf count, and widest absolute height of an oracle tree,
++    /// walked with an explicit stack.
++    fn tree_shape(t: &V) -> (u64, u64, u64) {
++        let mut stack = vec![(t.clone(), 0u64, BigUint::ZERO)];
++        let (mut depth, mut leaves, mut bits) = (0u64, 0u64, 0u64);
++        while let Some((node, d, base)) = stack.pop() {
++            match node {
++                V::Leaf(n) => {
++                    depth = depth.max(d);
++                    leaves += 1;
++                    bits = bits.max((base + n).bits());
++                }
++                V::Node(n, l, r) => {
++                    let b = base + n;
++                    stack.push(((*l).clone(), d + 1, b.clone()));
++                    stack.push(((*r).clone(), d + 1, b));
++                }
++            }
++        }
++        (depth, leaves, bits)
++    }
++
++    const PAIRS: usize = 2000;
++
++    /// The L4 pair generator at its default settings.
++    #[test]
++    fn rescue_census_l4_pairs() {
++        let mut runner = TestRunner::deterministic();
++        let strat = arb_leaves(64).prop_flat_map(arb_related);
++        let mut tally = Tally::default();
++        for _ in 0..PAIRS {
++            let (la, lb) = strat.new_tree(&mut runner).unwrap().current();
++            let (a, b) = (version_of(&la), version_of(&lb));
++            tally.pair(&a, &b);
++            tally.shape(
++                la.iter().map(|l| l.depth).max().unwrap_or(0),
++                la.len() as u64,
++                la.iter().map(|l| l.height.bits()).max().unwrap_or(0),
++                a.encode().len() as u64,
++            );
++        }
++        tally.report("l4-arb_leaves(64)+arb_related");
++    }
++
++    /// The committed `arbitrary_trees_agree` input: two independent
++    /// `arb_oracle_version` draws.
++    #[test]
++    fn rescue_census_committed_arbitrary_pairs() {
++        let mut runner = TestRunner::deterministic();
++        let strat = (arb_oracle_version(), arb_oracle_version());
++        let mut tally = Tally::default();
++        for _ in 0..PAIRS {
++            let (oa, ob) = strat.new_tree(&mut runner).unwrap().current();
++            let (a, b) = (from_oracle_version(&oa), from_oracle_version(&ob));
++            tally.pair(&a, &b);
++            let (d, l, h) = tree_shape(&oa);
++            tally.shape(d, l, h, a.encode().len() as u64);
++        }
++        tally.report("committed-arb_oracle_version-pairs");
++    }
++
++    /// The committed `organic_histories_agree` input: every ordered pair of
++    /// one history's clocks.
++    #[test]
++    fn rescue_census_committed_organic_pairs() {
++        let mut runner = TestRunner::deterministic();
++        let strat = optrace::world_strategy_up_to(40);
++        let mut tally = Tally::default();
++        for _ in 0..500 {
++            let ops = strat.new_tree(&mut runner).unwrap().current();
++            let mut clocks = vec![Clock::seed()];
++            for op in &ops {
++                optrace::step_impl(&mut clocks, op);
++            }
++            for c in &clocks {
++                let (d, l, h) = tree_shape(&to_oracle_version(c.version()));
++                tally.shape(d, l, h, c.version().encode().len() as u64);
++                for other in &clocks {
++                    tally.pair(c.version(), other.version());
++                }
++            }
++        }
++        tally.report("committed-organic-history-pairs");
++    }
++}
+diff --git a/crates/before/src/version/measure/explore_l4_rank.rs b/crates/before/src/version/measure/explore_l4_rank.rs
+index 29b775bdc..f392095ea 100644
+--- a/crates/before/src/version/measure/explore_l4_rank.rs
++++ b/crates/before/src/version/measure/explore_l4_rank.rs
+@@ -469,3 +469,149 @@ fn l4_rank_sum_order_cost() {
+         }
+     }
+ }
++
++/// Instrument-rescue census (scratch worktree only, never committed): the
++/// rank regimes the L4 generator reaches beside the committed law driver.
++mod rescue_census {
++    use super::*;
++    use proptest::strategy::ValueTree;
++    use proptest::test_runner::TestRunner;
++
++    /// A verbatim copy of `version/tests.rs`'s private `stream_rank`, the
++    /// generator behind the committed `RANK_TRIPLE` law driver.
++    fn stream_rank(next: &mut impl FnMut() -> u64) -> Rank {
++        let limbs = match next() % 8 {
++            0..=3 => 1,
++            4..=5 => 1 + (next() % 4) as usize,
++            6 => 8 + (next() % 8) as usize,
++            _ => 64 + (next() % 200) as usize,
++        };
++        let mut words: Vec<u64> = (0..limbs)
++            .map(|_| match next() % 4 {
++                0 => u64::MAX,
++                1 => 0,
++                _ => next(),
++            })
++            .collect();
++        if let Some(top) = words.last_mut() {
++            if *top == 0 {
++                *top = 1;
++            }
++        }
++        words[0] |= 1;
++        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
++        let num = BigUint::from_bytes_le(&bytes);
++        let exp = next() % 100_000;
++        Rank::from_raw(num, exp)
++    }
++
++    /// Tallies of one generator's rank pairs.
++    #[derive(Default)]
++    struct Tally {
++        ranks: u64,
++        pairs: u64,
++        zero: u64,
++        integral_nonzero: u64,
++        even_integral: u64,
++        word_edge: u64,
++        equal_pairs: u64,
++        same_exp_pairs: u64,
++        exp: Vec<u64>,
++        bits: Vec<u64>,
++        text: Vec<u64>,
++    }
++
++    /// Numerator widths one bit either side of a 32-bit digit or 64-bit limb
++    /// boundary, up to 257 bits.
++    fn at_word_edge(bits: u64) -> bool {
++        bits > 0 && bits <= 257 && matches!(bits % 32, 0 | 1 | 31)
++    }
++
++    impl Tally {
++        fn rank(&mut self, r: &Rank) {
++            let (num, exp) = r.raw_parts();
++            self.ranks += 1;
++            self.zero += u64::from(*num == BigUint::ZERO);
++            let integral = exp == 0 && *num != BigUint::ZERO;
++            self.integral_nonzero += u64::from(integral);
++            self.even_integral += u64::from(integral && !num.bit(0));
++            self.word_edge += u64::from(at_word_edge(num.bits()));
++            self.exp.push(exp);
++            self.bits.push(num.bits());
++            let integer_len = num.bits().saturating_sub(exp).max(1);
++            self.text
++                .push(integer_len + if exp == 0 { 0 } else { exp + 1 });
++        }
++
++        fn pair(&mut self, a: &Rank, b: &Rank) {
++            self.rank(a);
++            self.rank(b);
++            self.pairs += 1;
++            self.equal_pairs += u64::from(a == b);
++            self.same_exp_pairs += u64::from(a.raw_parts().1 == b.raw_parts().1);
++        }
++
++        fn report(&mut self, name: &str) {
++            let of_ranks = |x: u64| 100.0 * x as f64 / self.ranks.max(1) as f64;
++            let of_pairs = |x: u64| 100.0 * x as f64 / self.pairs.max(1) as f64;
++            eprintln!(
++                "RCENSUS {name}: ranks {} zero {:.2}% integral-nonzero {:.2}% even-integral {:.2}% word-edge-width {:.2}%",
++                self.ranks,
++                of_ranks(self.zero),
++                of_ranks(self.integral_nonzero),
++                of_ranks(self.even_integral),
++                of_ranks(self.word_edge),
++            );
++            eprintln!(
++                "RCENSUS {name}: pairs {} equal-value {:.2}% same-exponent {:.2}%",
++                self.pairs,
++                of_pairs(self.equal_pairs),
++                of_pairs(self.same_exp_pairs),
++            );
++            for (label, values) in [
++                ("exponent", &mut self.exp),
++                ("numerator-bits", &mut self.bits),
++                ("text-chars", &mut self.text),
++            ] {
++                values.sort_unstable();
++                let at = |q: usize| values[(values.len() - 1) * q / 100];
++                eprintln!(
++                    "RCENSUS {name}: {label} min {} p50 {} p90 {} p99 {} max {}",
++                    values[0],
++                    at(50),
++                    at(90),
++                    at(99),
++                    values[values.len() - 1]
++                );
++            }
++        }
++    }
++
++    const PAIRS: usize = 20_000;
++
++    /// The L4 related-pair generator, after the parse route it tests.
++    #[test]
++    fn rescue_census_l4_rank_pairs() {
++        let mut runner = TestRunner::deterministic();
++        let strat = arb_q().prop_flat_map(arb_related_q);
++        let mut tally = Tally::default();
++        for _ in 0..PAIRS {
++            let (qa, qb) = strat.new_tree(&mut runner).unwrap().current();
++            tally.pair(&qa.rank(), &qb.rank());
++        }
++        tally.report("l4-arb_q+arb_related_q");
++    }
++
++    /// The committed law driver: independent seeded ranks, taken in pairs.
++    #[test]
++    fn rescue_census_committed_seeded_rank_pairs() {
++        let mut next = crate::testing::rng::word_stream(0x5EED_CE45_0000_0001);
++        let mut tally = Tally::default();
++        for _ in 0..PAIRS {
++            let a = stream_rank(&mut next);
++            let b = stream_rank(&mut next);
++            tally.pair(&a, &b);
++        }
++        tally.report("committed-stream_rank-pairs");
++    }
++}

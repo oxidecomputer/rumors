@@ -1,0 +1,127 @@
+diff --git a/crates/before/src/version/tick.rs b/crates/before/src/version/tick.rs
+index 0418de52..0a5f855e 100644
+--- a/crates/before/src/version/tick.rs
++++ b/crates/before/src/version/tick.rs
+@@ -53,6 +53,12 @@ use crate::Version;
+ 
+ mod frames;
+ mod memo;
++
++/// Reviewer experiment switch (temporary).
++pub(crate) fn review_mut(n: u32) -> bool {
++    static M: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
++    *M.get_or_init(|| std::env::var("REVIEW_MUT").ok().and_then(|s| s.parse().ok()).unwrap_or(0)) == n
++}
+ mod output;
+ mod prescan;
+ mod probe;
+@@ -526,7 +532,7 @@ impl TickWalk<'_> {
+                     arm_offset += &link;
+                     drop(link);
+                 }
+-                if self.minima.compare_above_vs(above, &arm_offset) == Ordering::Less {
++                if { let o = self.minima.compare_above_vs(above, &arm_offset); o == Ordering::Less || (review_mut(6) && o == Ordering::Equal) } {
+                     // The memoized minimum dominates the old maximum.
+                     self.minima.arm_relative(arm_offset);
+                     self.emit_at_min(depth + 1);
+@@ -619,7 +625,7 @@ impl TickWalk<'_> {
+         if !outermost {
+             // The new zero relation is against the true minimum, so make the
+             // anchor exact before storing it.
+-            self.minima.resolve_deferred();
++            if !review_mut(8) { self.minima.resolve_deferred(); }
+             let zero = Accumulator::new();
+             self.minima.follower_set(REL_FOLLOWER, zero);
+             self.memo_reference = MemoReference::Min;
+diff --git a/crates/before/src/version/tick/memo.rs b/crates/before/src/version/tick/memo.rs
+index fdf29e04..0fda7e43 100644
+--- a/crates/before/src/version/tick/memo.rs
++++ b/crates/before/src/version/tick/memo.rs
+@@ -123,7 +123,10 @@ impl Memo {
+             self.recorded_check, self.consumed_check,
+             "the walk consumed the recorded lookaheads in order"
+         );
+-        for block in &mut self.blocks[..self.len.div_ceil(BLOCK_SLOTS)] {
++        let used = self.len.div_ceil(BLOCK_SLOTS);
++        let end = if super::review_mut(15) { used.min(1) } else { used };
++        let start = if super::review_mut(21) { used.saturating_sub(1) } else { 0 };
++        for block in &mut self.blocks[start..end] {
+             block.clear();
+         }
+         self.len = 0;
+diff --git a/crates/before/src/version/tick/memo/tests.rs b/crates/before/src/version/tick/memo/tests.rs
+index 63421ebf..1ff3c067 100644
+--- a/crates/before/src/version/tick/memo/tests.rs
++++ b/crates/before/src/version/tick/memo/tests.rs
+@@ -1,7 +1,9 @@
+ //! Checks that memo slots return the values stored in them, across block
+ //! boundaries and out of insertion order.
+ 
+-use super::{Memo, StoredAccumulator};
++use proptest::prelude::*;
++
++use super::{Memo, StoredAccumulator, BLOCK_SLOTS};
+ 
+ /// Values inserted nonsequentially at both edges of three memo blocks are
+ /// read back from those same six slots.
+@@ -26,3 +28,47 @@ fn selected_out_of_order_values_cross_block_boundaries() {
+         assert_eq!(actual, expected, "slot {slot}");
+     }
+ }
++
++/// One pre-scan's memo traffic: every reserved slot's difference (zero for a
++/// slot the scan leaves unset), and the order in which the scan writes them.
++fn arb_scan() -> impl Strategy<Value = (Vec<i64>, Vec<usize>)> {
++    (0..3 * BLOCK_SLOTS).prop_flat_map(|len| {
++        (
++            proptest::collection::vec(prop_oneof![Just(0i64), -4i64..=4], len),
++            Just((0..len).collect::<Vec<_>>()).prop_shuffle(),
++        )
++    })
++}
++
++proptest! {
++    /// Across consecutive pre-scans sharing one memo, every slot reads back
++    /// exactly the difference its own scan wrote, in any write order: a block
++    /// an earlier, longer scan filled carries nothing into a later scan.
++    #[test]
++    fn consecutive_scans_read_back_only_their_own_differences(
++        scans in proptest::collection::vec(arb_scan(), 1..5),
++    ) {
++        let mut memo = Memo::new();
++        for (differences, order) in scans {
++            memo.begin_scan();
++            for _ in &differences {
++                memo.reserve();
++            }
++            for &slot in &order {
++                if differences[slot] != 0 {
++                    memo.set_link(slot, StoredAccumulator::Small(differences[slot]));
++                }
++            }
++            for (slot, &expected) in differences.iter().enumerate() {
++                // An absent link and a stored zero both mean "no difference".
++                let actual = match memo.take_link(slot) {
++                    None => 0,
++                    Some(StoredAccumulator::Small(value)) => value,
++                    Some(StoredAccumulator::Wide(_)) => panic!("the fixture stores only machine words"),
++                };
++                prop_assert_eq!(actual, expected, "slot {}", slot);
++            }
++            memo.cursor = differences.len();
++        }
++    }
++}
+diff --git a/crates/before/src/version/tick/prescan.rs b/crates/before/src/version/tick/prescan.rs
+index 892feec0..b61670fb 100644
+--- a/crates/before/src/version/tick/prescan.rs
++++ b/crates/before/src/version/tick/prescan.rs
+@@ -143,7 +143,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
+                     if branch.has_left_child() {
+                         party.skip();
+                     }
+-                    if branch.has_right_child() {
++                    if branch.has_right_child() && !(super::review_mut(22) && branch.has_left_child()) {
+                         party.skip();
+                     }
+                     break;

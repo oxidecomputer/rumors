@@ -1,0 +1,92 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+var := "default"
+
+leg-a:
+    echo "leg-a var={{ var }} pwd=$PWD just=$(command -v just) env=[$(env | grep -i '^just' | tr '\n' ' ')]"; exit ${A_FAIL:-0}
+
+leg-b:
+    echo "leg-b var={{ var }} pwd=$PWD"; exit ${B_FAIL:-0}
+
+old: leg-a leg-b
+
+new:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    failed=""
+    just leg-a || failed="$failed leg-a"
+    just leg-b || failed="$failed leg-b"
+    if [ -n "$failed" ]; then
+        echo "board: FAILED:$failed"
+        exit 1
+    fi
+
+ci: old after
+ci-new: new after
+
+after:
+    echo after-ran
+
+slow-a:
+    sleep 3
+
+slow-b:
+    echo SLOW-B-RAN
+
+old-s: slow-a slow-b
+
+new-s:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    failed=""
+    just slow-a || failed="$failed slow-a"
+    just slow-b || failed="$failed slow-b"
+    if [ -n "$failed" ]; then
+        echo "board: FAILED:$failed"
+        exit 1
+    fi
+
+new-s-trap:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    trap 'exit 130' INT
+    failed=""
+    just slow-a || failed="$failed slow-a"
+    just slow-b || failed="$failed slow-b"
+    if [ -n "$failed" ]; then
+        echo "board: FAILED:$failed"
+        exit 1
+    fi
+
+gate-sim recipe:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    cd "{{ justfile_directory() }}"
+    run_stream() { if nice -n 10 just "$1"; then echo ok > ../stream.status; else echo failed > ../stream.status; fi; }
+    run_stream "{{ recipe }}" > ../stream.log 2>&1 &
+    wait
+
+new-s-trap2:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    failed=""
+    just slow-a || failed="$failed slow-a"
+    just slow-b || failed="$failed slow-b"
+    if [ -n "$failed" ]; then
+        echo "board: FAILED:$failed"
+        exit 1
+    fi
+
+new-trap:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    trap 'exit 130' INT
+    failed=""
+    just leg-a || failed="$failed leg-a"
+    just leg-b || failed="$failed leg-b"
+    if [ -n "$failed" ]; then
+        echo "board: FAILED:$failed"
+        exit 1
+    fi

@@ -1,0 +1,368 @@
+//! TEMPORARY investigative probes (never committed).
+
+use super::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::{Config, RngAlgorithm, TestRng, TestRunner};
+
+/// (touches, work, max utilization over prefixes, max touches/work over prefixes with work >= 50)
+fn profile(program: &[Step]) -> (u64, u64, f64, f64) {
+    let mut pool: [Accumulator; POOL] = Default::default();
+    let mut work = 0;
+    let (mut util, mut ratio) = (0f64, 0f64);
+    touch_meter::reset();
+    for step in program {
+        let before = widths(&pool);
+        step.apply(&mut pool);
+        work += step.work(&before, &widths(&pool));
+        let touches = touch_meter::touches();
+        util = util.max(touches as f64 / (TOUCHES_PER_UNIT * work + ALLOWANCE) as f64);
+        if work >= 50 {
+            ratio = ratio.max(touches as f64 / work as f64);
+        }
+    }
+    (touch_meter::touches(), work, util, ratio)
+}
+
+fn env(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
+}
+
+#[test]
+#[ignore]
+fn probe_random() {
+    let cases = env("PROBE_CASES", 2_000);
+    let seed = env("PROBE_SEED", 0);
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::from_seed(RngAlgorithm::ChaCha, &[seed as u8; 32]),
+    );
+    let strategy = arb_program();
+    let (mut best_util, mut best_ratio) = (0f64, 0f64);
+    let mut ratios = Vec::new();
+    for _ in 0..cases {
+        let program = strategy.new_tree(&mut runner).unwrap().current();
+        let (t, w, util, ratio) = profile(&program);
+        ratios.push(t as f64 / w as f64);
+        if util > best_util {
+            best_util = util;
+            eprintln!("UTIL {util:.4} total {t}/{w} len {}", program.len());
+        }
+        if ratio > best_ratio {
+            best_ratio = ratio;
+            eprintln!("RATIO {ratio:.4} total {t}/{w} len {}", program.len());
+        }
+    }
+    ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q = |p: f64| ratios[((ratios.len() - 1) as f64 * p) as usize];
+    eprintln!(
+        "SUMMARY cases {cases} seed {seed}: max util {best_util:.4}, max prefix ratio(work>=50) {best_ratio:.4}, total-ratio quantiles p50 {:.3} p90 {:.3} p99 {:.3} max {:.3}",
+        q(0.5), q(0.9), q(0.99), q(1.0)
+    );
+}
+
+fn report(name: &str, program: &[Step]) {
+    let (t, w, util, _) = profile(program);
+    eprintln!(
+        "FAMILY {name}: touches {t} work {w} ratio {:.4} max-util {util:.4}",
+        t as f64 / w as f64
+    );
+}
+
+fn limbs(target: usize, subtract: bool, shift: u64, limbs: Vec<u64>) -> Step {
+    Step::Limbs {
+        target,
+        subtract,
+        shift,
+        limbs,
+    }
+}
+
+#[test]
+#[ignore]
+fn probe_families() {
+    // F1: comparison fixed point at 2 * 2^2048.
+    for n in [100usize, 1_000] {
+        let mut p = vec![limbs(0, false, 2048, vec![2])];
+        p.extend((0..n).map(|_| Step::CmpZero { target: 0 }));
+        report(&format!("F1 cmp fixed point n={n}"), &p);
+    }
+    // F2: stream subtraction leaving a long cancellation, then one scan.
+    for (b, l) in [(0u64, 6usize), (31, 6), (31, 2), (1, 6), (17, 6)] {
+        for m in [10u64, 100] {
+            let top = 64 * l as u64 * m + b;
+            let mut p = vec![limbs(0, false, top, vec![1])];
+            for i in 0..m {
+                p.push(limbs(0, true, 64 * l as u64 * i + b, vec![u64::MAX; l]));
+            }
+            p.push(Step::CmpZero { target: 0 });
+            report(&format!("F2 stream-scan b={b} L={l} m={m}"), &p);
+        }
+    }
+    // F2': same but descending order of streams (high first).
+    for (b, l) in [(31u64, 6usize), (0, 6)] {
+        let m = 100u64;
+        let top = 64 * l as u64 * m + b;
+        let mut p = vec![limbs(0, false, top, vec![1])];
+        for i in (0..m).rev() {
+            p.push(limbs(0, true, 64 * l as u64 * i + b, vec![u64::MAX; l]));
+        }
+        p.push(Step::CmpZero { target: 0 });
+        report(&format!("F2' desc stream-scan b={b} L={l} m={m}"), &p);
+    }
+    // F3: loaded ripple: two all-ones adds load digits, a word ripples through.
+    for m in [10u64, 100] {
+        let l = 6usize;
+        let mut p = vec![];
+        for i in 0..m {
+            p.push(limbs(0, false, 64 * l as u64 * i, vec![u64::MAX; l]));
+        }
+        for i in 0..m {
+            p.push(limbs(0, false, 64 * l as u64 * i, vec![u64::MAX; l]));
+        }
+        p.push(Step::Primitive {
+            target: 0,
+            subtract: false,
+            value: Primitive::U64(2),
+        });
+        p.push(Step::CmpZero { target: 0 });
+        report(&format!("F3 load-ripple m={m}"), &p);
+        // Ripple then cancel ripple repeatedly.
+        let mut q = p.clone();
+        for _ in 0..50 {
+            q.push(Step::Primitive {
+                target: 0,
+                subtract: true,
+                value: Primitive::U64(2),
+            });
+            q.push(Step::Primitive {
+                target: 0,
+                subtract: false,
+                value: Primitive::U64(2),
+            });
+        }
+        report(&format!("F3' ripple-oscillate m={m}"), &q);
+    }
+    // F4: activation churn via owned take.
+    {
+        let mut p = vec![limbs(0, false, 4096, vec![1])];
+        for _ in 0..200 {
+            p.push(Step::Primitive {
+                target: 1,
+                subtract: false,
+                value: Primitive::I128(i128::MAX),
+            });
+            p.push(Step::Accumulator {
+                target: 0,
+                operand: 1,
+                subtract: false,
+                form: OperandForm::OwnedTake,
+            });
+        }
+        report("F4 take churn i128", &p);
+        let mut p = vec![limbs(0, false, 4096, vec![1])];
+        for _ in 0..200 {
+            p.push(Step::Primitive {
+                target: 1,
+                subtract: false,
+                value: Primitive::U64(u64::MAX),
+            });
+            p.push(Step::Primitive {
+                target: 1,
+                subtract: false,
+                value: Primitive::I128(1 << 96),
+            });
+            p.push(Step::Accumulator {
+                target: 0,
+                operand: 1,
+                subtract: false,
+                form: OperandForm::OwnedTake,
+            });
+        }
+        report("F4' take churn u64+2^96", &p);
+        let mut p = vec![];
+        for _ in 0..200 {
+            p.push(Step::Primitive {
+                target: 1,
+                subtract: false,
+                value: Primitive::I128(i128::MAX),
+            });
+            p.push(Step::Reset { target: 1 });
+        }
+        report("F4'' reset churn", &p);
+        // small -> digits via word on a value parked at 2^96.
+        let mut p = vec![];
+        for _ in 0..200 {
+            p.push(Step::Primitive {
+                target: 1,
+                subtract: false,
+                value: Primitive::I128(1 << 96),
+            });
+            p.push(Step::Primitive {
+                target: 1,
+                subtract: false,
+                value: Primitive::U64(u64::MAX),
+            });
+            p.push(Step::Reset { target: 1 });
+        }
+        report("F4''' word activation churn", &p);
+    }
+    // F5: gap stop repeatedly: 2 * 2^(32 top) with small low value, alternate.
+    {
+        let mut p = vec![Step::Primitive {
+            target: 0,
+            subtract: false,
+            value: Primitive::U64(5),
+        }];
+        p.push(limbs(0, false, 32 * 1000, vec![2]));
+        for _ in 0..200 {
+            p.push(Step::CmpZero { target: 0 });
+        }
+        report("F5 gap stop then fixed point", &p);
+    }
+    // F6: clone duplication: build cancellation in 0, clone into 1 and scan both, repeatedly.
+    {
+        let l = 6usize;
+        let m = 20u64;
+        let top = 64 * l as u64 * m;
+        let mut p = vec![limbs(0, false, top, vec![1])];
+        for i in 0..m {
+            p.push(limbs(0, true, 64 * l as u64 * i, vec![u64::MAX; l]));
+        }
+        for _ in 0..20 {
+            p.push(Step::Accumulator {
+                target: 1,
+                operand: 0,
+                subtract: false,
+                form: OperandForm::OwnedClone,
+            });
+            p.push(Step::CmpZero { target: 1 });
+            p.push(Step::Reset { target: 1 });
+        }
+        report("F6 clone-and-scan", &p);
+    }
+    // F7: normalize churn.
+    {
+        let mut p = vec![limbs(0, false, 64, vec![u64::MAX, u64::MAX])];
+        for _ in 0..200 {
+            p.push(Step::Primitive {
+                target: 0,
+                subtract: false,
+                value: Primitive::U64(u64::MAX),
+            });
+            p.push(Step::Normalize { target: 0 });
+        }
+        report("F7 normalize churn", &p);
+    }
+}
+
+fn mutate(
+    runner: &mut TestRunner,
+    kinds: &proptest::strategy::Union<BoxedStrategy<Step>>,
+    program: &mut Vec<Step>,
+) {
+    use proptest::prelude::RngCore;
+    let r = runner.rng().next_u32() as usize;
+    let len = program.len();
+    let fresh = |runner: &mut TestRunner| kinds.new_tree(runner).unwrap().current();
+    match r % 5 {
+        0 if len > 0 => program[r / 5 % len] = fresh(runner),
+        1 if len < 400 => program.insert(r / 5 % (len + 1), fresh(runner)),
+        2 if len > 1 => {
+            program.remove(r / 5 % len);
+        }
+        3 if len > 0 && len < 300 => {
+            let start = r / 5 % len;
+            let end = (start + 1 + (r / 7) % 8).min(len);
+            let segment: Vec<Step> = program[start..end].to_vec();
+            for _ in 0..1 + (r / 11) % 8 {
+                program.splice(end..end, segment.iter().cloned());
+            }
+        }
+        _ if len > 0 => program[r / 5 % len] = fresh(runner),
+        _ => program.push(fresh(runner)),
+    }
+}
+
+#[test]
+#[ignore]
+fn probe_adversary() {
+    let iterations = env("PROBE_ITERS", 2_000);
+    let seeds = env("PROBE_SEEDS", 4);
+    for seed in 0..seeds {
+        let mut runner = TestRunner::new_with_rng(
+            Config::default(),
+            TestRng::from_seed(RngAlgorithm::ChaCha, &[seed as u8 + 100; 32]),
+        );
+        let kinds = proptest::strategy::Union::new(step_kinds());
+        let mut best: Vec<Step> = (0..60)
+            .map(|_| kinds.new_tree(&mut runner).unwrap().current())
+            .collect();
+        // Fitness: asymptotic ratio, with D removed so constants cannot dominate.
+        let fitness = |p: &[Step]| {
+            let (t, w, util, _) = profile(p);
+            (t.saturating_sub(ALLOWANCE) as f64 / w as f64, util)
+        };
+        let (mut best_fit, mut best_util) = fitness(&best);
+        for _ in 0..iterations {
+            let mut candidate = best.clone();
+            mutate(&mut runner, &kinds, &mut candidate);
+            let (fit, util) = fitness(&candidate);
+            best_util = best_util.max(util);
+            if fit >= best_fit {
+                best_fit = fit;
+                best = candidate;
+            }
+        }
+        eprintln!("ADVERSARY seed {seed}: best (t-D)/w {best_fit:.4}, max util seen {best_util:.4}, len {}", best.len());
+        if std::env::var("PROBE_DUMP").is_ok() {
+            eprintln!("ADVERSARY program seed {seed}: {best:?}");
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn probe_detection() {
+    let cases = env("PROBE_CASES", 2_000);
+    let mut runner = TestRunner::new_with_rng(
+        Config::default(),
+        TestRng::from_seed(RngAlgorithm::ChaCha, &[7u8; 32]),
+    );
+    let strategy = arb_program();
+    let mut failing = 0u64;
+    for _ in 0..cases {
+        let program = strategy.new_tree(&mut runner).unwrap().current();
+        if check_program(&program).is_err() {
+            failing += 1;
+        }
+    }
+    eprintln!(
+        "DETECTION {failing}/{cases} = {:.4}",
+        failing as f64 / cases as f64
+    );
+}
+
+#[test]
+#[ignore]
+fn probe_long_streams() {
+    for (b, l, m) in [
+        (31u64, 64usize, 20u64),
+        (31, 6, 1000),
+        (0, 64, 20),
+        (16, 64, 20),
+    ] {
+        let top = 64 * l as u64 * m + b;
+        let mut p = vec![limbs(0, false, top, vec![1])];
+        for i in (0..m).rev() {
+            p.push(limbs(0, true, 64 * l as u64 * i + b, vec![u64::MAX; l]));
+        }
+        p.push(Step::CmpZero { target: 0 });
+        report(&format!("LONG desc stream-scan b={b} L={l} m={m}"), &p);
+        // Per limb: total touches over total limbs.
+        let (t, _, _, _) = profile(&p);
+        eprintln!("LONG per-limb {:.4}", t as f64 / (l as u64 * m) as f64);
+    }
+}

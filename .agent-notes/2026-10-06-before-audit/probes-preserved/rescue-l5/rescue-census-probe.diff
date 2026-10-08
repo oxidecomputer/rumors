@@ -1,0 +1,596 @@
+diff --git a/crates/before/src/testing/audit_l5.rs b/crates/before/src/testing/audit_l5.rs
+index 11d17d7f9..21355183f 100644
+--- a/crates/before/src/testing/audit_l5.rs
++++ b/crates/before/src/testing/audit_l5.rs
+@@ -2170,3 +2170,591 @@ fn l5_refine_partial_scan_cost() {
+         );
+     }
+ }
++
++// ───────────── rescue census (scratch measurement; never committed) ─────────────
++
++/// One per-bound demand, in vector terms.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum RescueDm {
++    After,
++    Before,
++    NotBefore,
++    NotStrictlyBefore,
++    NotAfter,
++    NotStrictlyAfter,
++}
++
++fn rescue_n_dm(c: &NClause, vs: &[Vect]) -> Vec<(Vect, RescueDm)> {
++    let at = |i: usize| vs[i % vs.len()].clone();
++    match *c {
++        NClause::After(i) => vec![(at(i), RescueDm::After)],
++        NClause::Before(i) => vec![(at(i), RescueDm::Before)],
++    }
++}
++
++fn rescue_d_dm(c: &DClause, vs: &[Vect]) -> Vec<(Vect, RescueDm)> {
++    let at = |i: usize| vs[i % vs.len()].clone();
++    match *c {
++        DClause::N(n) => rescue_n_dm(&n, vs),
++        DClause::Since(i) | DClause::NotBefore(i) => vec![(at(i), RescueDm::NotBefore)],
++        DClause::StrictlyAfter(i) => vec![(at(i), RescueDm::After), (at(i), RescueDm::NotBefore)],
++        DClause::AfterOrConc(i) => vec![(at(i), RescueDm::NotStrictlyBefore)],
++        DClause::Delta(i, j) => vec![(at(i), RescueDm::NotBefore), (at(j), RescueDm::Before)],
++    }
++}
++
++fn rescue_u_dm(c: &UClause, vs: &[Vect]) -> Vec<(Vect, RescueDm)> {
++    let at = |i: usize| vs[i % vs.len()].clone();
++    match *c {
++        UClause::N(n) => rescue_n_dm(&n, vs),
++        UClause::Until(i) | UClause::NotAfter(i) => vec![(at(i), RescueDm::NotAfter)],
++        UClause::StrictlyBefore(i) => vec![(at(i), RescueDm::Before), (at(i), RescueDm::NotAfter)],
++        UClause::BeforeOrConc(i) => vec![(at(i), RescueDm::NotStrictlyAfter)],
++        UClause::Toward(i, j) => vec![(at(i), RescueDm::After), (at(j), RescueDm::NotAfter)],
++    }
++}
++
++/// The endpoint fold: floors joined, ceilings met, then each bound's
++/// segment-emptying and segment-filling conditions read at the endpoints.
++fn rescue_endpoint_fold(lo: &Vect, hi: &Vect, dms: &[(Vect, RescueDm)]) -> Coverage {
++    let mut floor: Option<Vect> = None;
++    let mut ceil: Option<Vect> = None;
++    let mut holes: Vec<(Vect, RescueDm)> = Vec::new();
++    for (b, d) in dms {
++        match d {
++            RescueDm::After => {
++                floor = Some(match floor {
++                    Some(f) => vjoin(&f, b),
++                    None => b.clone(),
++                })
++            }
++            RescueDm::Before => {
++                ceil = Some(match ceil {
++                    Some(c) => vmeet(&c, b),
++                    None => b.clone(),
++                })
++            }
++            _ => holes.push((b.clone(), *d)),
++        }
++    }
++    let mut full = true;
++    if let Some(f) = &floor {
++        if !vle(f, hi) {
++            return Coverage::Empty;
++        }
++        full &= vle(f, lo);
++    }
++    if let Some(c) = &ceil {
++        if !vle(lo, c) {
++            return Coverage::Empty;
++        }
++        full &= vle(hi, c);
++    }
++    for (b, d) in &holes {
++        let (empties, all) = match d {
++            RescueDm::NotBefore => (vle(hi, b), !vle(lo, b)),
++            RescueDm::NotStrictlyBefore => (vlt(hi, b), !vlt(lo, b)),
++            RescueDm::NotAfter => (vle(b, lo), !vle(b, hi)),
++            RescueDm::NotStrictlyAfter => (vlt(b, lo), !vlt(b, hi)),
++            _ => unreachable!(),
++        };
++        if empties {
++            return Coverage::Empty;
++        }
++        full &= all;
++    }
++    if full {
++        Coverage::Full
++    } else {
++        Coverage::Partial
++    }
++}
++
++/// The number of distinct extremal hole bounds: maximal down-holes or
++/// minimal up-holes, whichever is larger.
++fn rescue_antichain(dms: &[(Vect, RescueDm)]) -> usize {
++    let pick = |up: bool| -> usize {
++        let mut hs: Vec<&Vect> = Vec::new();
++        for (b, d) in dms {
++            let is_up = matches!(d, RescueDm::NotAfter | RescueDm::NotStrictlyAfter);
++            let is_down = matches!(d, RescueDm::NotBefore | RescueDm::NotStrictlyBefore);
++            if (up && is_up) || (!up && is_down) {
++                if !hs.iter().any(|h| *h == b) {
++                    hs.push(b);
++                }
++            }
++        }
++        hs.iter()
++            .filter(|h| !hs.iter().any(|o| if up { vlt(o, h) } else { vlt(h, o) }))
++            .count()
++    };
++    pick(false).max(pick(true))
++}
++
++fn rescue_wide(lo: &Vect, hi: &Vect, bounds: &[Vect]) -> bool {
++    let w = BigUint::from(1u8) << 64u32;
++    let big = |v: &Vect| v.iter().any(|x| *x >= w);
++    big(lo) || big(hi) || bounds.iter().any(big)
++}
++
++/// Classify one exact-coverage check.
++fn rescue_check(
++    pop: &str,
++    pol: &str,
++    lo: &Vect,
++    hi: &Vect,
++    bounds: &[Vect],
++    dms: &[(Vect, RescueDm)],
++    adm: &dyn Fn(&[BigUint]) -> bool,
++    depth: u32,
++) {
++    let Some(want) = census(lo, hi, bounds, adm, 20_000) else {
++        stat(format!("RC {pop} {pol} census-skip"));
++        return;
++    };
++    let fold = rescue_endpoint_fold(lo, hi, dms);
++    stat(format!("RC {pop} {pol} checks"));
++    stat(format!("RC {pop} {pol} census={want:?}"));
++    let mismatch = (fold == Coverage::Empty && want != Coverage::Empty)
++        || (fold == Coverage::Full && want != Coverage::Full)
++        || (want == Coverage::Full && fold != Coverage::Full);
++    if mismatch {
++        stat(format!(
++            "RC {pop} {pol} MISMATCH census={want:?} fold={fold:?}"
++        ));
++    }
++    if want == Coverage::Empty && fold == Coverage::Partial {
++        stat(format!("RC {pop} {pol} refine"));
++        let holes = rescue_antichain(dms);
++        stat(format!("RC {pop} {pol} refine antichain={}", holes.min(5)));
++        if holes >= 2 {
++            stat(format!("RC {pop} {pol} refine antichain>=2"));
++        }
++        if depth >= 5 {
++            stat(format!("RC {pop} {pol} refine depth>=5"));
++        }
++        if rescue_wide(lo, hi, bounds) {
++            stat(format!("RC {pop} {pol} refine wide"));
++        }
++    }
++}
++
++fn rescue_queries(
++    pop: &str,
++    world: World,
++    nclauses: Vec<NClause>,
++    dclauses: Vec<DClause>,
++    uclauses: Vec<UClause>,
++    shape: u64,
++) {
++    let alphabet = world.alphabet();
++    let pool = extended(&world.vects(), &alphabet);
++    let depth = world.depth;
++    let mut dclauses = dclauses;
++    if dclauses.iter().all(|c| matches!(c, DClause::N(_))) {
++        dclauses.push(DClause::Since(shape as usize));
++    }
++    let mut uclauses = uclauses;
++    if uclauses.iter().all(|c| matches!(c, UClause::N(_))) {
++        uclauses.push(UClause::Until(shape as usize));
++    }
++    let nadm = |v: &[BigUint]| nclauses.iter().all(|c| c.admits(v, &pool));
++    let dadm = |v: &[BigUint]| dclauses.iter().all(|c| c.admits(v, &pool));
++    let uadm = |v: &[BigUint]| uclauses.iter().all(|c| c.admits(v, &pool));
++    let nb: Vec<Vect> = nclauses.iter().flat_map(|c| c.bounds(&pool)).collect();
++    let db: Vec<Vect> = dclauses.iter().flat_map(|c| c.bounds(&pool)).collect();
++    let ub: Vec<Vect> = uclauses.iter().flat_map(|c| c.bounds(&pool)).collect();
++    let nd: Vec<(Vect, RescueDm)> = nclauses
++        .iter()
++        .flat_map(|c| rescue_n_dm(c, &pool))
++        .collect();
++    let dd: Vec<(Vect, RescueDm)> = dclauses
++        .iter()
++        .flat_map(|c| rescue_d_dm(c, &pool))
++        .collect();
++    let ud: Vec<(Vect, RescueDm)> = uclauses
++        .iter()
++        .flat_map(|c| rescue_u_dm(c, &pool))
++        .collect();
++    stat(format!("RC {pop} cases"));
++    for (i, j) in span_pairs(&pool) {
++        let (lo, hi) = (&pool[i], &pool[j]);
++        rescue_check(pop, "neutral", lo, hi, &nb, &nd, &nadm, depth);
++        rescue_check(pop, "down", lo, hi, &db, &dd, &dadm, depth);
++        rescue_check(pop, "up", lo, hi, &ub, &ud, &uadm, depth);
++    }
++}
++
++fn rescue_antichains(
++    pop: &str,
++    world: World,
++    hole_picks: Vec<(usize, bool)>,
++    bounds: Vec<NClause>,
++) {
++    let alphabet = world.alphabet();
++    let depth = world.depth;
++    let (pool, ups, downs) = with_bumps(&world.vects(), &alphabet);
++    let mut dclauses: Vec<DClause> = Vec::new();
++    let mut uclauses: Vec<UClause> = Vec::new();
++    for &(k, strict) in &hole_picks {
++        let src = if k % 2 == 0 { &ups } else { &downs };
++        if src.is_empty() {
++            continue;
++        }
++        let at = src[(k / 2) % src.len()];
++        dclauses.push(if strict {
++            DClause::AfterOrConc(at)
++        } else {
++            DClause::Since(at)
++        });
++        uclauses.push(if strict {
++            UClause::BeforeOrConc(at)
++        } else {
++            UClause::Until(at)
++        });
++    }
++    if dclauses.is_empty() {
++        stat(format!("RC {pop} empty-case"));
++        return;
++    }
++    for b in &bounds {
++        dclauses.push(DClause::N(*b));
++        uclauses.push(UClause::N(*b));
++    }
++    let dadm = |v: &[BigUint]| dclauses.iter().all(|c| c.admits(v, &pool));
++    let uadm = |v: &[BigUint]| uclauses.iter().all(|c| c.admits(v, &pool));
++    let db: Vec<Vect> = dclauses.iter().flat_map(|c| c.bounds(&pool)).collect();
++    let ub: Vec<Vect> = uclauses.iter().flat_map(|c| c.bounds(&pool)).collect();
++    let dd: Vec<(Vect, RescueDm)> = dclauses
++        .iter()
++        .flat_map(|c| rescue_d_dm(c, &pool))
++        .collect();
++    let ud: Vec<(Vect, RescueDm)> = uclauses
++        .iter()
++        .flat_map(|c| rescue_u_dm(c, &pool))
++        .collect();
++    stat(format!("RC {pop} cases"));
++    for (i, j) in span_pairs(&pool) {
++        let (lo, hi) = (&pool[i], &pool[j]);
++        rescue_check(pop, "down", lo, hi, &db, &dd, &dadm, depth);
++        rescue_check(pop, "up", lo, hi, &ub, &ud, &uadm, depth);
++    }
++}
++
++/// The committed two-party grid in vector form: cell 0 is one party's
++/// height, cell 1 the other's, each 0..=2.
++fn rescue_grid() -> Vec<Vect> {
++    (0..3u32)
++        .flat_map(|a| (0..3u32).map(move |b| vec![BigUint::from(a), BigUint::from(b)]))
++        .collect()
++}
++
++/// `coverage_is_exact_on_the_two_party_grid`'s family, transcribed; with
++/// `extended`, #61's added queries too.
++fn rescue_committed_grid(pop: &str, extended_family: bool) {
++    let grid = rescue_grid();
++    // Index a * 3 + b: a1 = (1, 0) = 3, b1 = (0, 1) = 1, a1b1 = (1, 1) = 4.
++    let anchors = [3usize, 1, 4];
++    let mut neutral: Vec<Vec<NClause>> = vec![vec![]];
++    let mut down: Vec<Vec<DClause>> = Vec::new();
++    let mut up: Vec<Vec<UClause>> = Vec::new();
++    for &x in &anchors {
++        neutral.push(vec![NClause::After(x)]);
++        neutral.push(vec![NClause::Before(x)]);
++        down.push(vec![DClause::Since(x)]);
++        down.push(vec![DClause::StrictlyAfter(x)]);
++        down.push(vec![DClause::AfterOrConc(x)]);
++        up.push(vec![UClause::NotAfter(x)]);
++        up.push(vec![UClause::StrictlyBefore(x)]);
++        up.push(vec![UClause::BeforeOrConc(x)]);
++        for &y in &anchors {
++            neutral.push(vec![NClause::After(x), NClause::Before(y)]);
++            down.push(vec![DClause::Since(x), DClause::Since(y)]);
++            down.push(vec![DClause::Delta(x, y)]);
++            if extended_family {
++                down.push(vec![DClause::N(NClause::After(x)), DClause::Since(y)]);
++                up.push(vec![UClause::Toward(x, y)]);
++            }
++            up.push(vec![UClause::NotAfter(x), UClause::NotAfter(y)]);
++            up.push(vec![UClause::N(NClause::Before(x)), UClause::NotAfter(y)]);
++            if extended_family {
++                for &z in &anchors {
++                    down.push(vec![DClause::N(NClause::After(x)), DClause::Delta(y, z)]);
++                    up.push(vec![UClause::Toward(x, y), UClause::N(NClause::Before(z))]);
++                }
++            }
++        }
++    }
++    stat(format!(
++        "RC {pop} family neutral={} down={} up={}",
++        neutral.len(),
++        down.len(),
++        up.len()
++    ));
++    for (i, j) in span_pairs(&grid) {
++        let (lo, hi) = (&grid[i], &grid[j]);
++        for q in &neutral {
++            let adm = |v: &[BigUint]| q.iter().all(|c| c.admits(v, &grid));
++            let b: Vec<Vect> = q.iter().flat_map(|c| c.bounds(&grid)).collect();
++            let d: Vec<(Vect, RescueDm)> = q.iter().flat_map(|c| rescue_n_dm(c, &grid)).collect();
++            rescue_check(pop, "neutral", lo, hi, &b, &d, &adm, 1);
++        }
++        for q in &down {
++            let adm = |v: &[BigUint]| q.iter().all(|c| c.admits(v, &grid));
++            let b: Vec<Vect> = q.iter().flat_map(|c| c.bounds(&grid)).collect();
++            let d: Vec<(Vect, RescueDm)> = q.iter().flat_map(|c| rescue_d_dm(c, &grid)).collect();
++            rescue_check(pop, "down", lo, hi, &b, &d, &adm, 1);
++        }
++        for q in &up {
++            let adm = |v: &[BigUint]| q.iter().all(|c| c.admits(v, &grid));
++            let b: Vec<Vect> = q.iter().flat_map(|c| c.bounds(&grid)).collect();
++            let d: Vec<(Vect, RescueDm)> = q.iter().flat_map(|c| rescue_u_dm(c, &grid)).collect();
++            rescue_check(pop, "up", lo, hi, &b, &d, &adm, 1);
++        }
++    }
++}
++
++/// `public_queries_match_their_relational_denotation`'s small-grid half,
++/// transcribed: 0..=6 inclusive bounds, 1..=6 down forms, 1..=6 up forms,
++/// every ordered segment of the grid.
++fn rescue_committed_random(
++    bounds: Vec<NClause>,
++    down: Vec<DClause>,
++    up: Vec<UClause>,
++) -> Result<(), TestCaseError> {
++    let pop = "committed-random-grid";
++    let grid = rescue_grid();
++    let mut dq: Vec<DClause> = down;
++    let mut uq: Vec<UClause> = up;
++    for b in &bounds {
++        dq.push(DClause::N(*b));
++        uq.push(UClause::N(*b));
++    }
++    let nadm = |v: &[BigUint]| bounds.iter().all(|c| c.admits(v, &grid));
++    let dadm = |v: &[BigUint]| dq.iter().all(|c| c.admits(v, &grid));
++    let uadm = |v: &[BigUint]| uq.iter().all(|c| c.admits(v, &grid));
++    let nb: Vec<Vect> = bounds.iter().flat_map(|c| c.bounds(&grid)).collect();
++    let db: Vec<Vect> = dq.iter().flat_map(|c| c.bounds(&grid)).collect();
++    let ub: Vec<Vect> = uq.iter().flat_map(|c| c.bounds(&grid)).collect();
++    let nd: Vec<(Vect, RescueDm)> = bounds.iter().flat_map(|c| rescue_n_dm(c, &grid)).collect();
++    let dd: Vec<(Vect, RescueDm)> = dq.iter().flat_map(|c| rescue_d_dm(c, &grid)).collect();
++    let ud: Vec<(Vect, RescueDm)> = uq.iter().flat_map(|c| rescue_u_dm(c, &grid)).collect();
++    stat(format!("RC {pop} cases"));
++    for (i, j) in span_pairs(&grid) {
++        let (lo, hi) = (&grid[i], &grid[j]);
++        rescue_check(pop, "neutral", lo, hi, &nb, &nd, &nadm, 1);
++        rescue_check(pop, "down", lo, hi, &db, &dd, &dadm, 1);
++        rescue_check(pop, "up", lo, hi, &ub, &ud, &uadm, 1);
++    }
++    Ok(())
++}
++
++/// The exhaustive boolean cube's query family, census and fold only (each
++/// polar query once; the cube itself runs each twice, once per fold side).
++fn rescue_cube() {
++    let pop = "cube";
++    let pool: Vec<Vect> = (0u32..16)
++        .map(|b| (0..4).map(|c| BigUint::from((b >> c) & 1)).collect())
++        .collect();
++    let n = pool.len();
++    let mut ns: Vec<NClause> = Vec::new();
++    for i in 0..n {
++        ns.push(NClause::After(i));
++        ns.push(NClause::Before(i));
++    }
++    let mut ds: Vec<DClause> = ns.iter().map(|c| DClause::N(*c)).collect();
++    let mut us: Vec<UClause> = ns.iter().map(|c| UClause::N(*c)).collect();
++    for i in 0..n {
++        ds.push(DClause::Since(i));
++        ds.push(DClause::StrictlyAfter(i));
++        ds.push(DClause::AfterOrConc(i));
++        us.push(UClause::Until(i));
++        us.push(UClause::StrictlyBefore(i));
++        us.push(UClause::BeforeOrConc(i));
++    }
++    let pairs = span_pairs(&pool);
++    for a in 0..ds.len() {
++        for b in a..ds.len() {
++            let cl = [ds[a], ds[b]];
++            if !cl.iter().any(|c| !matches!(c, DClause::N(_))) {
++                continue;
++            }
++            let adm = |v: &[BigUint]| cl.iter().all(|c| c.admits(v, &pool));
++            let bounds: Vec<Vect> = cl.iter().flat_map(|c| c.bounds(&pool)).collect();
++            let d: Vec<(Vect, RescueDm)> = cl.iter().flat_map(|c| rescue_d_dm(c, &pool)).collect();
++            for &(i, j) in &pairs {
++                rescue_check(pop, "down", &pool[i], &pool[j], &bounds, &d, &adm, 2);
++            }
++        }
++    }
++    for a in 0..us.len() {
++        for b in a..us.len() {
++            let cl = [us[a], us[b]];
++            if !cl.iter().any(|c| !matches!(c, UClause::N(_))) {
++                continue;
++            }
++            let adm = |v: &[BigUint]| cl.iter().all(|c| c.admits(v, &pool));
++            let bounds: Vec<Vect> = cl.iter().flat_map(|c| c.bounds(&pool)).collect();
++            let d: Vec<(Vect, RescueDm)> = cl.iter().flat_map(|c| rescue_u_dm(c, &pool)).collect();
++            for &(i, j) in &pairs {
++                rescue_check(pop, "up", &pool[i], &pool[j], &bounds, &d, &adm, 2);
++            }
++        }
++    }
++    for a in 0..ns.len() {
++        for b in a..ns.len() {
++            let cl = [ns[a], ns[b]];
++            let adm = |v: &[BigUint]| cl.iter().all(|c| c.admits(v, &pool));
++            let bounds: Vec<Vect> = cl.iter().flat_map(|c| c.bounds(&pool)).collect();
++            let d: Vec<(Vect, RescueDm)> = cl.iter().flat_map(|c| rescue_n_dm(c, &pool)).collect();
++            for &(i, j) in &pairs {
++                rescue_check(pop, "neutral", &pool[i], &pool[j], &bounds, &d, &adm, 2);
++            }
++        }
++    }
++}
++
++/// Census of exact-coverage checks the per-bound endpoint conditions cannot
++/// decide (exact `Empty`, endpoint fold `Partial`), per population.
++#[test]
++#[ignore]
++fn rescue_l5_refine_census() {
++    use proptest::test_runner::{Config, TestRunner};
++    let cases = 256;
++    let run = |name: &str, f: &dyn Fn(&mut TestRunner)| {
++        let mut runner = TestRunner::new(Config::with_cases(cases));
++        f(&mut runner);
++        eprintln!("RC-DONE {name}");
++    };
++    run("uniform", &|r: &mut TestRunner| {
++        r.run(
++            &(
++                arb_world(3, 2..=4),
++                arb_nclauses(),
++                proptest::collection::vec(arb_d(), 1..=5),
++                proptest::collection::vec(arb_u(), 1..=5),
++                any::<u64>(),
++            ),
++            |(w, n, d, u, s)| {
++                rescue_queries("uniform", w, n, d, u, s);
++                Ok(())
++            },
++        )
++        .unwrap()
++    });
++    run("antichain", &|r: &mut TestRunner| {
++        r.run(
++            &(
++                arb_world(3, 1..=3),
++                proptest::collection::vec((0usize..64, any::<bool>()), 2..=8),
++                proptest::collection::vec(arb_n(), 0..=2),
++            ),
++            |(w, h, b)| {
++                rescue_antichains("antichain", w, h, b);
++                Ok(())
++            },
++        )
++        .unwrap()
++    });
++    run("shaped", &|r: &mut TestRunner| {
++        r.run(
++            &(
++                arb_shaped_world(2..=4),
++                arb_nclauses(),
++                proptest::collection::vec(arb_d(), 1..=5),
++                proptest::collection::vec(arb_u(), 1..=5),
++                any::<u64>(),
++            ),
++            |(w, n, d, u, s)| {
++                rescue_queries("shaped", w, n, d, u, s);
++                Ok(())
++            },
++        )
++        .unwrap()
++    });
++    run("shaped-antichain", &|r: &mut TestRunner| {
++        r.run(
++            &(
++                arb_shaped_world(1..=3),
++                proptest::collection::vec((0usize..64, any::<bool>()), 2..=8),
++                proptest::collection::vec(arb_n(), 0..=2),
++            ),
++            |(w, h, b)| {
++                rescue_antichains("shaped-antichain", w, h, b);
++                Ok(())
++            },
++        )
++        .unwrap()
++    });
++    run("organic", &|r: &mut TestRunner| {
++        r.run(
++            &(
++                arb_organic_world(),
++                arb_nclauses(),
++                proptest::collection::vec(arb_d(), 1..=5),
++                proptest::collection::vec(arb_u(), 1..=5),
++                any::<u64>(),
++            ),
++            |(w, n, d, u, s)| {
++                rescue_queries("organic", w, n, d, u, s);
++                Ok(())
++            },
++        )
++        .unwrap()
++    });
++    run("organic-antichain", &|r: &mut TestRunner| {
++        r.run(
++            &(
++                arb_organic_world(),
++                proptest::collection::vec((0usize..64, any::<bool>()), 2..=8),
++                proptest::collection::vec(arb_n(), 0..=2),
++            ),
++            |(w, h, b)| {
++                rescue_antichains("organic-antichain", w, h, b);
++                Ok(())
++            },
++        )
++        .unwrap()
++    });
++    run("committed-random-grid", &|r: &mut TestRunner| {
++        let nb = || {
++            prop_oneof![
++                (0usize..9).prop_map(NClause::After),
++                (0usize..9).prop_map(NClause::Before),
++            ]
++        };
++        let db = prop_oneof![
++            (0usize..9).prop_map(DClause::Since),
++            (0usize..9).prop_map(DClause::StrictlyAfter),
++            (0usize..9).prop_map(DClause::AfterOrConc),
++            (0usize..9, 0usize..9).prop_map(|(a, b)| DClause::Delta(a, b)),
++        ];
++        let ub = prop_oneof![
++            (0usize..9).prop_map(UClause::Until),
++            (0usize..9).prop_map(UClause::StrictlyBefore),
++            (0usize..9).prop_map(UClause::BeforeOrConc),
++            (0usize..9, 0usize..9).prop_map(|(a, b)| UClause::Toward(a, b)),
++        ];
++        r.run(
++            &(
++                proptest::collection::vec(nb(), 0..=6),
++                proptest::collection::vec(db, 1..=6),
++                proptest::collection::vec(ub, 1..=6),
++            ),
++            |(b, d, u)| rescue_committed_random(b, d, u),
++        )
++        .unwrap()
++    });
++    rescue_committed_grid("committed-grid-main", false);
++    eprintln!("RC-DONE committed-grid-main");
++    rescue_committed_grid("committed-grid-61", true);
++    eprintln!("RC-DONE committed-grid-61");
++    rescue_cube();
++    eprintln!("RC-DONE cube");
++    let stats = STATS.lock().unwrap();
++    for (k, v) in stats.iter() {
++        if k.starts_with("RC ") {
++            eprintln!("STAT {k} = {v}");
++        }
++    }
++}

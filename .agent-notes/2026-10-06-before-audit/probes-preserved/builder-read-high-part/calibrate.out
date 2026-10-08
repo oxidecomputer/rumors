@@ -1,0 +1,8 @@
+neg drop_push:      Summary [   0.748s] 65 tests run: 50 passed, 15 failed, 0 skipped revert neg/drop_push at offset 4375
+neg push_minus_one:      Summary [   5.516s] 65 tests run: 50 passed, 15 failed, 0 skipped revert neg/push_minus_one at offset 4401
+neg drop_touch:      Summary [  10.653s] 65 tests run: 64 passed, 1 failed, 0 skipped revert neg/drop_touch at offset 4375
+pos drop_push:      Summary [   0.613s] 65 tests run: 47 passed, 18 failed, 0 skipped revert pos/drop_push at offset 4748
+pos push_minus_one:      Summary [   1.858s] 65 tests run: 47 passed, 18 failed, 0 skipped revert pos/push_minus_one at offset 4774
+pos drop_touch:      Summary [  11.011s] 65 tests run: 64 passed, 1 failed, 0 skipped revert pos/drop_touch at offset 4748
+final git diff:
+(end)

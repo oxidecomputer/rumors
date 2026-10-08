@@ -1,0 +1,272 @@
+diff --git a/crates/before/src/testing/meter.rs b/crates/before/src/testing/meter.rs
+index 2da5f061..32a75012 100644
+--- a/crates/before/src/testing/meter.rs
++++ b/crates/before/src/testing/meter.rs
+@@ -445,6 +445,62 @@ fn harmonic(d: usize) -> Encoding {
+     Encoding::from_bits(bits)
+ }
+ 
++/// The jump-entered rising spine `JR(b, d)`: `d` internal nodes leaning
++/// right, whose preorder leaves are `0, J + 1, J + 2, …, J + d` for the
++/// entry jump `J = 2^b`; `6d + 2b` bits.
++///
++/// Every internal node's subtree minimum is its left leaf, and each nested
++/// subtree's minimum sits strictly above its parent's, so a range-minimum
++/// fold over the spine suspends one positive boundary per level and holds
++/// all of them at once at the bottom. The input pays the jump's width once,
++/// at entry; every later level costs 6 bits however wide `J` is. With `J` at
++/// least `2^31`, every leaf after the first sits more than `i32::MAX` above
++/// the root's height while consecutive leaves differ by one tick, so a fold
++/// that stores each suspended level relative to a fixed reference height
++/// pays a wide offset per level unless it re-anchors. Designed against
++/// `min_ticks`'s transient heap.
++///
++/// Layout: `"11"` (the root: internal flag + `gamma(0)`), `"01"` (its left
++/// leaf 0), `"1"` + `gamma(J + 1)` (the right subtree's root, `2b + 2` bits),
++/// then `"01" "1010"` × `(d − 2)` (each level's left leaf 0 and its internal
++/// right sibling lifted by 1), then `"01" "0010"` (the deepest node's leaves,
++/// 0 and 1). Exactly `6d + 2b` bits. Normal form holds everywhere: each
++/// internal node's left leaf stores 0, so every node's minimum is its own
++/// base, and no two sibling leaves are equal.
++///
++/// # Panics
++///
++/// Panics if `b < 2`, where the entry code breaks the closed-form size
++/// (`gamma(J + 1)` codes `2^b + 2`, which spans `2b + 1` bits only from
++/// `b = 2`), or if `d < 2`: the spine needs the root and its lifted right
++/// subtree.
++fn jump_rising_spine(b: usize, d: usize) -> Encoding {
++    assert!(
++        b >= 2,
++        "jump-entered rising spine needs an entry jump of at least 4"
++    );
++    assert!(
++        d >= 2,
++        "jump-entered rising spine needs the root and its lifted right subtree"
++    );
++    let one = BigUint::from(1u8);
++    let entry = (BigUint::from(1u8) << b) + &one;
++    let mut bits = BitsWriter::with_capacity((6 * d + 2 * b) as u64);
++    bits.push(true); // the root: internal flag
++    bits.write_gamma(&BigUint::ZERO); // ... at base 0
++    ev_leaf(&mut bits, 0); // the root's left leaf: height 0
++    bits.push(true); // the right subtree's root
++    bits.write_gamma(&entry); // ... lifted to J + 1
++    for _ in 0..d - 2 {
++        ev_leaf(&mut bits, 0); // this level's left leaf: the level's minimum
++        bits.push(true); // its right sibling, one level deeper
++        bits.write_gamma(&one); // ... lifted by 1
++    }
++    ev_leaf(&mut bits, 0); // the deepest node's left leaf: J + d − 1
++    ev_leaf(&mut bits, 1); // its right leaf: J + d
++    Encoding::from_bits(bits)
++}
++
+ /// The alternating-binary spine `A(d)`: depth `d`, `2d + 1` nodes, `4d + 4`
+ /// bits.
+ ///
+diff --git a/crates/before/src/testing/meter/board/family.rs b/crates/before/src/testing/meter/board/family.rs
+index cfc6a327..40d09a1f 100644
+--- a/crates/before/src/testing/meter/board/family.rs
++++ b/crates/before/src/testing/meter/board/family.rs
+@@ -220,6 +220,18 @@ const PROPAGATE_SEAM_CLEARANCE: usize = 5;
+ const LATENT_LADDER_BASE_WIDTH: usize = 64;
+ const LATENT_LADDER_BASE_LEAVES: usize = 512;
+ 
++/// Jump-entered rising spine depth at scale 1.0 (encoded size ~5 KiB, at
++/// the harmonic spine's depth).
++const JUMP_RISING_SPINE_BASE_DEPTH: usize = 8_000;
++
++/// Jump-entered rising spine entry width in bits (fixed across scales).
++///
++/// `2^40` lies above `i32::MAX`, so every leaf after the first sits beyond a
++/// 32-bit offset from the root's height while each level still steps by one
++/// tick. Past that threshold the width is arbitrary; keeping it small keeps
++/// the one entry code a negligible share of the input at every scale.
++const JUMP_RISING_SPINE_ENTRY_BITS: usize = 40;
++
+ /// Two-operand jump-comb teeth at scale 1.0 (pair size ~35 KiB, the teeth
+ /// operand's per-level wide codes dominating).
+ ///
+@@ -1094,6 +1106,16 @@ impl FamilyData {
+                     .version()
+                     .encode(),
+             ),
++            FamilyId::JumpRisingSpine => Self::event(
++                kind,
++                Shape::JumpRisingSpine
++                    .build2(
++                        JUMP_RISING_SPINE_ENTRY_BITS,
++                        size(JUMP_RISING_SPINE_BASE_DEPTH),
++                    )
++                    .version()
++                    .encode(),
++            ),
+         };
+         // ── the bundle post-pass: the derived slots, uniform across shapes ──
+         // A cross shape's primary version is its event side.
+diff --git a/crates/before/src/testing/meter/registry.rs b/crates/before/src/testing/meter/registry.rs
+index 58d35ba0..096d9622 100644
+--- a/crates/before/src/testing/meter/registry.rs
++++ b/crates/before/src/testing/meter/registry.rs
+@@ -61,6 +61,9 @@ pub enum Shape {
+     /// The harmonic spine `H(d)`, a 1-leaf at every depth:
+     /// [`Shape::build1`]`(d)`.
+     Harmonic,
++    /// The jump-entered rising spine `JR(b, d)`, leaves `0, 2^b + 1, …,
++    /// 2^b + d`: [`Shape::build2`]`(b, d)`.
++    JumpRisingSpine,
+     /// The alternating-binary spine `A(d)`: [`Shape::build1`]`(d)`.
+     AltSpine,
+     /// The scattered id `Z(e)`, `e` owned fragments at alternating
+@@ -257,6 +260,7 @@ impl Shape {
+             Shape::CliffFan => Builder::P2(super::cliff_fan),
+             Shape::CancellingChain => Builder::P2(super::cancelling_chain),
+             Shape::Harmonic => Builder::P1(super::harmonic),
++            Shape::JumpRisingSpine => Builder::P2(super::jump_rising_spine),
+             Shape::AltSpine => Builder::P1(super::alt_spine),
+             Shape::ScatteredId => Builder::P1(super::scattered_id),
+             Shape::IdSpine => Builder::Flag(super::id_spine),
+@@ -890,6 +894,15 @@ pub enum FamilyId {
+     /// that reads the latent's width doubles that marginal when `w`
+     /// doubles. The `latent_ladder` band in `tests/meter.rs` prices it.
+     LatentLadder,
++    /// The jump-entered rising spine `JR(b, d)` at a fixed entry jump of
++    /// `2^40`: one suspended range minimum per level, each far above the
++    /// root's height but one tick above its parent.
++    ///
++    /// The input pays the jump's width once and every later level costs 6
++    /// bits, so a minimum fold that stores each suspended level at its
++    /// absolute offset rather than its one-tick step holds several machine
++    /// words per 6 input bits. Designed against `min_ticks`'s transient heap.
++    JumpRisingSpine,
+ }
+ 
+ /// One family's row of record: the answers every instrument derives
+@@ -928,7 +941,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
+ 
+ impl FamilyId {
+     /// Every registered family in board render order.
+-    pub const ALL: [FamilyId; 57] = [
++    pub const ALL: [FamilyId; 58] = [
+         FamilyId::Dense,
+         FamilyId::Bigroot,
+         FamilyId::Hugeleaf,
+@@ -986,6 +999,7 @@ impl FamilyId {
+         FamilyId::HoistedWindow,
+         FamilyId::PropagateSeam,
+         FamilyId::LatentLadder,
++        FamilyId::JumpRisingSpine,
+     ];
+ 
+     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
+@@ -1302,6 +1316,11 @@ impl FamilyId {
+                 shapes: &[Shape::LatentLadder],
+                 cells: VERSION_BUNDLE_CELLS,
+             },
++            FamilyId::JumpRisingSpine => FamilySpec {
++                name: "jump-rising-spine",
++                shapes: &[Shape::JumpRisingSpine],
++                cells: VERSION_BUNDLE_CELLS,
++            },
+         }
+     }
+ }
+diff --git a/crates/before/src/testing/meter/registry/tests.rs b/crates/before/src/testing/meter/registry/tests.rs
+index 9c9b098d..7871569d 100644
+--- a/crates/before/src/testing/meter/registry/tests.rs
++++ b/crates/before/src/testing/meter/registry/tests.rs
+@@ -7,7 +7,7 @@ use super::{FamilyId, Shape};
+ /// Every shape constructor, for the citation pin below.
+ ///
+ /// The complete shape set used to check registry citations.
+-const ALL_SHAPES: [Shape; 68] = [
++const ALL_SHAPES: [Shape; 69] = [
+     Shape::Dense,
+     Shape::Bigroot,
+     Shape::Hugeleaf,
+@@ -17,6 +17,7 @@ const ALL_SHAPES: [Shape; 68] = [
+     Shape::CliffFan,
+     Shape::CancellingChain,
+     Shape::Harmonic,
++    Shape::JumpRisingSpine,
+     Shape::AltSpine,
+     Shape::ScatteredId,
+     Shape::IdSpine,
+diff --git a/crates/before/src/testing/meter/tests.rs b/crates/before/src/testing/meter/tests.rs
+index c5b36af9..8968f428 100644
+--- a/crates/before/src/testing/meter/tests.rs
++++ b/crates/before/src/testing/meter/tests.rs
+@@ -4,6 +4,7 @@
+ //! closed-form size and canonical encoding, and checks the semantic premise on
+ //! which the corresponding resource measurement relies.
+ 
++use crate::shape::{Plateau, Rise};
+ use crate::{Count, Party, Rank, Version};
+ 
+ use num_bigint::BigUint;
+@@ -13,11 +14,11 @@ use super::{
+     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
+     cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
+     dense_suffix_mate, dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position,
+-    harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, latent_ladder, lone_freeze,
+-    mask_drift_quadruple, mask_drift_triple, masked_hole, plateau_puncture,
+-    plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole, scattered_id,
+-    seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole, tooth_tail,
+-    weight_comb, wide_arming, wide_tooth_comb, Encoding,
++    harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, jump_rising_spine,
++    latent_ladder, lone_freeze, mask_drift_quadruple, mask_drift_triple, masked_hole,
++    plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole,
++    scattered_id, seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole,
++    tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Encoding,
+ };
+ 
+ /// Appended to the counter-comparison failures: the first cause to rule out is
+@@ -264,6 +265,34 @@ proptest! {
+         check_version(&harmonic(d), 6 * d + 2);
+     }
+ 
++    /// `JR(b, d)` is canonical normal form at exactly `6d + 2b` bits, and its
++    /// shape is the rising spine its resource claim rests on: plateaus at
++    /// heights `0, J + 1, …, J + d` for `J = 2^b`, at depths `1, 2, …, d, d`.
++    ///
++    /// A version is determined by its plateau sequence, so this pins the
++    /// whole tree: one wide rise at entry, then one-tick rises one level
++    /// deeper each, never a fall.
++    #[test]
++    fn jump_rising_spine_decodes_canonically_as_a_rising_spine(
++        b in 2usize..=300,
++        d in 2usize..=300,
++    ) {
++        let shape = jump_rising_spine(b, d);
++        check_version(&shape, 6 * d + 2 * b);
++        let jump = BigUint::from(1u8) << b;
++        let mut expected = vec![
++            Plateau { rise: None, depth: 1 },
++            Plateau { rise: Some(Rise::Up(Count(jump + 1u8))), depth: 2 },
++        ];
++        expected.extend((3..=d as u64).map(|depth| Plateau {
++            rise: Some(Rise::Up(Count::from(1u8))),
++            depth,
++        }));
++        expected.push(Plateau { rise: Some(Rise::Up(Count::from(1u8))), depth: d as u64 });
++        let plateaus: Vec<Plateau> = shape.version().shape().collect();
++        prop_assert_eq!(plateaus, expected);
++    }
++
+     /// `A(d)` is canonical normal form at exactly `4d + 4` bits, with both
+     /// alternation parities exercised across arbitrary positive depths.
+     #[test]
+diff --git a/crates/before/tests/verdict_matrix.rs b/crates/before/tests/verdict_matrix.rs
+index 91a411f1..ed04091a 100644
+--- a/crates/before/tests/verdict_matrix.rs
++++ b/crates/before/tests/verdict_matrix.rs
+@@ -331,6 +331,8 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
+         ),
+         // The latent-ladder comb.
+         FamilyId::LatentLadder => (vec![Shape::LatentLadder.build2(4, 4).version()], vec![]),
++        // The rising spine entered by one jump past `i32::MAX`.
++        FamilyId::JumpRisingSpine => (vec![Shape::JumpRisingSpine.build2(40, 4).version()], vec![]),
+     };
+     MatrixOperands { versions, masks }
+ }

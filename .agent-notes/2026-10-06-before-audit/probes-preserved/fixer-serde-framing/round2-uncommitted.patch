@@ -1,0 +1,324 @@
+diff --git a/crates/before/src/serde_impls.rs b/crates/before/src/serde_impls.rs
+index ff9cde1b..4c013f02 100644
+--- a/crates/before/src/serde_impls.rs
++++ b/crates/before/src/serde_impls.rs
+@@ -5,8 +5,10 @@
+ //! named records for composite values.
+ //!
+ //! Each human-readable deserializer accepts only the form its serializer
+-//! writes. In particular, a composite's fields given positionally, as a
+-//! sequence or as a map keyed by field position, are rejected.
++//! writes. A composite is read from a map keyed by its field names, which may
++//! arrive as strings or as bytes (csv hands header keys over as bytes). Its
++//! fields given positionally, as a sequence or as a map keyed by field
++//! position, are rejected.
+ //!
+ //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
+ //! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes to
+@@ -85,8 +87,8 @@ where
+ /// The visitor is written by hand because `#[derive(Deserialize)]` also
+ /// accepts two positional forms: a sequence of field values, and a map keyed
+ /// by field position. Here `visit_seq` keeps its default, which rejects a
+-/// sequence, and [`FieldName`] accepts only a string naming a field. A field
+-/// that is repeated, missing, or unknown is an error.
++/// sequence, and [`FieldName`] accepts only a field's name, never its
++/// position. A field that is repeated, missing, or unknown is an error.
+ struct RecordVisitor<const N: usize> {
+     /// The record's name, as `Serialize` writes it.
+     name: &'static str,
+@@ -123,8 +125,9 @@ impl<'de, const N: usize> Visitor<'de> for RecordVisitor<N> {
+ 
+ /// Reads a record key as the position of the field it names.
+ ///
+-/// Only a string naming one of the fields is accepted; any other key,
+-/// including an integer field position, is an error.
++/// A key is accepted only when it spells one of the field names, as a string
++/// or as bytes; some formats, such as csv, hand keys over as bytes. Any other
++/// key, including an integer field position, is an error.
+ struct FieldName<const N: usize>(&'static [&'static str; N]);
+ 
+ impl<'de, const N: usize> DeserializeSeed<'de> for FieldName<N> {
+@@ -148,6 +151,13 @@ impl<'de, const N: usize> Visitor<'de> for FieldName<N> {
+             .position(|field| *field == name)
+             .ok_or_else(|| E::unknown_field(name, self.0))
+     }
++
++    fn visit_bytes<E: de::Error>(self, name: &[u8]) -> Result<usize, E> {
++        self.0
++            .iter()
++            .position(|field| field.as_bytes() == name)
++            .ok_or_else(|| E::unknown_field(&String::from_utf8_lossy(name), self.0))
++    }
+ }
+ 
+ /// Reads either a typed byte buffer or a byte sequence and passes ownership to
+diff --git a/crates/before/src/serde_impls/tests.rs b/crates/before/src/serde_impls/tests.rs
+index 263e37d4..5b9a9418 100644
+--- a/crates/before/src/serde_impls/tests.rs
++++ b/crates/before/src/serde_impls/tests.rs
+@@ -3,8 +3,8 @@
+ use core::fmt::Debug;
+ 
+ use proptest::prelude::*;
+-use serde::de::value::{Error as ValueError, MapDeserializer};
+-use serde::de::DeserializeOwned;
++use serde::de::value::{Error as ValueError, MapDeserializer, StrDeserializer};
++use serde::de::{DeserializeOwned, IntoDeserializer};
+ use serde::Serialize;
+ use serde_json::Value;
+ use serde_test::{assert_tokens, Configure, Token};
+@@ -396,16 +396,38 @@ proptest! {
+     }
+ }
+ 
++/// Deserializes `T` from a human-readable map holding `entries`, in order.
++///
++/// `serde`'s `MapDeserializer` reports itself as human-readable and passes
++/// every entry to the visitor, so it spells maps that JSON cannot: keys given
++/// as integers or bytes, and repeated keys.
++fn read_map<'a, T, K>(entries: impl IntoIterator<Item = (K, &'a str)>) -> Result<T, ValueError>
++where
++    T: DeserializeOwned,
++    K: IntoDeserializer<'a, ValueError>,
++{
++    T::deserialize(MapDeserializer::new(entries.into_iter()))
++}
++
++/// Deserializes `T` from `text` through `T`'s own human-readable
++/// deserializer, returning `None` when it rejects the text.
++fn read_text<T: DeserializeOwned>(text: &str) -> Option<T> {
++    let text: StrDeserializer<'_, ValueError> = text.into_deserializer();
++    T::deserialize(text).ok()
++}
++
+ /// Checks that a human-readable map holding `fields`, each a field name and
+-/// that field's text, deserializes to `value` exactly when it holds every
+-/// field once, keyed by name.
++/// that field's text, deserializes to `value` when keyed by the field names,
++/// as strings or as bytes, and that each of these variations is rejected:
++///
++/// - the same texts keyed by field position, which is the positional form
++///   spelled as a map, rejected for the same reason as an array;
++/// - one field omitted, or repeated;
++/// - one key replaced by its upper-case spelling, which names no field;
++/// - an added field with an unknown name.
+ ///
+-/// The rejected maps hold the same texts keyed by field position, or omit,
+-/// repeat, or add a field. A position-keyed map is the positional form spelled
+-/// as a map, so it is rejected for the same reason as an array. JSON cannot
+-/// express it, because JSON object keys are strings, so the maps come from
+-/// `serde`'s `MapDeserializer`, which reports itself as human-readable and
+-/// passes repeated keys through to the visitor.
++/// Byte keys matter because csv hands its header keys to the visitor as
++/// bytes, through the same `BytesDeserializer` mechanism.
+ fn assert_readable_reads_only_named_record<T>(
+     value: &T,
+     fields: &[(&'static str, String)],
+@@ -413,50 +435,62 @@ fn assert_readable_reads_only_named_record<T>(
+ where
+     T: DeserializeOwned + PartialEq + Debug,
+ {
+-    let read = |entries: Vec<(&'static str, &str)>| {
+-        T::deserialize(MapDeserializer::<_, ValueError>::new(entries.into_iter()))
+-    };
+-    let named: Vec<(&'static str, &str)> = fields
++    let named: Vec<(&str, &str)> = fields
+         .iter()
+         .map(|(name, text)| (*name, text.as_str()))
+         .collect();
+ 
+-    let from_names = read(named.clone());
++    let from_names = read_map::<T, _>(named.iter().copied());
+     prop_assert_eq!(from_names.as_ref(), Ok(value));
++    let by_byte_names = named.iter().map(|&(name, text)| (name.as_bytes(), text));
++    let from_byte_names = read_map::<T, _>(by_byte_names);
++    prop_assert_eq!(from_byte_names.as_ref(), Ok(value));
+ 
+     let by_position = (0u64..).zip(named.iter().map(|&(_, text)| text));
+-    let from_positions = T::deserialize(MapDeserializer::<_, ValueError>::new(by_position));
++    let from_positions = read_map::<T, _>(by_position);
+     prop_assert!(
+         from_positions.is_err(),
+         "the map keyed by field position decoded as {:?}",
+         from_positions
+     );
+ 
+-    for (index, &entry) in named.iter().enumerate() {
++    for (index, &(name, text)) in named.iter().enumerate() {
+         let mut omitted = named.clone();
+         omitted.remove(index);
+-        let from_omitted = read(omitted);
++        let from_omitted = read_map::<T, _>(omitted);
+         prop_assert!(
+             from_omitted.is_err(),
+             "the map without field {:?} decoded as {:?}",
+-            entry.0,
++            name,
+             from_omitted
+         );
+ 
+         let mut repeated = named.clone();
+-        repeated.push(entry);
+-        let from_repeated = read(repeated);
++        repeated.push((name, text));
++        let from_repeated = read_map::<T, _>(repeated);
+         prop_assert!(
+             from_repeated.is_err(),
+             "the map repeating field {:?} decoded as {:?}",
+-            entry.0,
++            name,
+             from_repeated
+         );
++
++        let upper = name.to_uppercase();
++        let mut recased = named.clone();
++        recased[index].0 = &upper;
++        let from_recased = read_map::<T, _>(recased);
++        prop_assert!(
++            from_recased.is_err(),
++            "the map keying field {:?} as {:?} decoded as {:?}",
++            name,
++            upper,
++            from_recased
++        );
+     }
+ 
+     let mut extended = named.clone();
+     extended.push(("unknown", named[0].1));
+-    let from_extended = read(extended);
++    let from_extended = read_map::<T, _>(extended);
+     prop_assert!(
+         from_extended.is_err(),
+         "the map with an unknown field decoded as {:?}",
+@@ -467,11 +501,11 @@ where
+ 
+ proptest! {
+     /// A human-readable deserializer reads clocks, spans, and ranked views
+-    /// only from maps holding each field once, keyed by name. Maps keyed by
+-    /// field position, or omitting, repeating, or adding a field, are
+-    /// rejected.
++    /// from maps keyed by field name, as strings or as bytes. It rejects the
++    /// same maps keyed by field position, with a field omitted or repeated,
++    /// with a key in upper case, or with an unknown field added.
+     #[test]
+-    fn readable_serde_reads_only_complete_named_records(
++    fn readable_serde_reads_named_records_and_rejects_their_variants(
+         op in arb_oracle_party_nonempty(),
+         oa in arb_oracle_version(),
+         ob in arb_oracle_version(),
+@@ -502,6 +536,115 @@ proptest! {
+     }
+ }
+ 
++/// A text for one record field: arbitrary, or the field's valid text under
++/// one small edit that a lenient parser might forgive.
++#[derive(Clone, Debug)]
++enum FieldText {
++    /// Arbitrary text, almost always invalid.
++    Arbitrary(String),
++    /// The valid text, unchanged.
++    Valid,
++    /// The valid text after a space.
++    LeadingSpace,
++    /// The valid text before a space.
++    TrailingSpace,
++    /// The valid text in upper case.
++    Uppercase,
++    /// The valid text after a zero.
++    LeadingZero,
++    /// The valid text without its last character.
++    Truncated,
++}
++
++impl FieldText {
++    /// Returns this field text, given the field's valid text.
++    fn apply(&self, valid: &str) -> String {
++        match self {
++            Self::Arbitrary(text) => text.clone(),
++            Self::Valid => valid.to_owned(),
++            Self::LeadingSpace => format!(" {valid}"),
++            Self::TrailingSpace => format!("{valid} "),
++            Self::Uppercase => valid.to_uppercase(),
++            Self::LeadingZero => format!("0{valid}"),
++            Self::Truncated => {
++                let mut text = valid.to_owned();
++                text.pop();
++                text
++            }
++        }
++    }
++}
++
++/// Generates every [`FieldText`] variant, so valid, nearly valid, and
++/// arbitrary texts all occur.
++fn arb_field_text() -> impl Strategy<Value = FieldText> {
++    prop_oneof![
++        any::<String>().prop_map(FieldText::Arbitrary),
++        Just(FieldText::Valid),
++        Just(FieldText::LeadingSpace),
++        Just(FieldText::TrailingSpace),
++        Just(FieldText::Uppercase),
++        Just(FieldText::LeadingZero),
++        Just(FieldText::Truncated),
++    ]
++}
++
++proptest! {
++    /// A human-readable record reads each field's text exactly as the field's
++    /// own type reads it. When `Party` or `Version` accepts a text, the record
++    /// holding it decodes to the value built from that field; when the type
++    /// rejects the text, so does the record.
++    ///
++    /// Each of the five fields (a clock's party and version, a ranked view's
++    /// version, and a span's endpoints) takes the edited text in turn, with
++    /// every other field valid.
++    #[test]
++    fn readable_records_read_field_text_as_the_field_types_do(
++        op in arb_oracle_party_nonempty(),
++        oa in arb_oracle_version(),
++        ob in arb_oracle_version(),
++        edit in arb_field_text(),
++    ) {
++        let a = from_oracle_version(&oa);
++        let span = a.span(&from_oracle_version(&ob));
++        let party_text = from_oracle_party(&op).to_string();
++        let a_text = a.to_string();
++        let (lo_text, hi_text) = (span.lo().to_string(), span.hi().to_string());
++
++        let party = edit.apply(&party_text);
++        let fields = [("party", party.as_str()), ("version", a_text.as_str())];
++        let record = read_map::<Clock, _>(fields);
++        let expected = read_text::<Party>(&party).map(|party| Clock::from_parts(party, a.clone()));
++        prop_assert_eq!(record.ok(), expected, "clock party {:?}", party);
++
++        let version = edit.apply(&a_text);
++        let fields = [("party", party_text.as_str()), ("version", version.as_str())];
++        let record = read_map::<Clock, _>(fields);
++        let expected = read_text::<Version>(&version)
++            .map(|version| Clock::from_parts(from_oracle_party(&op), version));
++        prop_assert_eq!(record.ok(), expected, "clock version {:?}", version);
++
++        let fields = [("version", version.as_str())];
++        let record = read_map::<Ranked, _>(fields);
++        let expected = read_text::<Version>(&version).map(Ranked::from);
++        prop_assert_eq!(record.ok(), expected, "ranked version {:?}", version);
++
++        let lo = edit.apply(&lo_text);
++        let fields = [("lo", lo.as_str()), ("hi", hi_text.as_str())];
++        let record = read_map::<Span, _>(fields);
++        let expected =
++            read_text::<Version>(&lo).and_then(|lo| Span::new(lo, span.hi().clone()).ok());
++        prop_assert_eq!(record.ok(), expected, "span lo {:?}", lo);
++
++        let hi = edit.apply(&hi_text);
++        let fields = [("lo", lo_text.as_str()), ("hi", hi.as_str())];
++        let record = read_map::<Span, _>(fields);
++        let expected =
++            read_text::<Version>(&hi).and_then(|hi| Span::new(span.lo().clone(), hi).ok());
++        prop_assert_eq!(record.ok(), expected, "span hi {:?}", hi);
++    }
++}
++
+ /// The serde implementations preserve tuple framing in postcard.
+ #[test]
+ fn serde_composes_rank_and_span_in_larger_values() {

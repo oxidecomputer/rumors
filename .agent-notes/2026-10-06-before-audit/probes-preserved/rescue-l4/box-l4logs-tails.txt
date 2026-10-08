@@ -1,0 +1,110 @@
+=== run1.log
+running 1 test
+test version::measure::explore_l4::l4_measures_agree_with_flat_oracle ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 606 filtered out; finished in 285.26s
+exit=0
+=== run2.log
+running 3 tests
+test version::measure::explore_l4_rank::l4_rank_values_agree ... ok
+test version::measure::explore_l4_rank::l4_rank_sum_any_order ... ok
+test version::measure::explore_l4_rank::l4_version_rank_is_the_sum_of_leaf_areas ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 607 filtered out; finished in 49.07s
+exit=0
+=== run3.log
+running 1 test
+test version::measure::explore_l4::l4_measures_agree_with_flat_oracle ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 612 filtered out; finished in 449.34s
+exit=0
+=== run4.log
+running 1 test
+test version::measure::explore_l4::l4_measures_agree_with_flat_oracle ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 613 filtered out; finished in 102.54s
+exit=0
+=== run5.log
+running 5 tests
+test version::measure::explore_l4_rank::l4_count_boundaries ... ok
+test version::measure::explore_l4_rank::l4_rank_sum_order_cost ... ok
+test version::measure::explore_l4_rank::l4_rank_values_agree ... ok
+test version::measure::explore_l4_rank::l4_rank_sum_any_order ... ok
+test version::measure::explore_l4_rank::l4_version_rank_is_the_sum_of_leaf_areas has been running for over 60 seconds
+test version::measure::explore_l4_rank::l4_version_rank_is_the_sum_of_leaf_areas ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 609 filtered out; finished in 73.37s
+exit=0
+=== sweep3-none.log
+running 1 test
+cases 2000 froze 1730 deferred 1015 multi-defer(>=3) 522 max_bits 2209 distinct-ties 581 frozen-ties 511
+test version::measure::explore_l4::l4_generator_coverage ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 612 filtered out; finished in 9.61s
+        PASS [   9.666s] (1/2) before version::measure::explore_l4::l4_generator_coverage
+       START [         ] (2/2) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+running 1 test
+test version::measure::explore_l4::l4_measures_agree_with_flat_oracle ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 612 filtered out; finished in 12.78s
+        PASS [  12.822s] (2/2) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+────────────
+     Summary [  22.493s] 2 tests run: 2 passed, 701 skipped
+=== sweep3-M25.log
+	global rejects: 0
+test version::measure::explore_l4::l4_measures_agree_with_flat_oracle ... FAILED
+failures:
+failures:
+    version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 612 filtered out; finished in 13.03s
+        FAIL [  13.075s] (2/2) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+────────────
+     Summary [  13.142s] 2 tests run: 0 passed, 2 failed, 701 skipped
+        FAIL [   0.062s] (1/2) before version::measure::explore_l4::l4_generator_coverage
+        FAIL [  13.075s] (2/2) before version::measure::explore_l4::l4_measures_agree_with_flat_oracle
+error: test run failed
+=== wasm-case-11.log
+ Nextest run ID 238dad25-d350-436a-b99e-93158536ffc1 with nextest profile: default
+    Starting 1 test across 4 binaries (8 tests skipped)
+       START [         ] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+running 1 test
+L4SUM calibration HarnessTrap: Trapped(UnreachableCodeReached) pages=18 panic="panicked at guest/src/checks.rs:20:31:\ndeliberate harness trap"
+L4SUM calibration SuanpanLanding: Trapped(UnreachableCodeReached) pages=18 panic="panicked at /home/agent/src/rumors-audit-l4-measures/crates/suanpan/src/accumulator.rs:417:10:\na nonzero contribution needs an addressable digit position"
+L4SUM case 11: Trapped(UnreachableCodeReached) pages=42014 panic=""
+test l4_rank_sum_cases_diagnosed ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 16.10s
+        PASS [  16.167s] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+────────────
+     Summary [  16.169s] 1 test run: 1 passed, 8 skipped
+=== wasm-case-12.log
+ Nextest run ID d8a40888-2c3e-424d-b63a-b13acd0dcf64 with nextest profile: default
+    Starting 1 test across 4 binaries (8 tests skipped)
+       START [         ] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+running 1 test
+L4SUM calibration HarnessTrap: Trapped(UnreachableCodeReached) pages=18 panic="panicked at guest/src/checks.rs:20:31:\ndeliberate harness trap"
+L4SUM calibration SuanpanLanding: Trapped(UnreachableCodeReached) pages=18 panic="panicked at /home/agent/src/rumors-audit-l4-measures/crates/suanpan/src/accumulator.rs:417:10:\na nonzero contribution needs an addressable digit position"
+L4SUM case 12: Passed pages=42014 panic=""
+test l4_rank_sum_cases_diagnosed ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 15.14s
+        PASS [  15.189s] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+────────────
+     Summary [  15.190s] 1 test run: 1 passed, 8 skipped
+=== wasm-n1-7.log
+ Nextest run ID 2a20342e-83b6-4164-aebf-47fd7f59d756 with nextest profile: default
+    Starting 1 test across 4 binaries (8 tests skipped)
+       START [         ] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+running 1 test
+L4SUM calibration HarnessTrap: Trapped(UnreachableCodeReached) pages=18 panic="panicked at guest/src/checks.rs:20:31:\ndeliberate harness trap"
+L4SUM calibration SuanpanLanding: Trapped(UnreachableCodeReached) pages=18 panic="panicked at /home/agent/src/rumors-audit-l4-measures/crates/suanpan/src/accumulator.rs:417:10:\na nonzero contribution needs an addressable digit position"
+L4SUM case 7: Passed pages=58399 panic=""
+test l4_rank_sum_cases_diagnosed ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 26.24s
+        PASS [  26.292s] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+────────────
+     Summary [  26.294s] 1 test run: 1 passed, 8 skipped
+=== wasm-n1-8.log
+ Nextest run ID 2d75c5e3-5d51-480e-9187-f4ea0189fec6 with nextest profile: default
+    Starting 1 test across 4 binaries (8 tests skipped)
+       START [         ] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+running 1 test
+L4SUM calibration HarnessTrap: Trapped(UnreachableCodeReached) pages=18 panic="panicked at guest/src/checks.rs:20:31:\ndeliberate harness trap"
+L4SUM calibration SuanpanLanding: Trapped(UnreachableCodeReached) pages=18 panic="panicked at /home/agent/src/rumors-audit-l4-measures/crates/suanpan/src/accumulator.rs:417:10:\na nonzero contribution needs an addressable digit position"
+L4SUM case 8: Trapped(UnreachableCodeReached) pages=42014 panic="panicked at /home/agent/src/rumors-audit-l4-measures/crates/suanpan/src/accumulator.rs:417:10:\na nonzero contribution needs an addressable digit position"
+test l4_rank_sum_cases_diagnosed ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 15.16s
+        PASS [  15.212s] (1/1) wasm32-pins-harness::pins l4_rank_sum_cases_diagnosed
+────────────
+     Summary [  15.213s] 1 test run: 1 passed, 8 skipped

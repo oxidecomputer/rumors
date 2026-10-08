@@ -1,0 +1,1075 @@
+//! Exploratory stateful model for the L7 audit (explore branch only).
+//!
+//! A pool of accumulators evolves under generated programs. Every step is
+//! followed by non-mutating checks only (value readouts, representation
+//! invariants, the stored-width bound, known-zero soundness), so comparisons
+//! with zero happen only where the program asks for them. Operands drawn from
+//! the pool carry the same arbitrary histories as receivers.
+
+use core::cmp::Ordering;
+
+use num_bigint::{BigInt as IBig, BigUint as UBig};
+use proptest::prelude::*;
+
+use super::{assert_value, from_limbs, oracle_sign, Accumulator};
+
+/// Number of accumulators in the pool.
+pub(super) const POOL: usize = 3;
+
+/// How an accumulator operand is applied.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum AccForm {
+    /// `+= &s` or `-= &s` (shift ignored).
+    Borrowed,
+    /// `add_shifted` / `sub_shifted`.
+    Shifted,
+    /// `t = take(t) +/- s.clone()`.
+    OwnedClone,
+    /// `t = take(t) +/- take(s)`; `s` becomes zero.
+    OwnedTake,
+}
+
+/// One generated instruction.
+#[derive(Debug, Clone)]
+pub(super) enum Op {
+    Word {
+        t: usize,
+        value: i64,
+    },
+    WordU {
+        t: usize,
+        negative: bool,
+        value: u64,
+    },
+    Wide {
+        t: usize,
+        value: i128,
+    },
+    WideU {
+        t: usize,
+        negative: bool,
+        value: u128,
+    },
+    Limbs {
+        t: usize,
+        negative: bool,
+        limbs: Vec<u64>,
+        shift: u64,
+    },
+    Acc {
+        t: usize,
+        s: usize,
+        negative: bool,
+        shift: u64,
+        form: AccForm,
+    },
+    Park {
+        t: usize,
+        index: u64,
+        negative: bool,
+    },
+    Shl {
+        t: usize,
+        shift: u64,
+    },
+    Neg {
+        t: usize,
+    },
+    Reset {
+        t: usize,
+    },
+    Normalize {
+        t: usize,
+    },
+    CmpZero {
+        t: usize,
+    },
+    Stable {
+        t: usize,
+        bits: u64,
+    },
+    StablePool {
+        t: usize,
+        s: usize,
+    },
+    Reserve {
+        t: usize,
+        bits: u64,
+    },
+    Convert {
+        t: usize,
+    },
+    CloneReplace {
+        t: usize,
+    },
+    SumPool {
+        t: usize,
+        owned: bool,
+    },
+    /// A value-neutral round: write at `low` (if any), `top`, then `inner`
+    /// inside the gap, then cancel `top`, `inner`, and `low`. Digit positions.
+    GapRound {
+        t: usize,
+        low: Option<u64>,
+        inner: u64,
+        top: u64,
+    },
+}
+
+impl Op {
+    /// The receiver index.
+    pub(super) fn target(&self) -> usize {
+        match self {
+            Op::Word { t, .. }
+            | Op::WordU { t, .. }
+            | Op::Wide { t, .. }
+            | Op::WideU { t, .. }
+            | Op::Limbs { t, .. }
+            | Op::Acc { t, .. }
+            | Op::Park { t, .. }
+            | Op::Shl { t, .. }
+            | Op::Neg { t }
+            | Op::Reset { t }
+            | Op::Normalize { t }
+            | Op::CmpZero { t }
+            | Op::Stable { t, .. }
+            | Op::StablePool { t, .. }
+            | Op::Reserve { t, .. }
+            | Op::Convert { t }
+            | Op::CloneReplace { t }
+            | Op::SumPool { t, .. }
+            | Op::GapRound { t, .. } => *t,
+        }
+    }
+}
+
+/// The largest magnitude an accumulator with `count` stored digits can hold.
+fn max_magnitude(count: usize) -> UBig {
+    // sum_{i < count} (2^33 - 1) * 2^(32 i): a base-2^32 repunit times the digit limit.
+    UBig::new(vec![1u32; count]) * UBig::from((1u64 << 33) - 1)
+}
+
+/// Check the documented `cmp_zero_stable_under` contract for one answer.
+fn check_stable(
+    answer: Option<Ordering>,
+    bits: u64,
+    acc: &Accumulator,
+    oracle: &IBig,
+    trace: &str,
+) {
+    match answer {
+        Some(ordering) => {
+            assert_eq!(ordering, oracle_sign(oracle), "stable sign {trace}");
+            assert_ne!(
+                ordering,
+                Ordering::Equal,
+                "stable answers are never Equal {trace}"
+            );
+            // Every integer with magnitude below 2^bits leaves the order unchanged.
+            if bits < 1 << 20 {
+                let bound = UBig::from(1u8) << bits as usize;
+                assert!(
+                    oracle.magnitude() >= &bound,
+                    "Some({ordering:?}) at bits {bits} but |value| < 2^bits {trace}"
+                );
+                // The accumulator-operand clause for digit-aligned widths.
+                if bits % 32 == 0 && bits > 0 {
+                    let count = (bits / 32) as usize;
+                    assert!(
+                        oracle.magnitude() > &max_magnitude(count),
+                        "Some at stored_bits {bits} but an accumulator operand of that width can overturn it {trace}"
+                    );
+                }
+            }
+        }
+        None => {
+            if bits % 32 == 0 && bits > 0 && bits < 1 << 40 {
+                let count = (bits / 32) as usize;
+                assert!(
+                    acc.stored_digit_count() <= count + 2,
+                    "None at bits {bits} leaves {} stored digits, more than two above {count} {trace}",
+                    acc.stored_digit_count()
+                );
+            }
+        }
+    }
+}
+
+/// Apply `op` to the pool and its oracles, checking mutating queries inline.
+pub(super) fn apply(
+    pool: &mut [Accumulator; POOL],
+    oracles: &mut [IBig; POOL],
+    op: &Op,
+    trace: &str,
+) {
+    match op {
+        Op::Word { t, value } => {
+            pool[*t] += *value;
+            oracles[*t] += *value;
+        }
+        Op::WordU { t, negative, value } => {
+            if *negative {
+                pool[*t] -= *value;
+                oracles[*t] -= *value;
+            } else {
+                pool[*t] += *value;
+                oracles[*t] += *value;
+            }
+        }
+        Op::Wide { t, value } => {
+            pool[*t] += *value;
+            oracles[*t] += *value;
+        }
+        Op::WideU { t, negative, value } => {
+            if *negative {
+                pool[*t] -= *value;
+                oracles[*t] -= *value;
+            } else {
+                pool[*t] += *value;
+                oracles[*t] += *value;
+            }
+        }
+        Op::Limbs {
+            t,
+            negative,
+            limbs,
+            shift,
+        } => {
+            let scaled = IBig::from(from_limbs(limbs)) << *shift as usize;
+            if *negative {
+                pool[*t].sub_shifted_limbs(*shift, limbs.iter().copied());
+                oracles[*t] -= scaled;
+            } else {
+                pool[*t].add_shifted_limbs(*shift, limbs.iter().copied());
+                oracles[*t] += scaled;
+            }
+        }
+        Op::Acc {
+            t,
+            s,
+            negative,
+            shift,
+            form,
+        } => {
+            let (t, s) = (*t, *s);
+            let operand_oracle = oracles[s].clone();
+            match form {
+                AccForm::Borrowed => {
+                    let operand = if t == s {
+                        pool[s].clone()
+                    } else {
+                        core::mem::take(&mut pool[s])
+                    };
+                    if *negative {
+                        pool[t] -= &operand;
+                        oracles[t] -= &operand_oracle;
+                    } else {
+                        pool[t] += &operand;
+                        oracles[t] += &operand_oracle;
+                    }
+                    if t != s {
+                        pool[s] = operand;
+                    }
+                }
+                AccForm::Shifted => {
+                    let operand = if t == s {
+                        pool[s].clone()
+                    } else {
+                        core::mem::take(&mut pool[s])
+                    };
+                    let scaled = &operand_oracle << *shift as usize;
+                    if *negative {
+                        pool[t].sub_shifted(*shift, &operand);
+                        oracles[t] -= scaled;
+                    } else {
+                        pool[t].add_shifted(*shift, &operand);
+                        oracles[t] += scaled;
+                    }
+                    if t != s {
+                        pool[s] = operand;
+                    }
+                }
+                AccForm::OwnedClone => {
+                    let operand = pool[s].clone();
+                    let receiver = core::mem::take(&mut pool[t]);
+                    if *negative {
+                        pool[t] = receiver - operand;
+                        oracles[t] -= &operand_oracle;
+                    } else {
+                        pool[t] = receiver + operand;
+                        oracles[t] += &operand_oracle;
+                    }
+                }
+                AccForm::OwnedTake => {
+                    if t == s {
+                        let operand = pool[s].clone();
+                        let receiver = core::mem::take(&mut pool[t]);
+                        if *negative {
+                            pool[t] = receiver - operand;
+                            oracles[t] -= &operand_oracle;
+                        } else {
+                            pool[t] = receiver + operand;
+                            oracles[t] += &operand_oracle;
+                        }
+                    } else {
+                        let operand = core::mem::take(&mut pool[s]);
+                        oracles[s] = IBig::ZERO;
+                        let receiver = core::mem::take(&mut pool[t]);
+                        if *negative {
+                            pool[t] = receiver - operand;
+                            oracles[t] -= &operand_oracle;
+                        } else {
+                            pool[t] = receiver + operand;
+                            oracles[t] += &operand_oracle;
+                        }
+                    }
+                }
+            }
+        }
+        Op::Park { t, index, negative } => {
+            // Two word-path deposits at one digit leave an extreme coefficient
+            // -(2^33 - 1) (or its negation) without carrying, when the digit was zero.
+            pool[*t].ensure_digits();
+            let delta = IBig::from((1u64 << 33) - 1) << (32 * *index as usize);
+            if *negative {
+                pool[*t].sub_shifted_limbs(32 * index, [1u64 << 32]);
+                pool[*t].sub_shifted_limbs(32 * index, [(1u64 << 32) - 1]);
+                oracles[*t] -= delta;
+            } else {
+                pool[*t].add_shifted_limbs(32 * index, [1u64 << 32]);
+                pool[*t].add_shifted_limbs(32 * index, [(1u64 << 32) - 1]);
+                oracles[*t] += delta;
+            }
+        }
+        Op::Shl { t, shift } => {
+            pool[*t] <<= *shift;
+            oracles[*t] <<= *shift as usize;
+        }
+        Op::Neg { t } => {
+            pool[*t] = -core::mem::take(&mut pool[*t]);
+            oracles[*t] = -core::mem::take(&mut oracles[*t]);
+        }
+        Op::Reset { t } => {
+            pool[*t].reset();
+            oracles[*t] = IBig::ZERO;
+            assert!(pool[*t].is_known_zero(), "reset is visibly zero {trace}");
+        }
+        Op::Normalize { t } => {
+            let before = pool[*t].stored_digit_count();
+            pool[*t].normalize();
+            let expected = usize::try_from(oracles[*t].magnitude().bits())
+                .unwrap()
+                .div_ceil(32)
+                .max(1);
+            assert_eq!(
+                pool[*t].stored_digit_count(),
+                expected,
+                "normalize leaves the exact width {trace}"
+            );
+            assert!(
+                pool[*t].stored_digit_count() <= before + 1,
+                "normalize grows by at most one digit {trace}"
+            );
+            if oracles[*t] == IBig::ZERO {
+                assert!(
+                    pool[*t].is_known_zero(),
+                    "normalized zero is known zero {trace}"
+                );
+            }
+        }
+        Op::CmpZero { t } => {
+            let sign = pool[*t].cmp_zero();
+            assert_eq!(sign, oracle_sign(&oracles[*t]), "cmp_zero {trace}");
+            if sign == Ordering::Equal {
+                assert!(pool[*t].is_known_zero(), "Equal implies known zero {trace}");
+            }
+        }
+        Op::Stable { t, bits } => {
+            let answer = pool[*t].cmp_zero_stable_under(*bits);
+            check_stable(answer, *bits, &pool[*t], &oracles[*t], trace);
+        }
+        Op::StablePool { t, s } => {
+            let bits = pool[*s].stored_bits();
+            let answer = pool[*t].cmp_zero_stable_under(bits);
+            check_stable(answer, bits, &pool[*t], &oracles[*t], trace);
+            if let Some(ordering) = answer {
+                // The operand clause, checked directly against this operand.
+                let plus = &oracles[*t] + &oracles[*s];
+                let minus = &oracles[*t] - &oracles[*s];
+                assert_eq!(
+                    oracle_sign(&plus),
+                    ordering,
+                    "adding the operand flips {trace}"
+                );
+                assert_eq!(
+                    oracle_sign(&minus),
+                    ordering,
+                    "subtracting the operand flips {trace}"
+                );
+            }
+        }
+        Op::Reserve { t, bits } => pool[*t].reserve_bits(*bits),
+        Op::Convert { t } => check_conversions(&pool[*t], &oracles[*t], trace),
+        Op::CloneReplace { t } => {
+            let copy = pool[*t].clone();
+            pool[*t] = copy;
+        }
+        Op::GapRound { t, low, inner, top } => {
+            let write = |position: u64, negative: bool| Op::Limbs {
+                t: *t,
+                negative,
+                limbs: vec![1],
+                shift: 32 * position,
+            };
+            let mut steps = Vec::new();
+            if let Some(low) = low {
+                steps.push(write(*low, false));
+            }
+            steps.push(write(*top, false));
+            steps.push(write(*inner, false));
+            steps.push(write(*top, true));
+            steps.push(write(*inner, true));
+            if let Some(low) = low {
+                steps.push(write(*low, true));
+            }
+            for step in &steps {
+                apply(pool, oracles, step, trace);
+            }
+        }
+        Op::SumPool { t, owned } => {
+            let total: IBig = oracles.iter().sum();
+            let sum: Accumulator = if *owned {
+                pool.iter().cloned().sum()
+            } else {
+                pool.iter().sum()
+            };
+            pool[*t] = sum;
+            oracles[*t] = total;
+        }
+    }
+}
+
+/// Check every primitive conversion on a clone, including error round trips.
+fn check_conversions(acc: &Accumulator, oracle: &IBig, trace: &str) {
+    macro_rules! check {
+        ($integer:ty) => {
+            let representation = format!("{:?}", acc);
+            match (
+                <$integer>::try_from(oracle),
+                <$integer>::try_from(acc.clone()),
+            ) {
+                (Ok(expected), Ok(found)) => assert_eq!(found, expected, "conversion {trace}"),
+                (Err(_), Err(rejected)) => {
+                    assert_eq!(
+                        format!("{rejected:?}"),
+                        representation,
+                        "rejection keeps representation {trace}"
+                    );
+                    assert_value(&rejected, oracle);
+                }
+                (expected, found) => {
+                    panic!("conversion disagreement {trace}: {expected:?} vs {found:?}")
+                }
+            }
+        };
+    }
+    check!(i8);
+    check!(i16);
+    check!(i32);
+    check!(i64);
+    check!(i128);
+    check!(isize);
+    check!(u8);
+    check!(u16);
+    check!(u32);
+    check!(u64);
+    check!(u128);
+    check!(usize);
+}
+
+/// Non-mutating checks on one accumulator.
+pub(super) fn observe(acc: &Accumulator, oracle: &IBig, trace: &str) {
+    acc.digits
+        .assert_invariants(acc.small.is_some(), trace.as_bytes());
+    assert_value(acc, oracle);
+    if acc.is_known_zero() {
+        assert_eq!(oracle, &IBig::ZERO, "known zero is zero {trace}");
+    }
+    // |value| < 2.01 * 2^stored_bits, and the exact representable maximum.
+    let bits = acc.stored_bits();
+    assert_eq!(bits, 32 * acc.stored_digit_count() as u64);
+    assert!(
+        oracle.magnitude() * 100u32 < (UBig::from(201u32) << bits as usize),
+        "stored width bound {trace}"
+    );
+    assert!(oracle.magnitude() <= &max_magnitude(acc.stored_digit_count()));
+}
+
+/// Signed values within 2^33 of `k * 2^(32 d)` for `k` in 1..=4, `d` in 1..=2.
+fn near_threshold() -> BoxedStrategy<i128> {
+    (
+        1i128..=4,
+        1u32..=2,
+        -(1i128 << 33)..(1i128 << 33),
+        any::<bool>(),
+    )
+        .prop_map(|(k, d, delta, negative)| {
+            let v = (k << (32 * d)) + delta;
+            if negative {
+                -v
+            } else {
+                v
+            }
+        })
+        .boxed()
+}
+
+fn arb_word() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        3 => prop::sample::select(vec![
+            0u64, 1, 2, 3, 4, 5, (1 << 31) - 1, 1 << 31, (1 << 32) - 1, 1 << 32, (1 << 32) + 1,
+            (1 << 33) - 1, 1 << 33, 3 << 31, (1 << 63) - 1, 1 << 63, u64::MAX - 1, u64::MAX,
+        ]),
+        2 => 0u64..16,
+        2 => any::<u64>(),
+    ]
+}
+
+fn arb_shift() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        3 => 0u64..=4,
+        3 => prop::sample::select(vec![
+            29u64, 30, 31, 32, 33, 63, 64, 65, 95, 96, 97, 127, 128, 129, 159, 160, 191, 192, 193,
+            223, 224, 255, 256, 257,
+        ]),
+        2 => 0u64..400,
+        1 => (0u64..64).prop_map(|k| 32 * k),
+        1 => (0u64..64).prop_map(|k| 32 * k + 31),
+        1 => 1_000u64..6_000,
+        2 => prop::sample::select(vec![3_200u64, 3_207, 32_000, 32_031, 64_000]),
+    ]
+}
+
+fn arb_bits() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        3 => (0u64..12).prop_map(|k| 32 * k),
+        2 => 0u64..400,
+        1 => prop::sample::select(vec![u64::MAX, u64::MAX - 1, 1 << 40, (1u64 << 63) + 7]),
+    ]
+}
+
+fn arb_form() -> impl Strategy<Value = AccForm> {
+    prop_oneof![
+        Just(AccForm::Borrowed),
+        Just(AccForm::Shifted),
+        Just(AccForm::OwnedClone),
+        Just(AccForm::OwnedTake),
+    ]
+}
+
+/// One instruction, weighted by a per-case swarm vector (zero disables a kind).
+pub(super) fn arb_op(weights: [u32; 19]) -> BoxedStrategy<Op> {
+    let t = || 0usize..POOL;
+    let arms: Vec<BoxedStrategy<Op>> = vec![
+        (t(), any::<i64>(), 0u32..64)
+            .prop_map(|(t, v, n)| Op::Word { t, value: v >> n })
+            .boxed(),
+        (t(), any::<bool>(), arb_word())
+            .prop_map(|(t, negative, value)| Op::WordU { t, negative, value })
+            .boxed(),
+        (
+            t(),
+            prop_oneof![
+                any::<i128>(),
+                Just(i128::MIN),
+                Just(i128::MAX),
+                Just(1i128 << 96),
+                Just(-(1i128 << 96)),
+                Just((1i128 << 96) + 1),
+                near_threshold(),
+            ],
+        )
+            .prop_map(|(t, value)| Op::Wide { t, value })
+            .boxed(),
+        (
+            t(),
+            any::<bool>(),
+            prop_oneof![
+                any::<u128>(),
+                Just(u128::MAX),
+                Just(1u128 << 127),
+                Just(1u128 << 96)
+            ],
+        )
+            .prop_map(|(t, negative, value)| Op::WideU { t, negative, value })
+            .boxed(),
+        (
+            t(),
+            any::<bool>(),
+            prop::collection::vec(arb_word(), 0..=6),
+            arb_shift(),
+        )
+            .prop_map(|(t, negative, limbs, shift)| Op::Limbs {
+                t,
+                negative,
+                limbs,
+                shift,
+            })
+            .boxed(),
+        (t(), t(), any::<bool>(), arb_shift(), arb_form())
+            .prop_map(|(t, s, negative, shift, form)| Op::Acc {
+                t,
+                s,
+                negative,
+                shift,
+                form,
+            })
+            .boxed(),
+        (t(), 0u64..12, any::<bool>())
+            .prop_map(|(t, index, negative)| Op::Park { t, index, negative })
+            .boxed(),
+        (t(), arb_shift())
+            .prop_map(|(t, shift)| Op::Shl { t, shift })
+            .boxed(),
+        t().prop_map(|t| Op::Neg { t }).boxed(),
+        t().prop_map(|t| Op::Reset { t }).boxed(),
+        t().prop_map(|t| Op::Normalize { t }).boxed(),
+        t().prop_map(|t| Op::CmpZero { t }).boxed(),
+        (t(), arb_bits())
+            .prop_map(|(t, bits)| Op::Stable { t, bits })
+            .boxed(),
+        (t(), t())
+            .prop_map(|(t, s)| Op::StablePool { t, s })
+            .boxed(),
+        (
+            t(),
+            prop_oneof![
+                2 => 0u64..9_600,
+                1 => (1u64 << 60)..=u64::MAX,
+                1 => ((1u64 << 59) - 64)..=((1u64 << 59) + 64),
+                1 => Just(u64::MAX),
+            ],
+        )
+            .prop_map(|(t, bits)| Op::Reserve { t, bits })
+            .boxed(),
+        t().prop_map(|t| Op::Convert { t }).boxed(),
+        t().prop_map(|t| Op::CloneReplace { t }).boxed(),
+        (t(), any::<bool>())
+            .prop_map(|(t, owned)| Op::SumPool { t, owned })
+            .boxed(),
+        (t(), 3u64..2_000, any::<bool>(), 0u64..1_000_000)
+            .prop_map(|(t, top, with_low, choice)| {
+                // inner in (low + 1, top - 1); low leaves a gap below inner.
+                let inner = 2 + choice % (top - 2);
+                let low = (with_low && inner > 3).then(|| choice / 7 % (inner - 2));
+                Op::GapRound { t, low, inner, top }
+            })
+            .boxed(),
+    ];
+    let weighted: Vec<(u32, BoxedStrategy<Op>)> = weights
+        .into_iter()
+        .zip(arms)
+        .filter(|(weight, _)| *weight > 0)
+        .collect();
+    proptest::strategy::Union::new_weighted(weighted).boxed()
+}
+
+/// A swarm weight vector: each operation kind is enabled or disabled per case.
+pub(super) fn arb_weights() -> impl Strategy<Value = [u32; 19]> {
+    prop::array::uniform19(prop_oneof![1 => Just(0u32), 2 => 1u32..6]).prop_map(|mut w| {
+        // Keep at least the value-producing kinds alive.
+        if w[0] + w[1] + w[4] + w[5] + w[6] == 0 {
+            w[4] = 3;
+        }
+        w
+    })
+}
+
+/// Programs: a swarm vector, then a stream of instructions under it.
+pub(super) fn arb_program() -> impl Strategy<Value = Vec<Op>> {
+    arb_weights().prop_flat_map(|weights| prop::collection::vec(arb_op(weights), 1..120))
+}
+
+/// Run a program, checking every accumulator after every step.
+pub(super) fn run_program(ops: &[Op]) {
+    let mut pool: [Accumulator; POOL] = Default::default();
+    let mut oracles: [IBig; POOL] = Default::default();
+    for (step, op) in ops.iter().enumerate() {
+        let trace = format!("at step {step} ({op:?})");
+        apply(&mut pool, &mut oracles, op, &trace);
+        for i in 0..POOL {
+            observe(&pool[i], &oracles[i], &trace);
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: std::env::var("L7_CASES").ok().and_then(|s| s.parse().ok()).unwrap_or(256),
+        max_shrink_iters: 20_000,
+        ..ProptestConfig::default()
+    })]
+
+    /// Every operation over a pool of arbitrarily evolved accumulators agrees
+    /// with an exact oracle, with comparisons only where the program asks.
+    #[test]
+    fn l7_pool_programs_match_the_oracle(ops in arb_program()) {
+        run_program(&ops);
+    }
+}
+
+/// Touch accounting against the crate page's cost table (explore only).
+#[cfg(feature = "touch-meter")]
+pub(super) mod metered {
+    use super::*;
+    use crate::touch_meter;
+
+    /// The cost-table work units one step is entitled to, measured before and
+    /// after the step: operand width plus receiver growth, or the receiver's
+    /// width for whole-width operations.
+    pub(in super::super) fn work(op: &Op, before: &[usize; POOL], after: &[usize; POOL]) -> u64 {
+        let t = op.target();
+        let _ = after;
+        let growth = 0u64;
+        let w = before[t] as u64;
+        match op {
+            Op::Word { .. } | Op::WordU { .. } | Op::Wide { .. } | Op::WideU { .. } => 1 + growth,
+            Op::Limbs { limbs, .. } => limbs.len() as u64 + growth + 1,
+            Op::Acc {
+                s, form, negative, ..
+            } => {
+                let a = before[*s] as u64;
+                match form {
+                    // Owned addition reads the narrower input; owned
+                    // subtraction keeps operand order and reads the right one.
+                    AccForm::OwnedClone | AccForm::OwnedTake if !*negative => a.min(w) + 1,
+                    _ => a + growth + 1,
+                }
+            }
+            Op::Park { .. } => 2 + growth,
+            Op::Shl { .. } => w + growth + 1,
+            Op::Neg { .. } | Op::Reset { .. } | Op::CloneReplace { .. } => w + 1,
+            Op::Normalize { .. } => w + after[t] as u64 + 1,
+            Op::CmpZero { .. } | Op::Stable { .. } | Op::StablePool { .. } => 1,
+            Op::Reserve { .. } | Op::Convert { .. } => 1,
+            Op::SumPool { .. } => before.iter().map(|&c| c as u64).sum::<u64>() + growth + 1,
+            Op::GapRound { low, .. } => 4 + 2 * u64::from(low.is_some()),
+        }
+    }
+
+    /// Run `ops` (skipping `Convert`, whose checks read), returning total
+    /// touches, total work, and the per-step maximum touch-to-work ratio.
+    pub(in super::super) fn meter_program(ops: &[Op]) -> (u64, u64, f64) {
+        let mut pool: [Accumulator; POOL] = Default::default();
+        let mut oracles: [IBig; POOL] = Default::default();
+        let (mut touches, mut work_total, mut worst) = (0u64, 0u64, 0f64);
+        for (step, op) in ops.iter().enumerate() {
+            if matches!(op, Op::Convert { .. }) {
+                continue;
+            }
+            let before: [usize; POOL] = core::array::from_fn(|i| pool[i].stored_digit_count());
+            let trace = format!("at step {step}");
+            touch_meter::reset();
+            apply(&mut pool, &mut oracles, op, &trace);
+            let spent = touch_meter::touches();
+            let after: [usize; POOL] = core::array::from_fn(|i| pool[i].stored_digit_count());
+            let w = work(op, &before, &after);
+            touches += spent;
+            work_total += w;
+            worst = worst.max(spent as f64 / w as f64);
+        }
+        (touches, work_total, worst)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: std::env::var("L7_CASES").ok().and_then(|s| s.parse().ok()).unwrap_or(256),
+            ..ProptestConfig::default()
+        })]
+
+        /// Total touches stay within a constant multiple of the cost table's
+        /// work units over arbitrary programs (exploratory constant).
+        #[test]
+        fn l7_touches_are_linear_in_table_work(ops in arb_program()) {
+            let (touches, work, worst) = meter_program(&ops);
+            if std::env::var("L7_PRINT").is_ok() {
+                eprintln!("RATIO {:.3} total {touches}/{work} worst-step {worst:.1} len {}", touches as f64 / work as f64, ops.len());
+            }
+            prop_assert!(touches <= 8 * work + 64, "touches {} > 8 * work {} + 64", touches, work);
+        }
+    }
+
+    /// Replay a shrunk touch-property failure with per-step readings.
+    #[test]
+    fn l7_replay_touch_repro1() {
+        let ops: Vec<Op> = vec![
+            Op::Reserve { t: 2, bits: 864 },
+            Op::Neg { t: 0 },
+            Op::Acc {
+                t: 0,
+                s: 0,
+                negative: true,
+                shift: 1,
+                form: AccForm::OwnedClone,
+            },
+            Op::Acc {
+                t: 1,
+                s: 0,
+                negative: false,
+                shift: 3,
+                form: AccForm::OwnedClone,
+            },
+            Op::StablePool { t: 0, s: 1 },
+            Op::WideU {
+                t: 2,
+                negative: true,
+                value: 170141183460469231731687303715884105728u128,
+            },
+            Op::Stable { t: 1, bits: 157 },
+            Op::Stable {
+                t: 1,
+                bits: 9223372036854775815u64,
+            },
+            Op::Word {
+                t: 0,
+                value: 3173021695853935,
+            },
+            Op::Word {
+                t: 1,
+                value: -1776702664954095,
+            },
+            Op::Reserve { t: 2, bits: 1344 },
+            Op::Stable { t: 2, bits: 207 },
+            Op::SumPool { t: 0, owned: false },
+            Op::Acc {
+                t: 2,
+                s: 0,
+                negative: false,
+                shift: 66,
+                form: AccForm::Shifted,
+            },
+            Op::WordU {
+                t: 0,
+                negative: true,
+                value: 4294967295,
+            },
+            Op::Acc {
+                t: 0,
+                s: 2,
+                negative: true,
+                shift: 4,
+                form: AccForm::Borrowed,
+            },
+            Op::Shl { t: 2, shift: 192 },
+        ];
+        let mut pool: [Accumulator; POOL] = Default::default();
+        let mut oracles: [IBig; POOL] = Default::default();
+        for (step, op) in ops.iter().enumerate() {
+            let before: [usize; POOL] = core::array::from_fn(|i| pool[i].stored_digit_count());
+            touch_meter::reset();
+            apply(&mut pool, &mut oracles, op, "replay");
+            let spent = touch_meter::touches();
+            let after: [usize; POOL] = core::array::from_fn(|i| pool[i].stored_digit_count());
+            eprintln!("REPLAY step {step}: touches {spent} work {} counts {before:?}->{after:?} op {op:?}", work(op, &before, &after));
+            eprintln!("REPLAY   target after: {:?}", pool[op.target()]);
+        }
+    }
+
+    /// Measure repeated comparisons on values whose top digit is 1, 2, or 3.
+    #[test]
+    fn l7_probe_repeated_comparison_cost() {
+        for top in [1u64, 2, 3] {
+            let mut acc = Accumulator::new();
+            acc.add_shifted_limbs(32 * 64, [top, 0]);
+            acc.cmp_zero();
+            touch_meter::reset();
+            for _ in 0..1_000 {
+                acc.cmp_zero();
+            }
+            eprintln!(
+                "PROBE repeated cmp_zero on {top} * 2^2048: {} touches per read after the first",
+                touch_meter::touches() as f64 / 1_000.0
+            );
+        }
+    }
+
+    /// Scale every shift in a program by `factor`, keeping its structure.
+    fn scaled(ops: &[Op], factor: u64) -> Vec<Op> {
+        ops.iter()
+            .map(|op| {
+                let mut op = op.clone();
+                match &mut op {
+                    Op::Limbs { shift, .. } | Op::Acc { shift, .. } | Op::Shl { shift, .. } => {
+                        *shift *= factor
+                    }
+                    Op::Park { index, .. } => *index *= factor,
+                    Op::Stable { bits, .. } => *bits = bits.saturating_mul(factor),
+                    _ => {}
+                }
+                op
+            })
+            .collect()
+    }
+
+    /// Hill-climb on the touch-to-work ratio, then rescale the best program.
+    ///
+    /// Investigative: prints the best ratios; asserts nothing.
+    #[test]
+    #[ignore]
+    fn l7_adversarial_touch_search() {
+        use proptest::strategy::ValueTree;
+        use proptest::test_runner::{Config, TestRunner};
+        let iterations: usize = std::env::var("L7_ITERS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2_000);
+        let seeds: u64 = std::env::var("L7_SEEDS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4);
+        for seed in 0..seeds {
+            let mut runner = TestRunner::new_with_rng(
+                Config::default(),
+                proptest::test_runner::TestRng::from_seed(
+                    proptest::test_runner::RngAlgorithm::ChaCha,
+                    &[seed as u8; 32],
+                ),
+            );
+            let weights = arb_weights().new_tree(&mut runner).unwrap().current();
+            let op_strategy = arb_op(weights);
+            let mut fresh =
+                |runner: &mut TestRunner| op_strategy.new_tree(runner).unwrap().current();
+            let mut best: Vec<Op> = (0..60).map(|_| fresh(&mut runner)).collect();
+            let fitness = |ops: &[Op]| {
+                let (t, w, _) = meter_program(ops);
+                t as f64 / w as f64
+            };
+            let mut best_ratio = fitness(&best);
+            for _ in 0..iterations {
+                let mut candidate = best.clone();
+                let r = runner.rng().next_u32() as usize;
+                let len = candidate.len();
+                match r % 5 {
+                    0 if len > 0 => candidate[r / 5 % len] = fresh(&mut runner),
+                    1 if len < 400 => candidate.insert(r / 5 % (len + 1), fresh(&mut runner)),
+                    2 if len > 1 => {
+                        candidate.remove(r / 5 % len);
+                    }
+                    3 if len > 0 && len < 300 => {
+                        // Repeat a segment: oscillations are repetitions.
+                        let start = r / 5 % len;
+                        let end = (start + 1 + (r / 7) % 8).min(len);
+                        let segment: Vec<Op> = candidate[start..end].to_vec();
+                        let times = 1 + (r / 11) % 8;
+                        for _ in 0..times {
+                            candidate.splice(end..end, segment.iter().cloned());
+                        }
+                    }
+                    _ => {
+                        if len > 0 {
+                            candidate[r / 5 % len] = fresh(&mut runner);
+                        }
+                    }
+                }
+                let ratio = fitness(&candidate);
+                if ratio >= best_ratio {
+                    best_ratio = ratio;
+                    best = candidate;
+                }
+            }
+            let ratios: Vec<String> = [1u64, 2, 4, 8]
+                .iter()
+                .map(|&f| {
+                    let (t, w, worst) = meter_program(&scaled(&best, f));
+                    format!(
+                        "x{f}: {t}/{w}={:.3} worst-step {worst:.1}",
+                        t as f64 / w as f64
+                    )
+                })
+                .collect();
+            eprintln!(
+                "ADVERSARY seed {seed}: best {best_ratio:.3} len {} | {}",
+                best.len(),
+                ratios.join(" | ")
+            );
+            if std::env::var("L7_DUMP").is_ok() {
+                eprintln!("ADVERSARY program seed {seed}: {best:?}");
+            }
+        }
+    }
+}
+
+/// Probes for contract questions (explore branch only).
+mod probes {
+    use super::Accumulator;
+    use core::cmp::Ordering;
+
+    /// A mathematically zero accumulator stored as digits `[-2^32, 1]`.
+    fn redundant_zero() -> Accumulator {
+        let mut acc = Accumulator::new();
+        acc.add_shifted_limbs(32, [1, 0]);
+        acc -= 1_u64 << 32;
+        assert!(!acc.is_known_zero(), "the probe needs a redundant zero");
+        let (sign, limbs) = acc.signed_magnitude();
+        assert_eq!(sign, Ordering::Equal);
+        assert!(limbs.as_ref().is_empty());
+        acc
+    }
+
+    /// Outcome of a closure: Ok or the panic message.
+    fn outcome(f: impl FnOnce() + std::panic::UnwindSafe) -> String {
+        match std::panic::catch_unwind(f) {
+            Ok(()) => "returned".to_string(),
+            Err(payload) => {
+                if let Some(s) = payload.downcast_ref::<&str>() {
+                    format!("panicked: {s}")
+                } else if let Some(s) = payload.downcast_ref::<String>() {
+                    format!("panicked: {s}")
+                } else {
+                    "panicked: <non-string>".to_string()
+                }
+            }
+        }
+    }
+
+    /// Observe how shifting zero depends on the stored representation.
+    ///
+    /// A 64-bit target cannot reach an unaddressable landing by shift alone,
+    /// so this measures the working width and allocation a zero result keeps.
+    #[test]
+    fn l7_probe_zero_shift_history() {
+        let shift = 32u64 << 20;
+        let mut known = Accumulator::new();
+        known <<= shift;
+        let mut redundant = redundant_zero();
+        redundant <<= shift;
+        let consumed = redundant_zero() << shift;
+        let mut operand = Accumulator::new();
+        operand.add_shifted(shift, &redundant_zero());
+        let mut normalized = redundant_zero();
+        normalized.normalize();
+        normalized <<= shift;
+        for (name, mut acc) in [
+            ("known zero <<=", known),
+            ("redundant zero <<=", redundant),
+            ("redundant zero <<", consumed),
+            ("add_shifted(redundant zero)", operand),
+            ("normalized redundant zero <<=", normalized),
+        ] {
+            let width = acc.stored_digit_count();
+            let known_zero = acc.is_known_zero();
+            let sign = acc.cmp_zero();
+            eprintln!("PROBE zero-shift {name}: stored_digit_count {width}, is_known_zero {known_zero}, cmp_zero {sign:?}");
+        }
+    }
+
+    /// Observe `reserve_digits` at the largest request.
+    #[test]
+    fn l7_probe_reserve_digits_extreme() {
+        let result = outcome(|| {
+            let mut acc = Accumulator::new();
+            acc.reserve_bits(u64::MAX);
+        });
+        eprintln!("PROBE reserve_bits(u64::MAX): {result}");
+    }
+}

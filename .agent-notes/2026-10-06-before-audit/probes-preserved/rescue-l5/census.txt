@@ -1,0 +1,242 @@
+antichain cases = 250
+antichain down census=Empty = 9251
+antichain down census=Full = 772
+antichain down census=Partial = 2778
+antichain down checks = 12801
+antichain down refine = 797
+antichain down refine antichain=1 = 318
+antichain down refine antichain=2 = 340
+antichain down refine antichain=3 = 127
+antichain down refine antichain=4 = 12
+antichain down refine antichain>=2 = 479
+antichain down refine wide = 439
+antichain empty-case = 6
+antichain up census=Empty = 7729
+antichain up census=Full = 1488
+antichain up census=Partial = 3584
+antichain up checks = 12801
+antichain up refine = 651
+antichain up refine antichain=1 = 284
+antichain up refine antichain=2 = 302
+antichain up refine antichain=3 = 62
+antichain up refine antichain=4 = 3
+antichain up refine antichain>=2 = 367
+antichain up refine wide = 429
+committed-grid-61 down census=Empty = 1307
+committed-grid-61 down census=Full = 397
+committed-grid-61 down census=Partial = 564
+committed-grid-61 down checks = 2268
+committed-grid-61 down refine = 240
+committed-grid-61 down refine antichain=1 = 240
+committed-grid-61 family neutral=16 down=63 up=63 = 1
+committed-grid-61 neutral census=Empty = 320
+committed-grid-61 neutral census=Full = 105
+committed-grid-61 neutral census=Partial = 151
+committed-grid-61 neutral checks = 576
+committed-grid-61 neutral refine = 36
+committed-grid-61 neutral refine antichain=0 = 36
+committed-grid-61 up census=Empty = 1649
+committed-grid-61 up census=Full = 155
+committed-grid-61 up census=Partial = 464
+committed-grid-61 up checks = 2268
+committed-grid-61 up refine = 232
+committed-grid-61 up refine antichain=1 = 232
+committed-grid-main down census=Empty = 374
+committed-grid-main down census=Full = 286
+committed-grid-main down census=Partial = 312
+committed-grid-main down checks = 972
+committed-grid-main down refine = 64
+committed-grid-main down refine antichain=1 = 64
+committed-grid-main family neutral=16 down=27 up=27 = 1
+committed-grid-main neutral census=Empty = 320
+committed-grid-main neutral census=Full = 105
+committed-grid-main neutral census=Partial = 151
+committed-grid-main neutral checks = 576
+committed-grid-main neutral refine = 36
+committed-grid-main neutral refine antichain=0 = 36
+committed-grid-main up census=Empty = 509
+committed-grid-main up census=Full = 135
+committed-grid-main up census=Partial = 328
+committed-grid-main up checks = 972
+committed-random-grid cases = 256
+committed-random-grid down census=Empty = 8607
+committed-random-grid down census=Full = 155
+committed-random-grid down census=Partial = 454
+committed-random-grid down checks = 9216
+committed-random-grid down refine = 507
+committed-random-grid down refine antichain=1 = 343
+committed-random-grid down refine antichain=2 = 164
+committed-random-grid down refine antichain>=2 = 164
+committed-random-grid neutral census=Empty = 6235
+committed-random-grid neutral census=Full = 1931
+committed-random-grid neutral census=Partial = 1050
+committed-random-grid neutral checks = 9216
+committed-random-grid neutral refine = 517
+committed-random-grid neutral refine antichain=0 = 517
+committed-random-grid up census=Empty = 8794
+committed-random-grid up census=Full = 95
+committed-random-grid up census=Partial = 327
+committed-random-grid up checks = 9216
+committed-random-grid up refine = 524
+committed-random-grid up refine antichain=1 = 351
+committed-random-grid up refine antichain=2 = 165
+committed-random-grid up refine antichain=3 = 8
+committed-random-grid up refine antichain>=2 = 173
+cube down census=Empty = 131773
+cube down census=Full = 32552
+cube down census=Partial = 55347
+cube down checks = 219672
+cube down refine = 5085
+cube down refine antichain=1 = 5085
+cube neutral census=Empty = 33181
+cube neutral census=Full = 2177
+cube neutral census=Partial = 7410
+cube neutral checks = 42768
+cube neutral refine = 1695
+cube neutral refine antichain=0 = 1695
+cube up census=Empty = 131773
+cube up census=Full = 32552
+cube up census=Partial = 55347
+cube up checks = 219672
+cube up refine = 5085
+cube up refine antichain=1 = 5085
+organic cases = 256
+organic down census=Empty = 6400
+organic down census=Full = 648
+organic down census=Partial = 1404
+organic down checks = 8452
+organic down refine = 638
+organic down refine antichain=1 = 435
+organic down refine antichain=2 = 203
+organic down refine antichain>=2 = 203
+organic down refine depth>=5 = 132
+organic neutral census=Empty = 5501
+organic neutral census=Full = 1866
+organic neutral census=Partial = 1085
+organic neutral checks = 8452
+organic neutral refine = 368
+organic neutral refine antichain=0 = 368
+organic neutral refine depth>=5 = 38
+organic up census=Empty = 6313
+organic up census=Full = 773
+organic up census=Partial = 1366
+organic up checks = 8452
+organic up refine = 445
+organic up refine antichain=1 = 319
+organic up refine antichain=2 = 97
+organic up refine antichain=3 = 24
+organic up refine antichain=4 = 5
+organic up refine antichain>=2 = 126
+organic up refine depth>=5 = 103
+organic-antichain cases = 235
+organic-antichain down census=Empty = 10980
+organic-antichain down census=Full = 1164
+organic-antichain down census=Partial = 3013
+organic-antichain down checks = 15157
+organic-antichain down refine = 994
+organic-antichain down refine antichain=1 = 354
+organic-antichain down refine antichain=2 = 496
+organic-antichain down refine antichain=3 = 144
+organic-antichain down refine antichain>=2 = 640
+organic-antichain down refine depth>=5 = 2
+organic-antichain empty-case = 21
+organic-antichain up census=Empty = 8261
+organic-antichain up census=Full = 2528
+organic-antichain up census=Partial = 4368
+organic-antichain up checks = 15157
+organic-antichain up refine = 707
+organic-antichain up refine antichain=1 = 278
+organic-antichain up refine antichain=2 = 299
+organic-antichain up refine antichain=3 = 56
+organic-antichain up refine antichain=4 = 44
+organic-antichain up refine antichain=5 = 30
+organic-antichain up refine antichain>=2 = 429
+organic-antichain up refine depth>=5 = 203
+shaped cases = 256
+shaped down census=Empty = 12557
+shaped down census=Full = 1746
+shaped down census=Partial = 2463
+shaped down checks = 16766
+shaped down refine = 744
+shaped down refine antichain=1 = 438
+shaped down refine antichain=2 = 220
+shaped down refine antichain=3 = 52
+shaped down refine antichain=4 = 34
+shaped down refine antichain>=2 = 306
+shaped down refine depth>=5 = 465
+shaped down refine wide = 386
+shaped neutral census=Empty = 11769
+shaped neutral census=Full = 3350
+shaped neutral census=Partial = 1647
+shaped neutral checks = 16766
+shaped neutral refine = 477
+shaped neutral refine antichain=0 = 477
+shaped neutral refine depth>=5 = 278
+shaped neutral refine wide = 227
+shaped up census=Empty = 12681
+shaped up census=Full = 1661
+shaped up census=Partial = 2424
+shaped up checks = 16766
+shaped up refine = 745
+shaped up refine antichain=1 = 591
+shaped up refine antichain=2 = 132
+shaped up refine antichain=3 = 13
+shaped up refine antichain=4 = 9
+shaped up refine antichain>=2 = 154
+shaped up refine depth>=5 = 393
+shaped up refine wide = 347
+shaped-antichain cases = 256
+shaped-antichain down census=Empty = 54751
+shaped-antichain down census=Full = 4725
+shaped-antichain down census=Partial = 30349
+shaped-antichain down checks = 89825
+shaped-antichain down refine = 11223
+shaped-antichain down refine antichain=1 = 1273
+shaped-antichain down refine antichain=2 = 5294
+shaped-antichain down refine antichain=3 = 2455
+shaped-antichain down refine antichain=4 = 538
+shaped-antichain down refine antichain=5 = 1663
+shaped-antichain down refine antichain>=2 = 9950
+shaped-antichain down refine depth>=5 = 10781
+shaped-antichain down refine wide = 6560
+shaped-antichain up census=Empty = 50134
+shaped-antichain up census=Full = 6045
+shaped-antichain up census=Partial = 33646
+shaped-antichain up checks = 89825
+shaped-antichain up refine = 8830
+shaped-antichain up refine antichain=1 = 3525
+shaped-antichain up refine antichain=2 = 971
+shaped-antichain up refine antichain=3 = 3023
+shaped-antichain up refine antichain=4 = 482
+shaped-antichain up refine antichain=5 = 829
+shaped-antichain up refine antichain>=2 = 5305
+shaped-antichain up refine depth>=5 = 8524
+shaped-antichain up refine wide = 3452
+uniform cases = 256
+uniform down census=Empty = 7011
+uniform down census=Full = 1115
+uniform down census=Partial = 1610
+uniform down checks = 9736
+uniform down refine = 418
+uniform down refine antichain=1 = 285
+uniform down refine antichain=2 = 108
+uniform down refine antichain=3 = 25
+uniform down refine antichain>=2 = 133
+uniform down refine wide = 199
+uniform neutral census=Empty = 6155
+uniform neutral census=Full = 2632
+uniform neutral census=Partial = 949
+uniform neutral checks = 9736
+uniform neutral refine = 275
+uniform neutral refine antichain=0 = 275
+uniform neutral refine wide = 149
+uniform up census=Empty = 6828
+uniform up census=Full = 1138
+uniform up census=Partial = 1770
+uniform up checks = 9736
+uniform up refine = 370
+uniform up refine antichain=1 = 230
+uniform up refine antichain=2 = 120
+uniform up refine antichain=3 = 20
+uniform up refine antichain>=2 = 140
+uniform up refine wide = 154

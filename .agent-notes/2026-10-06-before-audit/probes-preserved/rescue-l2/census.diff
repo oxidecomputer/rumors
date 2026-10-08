@@ -1,0 +1,183 @@
+diff --git a/crates/before/tests/l2_probe/gen.rs b/crates/before/tests/l2_probe/gen.rs
+index 58caf15e7..d3dc5a719 100644
+--- a/crates/before/tests/l2_probe/gen.rs
++++ b/crates/before/tests/l2_probe/gen.rs
+@@ -17,6 +17,10 @@ impl<'a> Tape<'a> {
+         Tape { data, pos: 0 }
+     }
+ 
++    pub fn pos(&self) -> usize {
++        self.pos
++    }
++
+     pub fn byte(&mut self) -> u8 {
+         let b = self.data.get(self.pos).copied().unwrap_or(0);
+         self.pos += 1;
+diff --git a/crates/before/tests/l2_probe/main.rs b/crates/before/tests/l2_probe/main.rs
+index c1e8a5402..d1e13849f 100644
+--- a/crates/before/tests/l2_probe/main.rs
++++ b/crates/before/tests/l2_probe/main.rs
+@@ -820,3 +820,163 @@ fn deep_fork_halves_are_stack_safe() {
+     assert!((&joined / &keeper) == a);
+     assert!((&joined / &keeper).partial_cmp(&b).is_none());
+ }
++
++/// Rescue census (scratch, uncommitted): what every tape draw of `run_case`
++/// reaches, in `run_case`'s own draw order.
++#[test]
++#[ignore = "rescue census; run explicitly"]
++fn rescue_census() {
++    use rand::{RngCore, SeedableRng};
++    fn bump(h: &mut std::collections::BTreeMap<String, u64>, k: String) {
++        *h.entry(k).or_default() += 1;
++    }
++    fn sample(m: &mut std::collections::BTreeMap<String, Vec<u64>>, k: &str, v: u64) {
++        m.entry(k.to_string()).or_default().push(v);
++    }
++    fn vdepth(m: &VM) -> u64 {
++        m.iter().map(|(d, _)| *d).max().unwrap()
++    }
++    fn widest(m: &VM) -> u64 {
++        m.iter().map(|(_, h)| h.bits()).max().unwrap()
++    }
++    fn has_code(m: &VM, w: u64) -> bool {
++        (0..m.len()).any(|i| model::code_bits(m, i) == w)
++    }
++    /// Collapses whose surviving left code is exactly `w` bits: (direct, cascade).
++    fn collapses_at(cells: Vec<(u64, BigUint)>, w: u64) -> (u64, u64) {
++        let mut out: VM = Vec::with_capacity(cells.len());
++        let mut stack: Vec<(u64, bool)> = Vec::new();
++        let (mut direct, mut cascade) = (0u64, 0u64);
++        for (d, h) in cells {
++            out.push((d, h));
++            stack.push((d, true));
++            let mut first = true;
++            while stack.len() >= 2 && stack[stack.len() - 1].0 == stack[stack.len() - 2].0 {
++                let (d, s2) = stack.pop().unwrap();
++                let (_, s1) = stack.pop().unwrap();
++                let n = out.len();
++                if s1 && s2 && out[n - 1].1 == out[n - 2].1 {
++                    if model::code_bits(&out, n - 2) == w {
++                        if first {
++                            direct += 1;
++                        } else {
++                            cascade += 1;
++                        }
++                    }
++                    out.pop();
++                    out[n - 2].0 = d - 1;
++                    stack.push((d - 1, true));
++                } else {
++                    stack.push((d - 1, false));
++                }
++                first = false;
++            }
++        }
++        (direct, cascade)
++    }
++    let n: u64 = std::env::var("CENSUS_N")
++        .ok()
++        .and_then(|s| s.parse().ok())
++        .unwrap_or(4000);
++    let mut hist: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
++    let mut nums: std::collections::BTreeMap<String, Vec<u64>> = std::collections::BTreeMap::new();
++    for seed in 0..n {
++        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
++        let len = (rng.next_u32() % 6000) as usize;
++        let mut tape = vec![0u8; len];
++        rng.fill_bytes(&mut tape);
++        let mut t = Tape::new(&tape);
++        let lim = limits(&mut t);
++        let tier = lim.splits;
++        let lv = gen::levels(&mut t);
++        let (ma, mb, family) = gen::pair(&mut t, &lv, lim);
++        let ex_p = t.pos() >= len;
++        let (mp, _) = gen::party(&mut t, lim);
++        let ex_q = t.pos() >= len;
++        let (mq, _) = gen::party(&mut t, lim);
++        let ex_c = t.pos() >= len;
++        let mc = gen::perturb(&mut t, &ma, &lv, lim);
++        let ex_f = t.pos() >= len;
++        let arity = t.below(41) as u64;
++
++        sample(&mut nums, "tape len", len as u64);
++        sample(&mut nums, "tape pos after pair", t.pos() as u64);
++        bump(&mut hist, format!("family {family}"));
++        if seed < 2000 {
++            bump(&mut hist, format!("first2000 family {family}"));
++            bump(&mut hist, format!("first2000 relation {:?}", model::relation(&ma, &mb)));
++        }
++        bump(&mut hist, format!("relation {:?}", model::relation(&ma, &mb)));
++        for (tag, ex) in [("p", ex_p), ("q", ex_q), ("c", ex_c), ("fold", ex_f)] {
++            bump(&mut hist, format!("exhausted before {tag:4} all       {ex}"));
++            bump(&mut hist, format!("exhausted before {tag:4} tier {tier:>3} {ex}"));
++        }
++        for (name, m) in [("a", &ma), ("b", &mb), ("c", &mc)] {
++            sample(&mut nums, &format!("{name} depth"), vdepth(m));
++            sample(&mut nums, &format!("{name} leaves"), m.len() as u64);
++            sample(&mut nums, &format!("{name} encoded bits"), model::version_bits(m));
++            sample(&mut nums, &format!("{name} widest height bits"), widest(m));
++        }
++        bump(&mut hist, format!("c equals a {}", mc == ma));
++        let both_deep = vdepth(&ma) >= 5 && vdepth(&mb) >= 5;
++        bump(&mut hist, format!("a and b both depth>=5 {both_deep}"));
++        for (name, p) in [("p", &mp), ("q", &mq)] {
++            let cp = model::canon_party(p);
++            let pd = cp.iter().map(|(d, _)| *d).max().unwrap();
++            let owned = cp.iter().filter(|(_, o)| *o).count() as u64;
++            let seed_party = cp == vec![(0, true)];
++            sample(&mut nums, &format!("{name} party depth"), pd);
++            sample(&mut nums, &format!("{name} party regions"), cp.len() as u64);
++            sample(&mut nums, &format!("{name} party owned regions"), owned);
++            bump(&mut hist, format!("{name} is the seed party {seed_party}"));
++            bump(
++                &mut hist,
++                format!("{name} nonseed and depth>=5 {}", !seed_party && pd >= 5),
++            );
++        }
++        let bucket = match arity {
++            0 => "0",
++            1..=8 => "1-8",
++            9..=17 => "9-17",
++            _ => "18-40",
++        };
++        bump(&mut hist, format!("fold arity {bucket}"));
++        for (name, m) in [("a", &ma), ("b", &mb)] {
++            bump(&mut hist, format!("input {name} has a 63-bit code {}", has_code(m, 63)));
++            bump(&mut hist, format!("input {name} has a 65-bit code {}", has_code(m, 65)));
++        }
++        for (op, join) in [("join", true), ("meet", false)] {
++            let cells = model::refine(&[model::vdepths(&ma), model::vdepths(&mb)]);
++            let raw: Vec<(u64, BigUint)> = cells
++                .iter()
++                .map(|(d, w)| {
++                    let (x, y) = (&ma[w[0].0].1, &mb[w[1].0].1);
++                    (*d, if join { x.max(y).clone() } else { x.min(y).clone() })
++                })
++                .collect();
++            let out = model::canon(raw.clone());
++            bump(&mut hist, format!("{op} output has a 63-bit code {}", has_code(&out, 63)));
++            bump(&mut hist, format!("{op} output has a 65-bit code {}", has_code(&out, 65)));
++            let (d63, c63) = collapses_at(raw, 63);
++            bump(&mut hist, format!("{op} direct collapse with 63-bit left code {}", d63 > 0));
++            bump(&mut hist, format!("{op} cascade collapse with 63-bit left code {}", c63 > 0));
++        }
++    }
++    println!("rescue census over {n} tapes");
++    for (k, v) in &hist {
++        println!("{k:60} {v}");
++    }
++    for (k, mut v) in nums {
++        v.sort_unstable();
++        let at = |p: f64| v[((v.len() as f64 - 1.0) * p).round() as usize];
++        println!(
++            "{k:30} n={} min={} p50={} p90={} p99={} max={}",
++            v.len(),
++            v[0],
++            at(0.5),
++            at(0.9),
++            at(0.99),
++            v[v.len() - 1]
++        );
++    }
++}

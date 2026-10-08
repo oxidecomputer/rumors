@@ -1,0 +1,465 @@
+diff --git a/crates/before/src/clock/tests.rs b/crates/before/src/clock/tests.rs
+index f4b5b4cae..b0e4d8046 100644
+--- a/crates/before/src/clock/tests.rs
++++ b/crates/before/src/clock/tests.rs
+@@ -6,7 +6,7 @@ use crate::testing::bridge::{
+     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
+     to_oracle_version,
+ };
+-use crate::testing::generators::{arb_clock_family, deep_left_spine_party};
++use crate::testing::generators::{arb_clock_family, deep_left_spine_party, deep_right_spine_party};
+ use crate::testing::optrace::{run, step_impl, world_strategy, Op};
+ use crate::testing::oracles::{function, tree};
+ use crate::{Clock, Party, Version};
+@@ -543,20 +543,20 @@ proptest! {
+ // ───────────────────────────── robustness ─────────────────────────────
+ 
+ /// Deep structures (a depth-100k id spine, and the deep event tree a tick
+-/// builds over it) survive every public op, the codec, and the `Debug` printer
+-/// with no stack overflow.
++/// builds over it) survive the clock operations driven below, the codec, and
++/// the `Debug` printer with no stack overflow.
+ ///
+-/// Every library walk is iterative — depth lives on explicit heap and bit
+-/// stacks, never the call stack — and this test is the depth-100k proof of that
+-/// claim. Beyond the single-clock ops (tick, fork, join, partial_cmp, `|`, encode, decode,
+-/// Debug), this drives the composite ops on deep structures: `sync` between two
+-/// deep clocks, `send`/`recv` of a deep version, and version comparison and
+-/// concurrency at depth. Impl-only: the recursive oracle cannot build or even
+-/// drop a tree this deep (oracle agreement at bounded depth is the master
+-/// differential harness's job).
++/// Library walks keep depth on explicit heap and bit stacks, never the call
++/// stack. This test and the other `deep_tree_*` tests check that at depth for
++/// the operations they drive. Beyond the single-clock ops (tick, fork, join,
++/// partial_cmp, `|`, encode, decode, Debug), this drives the composite ops on
++/// deep structures: `sync` between two deep clocks, `send`/`recv` of a deep
++/// version, and version comparison and concurrency at depth. Impl-only: the
++/// recursive oracle cannot build or even drop a tree this deep (oracle
++/// agreement at bounded depth is the master differential harness's job).
+ #[test]
+ fn deep_tree_stack_safety() {
+-    const DEPTH: usize = 100_000;
++    const DEPTH: usize = 1 << 18; // sizing draft (was 100_000)
+     let party = deep_left_spine_party(DEPTH);
+     let mut clock = Clock::from_parts(party, Version::new());
+ 
+@@ -658,7 +658,7 @@ fn deep_tree_query_and_causal_stack_safety() {
+     use crate::Rank;
+     use crate::{causally, Span};
+ 
+-    const DEPTH: usize = 100_000;
++    const DEPTH: usize = 1 << 18; // sizing draft (was 100_000)
+     let party = deep_left_spine_party(DEPTH);
+     let mut clock = Clock::from_parts(party, Version::new());
+     clock.tick();
+@@ -718,11 +718,216 @@ fn deep_tree_query_and_causal_stack_safety() {
+     assert_eq!(own.to_version(), late);
+ }
+ 
++/// The shape walks, the hull of a concurrent pair, the version folds, and the
++/// projection view's comparisons survive depth 2^18 on the default 2 MiB
++/// test-thread stack.
++///
++/// The deep tests above reach the version algebra only through comparable
++/// pairs, and none of them drains a shape iterator. Here a deep tip forks into
++/// two halves and each half ticks its own version, so the two versions are
++/// concurrent and each is `DEPTH + 1` levels deep. Only a concurrent pair
++/// enters the sweep that builds both hull endpoints. The test runs twice, with
++/// the tip at the end of a left spine and then of a right spine, so a walk that
++/// loops down one side but recurses down the other meets full depth on one run.
++///
++/// `DEPTH` leaves 8 bytes of a 2 MiB stack per level. A call frame costs at
++/// least 16 bytes on x86_64 and aarch64: a return address padded to the stack's
++/// 16-byte alignment, or a saved frame pointer and link register. So a walk
++/// whose compiled code keeps one call frame per level overflows here. A
++/// recursion the optimizer turns into a loop (a tail call, or an accumulation
++/// such as `1 + f(rest)`) keeps no frames and passes. The bound rests on
++/// libtest's default thread stack; a larger `RUST_MIN_STACK` weakens it.
++#[test]
++fn deep_tree_shape_hull_and_fold_stack_safety() {
++    use crate::shape::combine;
++
++    const DEPTH: usize = 1 << 18;
++    let tip = DEPTH as u64 + 1;
++    for mut keeper in [deep_left_spine_party(DEPTH), deep_right_spine_party(DEPTH)] {
++        let half = keeper.fork();
++        let mut a = Version::new();
++        keeper.tick(&mut a);
++        let mut b = Version::new();
++        half.tick(&mut b);
++        assert!(
++            a.concurrent(&b),
++            "the fork's halves tick concurrent versions"
++        );
++
++        // `a` and `b` each rise on one half of the tip, so their join rises on
++        // the whole tip and their meet rises nowhere.
++        let joined = &a | &b;
++        let met = &a & &b;
++        assert!(met.is_empty());
++
++        // The pair hull builds both endpoints in one sweep. In `span_all`, the
++        // leaf combine of the receiver with `b` takes the same sweep.
++        let span = a.span(&b);
++        assert_eq!(span.lo(), &met);
++        assert_eq!(span.hi(), &joined);
++        assert_eq!(a.span_all([&b, &joined, &a]), span);
++
++        // The folds, owned and borrowed, with and without a receiver.
++        assert_eq!([a.clone(), b.clone()].into_iter().sum::<Version>(), joined);
++        assert_eq!([&a, &b].into_iter().sum::<Version>(), joined);
++        assert_eq!(
++            [a.clone(), b.clone()].into_iter().collect::<Version>(),
++            joined
++        );
++        assert_eq!([&a, &b].into_iter().collect::<Version>(), joined);
++        assert_eq!(a.join_all([&b]), joined);
++        assert_eq!(a.meet_all([&b, &joined]), met);
++
++        // Restricted to either half's region, the join is that half's own
++        // version, so its restriction to `keeper` is concurrent with `b`.
++        assert!(&joined / &keeper == a);
++        assert!(&joined / &half == b);
++        assert!((&joined / &keeper).partial_cmp(&b).is_none());
++
++        // Every shape iterator drains to the deepest region, at the tip.
++        assert_eq!(a.shape().map(|plateau| plateau.depth).max(), Some(tip));
++        assert_eq!(
++            combine([&a, &b, &joined]).map(|cell| cell.depth).max(),
++            Some(tip)
++        );
++        assert_eq!(keeper.shape().map(|region| region.depth).max(), Some(tip));
++        let clock = Clock::from_parts(half, a);
++        assert_eq!(
++            clock.shape().map(|(plateau, _)| plateau.depth).max(),
++            Some(tip)
++        );
++    }
++}
++
++/// Sizing draft for MB2 part B: every identity entry point not driven
++/// elsewhere, at depth 2^18 on both spines and their complements.
++#[test]
++fn deep_identity_stack_safety() {
++    use crate::Count;
++    const DEPTH: usize = 1 << 18;
++    for cell in [deep_left_spine_party(DEPTH), deep_right_spine_party(DEPTH)] {
++        let comb = Party::seed()
++            .without(&cell)
++            .expect("the seed minus a cell is nonempty");
++        assert!(Party::seed().covers(&cell));
++        assert!(!cell.covers(&comb) && !comb.covers(&cell));
++        assert!(comb.covers(&comb.dangerously_alias()));
++        assert!(comb.is_disjoint(&cell));
++        assert_eq!(
++            comb.dangerously_alias().without(&cell),
++            Some(comb.dangerously_alias())
++        );
++        assert!(comb.dangerously_alias().without(&comb).is_none());
++        assert_eq!(Party::decode(&comb.encode()[..]).expect("canonical"), comb);
++        assert_eq!(comb.to_string().parse::<Party>().expect("canonical"), comb);
++        for p in [&cell, &comb] {
++            let mut keeper = p.dangerously_alias();
++            let shares: Vec<Party> = keeper.forks(5u8).collect();
++            keeper.join_all(shares).expect("shares are disjoint");
++            assert_eq!(&keeper, p);
++            let taken: Vec<Party> = keeper.forks(1000u16).take(3).collect();
++            keeper.join_all(taken).expect("shares are disjoint");
++            assert_eq!(&keeper, p);
++            let wide = Count::from(u128::MAX) + Count::from(1u8);
++            let taken: Vec<Party> = keeper.forks(wide).take(2).collect();
++            keeper.join_all(taken).expect("shares are disjoint");
++            assert_eq!(&keeper, p);
++            let [mut s0, s1, s2, s3, s4]: [Party; 5] = keeper.into();
++            s0.join_all([s1, s2, s3, s4]).expect("shares are disjoint");
++            assert_eq!(&s0, p);
++        }
++        let mut v = Version::new();
++        cell.ticks(&mut v, 3u8);
++        let mut c = Clock::from_parts(comb.dangerously_alias(), Version::new());
++        c.ticks(2u8);
++        let mut d = Clock::from_parts(cell.dangerously_alias(), v);
++        let mut kids: Vec<Clock> = c.forks(4u8).collect();
++        c.sync_all(kids.iter_mut().chain([&mut d]))
++            .expect("the participants are disjoint");
++        let msgs: Vec<Version> = kids.iter().map(|k| k.version().clone()).collect();
++        c.recv_all(&msgs);
++        c.absorb_all(msgs.iter());
++        assert!(c.own_version().to_version() <= *c.version());
++        let mut c = c | d.version();
++        c |= d.version().clone();
++        let c = d.version().clone() | c;
++        let [mut x, y, z]: [Clock; 3] = c.into();
++        x.join_all([y, z, d].into_iter().chain(kids))
++            .expect("the clocks are disjoint");
++        assert!(x.party().is_seed());
++    }
++}
++
++/// Sizing draft for MB2 part C: the remaining version, ranked, span, and
++/// query entry points at depth 2^18 on both spines.
++#[test]
++fn deep_tree_remaining_surfaces_stack_safety() {
++    use crate::{causally, Ranked, Span};
++    use std::hint::black_box;
++    const DEPTH: usize = 1 << 18;
++    for mut keeper in [deep_left_spine_party(DEPTH), deep_right_spine_party(DEPTH)] {
++        let half = keeper.fork();
++        let mut a = Version::new();
++        keeper.tick(&mut a);
++        let mut b = Version::new();
++        half.tick(&mut b);
++        let mut late = a.clone();
++        late.ticks(&keeper, 3u8);
++        let joined = a.join(&b);
++        let met = a.meet(&b);
++        assert!(met.is_empty());
++        let hull = &a ^ &b;
++        assert_eq!(hull.hi(), &joined);
++        assert_eq!(Version::decode(&a.encode()[..]).expect("canonical"), a);
++        assert_eq!(a.to_string().parse::<Version>().expect("canonical"), a);
++        let ranked_bytes = a.ranked().encode();
++        assert!(Ranked::decode(&ranked_bytes[..]).expect("canonical") == a.ranked());
++        let mut buf = Vec::new();
++        a.ranked().encode_to(&mut buf).expect("Vec writes");
++        assert_eq!(buf, ranked_bytes);
++        assert_eq!(a.encode_rank(), a.ranked().encode_rank());
++        let mut buf = Vec::new();
++        a.encode_rank_to(&mut buf).expect("Vec writes");
++        assert_eq!(buf, a.encode_rank());
++        let own_a = &joined / &keeper;
++        let own_b = &joined / &half;
++        assert!(own_a.partial_cmp(&own_b).is_none());
++        assert!(own_a <= own_a);
++        let span = Span::new(&met, &joined).expect("met <= joined");
++        black_box(span.precedence(&a));
++        assert!(span.contains(&a));
++        assert!(span.contains(span.reborrow()));
++        let tail = Span::new(&a, &late).expect("a <= late");
++        black_box(span.union(&tail));
++        black_box(span.intersect(&tail));
++        black_box(span.join(&tail));
++        black_box(span.meet(&tail));
++        black_box(span.intersect_all([&tail, &span]));
++        black_box(span.join_all([&tail, &span]));
++        black_box(span.meet_all([&tail, &span]));
++        black_box([&span, &tail].into_iter().sum::<Option<Span>>());
++        black_box([&span, &tail].into_iter().product::<Option<Span>>());
++        black_box(causally::until(&a).contains(&late));
++        black_box(causally::strictly_after(&met).contains(&a));
++        black_box(causally::strictly_before(&joined).contains(&a));
++        black_box(causally::delta(&met, &joined).contains(&a));
++        black_box(causally::toward(&met, &joined).contains(&a));
++        black_box(causally::after(&met).contains(&a));
++        black_box(causally::before(&joined).contains(&a));
++        black_box(causally::after(&met).or_concurrent().contains(&a));
++        black_box(causally::before(&joined).or_concurrent().contains(&a));
++        black_box((!causally::after(&joined)).contains(&a));
++        black_box(causally::after(&met).coverage(span.reborrow()));
++        black_box(causally::before(&joined).coverage(span.reborrow()));
++        black_box(causally::until(&a).coverage(span.reborrow()));
++    }
++}
++
+ /// `min_ticks` handles a version 100,000 levels deep without using the call
+ /// stack.
+ #[test]
+ fn deep_tree_min_ticks_stack_safety() {
+-    const DEPTH: usize = 100_000;
++    const DEPTH: usize = 1 << 18; // sizing draft (was 100_000)
+     let party = deep_left_spine_party(DEPTH);
+     let mut clock = Clock::from_parts(party, Version::new());
+     clock.tick();
+diff --git a/crates/before/src/party/forks/tests.rs b/crates/before/src/party/forks/tests.rs
+index 66d120cda..717733870 100644
+--- a/crates/before/src/party/forks/tests.rs
++++ b/crates/before/src/party/forks/tests.rs
+@@ -180,3 +180,17 @@ fn distant_size_hint_stays_sound_near_exhaustion() {
+     plan.index = count;
+     assert_eq!(plan.size_hint(), (0, Some(0)));
+ }
++
++/// Explore probe: a distant plan whose remaining count fits a machine word
++/// reports that count exactly, as a narrower-count plan would.
++#[test]
++fn explore_distant_plan_is_exact_once_the_remainder_fits() {
++    let depth = u64::from(usize::BITS) + 2;
++    let count = BigUint::from(1u8) << depth;
++    let party = Party::seed();
++    let mut plan = Plan::new(PartySnapshot::new(&party), Count(count.clone()));
++    // A power-of-two count forks no base path again, so the remainder is
++    // exactly the number of base paths left.
++    plan.index = &count - BigUint::from(5u8);
++    assert_eq!(plan.size_hint(), (5, Some(5)));
++}
+diff --git a/crates/before/src/party/tests.rs b/crates/before/src/party/tests.rs
+index 4e0342165..9e82fdb2e 100644
+--- a/crates/before/src/party/tests.rs
++++ b/crates/before/src/party/tests.rs
+@@ -491,7 +491,7 @@ mod without_constructed {
+     use crate::bits::BitsWriter;
+ 
+     /// Depths used by every constructed family.
+-    const SCALES: [usize; 3] = [256, 4096, 100_000];
++    const SCALES: [usize; 3] = [256, 4096, 1 << 18]; // sizing draft
+ 
+     /// Greatest depth safe for the recursive oracle used as a second check.
+     const ORACLE_SCALE_MAX: usize = 4096;
+@@ -745,3 +745,111 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
+     }
+     assert!(root.is_seed(), "the fully unwound fan is the seed again");
+ }
++
++/// Explore probe: distributions of the committed party generators, measured
++/// with the same statistics as the L1 discovery suite's `generator_stats`.
++#[test]
++fn explore_committed_generator_stats() {
++    use proptest::strategy::{Strategy, ValueTree};
++    use proptest::test_runner::TestRunner;
++    use std::collections::BTreeMap;
++
++    fn bucket(x: usize) -> usize {
++        if x < 4 {
++            x
++        } else {
++            x.next_power_of_two()
++        }
++    }
++    /// depth, encoded bytes, two-child branches, longest unary chain
++    fn stats(p: &Party) -> (usize, usize, usize, usize) {
++        let bytes = p.as_bytes();
++        let total = bytes.len() * 8;
++        let bit = |i: usize| bytes[i / 8] >> (7 - i % 8) & 1 == 1;
++        let (mut pos, mut both, mut longest, mut depth) = (0, 0, 0, 0);
++        // stack of (depth, unary chain length so far)
++        let mut stack = vec![(0usize, 0usize)];
++        while let Some((d, chain)) = stack.pop() {
++            if pos + 2 > total {
++                break;
++            }
++            let (l, r) = (bit(pos), bit(pos + 1));
++            pos += 2;
++            depth = depth.max(d);
++            match (l, r) {
++                (true, true) => {
++                    both += 1;
++                    stack.push((d + 1, 0));
++                    stack.push((d + 1, 0));
++                }
++                (true, false) | (false, true) => {
++                    longest = longest.max(chain + 1);
++                    stack.push((d + 1, chain + 1));
++                }
++                _ => {}
++            }
++        }
++        (depth, bytes.len(), both, longest)
++    }
++    let mut runner = TestRunner::deterministic();
++    let n = 4000;
++    let mut h: [BTreeMap<usize, usize>; 4] = Default::default();
++    let (mut disj, mut cov, mut eq) = (0, 0, 0);
++    for _ in 0..n {
++        let a = from_oracle_party(
++            &arb_oracle_party_nonempty()
++                .new_tree(&mut runner)
++                .unwrap()
++                .current(),
++        );
++        let b = from_oracle_party(
++            &arb_oracle_party_nonempty()
++                .new_tree(&mut runner)
++                .unwrap()
++                .current(),
++        );
++        let (d, by, both, ch) = stats(&a);
++        *h[0].entry(bucket(d)).or_default() += 1;
++        *h[1].entry(bucket(by)).or_default() += 1;
++        *h[2].entry(bucket(both)).or_default() += 1;
++        *h[3].entry(bucket(ch)).or_default() += 1;
++        disj += usize::from(a.is_disjoint(&b));
++        cov += usize::from(a.covers(&b) || b.covers(&a));
++        eq += usize::from(a == b);
++    }
++    println!("committed arb party depth {:?}", h[0]);
++    println!("committed arb party bytes {:?}", h[1]);
++    println!("committed arb party both-branches {:?}", h[2]);
++    println!("committed arb party longest-unary {:?}", h[3]);
++    println!("committed arb pairs: disjoint {disj}/{n} nested {cov}/{n} equal {eq}/{n}");
++
++    // Family lists: how often a join_all family is accepted.
++    let (mut accepted, mut fams) = (0, 0);
++    for _ in 0..n {
++        let (r, items) = arb_party_family().new_tree(&mut runner).unwrap().current();
++        fams += 1;
++        let mut acc = from_oracle_party(&r);
++        accepted += usize::from(acc.join_all(items.iter().map(from_oracle_party)).is_ok());
++    }
++    println!("committed party families: join_all accepted {accepted}/{fams}");
++
++    // Organic populations: live parties after op traces.
++    let mut ho: [BTreeMap<usize, usize>; 3] = Default::default();
++    let mut pops: BTreeMap<usize, usize> = BTreeMap::new();
++    for _ in 0..1000 {
++        let ops = world_strategy().new_tree(&mut runner).unwrap().current();
++        let cs = run(&ops);
++        *pops.entry(bucket(cs.len())).or_default() += 1;
++        for c in &cs {
++            let p = from_oracle_party(c.trees().0);
++            let (d, by, both, _) = stats(&p);
++            *ho[0].entry(bucket(d)).or_default() += 1;
++            *ho[1].entry(bucket(by)).or_default() += 1;
++            *ho[2].entry(bucket(both)).or_default() += 1;
++        }
++    }
++    println!("organic population sizes {:?}", pops);
++    println!("organic party depth {:?}", ho[0]);
++    println!("organic party bytes {:?}", ho[1]);
++    println!("organic party both-branches {:?}", ho[2]);
++}
+diff --git a/crates/before/src/testing/generators.rs b/crates/before/src/testing/generators.rs
+index 6f674e1eb..06dfe5f49 100644
+--- a/crates/before/src/testing/generators.rs
++++ b/crates/before/src/testing/generators.rs
+@@ -230,6 +230,24 @@ pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
+     Party::from_test_bits(bits)
+ }
+ 
++/// Build a depth-`depth` right-spine [`Party`] directly as canonical encoded
++/// bits, with a single owned region at the deep-right tip.
++///
++/// The mirror of [`deep_left_spine_party`]: each spine node is a `Right-only`
++/// tag (`01`), giving `(0, (0, …(0, 1)…))`. A walk that loops down left
++/// children but recurses into right ones keeps one frame per level only on
++/// this spine.
++pub(crate) fn deep_right_spine_party(depth: usize) -> Party {
++    let mut bits = bits::BitsWriter::with_capacity(2 * depth as u64 + 2);
++    for _ in 0..depth {
++        bits.push(false); // Right-only tag `01`: left child absent ...
++        bits.push(true); //   ... right child present
++    }
++    bits.push(false); // terminal tag `00`: the deep-right owned tip
++    bits.push(false);
++    Party::from_test_bits(bits)
++}
++
+ // ───────────────────────── arbitrary normal-form ─────────────────────────
+ //
+ // BigUint magnitudes deliberately span small values AND values near/beyond
+diff --git a/crates/before/src/testing/meter/board/coverage.rs b/crates/before/src/testing/meter/board/coverage.rs
+index 3cb4eae41..95d8e8552 100644
+--- a/crates/before/src/testing/meter/board/coverage.rs
++++ b/crates/before/src/testing/meter/board/coverage.rs
+@@ -568,8 +568,10 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
+     ),
+     (
+         "unbounded depth (beyond the differential grids)",
+-        "a coverage disposition, not an operation: depth safety is pinned by \
+-         deep_tree_stack_safety, and every board family already scales depth",
++        "a coverage disposition, not an operation: depth safety is checked, \
++         for the operations they drive, by the deep-input stress tests at \
++         100,000 levels or more, chiefly the deep_tree_* tests in \
++         clock/tests.rs; every board family already scales depth",
+     ),
+     (
+         "meter instrumentation plumbing",

@@ -1,0 +1,90 @@
+diff --git a/crates/before/src/version/measure/integral.rs b/crates/before/src/version/measure/integral.rs
+index d269925c7..689bd5fbd 100644
+--- a/crates/before/src/version/measure/integral.rs
++++ b/crates/before/src/version/measure/integral.rs
+@@ -113,6 +113,7 @@ use super::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
+ mod deferred;
+ mod pair;
+ mod width;
++pub use width::width_probe_set;
+ 
+ #[cfg(feature = "meter")]
+ pub use width::{densified_digits, reset_densified_digits};
+diff --git a/crates/before/src/version/measure/integral/pair.rs b/crates/before/src/version/measure/integral/pair.rs
+index 81b97b4d5..2f3dcc94d 100644
+--- a/crates/before/src/version/measure/integral/pair.rs
++++ b/crates/before/src/version/measure/integral/pair.rs
+@@ -39,6 +39,7 @@ impl Integrator {
+         // streams to the deeper maximum depth therefore gives every region an
+         // integer power-of-two width and one common denominator.
+         let scale = VersionRegionReader::max_depth(a).max(VersionRegionReader::max_depth(b));
++        super::width_probe_set(Some(scale));
+         let OpenedPair {
+             a: mut cursor_a,
+             b: mut cursor_b,
+@@ -98,6 +99,7 @@ impl Integrator {
+         }
+ 
+         let (sign, total) = integral.finish(scale);
++        super::width_probe_set(None);
+         (sign, total, scale)
+     }
+ }
+diff --git a/crates/before/src/version/measure/integral/width.rs b/crates/before/src/version/measure/integral/width.rs
+index aa12b1d15..80d1c06a8 100644
+--- a/crates/before/src/version/measure/integral/width.rs
++++ b/crates/before/src/version/measure/integral/width.rs
+@@ -245,6 +245,18 @@ impl DensePart {
+     /// `4 * span <= S/8 + 8` exceeds that stream's byte length by at most
+     /// eight, and no stored byte length exceeds `isize::MAX`.
+     fn new(span: usize) -> Self {
++        PROBE_S.with(|s| {
++            if let Some(s) = s.get() {
++                let bound = s / 32 + 2;
++                assert!(span as u64 <= bound, "PROBE VIOLATION span={span} S={s} bound={bound}");
++                PROBE_MAX.with(|m| {
++                    if span as u64 > m.get() {
++                        m.set(span as u64);
++                        eprintln!("PROBE newmax span={span} S={s} bound={bound}");
++                    }
++                });
++            }
++        });
+         let len = span
+             .checked_mul(4)
+             .expect("4 * span <= S/8 + 8, and a stored stream holds at least S bits");
+@@ -280,5 +292,14 @@ pub fn reset_densified_digits() {
+     DENSIFIED_DIGITS.store(0, core::sync::atomic::Ordering::Relaxed);
+ }
+ 
++thread_local! {
++    static PROBE_S: core::cell::Cell<Option<u64>> = const { core::cell::Cell::new(None) };
++    static PROBE_MAX: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
++}
++/// Probe: record the driver's common depth.
++pub fn width_probe_set(s: Option<u64>) {
++    PROBE_S.with(|c| c.set(s));
++}
++
+ #[cfg(test)]
+ mod tests;
+diff --git a/crates/before/src/version/measure/rank.rs b/crates/before/src/version/measure/rank.rs
+index 5261a2f04..e880f4ba6 100644
+--- a/crates/before/src/version/measure/rank.rs
++++ b/crates/before/src/version/measure/rank.rs
+@@ -13,6 +13,7 @@ impl Rank {
+     /// Integrate a Version's height over the party interval.
+     pub(crate) fn of_version(version: &Version) -> Rank {
+         let max_depth = VersionRegionReader::max_depth(version);
++        super::integral::width_probe_set(Some(max_depth));
+         let (mut cursor, first) = VersionRegionReader::open(version);
+         let mut integral = Integrator::new();
+         integral.open_height(&first);
+@@ -31,6 +32,7 @@ impl Rank {
+         }
+ 
+         let (sign, numerator) = integral.finish(max_depth);
++        super::integral::width_probe_set(None);
+         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
+         Rank::from_raw(numerator, max_depth)
+     }
