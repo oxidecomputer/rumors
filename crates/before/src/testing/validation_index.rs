@@ -64,7 +64,14 @@
 //! 64-bit host, where every instrument above runs. The guest records the
 //! message of every panic that reaches its panic hook, so a pin that expects
 //! a documented panic fails when the operation instead aborts on allocation
-//! failure, which ends in the same wasm trap.
+//! failure, which ends in the same wasm trap. The pins do not exercise random
+//! access into large streams. A stream bit position at or past `2^32` arises
+//! in the pins only as a stream's live length or as the progress of a
+//! sequential pass from bit zero: a reader consuming its input, or a writer
+//! appending its output. No pin starts a read or a copy at such a position,
+//! and the guest builds without the `borsh` feature, so the gamma decoder's
+//! one-word window is absent from it. A starting position narrowed before it
+//! becomes a byte index therefore passes every pin.
 //!
 //! # The resource instruments
 //!
