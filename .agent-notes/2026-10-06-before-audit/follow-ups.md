@@ -49,3 +49,14 @@ audit. Each entry names its source and what it would catch.
   the same reason, the window in `borsh_impls.rs:129` saves at most 7 bit
   reads per code. Its doc is accurate but omits that ceiling; a candidate
   simplification, not a defect. Source: the adequacy lane, round 2 addendum.
+- **`Count`'s borsh truncation is untested and reports `InvalidData`.** Its
+  integer reads go through borsh's `unexpected_eof_to_unexpected_length_of_input`,
+  so a truncated `Count` reports `InvalidData`, not `UnexpectedEof`, and its
+  trailing-zero rejection carries a plain message rather than a `Decode`.
+  Source: the documentation branch builder (read in borsh 1.6.1's source;
+  unverified by a run). Pairs with the deferred borsh error-mapping prose
+  (`builder-docs-branch/deferred-borsh-errors.patch`, deferred behind
+  `fix/before-wasm32-buffer-growth`).
+- **Two undocumented contracts.** The encoders' partial-write behavior
+  (codecs lane obs 5) and the derivation of the `log |self|` term in
+  `join_all`'s complexity (identity lane O7). Not in the docs brief.
