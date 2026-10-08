@@ -108,7 +108,9 @@ Each decision says what waits on it and gives my recommendation.
      as notice 96 proposes, no longer loses it.
    - *Recommendation:* squash #83 as proposed, then restore the laws you
      want in a follow-up branch by reverting `735b6b2e`'s hunks.
-5. **Should `fix/before-wasm32-buffer-growth` be kept?**
+5. **Should `fix/before-wasm32-buffer-growth` be kept?** *Done, on the
+   owner's word: `8208efaeb` is pinned as `archive/rescue-8208efaeb` and
+   the branch is deleted (it was at `5e23aecaf`).*
    - *The context:* it holds `8208efaeb`, the reviewed rewrites of 06.2 and
      06.11 (verified here, `git branch --contains`). #53's entry says the
      branch is deleted at retirement unless you keep it.
