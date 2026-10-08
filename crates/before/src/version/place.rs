@@ -404,9 +404,11 @@ impl Cursors<'_> {
 
 /// Advances the three cursors under the shared boundary rule.
 ///
-/// The probe goes first when boundaries tie because each difference treats it
-/// as the left operand. The endpoints do not share arithmetic state, so their
-/// relative order is immaterial.
+/// Every order of a tie yields the same placement: each step only adds its
+/// crossing into a difference, addition commutes, and no difference is read
+/// until the whole tied group has stepped. Each difference takes the probe as
+/// its left operand whichever cursor steps first. The order is fixed, probe
+/// first, only so that accumulator work is reproducible.
 impl CursorSet for Cursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         [Self::PROBE, Self::START, Self::END].into_iter()
