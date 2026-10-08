@@ -60,3 +60,11 @@ Option 1: one derivation rule for every board ceiling, stated identically in
 each doc, and the three ceilings the rule says must rise are raised (QUERY to
 109). #53's two rank ceiling docs are restated in the same terms by this
 branch, which stacks on #53. Values move only as the reviewed table shows.
+
+## Owner's ruling on the ceilings that state no rule (question 101)
+
+Option 1: all four follow the one rule too, as one more commit on
+`audit/board-ceiling-one-rule`: `MAX_SCAN_BITS_PER_INPUT_BYTE`,
+`MAX_HEAP_BYTES_PER_INPUT_BYTE` (settled from exact counter reads, since
+its rendered small-sample rows are too coarse; it may rise),
+`PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE`, and `MASKED_HOLE_TOUCH_CEILING`.
