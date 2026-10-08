@@ -60,3 +60,19 @@ audit. Each entry names its source and what it would catch.
 - **Two undocumented contracts.** The encoders' partial-write behavior
   (codecs lane obs 5) and the derivation of the `log |self|` term in
   `join_all`'s complexity (identity lane O7). Not in the docs brief.
+- **One notation for the n-ary folds' cost.** The documentation branch
+  restates the receiverless islands' contract as `O(n log k)` with `n` the
+  total input bytes; sibling contracts (`version_meet_all`,
+  `version_span_all`, `span_join_all`, `span_meet_all`, `clock_recv_all`)
+  keep `(|self| + |iter|) log k`, and the changed sections' space lines stay
+  `O(|self| + |iter|)`. Unify toward `n` in the JSON `contract` fields, the
+  `before-fuelscape/src/ops.rs` roster, and the `not(doc)` fallbacks. The
+  `clock_join_all`/`clock_sync_all`/`party_join_all` restatement needs the
+  `log |self|` term's derivation first (identity lane O7). No check compares
+  the roster with the JSON, so a regeneration can revert hand edits.
+  Source: the documentation branch's reviewer.
+- **Two pre-existing doc imprecisions.** `O(n log k)` degenerates at
+  `k = 1` (identity lane O7's `max(1, log k)` point), and `recv_all`'s "less
+  efficient ... in the worst case" implies iterated `recv` is
+  interchangeable with it, but iterated `recv` records `k` events, not one.
+  Source: the documentation branch's reviewer.
