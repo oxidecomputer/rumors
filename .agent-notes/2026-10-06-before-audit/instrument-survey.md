@@ -756,3 +756,9 @@ caught a defect. The caution applies only to constructing *new*
 instruments against ever more exotic imagined threats. The explore-branch
 instruments in section 2.1 are candidates for folding in; the owner's
 question 99 sets the next step.
+
+## Owner's ruling on the rescue ranking (question 99)
+
+Rank and categorize every instrument the audit built, excluding nothing,
+in a separate document the owner reviews as a whole. The owner picks from
+it; no builder starts on a fold-in before that.
