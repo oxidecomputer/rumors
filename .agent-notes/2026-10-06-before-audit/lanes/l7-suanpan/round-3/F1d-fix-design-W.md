@@ -163,3 +163,14 @@ docs after a reviewer verifies every bound; a bound the reviewer cannot
 verify goes back to the owner rather than being softened. The table was
 derived before the inline mask, so it is re-derived against W's final code
 (`b9ec1fbd`) first.
+
+## Owner's ruling on the remaining log factor (question 112)
+
+Option 1: accept the asymptotic bound amortized O(`A` log(`W` + 1) + `G`)
+for adding an accumulator at a nonzero shift. The logarithm is base 64 of a
+digit position, so it is at most 11 levels on 64-bit targets (6 on 32-bit).
+In the owner's words: "if the asymptotic log is practically bounded at 11
+on 64-bit targets, I'd call this effectively constant. I think we should
+accept the theoretical asymptotic log bound." The table on
+`docs/suanpan-time-bounds` already states that bound; the cached-maximum
+candidate for removing the factor is not pursued.
