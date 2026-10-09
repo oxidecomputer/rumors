@@ -21,11 +21,14 @@ use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
 use suanpan::touch_meter;
 
-/// Arming width (base-2^32 digits) of every run: wide enough that the
-/// trailing window's unit-gap digits sit far inside every settle
-/// factor's cluster gap limit, so the punctured run densifies as one
-/// cluster.
-const HOISTED_WINDOW_WIDTH: usize = 12;
+/// Arming width (base-2^32 digits) of every run: the narrowest arming
+/// the settle freeze defers, so the close settles a deferred height
+/// against the trailing window.
+///
+/// That is wide enough that the window's unit-gap digits sit far inside
+/// every settle factor's cluster gap limit, so the punctured run
+/// densifies as one cluster.
+const HOISTED_WINDOW_WIDTH: usize = meter::MIN_DEFERRED_ARMING_DIGITS;
 
 /// Gap count of every run: the trailing window's punctured digit span,
 /// the family's fixed span axis.
@@ -128,25 +131,29 @@ fn rank_hoisted_window_is_flat_per_unit() {
 /// by a cluster's absolute digit position grows with the tail knob —
 /// roughly ×2 across the doubling — while a span-priced column does not
 /// move at all.
-const HOISTED_WINDOW_DENSIFY_CEILINGS: [u64; 2] = [105, 105];
+const HOISTED_WINDOW_DENSIFY_CEILINGS: [u64; 2] = [210, 210];
 
-/// The densify liveness floor at both scales: two span-wide images per
-/// charge of the trailing window's punctured cluster.
+/// The densify liveness floor at both scales: two span-wide images for each
+/// of the two charges against the trailing window's punctured cluster.
 ///
 /// The premise is the mechanism's irreducible per-charge work, never a
-/// reading: the family's close settles at least one charge against the
-/// trailing window, whose punctured run holds the `d` gap digits at
-/// unit interior gaps — inside every settle factor's cluster gap limit
-/// — so it densifies as one multi-digit cluster of span at least `d`,
-/// and every multi-digit cluster's densification zero-fills two
+/// reading. The family's close settles two charges against the trailing
+/// window: the deferred reduction multiplies the deferred arming by every
+/// width after its deferral, and the final segment multiplies its parked
+/// height by the window. The window's punctured run holds the `d` gap digits
+/// at unit interior gaps — inside every settle factor's cluster gap limit —
+/// so each charge densifies it as one multi-digit cluster of span at least
+/// `d`, and every multi-digit cluster's densification zero-fills two
 /// span-wide images. A run under this floor means the settle stopped
-/// densifying the window this band exists to price, and every densify
-/// ceiling above it would be passing vacuously.
-const HOISTED_WINDOW_DENSIFY_FLOOR: u64 = 2 * HOISTED_WINDOW_GAPS as u64;
+/// densifying the window for one of those charges: without the deferral,
+/// the descent cancels the parked arming before the window, and only the
+/// final segment's charge remains. Every densify ceiling above the floor
+/// would then be passing over a regime this band does not claim to price.
+const HOISTED_WINDOW_DENSIFY_FLOOR: u64 = 4 * HOISTED_WINDOW_GAPS as u64;
 
 /// rank's densified-image fill is span-priced on the hoisted-window
 /// family: the densify column stays within ×1.25 *absolute* across the
-/// tail doubling, under two-scale ceilings and over the two-image
+/// tail doubling, under two-scale ceilings and over the four-image
 /// liveness floor.
 ///
 /// The tail moves cluster positions only, so this column must not move
@@ -167,9 +174,9 @@ fn rank_hoisted_window_densify_span_band() {
         small_densify >= HOISTED_WINDOW_DENSIFY_FLOOR
             && large_densify >= HOISTED_WINDOW_DENSIFY_FLOOR,
         "rank densified {small_densify} -> {large_densify} digits, under the \
-         {HOISTED_WINDOW_DENSIFY_FLOOR}-digit two-image floor: the settle is \
-         not densifying the trailing window, and the densify ceilings are \
-         passing vacuously"
+         {HOISTED_WINDOW_DENSIFY_FLOOR}-digit four-image floor: the settle is \
+         not densifying the trailing window for both the deferred and the \
+         final charge, and the densify ceilings are passing vacuously"
     );
     assert!(
         small_densify <= HOISTED_WINDOW_DENSIFY_CEILINGS[0]

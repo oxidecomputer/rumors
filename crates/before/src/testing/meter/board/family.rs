@@ -9,6 +9,7 @@
 
 use crate::bits::BitsWriter;
 use crate::testing::meter::registry::{FamilyId, Shape};
+use crate::testing::meter::MIN_DEFERRED_ARMING_DIGITS;
 use num_bigint::BigUint;
 
 use crate::{Clock, Count, Party, Rank, Version};
@@ -209,9 +210,14 @@ const ARMING_TRAIN_BASE_GAPS: usize = 32;
 const SCAN_HOLE_BASE_UNITS: usize = 64;
 const SCAN_HOLE_BASE_STEPS: usize = 256;
 
-/// Hoisted-window dimensions at scale 1.0.
-const HOISTED_WINDOW_WIDTH: usize = 12;
+/// Hoisted-window arming width, fixed across scales: the narrowest arming the
+/// family's settle freeze defers, so its close settles a deferred height.
+const HOISTED_WINDOW_WIDTH: usize = MIN_DEFERRED_ARMING_DIGITS;
+
+/// Hoisted-window gap count, fixed across scales.
 const HOISTED_WINDOW_GAPS: usize = 40;
+
+/// Hoisted-window tail depth at scale 1.0.
 const HOISTED_WINDOW_BASE_TAIL: usize = 81_920;
 
 /// Propagation-seam and latent-ladder dimensions at scale 1.0.
@@ -325,8 +331,10 @@ const DENSE_SUFFIX_BASE_BLOCKS: usize = 512;
 /// diagonal at `w = d`) at scale 1.0 (encoded version ~13 KiB).
 ///
 /// Its rank exponent is `32s`, so doubling the scale preserves the exponent's
-/// word alignment. The builder enforces the minimum width needed for the large
-/// counter change.
+/// word alignment. The build arm floors the knob at
+/// [`MIN_DEFERRED_ARMING_DIGITS`], the narrowest arming the family's one
+/// deferral needs; the floor binds only under extreme scale-down, such as the
+/// small-input scale.
 const WIDE_ARMING_BASE_DIGITS: usize = 512;
 
 /// Plateau-puncture digits (plateau digits and turn count together: the `PP(w,
@@ -898,7 +906,7 @@ impl FamilyData {
                 // bands' WA(s, s) diagonal), floored at the generator's minimum
                 // width; the floor binds only under extreme scale-down (the
                 // base constant's rustdoc).
-                let s = size(WIDE_ARMING_BASE_DIGITS).max(10);
+                let s = size(WIDE_ARMING_BASE_DIGITS).max(MIN_DEFERRED_ARMING_DIGITS);
                 Self::event(kind, Shape::WideArming.build2(s, s).version().encode())
             }
             FamilyId::PlateauPuncture => {

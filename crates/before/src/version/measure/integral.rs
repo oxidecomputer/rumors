@@ -122,6 +122,11 @@ thread_local! {
     /// Successful transfers of nonzero live changes on this test thread.
     /// Tests use this to establish that wide-input cases reach the freeze path.
     pub static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+
+    /// Counts nonzero parked heights deferred on this test thread.
+    /// Tests use this to establish that wide-arming cases reach the deferred
+    /// reduction, which a freeze count alone cannot show.
+    pub static DEFERRAL_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// Integrates consecutive regions whose widths sum to one whole domain.
@@ -290,6 +295,8 @@ impl Integrator {
     /// The preceding segment must already have been closed.
     fn defer_parked(&mut self, parked: Option<BigInt>) {
         if let Some(parked) = parked {
+            #[cfg(test)]
+            DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
             self.deferred.push(parked);
         }
         self.parked.reset();
