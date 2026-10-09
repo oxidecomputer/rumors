@@ -245,7 +245,11 @@ worktrees hold only source, so local disk needs no routine check. Agents'
 When the owner approves a branch listed in `QUESTIONS.md`, the coordinator
 lands it on local `main` and does not push:
 
-1. Cherry-pick its commits in order. They are signed on landing.
+1. Cherry-pick its commits in order, following the commit plan the owner
+   approved for the branch. The plan squashes review churn into logical
+   commits and keeps each failing-test-then-fix pair as two commits, since
+   the pair records that the test detects the defect. Commits are signed
+   on landing.
 2. Confirm that `main`'s tree outside `.agent-notes/` equals the reviewed
    tip's tree plus whatever had already landed.
 3. Delete the branch's entry from `QUESTIONS.md`.
