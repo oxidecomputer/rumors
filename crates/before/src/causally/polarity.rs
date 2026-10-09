@@ -37,8 +37,6 @@ mod sealed {
     pub trait Sealed {
         /// The fused walks' demand for one hole.
         fn hole_demand(strict: bool) -> Demand;
-        /// Whether `hole` subtracts `probe`.
-        fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool;
         /// The clamped endpoint that decides whether one of this polarity's
         /// holes covers the whole segment.
         ///
@@ -64,14 +62,6 @@ mod sealed {
                 Demand::NotStrictlyBefore
             } else {
                 Demand::NotBefore
-            }
-        }
-
-        fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool {
-            if hole.strict {
-                probe < hole.at.as_ref()
-            } else {
-                probe <= hole.at.as_ref()
             }
         }
 
@@ -125,14 +115,6 @@ mod sealed {
             }
         }
 
-        fn hole_subtracts(hole: &Hole<'_>, probe: &Version) -> bool {
-            if hole.strict {
-                hole.at.as_ref() < probe
-            } else {
-                hole.at.as_ref() <= probe
-            }
-        }
-
         fn covering_endpoint<'a>(clamped_lo: &'a Version, _clamped_hi: &'a Version) -> &'a Version {
             clamped_lo
         }
@@ -176,10 +158,6 @@ mod sealed {
         // A neutral query holds no holes, structurally: no construction
         // path adds one, so the dispatch is never consulted.
         fn hole_demand(_strict: bool) -> Demand {
-            unreachable!("a neutral query holds no holes")
-        }
-
-        fn hole_subtracts(_hole: &Hole<'_>, _probe: &Version) -> bool {
             unreachable!("a neutral query holds no holes")
         }
 

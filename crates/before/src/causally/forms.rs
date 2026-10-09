@@ -397,12 +397,14 @@ impl<'a> Not for Floor<'a> {
     }
 }
 
+/// Renders the bound as the causal expression it denotes, `after(v)`.
 impl fmt::Debug for Floor<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "after({:?})", self.at)
     }
 }
 
+/// Renders the bound as the causal expression it denotes, `before(v)`.
 impl fmt::Debug for Ceiling<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "before({:?})", self.at)

@@ -122,4 +122,17 @@ proptest! {
             prop_assert_eq!(ta.saturating_sub(&tb), expected);
         }
     }
+
+    /// `Debug` renders a count exactly as `Display` does, as its
+    /// documentation states: for counts of every size, both in the default
+    /// format and when width and alignment flags apply.
+    ///
+    /// A `Debug` that formats through a fresh formatter, such as
+    /// `write!(f, "{self}")`, matches only the default format.
+    #[test]
+    fn debug_is_display(base in crate::testing::generators::arb_magnitude()) {
+        let count = Count(base);
+        prop_assert_eq!(format!("{count:?}"), count.to_string());
+        prop_assert_eq!(format!("{count:>40?}"), format!("{count:>40}"));
+    }
 }
