@@ -62,3 +62,16 @@ Approved in advance: the fix may raise exact touch pins by a constant per
 operation, caused by the zero check. The fixer measures each rise at the
 parent, re-pins it with an annotation naming the zero check, and stops if
 anything rises by more than a constant or changes a growth rate.
+
+## Owner's ruling (question 121, 2026-10-09)
+
+`add_shifted` and `sub_shifted` take their operand as `&mut Accumulator` and
+decide zero with the compacting `cmp_zero`, like the crate's other operations
+that read by normalizing. The read-only `value_is_zero` is deleted, so no
+non-compacting twin of `cmp_zero` remains for a maintainer to misuse. `+=`,
+`-=`, and `Sum` keep their borrowed operands and lose the zero check: at shift
+0 a cancelled zero can raise the receiver's width to the operand's, which the
+ruling on question 41 accepts. In the same review the owner asked that shift
+counts accept every nonnegative value of every supported integer type: zero
+shifts by any count, and a nonzero value panics past `u64::MAX`.
+
