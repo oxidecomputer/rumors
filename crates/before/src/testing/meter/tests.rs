@@ -17,7 +17,8 @@ use super::{
     mask_drift_quadruple, mask_drift_triple, masked_hole, plateau_puncture,
     plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole, scattered_id,
     seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole, tooth_tail,
-    weight_comb, wide_arming, wide_tooth_comb, Encoding,
+    weight_comb, wide_arming, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS,
+    PROMOTION_REARM_ARM_BITS,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -144,16 +145,18 @@ proptest! {
 
 proptest! {
     /// `freeze_position(k)` is canonical normal form at exactly
-    /// `4k(L + 2) + 2` bits for `L = 289 + bitlen(k)`, and its `min_ticks`
-    /// equals `2k·2^L + k(k−1)(2^288 + 1) + k`.
+    /// `4k(L + 2) + 2` bits for `L = P + 1 + bitlen(k)`, and its `min_ticks`
+    /// equals `2k·2^L + k(k−1)(2^P + 1) + k`, where `P` is
+    /// [`FREEZE_DRIFT_BITS`].
     #[test]
     fn freeze_position_decodes_canonically_at_predicted_length(
         k in prop_oneof![1usize..=64, Just(200usize)],
     ) {
-        let band = 289 + bitlen(k);
+        let band = FREEZE_DRIFT_BITS + 1 + bitlen(k);
         check_version(&freeze_position(k), 4 * k * (band + 2) + 2);
         let expected = (BigUint::from(2 * k as u64) << band)
-            + BigUint::from((k * (k - 1)) as u64) * ((BigUint::ONE << 288usize) + BigUint::ONE)
+            + BigUint::from((k * (k - 1)) as u64)
+                * ((BigUint::ONE << FREEZE_DRIFT_BITS) + BigUint::ONE)
             + BigUint::from(k as u64);
         let ticks = min_ticks_from_big(&expected);
         assert_eq!(
@@ -163,9 +166,11 @@ proptest! {
         );
     }
 
-    /// `promotion_rearm(p)` is canonical normal form at exactly `1972p + 4` bits.
+    /// `promotion_rearm(p)` is canonical normal form at exactly `(2A + 2P +
+    /// 180)p + 4` bits, where `A` is [`PROMOTION_REARM_ARM_BITS`] and `P` is
+    /// [`FREEZE_DRIFT_BITS`].
     ///
-    /// Its `min_ticks` is exactly the stored-base sum `16p + p(2^608 + 2^288 + 2) +
+    /// Its `min_ticks` is exactly the stored-base sum `16p + p(2^A + 2^P + 2) +
     /// 1`.
     ///
     /// The closed form is the family's independent semantic leg: the
@@ -175,10 +180,15 @@ proptest! {
     fn promotion_rearm_decodes_canonically_at_predicted_length(
         p in prop_oneof![1usize..=64, Just(200usize)],
     ) {
-        check_version(&promotion_rearm(p), 1972 * p + 4);
+        check_version(
+            &promotion_rearm(p),
+            (2 * PROMOTION_REARM_ARM_BITS + 2 * FREEZE_DRIFT_BITS + 180) * p + 4,
+        );
         let expected = BigUint::from(16 * p as u64)
             + BigUint::from(p as u64)
-                * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
+                * ((BigUint::ONE << PROMOTION_REARM_ARM_BITS)
+                    + (BigUint::ONE << FREEZE_DRIFT_BITS)
+                    + 2u8)
             + 1u8;
         let ticks = min_ticks_from_big(&expected);
         assert_eq!(
@@ -188,9 +198,11 @@ proptest! {
         );
     }
 
-    /// `lone_freeze(pre, post)` is canonical normal form at exactly `580·pre +
-    /// 6·post + 14` bits, and its `min_ticks` is exactly the leaf-sum closed form
-    /// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3`.
+    /// `lone_freeze(pre, post)` is canonical normal form at exactly `(2P +
+    /// 4)·pre + 6·post + 14` bits, and its `min_ticks` is exactly the leaf-sum
+    /// closed form `pre·(2^P + 2) + pre/2 + 3·post/2 + 3`.
+    ///
+    /// Here `P` is [`FREEZE_DRIFT_BITS`].
     ///
     /// The closed form is the family's independent semantic leg: the
     /// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale on
@@ -203,9 +215,12 @@ proptest! {
         post_pairs in 1usize..=20,
     ) {
         let (pre, post) = (2 * pre_pairs, 2 * post_pairs);
-        check_version(&lone_freeze(pre, post), 580 * pre + 6 * post + 14);
+        check_version(
+            &lone_freeze(pre, post),
+            (2 * FREEZE_DRIFT_BITS + 4) * pre + 6 * post + 14,
+        );
         let expected = BigUint::from(pre as u64)
-            * ((BigUint::ONE << 288usize) + BigUint::from(2u8))
+            * ((BigUint::ONE << FREEZE_DRIFT_BITS) + BigUint::from(2u8))
             + BigUint::from((pre / 2) as u64)
             + BigUint::from((3 * post / 2) as u64)
             + BigUint::from(3u8);
@@ -603,17 +618,24 @@ proptest! {
 }
 
 proptest! {
-    /// `dense_suffix(p, d)` is canonical at `134d + 1812p + 4` bits and its
-    /// minimum tick count equals the generator's stored-base sum.
+    /// `dense_suffix(p, d)` is canonical at `134d + (2A + 2P + 20)p + 4` bits,
+    /// where `A` is [`PROMOTION_REARM_ARM_BITS`] and `P` is
+    /// [`FREEZE_DRIFT_BITS`], and its minimum tick count equals the generator's
+    /// stored-base sum.
     #[test]
     fn dense_suffix_decodes_canonically_at_predicted_length(
         p in 1usize..=24,
         d in 1usize..=24,
     ) {
-        check_version(&dense_suffix(p, d), 134 * d + 1812 * p + 4);
+        check_version(
+            &dense_suffix(p, d),
+            134 * d + (2 * PROMOTION_REARM_ARM_BITS + 2 * FREEZE_DRIFT_BITS + 20) * p + 4,
+        );
         let expected = BigUint::from(d as u64)
             + BigUint::from(p as u64)
-                * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
+                * ((BigUint::ONE << PROMOTION_REARM_ARM_BITS)
+                    + (BigUint::ONE << FREEZE_DRIFT_BITS)
+                    + 2u8)
             + 1u8;
         let ticks = min_ticks_from_big(&expected);
         assert_eq!(
@@ -646,16 +668,19 @@ proptest! {
         assert_eq!(a.lag(&b), crate::Rank::ZERO, "the dominating side has no lag");
     }
 
-    /// `wide_arming(w, d)` is canonical at `134d + 64w + 600` bits and its
-    /// minimum tick count equals the generator's stored-base sum.
+    /// `wide_arming(w, d)` is canonical at `134d + 64w + 2P + 24` bits, where
+    /// `P` is [`FREEZE_DRIFT_BITS`], and its minimum tick count equals the
+    /// generator's stored-base sum.
     #[test]
     fn wide_arming_decodes_canonically_at_predicted_length(
         w in prop_oneof![10usize..=40, Just(64usize)],
         d in 1usize..=32,
     ) {
-        check_version(&wide_arming(w, d), 134 * d + 64 * w + 600);
-        let expected =
-            BigUint::from(d as u64) + (BigUint::ONE << (32 * w)) + (BigUint::ONE << 288usize) + 3u8;
+        check_version(&wide_arming(w, d), 134 * d + 64 * w + 2 * FREEZE_DRIFT_BITS + 24);
+        let expected = BigUint::from(d as u64)
+            + (BigUint::ONE << (32 * w))
+            + (BigUint::ONE << FREEZE_DRIFT_BITS)
+            + 3u8;
         let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             wide_arming(w, d).version().min_ticks(),
@@ -673,9 +698,14 @@ proptest! {
         extra_tail in 0usize..=512,
     ) {
         let t = 32 * (w + 2) + extra_tail;
-        check_version(&hoisted_window(w, d, t), 134 * d + 64 * w + 4 * t + 600);
-        let expected =
-            BigUint::from(d as u64) + (BigUint::ONE << (32 * w)) + (BigUint::ONE << 288usize) + 3u8;
+        check_version(
+            &hoisted_window(w, d, t),
+            134 * d + 64 * w + 4 * t + 2 * FREEZE_DRIFT_BITS + 24,
+        );
+        let expected = BigUint::from(d as u64)
+            + (BigUint::ONE << (32 * w))
+            + (BigUint::ONE << FREEZE_DRIFT_BITS)
+            + 3u8;
         let ticks = min_ticks_from_big(&expected);
         assert_eq!(
             hoisted_window(w, d, t).version().min_ticks(),
@@ -892,7 +922,7 @@ proptest! {
         // The mirror: replay the generator's plateau recurrence and sum every
         // leaf value (the bottom and trailing leaves are all 0).
         let arm = BigUint::ONE << (32 * w);
-        let kicker = BigUint::ONE << 288usize;
+        let kicker = BigUint::ONE << FREEZE_DRIFT_BITS;
         let mut plateau = (BigUint::ONE << band) + (&arm << 1);
         let mut expected = BigUint::ZERO;
         for b in 0..n {
@@ -931,18 +961,18 @@ proptest! {
         );
     }
 
-    /// `freeze_parade(k)` is canonical at `1546k − 2` bits and its minimum
-    /// tick count matches the closed form for every supported power-of-two
-    /// parade width.
+    /// `freeze_parade(k)` is canonical at `(4P + 394)k − 2` bits, where `P` is
+    /// [`FREEZE_DRIFT_BITS`], and its minimum tick count matches the closed
+    /// form for every supported power-of-two parade width.
     #[test]
     fn freeze_parade_decodes_canonically_at_predicted_length(levels in 0u32..=6) {
         let k = 1usize << levels;
-        check_version(&freeze_parade(k), 1546 * k - 2);
+        check_version(&freeze_parade(k), (4 * FREEZE_DRIFT_BITS + 394) * k - 2);
         let j = bitlen(k) - 1;
-        let w = BigUint::ONE << 288usize;
+        let w = BigUint::ONE << FREEZE_DRIFT_BITS;
         let stride = &w + BigUint::ONE;
         let expected = BigUint::from((64 * k - 1) as u64)
-            + (BigUint::ONE << (290 + bitlen(k)))
+            + (BigUint::ONE << (FREEZE_DRIFT_BITS + 2 + bitlen(k)))
             + BigUint::from(k as u64) * &w
             + BigUint::from((k / 2 * j) as u64) * &stride
             - BigUint::from((k - 1) as u64) * &stride

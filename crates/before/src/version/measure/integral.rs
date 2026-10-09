@@ -187,10 +187,10 @@ impl Integrator {
     /// Add the next region, whose width at the common scale is `2^weight_shift`.
     pub fn interval(&mut self, weight_shift: u64) {
         // This cheap test may miss cancellation in buffered digits. Adding a
-        // mathematically zero buffer is harmless; normalizing it here would
-        // add an unnecessary full-width pass to each region.
+        // mathematically zero `live` inside `total`'s buffer is harmless, and
+        // `add_shifted` compacts and skips one that would extend that buffer.
         if !self.live.is_known_zero() {
-            self.total.add_shifted(weight_shift, &self.live);
+            self.total.add_shifted(weight_shift, &mut self.live);
         }
         if self.tracks_width {
             self.segment_width
@@ -206,7 +206,7 @@ impl Integrator {
     /// one or two. Applying the signed accumulator directly avoids normalizing
     /// it into a temporary magnitude merely to stream that magnitude back into
     /// another accumulator.
-    pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &Accumulator) {
+    pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &mut Accumulator) {
         if order == Ordering::Equal {
             return;
         }
@@ -320,7 +320,7 @@ impl Integrator {
             self.deferred.finish(&mut self.total);
         }
         if !self.base.is_known_zero() {
-            self.total.add_shifted(closing_shift, &self.base);
+            self.total.add_shifted(closing_shift, &mut self.base);
         }
         self.total.biguint_parts()
     }

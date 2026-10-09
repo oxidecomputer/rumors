@@ -1,5 +1,7 @@
 //! Primitive boundaries and ownership-sensitive arithmetic traits.
 
+use core::cmp::Ordering;
+
 use num_bigint::BigInt as IBig;
 use proptest::prelude::*;
 
@@ -143,8 +145,9 @@ proptest! {
     }
 }
 
-/// Every primitive count type agrees on valid shifts; signed negative counts
-/// and counts beyond u64 fail before changing the receiver.
+/// Every primitive count type agrees on valid shifts. A negative count, or a
+/// count beyond `u64::MAX` applied to a nonzero value, panics before changing
+/// the receiver, while zero shifts by any nonnegative count.
 #[test]
 fn primitive_shift_counts_are_checked() {
     /// Cover every supported count type at identity and register/digit transitions.
@@ -178,6 +181,24 @@ fn primitive_shift_counts_are_checked() {
         u128::from(u64::MAX) + 1,
         i128::from(u64::MAX) + 1
     );
+
+    // A zero needs no digit positions at any shift, whether it is a known zero
+    // or stored as digits that cancel.
+    for count in [u128::from(u64::MAX) + 1, u128::MAX] {
+        let mut known = Accumulator::new();
+        known <<= count;
+        assert!(known.is_known_zero());
+
+        let mut cancelled = Accumulator::new();
+        cancelled.add_shifted_limbs(32, [1, 0]);
+        cancelled.sub_shifted_limbs(0, [1 << 32]);
+        assert!(!cancelled.is_known_zero());
+        cancelled <<= count;
+        assert_eq!(cancelled.cmp_zero(), Ordering::Equal);
+    }
+    let mut zero = Accumulator::new();
+    zero <<= i128::MAX;
+    assert!(zero.is_known_zero());
 }
 
 /// Owned arithmetic keeps the selected buffer, preserves subtraction order,

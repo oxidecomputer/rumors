@@ -123,6 +123,25 @@ impl Digits {
         self.highest_nonzero + 1
     }
 
+    /// Return whether depositing `width` digits at bit offset `shift` would
+    /// extend the buffer.
+    ///
+    /// The position is computed in `u128`, so no shift wraps around to a
+    /// position inside the buffer.
+    pub fn deposit_extends_buffer(&self, shift: u64, width: usize) -> bool {
+        u128::from(shift / u64::from(DIGIT_BITS)) + width as u128 > self.digits.len() as u128
+    }
+
+    /// Count the digit positions the buffer holds, including zeros above the
+    /// stored prefix.
+    ///
+    /// Tests use this to measure the space an operation leaves behind, which
+    /// the stored digit count understates after cancellation.
+    #[cfg(test)]
+    pub fn retained_len(&self) -> usize {
+        self.digits.len()
+    }
+
     /// Append the stored representation to the accumulator's debug record.
     pub fn debug_fields(&self, fields: &mut core::fmt::DebugStruct<'_, '_>) {
         fields

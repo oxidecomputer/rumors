@@ -23,7 +23,7 @@
 /// Eight digits give a 256-bit cushion. This avoids moving arithmetic state for
 /// small width fluctuations; the fixed cushion does not affect the
 /// input-proportional bound.
-const HEIGHT_FREEZE_ALLOWANCE_DIGITS: usize = 8;
+pub(super) const HEIGHT_FREEZE_ALLOWANCE_DIGITS: usize = 8;
 
 mod distance;
 pub mod integral;

@@ -158,3 +158,20 @@ fn suanpan_ignores_unsatisfiable_reservations() {
         assert_passes(Check::SuanpanReserve, bits, 0);
     }
 }
+
+/// Shifting zero onto digit position `2^32 - 1` returns zero whatever digits
+/// store the zero.
+///
+/// A known zero deposits nothing. A zero stored as the cancelling digits
+/// `[-2^32, 1]` must not deposit either: its digits would land at index
+/// `usize::MAX`, which the accumulator rejects with a panic, trapping the guest.
+#[test]
+fn suanpan_shifts_zero_onto_an_unaddressable_digit_position() {
+    for case in 0..=1 {
+        assert_eq!(
+            run(Check::SuanpanZeroShift, case, 0),
+            Outcome::Passed,
+            "zero-shift case {case} did not return zero"
+        );
+    }
+}

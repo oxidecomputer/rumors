@@ -14,6 +14,7 @@
 //! Shift counts are checked, never wrapped. All primitive count types are
 //! accepted so literals and machine-sized indices work without casts.
 
+use core::cmp::Ordering;
 use core::iter::Sum;
 use core::ops::{Add, AddAssign, Neg, Shl, ShlAssign, Sub, SubAssign};
 
@@ -332,34 +333,38 @@ macro_rules! shifts {
     ($($integer:ty),* $(,)?) => {$(
         /// Multiply by a power of two while reusing retained storage when possible.
         ///
-        /// Let `A` be the old working width and `S` the shifted result's
-        /// working width. A nonzero shift takes at most amortized
-        /// O(`A` log(`S` + 1) + `S`) time and O(`S`) temporary space because
-        /// the old and new allocations may coexist until the operation
-        /// finishes. Identity operations take O(1) time and space.
+        /// # Complexity
+        ///
+        /// Let `A` be the old working width and `S` the result's. A nonzero
+        /// value shifts in amortized O(`A` log(`S` + 1) + `S`) time and O(`S`)
+        /// temporary space, because the old and new allocations may coexist
+        /// until the shift finishes. A zero shifts in O(1) space: in O(1) time
+        /// if [`is_known_zero`](Accumulator::is_known_zero) returns `true`, and
+        /// otherwise in O(`A`) time, not amortized, to confirm that its stored
+        /// digits cancel.
         ///
         /// # Panics
         ///
-        /// Panics if the count is negative, exceeds `u64::MAX`, or a nonzero
-        /// contribution cannot fit an addressable stored position.
+        /// Panics if the count is negative. Panics if the value is nonzero and
+        /// the count exceeds `u64::MAX`, or the result needs more digit
+        /// positions than a buffer can address. Zero shifts by any nonnegative
+        /// count.
         impl ShlAssign<$integer> for Accumulator {
             /// Validate the count before changing the receiver.
             fn shl_assign(&mut self, shift: $integer) {
-                self.shift_left(u64::try_from(shift).expect("shift count must fit u64"));
+                self.shift_left(u128::try_from(shift).expect("a shift count must be nonnegative"));
             }
         }
 
         /// Multiply an owned accumulator by a power of two.
         ///
-        /// Let `A` be the old working width and `S` the result's working width.
-        /// A nonzero shift takes at most amortized
-        /// O(`A` log(`S` + 1) + `S`) time and O(`S`) temporary space. Identity
-        /// operations take O(1) time and space.
+        /// This delegates to [`<<=`](ShlAssign::shl_assign) and has its costs.
         ///
         /// # Panics
         ///
-        /// Panics if the count is negative, exceeds `u64::MAX`, or the result
-        /// needs an unrepresentable working width.
+        /// Panics if the count is negative. Panics if the value is nonzero and
+        /// the count exceeds `u64::MAX`, or the result needs more digit
+        /// positions than a buffer can address.
         impl Shl<$integer> for Accumulator {
             /// The exact value multiplied by the requested power of two.
             type Output = Self;
@@ -378,10 +383,20 @@ shifts!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 /// Keep the shift kernel independent of the caller's primitive count type.
 impl Accumulator {
     /// Shift exactly, retaining the small representation whenever it fits.
-    fn shift_left(&mut self, shift: u64) {
+    fn shift_left(&mut self, shift: u128) {
         if shift == 0 || self.is_known_zero() {
             return;
         }
+        // A nonzero value shifted by 2^64 bits or more starts above digit
+        // position 2^59, a 4 EiB buffer that no allocator can supply. We panic
+        // here, before touching the receiver, rather than in the allocator.
+        let Ok(shift) = u64::try_from(shift) else {
+            assert!(
+                self.cmp_zero() == Ordering::Equal,
+                "a nonzero contribution needs an addressable digit position"
+            );
+            return;
+        };
         if let Some(value) = self.small {
             touch(1);
             if shift <= SMALL_SHIFT_MAX {
@@ -398,7 +413,11 @@ impl Accumulator {
             }
             return;
         }
-        let previous = core::mem::take(self);
-        self.add_shifted(shift, &previous);
+        // Every deposit into the empty receiver extends its buffer, so
+        // `add_shifted` compares the old value with zero first. A zero whose
+        // digits cancel therefore leaves an empty receiver instead of landing
+        // those digits at the shifted position.
+        let mut previous = core::mem::take(self);
+        self.add_shifted(shift, &mut previous);
     }
 }

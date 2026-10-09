@@ -62,6 +62,7 @@ pub mod version {
 }
 
 use crate::bits::{BitsReader, BitsWriter};
+use crate::version::instrument::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
 
 /// A generator's output: canonical encoded bytes plus the exact bit length.
 ///
@@ -1599,33 +1600,43 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Encoding {
     Encoding::from_bits(bits)
 }
 
-/// The exponent of the wide drop in [`freeze_position`] and of the in-pair drop
-/// in [`freeze_parade`].
+/// The exponent of every drift that must fire a freeze at a following unit
+/// code.
 ///
-/// `2^288` is a ten-base-2^32-digit value, so a block's drift exceeds the
-/// following unit code's one digit by more than the numeric folds' eight-digit
-/// freeze allowance, and every block fires one freeze.
-const FREEZE_POSITION_DROP_BITS: usize = 288;
+/// A numeric fold freezes its accumulated height change when that change holds
+/// more stored digits than the newest code's digits plus the fold's freeze
+/// allowance, `HEIGHT_FREEZE_ALLOWANCE_DIGITS`. Stored digits are signed, base `B =
+/// 2^32`, and below `2B` in magnitude, so a value has many stored forms, and a
+/// comparison with zero can shorten one. The drift must therefore trip the
+/// trigger in its shortest form. `n` such digits hold magnitudes below
+/// `(2 + 1/(B − 1))·B^n`, so a magnitude of at least `4·B^(n − 1)` needs `n`
+/// digits in every form. Tripping the trigger over a one-digit code takes
+/// `n = 1 + HEIGHT_FREEZE_ALLOWANCE_DIGITS + 1` digits, and the least such
+/// power of two is `2^(32(n − 1) + 2)`. A drift of
+/// `B^(n − 1)` would not do: it fits `n − 1` digits as `B·B^(n − 2)`, and it
+/// trips the trigger only while its stored form keeps a redundant top digit.
+pub const FREEZE_DRIFT_BITS: usize = 32 * (1 + HEIGHT_FREEZE_ALLOWANCE_DIGITS) + 2;
 
 /// The freeze-position spine `FP(k)`: a right spine of `2k` descending wide
-/// left leaves whose consecutive drops alternate `2^288` and one, over a
-/// terminal 0 leaf.
+/// left leaves whose consecutive drops alternate `2^P` and one, over a
+/// terminal 0 leaf, where `P` is [`FREEZE_DRIFT_BITS`].
 ///
-/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band `L = 289 +
-/// bitlen(k)`.
+/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band `L = P + 1
+/// + bitlen(k)`.
 ///
 /// Layout: `2k` spine nodes `1 · γ(0)` leaning right, node `j`'s left leaf the
-/// `j`-th value of the descent from `2^L + k(2^288 + 1)` (alternately dropping
-/// `2^288` and `1`), the deepest node's right child the terminal `0 · γ(0)`.
+/// `j`-th value of the descent from `2^L + k(2^P + 1)` (alternately dropping
+/// `2^P` and `1`), the deepest node's right child the terminal `0 · γ(0)`.
 /// Each block's wide drop re-arms live drift over the numeric folds' freeze
-/// allowance and the following unit code fires the freeze, so a numeric fold
-/// freezes `Θ(k)` times, at stream positions whose written span grows with
-/// every block. Any accounting that reads an absolute
+/// allowance and the following unit code fires the freeze. The first block's
+/// drop lies in the opening height, so a numeric fold freezes `k − 1` times,
+/// at stream positions whose written span grows with every block. Any
+/// accounting that reads an absolute
 /// position (or re-reads any whole-history state) per freeze goes quadratic
 /// here, while every committed comb fires O(1) freezes. The descent consumes
-/// `k(2^288 + 1) < 2^L`, so every leaf shares the one `(L + 1)`-bit width and
+/// `k(2^P + 1) < 2^L`, so every leaf shares the one `(L + 1)`-bit width and
 /// the size formula is exact. `min_ticks(FP(k))` is the leaf sum `2k·2^L +
-/// k(k−1)(2^288 + 1) + k` (every node minimum is 0 via the terminal leaf).
+/// k(k−1)(2^P + 1) + k` (every node minimum is 0 via the terminal leaf).
 /// Normal form: values strictly descend (no equal siblings), every base is 0,
 /// and every subtree minimum is 0.
 ///
@@ -1634,8 +1645,8 @@ const FREEZE_POSITION_DROP_BITS: usize = 288;
 /// Panics if `k == 0`.
 fn freeze_position(k: usize) -> Encoding {
     assert!(k >= 1, "the freeze-position spine needs at least one block");
-    let band = FREEZE_POSITION_DROP_BITS + 1 + bitlen(k);
-    let wide = BigUint::ONE << FREEZE_POSITION_DROP_BITS;
+    let band = FREEZE_DRIFT_BITS + 1 + bitlen(k);
+    let wide = BigUint::ONE << FREEZE_DRIFT_BITS;
     let unit = BigUint::ONE;
     let descent = (&wide + &unit) * BigUint::from(k as u64);
     let mut value = (BigUint::ONE << band) + descent;
@@ -1658,20 +1669,16 @@ fn bitlen(k: usize) -> usize {
     (usize::BITS - k.leading_zeros()) as usize
 }
 
-/// The wide-height exponent in [`promotion_rearm`].
+/// The wide-height exponent of the deferral re-arm families `PR(p)` and
+/// `DS(p, d)`.
 ///
-/// `2^608` spans 20 base-2^32 digits: more than the numeric folds' eight-digit
-/// freeze allowance above the settling drop's ten
-/// ([`PROMOTION_REARM_SETTLE_BITS`]), so every block's second freeze finds the
-/// parked component wider than the incoming changes and defers it.
-const PROMOTION_REARM_ARM_BITS: usize = 608;
-
-/// The narrow-change exponent in [`promotion_rearm`].
-///
-/// `2^288` spans 10 digits: wide enough that the following unit code trips the
-/// freeze trigger (10 > 1 + 8), narrow enough that the parked arming drift
-/// exceeds it by more than the allowance (20 > 10 + 8).
-const PROMOTION_REARM_SETTLE_BITS: usize = 288;
+/// A freeze defers the parked component when it holds more stored digits than
+/// the incoming drift plus the freeze allowance `a`. The incoming drift is the
+/// [`FREEZE_DRIFT_BITS`] climb, `a + 2` digits once the freeze's comparison
+/// has compacted it, so the parked arming needs `2a + 3` digits in its shortest
+/// form. `2^(32m)` fits `m` digits as `B·B^(m − 1)` and no fewer, so `m = 2a +
+/// 3`. Every block's second freeze then defers the arming.
+pub const PROMOTION_REARM_ARM_BITS: usize = 32 * (2 * HEIGHT_FREEZE_ALLOWANCE_DIGITS + 3);
 
 /// Span-building spine levels per block in [`promotion_rearm`]: the phase-1 run
 /// of `32p` levels puts a `Θ(p)`-digit floor under the consumed-mass span the
@@ -1681,23 +1688,25 @@ const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 /// The deferral re-arm spine `PR(p)`: `32p` span-building levels down a right
 /// spine, then `p` four-node re-arm blocks, over a terminal 1 leaf.
 ///
-/// Exactly `1972p + 4` bits. Layout: `32p` spine nodes `(0, 1, ·)` / `(0, 0,
-/// ·)` alternating (base 0, leaf heights 1, 0, 1, 0, … — 10 bits per pair),
-/// then per block the node bases `2^608, 1, 2^288, 1` on the 0-leaf shape
-/// (1,220 + 6 + 580 + 6 bits), closing in the leaf `1` (4 bits). The prefix's
+/// Exactly `(2A + 2P + 180)p + 4` bits, where `A` is
+/// [`PROMOTION_REARM_ARM_BITS`] and `P` is [`FREEZE_DRIFT_BITS`]. Layout: `32p`
+/// spine nodes `(0, 1, ·)` / `(0, 0, ·)` alternating (base 0, leaf heights 1,
+/// 0, 1, 0, … — 10 bits per pair), then per block the node bases `2^A, 1, 2^P,
+/// 1` on the 0-leaf shape (`2A + 4`, 6, `2P + 4`, and 6 bits), closing in the
+/// leaf `1` (4 bits). The prefix's
 /// ±1 oscillation never freezes while its interval masses' depths grow the
 /// consumed span one digit per 32 levels, and its running range minima are all
 /// zero, so the min-ticks range tracker keeps the whole prefix as one compressed zero run
 /// (an ascending prefix would instead arm `Θ(p)` distinct nested minima, testing
-/// minimum storage rather than this family's deferral schedule). Each block's `2^608` climb
+/// minimum storage rather than this family's deferral schedule). Each block's `2^A` climb
 /// re-arms parked drift over the numeric folds' freeze allowance (the following
-/// unit fires the freeze that parks it), and its `2^288` climb re-freezes at a
+/// unit fires the freeze that parks it), and its `2^P` climb re-freezes at a
 /// drift the parked component exceeds by more than the allowance — one
 /// deferral per block, `Θ(p)` deferrals at O(1) stored codes each, so any
 /// deferral accounting that re-reads whole-history state per block goes
 /// quadratic here while the family's suffix masses compact to O(1) balanced
 /// terms. Every stored code is a delta the fold must consume, and
-/// `min_ticks(PR(p)) = Σ bases = 16p + p(2^608 + 2^288 + 2) + 1` is the
+/// `min_ticks(PR(p)) = Σ bases = 16p + p(2^A + 2^P + 2) + 1` is the
 /// closed-form semantic leg. Normal form: every prefix node reaches its subtree
 /// minimum 0 through a later prefix 0 leaf, every block node's minimum is its
 /// own 0 leaf, and no sibling leaf pair is equal.
@@ -1708,10 +1717,12 @@ const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 fn promotion_rearm(p: usize) -> Encoding {
     assert!(p >= 1, "the deferral re-arm spine needs at least one block");
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
-    let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let settle = pow2(FREEZE_DRIFT_BITS);
     let zero = BigUint::ZERO;
     let one = BigUint::from(1u8);
-    let mut bits = BitsWriter::with_capacity((1972 * p + 4) as u64);
+    let mut bits = BitsWriter::with_capacity(
+        ((2 * PROMOTION_REARM_ARM_BITS + 2 * FREEZE_DRIFT_BITS + 180) * p + 4) as u64,
+    );
     for level in 0..PROMOTION_REARM_LEVELS_PER_BLOCK * p {
         bits.push(true); // span-builder node: alternating leaf left
         bits.write_gamma(&zero);
@@ -1775,20 +1786,22 @@ const DENSE_SUFFIX_DIGIT_STRIDE: usize = 33;
 /// The dense-suffix re-arm family `DS(p, d)`: a gap spine of `33d` levels, then
 /// `p` four-node re-arm blocks at its bottom, over a terminal 1 leaf.
 ///
-/// Exactly `134d + 1812p + 4` bits. The spine turns right every 33rd level —
+/// Exactly `134d + (2A + 2P + 20)p + 4` bits, where `A` is
+/// [`PROMOTION_REARM_ARM_BITS`] and `P` is [`FREEZE_DRIFT_BITS`]. The spine
+/// turns right every 33rd level —
 /// the turn's 1-leaf is swept *before* the blocks, so its interval is absent
 /// from the trailing mass — and left elsewhere, those right-sibling 0-leaves
 /// swept *after* the blocks. The trailing mass is an all-ones run punctured by
 /// `d` isolated gaps a full digit apart (the 33-level stride constant's
 /// derivation): the interval mass behind every block, `Θ(d)` balanced digits
 /// however it is assembled. Each block is [`promotion_rearm`]'s verbatim — a
-/// `2^608` climb, a unit (the freeze that parks the wide drift), a `2^288`
+/// `2^A` climb, a unit (the freeze that parks the wide drift), a `2^P`
 /// climb, and a unit (the freeze that defers the older wide height). There is
 /// one deferral per block at O(1) stored codes, and every deferred height
 /// applies across the same `Θ(d)`-dense trailing mass. Re-reading the suffix
 /// once per height is quadratic; the balanced reduction combines all of them
 /// within the claimed bound. `min_ticks(DS(p, d)) = Σ bases = d +
-/// p(2^608 + 2^288 + 2) + 1` is the
+/// p(2^A + 2^P + 2) + 1` is the
 /// closed-form semantic leg (the `d` term is the turn leaves, so a spine-less
 /// generator fails it). Normal form: every spine node reaches its subtree
 /// minimum 0 through a trailing 0-leaf, every block node's minimum is its own
@@ -1801,9 +1814,11 @@ fn dense_suffix(p: usize, d: usize) -> Encoding {
     assert!(p >= 1, "the dense-suffix family needs at least one block");
     assert!(d >= 1, "the dense-suffix family needs at least one gap");
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
-    let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let settle = pow2(FREEZE_DRIFT_BITS);
     let one = BigUint::from(1u8);
-    let mut bits = BitsWriter::with_capacity((134 * d + 1812 * p + 4) as u64);
+    let mut bits = BitsWriter::with_capacity(
+        (134 * d + (2 * PROMOTION_REARM_ARM_BITS + 2 * FREEZE_DRIFT_BITS + 20) * p + 4) as u64,
+    );
     let trailing = gap_spine(&mut bits, d);
     for _ in 0..p {
         for base in [&arm, &one, &settle, &one] {
@@ -1857,11 +1872,12 @@ fn dense_suffix_mate(p: usize, d: usize) -> Encoding {
 /// *single* re-arm block whose arming climb is `2^(32w)`.
 ///
 /// One deferral whose parked height is as wide as the input, owing its contribution
-/// across a trailing mass as dense as the input. Exactly `134d + 64w + 600`
-/// bits. The one block climbs `2^(32w)` (parked at its unit), climbs `2^288`
-/// (whose unit's freeze finds the parked component much wider and defers it),
-/// and the sweep then consumes the `Θ(d)`-dense trailing mass and descends,
-/// cancelling the plateau only after the deferred entry is recorded. The exact
+/// across a trailing mass as dense as the input. Exactly `134d + 64w + 2P +
+/// 24` bits, where `P` is [`FREEZE_DRIFT_BITS`]. The one block climbs
+/// `2^(32w)` (parked at its unit), climbs `2^P` (whose unit's freeze finds the
+/// parked component much wider and defers it), and the sweep then consumes the
+/// `Θ(d)`-dense trailing mass and descends, cancelling the plateau only after
+/// the deferred entry is recorded. The exact
 /// contribution embeds one `Θ(w)`-digit × `Θ(d)`-digit
 /// product whose factors the input funds separately (`w` digits of arming code,
 /// `d` spine turns), and the cancelling descent lands outside that entry, so no
@@ -1869,7 +1885,7 @@ fn dense_suffix_mate(p: usize, d: usize) -> Encoding {
 /// reduction performs one wide × dense multiplication, priced at the
 /// multiplication bound. A per-digit schoolbook charge instead pays `Θ(w · d)`
 /// digit work against a `Θ(w + d)`-bit operand and is quadratic at `w = d`.
-/// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^288 + 2 + 1` is the closed-form
+/// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^P + 2 + 1` is the closed-form
 /// semantic leg. Normal form: as [`dense_suffix`]'s.
 ///
 /// # Panics
@@ -1883,9 +1899,10 @@ fn wide_arming(w: usize, d: usize) -> Encoding {
     );
     assert!(d >= 1, "the wide-arming family needs at least one gap");
     let arm = pow2(32 * w);
-    let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let settle = pow2(FREEZE_DRIFT_BITS);
     let one = BigUint::from(1u8);
-    let mut bits = BitsWriter::with_capacity((134 * d + 64 * w + 600) as u64);
+    let mut bits =
+        BitsWriter::with_capacity((134 * d + 64 * w + 2 * FREEZE_DRIFT_BITS + 24) as u64);
     let trailing = gap_spine(&mut bits, d);
     for base in [&arm, &one, &settle, &one] {
         bits.push(true); // the one block: 0-leaf left, chain right
@@ -1916,7 +1933,8 @@ fn wide_arming(w: usize, d: usize) -> Encoding {
 /// across a tail doubling, and work priced by a cluster's absolute position
 /// scales with the tail — the axis the `hoisted_window` band in
 /// `tests/meter.rs` prices through the densify column. Exactly `134d + 64w +
-/// 4t + 600` bits; `min_ticks(HW(w, d, t)) = d + 2^(32w) + 2^288 + 2 + 1`,
+/// 4t + 2P + 24` bits, where `P` is [`FREEZE_DRIFT_BITS`]; `min_ticks(HW(w, d,
+/// t)) = d + 2^(32w) + 2^P + 2 + 1`,
 /// independent of `t`. Normal form: as [`wide_arming`]'s, the tail by
 /// [`dense`]'s own argument.
 ///
@@ -1938,9 +1956,10 @@ fn hoisted_window(w: usize, d: usize, t: usize) -> Encoding {
         "the tail must hoist the window past the settle factors' gap limit"
     );
     let arm = pow2(32 * w);
-    let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let settle = pow2(FREEZE_DRIFT_BITS);
     let one = BigUint::from(1u8);
-    let mut bits = BitsWriter::with_capacity((134 * d + 64 * w + 4 * t + 600) as u64);
+    let mut bits =
+        BitsWriter::with_capacity((134 * d + 64 * w + 4 * t + 2 * FREEZE_DRIFT_BITS + 24) as u64);
     let trailing = gap_spine(&mut bits, d);
     for base in [&arm, &one, &settle, &one] {
         bits.push(true); // the one block: 0-leaf left, chain right
@@ -2051,14 +2070,14 @@ fn weight_comb(n: usize) -> Encoding {
 }
 
 /// The freeze-parade family `FZ(k)`: the parked-unit spine at depth `64k`, then
-/// one complete subtree of `k` freeze blocks — wide leaf pairs dropping `2^288`
+/// one complete subtree of `k` freeze blocks — wide leaf pairs dropping `2^P`
 /// inside each pair and one across pairs — as the root's right child.
 ///
-/// Exactly `1546k − 2` bits. Each pair's wide in-pair drop re-arms live drift
-/// over the numeric folds' eight-digit freeze allowance (`2^288` spans ten
-/// base-2^32 digits, the same width argument as [`freeze_position`]'s drop) and
-/// the cheap cross-pair code fires the freeze, so a numeric fold freezes `Θ(k)`
-/// times, every freeze settling its segment through the accumulator's scaled
+/// Here `P` is [`FREEZE_DRIFT_BITS`]. Exactly `(4P + 394)k − 2` bits. Each pair's wide in-pair drop re-arms live
+/// drift over the numeric folds' freeze allowance in every stored form (the
+/// width argument at [`FREEZE_DRIFT_BITS`]) and the cheap cross-pair code fires
+/// the freeze, so a numeric fold freezes `k − 1` times, once per cross-pair
+/// code, every freeze settling its segment through the accumulator's scaled
 /// read — and the segment's interval masses sit at the block's position weight,
 /// `Θ(k)` digits above digit 0 (the blocks are shallow; the deep spine only
 /// sets the scale). The write watermark is what lets each scaled read start at
@@ -2082,11 +2101,11 @@ fn freeze_parade(k: usize) -> Encoding {
         k.is_power_of_two(),
         "the freeze parade is one complete subtree"
     );
-    let wide = BigUint::ONE << FREEZE_POSITION_DROP_BITS;
+    let wide = BigUint::ONE << FREEZE_DRIFT_BITS;
     // One shared width band for the 2k descending values: the descent consumes
-    // k(2^288 + 1) < 2^(289 + bitlen(k)), so the top value's width bounds them
+    // k(2^P + 1) < 2^(P + 1 + bitlen(k)), so the top value's width bounds them
     // all.
-    let band = FREEZE_POSITION_DROP_BITS + 2 + bitlen(k);
+    let band = FREEZE_DRIFT_BITS + 2 + bitlen(k);
     let mut values = Vec::with_capacity(2 * k);
     let mut v = BigUint::ONE << band;
     for _ in 0..k {
@@ -2095,7 +2114,7 @@ fn freeze_parade(k: usize) -> Encoding {
         values.push(v.clone());
         v -= BigUint::ONE;
     }
-    let mut bits = BitsWriter::with_capacity((1546 * k - 2) as u64);
+    let mut bits = BitsWriter::with_capacity(((4 * FREEZE_DRIFT_BITS + 394) * k - 2) as u64);
     parked_unit_spine(&mut bits, 64 * k);
     // The min-lifted complete subtree over the descending run.
     fn block(bits: &mut BitsWriter, vals: &[BigUint], parent_min: &BigUint) {
@@ -2114,24 +2133,17 @@ fn freeze_parade(k: usize) -> Encoding {
     Encoding::from_bits(bits)
 }
 
-/// The height of the lone-freeze plateau: one freeze-allowance-clearing drop
-/// above the low tail, so the family's single mid-stream drop is the sweep's
-/// one freeze.
-///
-/// `2^288 + 2` (ten base-2^32 digits): the drop from the plateau to the low
-/// block exceeds the numeric folds' eight-digit freeze allowance over the
-/// following unit code, the same width argument as [`freeze_position`]'s drop.
-const LONE_FREEZE_PLATEAU_BITS: usize = 288;
-
 /// The lone-freeze spine `LF(pre, post)`: `pre` unit-oscillation levels on a
 /// wide plateau, one freeze-firing drop, then `post` unit-oscillation levels
 /// near the floor, over a terminal 0 leaf.
 ///
-/// Exactly `580·pre + 6·post + 14` bits. Layout: a right spine of `pre + post +
-/// 2` nodes `1 · γ(0)`, left leaves in preorder at heights `H, H + 1, H, H + 1,
-/// …` (`pre` leaves, `H = 2^288 + 2`), then `2` (the drop: one ten-digit delta,
-/// within the freeze allowance of its own code), then `1` (the unit whose fold
-/// fires the sweep's one freeze), then `2, 1, 2, 1, …` (`post` leaves), closing
+/// Exactly `(2P + 4)·pre + 6·post + 14` bits, where `P` is
+/// [`FREEZE_DRIFT_BITS`]. Layout: a right spine of `pre + post + 2` nodes `1 ·
+/// γ(0)`, left leaves in preorder at heights `H, H + 1, H, H + 1, …` (`pre`
+/// leaves, `H = 2^P + 2`), then `2` (the drop: one wide delta, within the
+/// freeze allowance of its own code), then `1` (the unit whose fold fires the
+/// sweep's one freeze, because the drop's drift trips the trigger in every
+/// stored form), then `2, 1, 2, 1, …` (`post` leaves), closing
 /// in the terminal `0 · γ(0)`.
 ///
 /// The family straddles the numeric folds' first-freeze gate from both sides, one
@@ -2143,7 +2155,7 @@ const LONE_FREEZE_PLATEAU_BITS: usize = 288;
 ///   drift exists to settle (the segment feed the gate holds shut)
 ///   scales with `pre` while the family's one settle never reads it.
 /// - **`post` (the frozen-tail axis)**: the whole tail runs with the
-///   gate open and the parked ten-digit drift live — every tail
+///   gate open and the parked wide drift live — every tail
 ///   interval feeds the segment mass the close's one `P · segment`
 ///   settle then reads at its watermark — so a tail feed or a close
 ///   read that is not amortized O(1) per interval scales with `post`
@@ -2153,7 +2165,7 @@ const LONE_FREEZE_PLATEAU_BITS: usize = 288;
 /// and no deferral occurs (nothing is parked before the one freeze), so the
 /// family also pins the settle's smallest nonempty configuration: one parked
 /// drift against one final segment. `min_ticks(LF(pre, post))` is the leaf sum
-/// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3` (every node minimum is 0 via the
+/// `pre·(2^P + 2) + pre/2 + 3·post/2 + 3` (every node minimum is 0 via the
 /// terminal leaf). Normal form: every base is 0, every subtree reaches the
 /// terminal 0, and the only sibling leaf pair is the deepest `(1, 0)` or `(2,
 /// 0)`.
@@ -2171,8 +2183,9 @@ fn lone_freeze(pre: usize, post: usize) -> Encoding {
         post >= 2 && post.is_multiple_of(2),
         "the lone freeze needs a whole-pair low tail"
     );
-    let plateau = (BigUint::ONE << LONE_FREEZE_PLATEAU_BITS) + BigUint::from(2u8);
-    let mut bits = BitsWriter::with_capacity((580 * pre + 6 * post + 14) as u64);
+    let plateau = (BigUint::ONE << FREEZE_DRIFT_BITS) + BigUint::from(2u8);
+    let mut bits =
+        BitsWriter::with_capacity(((2 * FREEZE_DRIFT_BITS + 4) * pre + 6 * post + 14) as u64);
     let leaf = |bits: &mut BitsWriter, value: BigUint| {
         bits.push(true); // spine node: base 0, leaf left, spine right
         bits.write_gamma(&BigUint::ZERO);
@@ -2425,9 +2438,10 @@ fn plateau_puncture(w: usize, d: usize) -> Encoding {
 /// incompressible interval mass banked *between* every consecutive pair of
 /// armings (each gap's turn leaves sit at the running plateau, zero deltas, so
 /// the windows are bought with topology alone). Every block spells `±2^(32w),
-/// +1, +2^288, +1` in leaf absolutes: the wide swing parks at its unit, the
-/// kicker's unit fires the freeze that defers the older height — one entry per
-/// block, sign following the swing — and the sweep closes with one funded
+/// +1, +2^P, +1` in leaf absolutes, where `P` is [`FREEZE_DRIFT_BITS`]: the
+/// wide swing parks at its unit, the kicker's unit fires the freeze that
+/// defers the older height — one entry per block, sign following the swing —
+/// and the sweep closes with one funded
 /// plunge whose parked width settles against the trailing run. With
 /// `alternate`, consecutive entries cancel digit-wise inside the reduction's
 /// parked sums; without it, every aggregate keeps the full arming width against
@@ -2441,9 +2455,10 @@ fn plateau_puncture(w: usize, d: usize) -> Encoding {
 ///
 /// # Panics
 ///
-/// Panics if `n == 0` or `g == 0`, or if `w < 19` (an arming must
-/// out-span the `2^288` kicker drift by more than the freeze
-/// allowance, or deferral never occurs).
+/// Panics if `n == 0` or `g == 0`, or if `w < 19`: an arming `2^(32w)` fits
+/// `w` digits in its shortest form, and must out-span the `2^P` kicker drift
+/// by more than the freeze allowance, as [`PROMOTION_REARM_ARM_BITS`] derives,
+/// or deferral never occurs.
 fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
     assert!(n >= 1, "the arming train needs at least one block");
     assert!(g >= 1, "the arming train needs at least one gap per window");
@@ -2453,7 +2468,7 @@ fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
     );
     let band = 32 * w + bitlen(n) + 2;
     let arm = BigUint::ONE << (32 * w);
-    let kicker = BigUint::ONE << PROMOTION_REARM_SETTLE_BITS;
+    let kicker = BigUint::ONE << FREEZE_DRIFT_BITS;
     // The plateau band's floor plus double-swing headroom: every wide leaf
     // below stays inside [2^band, 2^(band+1)), one gamma width.
     let mut plateau = (BigUint::ONE << band) + (&arm << 1usize);

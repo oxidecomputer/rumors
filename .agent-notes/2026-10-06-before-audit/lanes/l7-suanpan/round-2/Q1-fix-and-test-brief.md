@@ -104,3 +104,12 @@ plateau is widened so it crosses the threshold in compacted terms, with the
 derivation stated in its doc. The ceilings stay. The owner's goal: "ensure
 that the measurements continue to mean something."
 
+## Owner's ruling (question 124, 2026-10-09)
+
+The `wide_arming` meter families (WA, HW) promise one deferral but never
+defer at their tested widths: their `w >= 10` bound should be `w >= 19`.
+A follow-up branch stacked on #48 derives the family's minimum `w` from the
+freeze trigger, as #48 derives `FREEZE_DRIFT_BITS`, adds WA and HW to #48's
+freeze-liveness test with their deferral counts, and accepts the board
+movement that follows.
+

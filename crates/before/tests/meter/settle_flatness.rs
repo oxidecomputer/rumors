@@ -16,6 +16,7 @@
 
 use super::min_ticks_from_big;
 use before::testing::meter::registry::Shape;
+use before::testing::meter::FREEZE_DRIFT_BITS;
 use num_bigint::BigUint;
 use suanpan::touch_meter;
 
@@ -80,7 +81,7 @@ fn train_run(n: usize, alternate: bool) -> (u64, u64) {
         .version();
     let band = 32 * TRAIN_WIDTH + (usize::BITS - n.leading_zeros()) as usize + 2;
     let arm = BigUint::ONE << (32 * TRAIN_WIDTH);
-    let kicker = BigUint::ONE << 288usize;
+    let kicker = BigUint::ONE << FREEZE_DRIFT_BITS;
     let mut plateau = (BigUint::ONE << band) + (&arm << 1);
     let mut expected = BigUint::ZERO;
     for b in 0..n {

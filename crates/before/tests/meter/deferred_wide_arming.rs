@@ -24,8 +24,10 @@ use suanpan::touch_meter;
 fn run(w: usize) -> (u64, u64, u64) {
     let v = Shape::WideArming.build2(w, w).version();
     let bytes = v.encode().len() as u64;
-    let expected =
-        BigUint::from(w as u64) + (BigUint::ONE << (32 * w)) + (BigUint::ONE << 288usize) + 3u8;
+    let expected = BigUint::from(w as u64)
+        + (BigUint::ONE << (32 * w))
+        + (BigUint::ONE << meter::FREEZE_DRIFT_BITS)
+        + 3u8;
     assert_eq!(
         v.min_ticks(),
         min_ticks_from_big(&expected),

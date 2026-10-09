@@ -35,6 +35,8 @@ pub enum Check {
     /// Reserve parameter `a` bits of storage in two accumulators at once,
     /// more than the guest can honor.
     SuanpanReserve = 9,
+    /// Shift zero, stored in the form selected by parameter `a`, onto digit position `2^32 - 1`.
+    SuanpanZeroShift = 10,
 }
 
 impl From<Check> for u32 {

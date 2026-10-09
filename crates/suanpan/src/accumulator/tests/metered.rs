@@ -187,11 +187,14 @@ fn sign_query_skips_recorded_zero_ranges() {
 /// The accumulator-operand rows cost the operand's held digits, not
 /// the receiver's width or the shift.
 ///
-/// Exact totals for borrowed `+=`, borrowed `-=`, `add_shifted`,
-/// `sub_shifted`, and owned addition on a two-digit operand —
-/// 4 touches each (one read plus one deposit per operand digit) —
-/// unchanged when the receiver's held width doubles and when the merge
-/// shift doubles.
+/// Borrowed `+=`, borrowed `-=`, and owned addition of a two-digit operand
+/// inside the receiver's buffer cost exactly 4 touches, a read and a deposit
+/// per operand digit, at either receiver width. `add_shifted` and
+/// `sub_shifted` deposit past the buffer, so they first compare the operand
+/// with zero. Its top digit, 1, does not decide, so the comparison reads and
+/// clears both digits and rewrites the value `2^32 + 1` as one digit at
+/// position 0: 5 touches. The deposit then reads and writes that one digit:
+/// 7 touches, at either shift.
 ///
 /// These are the cost table's "amortized O(operand's held digits),
 /// whatever the held width / independent of the shift" rows, pinned
@@ -249,18 +252,24 @@ fn accumulator_operand_rows_cost_the_operand() {
             (UBig::from(1u8) << held_bits as usize) - 1u8 + UBig::from((1u64 << 32) | 1)
         );
     }
-    // The scaled merges are shift-independent at the same exact total,
-    // in both signs.
+    // Each scaled merge deposits past the buffer, so it first compacts the
+    // operand, for the same total at both shifts and in both signs.
     for shift in [32_000u64, 64_000] {
-        let operand = narrow();
+        let mut operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&((UBig::from(1u8) << 2_048usize) - 1u8));
         touch_meter::reset();
-        receiver.add_shifted(shift, &operand);
+        receiver.add_shifted(shift, &mut operand);
         assert_eq!(
             touch_meter::touches(),
-            4,
-            "add_shifted of 2 digits at shift {shift}: 2 reads + 2 deposits"
+            7,
+            "add_shifted of 2 digits at shift {shift}: 5 compacting the operand to one \
+             digit + 1 read + 1 deposit"
+        );
+        assert_eq!(
+            operand.stored_digit_count(),
+            1,
+            "the zero comparison compacts"
         );
         let (sign, magnitude) = receiver.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
@@ -270,18 +279,19 @@ fn accumulator_operand_rows_cost_the_operand() {
                 + (UBig::from((1u64 << 32) | 1) << usize::try_from(shift).unwrap())
         );
 
-        let operand = narrow();
+        let mut operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&((UBig::from(1u8) << 2_048usize) - 1u8));
         touch_meter::reset();
-        receiver.sub_shifted(shift, &operand);
+        receiver.sub_shifted(shift, &mut operand);
         assert_eq!(
             touch_meter::touches(),
-            4,
-            "sub_shifted of 2 digits at shift {shift}: 2 reads + 2 deposits"
+            7,
+            "sub_shifted of 2 digits at shift {shift}: 5 compacting the operand to one \
+             digit + 1 read + 1 deposit"
         );
-        // The shifted operand towers over the receiver, so the
-        // The difference is negative, so compute its magnitude operand-first.
+        // The shifted operand exceeds the receiver, so the difference is
+        // negative; compute its magnitude operand-first.
         let (sign, magnitude) = receiver.sign_biguint();
         assert_eq!(sign, Ordering::Less);
         assert_eq!(
@@ -342,13 +352,16 @@ fn merge_tie_reads_the_operand() {
 /// The per-call O(held digits) rows read exact totals at 64 and 128
 /// held digits, and shift assignment's total is independent of the shift.
 ///
-/// unary `-` and `reset` touch each held digit once (d, and d + 1 after
-/// a shift grew the span by one), `<<=` reads each digit and
-/// re-deposits it (2d) — the same 2d at a thousandfold larger shift,
-/// the digit-touch shift-independence documented on the crate page — and
-/// `sign_biguint` carries once through the span (d).
-/// Exact equality across the width doubling is the linearity claim
-/// with no slack for a hidden second pass.
+/// With `d` held digits:
+/// - unary `-` and `reset` touch each digit once: `d`, or `d + 1` after a
+///   shift has grown the span by one;
+/// - `<<=` reads the top digit to rule out zero, then reads and re-deposits
+///   each digit: `2d + 1`. The top digit, `2^32 - 1`, settles the zero check
+///   alone, and the total is the same at a thousandfold larger shift;
+/// - `sign_biguint` carries once through the span: `d`.
+///
+/// Exact equality across the width doubling is the linearity claim, with no
+/// slack for a hidden second pass.
 #[test]
 fn held_width_rows_cost_the_held_digits() {
     for bits in [2_048u32, 4_096] {
@@ -391,9 +404,9 @@ fn held_width_rows_cost_the_held_digits() {
         acc <<= 32;
         assert_eq!(
             touch_meter::touches(),
-            2 * held_digits,
-            "shift assignment at {held_digits} held digits: one read and one re-deposit \
-             per digit"
+            2 * held_digits + 1,
+            "shift assignment at {held_digits} held digits: one read of the top digit \
+             to rule out zero, then one read and one re-deposit per digit"
         );
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
@@ -419,9 +432,9 @@ fn held_width_rows_cost_the_held_digits() {
     acc <<= 32_000;
     assert_eq!(
         touch_meter::touches(),
-        128,
-        "<<= 32_000 at 64 held digits: the same 2 touches per held digit \
-         as <<= 32"
+        129,
+        "<<= 32_000 at 64 held digits: the same top-digit read and 2 touches \
+         per held digit as <<= 32"
     );
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!(sign, Ordering::Greater);
