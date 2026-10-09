@@ -6,6 +6,7 @@
 //! distinct from a panic in the operation under test.
 
 use core::cmp::Ordering;
+use core::hint::black_box;
 use core::iter;
 
 use before::{Clock, Count, Party, Rank, Version};
@@ -18,7 +19,7 @@ use crate::synthesis;
 pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
     match check {
         Check::Liveness => liveness(),
-        Check::HarnessTrap => panic!("deliberate harness trap"),
+        Check::HarnessPanic => panic!("deliberate harness panic"),
         Check::Forks => forks(a),
         Check::VersionDecode => version_decode(a),
         Check::RankDecode => rank_decode(a),
@@ -29,7 +30,33 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
         Check::SuanpanReserve => suanpan_reserve(a),
         Check::SuanpanZeroShift => suanpan_zero_shift(a),
         Check::SuanpanStabilityWidth => suanpan_stability_width(a),
+        Check::HarnessAllocationFailure => exhaust_memory(),
     }
+}
+
+/// The size of each block [`exhaust_memory`] reserves: 1 GiB.
+const EXHAUSTING_BLOCK_BYTES: usize = 1 << 30;
+
+/// The number of blocks [`exhaust_memory`] reserves.
+///
+/// Together they span exactly wasm32's 4 GiB address space, before counting
+/// the allocator's headers and the guest's own data, so they cannot all fit.
+const EXHAUSTING_BLOCKS: usize = 4;
+
+/// Aborts on allocation failure without panicking.
+///
+/// Each block is a valid `Vec` capacity, so no capacity check panics; the
+/// allocator itself runs out and the guest aborts.
+fn exhaust_memory() -> Result<(), Failure> {
+    let blocks: Vec<Vec<u8>> = (0..EXHAUSTING_BLOCKS)
+        .map(|_| Vec::with_capacity(EXHAUSTING_BLOCK_BYTES))
+        .collect();
+    // Observing the blocks keeps the optimizer from deleting the reservations.
+    black_box(&blocks);
+
+    // The address space cannot hold every block, so a normal return fails
+    // the pin.
+    Err(Failure::WrongValue)
 }
 
 /// Creates a flat version with the given event count.

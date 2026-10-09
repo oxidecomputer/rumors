@@ -2,9 +2,9 @@
 //!
 //! Large test operands are synthesized in wasm so their sizes and indices are
 //! governed by a 32-bit `usize`. The host therefore sends only a check and two
-//! integer parameters. The guest returns [`PASS`] or a [`Failure`]; a trap is
-//! reserved for a panic in the code under test, apart from the explicit
-//! harness-trap control.
+//! integer parameters. The guest returns [`PASS`] or a [`Failure`]. It traps
+//! only when the code under test panics or exhausts the guest's memory, apart
+//! from the harness controls, which trap deliberately in each of those ways.
 
 #![no_std]
 
@@ -16,8 +16,9 @@ use strum_macros::FromRepr;
 pub enum Check {
     /// Validate the guest, decoder, and typed-failure channel on small input.
     Liveness = 0,
-    /// Deliberately trap, proving that the harness does not report traps as passes.
-    HarnessTrap = 1,
+    /// Deliberately panic, proving that the harness reports a panic's trap and
+    /// message rather than a pass.
+    HarnessPanic = 1,
     /// Exercise fork counts that cannot fit a 32-bit `usize`.
     Forks = 2,
     /// Decode a canonical version whose byte length is parameter `a`.
@@ -39,6 +40,9 @@ pub enum Check {
     SuanpanZeroShift = 10,
     /// Compact a cancelled stored top while asking for stability under width `a`.
     SuanpanStabilityWidth = 11,
+    /// Deliberately exhaust the guest's memory, proving that the harness tells
+    /// an allocation-failure abort from a panic.
+    HarnessAllocationFailure = 12,
 }
 
 impl From<Check> for u32 {
