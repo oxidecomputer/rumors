@@ -519,9 +519,11 @@ mod without_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node};
     use super::*;
     use crate::bits::BitsWriter;
+    use crate::testing::generators::STACK_SAFETY_DEPTH;
 
-    /// Depths used by every constructed family.
-    const SCALES: [usize; 3] = [256, 4096, 100_000];
+    /// Depths used by every constructed family; the deepest overflows any walk
+    /// that keeps one call frame per level.
+    const SCALES: [usize; 3] = [256, 4096, STACK_SAFETY_DEPTH];
 
     /// Greatest depth safe for the recursive oracle used as a second check.
     const ORACLE_SCALE_MAX: usize = 4096;

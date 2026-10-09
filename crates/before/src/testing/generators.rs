@@ -211,7 +211,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// Build a depth-`depth` left-spine [`Party`] directly as canonical encoded
 /// bits, with a single owned region at the deep-left tip.
 ///
-/// Used by the stack-safety test, which needs structures far deeper than the
+/// Used by the stack-safety tests, which need structures far deeper than the
 /// recursive oracle bridge (`emit_id`) or the oracle's own recursive `Drop`
 /// could build or tear down. In the pruned encoding each spine node is a
 /// `Left-only` tag (`10`: left child present, right absent — the `0` right
@@ -247,6 +247,20 @@ pub(crate) fn deep_right_spine_party(depth: usize) -> Party {
     bits.push(false);
     Party::from_test_bits(bits)
 }
+
+/// Spine depth for the stack-safety tests: deep enough that any walk keeping
+/// one call frame per level overflows a test thread's stack.
+///
+/// libtest runs each test on a thread with a 2 MiB stack, so `2^18` levels
+/// leave at most 8 bytes of stack per level. A call frame costs at least 16
+/// bytes on x86_64 and aarch64: a return address padded to the stack's 16-byte
+/// alignment, or a saved frame pointer and link register. So a walk whose
+/// compiled code keeps one frame per level overflows at this depth, however
+/// small its frame. A recursion the optimizer turns into a loop (a tail call,
+/// or an accumulation such as `1 + f(rest)`) keeps no frames and passes. The
+/// bound rests on libtest's default thread stack; a larger `RUST_MIN_STACK`
+/// weakens it.
+pub(crate) const STACK_SAFETY_DEPTH: usize = 1 << 18;
 
 // ───────────────────────── arbitrary normal-form ─────────────────────────
 //

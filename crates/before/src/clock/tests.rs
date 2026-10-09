@@ -6,7 +6,9 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{arb_clock_family, deep_left_spine_party, deep_right_spine_party};
+use crate::testing::generators::{
+    arb_clock_family, deep_left_spine_party, deep_right_spine_party, STACK_SAFETY_DEPTH,
+};
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::testing::oracles::{function, tree};
 use crate::{Clock, Party, Version};
@@ -563,22 +565,23 @@ proptest! {
 
 // ───────────────────────────── robustness ─────────────────────────────
 
-/// Deep structures (a depth-100k id spine, and the deep event tree a tick
-/// builds over it) survive the clock operations driven below, the codec, and
-/// the `Debug` printer with no stack overflow.
+/// Deep structures (an id spine `STACK_SAFETY_DEPTH` levels deep, and the deep
+/// event tree a tick builds over it) survive the clock operations driven
+/// below, the codec, and the `Debug` printer with no stack overflow.
 ///
 /// Library walks keep depth on explicit heap and bit stacks, never the call
-/// stack. This test and the other `deep_tree_*` tests check that at depth for
-/// the operations they drive. Beyond the single-clock ops (tick, fork, join,
-/// partial_cmp, `|`, encode, decode, Debug), this drives the composite ops on
-/// deep structures: `sync` between two deep clocks, `send`/`recv` of a deep
+/// stack. This test and the other `deep_*_stack_safety` tests check that for
+/// the operations they drive, at a depth where any walk keeping one call frame
+/// per level overflows the test thread's stack (`STACK_SAFETY_DEPTH` states
+/// the bound). Beyond the single-clock ops (tick, fork, join, partial_cmp,
+/// `|`, encode, decode, Debug), this drives the composite ops on deep
+/// structures: `sync` between two deep clocks, `send`/`recv` of a deep
 /// version, and version comparison and concurrency at depth. Impl-only: the
 /// recursive oracle cannot build or even drop a tree this deep (oracle
 /// agreement at bounded depth is the master differential harness's job).
 #[test]
 fn deep_tree_stack_safety() {
-    const DEPTH: usize = 100_000;
-    let party = deep_left_spine_party(DEPTH);
+    let party = deep_left_spine_party(STACK_SAFETY_DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
 
     // Codec over a deep id round-trips to canonical bytes.
@@ -662,25 +665,25 @@ fn deep_tree_stack_safety() {
     assert!(!format!("{clock:?}").is_empty());
 }
 
-/// The query folds and causal-interval walks survive depth 100k.
+/// The query folds and causal-interval walks survive depth
+/// `STACK_SAFETY_DEPTH`.
 ///
 /// Driven here: rank, distance, lag, `Ranked` ordering, the `Rank` wire
-/// round-trip at a 100k exponent, span hulls (pair and n-ary), `Span`
-/// validation, decode, placement, and dominance, the span algebra (all four
-/// operators, multi-clock joins, the quotient view), query membership and
-/// coverage, and projection through a deep id.
+/// round-trip at an exponent that grows with the spine's depth, span hulls
+/// (pair and n-ary), `Span` validation, decode, placement, and dominance, the
+/// span algebra (all four operators, multi-clock joins, the quotient view),
+/// query membership and coverage, and projection through a deep id.
 ///
 /// `deep_tree_stack_safety` above proves the clock ops at this depth; this is
 /// the same proof for the surfaces it does not drive — every one an iterative
 /// walk whose depth lives on explicit heap or bit stacks, exercised here at a
-/// depth no program stack could carry.
+/// depth that overflows any walk keeping one call frame per level.
 #[test]
 fn deep_tree_query_and_causal_stack_safety() {
     use crate::Rank;
     use crate::{causally, Span};
 
-    const DEPTH: usize = 100_000;
-    let party = deep_left_spine_party(DEPTH);
+    let party = deep_left_spine_party(STACK_SAFETY_DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
     clock.tick();
     let early = clock.version().clone();
@@ -696,7 +699,8 @@ fn deep_tree_query_and_causal_stack_safety() {
     assert_eq!(early.lag(&late) + late.lag(&early), d);
     assert!(early.ranked() < late.ranked());
 
-    // The Rank wire form round-trips at a 100k-deep exponent.
+    // The Rank wire form round-trips at an exponent that grows with the
+    // spine's depth.
     let bytes = r_late.encode();
     assert_eq!(Rank::decode(&bytes[..]).expect("canonical rank"), r_late);
 
@@ -740,31 +744,25 @@ fn deep_tree_query_and_causal_stack_safety() {
 }
 
 /// The shape walks, the hull of a concurrent pair, the version folds, and the
-/// projection view's comparisons survive depth 2^18 on the default 2 MiB
-/// test-thread stack.
+/// projection view's comparisons survive depth `STACK_SAFETY_DEPTH`.
 ///
 /// The deep tests above reach the version algebra only through comparable
 /// pairs, and none of them drains a shape iterator. Here a deep tip forks into
 /// two halves and each half ticks its own version, so the two versions are
-/// concurrent and each is `DEPTH + 1` levels deep. Only a concurrent pair
-/// enters the sweep that builds both hull endpoints. The test runs twice, with
-/// the tip at the end of a left spine and then of a right spine, so a walk that
-/// loops down one side but recurses down the other meets full depth on one run.
-///
-/// `DEPTH` leaves 8 bytes of a 2 MiB stack per level. A call frame costs at
-/// least 16 bytes on x86_64 and aarch64: a return address padded to the stack's
-/// 16-byte alignment, or a saved frame pointer and link register. So a walk
-/// whose compiled code keeps one call frame per level overflows here. A
-/// recursion the optimizer turns into a loop (a tail call, or an accumulation
-/// such as `1 + f(rest)`) keeps no frames and passes. The bound rests on
-/// libtest's default thread stack; a larger `RUST_MIN_STACK` weakens it.
+/// concurrent and each is `STACK_SAFETY_DEPTH + 1` levels deep. Only a
+/// concurrent pair enters the sweep that builds both hull endpoints. The test
+/// runs twice, with the tip at the end of a left spine and then of a right
+/// spine, so a walk that loops down one side but recurses down the other meets
+/// full depth on one run.
 #[test]
 fn deep_tree_shape_hull_and_fold_stack_safety() {
     use crate::shape::combine;
 
-    const DEPTH: usize = 1 << 18;
-    let tip = DEPTH as u64 + 1;
-    for mut keeper in [deep_left_spine_party(DEPTH), deep_right_spine_party(DEPTH)] {
+    let tip = STACK_SAFETY_DEPTH as u64 + 1;
+    for mut keeper in [
+        deep_left_spine_party(STACK_SAFETY_DEPTH),
+        deep_right_spine_party(STACK_SAFETY_DEPTH),
+    ] {
         let half = keeper.fork();
         let mut a = Version::new();
         keeper.tick(&mut a);
@@ -820,12 +818,281 @@ fn deep_tree_shape_hull_and_fold_stack_safety() {
     }
 }
 
-/// `min_ticks` handles a version 100,000 levels deep without using the call
-/// stack.
+/// The identity entry points survive a cell `STACK_SAFETY_DEPTH` levels deep
+/// and its complement, and every split rejoins to the party it divided.
+///
+/// The cell owns one leaf at the end of a unary spine. Its complement, the
+/// *comb*, owns one sibling subtree beside every level of that spine, so each
+/// of the comb's levels is a two-child branch. The test runs once with the
+/// cell at the end of a left spine and once at the end of a right spine.
+///
+/// `Party::forks` reaches walks that the other stack-safety tests do not: the
+/// fork plan's spatial path (`SharePath`), share construction
+/// (`PartyReader::select_path`), and the removal of each share from the keeper
+/// (`Removal`). The board's `party_forks` cells drive them deep as well, but
+/// through the levels a wide fork count adds below an owned region; here the
+/// path also descends through every stored level of the spine. The other
+/// calls reach walks that the sibling tests drive, each through an entry point
+/// of its own (covering, `without`, the party codec and parser, the array
+/// splits, the clock's `ticks`, `forks`, and `*_all` folds, and the
+/// heterogeneous joins); for those, the test catches an entry point that
+/// recurses instead of delegating to an iterative walk.
+#[test]
+fn deep_identity_stack_safety() {
+    use crate::Count;
+
+    for cell in [
+        deep_left_spine_party(STACK_SAFETY_DEPTH),
+        deep_right_spine_party(STACK_SAFETY_DEPTH),
+    ] {
+        let comb = Party::seed()
+            .without(&cell)
+            .expect("the seed minus one cell leaves the cell's complement");
+
+        // Covering, both ways: the seed covers the cell and the comb covers
+        // itself, but neither disjoint complement covers the other.
+        assert!(Party::seed().covers(&cell));
+        assert!(!cell.covers(&comb) && !comb.covers(&cell));
+        assert!(comb.covers(&comb.dangerously_alias()));
+
+        // `without` through the public entry point: a disjoint operand returns
+        // the receiver unchanged, and a covering operand leaves nothing.
+        assert!(comb.is_disjoint(&cell));
+        assert_eq!(
+            comb.dangerously_alias().without(&cell),
+            Some(comb.dangerously_alias())
+        );
+        assert!(comb.dangerously_alias().without(&comb).is_none());
+
+        // The binary codec and the text parser round-trip the comb.
+        assert_eq!(
+            Party::decode(&comb.encode()[..]).expect("an encoded party is canonical"),
+            comb
+        );
+        assert_eq!(
+            comb.to_string()
+                .parse::<Party>()
+                .expect("a rendered party is canonical"),
+            comb
+        );
+
+        // Every way of splitting a party hands out disjoint shares that rejoin
+        // to the original: a fully drained `forks`, a `forks` dropped after
+        // three of a thousand shares, a count above `u128::MAX`, and the array
+        // split, which leaves no residual.
+        for party in [&cell, &comb] {
+            let mut keeper = party.dangerously_alias();
+            let shares: Vec<Party> = keeper.forks(5u8).collect();
+            keeper.join_all(shares).expect("forked shares are disjoint");
+            assert_eq!(&keeper, party);
+
+            let taken: Vec<Party> = keeper.forks(1000u16).take(3).collect();
+            keeper.join_all(taken).expect("forked shares are disjoint");
+            assert_eq!(&keeper, party);
+
+            let wide = Count::from(u128::MAX) + Count::from(1u8);
+            let taken: Vec<Party> = keeper.forks(wide).take(2).collect();
+            keeper.join_all(taken).expect("forked shares are disjoint");
+            assert_eq!(&keeper, party);
+
+            let [mut first, rest @ ..]: [Party; 5] = keeper.into();
+            first.join_all(rest).expect("split shares are disjoint");
+            assert_eq!(&first, party);
+        }
+
+        // `ticks` advances a version exactly as the same number of single
+        // ticks would, through both the party and the clock.
+        let mut v = Version::new();
+        cell.ticks(&mut v, 3u8);
+        let mut stepped = Version::new();
+        for _ in 0..3 {
+            cell.tick(&mut stepped);
+        }
+        assert_eq!(v, stepped);
+        let mut c = Clock::from_parts(comb.dangerously_alias(), Version::new());
+        let mut stepped = c.dangerously_alias();
+        c.ticks(2u8);
+        stepped.tick();
+        stepped.tick();
+        assert_eq!(c.version(), stepped.version());
+
+        // The clock's folds: `sync_all` leaves every participant on one
+        // version, `recv_all` rises strictly above every message, and
+        // `absorb_all` of versions the clock already holds changes nothing.
+        // The clock's own version lies at or below everything it holds.
+        let mut d = Clock::from_parts(cell.dangerously_alias(), v);
+        let mut kids: Vec<Clock> = c.forks(4u8).collect();
+        c.sync_all(kids.iter_mut().chain([&mut d]))
+            .expect("forked clocks and the cell's clock are disjoint");
+        assert!(kids.iter().chain([&d]).all(|k| k.version() == c.version()));
+        let msgs: Vec<Version> = kids.iter().map(|k| k.version().clone()).collect();
+        let held = c.recv_all(&msgs).clone();
+        assert!(msgs.iter().all(|m| held > *m));
+        assert_eq!(c.absorb_all(msgs.iter()), &held);
+        assert!(c.own_version().to_version() <= held);
+
+        // The heterogeneous joins merge a version the clock already holds, and
+        // the array split and `join_all` restore the whole seed.
+        let mut c = c | d.version();
+        c |= d.version().clone();
+        let c = d.version().clone() | c;
+        assert_eq!(c.version(), &held);
+        let [mut x, y, z]: [Clock; 3] = c.into();
+        x.join_all([y, z, d].into_iter().chain(kids))
+            .expect("the clocks are disjoint");
+        assert!(x.party().is_seed());
+    }
+}
+
+/// The version, ranked, span, and query entry points that the other
+/// stack-safety tests leave undriven survive versions `STACK_SAFETY_DEPTH`
+/// levels deep, and each returns the outcome its rustdoc promises.
+///
+/// As in `deep_tree_shape_hull_and_fold_stack_safety`, a deep tip forks into
+/// `keeper` and `half`, which tick the concurrent versions `a` and `b`; `late`
+/// is `a` ticked three more times. Writing a version's heights at `keeper`'s
+/// and `half`'s leaves as a pair, `a` is (1, 0), `b` is (0, 1), and `late` is
+/// (4, 0), so `joined = a | b` is (1, 1), `met = a & b` is empty, and
+/// `top = late | b` is (4, 1). Every expected outcome below follows from these
+/// heights. Every query bound is a deep, nonempty version, and each asserted
+/// outcome requires at least one walk over operands in separate storage.
+///
+/// Each call here delegates to a walk that a sibling test drives at this
+/// depth: span placement for `precedence` and version membership, the
+/// projected comparison for two `OwnVersion`s, the rank stream and version
+/// validator for `Ranked::decode`, the fused tick for `Version::ticks`, and the
+/// lattice kernels and comparisons for the rest. The test therefore catches an
+/// entry point that recurses instead of delegating to an iterative walk. It
+/// also reaches one state of the placement walk that no sibling test reaches:
+/// on the left spine the tip is the first region, so `precedence` refutes
+/// `a <= met` at once, drops the span's start, and sweeps its end alone
+/// through every remaining level.
+#[test]
+fn deep_tree_remaining_surfaces_stack_safety() {
+    use crate::causally::{self, Coverage};
+    use crate::{Precedence, Ranked, Span};
+
+    for mut keeper in [
+        deep_left_spine_party(STACK_SAFETY_DEPTH),
+        deep_right_spine_party(STACK_SAFETY_DEPTH),
+    ] {
+        let half = keeper.fork();
+        let mut a = Version::new();
+        keeper.tick(&mut a);
+        let mut b = Version::new();
+        half.tick(&mut b);
+
+        // `Version::ticks` matches the same number of single ticks.
+        let mut late = a.clone();
+        late.ticks(&keeper, 3u8);
+        let mut stepped = a.clone();
+        for _ in 0..3 {
+            stepped.tick(&keeper);
+        }
+        assert_eq!(late, stepped);
+
+        // The named lattice methods and the hull operator.
+        let joined = a.join(&b);
+        let met = a.meet(&b);
+        assert!(met.is_empty());
+        let hull = &a ^ &b;
+        assert_eq!(hull.lo(), &met);
+        assert_eq!(hull.hi(), &joined);
+        let top = &late | &b;
+
+        // The version codec and parser, and the ranked codec.
+        assert_eq!(
+            Version::decode(&a.encode()[..]).expect("an encoded version is canonical"),
+            a
+        );
+        assert_eq!(
+            a.to_string()
+                .parse::<Version>()
+                .expect("a rendered version is canonical"),
+            a
+        );
+        let ranked_bytes = a.ranked().encode();
+        assert!(
+            Ranked::decode(&ranked_bytes[..]).expect("an encoded ranked key is canonical")
+                == a.ranked()
+        );
+        let mut buf = Vec::new();
+        a.ranked()
+            .encode_to(&mut buf)
+            .expect("writing to a Vec succeeds");
+        assert_eq!(buf, ranked_bytes);
+        assert_eq!(a.encode_rank(), a.ranked().encode_rank());
+        let mut buf = Vec::new();
+        a.encode_rank_to(&mut buf)
+            .expect("writing to a Vec succeeds");
+        assert_eq!(buf, a.encode_rank());
+
+        // Restricted to `keeper`, `joined` is `a` and `top` is `late`;
+        // restricted to `half`, `joined` is `b`.
+        let own_a = &joined / &keeper;
+        let own_b = &joined / &half;
+        let own_late = &top / &keeper;
+        assert!(own_a.partial_cmp(&own_b).is_none());
+        assert!(own_a < own_late);
+
+        // `a` lies strictly above the start of `[met, joined]` and at or below
+        // its end. `wide` contains `tail`, but `span` does not reach `late`.
+        let span = Span::new(&met, &joined).expect("met <= joined");
+        let tail = Span::new(&a, &late).expect("a <= late");
+        let wide = Span::new(&met, &top).expect("met <= top");
+        assert_eq!(span.precedence(&a), Precedence::Between);
+        assert!(span.contains(&a));
+        assert!(wide.contains(&tail));
+        assert!(!span.contains(&tail));
+
+        // The span algebra over `span` and `tail`, endpoint by endpoint:
+        // union is [met & a, joined | late], intersection [met | a, joined &
+        // late], and the pointwise join and meet apply one operation to both.
+        let point = Span::at(&a);
+        let lifted = Span::new(&a, &top).expect("a <= top");
+        let lowered = Span::new(&met, &a).expect("met <= a");
+        assert_eq!(span.union(&tail), wide);
+        assert_eq!(span.intersect(&tail), Some(point.clone()));
+        assert_eq!(span.join(&tail), lifted);
+        assert_eq!(span.meet(&tail), lowered);
+        assert_eq!(span.intersect_all([&tail, &span]), Some(point.clone()));
+        assert_eq!(span.join_all([&tail, &span]), lifted);
+        assert_eq!(span.meet_all([&tail, &span]), lowered);
+        assert_eq!(
+            [&span, &tail].into_iter().sum::<Option<Span>>(),
+            Some(wide.clone())
+        );
+        assert_eq!(
+            [&span, &tail].into_iter().product::<Option<Span>>(),
+            Some(point)
+        );
+
+        // Each query form admits the version it is given, except `until(a)`,
+        // which rejects `late` because `late` lies in `a`'s future.
+        assert!(!causally::until(&a).contains(&late));
+        assert!(causally::strictly_after(&a).contains(&late));
+        assert!(causally::strictly_before(&late).contains(&a));
+        assert!(causally::delta(&a, &top).contains(&late));
+        assert!(causally::toward(&a, &top).contains(&late));
+        assert!(causally::after(&a).contains(&late));
+        assert!(causally::before(&late).contains(&a));
+        assert!(causally::after(&a).or_concurrent().contains(&b));
+        assert!(causally::before(&a).or_concurrent().contains(&b));
+        assert!((!causally::after(&late)).contains(&joined));
+
+        // Coverage: nothing in `span` reaches `late`, all of `tail` lies at or
+        // below `top`, and `wide` runs from below `late` to above it.
+        assert_eq!(causally::after(&late).coverage(&span), Coverage::Empty);
+        assert_eq!(causally::before(&top).coverage(&tail), Coverage::Full);
+        assert_eq!(causally::until(&late).coverage(&wide), Coverage::Partial);
+    }
+}
+
+/// `min_ticks` handles a version `STACK_SAFETY_DEPTH` levels deep without
+/// keeping a call frame per level.
 #[test]
 fn deep_tree_min_ticks_stack_safety() {
-    const DEPTH: usize = 100_000;
-    let party = deep_left_spine_party(DEPTH);
+    let party = deep_left_spine_party(STACK_SAFETY_DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
     clock.tick();
     let version = clock.version().clone();
