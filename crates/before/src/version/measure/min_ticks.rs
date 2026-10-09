@@ -23,6 +23,13 @@ use super::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
 
 mod minima;
 
+#[cfg(test)]
+thread_local! {
+    /// Freezes of the recent height change on this test thread.
+    /// Tests use this to establish which inputs reach the freeze path.
+    pub static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
 impl Count {
     /// Compute the shortest tick history consistent with `version`.
     pub(crate) fn min_ticks_for(version: &Version) -> Count {
@@ -68,6 +75,8 @@ impl Count {
             if recent_height_change.stored_digit_count()
                 > accumulator::digit_len(height_change.magnitude()) + HEIGHT_FREEZE_ALLOWANCE_DIGITS
             {
+                #[cfg(test)]
+                FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
                 height_prefixes.freeze(&mut recent_height_change);
             }
 

@@ -310,12 +310,11 @@ fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
     ]
 }
 
-/// A freeze schedule whose buffered drift cancels to zero.
+/// A schedule whose drift cancels to zero at a narrow delta.
 ///
-/// Deltas `+（2^(32p) + d)`, `−(2^32 − 1)·2^(32(p−1))`, `−2^(32(p−1))`, then
-/// `−d`: the last, narrow delta trips the width trigger with the live
-/// component's value exactly zero while its buffers still reach digit `p`.
-/// The freeze therefore has no height change to park and must keep the prefix.
+/// Deltas `+(2^(32p) + d)`, `−(2^32 − 1)·2^(32(p−1))`, `−2^(32(p−1))`, then
+/// `−d`: the last, narrow delta leaves the drift's value exactly zero after
+/// wide deltas wrote digits up to `p`.
 fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
     let x = BigUint::from(1u8) << (32 * p);
     let t = BigUint::from(1u8) << (32 * (p - 1));
@@ -365,15 +364,28 @@ proptest! {
         );
     }
 
-    /// The zero-drift family: a width trigger tripped by buffered terms that
-    /// cancel exactly freezes nothing.
+    /// The zero-drift family: a drift that cancels exactly never trips the
+    /// freeze trigger, and both folds stay exact against the tree oracle.
     ///
-    /// The rank integral parks no drift and min_ticks keeps its prefix, and
-    /// both folds stay exact against the tree oracle through the empty
-    /// freeze.
+    /// The rank integral compacts its drift before each boundary, and
+    /// min_ticks normalizes its live offset at each leaf, so the cancelled
+    /// wide digits are gone before the narrow delta's width check. Neither
+    /// freeze therefore needs a case for a zero drift.
     #[test]
-    fn zero_drift_freezes_keep_the_totals_exact(p in 9u32..=13, d in 1u64..=6) {
+    fn zero_drift_never_freezes(p in 9u32..=13, d in 1u64..=6) {
+        let freezes = || {
+            (
+                super::integral::FREEZE_HITS.with(|hits| hits.get()),
+                super::min_ticks::FREEZE_HITS.with(|hits| hits.get()),
+            )
+        };
+        let before = freezes();
         assert_single(&spine_of(&zero_drift_heights(p, d)));
+        prop_assert_eq!(
+            freezes(),
+            before,
+            "a drift that cancels exactly tripped a freeze trigger (rank, min_ticks)"
+        );
     }
 }
 

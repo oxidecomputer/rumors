@@ -88,14 +88,13 @@ impl HeightPrefixes {
 
     /// Move the live height change into a new prefix, then clear it.
     ///
-    /// A zero change adds no component: every existing prefix still denotes
-    /// the same value, so another index would carry no information.
+    /// The change is nonzero whenever the caller's width trigger fires: each
+    /// leaf's read normalizes `live`, so a change that cancels keeps no width
+    /// beyond its last delta's. A zero component would still be exact; its
+    /// prefix would denote the same value as the one before it.
     pub fn freeze(&mut self, live: &mut Accumulator) {
-        let component = live.to_bigint();
-        if component.sign() != Sign::NoSign {
-            self.components.push(component);
-            self.coefficients.push(0);
-        }
+        self.components.push(live.to_bigint());
+        self.coefficients.push(0);
         live.reset();
     }
 

@@ -119,7 +119,7 @@ pub use width::{densified_digits, reset_densified_digits};
 
 #[cfg(test)]
 thread_local! {
-    /// Successful transfers of nonzero live changes on this test thread.
+    /// Freezes on this test thread.
     /// Tests use this to establish that wide-input cases reach the freeze path.
     pub static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 
@@ -237,14 +237,14 @@ impl Integrator {
     }
 
     /// Account for the old parked height, then park the recent changes.
+    ///
+    /// The drift is nonzero whenever the trigger fires: `interval` compacts
+    /// `live` before each boundary, so a drift that cancels keeps no width
+    /// beyond its deltas'. Freezing a zero drift would still be exact; it would
+    /// only settle the segment early and park nothing.
     fn freeze(&mut self) {
-        let drift_order = self.live.cmp_zero();
-        if drift_order == Ordering::Equal {
-            // Buffered changes cancel. Nothing moves, and the current segment
-            // remains open because its parked height has not changed.
-            self.live.reset();
-            return;
-        }
+        // Compact the drift so that its width measures its value.
+        self.live.cmp_zero();
         let drift_digits = self.live.stored_digit_count();
         self.tracks_width = true;
         #[cfg(test)]
@@ -253,9 +253,16 @@ impl Integrator {
         // This segment belongs to the old parked height. Live changes have
         // already contributed to it region by region; folding them into the
         // parked height first would charge those contributions a second time.
-        let parked = self.close_segment();
-        if self.parked.stored_digit_count() > drift_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
-            self.defer_parked(parked);
+        // A parked height much wider than the drift then owes every later
+        // region, so it is deferred rather than multiplied at each narrow
+        // freeze. Reading it left its working width at its value's width.
+        if let Some(parked) = self.close_segment() {
+            if self.parked.stored_digit_count() > drift_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
+                #[cfg(test)]
+                DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
+                self.deferred.push(parked);
+                self.parked.reset();
+            }
         }
         self.parked += &mut self.live;
         self.live.reset();
@@ -265,7 +272,8 @@ impl Integrator {
         self.segment_width = Accumulator::new();
     }
 
-    /// Settle the completed segment and return its normalized parked height.
+    /// Settle the completed segment and return its parked height, or `None`
+    /// if that height is zero.
     ///
     /// A following deferral reuses the value already needed for multiplication,
     /// rather than reading the parked accumulator twice at the same boundary.
@@ -288,17 +296,6 @@ impl Integrator {
         }
         width.add_product(&mut self.total, &parked);
         Some(parked)
-    }
-
-    /// Record the parked height's remaining contribution from this boundary on.
-    /// The preceding segment must already have been closed.
-    fn defer_parked(&mut self, parked: Option<BigInt>) {
-        if let Some(parked) = parked {
-            #[cfg(test)]
-            DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
-            self.deferred.push(parked);
-        }
-        self.parked.reset();
     }
 
     /// Settle the last parked segment without collecting an unused deferred width.
