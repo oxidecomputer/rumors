@@ -1716,6 +1716,42 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "query_coverage_neutral",
+            prepare: |f| {
+                // The crossed segment query `after(w) & before(v)` over the
+                // pair's hull `[v ∧ w, v ∨ w]`. The floor admits the hull's top
+                // and the ceiling admits its bottom, so the fused walk never
+                // returns `Empty`; it returns `Full` exactly when `w <= v`,
+                // where the hull is the query's own segment. On every other
+                // pair, `v` and its ticked successor included, the walk returns
+                // `Partial` and the clamp refinement finds the clamp crossed.
+                // The query holds no holes, so the refinement decides from its
+                // bounds and needs no clamped endpoint. Building one would cost
+                // a new version here, because the top clamp `(v ∨ w) ∧ v` has
+                // distinct, nonempty operands; the `query_coverage` row, whose
+                // hole needs a clamped endpoint, cannot show that cost.
+                let (v, w, _) = f.version_pair()?;
+                let span = v.span(&w);
+                let n = v.encode().len()
+                    + w.encode().len()
+                    + span.lo().encode().len()
+                    + span.hi().encode().len();
+                Some(
+                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                        let verdict = {
+                            let query = causally::after(&w) & causally::before(&v);
+                            query.coverage(span.reborrow())
+                        };
+                        (verdict, span, v, w)
+                    })
+                    .with_model(
+                        Currency::Heap,
+                        ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
+                    ),
+                )
+            },
+        },
+        Op {
             name: "query_contains_many",
             prepare: |f| {
                 let operands = query_membership_operands(f)?;
