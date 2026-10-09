@@ -166,24 +166,6 @@ likely the triggering input is: "unreachable in practice" carries no weight.
 - The fuzz workspace (`crates/before/fuzz/`) is out of scope: do not audit,
   modify, or run it. libFuzzer does not build on illumos in any case.
 
-## Scope
-
-The owner asks for a change and expects work in proportion to it. Build the
-briefed change and what it needs to land: the tests that show it works, the
-callers it breaks, and the measurements the landing check requires.
-
-- Adjacent work you think worthwhile (auditing sibling code, a new
-  instrument, a fix to a neighboring defect) goes in your report as a
-  proposed follow-up with its estimated cost. Do not build it. The owner
-  decides whether it happens and where.
-- Run an experiment or probe only when it decides between options your
-  report will put to the owner, or attributes a moved measurement. Stop as
-  soon as the question is answered.
-- Measurement means parent and new, once each. More states or repetitions
-  need a stated reason in your report.
-- If the briefed change turns out to need substantially more than the brief
-  anticipated, stop and report the size before continuing.
-
 ## Standards for anything you commit
 
 - Follow the repo's test conventions (`AGENTS.md`, "Writing tests"):
