@@ -50,11 +50,18 @@ impl Digits {
 
     /// Normalize the suffix beginning at `start` into unsigned 32-bit digits.
     ///
-    /// Every digit below `start` must be zero. High zero digits may remain;
-    /// limb packing removes them after combining pairs.
+    /// Every digit below `start` must be zero, and any `start` at or below
+    /// `lowest_written` qualifies. This method reads nothing below `start`,
+    /// because skipping that prefix is what keeps a scaled read proportional to
+    /// the written span; a nonzero digit there would be left out of the result.
+    /// The tests in `accumulator::tests::representation` check the zero prefix
+    /// below `lowest_written` after every step, and compare the scaled readout
+    /// with an oracle.
+    ///
+    /// High zero digits may remain; limb packing removes them after combining
+    /// pairs.
     fn read_digits(&self, start: usize) -> (Ordering, Vec<u32>) {
         debug_assert!(start <= self.highest_nonzero);
-        debug_assert!(self.digits[..start].iter().all(|&digit| digit == 0));
         let mut collected: Vec<u32> = Vec::with_capacity(self.highest_nonzero - start + 2);
         let mut carry: i128 = 0;
         for &digit in &self.digits[start..=self.highest_nonzero] {

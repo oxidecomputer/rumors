@@ -21,12 +21,40 @@ pub(super) enum Boundary {
     Wide(Accumulator),
 }
 
+/// A difference classified by its sign, each nonzero side as a magnitude.
+pub(super) enum Signed {
+    /// The difference was positive.
+    Positive(Positive),
+    /// The difference was zero.
+    Zero,
+    /// The difference was negative; this is its magnitude.
+    Negative(Positive),
+}
+
+/// A strictly positive value.
+///
+/// Only this module constructs one, and only where it has just established
+/// the sign: [`Signed::of`], or a stability query that proves it.
+pub(super) struct Positive(Accumulator);
+
+/// Classify a difference with one comparison against zero.
+impl Signed {
+    /// Compare `difference` with zero once, negating a negative difference.
+    pub(super) fn of(mut difference: Accumulator) -> Self {
+        match difference.cmp_zero() {
+            Ordering::Greater => Self::Positive(Positive(difference)),
+            Ordering::Equal => Self::Zero,
+            Ordering::Less => Self::Negative(Positive(-difference)),
+        }
+    }
+}
+
 /// What remains after subtracting a decrease from a positive boundary.
 pub(super) enum Remainder {
     /// The decrease stops here; the outer minimum stays fixed.
     Boundary(Boundary),
-    /// The boundary vanishes; the outer minimum falls by this positive amount.
-    Decrease(Accumulator),
+    /// The boundary vanishes; the outer minimum falls by this amount.
+    Decrease(Positive),
     /// The minima meet, leaving neither a boundary nor a further decrease.
     Equal,
 }
@@ -37,12 +65,7 @@ impl Boundary {
     ///
     /// A `u64` uses at most two base-2^32 digits. Materializing at most two
     /// digits has constant cost; a wider accumulator is retained directly.
-    pub(super) fn from_positive(difference: Accumulator) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            let sign = difference.clone().cmp_zero();
-            debug_assert_eq!(sign, Ordering::Greater, "boundaries are positive");
-        }
+    pub(super) fn from_positive(Positive(difference): Positive) -> Self {
         if difference.stored_digit_count() > 2 {
             return Self::Wide(difference);
         }
@@ -73,7 +96,7 @@ impl Boundary {
     }
 
     /// Lower the inner minimum and return the surviving positive difference.
-    pub(super) fn lowered_by(self, decrease: Accumulator) -> Remainder {
+    pub(super) fn lowered_by(self, decrease: Positive) -> Remainder {
         match self {
             Self::Word(word) => Self::lower_word(word, decrease),
             Self::Wide(wide) => Self::lower_wide(wide, decrease),
@@ -81,15 +104,12 @@ impl Boundary {
     }
 
     /// A word-sized boundary costs one constant-width subtraction.
-    fn lower_word(boundary: u64, mut decrease: Accumulator) -> Remainder {
+    fn lower_word(boundary: u64, Positive(mut decrease): Positive) -> Remainder {
         decrease -= boundary;
-        match decrease.cmp_zero() {
-            Ordering::Greater => Remainder::Decrease(decrease),
-            Ordering::Equal => Remainder::Equal,
-            Ordering::Less => {
-                decrease = -decrease;
-                Remainder::Boundary(Self::from_positive(decrease))
-            }
+        match Signed::of(decrease) {
+            Signed::Positive(decrease) => Remainder::Decrease(decrease),
+            Signed::Zero => Remainder::Equal,
+            Signed::Negative(boundary) => Remainder::Boundary(Self::from_positive(boundary)),
         }
     }
 
@@ -99,12 +119,12 @@ impl Boundary {
     /// redundant representation can prove domination. If that comparison
     /// cannot decide, the values are close enough in stored width that subtracting
     /// once costs no more than processing comparable operands.
-    fn lower_wide(mut boundary: Accumulator, mut decrease: Accumulator) -> Remainder {
+    fn lower_wide(mut boundary: Accumulator, Positive(mut decrease): Positive) -> Remainder {
         if decrease.stored_digit_count() >= boundary.stored_digit_count() + 2 {
             match decrease.cmp_zero_stable_under(boundary.stored_bits()) {
                 Some(Ordering::Greater) => {
                     decrease -= &boundary;
-                    return Remainder::Decrease(decrease);
+                    return Remainder::Decrease(Positive(decrease));
                 }
                 Some(_) => unreachable!("the decrease is positive"),
                 None => {}
@@ -114,7 +134,7 @@ impl Boundary {
             match boundary.cmp_zero_stable_under(decrease.stored_bits()) {
                 Some(Ordering::Greater) => {
                     boundary -= &decrease;
-                    return Remainder::Boundary(Self::from_positive(boundary));
+                    return Remainder::Boundary(Self::from_positive(Positive(boundary)));
                 }
                 Some(_) => unreachable!("stored boundaries are positive"),
                 None => {}
@@ -122,13 +142,10 @@ impl Boundary {
         }
 
         boundary -= &decrease;
-        match boundary.cmp_zero() {
-            Ordering::Greater => Remainder::Boundary(Self::from_positive(boundary)),
-            Ordering::Equal => Remainder::Equal,
-            Ordering::Less => {
-                boundary = -boundary;
-                Remainder::Decrease(boundary)
-            }
+        match Signed::of(boundary) {
+            Signed::Positive(boundary) => Remainder::Boundary(Self::from_positive(boundary)),
+            Signed::Zero => Remainder::Equal,
+            Signed::Negative(decrease) => Remainder::Decrease(decrease),
         }
     }
 }

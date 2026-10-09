@@ -84,7 +84,7 @@ pub use anchor::FOLLOWER_SLOTS;
 
 use anchor::Anchor;
 use boundaries::{Boundaries, Entry};
-use boundary::{Boundary, Remainder};
+use boundary::{Boundary, Positive, Remainder, Signed};
 
 /// What becomes visible after closing the innermost range.
 pub enum Close<P> {
@@ -213,26 +213,22 @@ impl<P> RangeMinima<P> {
     /// every enclosing minimum reached by the drop. All new ranges share `v`.
     fn finish_arming<C>(
         &mut self,
-        mut above_minimum: Accumulator,
+        above_minimum: Accumulator,
         pending: u64,
         context: &mut C,
         payload: impl FnOnce(&mut C) -> P,
         mut retire_payload: impl FnMut(P, &mut C),
     ) {
-        match above_minimum.cmp_zero() {
-            Ordering::Greater => {
+        match Signed::of(above_minimum) {
+            Signed::Positive(above_minimum) => {
                 self.boundaries
                     .push_positive(Boundary::from_positive(above_minimum), payload(context));
                 self.boundaries.push_equal(pending - 1);
             }
-            Ordering::Equal => {
-                drop(above_minimum);
-                self.boundaries.push_equal(pending);
-            }
-            Ordering::Less => {
+            Signed::Zero => self.boundaries.push_equal(pending),
+            Signed::Negative(drop) => {
                 retire_payload(payload(context), context);
-                above_minimum = -above_minimum;
-                self.propagate_drop(above_minimum, context, retire_payload);
+                self.propagate_drop(drop, context, retire_payload);
                 self.boundaries.push_equal(pending);
             }
         }
@@ -251,7 +247,9 @@ impl<P> RangeMinima<P> {
     /// Move the anchor to the height, update its followers, and consume any
     /// deferred distance before propagating the true drop `old_minimum - h`.
     pub fn undercut<C>(&mut self, context: &mut C, retire_payload: impl FnMut(P, &mut C)) {
-        let decrease = self.anchor.undercut_here();
+        let Signed::Positive(decrease) = Signed::of(self.anchor.undercut_here()) else {
+            unreachable!("a confirmed undercut lowers the minimum by a positive amount")
+        };
         self.propagate_drop(decrease, context, retire_payload);
     }
 
@@ -264,7 +262,7 @@ impl<P> RangeMinima<P> {
     /// payload, and all resulting zero boundaries merge into one run.
     fn propagate_drop<C>(
         &mut self,
-        mut decrease: Accumulator,
+        mut decrease: Positive,
         context: &mut C,
         mut retire_payload: impl FnMut(P, &mut C),
     ) {

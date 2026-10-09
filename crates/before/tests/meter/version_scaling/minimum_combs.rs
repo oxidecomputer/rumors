@@ -18,7 +18,7 @@ const MIN_TICKS_PURE_COMB_CEILINGS: [u64; 2] = [2_785, 5_558];
 /// Absolute touch ceilings at two scales for min_ticks on the
 /// reveal comb, measured ×1.25 (the record and every re-pin's
 /// movement live in the pin commits).
-const MIN_TICKS_REVEAL_COMB_CEILINGS: [u64; 2] = [16_746, 33_483];
+const MIN_TICKS_REVEAL_COMB_CEILINGS: [u64; 2] = [12_958, 25_907];
 
 /// min_ticks is linear on the pure comb: per-byte touch work stays flat
 /// (×1.25) across a joint `(k, b)` doubling, under

@@ -119,6 +119,12 @@ impl Anchor {
     /// With no deferred distance, the sign of `h - A` is the answer. Otherwise
     /// `A > m`, so any height at or above `A` is above `m`. A height below `A`
     /// requires comparing the distances `A - h` and `A - m`.
+    ///
+    /// That shortcut relies on the deferred distance `A - m` being strictly
+    /// positive, which holds because it only ever sums boundaries, each
+    /// positive by the precondition of
+    /// [`Boundary::from_positive`](super::boundary::Boundary::from_positive).
+    /// A zero distance would answer `Greater` for a height equal to the minimum.
     pub(super) fn compare_height(&mut self) -> Ordering {
         let sign = self.gap.cmp_zero();
         if self.deferred.is_none() {
