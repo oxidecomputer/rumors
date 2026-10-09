@@ -6,3 +6,10 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+# Derives each protocol enum's decoder from its declared numbers, so a decoder
+# cannot disagree with the numbering it inverts. Tool-side only: this workspace
+# is detached from the parent, so the dependency never enters the production
+# crates' graph.
+strum_macros = "0.28.0"

@@ -24,7 +24,7 @@ pub enum Outcome {
 
 /// Calls `check` in a fresh guest instance.
 pub fn run(check: Check, a: u64, b: u64) -> Outcome {
-    run_raw(check as u32, a, b)
+    run_raw(u32::from(check), a, b)
 }
 
 /// Calls the guest with an unchecked check number.
