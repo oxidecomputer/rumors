@@ -6,7 +6,7 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{arb_clock_family, deep_left_spine_party};
+use crate::testing::generators::{arb_clock_family, deep_left_spine_party, deep_right_spine_party};
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::testing::oracles::{function, tree};
 use crate::{Clock, Party, Version};
@@ -564,17 +564,17 @@ proptest! {
 // ───────────────────────────── robustness ─────────────────────────────
 
 /// Deep structures (a depth-100k id spine, and the deep event tree a tick
-/// builds over it) survive every public op, the codec, and the `Debug` printer
-/// with no stack overflow.
+/// builds over it) survive the clock operations driven below, the codec, and
+/// the `Debug` printer with no stack overflow.
 ///
-/// Every library walk is iterative — depth lives on explicit heap and bit
-/// stacks, never the call stack — and this test is the depth-100k proof of that
-/// claim. Beyond the single-clock ops (tick, fork, join, partial_cmp, `|`, encode, decode,
-/// Debug), this drives the composite ops on deep structures: `sync` between two
-/// deep clocks, `send`/`recv` of a deep version, and version comparison and
-/// concurrency at depth. Impl-only: the recursive oracle cannot build or even
-/// drop a tree this deep (oracle agreement at bounded depth is the master
-/// differential harness's job).
+/// Library walks keep depth on explicit heap and bit stacks, never the call
+/// stack. This test and the other `deep_tree_*` tests check that at depth for
+/// the operations they drive. Beyond the single-clock ops (tick, fork, join,
+/// partial_cmp, `|`, encode, decode, Debug), this drives the composite ops on
+/// deep structures: `sync` between two deep clocks, `send`/`recv` of a deep
+/// version, and version comparison and concurrency at depth. Impl-only: the
+/// recursive oracle cannot build or even drop a tree this deep (oracle
+/// agreement at bounded depth is the master differential harness's job).
 #[test]
 fn deep_tree_stack_safety() {
     const DEPTH: usize = 100_000;
@@ -737,6 +737,87 @@ fn deep_tree_query_and_causal_stack_safety() {
     // Projection through the deep id (the masked walk), materialized.
     let own = &late / clock.party();
     assert_eq!(own.to_version(), late);
+}
+
+/// The shape walks, the hull of a concurrent pair, the version folds, and the
+/// projection view's comparisons survive depth 2^18 on the default 2 MiB
+/// test-thread stack.
+///
+/// The deep tests above reach the version algebra only through comparable
+/// pairs, and none of them drains a shape iterator. Here a deep tip forks into
+/// two halves and each half ticks its own version, so the two versions are
+/// concurrent and each is `DEPTH + 1` levels deep. Only a concurrent pair
+/// enters the sweep that builds both hull endpoints. The test runs twice, with
+/// the tip at the end of a left spine and then of a right spine, so a walk that
+/// loops down one side but recurses down the other meets full depth on one run.
+///
+/// `DEPTH` leaves 8 bytes of a 2 MiB stack per level. A call frame costs at
+/// least 16 bytes on x86_64 and aarch64: a return address padded to the stack's
+/// 16-byte alignment, or a saved frame pointer and link register. So a walk
+/// whose compiled code keeps one call frame per level overflows here. A
+/// recursion the optimizer turns into a loop (a tail call, or an accumulation
+/// such as `1 + f(rest)`) keeps no frames and passes. The bound rests on
+/// libtest's default thread stack; a larger `RUST_MIN_STACK` weakens it.
+#[test]
+fn deep_tree_shape_hull_and_fold_stack_safety() {
+    use crate::shape::combine;
+
+    const DEPTH: usize = 1 << 18;
+    let tip = DEPTH as u64 + 1;
+    for mut keeper in [deep_left_spine_party(DEPTH), deep_right_spine_party(DEPTH)] {
+        let half = keeper.fork();
+        let mut a = Version::new();
+        keeper.tick(&mut a);
+        let mut b = Version::new();
+        half.tick(&mut b);
+        assert!(
+            a.concurrent(&b),
+            "the fork's halves tick concurrent versions"
+        );
+
+        // `a` and `b` each rise on one half of the tip, so their join rises on
+        // the whole tip and their meet rises nowhere.
+        let joined = &a | &b;
+        let met = &a & &b;
+        assert!(met.is_empty());
+
+        // The pair hull builds both endpoints in one sweep. In `span_all`, the
+        // leaf combine of the receiver with `b` takes the same sweep.
+        let span = a.span(&b);
+        assert_eq!(span.lo(), &met);
+        assert_eq!(span.hi(), &joined);
+        assert_eq!(a.span_all([&b, &joined, &a]), span);
+
+        // The folds, owned and borrowed, with and without a receiver.
+        assert_eq!([a.clone(), b.clone()].into_iter().sum::<Version>(), joined);
+        assert_eq!([&a, &b].into_iter().sum::<Version>(), joined);
+        assert_eq!(
+            [a.clone(), b.clone()].into_iter().collect::<Version>(),
+            joined
+        );
+        assert_eq!([&a, &b].into_iter().collect::<Version>(), joined);
+        assert_eq!(a.join_all([&b]), joined);
+        assert_eq!(a.meet_all([&b, &joined]), met);
+
+        // Restricted to either half's region, the join is that half's own
+        // version, so its restriction to `keeper` is concurrent with `b`.
+        assert!(&joined / &keeper == a);
+        assert!(&joined / &half == b);
+        assert!((&joined / &keeper).partial_cmp(&b).is_none());
+
+        // Every shape iterator drains to the deepest region, at the tip.
+        assert_eq!(a.shape().map(|plateau| plateau.depth).max(), Some(tip));
+        assert_eq!(
+            combine([&a, &b, &joined]).map(|cell| cell.depth).max(),
+            Some(tip)
+        );
+        assert_eq!(keeper.shape().map(|region| region.depth).max(), Some(tip));
+        let clock = Clock::from_parts(half, a);
+        assert_eq!(
+            clock.shape().map(|(plateau, _)| plateau.depth).max(),
+            Some(tip)
+        );
+    }
 }
 
 /// `min_ticks` handles a version 100,000 levels deep without using the call
