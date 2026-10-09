@@ -213,39 +213,58 @@ impl<'a, P: Polarity> Query<'a, P> {
         match filter::coverage(lo, hi, self.demands()) {
             Coverage::Full => Coverage::Full,
             Coverage::Empty => Coverage::Empty,
+            // The walk's `Partial` certifies `floor <= hi` and `lo <= ceiling`,
+            // the precondition the refinement decides by.
             Coverage::Partial => self.refine_partial(lo, hi),
         }
     }
 
-    /// The clamp refinement behind [`coverage`](Self::coverage)'s `Partial`
-    /// arm: the exact emptiness decision the fused endpoint walk cannot reach.
+    /// Refines the fused walk's `Partial` verdict over `[lo, hi]` to the exact
+    /// verdict, deciding the emptiness that endpoint comparisons cannot reach.
+    ///
+    /// Call this only after [`filter::coverage`] has returned
+    /// [`Coverage::Partial`] for this query's demands over `[lo, hi]`.
+    /// Otherwise the result is unspecified, and debug builds panic when either
+    /// certified relation below fails. That verdict certifies `floor <= hi` and
+    /// `lo <= ceiling` for whichever bounds the query holds, and the span
+    /// certifies `lo <= hi`.
     ///
     /// The admitted portion of the segment is the *clamped* segment `[lo ∨
-    /// floor, hi ∧ ceiling]` minus the holes. A crossed clamp is empty
-    /// outright. A down-set covering the clamped top covers the whole clamped
-    /// segment, *because* every hole shares one polarity: the joint-covering
-    /// case that would escape this endpoint test needs both polarities at once,
-    /// which the type refuses.
+    /// floor, hi ∧ ceiling]` minus the holes, where an absent bound clamps
+    /// nothing. The clamped segment is nonempty iff `lo ∨ floor <= hi ∧
+    /// ceiling`, which holds iff each of `lo` and `floor` is at most each of
+    /// `hi` and `ceiling`. The walk's verdict and the span supply three of
+    /// those four relations. The clamp is therefore crossed exactly when the
+    /// query holds both bounds and `floor <= ceiling` fails, a property of the
+    /// query alone that needs neither clamped endpoint.
+    ///
+    /// The holes share one polarity, so together they form one down-set (or,
+    /// dually, one up-set), which covers the clamped segment iff it covers the
+    /// clamped top (or bottom). A down-set and an up-set could jointly cover
+    /// the segment while the down-set misses the top and the up-set misses the
+    /// bottom, so no single endpoint test would see it; that is why the type
+    /// refuses to mix them. Only that one clamped endpoint is built, and only
+    /// when the query holds holes.
     fn refine_partial(&self, lo: &Version, hi: &Version) -> Coverage {
-        let clamped_lo: Cow<'_, Version> = match self.floor.as_deref() {
-            Some(floor) => Cow::Owned(lo | floor),
-            None => Cow::Borrowed(lo),
+        let (floor, ceiling) = (self.floor.as_deref(), self.ceiling.as_deref());
+        debug_assert!(
+            floor.is_none_or(|floor| floor <= hi) && ceiling.is_none_or(|ceiling| lo <= ceiling),
+            "a `Partial` coverage walk certifies `floor <= hi` and `lo <= ceiling`"
+        );
+        let clamp_is_nonempty = match (floor, ceiling) {
+            (Some(floor), Some(ceiling)) => floor <= ceiling,
+            _ => true,
         };
-        let clamped_hi: Cow<'_, Version> = match self.ceiling.as_deref() {
-            Some(ceiling) => Cow::Owned(hi & ceiling),
-            None => Cow::Borrowed(hi),
-        };
-        if clamped_lo <= clamped_hi {
-            if self.holes.is_empty() {
-                return Coverage::Partial;
-            }
+        if !clamp_is_nonempty {
+            return Coverage::Empty;
+        }
+        if self.holes.is_empty() {
+            return Coverage::Partial;
+        }
 
-            let endpoint = P::covering_endpoint(&clamped_lo, &clamped_hi);
-            if filter::admits(endpoint, Self::hole_demands(&self.holes)) {
-                Coverage::Partial
-            } else {
-                Coverage::Empty
-            }
+        let endpoint = P::covering_endpoint(lo, hi, floor, ceiling);
+        if filter::admits(&endpoint, Self::hole_demands(&self.holes)) {
+            Coverage::Partial
         } else {
             Coverage::Empty
         }

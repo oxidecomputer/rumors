@@ -600,7 +600,12 @@ fn coverage_clamp_refinement_is_exact() {
 /// `Full`, `Partial`, and `Empty` each hold iff the brute-force
 /// membership census says so, for every version of the tick grid,
 /// every ordered segment of it, and a query family covering both
-/// polarities, all hole spellings, and their conjunctions.
+/// polarities, all hole spellings, and their conjunctions. The family sets
+/// each polarity's hole beside a floor, beside a ceiling, and beside both:
+/// the bound that clamps the hole's covering endpoint (`delta` clamps a
+/// down-set's top by a ceiling, and `toward` clamps an up-set's bottom by a
+/// floor), the bound that does not, and a floor and a ceiling together,
+/// whose crossed clamp reads `Empty` whatever the holes cover.
 #[test]
 fn coverage_is_exact_on_the_two_party_grid() {
     // The complete interval [⊥, A2B2]: with two parties and no
@@ -643,8 +648,14 @@ fn coverage_is_exact_on_the_two_party_grid() {
             neutral.push(after(x) & before(y));
             down.push(since(x) & since(y));
             down.push(delta(x, y));
+            down.push(after(x) & since(y));
+            up.push(toward(x, y));
             up.push((!after(x)) & (!after(y)));
             up.push(before(x) & (!after(y)));
+            for &z in &anchors {
+                down.push(after(x) & delta(y, z));
+                up.push(toward(x, y) & before(z));
+            }
         }
     }
 
