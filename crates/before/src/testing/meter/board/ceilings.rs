@@ -135,9 +135,11 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 16.0;
 ///
 /// The version writer holds a constant number of stream-sized buffers: its
 /// output, and, once a wide payload first collapses, the separate topology
-/// and payload streams that it interleaves once at the end. The exponent
-/// remains judged independently.
-pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 4.0;
+/// and payload streams that it interleaves once at the end. Each buffer grows
+/// by doubling, and sealing reallocates it to its exact size, which the heap
+/// meter counts beside the old buffer. The exponent remains judged
+/// independently.
+pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 5.0;
 
 /// Heap ceiling for deserializing an owned serde buffer or a borsh stream, in
 /// bytes per input byte.

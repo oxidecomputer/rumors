@@ -210,6 +210,20 @@ const ARMING_TRAIN_BASE_GAPS: usize = 32;
 const SCAN_HOLE_BASE_UNITS: usize = 64;
 const SCAN_HOLE_BASE_STEPS: usize = 256;
 
+/// Copy-hole units at scale 1.0, sized apart from the other hole families.
+///
+/// Ticking the copy-hole pair copies its event stream into the result through
+/// one splice, which reserves exactly the copied bytes. The bits written after
+/// the splice either fit in the reservation's last byte, so sealing finds the
+/// result exactly sized, or need one more byte, which doubles the buffer and
+/// makes sealing reallocate: a peak of about one result, or about three. Which
+/// case occurs depends on the stream's bit offsets, which move as the level
+/// doubling scales the pair. With 64 units the smaller default sample fits
+/// while every other ladder sample doubles, and an exponent fitted across them
+/// reads that difference as growth. With 72 units every ladder sample doubles,
+/// so the exponent leg compares like against like.
+const COPY_HOLE_BASE_UNITS: usize = 72;
+
 /// Hoisted-window arming width, fixed across scales: the narrowest arming the
 /// family's settle freeze defers, so its close settles a deferred height.
 const HOISTED_WINDOW_WIDTH: usize = MIN_DEFERRED_ARMING_DIGITS;
@@ -1036,7 +1050,7 @@ impl FamilyData {
             }
             FamilyId::CopyHole => {
                 let (v, p) = Shape::CopyHole
-                    .build_pair(size(SCAN_HOLE_BASE_UNITS), size(SCAN_HOLE_BASE_STEPS));
+                    .build_pair(size(COPY_HOLE_BASE_UNITS), size(SCAN_HOLE_BASE_STEPS));
                 Self::cross_family(kind, v.version().encode(), p.bytes)
             }
             FamilyId::RaiseHole => {
