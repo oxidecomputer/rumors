@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 745ba9f8ead9d3b61ae71181c1416a70ef7de4e7faf55a913e55ed12f2c063a9 # shrinks to n = 1
 cc 3e3adb95dbd8d683a7c5d2a56c688e5b132c635b340ae325f2ab8588e15552a8 # shrinks to b = 34, d = 1
+cc 3d64acc9765fdff2de8b2ebcf9a2896ad77d3d03b0aacc4632638c391b0b335a # shrinks to steps = [(Term { coefficient: -1, bits: 162 }, 0, 0), (Term { coefficient: 0, bits: 0 }, 0, 0), (Term { coefficient: -1, bits: 64 }, 2, 0), (Term { coefficient: 0, bits: 0 }, 2, 0), (NearMinimum { minimum: Index(0), offset: 1 }, 0, 0)]

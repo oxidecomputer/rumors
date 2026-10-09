@@ -1,16 +1,21 @@
 //! Behavioral checks for nested minima, deferred anchors, and client state.
 //!
-//! Exact cases distinguish comparisons on either side of a deferred minimum.
-//! Properties vary widths, nesting, payload lifetimes, and follower transitions.
+//! Exact cases distinguish comparisons on either side of a deferred minimum,
+//! and drive `tick` and `min_ticks` through exact boundary remainders that the
+//! recursive oracle checks. Properties vary widths, nesting, nearness to open
+//! minima, payload lifetimes, and follower transitions.
 
 use core::cmp::Ordering;
 
 use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
+use proptest::sample::Index;
 use suanpan::Accumulator;
 
 use super::{Close, RangeMinima};
 use crate::accumulator::BigIntAccumulator as _;
+use crate::testing::bridge::{from_oracle_party, from_oracle_version};
+use crate::testing::oracles::tree::{Party as OracleParty, Version as OracleVersion};
 
 /// Expected results when probing the minimum, one above it, and one below it.
 const AROUND_MINIMUM: [Ordering; 3] = [Ordering::Equal, Ordering::Greater, Ordering::Less];
@@ -48,6 +53,75 @@ struct PayloadEvents {
     created: usize,
     /// Outer minima whose suspended payloads were retired, in callback order.
     retired: Vec<BigInt>,
+}
+
+/// How one step of the nested-operations property chooses its value.
+///
+/// Single terms reach every width, but a drop from one rarely stops near the
+/// next boundary out. The relative forms offset the absolute minimum of an
+/// open range, so a drop can stop just short of an outer minimum or exactly
+/// at it, and a wide boundary can absorb a far narrower decrease.
+#[derive(Clone, Debug)]
+enum StepValue {
+    /// `coefficient << bits`, independent of earlier steps.
+    Term { coefficient: i16, bits: usize },
+    /// An open range's minimum plus a small signed offset.
+    NearMinimum { minimum: Index, offset: i8 },
+    /// An open range's minimum plus `coefficient << bits`.
+    TermFromMinimum {
+        minimum: Index,
+        coefficient: i16,
+        bits: usize,
+    },
+}
+
+impl StepValue {
+    /// Resolve against the model's open minima, using zero when none is open.
+    fn resolve(&self, open_minima: &[BigInt]) -> BigInt {
+        let minimum = |index: &Index| {
+            if open_minima.is_empty() {
+                BigInt::ZERO
+            } else {
+                index.get(open_minima).clone()
+            }
+        };
+        match self {
+            Self::Term { coefficient, bits } => BigInt::from(*coefficient) << *bits,
+            Self::NearMinimum {
+                minimum: index,
+                offset,
+            } => minimum(index) + *offset,
+            Self::TermFromMinimum {
+                minimum: index,
+                coefficient,
+                bits,
+            } => minimum(index) + (BigInt::from(*coefficient) << *bits),
+        }
+    }
+}
+
+/// Draw each [`StepValue`] form with equal probability.
+///
+/// Single terms come from [`value_coefficient`] and [`value_shift`], which
+/// favor a few small coefficients and fixed widths, so values repeat often.
+///
+/// Shifts reach past four 32-bit digits, so a boundary and a decrease can
+/// differ in width by the two 32-bit digits at which `Boundary::lowered_by`
+/// decides from leading digits alone which operand dominates.
+fn step_value() -> impl Strategy<Value = StepValue> {
+    prop_oneof![
+        (value_coefficient(), value_shift())
+            .prop_map(|(coefficient, bits)| StepValue::Term { coefficient, bits }),
+        (any::<Index>(), any::<i8>())
+            .prop_map(|(minimum, offset)| StepValue::NearMinimum { minimum, offset }),
+        (any::<Index>(), any::<i16>(), 0usize..260).prop_map(|(minimum, coefficient, bits)| {
+            StepValue::TermFromMinimum {
+                minimum,
+                coefficient,
+                bits,
+            }
+        }),
+    ]
 }
 
 /// Close one range and compare its result with an absolute-minimum model.
@@ -186,6 +260,93 @@ fn a_wide_deferred_distance_survives_a_drop_of_fifty() {
     );
 }
 
+/// Check `min_ticks`, and one tick by `party`, against the recursive oracle.
+///
+/// Both operations track nested subtree minima with [`RangeMinima`]: `min_ticks`
+/// subtracts every internal node's minimum, and a tick raises an owned left
+/// child to its right sibling's minimum.
+fn assert_tick_and_min_ticks_match_oracle(version: &OracleVersion, party: &OracleParty) {
+    let mut actual = from_oracle_version(version);
+    assert_eq!(
+        actual.min_ticks(),
+        version.min_ticks(),
+        "min_ticks must match the recursive oracle"
+    );
+    actual.tick(&from_oracle_party(party));
+    let mut expected = version.clone();
+    expected.tick(party);
+    assert_eq!(
+        actual,
+        from_oracle_version(&expected),
+        "tick must match the recursive oracle"
+    );
+}
+
+/// Build a party that owns the left half, and the left half of the region
+/// reached by following `right_path` (`true` is right) from the right half.
+///
+/// Every node along the path is partially owned and every sibling beside it is
+/// unowned, so a tick's lookahead visits each node of a version shaped like the
+/// path and reports each leaf of the right half at its own height.
+fn left_half_and_deep_right(right_path: &[bool]) -> OracleParty {
+    let unowned = || OracleParty::Leaf(false);
+    let mut party = OracleParty::node(OracleParty::Leaf(true), unowned());
+    for &right in right_path.iter().rev() {
+        party = if right {
+            OracleParty::node(unowned(), party)
+        } else {
+            OracleParty::node(party, unowned())
+        };
+    }
+    OracleParty::node(OracleParty::Leaf(true), party)
+}
+
+/// A drop of `2^200 + 2^64 - 1` crosses a `2^64` boundary and stops one short
+/// of the `2^200` boundary beyond it, so the outer minimum survives.
+///
+/// The right subtree is `(1, (1 + 2^200, (1 + 2^200 + 2^64, 2)))`. The leaf
+/// `2` drops from the innermost minimum by an operand at least two digits
+/// wider than the crossed boundary, leaving `2^200 - 1` to compare with the
+/// next boundary. The right subtree's minimum therefore stays `1`. `min_ticks`
+/// subtracts it, and the tick raises the owned left leaf from `0` to it.
+#[test]
+fn a_wide_drop_stopping_one_short_of_an_outer_minimum_keeps_it() {
+    use OracleVersion as V;
+    let wide = BigUint::from(1u8) << 200u32;
+    let narrower = BigUint::from(1u8) << 64u32;
+    let inner = V::node(0u8, V::leaf(&wide + &narrower + 1u8), V::leaf(2u8));
+    let middle = V::node(0u8, V::leaf(&wide + 1u8), inner);
+    let right = V::node(0u8, V::leaf(1u8), middle);
+    let version = V::node(0u8, V::leaf(0u8), right);
+    assert_tick_and_min_ticks_match_oracle(
+        &version,
+        &left_half_and_deep_right(&[true, true, true]),
+    );
+}
+
+/// A `2^200` boundary lowered by `5` keeps exactly `2^200 - 5`, which the
+/// close then defers, so a later leaf at `10` still undercuts the minimum `15`.
+///
+/// The right subtree is `((15, (15 + 2^200, 10 + 2^200)), 10)`. The leaf
+/// `10 + 2^200` lowers its subtree's minimum by an operand at least two digits
+/// narrower than the boundary. When that subtree closes, the remainder becomes
+/// the anchor's deferred distance. The right subtree's minimum is therefore
+/// `10`. `min_ticks` subtracts it, and the tick raises the owned left leaf
+/// from `0` to it.
+#[test]
+fn a_wide_boundary_lowered_by_five_defers_its_exact_remainder() {
+    use OracleVersion as V;
+    let wide = BigUint::from(1u8) << 200u32;
+    let inner = V::node(0u8, V::leaf(&wide + 15u8), V::leaf(&wide + 10u8));
+    let middle = V::node(0u8, V::leaf(15u8), inner);
+    let right = V::node(0u8, middle, V::leaf(10u8));
+    let version = V::node(0u8, V::leaf(0u8), right);
+    assert_tick_and_min_ticks_match_oracle(
+        &version,
+        &left_half_and_deep_right(&[false, true, true]),
+    );
+}
+
 proptest! {
     /// A wide negative height gap decides a small offset emission directly.
     /// The resulting follower decreases by the full `2^bits + offset`, across
@@ -269,18 +430,18 @@ proptest! {
     /// Values repeat often, so the steps reach equal minima, which need no
     /// payload, and exact cancellations, which retire the outer payload, at
     /// word and wide widths alike.
+    ///
+    /// Values near open minima let the exact remainder of a crossed or lowered
+    /// boundary decide a later retirement or undercut.
     #[test]
     fn nested_operations_preserve_minima_and_payload_lifetimes(
-        steps in prop::collection::vec(
-            (value_coefficient(), value_shift(), 0u64..4, 0usize..5),
-            1..60,
-        ),
+        steps in prop::collection::vec((step_value(), 0u64..4, 0usize..5), 1..60),
     ) {
         let mut minima = RangeMinima::<BigInt>::new();
         let mut model = Vec::<BigInt>::new();
         let mut height = BigInt::from(0);
-        for (coefficient, bits, open_count, close_count) in steps {
-            let value = BigInt::from(coefficient) << bits;
+        for (step_value, open_count, close_count) in steps {
+            let value = step_value.resolve(&model);
             minima.fold_height(&(&value - &height));
             height = value.clone();
             // An empty tracker needs a new range before it can observe a value.
