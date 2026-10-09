@@ -75,3 +75,23 @@ ruling on question 41 accepts. In the same review the owner asked that shift
 counts accept every nonnegative value of every supported integer type: zero
 shifts by any count, and a nonzero value panics past `u64::MAX`.
 
+## Owner's ruling (question 122, 2026-10-09)
+
+Every `Accumulator` operation is uniformly amortized, so a caller never has
+to think about it. The design rule, in the owner's words: "We don't want to
+fully normalize when we don't have to; we just want to normalize whatever we
+actually touch, so we don't have to re-do it, just as `cmp_zero` does."
+Three groups currently rescan cancellation they do not compact, and all
+three are fixed:
+
+1. `signed_magnitude` and `scaled_signed_magnitude` take `&mut self` and
+   write back what they read; `before`'s wrappers pass `&mut`.
+2. `TryFrom<Accumulator>` for the primitive integers compacts what it reads,
+   including on the failure path, which returns the same value.
+3. The borrowed-operand arithmetic traits (`AddAssign`, `SubAssign`, `Add`,
+   `Sub`, `Sum`) take `&mut Accumulator` operands in place of
+   `&Accumulator`, and compact what they read of the operand.
+
+The work goes on its own branch stacked on #48, after #48's question-121
+builder reports.
+
