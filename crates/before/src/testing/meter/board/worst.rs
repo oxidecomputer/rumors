@@ -410,7 +410,12 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "party_display", [PARTY_STREAM_FAMILIES, "-", "-"]),
     ("default", "party_parse", ["copy-hole", "id-pair", "-"]),
     ("default", "party_fork", ["ascend-cliff,ascend-plateau", "id-pair", "-"]),
-    ("default", "party_forks", ["ascend-cliff,ascend-plateau", "id-pair", "-"]),
+    // The fork plan stores its remainder in an integer as wide as the count,
+    // and the board's count is as wide as the party, so the remainder adds
+    // heap in proportion to every family's input. Copy-hole, the smallest
+    // input at this scale, reads highest; the ascend families read within
+    // `NEAR_TIE_RATIO` below it.
+    ("default", "party_forks", ["copy-hole", "id-pair", "-"]),
     ("default", "party_forks_full", ["meet-shade", "meet-shade", "-"]),
     ("default", "party_split_array", ["raise-hole", "pure-comb", "-"]),
     ("default", "party_join", ["id-pair", "benign", "-"]),
