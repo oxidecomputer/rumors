@@ -53,18 +53,23 @@ use crate::testing::meter::registry::FamilyId;
 /// Arity used to exercise the public const-generic array operations.
 const ARRAY_ARITY: usize = 16;
 
-/// Scan ceiling for read-only Party comparisons.
+/// Scan ceiling for read-only Party comparisons, in bits per input byte.
 ///
-/// A full traversal reads eight bits per input byte. The extra quarter admits
-/// boundary and padding effects while ensuring that a second pass cannot hide
-/// beneath the board's broader multi-pass ceiling.
+/// A comparison needs one traversal, which reads eight bits per input byte.
+/// This ceiling keeps a second pass from hiding beneath the board's general
+/// scan ceiling, which admits several passes.
+///
+/// A measured ceiling; the [`ceilings`](super::ceilings) module states the rule.
 const PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE: f64 = 10.0;
 
-/// Touch ceiling for comparing through a fixed-depth ownership mask.
+/// Touch ceiling for comparing through a fixed-depth ownership mask, a fixed
+/// bound in touches per comparison.
 ///
 /// `MaskedHole` grows the version beneath one unowned mask region while the
 /// mask itself stays fixed. The comparison must skip that region as a block,
 /// so its arithmetic work cannot grow with the hidden version.
+///
+/// A measured ceiling; the [`ceilings`](super::ceilings) module states the rule.
 const MASKED_HOLE_TOUCH_CEILING: f64 = 18.0;
 
 /// Why shape iteration has no representation-independent heap floor.
