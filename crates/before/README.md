@@ -387,7 +387,8 @@ Every feature is off by default.
   `Clock`, `Rank`, `Ranked`, `Span`, and `Count`. Binary formats
   retain the existing types' canonical bytes; `Count` uses canonical
   least-significant-first `u64` limbs. Human-readable formats use strings
-  for scalar values and named records for compound values.
+  for scalar values and named records for compound values; a compound
+  value's fields may also be given in order, as headerless csv writes them.
 - **`borsh`:** `BorshSerialize`/`BorshDeserialize` uses each existing
   type's prefix-free canonical encoding without a length prefix. `Count`
   instead uses its length-prefixed canonical `u64` limbs.

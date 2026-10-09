@@ -1,6 +1,11 @@
 //! Checks of serde representations, strict decoding, and composition.
 
+use core::fmt::Debug;
+
 use proptest::prelude::*;
+use serde::de::value::{Error as ValueError, MapDeserializer, SeqDeserializer, StrDeserializer};
+use serde::de::{DeserializeOwned, IntoDeserializer};
+use serde_json::Value;
 use serde_test::{assert_tokens, Configure, Token};
 
 use crate::span::Span;
@@ -319,4 +324,314 @@ fn serde_composes_rank_and_span_in_larger_values() {
     let bytes = postcard::to_allocvec(&tuple).unwrap();
     let back: (Span, Rank, Ranked) = postcard::from_bytes(&bytes).unwrap();
     assert_eq!(back, tuple);
+}
+
+/// Deserializes `T` from a human-readable map holding `entries`, in order.
+///
+/// `serde`'s `MapDeserializer` reports itself as human-readable, so it stands
+/// in for any human-readable format, and it spells maps that JSON cannot:
+/// keys given as bytes or as integers.
+fn read_map<'a, T, K>(entries: impl IntoIterator<Item = (K, &'a str)>) -> Result<T, ValueError>
+where
+    T: DeserializeOwned,
+    K: IntoDeserializer<'a, ValueError>,
+{
+    T::deserialize(MapDeserializer::new(entries.into_iter()))
+}
+
+/// Deserializes `T` from a human-readable sequence holding `texts`, in order.
+fn read_seq<'a, T>(texts: impl IntoIterator<Item = &'a str>) -> Result<T, ValueError>
+where
+    T: DeserializeOwned,
+{
+    T::deserialize(SeqDeserializer::new(texts.into_iter()))
+}
+
+/// Checks that a human-readable deserializer reads `value` from every complete
+/// form in which a format may hand over its fields, and rejects incomplete or
+/// overfull ones.
+///
+/// `fields` holds each field's name and text, in the order the named record
+/// lists them.
+///
+/// The accepted forms are:
+///
+/// - the named record keyed by strings, as JSON writes it, and with its
+///   entries reversed, as formats that sort their keys (bencode, for one) may
+///   write it;
+/// - the named record keyed by bytes, as csv hands over its header keys;
+/// - the field texts in order, as a sequence, which is how csv without
+///   headers and `rmp-serde`'s human-readable tuple mode write a struct, and
+///   also as a JSON array;
+/// - the field texts in a map keyed by field position.
+///
+/// The rejected forms are the string-keyed record with a field omitted, with
+/// a field repeated, or with an unknown field added, and the sequence without
+/// its last field text.
+fn assert_readable_reads_every_complete_field_form<T>(
+    value: &T,
+    fields: &[(&'static str, String)],
+) -> Result<(), TestCaseError>
+where
+    T: DeserializeOwned + PartialEq + Debug,
+{
+    let named: Vec<(&str, &str)> = fields
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    let texts = named.iter().map(|&(_, text)| text);
+    let json_array = Value::Array(texts.clone().map(Value::from).collect());
+
+    let accepted: [(&str, Result<T, String>); 6] = [
+        (
+            "string keys",
+            read_map(named.iter().copied()).map_err(|e| e.to_string()),
+        ),
+        (
+            "string keys in reverse order",
+            read_map(named.iter().rev().copied()).map_err(|e| e.to_string()),
+        ),
+        (
+            "byte keys",
+            read_map(named.iter().map(|&(name, text)| (name.as_bytes(), text)))
+                .map_err(|e| e.to_string()),
+        ),
+        (
+            "a sequence",
+            read_seq(texts.clone()).map_err(|e| e.to_string()),
+        ),
+        (
+            "a JSON array",
+            serde_json::from_value(json_array).map_err(|e| e.to_string()),
+        ),
+        (
+            "position keys",
+            read_map((0u64..).zip(texts.clone())).map_err(|e| e.to_string()),
+        ),
+    ];
+    for (form, result) in accepted {
+        prop_assert_eq!(
+            result.as_ref(),
+            Ok(value),
+            "the fields as {} decoded otherwise",
+            form
+        );
+    }
+
+    let mut rejected: Vec<(String, Result<T, ValueError>)> = Vec::new();
+    for (index, &(name, text)) in named.iter().enumerate() {
+        let mut omitted = named.clone();
+        omitted.remove(index);
+        rejected.push((format!("the record without {name:?}"), read_map(omitted)));
+
+        let mut repeated = named.clone();
+        repeated.push((name, text));
+        rejected.push((format!("the record repeating {name:?}"), read_map(repeated)));
+    }
+    let mut extended = named.clone();
+    extended.push(("unknown", named[0].1));
+    rejected.push((
+        "the record with an unknown field".to_owned(),
+        read_map(extended),
+    ));
+    let short = texts.take(named.len() - 1);
+    rejected.push((
+        "the sequence without its last field".to_owned(),
+        read_seq(short),
+    ));
+    for (form, result) in rejected {
+        prop_assert!(result.is_err(), "{} decoded as {:?}", form, result);
+    }
+    Ok(())
+}
+
+proptest! {
+    /// A human-readable deserializer reads a clock, span, or ranked view from
+    /// its complete named record or from its field texts in order, and
+    /// rejects incomplete or overfull forms.
+    ///
+    /// The named record's keys may be strings or bytes, in any order; the
+    /// field texts come in the order the record lists them, as a sequence or
+    /// keyed by position. A record that omits, repeats, or adds a field is
+    /// rejected, and so is a sequence that is short a field. The module doc
+    /// says why fields in order are accepted.
+    #[test]
+    fn readable_serde_reads_complete_records_by_name_or_in_order(
+        op in arb_oracle_party_nonempty(),
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+
+        let clock = Clock::from_parts(from_oracle_party(&op), a.clone());
+        assert_readable_reads_every_complete_field_form(
+            &clock,
+            &[
+                ("party", clock.party().to_string()),
+                ("version", clock.version().to_string()),
+            ],
+        )?;
+
+        let span = a.span(&b);
+        assert_readable_reads_every_complete_field_form(
+            &span,
+            &[("lo", span.lo().to_string()), ("hi", span.hi().to_string())],
+        )?;
+
+        let ranked = Ranked::from(a);
+        assert_readable_reads_every_complete_field_form(
+            &ranked,
+            &[("version", ranked.version().to_string())],
+        )?;
+    }
+}
+
+/// Deserializes `T` from `text` through `T`'s own human-readable
+/// deserializer, returning `None` when it rejects the text.
+fn read_text<T: DeserializeOwned>(text: &str) -> Option<T> {
+    let text: StrDeserializer<'_, ValueError> = text.into_deserializer();
+    T::deserialize(text).ok()
+}
+
+/// A text for one record field: arbitrary, or the field's valid text under
+/// one small edit that a lenient parser might forgive.
+#[derive(Clone, Debug)]
+enum FieldText {
+    /// Arbitrary text, almost always invalid.
+    Arbitrary(String),
+    /// The valid text, unchanged.
+    Valid,
+    /// The valid text after a space.
+    LeadingSpace,
+    /// The valid text before a space.
+    TrailingSpace,
+    /// The valid text in upper case.
+    Uppercase,
+    /// The valid text after a zero.
+    LeadingZero,
+    /// The valid text without its last character.
+    Truncated,
+}
+
+impl FieldText {
+    /// Returns this field text, given the field's valid text.
+    fn apply(&self, valid: &str) -> String {
+        match self {
+            Self::Arbitrary(text) => text.clone(),
+            Self::Valid => valid.to_owned(),
+            Self::LeadingSpace => format!(" {valid}"),
+            Self::TrailingSpace => format!("{valid} "),
+            Self::Uppercase => valid.to_uppercase(),
+            Self::LeadingZero => format!("0{valid}"),
+            Self::Truncated => {
+                let mut text = valid.to_owned();
+                text.pop();
+                text
+            }
+        }
+    }
+}
+
+/// Generates every [`FieldText`] variant, so valid, nearly valid, and
+/// arbitrary texts all occur.
+fn arb_field_text() -> impl Strategy<Value = FieldText> {
+    prop_oneof![
+        any::<String>().prop_map(FieldText::Arbitrary),
+        Just(FieldText::Valid),
+        Just(FieldText::LeadingSpace),
+        Just(FieldText::TrailingSpace),
+        Just(FieldText::Uppercase),
+        Just(FieldText::LeadingZero),
+        Just(FieldText::Truncated),
+    ]
+}
+
+/// Checks that `fields`, each a field name and that field's text, decode to
+/// `expected` (`None` for a rejection) both as a string-keyed record and as a
+/// sequence of their texts in order.
+///
+/// Reading both forms catches a deserializer that parses field text one way in
+/// its map path and another way in its sequence path.
+fn assert_fields_decode_to<T>(
+    fields: &[(&str, &str)],
+    expected: &Option<T>,
+    case: &str,
+) -> Result<(), TestCaseError>
+where
+    T: DeserializeOwned + PartialEq + Debug,
+{
+    let from_record = read_map::<T, _>(fields.iter().copied()).ok();
+    prop_assert_eq!(&from_record, expected, "{} as a record", case);
+    let from_sequence = read_seq::<T>(fields.iter().map(|&(_, text)| text)).ok();
+    prop_assert_eq!(&from_sequence, expected, "{} as a sequence", case);
+    Ok(())
+}
+
+proptest! {
+    /// A human-readable record reads each field's text exactly as the field's
+    /// own type reads it, whether the fields come named or in order.
+    ///
+    /// When `Party` or `Version` accepts a text, the record holding it decodes
+    /// to the value built from that field; when the type rejects the text, so
+    /// does the record.
+    ///
+    /// Each field (a clock's party and version, a ranked view's version, and a
+    /// span's endpoints) takes the edited text in turn, with every other field
+    /// valid.
+    #[test]
+    fn readable_records_read_field_text_as_the_field_types_do(
+        op in arb_oracle_party_nonempty(),
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+        edit in arb_field_text(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let span = a.span(&from_oracle_version(&ob));
+        let party_text = from_oracle_party(&op).to_string();
+        let a_text = a.to_string();
+        let (lo_text, hi_text) = (span.lo().to_string(), span.hi().to_string());
+
+        let party = edit.apply(&party_text);
+        let expected = read_text::<Party>(&party).map(|party| Clock::from_parts(party, a.clone()));
+        assert_fields_decode_to(
+            &[("party", &party), ("version", &a_text)],
+            &expected,
+            &format!("clock party {party:?}"),
+        )?;
+
+        let version = edit.apply(&a_text);
+        let expected = read_text::<Version>(&version)
+            .map(|version| Clock::from_parts(from_oracle_party(&op), version));
+        assert_fields_decode_to(
+            &[("party", &party_text), ("version", &version)],
+            &expected,
+            &format!("clock version {version:?}"),
+        )?;
+
+        let expected = read_text::<Version>(&version).map(Ranked::from);
+        assert_fields_decode_to(
+            &[("version", &version)],
+            &expected,
+            &format!("ranked version {version:?}"),
+        )?;
+
+        let lo = edit.apply(&lo_text);
+        let expected =
+            read_text::<Version>(&lo).and_then(|lo| Span::new(lo, span.hi().clone()).ok());
+        assert_fields_decode_to(
+            &[("lo", &lo), ("hi", &hi_text)],
+            &expected,
+            &format!("span lo {lo:?}"),
+        )?;
+
+        let hi = edit.apply(&hi_text);
+        let expected =
+            read_text::<Version>(&hi).and_then(|hi| Span::new(span.lo().clone(), hi).ok());
+        assert_fields_decode_to(
+            &[("lo", &lo_text), ("hi", &hi)],
+            &expected,
+            &format!("span hi {hi:?}"),
+        )?;
+    }
 }
