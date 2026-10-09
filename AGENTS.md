@@ -25,6 +25,9 @@ tour, and the comment above each recipe says what it checks and why.
 - Before every commit that touches anything the gate checks, get `just gate`
   fully clean. No gate leg reads `.agent-notes/`, so a commit confined there
   needs no run.
+- Bisect `main` with `git bisect start --first-parent`. A merged branch can
+  carry a commit whose new test fails until a later commit on it fixes the
+  defect; `--first-parent` tests only merges and commits made on `main`.
 
 `rust-toolchain.toml` provisions the stable toolchain on first use; the
 justfile's header says which other tools the recipes need. Both toolchains are
