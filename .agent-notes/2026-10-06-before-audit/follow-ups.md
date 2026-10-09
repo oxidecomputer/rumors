@@ -145,3 +145,20 @@ audit. Each entry names its source and what it would catch.
   its ticks can dominate events it never saw. `rumors` appears to do so at
   `src/peer/gossip.rs:647`; the other paths are unaudited. Outside the
   audit's scope. Source: #104's reviewer.
+
+## Board ceilings and regression detection (raised in #115's review, 2026-10-09; owner: leave for now)
+
+- The board's counters are deterministic: two independent full captures
+  agreed in all 15,933 cells. The 25% ceiling headroom is policy, not noise
+  margin. Scan and touch could take much smaller headroom; heap, once #106
+  removes reservations, varies up to 1.5x with a buffer's doubling phase, so
+  headroom derived from that would name what it absorbs.
+- Shared ceilings bound only their deciding cell, so tightening them cannot
+  guarantee that no reading regresses unnoticed. An exact committed capture
+  of the whole board (#95's format), compared exactly at the gate and
+  re-accepted deliberately like an insta snapshot, would. Costs: re-accepts
+  in most commits touching `before`, per-target copies for target-dependent
+  heap cells, and file size.
+- #115's eleven values were derived on an older `main`; the landing check
+  catches a value now too low, not one no longer equal to the rule's output.
+
