@@ -87,3 +87,15 @@ re-pinned with their movement recorded, and the branch goes to review. The
 cost, a transient heap rise of at most about one result's size on the
 measured shapes, is stated in the commit message. The variant is saved in
 `S1-retention-variants/variant-b-header.patch`.
+
+## Owner's ruling (2026-10-09, during #106's review)
+
+This supersedes the "within twice the encoded length" release of variant B
+(question 73). Sealed, non-transient results are sized exactly: sealing
+shrinks whenever capacity exceeds length, which also lets `Bytes` adopt
+the buffer without a shared header until its first clone. Writers stop
+pre-reserving for their inputs' worst case: transients grow by the
+vector's normal growth and the allocator's size classes, which the owner
+has found more efficient than exact reservations. No measurement is
+required; the board's pins and ceilings accommodate the movement.
+
