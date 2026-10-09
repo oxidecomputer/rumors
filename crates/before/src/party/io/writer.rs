@@ -72,19 +72,11 @@ const TAG_BITS: u64 = 2;
 const TERMINAL_PAIR_BITS: u64 = 3 * TAG_BITS;
 
 impl PartyWriter {
-    /// Create an empty party builder without reserving storage.
+    /// Create an empty party builder.
     pub fn new() -> Self {
-        Self::with_capacity(0)
-    }
-
-    /// Create an output large enough for the disjoint union's upper bound.
-    pub fn for_join(a: &PartyReader<'_>, b: &PartyReader<'_>) -> Self {
-        Self::with_capacity(a.stored_len() + b.stored_len())
-    }
-
-    /// Create an output expected to resemble `example` in size.
-    pub fn sized_like(example: &Party) -> Self {
-        Self::with_capacity(example.reader().stored_len())
+        PartyWriter {
+            out: BitsWriter::new(),
+        }
     }
 
     /// Turn one unfinished common prefix into two independent outputs.
@@ -96,16 +88,6 @@ impl PartyWriter {
             out: self.out.clone(),
         };
         (self, copy)
-    }
-
-    /// Create an empty builder with room for `capacity` output bits.
-    ///
-    /// The capacity is only an allocation hint; normalization may make the
-    /// final party shorter.
-    pub fn with_capacity(capacity: u64) -> Self {
-        PartyWriter {
-            out: BitsWriter::with_capacity(capacity),
-        }
     }
 
     /// Append an owned terminal: the tag `00`, with no children.
@@ -270,15 +252,10 @@ pub struct PartyRegionWriter {
 }
 
 impl PartyRegionWriter {
-    /// Create the output for a difference of two parties.
-    pub fn for_difference(a: &PartyReader<'_>, b: &PartyReader<'_>) -> Self {
-        Self::with_capacity(a.stored_len() + b.stored_len())
-    }
-
-    /// Create a builder with room for `capacity` output bits.
-    pub fn with_capacity(capacity: u64) -> Self {
+    /// Create an empty region builder.
+    pub fn new() -> Self {
         PartyRegionWriter {
-            out: PartyWriter::with_capacity(capacity),
+            out: PartyWriter::new(),
             path: BitStack::new(),
             left_kinds: BitStack::new(),
             tags: Positions::new(),

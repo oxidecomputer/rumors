@@ -59,6 +59,17 @@ impl Bits {
         bits
     }
 
+    /// Adopt a marker-padded vector as storage sized exactly to its bytes.
+    ///
+    /// The precondition is [`from_canonical`](Self::from_canonical)'s. A sealed
+    /// value lives as long as its holder keeps it, so we release any spare
+    /// capacity first. An exactly filled vector also lets `Bytes` adopt it
+    /// without a shared header until its first clone.
+    pub(crate) fn from_canonical_vec(mut bytes: Vec<u8>) -> Self {
+        bytes.shrink_to_fit();
+        Self::from_canonical(Bytes::from(bytes))
+    }
+
     /// Start reading at the first live bit.
     pub(crate) fn reader(&self) -> BitsReader<'_> {
         BitsReader::at(self, 0)

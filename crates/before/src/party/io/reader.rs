@@ -43,11 +43,6 @@ pub struct PartyPath<'a> {
 }
 
 impl<'a> PartyPath<'a> {
-    /// Number of stored bits in the shared path.
-    pub fn stored_len(&self) -> u64 {
-        self.end - self.start
-    }
-
     /// Expose the delimited storage only to the Party writer.
     pub fn storage(self) -> (&'a Bits, u64, u64) {
         (self.bits, self.start, self.end)
@@ -66,11 +61,6 @@ impl<'a> PartySubtree<'a> {
     /// Open a reader at the subtree root.
     pub fn reader(self) -> PartyReader<'a> {
         PartyReader::from_storage(self.bits, self.start, self.end)
-    }
-
-    /// Number of stored bits in the subtree.
-    pub fn stored_len(&self) -> u64 {
-        self.end - self.start
     }
 
     /// Expose the delimited storage only to the Party writer.
@@ -215,11 +205,6 @@ impl<'a> PartyReader<'a> {
         Self::from_storage(&party.0, 0, end)
     }
 
-    /// The length of the canonical Party stream backing this reader.
-    pub fn source_len(&self) -> u64 {
-        Self::source_len_of(self.bits)
-    }
-
     /// Start at validated storage. Tests use this to exercise internal walks on
     /// constructed canonical trees without creating a live party.
     #[cfg(test)]
@@ -324,11 +309,6 @@ impl<'a> PartyReader<'a> {
     /// Restart at a known subtree in the same party.
     pub fn restart_at(&self, pos: u64) -> PartyReader<'a> {
         Self::from_storage(self.bits, pos, self.end)
-    }
-
-    /// The unread subtree's stored bit length, for builder sizing only.
-    pub fn stored_len(&self) -> u64 {
-        self.end - self.position
     }
 
     /// The current bit offset.

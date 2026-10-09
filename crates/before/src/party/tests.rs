@@ -163,7 +163,7 @@ proptest! {
 /// Forking a one-byte left share from a deep right share retains only that
 /// one-byte result allocation.
 #[test]
-fn asymmetric_fork_sizes_the_small_result_independently() {
+fn asymmetric_fork_keeps_one_byte_for_its_one_byte_half() {
     let left = constructed::full();
     let right = constructed::spine(8_192, false, constructed::full());
     let mut parent = Party::from_test_bits(constructed::node(Some(&left), Some(&right)));
@@ -171,6 +171,133 @@ fn asymmetric_fork_sizes_the_small_result_independently() {
     let _large_right_share = parent.fork();
     assert_eq!(parent.as_bytes().len(), 1);
     assert_eq!(parent.0.allocation_capacity(), 1);
+}
+
+// ──────────────────────────── exact result sizing ────────────────────────────
+
+/// The deepest operand the sizing families build.
+const MAX_SIZING_DEPTH: usize = 2_048;
+
+/// Describe `party`'s spare capacity, if its buffer holds more than its
+/// encoded bytes.
+///
+/// The seed's static storage has no allocation to inspect. The caller must
+/// already have dropped every other value sharing the result's buffer. The
+/// families collect every case before asserting, so one failure reports each
+/// operation that keeps spare capacity.
+fn spare_capacity(case: &str, party: Party) -> Option<String> {
+    if party.0.ptr_eq(&Party::seed().0) {
+        return None;
+    }
+    let encoded = party.as_bytes().len();
+    let capacity = party.0.allocation_capacity();
+    (capacity != encoded)
+        .then(|| format!("{case}: a {encoded}-byte party keeps a {capacity}-byte buffer"))
+}
+
+proptest! {
+    /// Joining the leftmost `2^-depth` cell with its complement collapses to
+    /// the one-byte seed, and `join` and `join_all` return it in a one-byte
+    /// buffer.
+    #[test]
+    fn collapsing_join_is_sized_exactly(depth in 1..=MAX_SIZING_DEPTH) {
+        let cell = || Party::from_test_bits(constructed::leftmost(depth));
+        let complement = || Party::from_test_bits(constructed::complement_leftmost(depth));
+        let mut spare = Vec::new();
+
+        let mut joined = cell();
+        joined.join(complement()).expect("a cell and its complement are disjoint");
+        prop_assert!(joined.is_seed());
+        spare.extend(spare_capacity("join", joined));
+
+        let mut folded = cell();
+        folded.join_all([complement()]).expect("a cell and its complement are disjoint");
+        prop_assert!(folded.is_seed());
+        spare.extend(spare_capacity("join_all", folded));
+
+        prop_assert!(spare.is_empty(), "{}", spare.join("; "));
+    }
+
+    /// Removing the rightmost `2^-depth` cell from `[0, 1/2) ∪ cell` leaves
+    /// the one-byte left half, and `without` returns it in a one-byte buffer.
+    #[test]
+    fn collapsing_difference_is_sized_exactly(depth in 2..=MAX_SIZING_DEPTH) {
+        let cell = |depth| constructed::spine(depth, false, constructed::full());
+        let half_and_cell = Party::from_test_bits(constructed::node(
+            Some(&constructed::full()),
+            Some(&cell(depth - 1)),
+        ));
+
+        let half = half_and_cell
+            .without(&Party::from_test_bits(cell(depth)))
+            .expect("the left half remains");
+        prop_assert_eq!(&half, &Party::from_test_bits(constructed::leftmost(1)));
+        let spare = spare_capacity("without", half);
+        prop_assert!(spare.is_none(), "{}", spare.unwrap_or_default());
+    }
+
+    /// `forks(1)` splits `[0, 1/4) ∪ cell` into the rightmost `2^-depth` cell
+    /// and the one-byte residual `[0, 1/4)`, each in a buffer holding exactly
+    /// its encoding.
+    #[test]
+    fn small_forks_residual_is_sized_exactly(depth in 1..=MAX_SIZING_DEPTH) {
+        let mut residual = Party::from_test_bits(constructed::node(
+            Some(&constructed::leftmost(1)),
+            Some(&constructed::spine(depth - 1, false, constructed::full())),
+        ));
+        let mut spare = Vec::new();
+
+        let shares: Vec<Party> = residual.forks(1u8).collect();
+        prop_assert_eq!(&residual, &Party::from_test_bits(constructed::leftmost(2)));
+        spare.extend(spare_capacity("forks residual", residual));
+        for share in shares {
+            spare.extend(spare_capacity("forks share", share));
+        }
+
+        prop_assert!(spare.is_empty(), "{}", spare.join("; "));
+    }
+
+    /// Every party that `join`, `join_all`, `without`, `fork`, and `forks`
+    /// build is held in a buffer of exactly its encoded length, over
+    /// arbitrary operands.
+    #[test]
+    fn built_parties_are_sized_exactly(
+        a in arb_oracle_party_nonempty(),
+        b in arb_oracle_party_nonempty(),
+        count in 1u8..=4,
+    ) {
+        // Each result is bound in its own statement, so the operand
+        // temporaries are gone before the result's buffer is inspected.
+        let party = from_oracle_party;
+        let mut spare = Vec::new();
+
+        let mut joined = party(&a);
+        if joined.join(party(&b)).is_ok() {
+            spare.extend(spare_capacity("join", joined));
+        }
+        let mut folded = party(&a);
+        if folded.join_all([party(&b)]).is_ok() {
+            spare.extend(spare_capacity("join_all", folded));
+        }
+        let rest = party(&a).without(&party(&b));
+        if let Some(rest) = rest {
+            spare.extend(spare_capacity("without", rest));
+        }
+
+        let mut kept = party(&a);
+        let given = kept.fork();
+        spare.extend(spare_capacity("fork, kept half", kept));
+        spare.extend(spare_capacity("fork, given half", given));
+
+        let mut residual = party(&a);
+        let shares: Vec<Party> = residual.forks(count).collect();
+        spare.extend(spare_capacity("forks residual", residual));
+        for share in shares {
+            spare.extend(spare_capacity("forks share", share));
+        }
+
+        prop_assert!(spare.is_empty(), "{}", spare.join("; "));
+    }
 }
 
 // ───────────────────────────── differential vs oracle ─────────────────────────────

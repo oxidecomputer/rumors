@@ -20,9 +20,7 @@ impl PartyReader<'_> {
     /// other subtree verbatim; paired branches retain compact state until they
     /// close.
     pub fn join(mut self, mut other: PartyReader) -> Option<Party> {
-        // A disjoint union has no more tags than its inputs combined; merging
-        // shared ancestors and collapsing owned pairs can only reduce it.
-        let mut out = PartyWriter::for_join(&self, &other);
+        let mut out = PartyWriter::new();
         let mut frames = Frames::new();
         // A present child uses its stored cursor; an absent one is synthesized
         // without advancing that cursor.

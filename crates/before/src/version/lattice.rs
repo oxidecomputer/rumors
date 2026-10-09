@@ -208,14 +208,7 @@ fn sweep<const N: usize>(
     let sign = diff.cmp_zero();
     directions.fold(sign);
 
-    // The first region's selected height opens each output. The combined input
-    // length is sufficient capacity: output boundaries come from the union of
-    // the inputs' boundaries, and each output delta lies between the two input
-    // deltas at that boundary. Signed gamma length depends only on magnitude,
-    // so the output code is no wider than the wider input code. The opening
-    // height comes from one input, and canonical collapse only removes topology
-    // and a zero delta. Thus each output is no longer than both inputs
-    // together.
+    // The first region's selected height opens each output.
     let depth = cursor_a.depth().max(cursor_b.depth());
     let mut outputs = extremes.map(|extreme| {
         // Equal first heights encode identically, so A may break the tie.
@@ -224,7 +217,7 @@ fn sweep<const N: usize>(
             Side::A => &a_first,
             Side::B => &b_first,
         };
-        let mut out = VersionWriter::with_capacity(a.stored_len() + b.stored_len());
+        let mut out = VersionWriter::new();
         out.height(depth, first);
         Emission { extreme, side, out }
     });

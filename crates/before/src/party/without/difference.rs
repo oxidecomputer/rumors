@@ -32,7 +32,7 @@ pub struct Difference<'a, 'b> {
 impl<'a, 'b> Difference<'a, 'b> {
     /// Return the canonical region owned by `a` but not `b`.
     pub fn between(a: PartyReader<'a>, b: PartyReader<'b>) -> Option<Party> {
-        let out = PartyRegionWriter::for_difference(&a, &b);
+        let out = PartyRegionWriter::new();
         let a = DifferenceReader::open(a);
         let b = DifferenceReader::open(b);
         let mut difference = Self { a, b, out };

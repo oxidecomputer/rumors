@@ -333,13 +333,10 @@ impl Iterator for PartyForks<'_> {
         }
         let forks_again = self.plan.current_forks_again();
         let share = self.plan.current_share(forks_again);
-        // The share and residual have similar shape, so the writer uses the
-        // share to reserve a suitably sized result without exposing storage
-        // details to this algorithm.
         let remainder = self
             .rest
             .reader()
-            .remove_path(self.plan.coordinate_path(forks_again), &share);
+            .remove_path(self.plan.coordinate_path(forks_again));
         *self.rest = remainder;
         self.plan.advance(forks_again);
         Some(share)

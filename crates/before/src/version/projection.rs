@@ -104,11 +104,7 @@ impl VersionWriter {
         height.add_shifted_limbs(0, first.iter_u64_digits());
         let mut owned = ownership.owned();
 
-        // Most projections fit within the combined input size. Larger outputs
-        // grow normally; this reservation only avoids reallocating the common
-        // case.
-        let capacity = source.stored_len() + party.stored_len();
-        let mut out = VersionWriter::with_capacity(capacity);
+        let mut out = VersionWriter::new();
         let opening = if owned { first } else { BigUint::ZERO };
         out.height(version.depth().max(ownership.depth()), &opening);
 

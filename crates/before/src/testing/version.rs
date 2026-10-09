@@ -36,7 +36,7 @@ pub(crate) fn zigzag_difference(previous: &BigUint, current: &BigUint) -> BigUin
 /// Panics if the generator-built input is incomplete or contains more than one
 /// tree.
 pub(crate) fn from_tree_stream(mut reader: BitsReader<'_>) -> Version {
-    let mut out = VersionWriter::with_capacity(reader.len());
+    let mut out = VersionWriter::new();
     let mut pending = vec![(BigUint::ZERO, 0u64)];
     let mut previous_leaf: Option<BigUint> = None;
 

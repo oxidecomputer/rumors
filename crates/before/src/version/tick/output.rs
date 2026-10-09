@@ -144,7 +144,7 @@ impl Output {
             Output::Verbatim { matched_end } => *matched_end,
             Output::Built(_) => return,
         };
-        let mut builder = VersionWriter::with_capacity(version.stored_len());
+        let mut builder = VersionWriter::new();
         let mut cursor = VersionTreeReader::new(version);
         let mut walk = VersionSubtreeReader::new();
         while cursor.position() < matched_end {
