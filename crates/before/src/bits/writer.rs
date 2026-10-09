@@ -16,7 +16,6 @@
 use super::storage::Bits;
 use super::BitsReader;
 use crate::testing::instrument::scan;
-use bytes::Bytes;
 #[cfg(any(test, feature = "meter"))]
 use num_bigint::BigUint;
 
@@ -49,12 +48,12 @@ impl BitsWriter {
 
     /// An empty buffer with room for `bits` bits before reallocation.
     ///
-    /// The hint is ignored when its byte count does not fit [`usize`];
-    /// otherwise allocation has the same failure behavior as
-    /// [`Vec::with_capacity`]. Callers derive hints from the live inputs they
-    /// will copy. A positive hint includes room for the stream's mandatory
-    /// marker byte, so finalizing a byte-aligned stream at the hinted size does
-    /// not reallocate.
+    /// Test and meter fixtures use this to build inputs of known size; domain
+    /// writers start from [`new`](Self::new) and grow. The hint is ignored
+    /// when its byte count does not fit [`usize`]; otherwise allocation has
+    /// the same failure behavior as [`Vec::with_capacity`]. A positive hint
+    /// includes room for the stream's marker byte.
+    #[cfg(any(test, feature = "meter"))]
     pub(crate) fn with_capacity(bits: u64) -> Self {
         let bytes = if bits == 0 {
             0
@@ -291,10 +290,15 @@ impl BitsWriter {
         self.mask_tail();
     }
 
-    /// Seal the completed stream into immutable canonical storage.
+    /// Seal the completed stream into immutable canonical storage sized
+    /// exactly to its encoding.
+    ///
+    /// The buffer grows as the stream is written and usually ends with spare
+    /// capacity. Sealing releases it, so a result keeps only its encoded bytes
+    /// alive.
     pub(crate) fn finalize(mut self) -> Bits {
         self.seal_padding();
-        Bits::from_canonical(Bytes::from(self.bytes))
+        Bits::from_canonical_vec(self.bytes)
     }
 
     /// Append the canonical marker bit after the live stream.

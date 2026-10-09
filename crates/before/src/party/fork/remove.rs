@@ -155,14 +155,10 @@ impl<'a> Removal<'a> {
     /// region by conceptually dividing it. It must leave some source ownership
     /// outside the selected region. Copied and skipped subtrees never overlap,
     /// so work is linear in the source, path, and result.
-    pub fn run(
-        source: PartyReader<'a>,
-        path: impl IntoIterator<Item = bool>,
-        size_hint: &Party,
-    ) -> Party {
+    pub fn run(source: PartyReader<'a>, path: impl IntoIterator<Item = bool>) -> Party {
         let mut removal = Self {
             source,
-            output: PartyWriter::sized_like(size_hint),
+            output: PartyWriter::new(),
             ancestors: Frames::new(),
             below_owned_region: false,
         };

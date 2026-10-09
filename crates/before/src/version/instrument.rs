@@ -29,6 +29,17 @@ pub(crate) fn bits(version: &Version) -> crate::bits::BitsWriter {
     out
 }
 
+/// Consume a version and report the byte capacity of the buffer holding it.
+///
+/// # Panics
+///
+/// Panics if another value shares the buffer, or if the version is held in
+/// static storage, as the empty version is.
+#[cfg(all(test, feature = "borsh"))]
+pub(crate) fn allocation_capacity(version: Version) -> usize {
+    version.0.allocation_capacity()
+}
+
 /// Run the join traversal without public identity shortcuts.
 #[cfg(feature = "meter")]
 pub fn join(a: &Version, b: &Version) -> Version {

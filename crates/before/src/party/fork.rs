@@ -77,8 +77,8 @@ impl PartyReader<'_> {
     /// region in half. Retained siblings are copied once, and the party builder
     /// normalizes the reconstructed ancestors. Compact frames keep auxiliary
     /// space proportional to the path and copied output.
-    pub fn remove_path(self, path: impl IntoIterator<Item = bool>, size_hint: &Party) -> Party {
-        remove::Removal::run(self, path, size_hint)
+    pub fn remove_path(self, path: impl IntoIterator<Item = bool>) -> Party {
+        remove::Removal::run(self, path)
     }
 }
 
@@ -95,12 +95,8 @@ impl Party {
     pub(crate) fn fork_tree(mut source: PartyReader<'_>) -> (Party, Party) {
         match source.next_fork() {
             ForkPoint::Owned(common_path) => {
-                // The shared unary path and the newly divided terminal have
-                // known exact sizes. Sizing each result here prevents a small
-                // half from retaining storage proportional to the source.
-                let output_bits = common_path.stored_len() + 4;
-                let mut keep = PartyWriter::with_capacity(output_bits);
-                let mut give = PartyWriter::with_capacity(output_bits);
+                let mut keep = PartyWriter::new();
+                let mut give = PartyWriter::new();
                 keep.copy_shared_unary_path(common_path, &mut give);
                 // Splitting a fully owned region gives one half to each
                 // result.
@@ -112,13 +108,11 @@ impl Party {
             }
             ForkPoint::Children(common_path) => {
                 // Delimit the left child once. The right child is the source
-                // suffix, so both output sizes are then known without another
-                // traversal.
+                // suffix, so it needs no traversal of its own.
                 let (_, left) = source.take_subtree();
                 let right = source.remainder();
-                let prefix_bits = common_path.stored_len() + 2;
-                let mut keep = PartyWriter::with_capacity(prefix_bits + left.stored_len());
-                let mut give = PartyWriter::with_capacity(prefix_bits + right.stored_len());
+                let mut keep = PartyWriter::new();
+                let mut give = PartyWriter::new();
                 keep.copy_shared_unary_path(common_path, &mut give);
                 // Each child is already one complete half of the union.
                 keep.branch(PartyBranch::Left);

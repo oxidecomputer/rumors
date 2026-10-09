@@ -95,11 +95,6 @@ struct SplitOutput {
 }
 
 impl Output {
-    /// Create an interleaved output with room for `capacity` bits.
-    fn with_capacity(capacity: u64) -> Self {
-        Output::Interleaved(BitsWriter::with_capacity(capacity))
-    }
-
     /// Append one internal-node flag.
     fn push_internal(&mut self) {
         match self {
@@ -211,7 +206,7 @@ impl Output {
         let Output::Interleaved(out) = self else {
             unreachable!()
         };
-        let bits = std::mem::replace(out, BitsWriter::with_capacity(0));
+        let bits = std::mem::replace(out, BitsWriter::new());
         *self = Output::Split(SplitOutput::from_interleaved(bits));
     }
 }
@@ -219,8 +214,8 @@ impl Output {
 impl SplitOutput {
     /// Separate a complete interleaved Version prefix.
     fn from_interleaved(bits: BitsWriter) -> Self {
-        let mut topology = BitsWriter::with_capacity(0);
-        let mut payloads = BitsWriter::with_capacity(0);
+        let mut topology = BitsWriter::new();
+        let mut payloads = BitsWriter::new();
         let mut cursor = bits.reader();
         while cursor.position() < bits.len() {
             let internal_nodes = cursor
@@ -282,7 +277,7 @@ impl SplitOutput {
         let payloads = self.payloads;
         let mut topology_cursor = topology.reader();
         let mut payload_cursor = payloads.reader();
-        let mut out = BitsWriter::with_capacity(topology.len() + payloads.len());
+        let mut out = BitsWriter::new();
         while topology_cursor.position() < topology.len() {
             let leaf = topology_cursor
                 .read_bit()
@@ -468,10 +463,10 @@ pub struct VersionWriter {
 }
 
 impl VersionWriter {
-    /// Create a builder with room for `capacity` output bits.
-    pub fn with_capacity(capacity: u64) -> Self {
+    /// Create an empty version builder.
+    pub fn new() -> Self {
         VersionWriter {
-            out: Output::with_capacity(capacity),
+            out: Output::Interleaved(BitsWriter::new()),
             pending: None,
             path: BitStack::new(),
             left_leaf: BitStack::new(),

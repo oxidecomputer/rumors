@@ -144,10 +144,7 @@ impl<'v, 'p> Raise<'v, 'p> {
         let mut raise = Self {
             source: version,
             cursor: VersionSpliceReader::new(version),
-            // Expansion adds at most one short payload per Party level. The
-            // selected leaf and its successor may be as wide as `ticks`, so
-            // this is only a starting capacity; the writer can grow.
-            output: VersionWriter::with_capacity(version.stored_len() + party.source_len() + 64),
+            output: VersionWriter::new(),
             party,
             pending: BitStack::new(),
             depth: 0,

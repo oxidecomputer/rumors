@@ -160,7 +160,7 @@ impl BorshDeserialize for Party {
         // Every stored terminal owns its region, and every stored branch has a
         // child. A complete parsed tree therefore satisfies Party's nonempty
         // ownership invariant.
-        Ok(Party::from_canonical(Bits::from_canonical(bytes.into())))
+        Ok(Party::from_canonical(Bits::from_canonical_vec(bytes)))
     }
 }
 
@@ -175,7 +175,7 @@ impl BorshDeserialize for Version {
         let mut bits = StreamBitsReader::new(reader);
         crate::version::io::validate::from_reader(&mut bits).map_err(Decode::into_borsh_error)?;
         let bytes = bits.finish().map_err(Decode::into_borsh_error)?;
-        Ok(Version::from_canonical(Bits::from_canonical(bytes.into())))
+        Ok(Version::from_canonical(Bits::from_canonical_vec(bytes)))
     }
 }
 
@@ -291,7 +291,7 @@ impl BorshDeserialize for Span<'static> {
             // ptr_eq fast paths then recognize — and the parsed bytes are
             // dropped unstored.
             Admission::Equal => lo.clone(),
-            Admission::Dominates => Version::from_canonical(Bits::from_canonical(bytes.into())),
+            Admission::Dominates => Version::from_canonical(Bits::from_canonical_vec(bytes)),
         };
         Ok(Span::owned(lo, hi))
     }

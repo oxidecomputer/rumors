@@ -71,7 +71,7 @@ fn feed(builder: &mut VersionWriter, depth: u64, payload: Payload) {
 
 /// Drive a builder over `(depth, payload)` leaves and return the stream.
 fn built(leaves: Vec<(u64, Payload)>) -> BitsWriter {
-    let mut builder = VersionWriter::with_capacity(64);
+    let mut builder = VersionWriter::new();
     for (depth, payload) in leaves {
         feed(&mut builder, depth, payload);
     }
@@ -112,7 +112,7 @@ proptest! {
         let first_height = if negative { magnitude.clone() } else { BigUint::ZERO };
         let change = BigInt::from_biguint(sign, magnitude.clone());
 
-        let mut writer = VersionWriter::with_capacity(0);
+        let mut writer = VersionWriter::new();
         writer.height(1, &first_height);
         writer.change(1, &change);
         let actual = crate::version::instrument::bits(&writer.finish());
@@ -265,7 +265,7 @@ fn continuation(
     leaves: &[(u64, Payload)],
 ) -> (crate::Version, u64, u64, u64, u64, u64) {
     let first_rel = first_depth - root_depth;
-    let mut source = VersionWriter::with_capacity(64);
+    let mut source = VersionWriter::new();
     source.height(first_rel, &BigUint::ZERO);
     for (depth, payload) in leaves {
         payload.append(&mut source, depth - root_depth);
@@ -303,7 +303,7 @@ fn copy_subtree_remainder_matches_per_leaf_feeding() {
         (3, delta(Sign::Plus, 1)),
         (1, delta(Sign::Minus, 1)),
     ]);
-    let mut spliced = VersionWriter::with_capacity(64);
+    let mut spliced = VersionWriter::new();
     feed(&mut spliced, 2, gamma(3));
     feed(&mut spliced, 3, delta(Sign::Plus, 2));
     let (source, start, end, first_rel, last_rel, last_len) =
@@ -330,7 +330,7 @@ fn copy_subtree_remainder_reanchors_across_levels() {
         (1, delta(Sign::Plus, 3)),
     ];
     let per_leaf = built(leaves);
-    let mut spliced = VersionWriter::with_capacity(64);
+    let mut spliced = VersionWriter::new();
     feed(&mut spliced, 2, gamma(2));
     feed(&mut spliced, 4, delta(Sign::Plus, 2));
     let (source, start, end, first_rel, last_rel, last_len) = continuation(
@@ -359,7 +359,7 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
         (2, delta(Sign::Plus, 2)),
         (2, delta(Sign::Plus, 0)),
     ]);
-    let mut spliced = VersionWriter::with_capacity(64);
+    let mut spliced = VersionWriter::new();
     feed(&mut spliced, 2, gamma(3));
     feed(&mut spliced, 3, delta(Sign::Plus, 2));
     let (source, start, end, first_rel, last_rel, last_len) =
@@ -387,7 +387,7 @@ fn split_output_splices_like_leaf_feeding() {
         (3, delta(Sign::Plus, 1)),
     ]);
 
-    let mut spliced = VersionWriter::with_capacity(256);
+    let mut spliced = VersionWriter::new();
     feed(&mut spliced, 2, gamma(WIDE));
     feed(&mut spliced, 3, delta(Sign::Plus, 0));
     feed(&mut spliced, 3, delta(Sign::Plus, 0));

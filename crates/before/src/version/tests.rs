@@ -13,6 +13,7 @@ use proptest::prelude::*;
 use proptest::sample::Index;
 
 use super::{Ranked, Version};
+use crate::bits::BitsWriter;
 use crate::error::Decode;
 use crate::rank::DECODE_CHUNK_BYTES;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
@@ -480,6 +481,127 @@ proptest! {
             "meet stored size outgrew its inputs: {} > {} + {}",
             meet.as_bytes().len(), a.as_bytes().len(), b.as_bytes().len(),
         );
+    }
+}
+
+// ──────────────────────────── exact result sizing ────────────────────────────
+
+/// The deepest event tree the sizing families build.
+const MAX_SIZING_DEPTH: usize = 2_048;
+
+/// The rightmost `2^-depth` cell of party space.
+fn rightmost_cell(depth: usize) -> Party {
+    let mut bits = BitsWriter::new();
+    for _ in 0..depth {
+        bits.push(false);
+        bits.push(true);
+    }
+    bits.push(false);
+    bits.push(false);
+    Party::from_test_bits(bits)
+}
+
+/// `base` events everywhere, and two more on the rightmost `2^-depth` cell:
+/// an event tree as deep as the cell.
+fn deep_bump(base: u64, depth: usize) -> Version {
+    let mut version = uniform(base);
+    version.ticks(&rightmost_cell(depth), 2u8);
+    version
+}
+
+/// Describe `version`'s spare capacity, if its buffer holds more than its
+/// encoded bytes.
+///
+/// The empty version's static storage has no allocation to inspect. The
+/// caller must already have dropped every other value sharing the result's
+/// buffer. The families collect every case before asserting, so one failure
+/// reports each operation that keeps spare capacity.
+fn spare_capacity(case: &str, version: Version) -> Option<String> {
+    if version.ptr_eq(&Version::new()) {
+        return None;
+    }
+    let encoded = version.as_bytes().len();
+    let capacity = version.0.allocation_capacity();
+    (capacity != encoded)
+        .then(|| format!("{case}: a {encoded}-byte version keeps a {capacity}-byte buffer"))
+}
+
+proptest! {
+    /// Each operation that collapses a deep event tree to one leaf returns
+    /// that leaf in a buffer of exactly its encoded length.
+    ///
+    /// The tree collapses when joined with a uniform version above it, when
+    /// met with a uniform version below it, and when ticked by the seed.
+    #[test]
+    fn collapsing_version_results_are_sized_exactly(depth in 1..=MAX_SIZING_DEPTH) {
+        let mut spare = Vec::new();
+
+        let join = &deep_bump(0, depth) | &uniform(3u8);
+        prop_assert_eq!(&join, &uniform(3u8));
+        spare.extend(spare_capacity("join", join));
+
+        let join_all = deep_bump(0, depth).join_all([uniform(3u8)]);
+        prop_assert_eq!(&join_all, &uniform(3u8));
+        spare.extend(spare_capacity("join_all", join_all));
+
+        let meet = &deep_bump(1, depth) & &uniform(1u8);
+        prop_assert_eq!(&meet, &uniform(1u8));
+        spare.extend(spare_capacity("meet", meet));
+
+        let meet_all = deep_bump(1, depth).meet_all([uniform(1u8)]);
+        prop_assert_eq!(&meet_all, &uniform(1u8));
+        spare.extend(spare_capacity("meet_all", meet_all));
+
+        let mut ticked = deep_bump(0, depth);
+        ticked.tick(&Party::seed());
+        prop_assert_eq!(&ticked, &uniform(2u8));
+        spare.extend(spare_capacity("tick", ticked));
+
+        prop_assert!(spare.is_empty(), "{}", spare.join("; "));
+    }
+
+    /// Every version that the lattice operations, `tick`, `ticks`, and
+    /// projection build is held in a buffer of exactly its encoded length,
+    /// over arbitrary operands.
+    #[test]
+    fn built_versions_are_sized_exactly(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+        party in arb_oracle_party_nonempty(),
+        count in 0u64..24,
+    ) {
+        // Each result is bound in its own statement, so the operand
+        // temporaries are gone before the result's buffer is inspected.
+        let version = from_oracle_version;
+        let party = from_oracle_party(&party);
+        let mut spare = Vec::new();
+
+        let join = &version(&oa) | &version(&ob);
+        spare.extend(spare_capacity("join", join));
+        let meet = &version(&oa) & &version(&ob);
+        spare.extend(spare_capacity("meet", meet));
+        let join_all = version(&oa).join_all([version(&ob)]);
+        spare.extend(spare_capacity("join_all", join_all));
+        let meet_all = version(&oa).meet_all([version(&ob)]);
+        spare.extend(spare_capacity("meet_all", meet_all));
+        let mut joined = version(&oa);
+        joined |= &version(&ob);
+        spare.extend(spare_capacity("join in place", joined));
+        let mut met = version(&oa);
+        met &= &version(&ob);
+        spare.extend(spare_capacity("meet in place", met));
+
+        let mut ticked = version(&oa);
+        ticked.tick(&party);
+        spare.extend(spare_capacity("tick", ticked));
+        let mut ticked = version(&oa);
+        ticked.ticks(&party, count);
+        spare.extend(spare_capacity("ticks", ticked));
+
+        let projection = (&version(&oa) / &party).to_version();
+        spare.extend(spare_capacity("projection", projection));
+
+        prop_assert!(spare.is_empty(), "{}", spare.join("; "));
     }
 }
 

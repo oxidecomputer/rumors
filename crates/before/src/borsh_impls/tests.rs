@@ -6,6 +6,7 @@ use proptest::test_runner::TestCaseError;
 
 use crate::bits::{BitRead, BitsWriter};
 use crate::error::Decode;
+use crate::party::instrument::allocation_capacity as party_capacity;
 use crate::span::Span;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators::{
@@ -13,6 +14,7 @@ use crate::testing::generators::{
     arb_oracle_version, deep_left_spine_party,
 };
 use crate::testing::optrace::{step_impl, world_strategy};
+use crate::version::instrument::allocation_capacity as version_capacity;
 use crate::version::io::validate::{dominating_from, Admission};
 use crate::{Clock, Count, Party, Rank, Ranked, Version};
 
@@ -244,6 +246,36 @@ proptest! {
             Clock::try_from_slice(cut).unwrap_err().kind(),
             ErrorKind::UnexpectedEof
         );
+    }
+}
+
+proptest! {
+    /// Borsh decoding holds each decoded party and version, and both bounds
+    /// of a decoded span, in a buffer of exactly its encoded length.
+    ///
+    /// The reader collects the encoding byte by byte into a growing vector,
+    /// which usually ends with spare capacity before the value is sealed. The
+    /// span's join strictly dominates its meet, so each bound is decoded into
+    /// its own buffer.
+    #[test]
+    fn borsh_decoded_values_are_sized_exactly(
+        op in arb_oracle_party_nonempty(),
+        ov in arb_oracle_version(),
+    ) {
+        let party = Party::try_from_slice(&from_oracle_party(&op).encode())
+            .expect("a canonical party decodes");
+        let encoded = party.as_bytes().len();
+        prop_assert_eq!(party_capacity(party), encoded, "party");
+
+        let lo = from_oracle_version(&ov);
+        let mut hi = lo.clone();
+        hi.tick(&Party::seed());
+        let span = Span::try_from_slice(&lo.span(&hi).encode()).expect("a canonical span decodes");
+        let (meet, join) = span.into_parts();
+        for (case, version) in [("span meet", meet), ("span join", join)] {
+            let encoded = version.as_bytes().len();
+            prop_assert_eq!(version_capacity(version), encoded, "{}", case);
+        }
     }
 }
 
