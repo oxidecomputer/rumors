@@ -138,17 +138,13 @@ impl Accumulator {
     /// model](crate#costs-and-storage), this takes amortized
     /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
     /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations. An operand whose value is zero adds O(1)
-    /// retained space at any shift, whatever its working width.
+    /// and replacement allocations. A zero operand adds O(1) retained space at
+    /// any shift.
     ///
     /// # Panics
     ///
-    /// Panics if `other` is nonzero and its working width, shifted, would
-    /// reach digit position `usize::MAX - 1`, where no allocation can hold the
-    /// buffer the result needs. Growing the buffer is an ordinary vector
-    /// allocation, which can also fail short of that position: it panics on
-    /// capacity overflow, and aborts when the allocator cannot satisfy it. A
-    /// zero operand never panics.
+    /// Panics if `other` is nonzero and the result needs more digit positions
+    /// than a buffer can address. A zero operand never panics.
     pub fn add_shifted(&mut self, shift: u64, other: &Accumulator) {
         self.apply_accumulator(other, shift, Update::Add);
     }
@@ -159,17 +155,13 @@ impl Accumulator {
     /// [crate-level cost model](crate#costs-and-storage), this takes amortized
     /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
     /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations. An operand whose value is zero adds O(1)
-    /// retained space at any shift, whatever its working width.
+    /// and replacement allocations. A zero operand adds O(1) retained space at
+    /// any shift.
     ///
     /// # Panics
     ///
-    /// Panics if `other` is nonzero and its working width, shifted, would
-    /// reach digit position `usize::MAX - 1`, where no allocation can hold the
-    /// buffer the result needs. Growing the buffer is an ordinary vector
-    /// allocation, which can also fail short of that position: it panics on
-    /// capacity overflow, and aborts when the allocator cannot satisfy it. A
-    /// zero operand never panics.
+    /// Panics if `other` is nonzero and the result needs more digit positions
+    /// than a buffer can address. A zero operand never panics.
     pub fn sub_shifted(&mut self, shift: u64, other: &Accumulator) {
         self.apply_accumulator(other, shift, Update::Subtract);
     }

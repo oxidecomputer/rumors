@@ -25,9 +25,9 @@
 //! magnitude below `2.01 B^(f + 1)`. Thus `i >= f + 2` is sufficient. Failure
 //! to meet that test says only that this scan did not establish the guarantee.
 //!
-//! A borrowed operand cannot be rewritten, so deciding whether it is zero
-//! runs the same descent read-only. That scan is not amortized: it reads each
-//! position down to its decision, at most the operand's stored digits.
+//! [`value_is_zero`](Digits::value_is_zero) runs the same scan without writing
+//! anything back, for an operand that is only borrowed. Its cost is therefore
+//! not amortized: each call can read every stored digit.
 
 use core::cmp::Ordering;
 
@@ -53,12 +53,12 @@ impl Digits {
             .then(|| partial.cmp(&0))
     }
 
-    /// Return whether the value is zero, reading the digits without rewriting them.
+    /// Return whether the value is zero, without compacting the digits.
     ///
-    /// The descent is the comparison's: a partial of magnitude at least 3
-    /// proves the value nonzero, and reaching position zero leaves the exact
-    /// value. Each call reads every position down to its decision, recorded
-    /// zero ranges included, and therefore at most the stored digits.
+    /// This is [`cmp_zero`](Self::cmp_zero)'s scan, read-only: it stops at the
+    /// first partial of magnitude 3 or more, which proves the value nonzero.
+    /// It reads recorded zero ranges digit by digit instead of skipping them,
+    /// so one call can read every stored digit.
     pub fn value_is_zero(&self) -> bool {
         let mut partial: i128 = 0;
         for &digit in self.stored_digits().iter().rev() {

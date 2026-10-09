@@ -187,13 +187,12 @@ fn sign_query_skips_recorded_zero_ranges() {
 /// The accumulator-operand rows cost the operand's held digits, not
 /// the receiver's width or the shift.
 ///
-/// Exact totals for borrowed `+=`, borrowed `-=`, and owned addition on a
-/// two-digit operand landing inside the receiver's buffer — 4 touches each
-/// (one read plus one deposit per operand digit) — unchanged when the
-/// receiver's held width doubles. `add_shifted` and `sub_shifted` land past
-/// the buffer, so each first scans the operand for zero: its top digit 1
-/// cannot decide alone, so the scan reads both digits, for 6 touches,
-/// unchanged when the merge shift doubles.
+/// Borrowed `+=`, borrowed `-=`, and owned addition of a two-digit operand
+/// inside the receiver's buffer cost exactly 4 touches, a read and a deposit
+/// per operand digit, at either receiver width. `add_shifted` and
+/// `sub_shifted` deposit past the buffer, so they first scan the operand for
+/// zero. Its top digit, 1, does not decide the scan, which reads both digits:
+/// 6 touches, at either shift.
 ///
 /// These are the cost table's "amortized O(operand's held digits),
 /// whatever the held width / independent of the shift" rows, pinned
@@ -251,9 +250,8 @@ fn accumulator_operand_rows_cost_the_operand() {
             (UBig::from(1u8) << held_bits as usize) - 1u8 + UBig::from((1u64 << 32) | 1)
         );
     }
-    // The scaled merges land past the receiver's buffer, so each pays the
-    // operand's zero scan (two reads, since the top digit 1 cannot decide
-    // alone) and is shift-independent at the same exact total, in both signs.
+    // Each scaled merge deposits past the buffer, so it adds the two-read zero
+    // scan, for the same total at both shifts and in both signs.
     for shift in [32_000u64, 64_000] {
         let operand = narrow();
         let mut receiver = Accumulator::new();
@@ -283,7 +281,7 @@ fn accumulator_operand_rows_cost_the_operand() {
             6,
             "sub_shifted of 2 digits at shift {shift}: 2 zero-scan reads + 2 reads + 2 deposits"
         );
-        // The shifted operand towers over the receiver, so the difference is
+        // The shifted operand exceeds the receiver, so the difference is
         // negative; compute its magnitude operand-first.
         let (sign, magnitude) = receiver.sign_biguint();
         assert_eq!(sign, Ordering::Less);
@@ -345,16 +343,16 @@ fn merge_tie_reads_the_operand() {
 /// The per-call O(held digits) rows read exact totals at 64 and 128
 /// held digits, and shift assignment's total is independent of the shift.
 ///
-/// unary `-` and `reset` touch each held digit once (d, and d + 1 after
-/// a shift grew the span by one), `<<=` reads the top digit once to rule
-/// out zero (one read decides, because the fixture's top digit `2^32 - 1`
-/// has magnitude at least 3), then reads each digit and re-deposits it
-/// (2d + 1) — the same
-/// 2d + 1 at a thousandfold larger shift, the digit-touch
-/// shift-independence documented on the crate page — and
-/// `sign_biguint` carries once through the span (d).
-/// Exact equality across the width doubling is the linearity claim
-/// with no slack for a hidden second pass.
+/// With `d` held digits:
+/// - unary `-` and `reset` touch each digit once: `d`, or `d + 1` after a
+///   shift has grown the span by one;
+/// - `<<=` reads the top digit to rule out zero, then reads and re-deposits
+///   each digit: `2d + 1`. The top digit, `2^32 - 1`, settles the zero check
+///   alone, and the total is the same at a thousandfold larger shift;
+/// - `sign_biguint` carries once through the span: `d`.
+///
+/// Exact equality across the width doubling is the linearity claim, with no
+/// slack for a hidden second pass.
 #[test]
 fn held_width_rows_cost_the_held_digits() {
     for bits in [2_048u32, 4_096] {

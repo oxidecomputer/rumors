@@ -123,17 +123,19 @@ impl Digits {
         self.highest_nonzero + 1
     }
 
-    /// Return whether `width` digits deposited at bit offset `shift` would land past the buffer.
+    /// Return whether depositing `width` digits at bit offset `shift` would
+    /// extend the buffer.
     ///
-    /// The sum is taken in `u128`, so a shift beyond every addressable
-    /// position answers `true` rather than wrapping.
+    /// The position is computed in `u128`, so no shift wraps around to a
+    /// position inside the buffer.
     pub fn deposit_extends_buffer(&self, shift: u64, width: usize) -> bool {
         u128::from(shift / u64::from(DIGIT_BITS)) + width as u128 > self.digits.len() as u128
     }
 
-    /// Count the digit positions the buffer retains, including zeros above the stored prefix.
+    /// Count the digit positions the buffer holds, including zeros above the
+    /// stored prefix.
     ///
-    /// Retained positions measure the space an operation leaves behind, which
+    /// Tests use this to measure the space an operation leaves behind, which
     /// the stored digit count understates after cancellation.
     #[cfg(test)]
     pub fn retained_len(&self) -> usize {
