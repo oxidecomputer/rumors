@@ -49,6 +49,7 @@ peak_alloc = { workspace = true }
 insta = { workspace = true }
 rayon = { workspace = true }
 indicatif = { workspace = true }
+tempfile = { workspace = true }
 before = { workspace = true, features = ["oracle", "meter"] }
 
 [features]

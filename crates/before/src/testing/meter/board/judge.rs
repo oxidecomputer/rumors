@@ -73,10 +73,7 @@ fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
         .iter()
         .map(|s| {
             s.readings.get(c).map(|m| {
-                let units = s
-                    .models
-                    .get(c)
-                    .map_or(s.exp_denom_bytes, |model| model.trend_units);
+                let units = trend_units(s, c);
                 let reading = if c == Currency::Heap {
                     m.max(HEAP_TREND_RESOLUTION_BYTES as u64)
                 } else {
@@ -298,6 +295,15 @@ fn judge_window(
         scores,
         red,
     }
+}
+
+/// Resolve one sample's units for its growth trend: the axis its exponent is
+/// fitted against, which an exact capture also records beside each reading.
+pub(super) fn trend_units(sample: &Sample, currency: Currency) -> usize {
+    sample
+        .models
+        .get(currency)
+        .map_or(sample.exp_denom_bytes, |model| model.trend_units)
 }
 
 /// Resolve one sample's units for its proportional ceiling and displayed cost.

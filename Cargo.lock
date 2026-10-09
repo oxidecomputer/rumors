@@ -105,6 +105,7 @@ dependencies = [
  "stacker",
  "static_assertions",
  "suanpan",
+ "tempfile",
  "thiserror",
 ]
 

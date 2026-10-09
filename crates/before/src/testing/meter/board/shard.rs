@@ -408,7 +408,7 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
 /// Panics on any protocol violation — the module doc's refusal list — and
 /// unless `scale` is strictly positive, checked before any child capture is
 /// trusted.
-fn merge_samples(
+pub(super) fn merge_samples(
     scale: f64,
     count: usize,
     captures: &[Vec<u8>],

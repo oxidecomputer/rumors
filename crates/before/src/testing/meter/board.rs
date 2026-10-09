@@ -98,6 +98,7 @@
 
 mod ceilings;
 mod cell;
+mod compare;
 mod coverage;
 mod currency;
 mod defect;
@@ -123,6 +124,7 @@ pub use ceilings::{
     RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, SCAN_FLOOR_BITS_PER_INPUT_BYTE,
     SCAN_TOUCH_FLOOR_BITS, SMALL_INPUT_SCALE, TICKS_BOARD_COUNT,
 };
+pub use compare::{capture, compare};
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use measure::HeapMeter;
