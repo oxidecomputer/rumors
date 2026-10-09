@@ -59,6 +59,11 @@ mod probe;
 pub mod raise;
 mod route;
 
+/// Slots per memo block, for the co-generation census that counts which
+/// pre-scans reserve more than one block.
+#[cfg(test)]
+pub(crate) use self::memo::BLOCK_SLOTS;
+
 /// Tracks the minimum minus the previous output height after emitting a
 /// minimum. A follower is a value that `RangeMinima` updates whenever its
 /// reference minimum changes.
@@ -150,8 +155,10 @@ impl TickWalk<'_> {
     ///
     /// # Panics
     ///
-    /// Panics if `version` is not a canonical Version stream. The party must
-    /// own at least one region.
+    /// Panics if `version` is not a canonical Version stream. Every
+    /// [`Party`](crate::Party) owns at least one region, because its encoding
+    /// has no spelling for an empty party, so the walk always finds a region
+    /// to raise.
     pub fn tick(version: &Version, party: &crate::Party) -> Version {
         match Self::decide(version, party) {
             Decision::Simplified(bits) => bits,
@@ -172,8 +179,10 @@ impl TickWalk<'_> {
     ///
     /// # Panics
     ///
-    /// Panics if `version` is not a canonical Version stream. For `n > 0`, the
-    /// party must own at least one region.
+    /// Panics if `version` is not a canonical Version stream. Every
+    /// [`Party`](crate::Party) owns at least one region, because its encoding
+    /// has no spelling for an empty party, so the walk always finds a region
+    /// to raise.
     pub fn ticks(version: &Version, party: &crate::Party, n: &BigUint) -> Version {
         // Width distinguishes zero from one without inspecting the digits.
         if n.bits() == 0 {
@@ -670,7 +679,6 @@ impl TickWalk<'_> {
         if self.output.is_verbatim() && self.range_is_leaf && offset.sign() == Sign::NoSign {
             let matched = self.output.note_match(self.pos());
             debug_assert!(matched, "a verbatim walk records a value-reproducing raise");
-            let _ = matched;
             self.gap.reset();
             return;
         }
@@ -774,7 +782,6 @@ impl TickWalk<'_> {
             self.gap.reset();
             let matched = self.output.note_match(self.pos());
             debug_assert!(matched, "a verbatim walk records the region as matched");
-            let _ = matched;
             return;
         }
         // Emit the first leaf against the live output reference.

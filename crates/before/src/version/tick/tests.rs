@@ -5,7 +5,7 @@
 //! recursive oracle's `event` byte for byte, and the walk's changed flag must
 //! read exactly `fill(i, e) ≠ e` decided by the oracle's `fill` — over every
 //! committed family crossed with varied parties, the exhaustive small
-//! scope, arbitrary pairs, and organic histories. The flag is
+//! scope, arbitrary pairs, co-generated pairs, and organic histories. The flag is
 //! emitted-differs-from-input, plateau-aligned: a value-reproducing raise must
 //! not trip it, and the first emitted leaf compares absolute against absolute
 //! (the worked corner cases pin both). The oracle walks on native frames, so
@@ -31,9 +31,10 @@ use crate::testing::bridge::{
 use crate::testing::exhaustive::{
     all_normal_events, all_normal_ids, EV_SMALL_DEPTH, ID_SMALL_DEPTH,
 };
+use crate::testing::generators::{self, co_generated};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::Encoding;
-use crate::testing::{generators, optrace};
+use crate::testing::optrace;
 use crate::version::instrument::validate;
 use crate::{Clock, Count, Party, Version};
 
@@ -1603,6 +1604,219 @@ fn ticks_composes_at_wide_n() {
             }
         }
     }
+}
+
+// ───────────────────────── co-generated pairs ─────────────────────────
+//
+// Independently drawn parties and versions rarely line up, so they leave the
+// pre-scan's multi-site state unexercised: nested lookahead sites, several
+// sites in one range, more sites than one memo block holds, and several large
+// pre-scans in one walk. `generators::co_generated` builds the two operands
+// together to reach those regimes, and these properties hold every case to
+// the recursive oracle through both `tick` and `ticks`.
+
+/// The largest count checked against iterated ticks.
+const ITERATED_TICKS: u8 = 4;
+
+/// Counts whose sums the composition check pairs: one, the top of `u64`, just
+/// past `2^64`, and a count three limbs wide.
+fn composition_counts() -> [BigUint; 4] {
+    let one = BigUint::from(1u8);
+    [
+        one.clone(),
+        BigUint::from(u64::MAX),
+        (&one << 64u32) + 3u8,
+        (&one << 200u32) - 1u8,
+    ]
+}
+
+/// Check one co-generated case against the recursive oracle through `tick`
+/// and `ticks`.
+///
+/// Each of the case's three versions (drawn, fill-fixed, and late-perturbed)
+/// must pass [`assert_tick`]; `ticks(k)` must equal `k` iterated public ticks
+/// and the recursive oracle's `k`-fold tick for `k` up to
+/// [`ITERATED_TICKS`]; `ticks(0)` must be the identity; and `ticks(a)` then
+/// `ticks(b)` must equal `ticks(a + b)` over every pair of
+/// [`composition_counts`].
+fn assert_co_generated(case: &co_generated::TickCase) {
+    let p = from_oracle_party(&case.party);
+    for oracle_version in case.versions() {
+        let v = from_oracle_version(&oracle_version);
+        assert_tick(&v, &p);
+
+        let mut zero = v.clone();
+        zero.ticks(&p, 0u8);
+        assert_eq!(zero, v, "ticks(0) must be the identity: {v:?} with {p:?}");
+
+        let mut iterated = v.clone();
+        let mut oracle = oracle_version;
+        for k in 1..=ITERATED_TICKS {
+            iterated.tick(&p);
+            oracle.tick(&case.party);
+            let mut fused = v.clone();
+            fused.ticks(&p, k);
+            assert_eq!(
+                fused, iterated,
+                "ticks({k}) must equal {k} iterated public ticks: {v:?} with {p:?}"
+            );
+            assert_eq!(
+                fused,
+                from_oracle_version(&oracle),
+                "ticks({k}) must equal the oracle's {k}-fold tick: {v:?} with {p:?}"
+            );
+        }
+
+        let counts = composition_counts();
+        for a in &counts {
+            for b in &counts {
+                let mut stepwise = v.clone();
+                stepwise.ticks(&p, Count(a.clone()));
+                stepwise.ticks(&p, Count(b.clone()));
+                let mut joint = v.clone();
+                joint.ticks(&p, Count(a + b));
+                assert_eq!(
+                    stepwise, joint,
+                    "ticks({a}) then ticks({b}) must equal ticks({a} + {b}): {v:?} with {p:?}"
+                );
+            }
+        }
+    }
+}
+
+proptest! {
+    /// Co-generated spines, their fill-fixed successors, and late
+    /// perturbations tick byte-identically to the recursive oracle through
+    /// `tick` and `ticks`.
+    ///
+    /// The changed flag agrees with the oracle's fill, and wide counts
+    /// compose. The spine strategy nests lookahead sites many levels deep and
+    /// places several sites side by side in one range, where an owned leaf's
+    /// old maximum can tie its memoized minimum and deferred first entries
+    /// resolve as nested ranges close.
+    #[test]
+    fn co_generated_spines_tick_identically(case in co_generated::arb_spine_case()) {
+        assert_co_generated(&case);
+    }
+}
+
+proptest! {
+    #![proptest_config(co_generated::divided_config(co_generated::WIDE_CASE_DIVISOR))]
+
+    /// A pre-scan reserving more memo slots than one block holds ticks
+    /// byte-identically to the recursive oracle through `tick` and `ticks`,
+    /// for the drawn version, its fill-fixed successor, and a late
+    /// perturbation.
+    ///
+    /// The memo allocates a block as the slot count crosses each block
+    /// boundary; a block allocated late, or a slot indexed into the wrong
+    /// block, panics or reads a wrong minimum.
+    #[test]
+    fn wide_pre_scans_tick_identically(case in co_generated::arb_wide_case()) {
+        assert_co_generated(&case);
+    }
+}
+
+proptest! {
+    #![proptest_config(co_generated::divided_config(co_generated::MULTI_SCAN_CASE_DIVISOR))]
+
+    /// Walks running several pre-scans, often two or more past one memo
+    /// block, tick byte-identically to the recursive oracle through `tick`
+    /// and `ticks`, for the drawn version, its fill-fixed successor, and a
+    /// late perturbation.
+    ///
+    /// Each pre-scan reuses the blocks an earlier one filled, so a block left
+    /// uncleared between scans trips the memo's write-once check or hands a
+    /// later scan a wrong minimum.
+    #[test]
+    fn multiple_wide_pre_scans_tick_identically(case in co_generated::arb_multi_scan_case()) {
+        assert_co_generated(&case);
+    }
+}
+
+/// An owned leaf whose old maximum ties its memoized minimum keeps that
+/// height, and the case ticks byte-identically to the recursive oracle
+/// through `tick` and `ticks`.
+///
+/// The worked spine case: an outer lookahead site's range holds two sibling
+/// sites, and the second nests a third. Closing the first sibling leaves the
+/// walk reading the second's memo entry against the tracked minimum. The
+/// second site's owned leaf sits at height 0, and its range simplifies to
+/// heights 2, 0, and 2, with minimum 0: a tie, which emits the owned leaf at
+/// its old maximum and leaves the input unchanged there. Reading the tie as
+/// a domination arms the memoized minimum instead, and the changed flag trips
+/// where the oracle's fill is the identity. Kept as a literal so it survives
+/// changes to the strategies.
+#[test]
+fn owned_leaf_tying_its_memoized_minimum_ticks_identically() {
+    use crate::testing::oracles::tree::{Party as P, Version as V};
+    let (owned, unowned) = (P::seed, || P::Leaf(false));
+    let leaf = |height: u8| V::leaf(height);
+    let site = |left, right| V::node(0u8, left, right);
+    let party = P::node(
+        owned(),
+        P::node(
+            P::node(
+                owned(),
+                P::node(unowned(), P::node(unowned(), P::node(unowned(), owned()))),
+            ),
+            P::node(owned(), P::node(owned(), P::node(unowned(), owned()))),
+        ),
+    );
+    let version = site(
+        leaf(2),
+        site(
+            site(leaf(2), site(leaf(0), leaf(2))),
+            site(leaf(0), site(leaf(2), site(leaf(0), leaf(2)))),
+        ),
+    );
+    assert_co_generated(&co_generated::TickCase {
+        party,
+        version,
+        late_leaf: 0,
+        late_height: BigUint::from(2u8),
+    });
+}
+
+/// A lookahead site read after its sibling site's range closes ticks
+/// byte-identically to the recursive oracle through `tick` and `ticks`.
+///
+/// The worked spine case: an outer lookahead site's range holds two sibling
+/// sites. Closing the first re-anchors the memo reference at the range's
+/// tracked minimum, which must first resolve any deferred minimum; the second
+/// site then reads its memoized minimum against that anchor. Anchoring before
+/// the deferred minimum resolves leaves the reference above the true minimum,
+/// and the changed branch's stream differs from the oracle's fill. Kept as a
+/// literal so it survives changes to the strategies.
+#[test]
+fn site_after_a_closed_sibling_site_ticks_identically() {
+    use crate::testing::oracles::tree::{Party as P, Version as V};
+    let (owned, unowned) = (P::seed, || P::Leaf(false));
+    let leaf = |height: u8| V::leaf(height);
+    let site = |left, right| V::node(0u8, left, right);
+    let party = P::node(
+        owned(),
+        P::node(
+            P::node(
+                owned(),
+                P::node(P::node(owned(), P::node(unowned(), owned())), unowned()),
+            ),
+            P::node(owned(), P::node(unowned(), P::node(unowned(), owned()))),
+        ),
+    );
+    let version = site(
+        leaf(0),
+        site(
+            site(leaf(0), site(leaf(0), leaf(1))),
+            site(leaf(0), leaf(1)),
+        ),
+    );
+    assert_co_generated(&co_generated::TickCase {
+        party,
+        version,
+        late_leaf: 0,
+        late_height: BigUint::ZERO,
+    });
 }
 
 /// Directed pre-scan shapes concentrating right-full raises at the earliest

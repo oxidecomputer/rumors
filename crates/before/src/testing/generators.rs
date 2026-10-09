@@ -3,7 +3,10 @@
 //! Arbitrary values are normalized by the recursive oracle before conversion
 //! to the production representation. Deep shapes have a scale proportional to
 //! their node count, so traversal properties can exercise meaningful depth.
+//! [`co_generated`] builds a tick's party and version together, for the walk
+//! states that independently drawn operands do not reach.
 
+pub(crate) mod co_generated;
 mod tests;
 
 use num_bigint::BigUint;

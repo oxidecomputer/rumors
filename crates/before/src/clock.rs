@@ -119,13 +119,13 @@ impl Clock {
         self.version()
     }
 
-    /// Advances this [`Clock`] by `n` events for its own [`Party`], returning
-    /// the new [`Version`]: byte-identical to `n` sequential
-    /// [`tick`](Self::tick)s, computed in a bounded number of passes rather
-    /// than `n`.
+    /// Advances this [`Clock`] by `k` events for its own [`Party`], returning
+    /// the new [`Version`].
     ///
-    /// The count `k` is any unsigned number, since all can be converted into
-    /// [`Count`].
+    /// The result is identical to `k` sequential [`tick`](Self::tick)s,
+    /// computed in a bounded number of passes rather than `k`. The count `k`
+    /// may be any unsigned integer type or a [`Count`], which has no width
+    /// limit.
     ///
     /// # Complexity
     ///

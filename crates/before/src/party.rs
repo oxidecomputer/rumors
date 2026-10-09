@@ -244,10 +244,12 @@ impl Party {
         version.tick(self)
     }
 
-    /// Advances `version` by `n` events for this [`Party`]
+    /// Advances `version` by `k` events for this [`Party`].
     ///
-    /// The result is identical to `n` sequential [`tick`](Self::tick)s, but
-    /// computed much more efficiently.
+    /// The result is identical to `k` sequential [`tick`](Self::tick)s,
+    /// computed in a bounded number of passes rather than `k`. The count `k`
+    /// may be any unsigned integer type or a [`Count`], which has no width
+    /// limit.
     ///
     /// # Complexity
     ///
