@@ -1,0 +1,4 @@
+# The hang limit explained in the root `.config/nextest.toml`, at the root's
+# value: this workspace's tests finish well within it.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }
