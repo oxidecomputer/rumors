@@ -65,11 +65,14 @@ const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 /// cancellation; this is why reads take `&mut`.
 ///
 /// See the [crate documentation](crate) for operation costs and input guidance.
-/// `Default` creates zero without allocating. Cloning and debug formatting
-/// take time and space linear in the retained allocation, which can exceed the
-/// current working width after cancellation.
-/// [`reset`](Self::reset) retains that allocation for reuse.
-#[derive(Clone)]
+/// `Default` creates zero without allocating. Debug formatting takes time and
+/// space linear in the retained allocation, which can exceed the current
+/// working width after cancellation. [`reset`](Self::reset) retains that
+/// allocation for reuse.
+///
+/// An accumulator cannot be cloned. A copy would carry the same uncompacted
+/// cancellation as its original, and both would pay to compact it, so the
+/// amortized costs above would no longer hold.
 pub struct Accumulator {
     /// An exact small value, or `None` once the digit representation is active.
     ///
@@ -77,6 +80,21 @@ pub struct Accumulator {
     small: Option<i128>,
     /// Retained digit storage and known zero ranges, active when `small` is `None`.
     digits: Digits,
+}
+
+/// Copy an accumulator for tests that compare a value before and after an
+/// operation.
+///
+/// Tests only: a copy duplicates uncompacted cancellation, which the public
+/// type forbids so that its amortized costs hold.
+#[cfg(test)]
+impl Clone for Accumulator {
+    fn clone(&self) -> Self {
+        Accumulator {
+            small: self.small,
+            digits: self.digits.clone(),
+        }
+    }
 }
 
 /// Keep the representation choice behind one arithmetic interface.
@@ -257,9 +275,8 @@ impl Accumulator {
     /// Reduce the working width after cancellation.
     ///
     /// Cancellation can leave the working width much larger than the result's
-    /// bit length. This method makes the two agree. It is useful before
-    /// repeatedly cloning such a value, and retains allocated capacity for
-    /// later updates.
+    /// bit length. This method makes the two agree, and retains allocated
+    /// capacity for later updates.
     ///
     /// # Complexity
     ///

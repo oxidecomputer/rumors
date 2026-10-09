@@ -21,19 +21,19 @@ fn oracle_sign(oracle: &BigInt) -> Ordering {
     }
 }
 
-/// Assert the accumulator's full value equals the oracle.
+/// Assert the accumulator's full value equals the oracle, read twice.
 ///
-/// Each read runs on a clone: a read may rewrite the stored form, and the
-/// checked history must stay the one the test built.
-fn assert_value(acc: &Accumulator, oracle: &BigInt) {
-    let (sign, magnitude) = acc.clone().biguint_parts();
+/// The first read sees the stored form the test built and normalizes it; the
+/// second, through `to_bigint`, checks that the normalized form keeps the value.
+fn assert_value(acc: &mut Accumulator, oracle: &BigInt) {
+    let (sign, magnitude) = acc.biguint_parts();
     assert_eq!(sign, oracle_sign(oracle), "accumulator sign");
     let rebuilt = match sign {
         Ordering::Less => -BigInt::from(magnitude),
         _ => BigInt::from(magnitude),
     };
     assert_eq!(&rebuilt, oracle, "accumulator magnitude");
-    assert_eq!(&acc.clone().to_bigint(), oracle, "signed read");
+    assert_eq!(&acc.to_bigint(), oracle, "signed read");
 }
 
 proptest! {
@@ -58,7 +58,7 @@ proptest! {
             }
             prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
         }
-        assert_value(&acc, &oracle);
+        assert_value(&mut acc, &oracle);
     }
 
     /// Folding shifted magnitudes agrees with exact integer arithmetic.
@@ -82,7 +82,7 @@ proptest! {
             }
             prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
         }
-        assert_value(&acc, &oracle);
+        assert_value(&mut acc, &oracle);
     }
 
     /// Whole signed values add and subtract with the same sign behavior as
@@ -112,6 +112,6 @@ proptest! {
             }
             prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
         }
-        assert_value(&acc, &oracle);
+        assert_value(&mut acc, &oracle);
     }
 }

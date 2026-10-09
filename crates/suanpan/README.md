@@ -58,8 +58,9 @@ which can avoid materializing an unused low zero prefix. Primitive
 `TryFrom` conversions are exact, and return the same value on failure so
 its storage can still be reused.
 
-To compare two totals, subtract one from a clone of the other and compare
-the difference with zero. When their scales differ greatly,
+To compare two totals, subtract one from the other, compare the difference
+with zero, and add it back if you still need the first total. When their
+scales differ greatly,
 `cmp_zero_stable_under` can avoid reading the
 smaller total: `Some(ordering)` means every adjustment within the supplied
 bit bound is too small to change that comparison; `None` means the caller
@@ -115,8 +116,10 @@ allocation; the old and new allocations may coexist while the shift runs.
 
 `reserve_bits` can avoid repeated allocation
 growth. `reset` clears the value while retaining its
-allocation for reuse. Cloning and debug formatting take time and space
-proportional to all retained allocation, not merely the current value.
+allocation for reuse. Debug formatting takes time and space proportional
+to all retained allocation, not merely the current value. An accumulator
+cannot be cloned, since a copy would make both pay for the same
+cancellation.
 
 ## Scope
 
