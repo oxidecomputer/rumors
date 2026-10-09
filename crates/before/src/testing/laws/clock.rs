@@ -9,14 +9,13 @@ use super::*;
 laws! {
     /// Laws over one clock.
     ///
-    /// The clock model's composite operations:
-    /// `fork` preserves the version and splits the party, the balanced
-    /// n-way fork's two forms agree, `tick`/`send` advance strictly and fix
-    /// the party, `ticks` agrees with the version entry point, peeks are
-    /// stable, an own-message receive is a bare tick, an absorb is the
+    /// The clock model's composite operations: `fork` preserves the version
+    /// and splits the party, the balanced n-way fork's two forms agree and its
+    /// iterator keeps its documented size hint, `tick`/`send` advance strictly
+    /// and fix the party, `ticks` agrees with the version entry point, peeks
+    /// are stable, an own-message receive is a bare tick, an absorb is the
     /// anonymous join without recording an event, `sync` reconciles a fork,
-    /// `own_version` is the projection, and the parts/codec/text
-    /// round-trips.
+    /// `own_version` is the projection, and the parts/codec/text round-trips.
     pub static CLOCK_SOLO: (c: &Clock);
 
     /// `fork` preserves the version on both halves (§3: fork clones the causal
@@ -58,6 +57,19 @@ laws! {
         let yielded: Vec<Clock> = keeper.forks(N as u64 - 1).collect();
         let reconstructed: Vec<Clock> = std::iter::once(keeper).chain(yielded).collect();
         array.iter().eq(reconstructed.iter())
+    }
+
+    /// `forks(k)` yields exactly `k` child clocks at each `k` from zero to
+    /// four, and its size hint is exactly the children left before every step
+    /// and after exhaustion, as documented.
+    ///
+    /// The fork plan's own tests cover counts near `usize::MAX`, stepping the
+    /// plan across that boundary.
+    fn clock_forks_size_hint_is_exact {
+        (0..=4usize).all(|k| {
+            let mut keeper = c.dangerously_alias();
+            size_hints_are_exact(keeper.forks(k), k)
+        })
     }
 
     /// `version()` (peek) does not advance the clock: repeated peeks are equal

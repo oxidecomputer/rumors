@@ -228,10 +228,25 @@ macro_rules! laws {
 }
 
 /// Hashes one value for laws that check `Eq` and `Hash` coherence.
-fn hash_of<T: Hash>(value: &T) -> u64 {
+///
+/// `DefaultHasher::new()` is deterministic within one build, so values that
+/// feed the hasher the same data hash equally. Accepting unsized values
+/// (`[u8]`) lets a law compare a value's hash with its bytes' hash.
+fn hash_of<T: Hash + ?Sized>(value: &T) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Whether `iter`'s size hint is exactly `(remaining, Some(remaining))` before
+/// every step and after exhaustion, for an iterator that yields `len` items.
+fn size_hints_are_exact<I: Iterator>(mut iter: I, len: usize) -> bool {
+    for remaining in (1..=len).rev() {
+        if iter.size_hint() != (remaining, Some(remaining)) || iter.next().is_none() {
+            return false;
+        }
+    }
+    iter.size_hint() == (0, Some(0)) && iter.next().is_none()
 }
 
 mod clock;

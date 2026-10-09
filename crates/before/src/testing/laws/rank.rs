@@ -14,7 +14,8 @@ laws! {
     /// order's duality, and cross-path normalization (value-equal ranks built
     /// along different operation paths are one structural value, equal under
     /// `Eq` and `Hash`). The wire form's laws ride the same group: the codec
-    /// round-trip, byte order equal to `Ord`, and prefix-freedom.
+    /// round-trip, byte order equal to `Ord`, and prefix-freedom. So does
+    /// `Debug`'s documented format, which is `Display`'s.
     pub static RANK_TRIPLE: (a: &Rank, b: &Rank, c: &Rank);
 
     /// Addition is commutative: `a + b == b + a`.
@@ -116,6 +117,16 @@ laws! {
         via_add == via_sum
             && via_sub == Some(via_add.clone())
             && hash_of(&via_add) == hash_of(&via_sum)
+    }
+
+    /// `Debug` renders a rank exactly as `Display` does, as its documentation
+    /// states, both in the default format and when width, precision, and
+    /// alignment flags apply.
+    ///
+    /// A `Debug` that formats through a fresh formatter, such as
+    /// `write!(f, "{self}")`, matches only the default format.
+    fn rank_debug_is_display(a, _b, _c) {
+        format!("{a:?}") == a.to_string() && format!("{a:>40.8?}") == format!("{a:>40.8}")
     }
 }
 

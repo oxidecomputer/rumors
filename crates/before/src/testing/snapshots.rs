@@ -207,9 +207,9 @@ fn clock_canonical_form() {
     ");
 }
 
-/// One rank rendering row: a label, the rendered `Display`, and the
-/// `Debug ≡ Display` witness inline (`Debug` delegates, and this block is
-/// where that contract is pinned).
+/// One rank rendering row: a label and the rendered `Display`, after checking
+/// that `Debug` renders the same text for this row's rank, so the snapshot
+/// pins both renderings.
 fn rank_row(label: &str, r: &Rank) -> String {
     assert_eq!(
         format!("{r}"),

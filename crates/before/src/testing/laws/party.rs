@@ -11,9 +11,9 @@ laws! {
     /// The fork/join round-trip and its disjointness geometry, the balanced
     /// n-way fork's two forms, the covering order's point laws (with a
     /// constructed transitivity chain), `without` at the reflexive corner,
-    /// aliasing, and the representational round-trips. `join_all`'s fold laws
-    /// are [`PARTY_AND_LIST`]'s: the width-quantified family covers reunion,
-    /// acceptance, and error conservation.
+    /// aliasing, the representational round-trips, and the byte hash.
+    /// `join_all`'s fold laws are [`PARTY_AND_LIST`]'s: the width-quantified
+    /// family covers reunion, acceptance, and error conservation.
     pub static PARTY_SOLO: (p: &Party);
 
     /// `fork` then `join` round-trips: the two halves reconstruct the original
@@ -151,6 +151,13 @@ laws! {
     /// `encoded_bits` is the pre-pad bit length of `encode`.
     fn party_encoded_bits_matches_encode_len {
         p.encode().len() as u64 == (p.encoded_bits() + 1).div_ceil(8)
+    }
+
+    /// `Hash` hashes the canonical bytes, as its documentation states: a
+    /// party's hash is its byte view's hash, which a constant hash (still
+    /// coherent with `Eq`) fails.
+    fn party_hash_is_the_byte_hash {
+        hash_of(p) == hash_of(p.as_bytes())
     }
 }
 

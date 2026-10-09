@@ -12,8 +12,8 @@ laws! {
     ///
     /// The lattice point laws at a single value (idempotence, the bottom
     /// element), observer coherence (`is_empty`, `concurrent`, `distance`,
-    /// `rank`, `min_ticks`, [`Ranked`]), and the representational round-trips
-    /// (codec, text, byte views).
+    /// `rank`, `min_ticks`, [`Ranked`]), the representational round-trips
+    /// (codec, text, byte views), and the byte hash.
     pub static VERSION_SOLO: (a: &Version);
 
     /// Idempotence: `a | a == a` (the LUB of a value and itself is that value).
@@ -158,6 +158,18 @@ laws! {
     /// is the bit length plus the marker, rounded up to whole bytes.
     fn version_encoded_bits_matches_encode_len {
         a.encode().len() as u64 == (a.encoded_bits() + 1).div_ceil(8)
+    }
+
+    /// `Hash` hashes the canonical bytes, as its documentation states: a
+    /// version's hash is its byte view's hash.
+    ///
+    /// `Eq`/`Hash` coherence alone (`version_eq_implies_hash_eq`) holds for a
+    /// constant hash, which would send every version to one bucket; this law
+    /// ties the hash to the content. [`Ranked`]'s hash is the viewed
+    /// version's (`ranked_carries_own_rank`), so it inherits the same
+    /// derivation.
+    fn version_hash_is_the_byte_hash {
+        hash_of(a) == hash_of(a.as_bytes())
     }
 }
 

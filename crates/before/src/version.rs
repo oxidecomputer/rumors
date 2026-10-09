@@ -148,7 +148,11 @@ impl core::str::FromStr for Version {
     }
 }
 
-/// Hashes the canonical bytes, consistently with `Eq`'s byte compare.
+/// Hashes exactly as its byte view, [`as_bytes`](Version::as_bytes), does.
+///
+/// Under any hasher, a version and its canonical bytes feed the same data,
+/// so they hash equally. This is consistent with `Eq`, which compares those
+/// bytes.
 ///
 /// # Complexity
 ///
