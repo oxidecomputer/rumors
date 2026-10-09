@@ -80,10 +80,8 @@ impl<'a> Span<'a> {
             // its meet and join in one paired walk.
             return a.span(b);
         }
-        let mut lo = self.lo().clone();
-        let mut hi = self.hi().clone();
-        lo &= other.lo();
-        hi |= other.hi();
+        let lo = self.lo().meet(other.lo());
+        let hi = self.hi().join(other.hi());
         // The lower bound only decreased and the upper bound only increased.
         Span::owned(lo, hi)
     }
@@ -161,10 +159,8 @@ impl<'a> Span<'a> {
             // Two points intersect exactly when they are equal.
             return (a == b).then(|| Span::owned(a.clone(), a.clone()));
         }
-        let mut lo = self.lo().clone();
-        let mut hi = self.hi().clone();
-        lo |= other.lo();
-        hi &= other.hi();
+        let lo = self.lo().join(other.lo());
+        let hi = self.hi().meet(other.hi());
         if lo <= hi {
             Some(Span::owned(lo, hi))
         } else {
@@ -256,10 +252,8 @@ impl<'a> Span<'a> {
             let joined = a.join(b);
             return Span::owned(joined.clone(), joined);
         }
-        let mut lo = self.lo().clone();
-        let mut hi = self.hi().clone();
-        lo |= other.lo();
-        hi |= other.hi();
+        let lo = self.lo().join(other.lo());
+        let hi = self.hi().join(other.hi());
         Span::owned(lo, hi)
     }
 
@@ -338,10 +332,8 @@ impl<'a> Span<'a> {
             let met = a.meet(b);
             return Span::owned(met.clone(), met);
         }
-        let mut lo = self.lo().clone();
-        let mut hi = self.hi().clone();
-        lo &= other.lo();
-        hi &= other.hi();
+        let lo = self.lo().meet(other.lo());
+        let hi = self.hi().meet(other.hi());
         Span::owned(lo, hi)
     }
 

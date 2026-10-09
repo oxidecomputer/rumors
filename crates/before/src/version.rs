@@ -30,6 +30,7 @@ pub(crate) mod tick;
 pub use own::OwnVersion;
 
 use crate::{Rank, Ranked};
+use lattice::Extreme;
 
 #[cfg(test)]
 mod tests;
@@ -513,16 +514,7 @@ impl Version {
     /// ```
     #[must_use = "`Version::join` does not modify `self` or `other`; discarding its result means that it has no effect"]
     pub fn join(&self, other: &Version) -> Version {
-        if other.is_empty() {
-            return self.clone();
-        }
-        if self.is_empty() {
-            return other.clone();
-        }
-        if self == other {
-            return self.clone();
-        }
-        lattice::Extreme::Higher.emit(self, other)
+        self.extreme(Extreme::Higher, other)
     }
 
     /// The [`join`](Version::join) of `self` and every version in `iter`.
@@ -561,10 +553,8 @@ impl Version {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(iter), Self::join, |version, other| {
-            *version |= other;
-        })
-        .expect("the fold is seeded with the receiver: never empty")
+        Self::balanced_fold(self.with_items(iter), Extreme::Higher)
+            .expect("the fold is seeded with the receiver: never empty")
     }
 
     /// The meet (greatest lower bound) of this version and `other`: the
@@ -594,16 +584,7 @@ impl Version {
     /// ```
     #[must_use = "`Version::meet` does not modify `self` or `other`; discarding its result means that it has no effect"]
     pub fn meet(&self, other: &Version) -> Version {
-        if self.is_empty() {
-            return self.clone();
-        }
-        if other.is_empty() {
-            return Version::new();
-        }
-        if self == other {
-            return self.clone();
-        }
-        lattice::Extreme::Lower.emit(self, other)
+        self.extreme(Extreme::Lower, other)
     }
 
     /// The [`meet`](Version::meet) (greatest lower bound) of this version and
@@ -646,10 +627,8 @@ impl Version {
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        Self::balanced_fold(self.with_items(iter), Self::meet, |version, other| {
-            *version &= other;
-        })
-        .expect("the fold is seeded with the receiver: never empty")
+        Self::balanced_fold(self.with_items(iter), Extreme::Lower)
+            .expect("the fold is seeded with the receiver: never empty")
     }
 
     /// The causal [`Span`] from this [`Version`] to `other`.
@@ -877,21 +856,19 @@ impl Version {
         crate::shape::Plateaus::of_version(self)
     }
 
-    /// Reduce borrowed or owned versions with a balanced join or meet.
+    /// Reduce borrowed or owned versions to their pointwise `extreme` with a
+    /// balanced fold: the join for [`Extreme::Higher`], the meet for
+    /// [`Extreme::Lower`].
     ///
-    /// Inputs enter without cloning. [`Group`] distinguishes an untouched
-    /// input from an owned intermediate result: `combine` reads two inputs to
-    /// build their first result, while `fold_view` merges into an existing
-    /// result. Empty input returns `None`; one input returns a shared-buffer
-    /// clone so the result is owned.
+    /// [`Group`] distinguishes an untouched input, still in the caller's form,
+    /// from an owned intermediate result. Two untouched inputs combine into a
+    /// new value, and every later combine updates an owned result in place, so
+    /// no input's bytes are copied. Empty input returns `None`; one input
+    /// returns a shared-buffer clone so the result is owned.
     ///
     /// [`DedupRuns`] removes adjacent inputs sharing the same buffer. Join and
     /// meet are idempotent, so retaining one from each run preserves the result.
-    fn balanced_fold<I>(
-        iter: I,
-        combine: fn(&Version, &Version) -> Version,
-        fold_view: fn(&mut Version, &Version),
-    ) -> Option<Version>
+    fn balanced_fold<I>(iter: I, extreme: Extreme) -> Option<Version>
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
@@ -899,18 +876,18 @@ impl Version {
         let inputs = DedupRuns::new(iter.into_iter(), Borrow::borrow);
         let group = crate::fold::balanced_reduce(inputs.map(Group::Input), |a, b| {
             Group::Merged(match (a, b) {
-                (Group::Input(a), Group::Input(b)) => combine(a.borrow(), b.borrow()),
+                (Group::Input(a), Group::Input(b)) => a.borrow().extreme(extreme, b.borrow()),
                 (Group::Merged(mut a), Group::Input(b)) => {
-                    fold_view(&mut a, b.borrow());
+                    a.assign_extreme(extreme, b.borrow());
                     a
                 }
                 (Group::Merged(mut a), Group::Merged(b)) => {
-                    fold_view(&mut a, &b);
+                    a.assign_extreme(extreme, &b);
                     a
                 }
                 // Commutativity lets either operand supply the owned result.
                 (Group::Input(a), Group::Merged(mut b)) => {
-                    fold_view(&mut b, a.borrow());
+                    b.assign_extreme(extreme, a.borrow());
                     b
                 }
             })
@@ -1312,8 +1289,7 @@ impl Default for Version {
 /// Auxiliary space is `O(|iter|)`.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
-        Version::balanced_fold(iter, Version::join, |version, other| *version |= other)
-            .unwrap_or_default()
+        Version::balanced_fold(iter, Extreme::Higher).unwrap_or_default()
     }
 }
 
@@ -1330,8 +1306,7 @@ impl Sum<Version> for Version {
 /// Auxiliary space is `O(|iter|)`.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
-        Version::balanced_fold(iter, Version::join, |version, other| *version |= other)
-            .unwrap_or_default()
+        Version::balanced_fold(iter, Extreme::Higher).unwrap_or_default()
     }
 }
 
@@ -1378,32 +1353,35 @@ impl Debug for Version {
 
 // The join (`|`, `|=`) and meet (`&`, `&=`) matrices over owned and borrowed
 // `Version` operands, duals of each other, mirroring the comparison matrix
-// below. The `binop_matrix!` macro generates every cell of both families: four
-// value-operator cells (lhs × rhs over {Version, &Version}) and two assign
-// cells (rhs over {Version, &Version}).
+// below. Each family has four value-operator cells (lhs × rhs over {Version,
+// &Version}) and two assign cells (rhs over {Version, &Version}).
 //
-// A value-operator cell turns its left operand into a fresh owned `Version`
-// (`own` moves an owned `Version`, `clone` copies a borrowed one), then folds
-// the right operand's view into it. An assign cell folds an owned right operand
-// into the receiver. Every cell delegates to the borrowed assignment operator,
-// which is the single implementation of each operator family.
+// Every cell delegates to `Outcome::of`, which holds the one short-circuit
+// ladder and the one call into the lattice kernel for both families, as do the
+// named methods `Version::join` and `Version::meet` and the balanced folds
+// (`Version::balanced_fold`). A cell with an owned left operand updates it in
+// place through `Version::assign_extreme`: the assign cells and the `own` value
+// cells, which move their left operand. A cell with a borrowed left operand
+// (`read`) builds a new value through `Version::extreme`. The borrowed assign
+// cell (`Version |= &Version`, `Version &= &Version`) is written out by hand;
+// the `binop_matrix!` macro generates the rest.
 
-/// Generates one binary-operator family's full matrix over owned and borrowed
-/// `Version` operands.
+/// Generates one binary-operator family's cells over owned and borrowed
+/// `Version` operands, apart from the hand-written borrowed assignment.
 ///
-/// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`) and
-/// its assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`).
-/// Each strategy — `own`/`clone` for value cells and `assign` for an owned
-/// right-hand side — has its own `@cell` arm so the receiver `self` is written
-/// in the same expansion as the method it belongs to (`self` cannot cross a
-/// macro-invocation boundary).
+/// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
+/// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and
+/// the family's pointwise [`Extreme`]. Each strategy — `own`/`read` for value
+/// cells and `assign` for an owned right-hand side — has its own `@cell` arm so
+/// the receiver `self` is written in the same expansion as the method it
+/// belongs to (`self` cannot cross a macro-invocation boundary).
 macro_rules! binop_matrix {
-    ($island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident;
+    ($island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident;
      $($lhs:ty, $rhs:ty, $strat:tt);* $(;)?
     ) => {
-        $( binop_matrix!(@cell $island, $contract, $opdoc, $Op::$op, $Assign::$assign, $lhs, $rhs, $strat); )*
+        $( binop_matrix!(@cell $island, $contract, $opdoc, $Op::$op, $Assign::$assign, $extreme, $lhs, $rhs, $strat); )*
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $lhs:ty, $rhs:ty, own) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, own) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
@@ -1419,7 +1397,7 @@ macro_rules! binop_matrix {
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $lhs:ty, $rhs:ty, clone) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, read) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
@@ -1429,13 +1407,11 @@ macro_rules! binop_matrix {
         impl $Op<$rhs> for $lhs {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
-                let mut out: Version = self.clone();
-                $Assign::$assign(&mut out, r.borrow());
-                out
+                self.extreme(Extreme::$extreme, r.borrow())
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $lhs:ty, $rhs:ty, assign) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, assign) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
@@ -1456,17 +1432,7 @@ macro_rules! binop_matrix {
 /// the joined version directly from the two inputs.
 impl BitOrAssign<&Version> for Version {
     fn bitor_assign(&mut self, incoming: &Version) {
-        if incoming.is_empty() {
-            return;
-        }
-        if self.is_empty() {
-            *self = incoming.clone();
-            return;
-        }
-        if self == incoming {
-            return;
-        }
-        *self = lattice::Extreme::Higher.emit(self, incoming);
+        self.assign_extreme(Extreme::Higher, incoming);
     }
 }
 
@@ -1476,31 +1442,22 @@ impl BitOrAssign<&Version> for Version {
 /// the met version directly from the two inputs.
 impl BitAndAssign<&Version> for Version {
     fn bitand_assign(&mut self, incoming: &Version) {
-        if self.is_empty() {
-            return;
-        }
-        if incoming.is_empty() {
-            *self = Version::new();
-            return;
-        }
-        if self == incoming {
-            return;
-        }
-        *self = lattice::Extreme::Lower.emit(self, incoming);
+        self.assign_extreme(Extreme::Lower, incoming);
     }
 }
 
-// The remaining join (`|`, `|=`) cells delegate to borrowed assignment.
+// The remaining join (`|`, `|=`) cells.
 binop_matrix! {
     "version_join",
     "`O(n)` in total input bytes; `O(|self| + |other|)`",
     "`a | b` and `a |= b`: the causal join, the operator matrix of [`Version::join`] over owned and borrowed operands.",
-    BitOr::bitor, BitOrAssign::bitor_assign;
-    // value operator: left operand becomes a fresh owned `Version`
+    BitOr::bitor, BitOrAssign::bitor_assign, Higher;
+    // value operator: an owned left operand is updated in place, a borrowed
+    // one is read to build a new value
     Version,  Version,  own;
     Version,  &Version, own;
-    &Version, Version,  clone;
-    &Version, &Version, clone;
+    &Version, Version,  read;
+    &Version, &Version, read;
     // assign: right operand folded into the left operand in place
     Version,  Version,  assign;
 }
@@ -1510,14 +1467,80 @@ binop_matrix! {
     "version_meet",
     "`O(n)` in total input bytes; `O(|self| + |other|)`",
     "`a & b` and `a &= b`: the causal meet, the operator matrix of [`Version::meet`] over owned and borrowed operands.",
-    BitAnd::bitand, BitAndAssign::bitand_assign;
-    // value operator: left operand becomes a fresh owned `Version`
+    BitAnd::bitand, BitAndAssign::bitand_assign, Lower;
+    // value operator: an owned left operand is updated in place, a borrowed
+    // one is read to build a new value
     Version,  Version,  own;
     Version,  &Version, own;
-    &Version, Version,  clone;
-    &Version, &Version, clone;
+    &Version, Version,  read;
+    &Version, &Version, read;
     // assign: right operand folded into the left operand in place
     Version,  Version,  assign;
+}
+
+/// The pointwise extreme of two versions, named by the existing buffer it can
+/// reuse.
+///
+/// [`Outcome::of`] holds the one short-circuit ladder of the join and the meet,
+/// and their one call into the lattice kernel. Every join and meet entry point
+/// maps the outcome to its result, cloning an operand only when the result *is*
+/// that operand. That rule matters for allocation, not only for time: a buffer
+/// adopted from an exactly filled `Vec` allocates its shared reference count on
+/// its first clone, so a clone taken before the ladder would allocate even on
+/// paths that discard it.
+enum Outcome {
+    /// The result is the left operand.
+    Left,
+    /// The result is the right operand.
+    Right,
+    /// The result is the empty version, built as [`Version::new`]'s static
+    /// buffer rather than shared with the right operand.
+    Empty,
+    /// The result is a new version the kernel emitted.
+    Emitted(Version),
+}
+
+impl Outcome {
+    /// Decide the pointwise `extreme` of `lhs` and `rhs`, running the kernel
+    /// only when neither operand is already the result.
+    ///
+    /// [`Extreme::Higher`] is the join and [`Extreme::Lower`] the meet. The
+    /// empty version is the join's identity and the meet's absorbing element,
+    /// and both operations are idempotent, so only distinct nonempty operands
+    /// reach the kernel.
+    fn of(extreme: Extreme, lhs: &Version, rhs: &Version) -> Outcome {
+        match (extreme, lhs.is_empty(), rhs.is_empty()) {
+            (Extreme::Higher, _, true) | (Extreme::Lower, true, _) => Outcome::Left,
+            (Extreme::Higher, true, false) => Outcome::Right,
+            (Extreme::Lower, false, true) => Outcome::Empty,
+            (_, false, false) if lhs == rhs => Outcome::Left,
+            (_, false, false) => Outcome::Emitted(extreme.emit(lhs, rhs)),
+        }
+    }
+}
+
+impl Version {
+    /// Return the pointwise `extreme` of `self` and `other` as a new value,
+    /// sharing an operand's buffer when that operand is the result.
+    fn extreme(&self, extreme: Extreme, other: &Version) -> Version {
+        match Outcome::of(extreme, self, other) {
+            Outcome::Left => self.clone(),
+            Outcome::Right => other.clone(),
+            Outcome::Empty => Version::new(),
+            Outcome::Emitted(version) => version,
+        }
+    }
+
+    /// Replace `self` with the pointwise `extreme` of `self` and `other`,
+    /// leaving it untouched when it is already the result.
+    fn assign_extreme(&mut self, extreme: Extreme, other: &Version) {
+        match Outcome::of(extreme, self, other) {
+            Outcome::Left => {}
+            Outcome::Right => *self = other.clone(),
+            Outcome::Empty => *self = Version::new(),
+            Outcome::Emitted(version) => *self = version,
+        }
+    }
 }
 
 // ───────────────────────── the pair hull (`^`) ─────────────────────────
