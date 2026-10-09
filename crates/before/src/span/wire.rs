@@ -128,18 +128,10 @@ impl<'a> Span<'a> {
     /// Validates an owned canonical encoding and shares its storage between
     /// the endpoints.
     pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Span<'static>, Decode> {
-        // A version tree is self-delimiting at the bit level. Validate the
-        // first tree, then include its marker and padding to find the byte at
-        // which the upper endpoint starts.
-        let lo_end = validate::prefix(BitsReader::from_bytes(&buf))?;
-        let lo_bytes = (lo_end + 1).div_ceil(8);
-        if lo_bytes > buf.len() as u64 {
-            return Err(Decode::Truncated);
-        }
-        let lo_bytes = usize::try_from(lo_bytes)
-            .expect("the lower endpoint ends within the owned input buffer");
-        Bits::validate_padding(&buf[..lo_bytes], lo_end)?;
-        let lo = Version::from_canonical(Bits::from_canonical(buf.slice(..lo_bytes)));
+        // A version encoding is self-delimiting and byte-aligned, so the
+        // lower endpoint's encoding ends at the byte where the upper
+        // endpoint's begins.
+        let (lo, lo_bytes) = Version::decode_prefix(&buf)?;
 
         // The lower endpoint is now known to be canonical. That lets the
         // admission walk validate the upper endpoint while deciding whether it

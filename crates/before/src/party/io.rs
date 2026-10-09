@@ -25,16 +25,10 @@ impl Party {
     /// its allocation with `bytes`.
     pub(crate) fn decode_prefix(bytes: &bytes::Bytes) -> Result<(Self, usize), Decode> {
         let end = validate::prefix(BitsReader::from_bytes(bytes))?;
-        let encoded_bytes = (end + 1).div_ceil(8);
-        if encoded_bytes > bytes.len() as u64 {
-            return Err(Decode::Truncated);
-        }
-        let encoded_bytes =
-            usize::try_from(encoded_bytes).expect("the Party prefix ends within the input buffer");
-        Bits::validate_padding(&bytes[..encoded_bytes], end)?;
+        let len = Bits::padded_len(bytes, end)?;
         Ok((
-            Self::from_canonical(Bits::from_canonical(bytes.slice(..encoded_bytes))),
-            encoded_bytes,
+            Self::from_canonical(Bits::from_canonical(bytes.slice(..len))),
+            len,
         ))
     }
 

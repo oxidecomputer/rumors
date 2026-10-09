@@ -32,6 +32,21 @@ impl Version {
         Ok(Self::from_canonical(Bits::from_canonical(bytes)))
     }
 
+    /// Validate and adopt the first byte-aligned Version in `bytes`.
+    ///
+    /// The returned byte count starts the next encoded field. The Version
+    /// shares its allocation with `bytes`.
+    pub(crate) fn decode_prefix(
+        bytes: &bytes::Bytes,
+    ) -> Result<(Self, usize), crate::error::Decode> {
+        let end = validate::prefix(BitsReader::from_bytes(bytes))?;
+        let len = Bits::padded_len(bytes, end)?;
+        Ok((
+            Self::from_canonical(Bits::from_canonical(bytes.slice(..len))),
+            len,
+        ))
+    }
+
     /// Adopt a test-built stream without validating the Version invariants.
     #[cfg(test)]
     pub(crate) fn from_test_bits(bits: BitsWriter) -> Self {

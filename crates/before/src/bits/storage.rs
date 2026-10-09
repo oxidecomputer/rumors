@@ -127,6 +127,31 @@ impl Bits {
         }
     }
 
+    /// Validate the marker and padding of a value at the head of `bytes`, and
+    /// return the value's padded byte length.
+    ///
+    /// `end` is the bit position where the value's live bits end, as a
+    /// validator of the self-delimiting value reports it. The marker bit sits
+    /// at `end` and zero padding runs to the next byte boundary, so the value
+    /// occupies the first `(end + 1).div_ceil(8)` bytes. Any bytes after them
+    /// belong to the next encoded field.
+    ///
+    /// # Errors
+    ///
+    /// [`Decode::Truncated`] if `bytes` ends before the byte that holds the
+    /// marker; [`Decode::TrailingBits`] if the marker or padding is malformed.
+    pub(crate) fn padded_len(bytes: &[u8], end: u64) -> Result<usize, Decode> {
+        match usize::try_from((end + 1).div_ceil(8)) {
+            Ok(len) if len <= bytes.len() => {
+                Self::validate_padding(&bytes[..len], end)?;
+                Ok(len)
+            }
+            // A length past the buffer, including one no `usize` can hold,
+            // means the marker's byte is missing.
+            _ => Err(Decode::Truncated),
+        }
+    }
+
     /// Consume unique test storage and report its retained allocation.
     #[cfg(test)]
     pub(crate) fn allocation_capacity(self) -> usize {

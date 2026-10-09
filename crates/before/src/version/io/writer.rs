@@ -241,8 +241,18 @@ impl SplitOutput {
 
     /// Separate an interleaved continuation while copying it.
     ///
-    /// `end` may stop immediately before the continuation's final leaf flag
-    /// when that leaf has a narrow payload held outside the output.
+    /// The range from `start` is a sequence of whole leaf units, each a run of
+    /// internal-node flags, a leaf flag, and the leaf's payload. `end` is a
+    /// unit boundary: the continuation's end, or its final leaf's flag when
+    /// that leaf's narrow payload is held outside the output. The copied
+    /// subtree holds more than one leaf, so its final leaf is a right child,
+    /// and that leaf's flag immediately follows the previous leaf's payload
+    /// with no internal-node flag between them. The copy therefore stops
+    /// exactly at `end`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `end` falls inside a unit.
     fn splice_continuation(&mut self, src: &Bits, start: u64, end: u64) {
         let mut cursor = BitsReader::at(src, start);
         while cursor.position() < end {
@@ -252,10 +262,6 @@ impl SplitOutput {
             for _ in 0..internal_nodes {
                 self.topology.push(false);
             }
-            if cursor.position() > end {
-                debug_assert_eq!(cursor.position() - 1, end);
-                return;
-            }
             self.topology.push(true);
             let code_start = cursor.position();
             cursor
@@ -263,7 +269,7 @@ impl SplitOutput {
                 .expect("a canonical continuation has a complete payload");
             assert!(
                 cursor.position() <= end,
-                "a continuation ends at a payload boundary"
+                "the copied range ends at a unit boundary"
             );
             self.payloads.splice(src, code_start, cursor.position());
         }
@@ -350,6 +356,7 @@ impl PayloadWriter<'_> {
             self.push_bits(0, u64::BITS);
             len -= u64::from(u64::BITS);
         }
+        // The loop leaves fewer than 64 bits, so the narrowing is exact.
         self.push_bits(0, len as u32);
     }
 
@@ -567,6 +574,9 @@ impl VersionWriter {
             .expect("the subtree's first leaf was supplied");
         self.out.flush(&first);
         if last_code_len <= NARROW_CODE_BITS {
+            // The subtree holds more than one leaf, so `last_flag` is a unit
+            // boundary: the final leaf's flag directly follows the previous
+            // leaf's payload.
             self.out.splice_continuation(bits, start, last_flag);
             let mut payload = BitsReader::at(bits, last_flag + 1);
             self.pending = Some(PendingPayload::Narrow {
