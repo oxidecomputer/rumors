@@ -105,8 +105,15 @@ fn version_decode_crosses_the_usize_position_boundary() {
 /// Causal comparison can traverse a stored payload whose final bit position
 /// does not fit `usize`.
 ///
-/// Narrowing a cursor position before dividing it into a byte index would wrap
-/// the second input and misorder it against the smaller version.
+/// The comparison walk finishes an operand when its cursor reaches the
+/// operand's live length. At the upper witness that length is exactly `2^32`
+/// bits, so a 32-bit `usize` would hold it as zero: the walk would miss the
+/// end of the stream and advance past the final leaf, which panics.
+///
+/// This pin cannot catch a starting position narrowed before it becomes a
+/// byte index. The walk opens each operand at its first bit and reads
+/// forward, so the only starting position it converts into a byte index is
+/// zero, however large the operands.
 #[test]
 fn version_compare_crosses_the_usize_position_boundary() {
     for size in [FIRST_WIDE_VERSION_BYTES - 1, FIRST_WIDE_VERSION_BYTES] {
