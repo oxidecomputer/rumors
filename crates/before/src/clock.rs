@@ -262,8 +262,9 @@ impl Clock {
     /// # Errors
     ///
     /// Returns every input region and version not absorbed into `self`, without
-    /// dropping either. Returned clocks may be unions of inputs. Once an
-    /// overlap is found, later inputs may be returned without being tested.
+    /// dropping either or duplicating any region. Returned clocks may be unions
+    /// of the original inputs. Once an overlap is found, later inputs may be
+    /// returned without being tested.
     ///
     /// [`Clock`]s used linearly from one [`Clock::seed`] remain pairwise
     /// disjoint. An error therefore indicates aliased clocks or clocks from

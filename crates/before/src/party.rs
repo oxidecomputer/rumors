@@ -387,9 +387,9 @@ impl Party {
     ///
     /// # Errors
     ///
-    /// Returns every input region not absorbed into `self`, without dropping
-    /// any region. Returned parties may be unions of inputs. Once an overlap is
-    /// found, later inputs may be returned without being tested.
+    /// Returns every input region not absorbed into `self`, without dropping or
+    /// duplicating any region. Returned parties may be unions of inputs. Once
+    /// an overlap is found, later inputs may be returned without being tested.
     ///
     /// [`Party`]s used linearly from one [`Party::seed`] remain pairwise
     /// disjoint. An error therefore indicates aliased parties or parties from

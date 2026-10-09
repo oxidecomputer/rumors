@@ -15,7 +15,8 @@ use crate::{Clock, Party, Version};
 /// clocks.
 ///
 /// Disjoint, independently advanced forks produce the same clock. A duplicated
-/// region produces an error without losing any region or version.
+/// region produces an error without losing any region or version, and without
+/// returning any region twice.
 #[test]
 fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
     let population = |duplicate: bool| {
@@ -51,6 +52,13 @@ fn oracle_clock_union(
 }
 
 /// Compare `join_all` with both independent semantic models.
+///
+/// All three implementations must agree on success. On failure, each model
+/// must conserve the complete region and the joined version. Production must
+/// also conserve multiplicity: every point is owned as many times across the
+/// final receiver and returned clocks as across the initial receiver and
+/// inputs, so no region is lost or comes back twice. Versions need no such
+/// count, because joining a version twice changes nothing.
 fn assert_join_all_matches_all_models(mut acc: Clock, inputs: Vec<Clock>) {
     let lift = |c: &Clock| {
         let (p, v) = to_oracle_clock(c);
@@ -58,6 +66,10 @@ fn assert_join_all_matches_all_models(mut acc: Clock, inputs: Vec<Clock>) {
     };
     let initial = lift(&acc);
     let oracle_inputs: Vec<tree::Clock> = inputs.iter().map(lift).collect();
+    let received: Vec<tree::Party> = std::iter::once(&initial)
+        .chain(&oracle_inputs)
+        .map(|clock| clock.party().clone())
+        .collect();
     let expected = oracle_clock_union(
         std::iter::once(initial.clone().into_parts())
             .chain(oracle_inputs.iter().cloned().map(tree::Clock::into_parts)),
@@ -117,10 +129,18 @@ fn assert_join_all_matches_all_models(mut acc: Clock, inputs: Vec<Clock>) {
             );
         }
         (Err(rejected), Err(recursive_rejected), Err(function_rejected)) => {
-            let actual = oracle_clock_union(
-                std::iter::once(to_oracle_clock(&acc)).chain(rejected.iter().map(to_oracle_clock)),
-            );
+            let held: Vec<(tree::Party, tree::Version)> = std::iter::once(to_oracle_clock(&acc))
+                .chain(rejected.iter().map(to_oracle_clock))
+                .collect();
+            let actual = oracle_clock_union(held.iter().cloned());
             assert_eq!(actual, expected, "join_all lost a region or version");
+            assert!(
+                tree::Party::same_multiplicity(
+                    &received.iter().collect::<Vec<_>>(),
+                    &held.iter().map(|(party, _)| party).collect::<Vec<_>>(),
+                ),
+                "join_all returned a region more or fewer times than it received it",
+            );
             let recursive_actual = oracle_clock_union(
                 std::iter::once(recursive_acc.into_parts())
                     .chain(recursive_rejected.into_iter().map(tree::Clock::into_parts)),
@@ -165,7 +185,8 @@ fn assert_join_all_matches_all_models(mut acc: Clock, inputs: Vec<Clock>) {
 
 proptest! {
     /// Clock `join_all` matches both independent models, including the clocks
-    /// returned after overlap.
+    /// returned after overlap, and production conserves how many times each
+    /// point is owned.
     #[test]
     fn clock_join_all_matches_all_models(
         (oacc, oracle_inputs) in arb_clock_family(),

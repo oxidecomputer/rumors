@@ -764,6 +764,39 @@ proptest! {
     }
 }
 
+// ───────────────────────────── party multiplicity (`same_multiplicity`) ─────────────────────────────
+
+proptest! {
+    /// `same_multiplicity` compares each point's owner count, not a summary of
+    /// the counts.
+    ///
+    /// Replacing a party by its two fork halves keeps every point's owner
+    /// count, even where `q` overlaps it, and must be accepted. Each rejected
+    /// family differs from the original only where a weaker comparison is
+    /// blind: one extra copy of a nonempty party leaves the union unchanged;
+    /// two extra copies also leave the parity of every count unchanged; and
+    /// moving one copy between two disjoint regions of equal measure leaves
+    /// the union and the total measure unchanged.
+    #[test]
+    fn same_multiplicity_counts_owners_pointwise(
+        p in arb_oracle_party_nonempty(),
+        q in arb_oracle_party(),
+    ) {
+        let mut keep = p.clone();
+        let give = keep.fork(); // p == keep ⊔ give, disjoint
+        prop_assert!(Party::same_multiplicity(&[&p, &q], &[&q, &give, &keep]));
+        prop_assert!(!Party::same_multiplicity(&[&p, &q], &[&p, &q, &p]));
+        prop_assert!(!Party::same_multiplicity(&[&p, &q], &[&p, &q, &p, &p]));
+        // `p` scaled into each half of the interval: disjoint, equal measure.
+        let left = Party::node(p.clone(), Party::Leaf(false));
+        let right = Party::node(Party::Leaf(false), p.clone());
+        prop_assert!(!Party::same_multiplicity(
+            &[&left, &left, &right, &q],
+            &[&left, &right, &right, &q],
+        ));
+    }
+}
+
 // ───────────────────────────── version projection (`/`) ─────────────────────────────
 
 proptest! {
