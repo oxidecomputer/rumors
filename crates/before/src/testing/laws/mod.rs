@@ -249,6 +249,60 @@ fn size_hints_are_exact<I: Iterator>(mut iter: I, len: usize) -> bool {
     iter.size_hint() == (0, Some(0)) && iter.next().is_none()
 }
 
+/// Tests whether two families of parties own every point equally often.
+///
+/// A point's *multiplicity* in a family is the number of the family's parties
+/// that own it. The families agree when every point of `[0, 1)` has the same
+/// multiplicity in `lhs` as in `rhs`. Comparing unions cannot see a region that
+/// one family holds twice; this comparison can.
+///
+/// The tree oracle's test-only `same_multiplicity` states the same comparison
+/// over oracle trees. This one uses only the public API, so laws can apply it
+/// wherever they run, the fuzz targets included; a test in this module's suite
+/// checks that the two agree.
+fn same_multiplicity(lhs: &[&Party], rhs: &[&Party]) -> bool {
+    match (owner_layers(lhs), owner_layers(rhs)) {
+        (Some(lhs), Some(rhs)) => lhs == rhs,
+        _ => false,
+    }
+}
+
+/// Sorts a family's ownership into nested layers: layer `k`, counting from
+/// zero, holds exactly the points that more than `k` of the family's parties
+/// own.
+///
+/// A point's multiplicity is the number of layers that hold it, so two families
+/// have equal multiplicities everywhere exactly when their layers are equal.
+/// Adding a party raises the multiplicity of each of its points by one, so it
+/// visits the layers from the bottom: its points missing from a layer join that
+/// layer, and its points already there go on to the next. Points that pass the
+/// top layer start a new one.
+///
+/// Returns `None` if joining a remainder into its layer fails. A correct
+/// `without` makes that impossible, because the remainder is disjoint from the
+/// layer by construction.
+fn owner_layers(family: &[&Party]) -> Option<Vec<Party>> {
+    let mut layers: Vec<Party> = Vec::new();
+    for party in family {
+        let mut carry = Some(party.dangerously_alias());
+        for layer in &mut layers {
+            let Some(incoming) = carry.take() else { break };
+            match incoming.dangerously_alias().without(layer) {
+                // All of `incoming` is already in this layer, so all of it moves up.
+                None => carry = Some(incoming),
+                Some(fresh) => {
+                    carry = incoming.without(&fresh);
+                    layer.join(fresh).ok()?;
+                }
+            }
+        }
+        if let Some(top) = carry {
+            layers.push(top);
+        }
+    }
+    Some(layers)
+}
+
 mod clock;
 mod party;
 mod rank;
