@@ -169,14 +169,15 @@ fn rank_arithmetic_crosses_the_usize_gap_boundary() {
 /// required buffer length cannot fit wasm32's `usize`, with the documented
 /// panic rather than an allocation failure.
 ///
-/// The cases cover a limb stream after leading zero limbs, a shifted stored
-/// accumulator, a contribution at the last index, and a limb stream longer
-/// than `usize::MAX` limbs, whose landing position must not come from a
-/// wrapped limb counter. Wrapping any landing would return normally after
-/// writing near the start of the buffer.
+/// Together the cases reach every internal path by which a shifted
+/// contribution can land past the addressable digits, and the guest names
+/// each case's path beside it. The cases enter through the adding methods
+/// and `<<=`; the subtracting methods and `<<` reach the same paths. In each
+/// case, wrapping or narrowing the landing position would return normally
+/// after writing near the start of the buffer.
 #[test]
 fn suanpan_rejects_unaddressable_digit_landings() {
-    for case in 1..=4 {
+    for case in 1..=6 {
         assert_panics(Check::SuanpanLanding, case, 0, UNADDRESSABLE_LANDING);
     }
 }
