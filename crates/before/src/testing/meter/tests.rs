@@ -18,7 +18,7 @@ use super::{
     plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole, scattered_id,
     seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole, tooth_tail,
     weight_comb, wide_arming, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS,
-    PROMOTION_REARM_ARM_BITS,
+    MIN_DEFERRED_ARMING_DIGITS, PROMOTION_REARM_ARM_BITS,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -673,7 +673,7 @@ proptest! {
     /// generator's stored-base sum.
     #[test]
     fn wide_arming_decodes_canonically_at_predicted_length(
-        w in prop_oneof![10usize..=40, Just(64usize)],
+        w in prop_oneof![MIN_DEFERRED_ARMING_DIGITS..=40, Just(64usize)],
         d in 1usize..=32,
     ) {
         check_version(&wide_arming(w, d), 134 * d + 64 * w + 2 * FREEZE_DRIFT_BITS + 24);
@@ -693,7 +693,7 @@ proptest! {
     /// changing the tail leaves its minimum tick count unchanged.
     #[test]
     fn hoisted_window_decodes_canonically_at_predicted_length(
-        w in 10usize..=24,
+        w in MIN_DEFERRED_ARMING_DIGITS..=32,
         d in 1usize..=16,
         extra_tail in 0usize..=512,
     ) {
@@ -720,7 +720,7 @@ proptest! {
     /// Extending a hoisted window's tail cannot increase its rank.
     #[test]
     fn deeper_hoisted_window_has_no_greater_rank(
-        w in 10usize..=20,
+        w in MIN_DEFERRED_ARMING_DIGITS..=28,
         d in 1usize..=12,
         extra_tail in 0usize..=256,
         extension in 1usize..=256,

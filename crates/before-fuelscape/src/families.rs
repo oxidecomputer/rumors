@@ -12,7 +12,7 @@
 //! measure as the cloud's (total encoded input bytes).
 
 use before::testing::meter::registry::Shape;
-use before::testing::meter::Encoding;
+use before::testing::meter::{Encoding, MIN_DEFERRED_ARMING_DIGITS};
 use before::{Party, Version};
 
 use crate::ops::{Inputs, OpSpec, Operand};
@@ -123,7 +123,9 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
                 Some(vec![version_bytes(&Shape::Hugeleaf.build1(8 * t))])
             }));
             out.extend(ramp("wide_arming", max_bytes, |t| {
-                Some(vec![version_bytes(&Shape::WideArming.build2(10, t))])
+                Some(vec![version_bytes(
+                    &Shape::WideArming.build2(MIN_DEFERRED_ARMING_DIGITS, t),
+                )])
             }));
             out.extend(ramp("dense_suffix", max_bytes, |t| {
                 Some(vec![version_bytes(&Shape::DenseSuffix.build2(t, t))])
@@ -153,7 +155,7 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
             }));
             out.extend(ramp("wide_arming × empty", max_bytes, |t| {
                 Some(vec![
-                    version_bytes(&Shape::WideArming.build2(10, t)),
+                    version_bytes(&Shape::WideArming.build2(MIN_DEFERRED_ARMING_DIGITS, t)),
                     Version::new().encode(),
                 ])
             }));

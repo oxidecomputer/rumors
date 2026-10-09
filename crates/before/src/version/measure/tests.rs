@@ -17,7 +17,7 @@ use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_ver
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
 use crate::testing::generators::arb_oracle_version;
 use crate::testing::meter::registry::Shape;
-use crate::testing::meter::Encoding;
+use crate::testing::meter::{Encoding, MIN_DEFERRED_ARMING_DIGITS};
 use crate::testing::optrace;
 use crate::testing::oracles::function;
 use crate::{Clock, Party, Rank, Version};
@@ -208,8 +208,8 @@ fn deferral_pool() -> Vec<Version> {
         version_of(&Shape::DenseSuffix.build2(1, 2)),
         version_of(&Shape::DenseSuffix.build2(3, 1)),
         version_of(&Shape::DenseSuffixMate.build2(3, 1)),
-        version_of(&Shape::WideArming.build2(10, 2)),
-        version_of(&Shape::WideArming.build2(13, 3)),
+        version_of(&Shape::WideArming.build2(MIN_DEFERRED_ARMING_DIGITS, 2)),
+        version_of(&Shape::WideArming.build2(MIN_DEFERRED_ARMING_DIGITS + 3, 3)),
         version_of(&Shape::FreezePosition.build1(3)),
         version_of(&Shape::PlateauPuncture.build2(10, 3)),
         version_of(&Shape::PlateauPuncture.build2(12, 1)),
@@ -426,92 +426,119 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
     );
 }
 
-/// Count the freezes the rank integral fires while `measure` runs.
-fn freezes_during(measure: impl FnOnce()) -> u64 {
-    let before = super::integral::FREEZE_HITS.with(|hits| hits.get());
+/// Count the freezes and the deferrals the integral fires while `measure` runs.
+fn freezes_and_deferrals_during(measure: impl FnOnce()) -> (u64, u64) {
+    let read = || {
+        (
+            super::integral::FREEZE_HITS.with(|hits| hits.get()),
+            super::integral::DEFERRAL_HITS.with(|hits| hits.get()),
+        )
+    };
+    let (freezes, deferrals) = read();
     measure();
-    super::integral::FREEZE_HITS.with(|hits| hits.get()) - before
+    let (freezes_after, deferrals_after) = read();
+    (freezes_after - freezes, deferrals_after - deferrals)
 }
 
 /// Every meter family built to fire the integral's freeze fires exactly the
-/// freezes its layout implies.
+/// freezes and deferrals its layout implies.
 ///
-/// A family that stops freezing still passes its value pins and its cost
-/// ceilings, while measuring a cheaper regime than its band claims, so each
-/// count is asserted here by name. The wide drifts are
-/// [`FREEZE_DRIFT_BITS`](crate::testing::meter::FREEZE_DRIFT_BITS) or wider,
-/// so they trip the trigger in every stored form, and no compaction of `live`
-/// can lower a count. Per family:
+/// A family that stops freezing or deferring still passes its value pins and
+/// its cost ceilings, while measuring a cheaper regime than its band claims, so
+/// each count is asserted here by name. The wide drifts are
+/// [`FREEZE_DRIFT_BITS`](crate::testing::meter::FREEZE_DRIFT_BITS) or wider, so
+/// they trip the trigger in every stored form, and no compaction of `live` can
+/// lower a count. The armings that must defer are
+/// [`MIN_DEFERRED_ARMING_DIGITS`] or wider, so the freeze that follows them
+/// defers them in every stored form. A deferral needs a parked component wider
+/// than the incoming drift by more than the freeze allowance, so families
+/// without such an arming defer nothing. Per family, freezes and then
+/// deferrals:
 ///
-/// - `LF(pre, post)`: one, at the unit after the plateau drop.
-/// - `FP(k)`: `k − 1`; the first block's drop lies in the opening height.
-/// - `FZ(k)`: `k − 1`, one per cross-pair code.
-/// - `PR(p)`: `2p`, each block's arming and settling freezes.
-/// - `DS(p, d)`: `2p + 1`, the blocks' freezes and one where the trailing run
-///   follows the descent.
-/// - `WA(w, d)` and `HW(w, d, t)`: three, the arming, the settle, and the
-///   descent.
-/// - `AT(n, ..)`: `2n + 1`, each block's swing and kicker, and the closing
-///   plunge.
-/// - `PP(w, d)`: one, at the plunge.
-/// - `JP(k, m, d)` under `distance`: `2m`, two crests per comb level.
+/// - `LF(pre, post)`: one freeze, at the unit after the plateau drop. No
+///   deferral: the only freeze has no parked height before it.
+/// - `FP(k)`: `k − 1` freezes; the first block's drop lies in the opening
+///   height. No deferral: every parked drop is as wide as the next drift.
+/// - `FZ(k)`: `k − 1` freezes, one per cross-pair code, and no deferral.
+/// - `PR(p)`: `2p` freezes, each block's arming and settling freezes, and `p`
+///   deferrals, each block's settling freeze deferring its arming.
+/// - `DS(p, d)`: `2p + 1` freezes, the blocks' freezes and one where the
+///   trailing run follows the descent, and `p` deferrals, as for `PR(p)`.
+/// - `WA(w, d)` and `HW(w, d, t)`: three freezes, the arming, the settle, and
+///   the descent, and one deferral, the settle's freeze deferring the arming.
+/// - `AT(n, ..)`: `2n + 1` freezes, each block's swing and kicker, and the
+///   closing plunge, and `n` deferrals, each kicker's freeze deferring its
+///   swing.
+/// - `PP(w, d)`: one freeze, at the plunge, and no deferral.
+/// - `JP(k, m, d)` under `distance`: `2m` freezes, two crests per comb level,
+///   and no deferral: no parked crest outspans the drift that follows it by
+///   the allowance.
 #[test]
 fn freeze_families_fire_their_freezes() {
-    let rank_freezes = |encoded: Encoding| {
+    let rank_counts = |encoded: Encoding| {
         let version = version_of(&encoded);
-        freezes_during(|| {
+        freezes_and_deferrals_during(|| {
             version.rank();
         })
     };
-    let cases: [(&str, Encoding, u64); 18] = [
-        ("LF(2, 2)", Shape::LoneFreeze.build2(2, 2), 1),
-        ("LF(6, 2)", Shape::LoneFreeze.build2(6, 2), 1),
-        ("LF(2, 64)", Shape::LoneFreeze.build2(2, 64), 1),
-        ("FP(1)", Shape::FreezePosition.build1(1), 0),
-        ("FP(3)", Shape::FreezePosition.build1(3), 2),
-        ("FP(8)", Shape::FreezePosition.build1(8), 7),
-        ("FZ(1)", Shape::FreezeParade.build1(1), 0),
-        ("FZ(4)", Shape::FreezeParade.build1(4), 3),
-        ("PR(1)", Shape::PromotionRearm.build1(1), 2),
-        ("PR(3)", Shape::PromotionRearm.build1(3), 6),
-        ("DS(1, 2)", Shape::DenseSuffix.build2(1, 2), 3),
-        ("DS(3, 1)", Shape::DenseSuffix.build2(3, 1), 7),
-        ("WA(10, 2)", Shape::WideArming.build2(10, 2), 3),
-        ("HW(10, 1, 384)", Shape::HoistedWindow.build3(10, 1, 384), 3),
-        ("PP(10, 3)", Shape::PlateauPuncture.build2(10, 3), 1),
+    let w = MIN_DEFERRED_ARMING_DIGITS;
+    let cases: [(&str, Encoding, (u64, u64)); 18] = [
+        ("LF(2, 2)", Shape::LoneFreeze.build2(2, 2), (1, 0)),
+        ("LF(6, 2)", Shape::LoneFreeze.build2(6, 2), (1, 0)),
+        ("LF(2, 64)", Shape::LoneFreeze.build2(2, 64), (1, 0)),
+        ("FP(1)", Shape::FreezePosition.build1(1), (0, 0)),
+        ("FP(3)", Shape::FreezePosition.build1(3), (2, 0)),
+        ("FP(8)", Shape::FreezePosition.build1(8), (7, 0)),
+        ("FZ(1)", Shape::FreezeParade.build1(1), (0, 0)),
+        ("FZ(4)", Shape::FreezeParade.build1(4), (3, 0)),
+        ("PR(1)", Shape::PromotionRearm.build1(1), (2, 1)),
+        ("PR(3)", Shape::PromotionRearm.build1(3), (6, 3)),
+        ("DS(1, 2)", Shape::DenseSuffix.build2(1, 2), (3, 1)),
+        ("DS(3, 1)", Shape::DenseSuffix.build2(3, 1), (7, 3)),
+        (
+            "WA(MIN_DEFERRED_ARMING_DIGITS, 2)",
+            Shape::WideArming.build2(w, 2),
+            (3, 1),
+        ),
+        (
+            "HW(MIN_DEFERRED_ARMING_DIGITS, 1, 32(MIN_DEFERRED_ARMING_DIGITS + 2))",
+            Shape::HoistedWindow.build3(w, 1, 32 * (w + 2)),
+            (3, 1),
+        ),
+        ("PP(10, 3)", Shape::PlateauPuncture.build2(10, 3), (1, 0)),
         (
             "AT(1, 19, 1)",
             Shape::ArmingTrain.build_train(1, 19, 1, false),
-            3,
+            (3, 1),
         ),
         (
             "AT(3, 19, 1)",
             Shape::ArmingTrain.build_train(3, 19, 1, false),
-            7,
+            (7, 3),
         ),
         (
             "AT(4, 19, 2, alternating)",
             Shape::ArmingTrain.build_train(4, 19, 2, true),
-            9,
+            (9, 4),
         ),
     ];
     for (name, encoded, expected) in cases {
         assert_eq!(
-            rank_freezes(encoded),
+            rank_counts(encoded),
             expected,
-            "freeze count of rank over {name}"
+            "(freeze, deferral) counts of rank over {name}"
         );
     }
     for (k, m, d) in [(320, 1, 1), (320, 6, 3)] {
         let (a, b) = Shape::JumpPair.build_pair3(k, m, d);
         let (a, b) = (version_of(&a), version_of(&b));
-        let expected = 2 * m as u64;
+        let expected = (2 * m as u64, 0);
         assert_eq!(
-            freezes_during(|| {
+            freezes_and_deferrals_during(|| {
                 a.distance(&b);
             }),
             expected,
-            "freeze count of distance over JP({k}, {m}, {d})"
+            "(freeze, deferral) counts of distance over JP({k}, {m}, {d})"
         );
     }
 }

@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use before::causally::{self, Coverage};
 use before::testing::meter::registry::{FamilyId, Shape};
-use before::testing::meter::Encoding;
+use before::testing::meter::{Encoding, MIN_DEFERRED_ARMING_DIGITS};
 use before::{
     Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };
@@ -212,7 +212,12 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             vec![],
         ),
         // The wide-arming family (width at its precondition floor).
-        FamilyId::WideArming => (vec![Shape::WideArming.build2(10, 2).version()], vec![]),
+        FamilyId::WideArming => (
+            vec![Shape::WideArming
+                .build2(MIN_DEFERRED_ARMING_DIGITS, 2)
+                .version()],
+            vec![],
+        ),
         // The plateau puncture and its arbitrary-factor product embedding.
         FamilyId::PlateauPuncture => (
             vec![
@@ -316,9 +321,15 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
                 vec![decode_party(&mask)],
             )
         }
-        // The hoisted window (tail at its hoist precondition floor).
+        // The hoisted window (width and tail at their precondition floors).
         FamilyId::HoistedWindow => (
-            vec![Shape::HoistedWindow.build3(10, 2, 384).version()],
+            vec![Shape::HoistedWindow
+                .build3(
+                    MIN_DEFERRED_ARMING_DIGITS,
+                    2,
+                    32 * (MIN_DEFERRED_ARMING_DIGITS + 2),
+                )
+                .version()],
             vec![],
         ),
         // The descending spine and its leveled control.

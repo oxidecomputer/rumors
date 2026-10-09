@@ -1669,16 +1669,29 @@ fn bitlen(k: usize) -> usize {
     (usize::BITS - k.leading_zeros()) as usize
 }
 
-/// The wide-height exponent of the deferral re-arm families `PR(p)` and
-/// `DS(p, d)`.
+/// The fewest base-`B = 2^32` digits of an arming `2^(32m)` that the next
+/// [`FREEZE_DRIFT_BITS`] freeze defers in every stored form.
 ///
-/// A freeze defers the parked component when it holds more stored digits than
-/// the incoming drift plus the freeze allowance `a`. The incoming drift is the
-/// [`FREEZE_DRIFT_BITS`] climb, `a + 2` digits once the freeze's comparison
-/// has compacted it, so the parked arming needs `2a + 3` digits in its shortest
-/// form. `2^(32m)` fits `m` digits as `B·B^(m − 1)` and no fewer, so `m = 2a +
-/// 3`. Every block's second freeze then defers the arming.
-pub const PROMOTION_REARM_ARM_BITS: usize = 32 * (2 * HEIGHT_FREEZE_ALLOWANCE_DIGITS + 3);
+/// The arming families park a wide climb `2^(32m)` at one freeze, then climb
+/// `2^P`, where `P` is [`FREEZE_DRIFT_BITS`], and freeze again. That second
+/// freeze defers the parked component when it holds more stored digits than the
+/// incoming drift plus the freeze allowance `a`,
+/// `HEIGHT_FREEZE_ALLOWANCE_DIGITS`. The incoming drift holds `a + 2` digits
+/// once the freeze's comparison has compacted it, so the parked component needs
+/// `2a + 3` digits in its shortest form. Stored digits are signed and below
+/// `2B` in magnitude, so a magnitude of at least `4·B^(m − 1)` needs `m` digits
+/// however it is stored. The parked component is `2^(32m) = B^m` plus
+/// unit-scale changes, which keep its magnitude above `4·B^(m − 1)`, so it
+/// holds at least `m` digits, and `m = 2a + 3` defers it in every stored form.
+/// One digit fewer defers only while the parked component keeps a redundant top
+/// digit, so every family that promises a deferral builds its armings at least
+/// this wide.
+pub const MIN_DEFERRED_ARMING_DIGITS: usize = 2 * HEIGHT_FREEZE_ALLOWANCE_DIGITS + 3;
+
+/// The wide-height exponent of the deferral re-arm families `PR(p)` and
+/// `DS(p, d)`: the narrowest arming that [`MIN_DEFERRED_ARMING_DIGITS`]
+/// admits, so every block's second freeze defers it.
+pub const PROMOTION_REARM_ARM_BITS: usize = 32 * MIN_DEFERRED_ARMING_DIGITS;
 
 /// Span-building spine levels per block in [`promotion_rearm`]: the phase-1 run
 /// of `32p` levels puts a `Θ(p)`-digit floor under the consumed-mass span the
@@ -1890,11 +1903,11 @@ fn dense_suffix_mate(p: usize, d: usize) -> Encoding {
 ///
 /// # Panics
 ///
-/// Panics if `w < 10` (the parked component must clear the settling drift's ten
-/// digits by more than the freeze allowance) or `d == 0`.
+/// Panics if `w` is below [`MIN_DEFERRED_ARMING_DIGITS`], the narrowest arming
+/// the settle's freeze defers in every stored form, or if `d == 0`.
 fn wide_arming(w: usize, d: usize) -> Encoding {
     assert!(
-        w >= 10,
+        w >= MIN_DEFERRED_ARMING_DIGITS,
         "the wide arming must out-span the settling drift plus the allowance"
     );
     assert!(d >= 1, "the wide-arming family needs at least one gap");
@@ -1940,14 +1953,15 @@ fn wide_arming(w: usize, d: usize) -> Encoding {
 ///
 /// # Panics
 ///
-/// Panics if `w < 10` (the parked component must clear the settling drift by
-/// more than the freeze allowance), `d == 0`, or `t < 32(w + 2)`: the tail
-/// must hoist the trailing window past every settle factor's cluster gap
-/// limit, or the tail mass's own compacted digits merge into the trailing
-/// cluster and the family stops separating span from position.
+/// Panics if `w` is below [`MIN_DEFERRED_ARMING_DIGITS`], the narrowest arming
+/// the settle's freeze defers in every stored form, if `d == 0`, or if `t <
+/// 32(w + 2)`: the tail must hoist the trailing window past every settle
+/// factor's cluster gap limit, or the tail mass's own compacted digits merge
+/// into the trailing cluster and the family stops separating span from
+/// position.
 fn hoisted_window(w: usize, d: usize, t: usize) -> Encoding {
     assert!(
-        w >= 10,
+        w >= MIN_DEFERRED_ARMING_DIGITS,
         "the wide arming must out-span the settling drift plus the allowance"
     );
     assert!(d >= 1, "the hoisted-window family needs at least one gap");
@@ -2455,15 +2469,14 @@ fn plateau_puncture(w: usize, d: usize) -> Encoding {
 ///
 /// # Panics
 ///
-/// Panics if `n == 0` or `g == 0`, or if `w < 19`: an arming `2^(32w)` fits
-/// `w` digits in its shortest form, and must out-span the `2^P` kicker drift
-/// by more than the freeze allowance, as [`PROMOTION_REARM_ARM_BITS`] derives,
-/// or deferral never occurs.
+/// Panics if `n == 0` or `g == 0`, or if `w` is below
+/// [`MIN_DEFERRED_ARMING_DIGITS`], the narrowest arming that the kicker's
+/// freeze defers in every stored form.
 fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
     assert!(n >= 1, "the arming train needs at least one block");
     assert!(g >= 1, "the arming train needs at least one gap per window");
     assert!(
-        w >= 19,
+        w >= MIN_DEFERRED_ARMING_DIGITS,
         "an arming must out-span the kicker drift plus the freeze allowance"
     );
     let band = 32 * w + bitlen(n) + 2;
