@@ -252,8 +252,10 @@ lands it on local `main` as a merge commit and does not push:
 2. Rebase the branch onto `main` and run the landing check at its tip.
 3. Merge with `git merge --no-ff -S`, under a message that names the change
    ("Merge <what the branch does>"), as the repository's earlier merges do.
-   Because the branch sits on `main`, the merge's tree is exactly the
-   checked tip's tree; confirm that with `git diff <tip> main` empty.
+   Because the branch sits on `main`, the merge's tree outside
+   `.agent-notes/` is exactly the checked tip's tree (notes commits may have
+   landed since the rebase, and no check reads them). Confirm that with
+   `git diff <tip> main -- . ':!.agent-notes'` empty.
 4. Delete the branch's entry from `QUESTIONS.md`.
 
 Each commit on `main`'s first-parent line is a checked merge or a notes
