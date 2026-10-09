@@ -275,7 +275,7 @@ fn redundant_zero(k: u64, cancellation: &Cancellation) -> Accumulator {
             let mut operand = Accumulator::new();
             operand.add_shifted_limbs(0, limbs.iter().copied());
             zero.add_shifted_limbs(*shift, limbs.iter().copied());
-            zero.sub_shifted(*shift, &operand);
+            zero.sub_shifted(*shift, &mut operand);
         }
     }
     assert_value(&zero, &IBig::ZERO);
@@ -399,9 +399,10 @@ fn assert_shifted_zero(mut shifted: Accumulator, shift: u64, unshifted: &Accumul
     );
 }
 
-/// Assert that applying a zero operand at a shift keeps the receiver's value
-/// and bounds its space.
+/// Assert that applying a zero operand at a shift keeps both values and
+/// bounds the receiver's space.
 ///
+/// The operand is a fresh clone of `zero`, so the call sees its cancelled form.
 /// The buffer may grow by at most [`ZERO_RETAINED_GROWTH`] positions. The
 /// stored digit count may rise to the larger of its former value and the
 /// buffer's length, plus the same allowance, because a zero deposited inside
@@ -409,15 +410,17 @@ fn assert_shifted_zero(mut shifted: Accumulator, shift: u64, unshifted: &Accumul
 fn assert_zero_operand(
     receiver: &Receiver,
     name: &str,
-    apply: fn(&mut Accumulator, u64, &Accumulator),
+    apply: fn(&mut Accumulator, u64, &mut Accumulator),
     shift: u64,
     zero: &Accumulator,
 ) {
     let (mut acc, value) = receiver.build();
     let stored_before = acc.stored_digit_count();
     let retained_before = acc.digits.retained_len();
-    apply(&mut acc, shift, zero);
+    let mut operand = zero.clone();
+    apply(&mut acc, shift, &mut operand);
     assert_value(&acc, &value);
+    assert_value(&operand, &IBig::ZERO);
     let stored = acc.stored_digit_count();
     let stored_limit = stored_before.max(retained_before) + ZERO_RETAINED_GROWTH;
     assert!(
@@ -469,10 +472,11 @@ proptest! {
     /// buffer within the larger of its former length and the value's width
     /// plus [`ZERO_RETAINED_GROWTH`].
     ///
-    /// Each step adds or subtracts the same zero, with its top digit on the
-    /// buffer's top position or up to three positions past it, at a varying
-    /// bit offset. A zero deposited inside the buffer carries past it only
-    /// where the receiver's own value fills the top digit. Checking each
+    /// Each step adds or subtracts a fresh clone of the same zero, so every
+    /// step sees its cancelled form. Its top digit lands on the buffer's top
+    /// position or up to three positions past it, at a varying bit offset. A
+    /// zero deposited inside the buffer carries past it only where the
+    /// receiver's own value fills the top digit. Checking each
     /// operation alone would miss growth that accumulates: a zero check that
     /// let through zeros landing just past the buffer would grow it by one
     /// position per step, while every step stayed within a constant.
@@ -495,9 +499,9 @@ proptest! {
             let top = (acc.digits.retained_len() as u64).saturating_sub(1) + past_top;
             let shift = 32 * top.saturating_sub(top_offset) + bit;
             if step % 2 == 0 {
-                acc.add_shifted(shift, &zero);
+                acc.add_shifted(shift, &mut zero.clone());
             } else {
-                acc.sub_shifted(shift, &zero);
+                acc.sub_shifted(shift, &mut zero.clone());
             }
         }
         assert_value(&acc, &value);

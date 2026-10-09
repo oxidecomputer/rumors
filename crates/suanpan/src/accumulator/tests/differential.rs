@@ -240,8 +240,8 @@ fn build_stability_value(value: &StabilityValue, floor: usize) -> (Accumulator, 
             while remaining > 0 {
                 let step = remaining.min(SMALL_SHIFT_MAX);
                 if *fold_shift {
-                    let operand = core::mem::take(&mut acc);
-                    acc.add_shifted(step, &operand);
+                    let mut operand = core::mem::take(&mut acc);
+                    acc.add_shifted(step, &mut operand);
                 } else {
                     acc <<= step;
                 }

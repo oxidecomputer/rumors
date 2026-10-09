@@ -453,15 +453,17 @@ impl Operation {
                 operand,
                 shift,
             } => {
-                let (operand, operand_oracle) = operand.values();
-                let operand_oracle = operand_oracle << *shift as usize;
+                let (mut operand, operand_oracle) = operand.values();
+                let scaled = &operand_oracle << *shift as usize;
                 if *subtract {
-                    actual.sub_shifted(*shift, &operand);
-                    *oracle -= operand_oracle;
+                    actual.sub_shifted(*shift, &mut operand);
+                    *oracle -= scaled;
                 } else {
-                    actual.add_shifted(*shift, &operand);
-                    *oracle += operand_oracle;
+                    actual.add_shifted(*shift, &mut operand);
+                    *oracle += scaled;
                 }
+                // The merge may compact its operand, but never changes its value.
+                assert_value(&operand, &operand_oracle);
             }
             Operation::Shift { owned, shift } => shift.apply(*owned, actual, oracle),
             Operation::Negate => {
@@ -791,7 +793,8 @@ fn arb_step() -> BoxedStrategy<Step> {
 
 proptest! {
     /// Every public arithmetic operation and observation agrees with an
-    /// independent arbitrary-precision integer after every generated step.
+    /// independent arbitrary-precision integer after every generated step, and
+    /// a shifted accumulator merge leaves its operand's value unchanged.
     #[test]
     fn complete_surface_matches_bigint(
         steps in proptest::collection::vec(arb_step(), 1..=80),

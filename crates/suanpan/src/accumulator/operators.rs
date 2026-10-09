@@ -414,10 +414,10 @@ impl Accumulator {
             return;
         }
         // Every deposit into the empty receiver extends its buffer, so
-        // `add_shifted` scans the old value for zero first. A zero whose digits
-        // cancel therefore leaves an empty receiver instead of landing those
-        // digits at the shifted position.
-        let previous = core::mem::take(self);
-        self.add_shifted(shift, &previous);
+        // `add_shifted` compares the old value with zero first. A zero whose
+        // digits cancel therefore leaves an empty receiver instead of landing
+        // those digits at the shifted position.
+        let mut previous = core::mem::take(self);
+        self.add_shifted(shift, &mut previous);
     }
 }

@@ -24,10 +24,6 @@
 //! than `0.99 B^i`; an adjustment occupying positions through `f` has
 //! magnitude below `2.01 B^(f + 1)`. Thus `i >= f + 2` is sufficient. Failure
 //! to meet that test says only that this scan did not establish the guarantee.
-//!
-//! [`value_is_zero`](Digits::value_is_zero) runs the same scan without writing
-//! anything back, for an operand that is only borrowed. Its cost is therefore
-//! not amortized: each call can read every stored digit.
 
 use core::cmp::Ordering;
 
@@ -51,24 +47,6 @@ impl Digits {
         // small threshold.
         (partial.abs() >= COMPARISON_DECIDED && index >= adjustment_high.saturating_add(2))
             .then(|| partial.cmp(&0))
-    }
-
-    /// Return whether the value is zero, without compacting the digits.
-    ///
-    /// This is [`cmp_zero`](Self::cmp_zero)'s scan, read-only: it stops at the
-    /// first partial of magnitude 3 or more, which proves the value nonzero.
-    /// It reads recorded zero ranges digit by digit instead of skipping them,
-    /// so one call can read every stored digit.
-    pub fn value_is_zero(&self) -> bool {
-        let mut partial: i128 = 0;
-        for &digit in self.stored_digits().iter().rev() {
-            touch(1);
-            partial = (partial << DIGIT_BITS) + i128::from(digit);
-            if partial.abs() >= COMPARISON_DECIDED {
-                return false;
-            }
-        }
-        partial == 0
     }
 
     /// Return the stopping position and replace the scanned suffix by its value.

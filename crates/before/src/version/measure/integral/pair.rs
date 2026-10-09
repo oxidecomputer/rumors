@@ -82,7 +82,7 @@ impl Integrator {
                 // The delta folds above use the old orientation. This correction
                 // applies the orientation change to the updated signed difference.
                 // A sign crossing bounds its magnitude by the deltas just consumed.
-                integral.jump(new_orientation - current_orientation, diff_order, &diff);
+                integral.jump(new_orientation - current_orientation, diff_order, &mut diff);
                 current_orientation = new_orientation;
             }
 

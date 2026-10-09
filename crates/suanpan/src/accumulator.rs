@@ -130,7 +130,9 @@ impl Accumulator {
     /// Add another accumulator's value multiplied by `2^shift`.
     ///
     /// The operand is read directly; shifting it first would construct another
-    /// accumulator merely to consume it here.
+    /// accumulator merely to consume it here. The call may reduce `other`'s
+    /// working width without changing its value. This is why `other` is
+    /// borrowed mutably.
     ///
     /// # Complexity
     ///
@@ -145,14 +147,16 @@ impl Accumulator {
     ///
     /// Panics if `other` is nonzero and the result needs more digit positions
     /// than a buffer can address. A zero operand never panics.
-    pub fn add_shifted(&mut self, shift: u64, other: &Accumulator) {
-        self.apply_accumulator(other, shift, Update::Add);
+    pub fn add_shifted(&mut self, shift: u64, other: &mut Accumulator) {
+        self.apply_shifted_accumulator(other, shift, Update::Add);
     }
 
     /// Subtract another accumulator's value multiplied by `2^shift`.
     ///
-    /// The operand is read directly. Using the quantities defined in the
-    /// [crate-level cost model](crate#costs-and-storage), this takes amortized
+    /// The operand is read directly. The call may reduce `other`'s working
+    /// width without changing its value. This is why `other` is borrowed
+    /// mutably. Using the quantities defined in the [crate-level cost
+    /// model](crate#costs-and-storage), this takes amortized
     /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
     /// the worst case. Growing the receiver may temporarily retain both its old
     /// and replacement allocations. A zero operand adds O(1) retained space at
@@ -162,8 +166,8 @@ impl Accumulator {
     ///
     /// Panics if `other` is nonzero and the result needs more digit positions
     /// than a buffer can address. A zero operand never panics.
-    pub fn sub_shifted(&mut self, shift: u64, other: &Accumulator) {
-        self.apply_accumulator(other, shift, Update::Subtract);
+    pub fn sub_shifted(&mut self, shift: u64, other: &mut Accumulator) {
+        self.apply_shifted_accumulator(other, shift, Update::Subtract);
     }
 
     /// Reset to zero, retaining allocated storage for reuse.

@@ -10,15 +10,18 @@
 //! position and deposited at the requested offset. Work therefore follows the
 //! operand's stored width, not the receiver's width.
 //!
-//! An operand's stored digits can cancel to zero. Before a deposit that would
-//! extend the receiver's buffer, the operand is scanned, and a zero operand is
-//! skipped. Adding a zero at a shift therefore never grows the buffer toward
-//! the shift. A zero deposited inside the buffer can still carry one position
-//! past its top.
+//! An operand's stored digits can cancel to zero. Before a shifted deposit that
+//! would extend the receiver's buffer, the operand is compared with zero,
+//! which compacts it, and a zero operand is skipped. Adding a zero at a shift
+//! therefore never grows the buffer toward the shift. A zero deposited inside
+//! the buffer can still carry one position past its top. `+=` and `-=` only
+//! borrow their operand, so they deposit its digits as stored.
 //!
 //! Position arithmetic uses `u128` until the contribution is known nonzero.
 //! Only then does [`digit_index`] validate its destination. Zero contributions
 //! therefore neither grow the buffer nor reject an otherwise unusable shift.
+
+use core::cmp::Ordering;
 
 use super::small::{SMALL_MAX, SMALL_SHIFT_MAX};
 use super::{digit_index, touch, Accumulator, DIGIT_BITS};
@@ -107,18 +110,32 @@ impl Accumulator {
             }
             return;
         }
-        let operand = other.digits.stored_digits();
+        self.ensure_digits();
+        self.digits
+            .add_digits(other.digits.stored_digits(), shift, update);
+    }
+
+    /// Add or subtract a shifted accumulator, first compacting a digit-stored
+    /// operand whose deposit would extend the buffer, and skipping it if zero.
+    pub(crate) fn apply_shifted_accumulator(
+        &mut self,
+        other: &mut Accumulator,
+        shift: u64,
+        update: Update,
+    ) {
         // Depositing a zero's cancelling digits past the buffer would grow it
         // to the shifted position, and panic if that position is unaddressable.
-        // We scan only when the deposit would extend the buffer: one inside it
-        // already costs the operand's width, so a scan there would only add
-        // cost.
-        if self.digits.deposit_extends_buffer(shift, operand.len()) && other.digits.value_is_zero()
+        // We compare with zero only when the deposit would extend the buffer:
+        // one inside it already costs the operand's width.
+        if other.small.is_none()
+            && self
+                .digits
+                .deposit_extends_buffer(shift, other.digits.stored_digit_count())
+            && other.digits.cmp_zero() == Ordering::Equal
         {
             return;
         }
-        self.ensure_digits();
-        self.digits.add_digits(operand, shift, update);
+        self.apply_accumulator(other, shift, update);
     }
 
     /// Add or subtract a shifted word, staying small when headroom permits.

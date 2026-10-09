@@ -486,13 +486,13 @@ fn small_value_extremes_spill_exactly() {
             [(false, false), (false, true), (true, false), (true, true)]
         {
             let (mut acc, mut oracle) = full_small_value(negative);
-            let (operand, operand_oracle) = full_small_value(fold_negative);
+            let (mut operand, operand_oracle) = full_small_value(fold_negative);
             let scaled = operand_oracle << SMALL_SHIFT_MAX as usize;
             if subtract {
-                acc.sub_shifted(SMALL_SHIFT_MAX, &operand);
+                acc.sub_shifted(SMALL_SHIFT_MAX, &mut operand);
                 oracle -= scaled;
             } else {
-                acc.add_shifted(SMALL_SHIFT_MAX, &operand);
+                acc.add_shifted(SMALL_SHIFT_MAX, &mut operand);
                 oracle += scaled;
             }
             assert_value(&acc, &oracle);
