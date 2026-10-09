@@ -130,16 +130,20 @@ pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 4.0;
 /// Heap ceiling for deserializing a rank, in bytes per input byte.
 ///
 /// The decoded arbitrary-width numerator cannot adopt the encoded input's byte
-/// buffer. The ceiling is the largest release-profile reading with 25%
-/// headroom, rounded up.
-pub const RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 6.0;
+/// buffer. The ceiling is the largest release-profile reading among samples
+/// of at least twice [`HEAP_INTERCEPT_BYTES`], with 25% headroom, rounded up.
+/// Below that size, fixed allocations dominate a sample's reading, and the
+/// ceiling's intercept absorbs them.
+pub const RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 5.0;
 
 /// Heap ceiling for deserializing and validating a ranked version, in bytes per
 /// input byte.
 ///
 /// Validation retains the consumed rank prefix while materializing and ranking
-/// the version. The ceiling is the largest release-profile reading with 25%
-/// headroom, rounded up.
+/// the version. The ceiling is the largest release-profile reading among
+/// samples of at least twice [`HEAP_INTERCEPT_BYTES`], with 25% headroom,
+/// rounded up. Below that size, fixed allocations dominate a sample's
+/// reading, and the ceiling's intercept absorbs them.
 pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 
 /// Heap ceiling for evaluating a query, in bytes per operand byte.
