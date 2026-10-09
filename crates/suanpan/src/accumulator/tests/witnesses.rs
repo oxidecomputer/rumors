@@ -203,6 +203,29 @@ fn maximum_adjustment_width_never_decides() {
     assert_eq!(acc.cmp_zero_stable_under(1984), Some(Ordering::Greater));
 }
 
+/// A stability query at the maximum adjustment width still compacts what it reads.
+///
+/// The value 5 · 2^64 is stored at digit 2, below a cancelling top: digit 10
+/// holds 1 and digit 9 holds −2^32. Answering `None` must not skip the scan,
+/// which decides at digit 2 and leaves three stored digits. The wasm32 pins
+/// check the same construction where the adjustment's top digit index cannot
+/// fit a 32-bit `usize`.
+#[test]
+fn maximum_adjustment_width_still_compacts() {
+    let mut acc = Accumulator::new();
+    acc.add_shifted_limbs(64, [5]);
+    acc.add_shifted_limbs(32 * 10, [1, 0]);
+    acc.sub_shifted_limbs(32 * 9, [1 << 32]);
+    assert_eq!(
+        acc.stored_digit_count(),
+        11,
+        "the top is stored uncompacted"
+    );
+    assert_eq!(acc.cmp_zero_stable_under(u64::MAX), None);
+    assert_eq!(acc.stored_digit_count(), 3, "the scan compacts the top");
+    assert_value(&acc, &(IBig::from(5) << 64usize));
+}
+
 /// The exact scalar comparison can prove stability without a high deciding digit.
 ///
 /// u64::MAX exceeds 3·2^32 even though it occupies only two digit positions.

@@ -318,7 +318,6 @@ impl Accumulator {
         // Whole digits are the unit used by both representations. At least one
         // digit is retained even for a zero-width adjustment.
         let adjustment_digits = bits.div_ceil(u64::from(DIGIT_BITS)).max(1);
-        let adjustment_high = usize::try_from(adjustment_digits - 1).ok()?;
 
         if let Some(value) = self.small {
             touch(1);
@@ -330,7 +329,7 @@ impl Accumulator {
             let threshold = 3u128.checked_shl(threshold_bits)?;
             return (value.unsigned_abs() >= threshold).then(|| value.cmp(&0));
         }
-        self.digits.cmp_zero_stable_above(adjustment_high)
+        self.digits.cmp_zero_stable_above(adjustment_digits - 1)
     }
 
     /// Return whether zero can be established without scanning the value.

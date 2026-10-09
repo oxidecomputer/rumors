@@ -37,6 +37,8 @@ pub enum Check {
     SuanpanReserve = 9,
     /// Shift zero, stored in the form selected by parameter `a`, onto digit position `2^32 - 1`.
     SuanpanZeroShift = 10,
+    /// Compact a cancelled stored top while asking for stability under width `a`.
+    SuanpanStabilityWidth = 11,
 }
 
 impl From<Check> for u32 {

@@ -20,6 +20,14 @@ const JOIN_RIGHT_BELOW: u64 = 2_047_483_645;
 /// Produces `2^32 + 1` output bits, the next possible odd output length.
 const JOIN_RIGHT_ABOVE: u64 = 2_047_483_646;
 
+/// The first stability width whose top adjustment digit index cannot fit a
+/// wasm32 `usize`.
+///
+/// A width of `w` bits spans `ceil(w / 32)` digits, so its top index is
+/// `ceil(w / 32) - 1`. At `32 * 2^32` bits that index is `2^32 - 1`, the
+/// largest `usize`; one more bit makes it `2^32`.
+const FIRST_UNINDEXABLE_STABILITY_WIDTH: u64 = 32 * (1 << 32) + 1;
+
 /// Runs a check and reports its parameters if it fails.
 fn assert_passes(check: Check, a: u64, b: u64) {
     assert_eq!(
@@ -173,5 +181,31 @@ fn suanpan_shifts_zero_onto_an_unaddressable_digit_position() {
             Outcome::Passed,
             "zero-shift case {case} did not return zero"
         );
+    }
+}
+
+/// A stability query compacts and answers identically on every pointer width,
+/// however wide the adjustment it is asked about.
+///
+/// The guest stores the value `5 * 2^64` at digit 2, below a two-digit
+/// cancelling top at digits 9 and 10, eleven digits in all. At the last width
+/// whose top digit index fits a 32-bit `usize`, at the first that does not, and
+/// at `u64::MAX`, the documented scan must compact the value to three digits,
+/// deciding its sign at digit 2, and must answer `None`, because a value below
+/// `2^67` cannot dominate such a width.
+///
+/// Each half rejects a wrong implementation on wasm32. One that returned early
+/// when the top index did not fit a `usize` would leave all eleven digits
+/// stored. One that truncated the index to a `usize` would turn position
+/// `2^32` into 0 at the first unindexable width, so its threshold of 2 would
+/// let the decision at digit 2 claim stability.
+#[test]
+fn suanpan_stability_query_compacts_and_declines_past_the_usize_digit_index() {
+    for width in [
+        FIRST_UNINDEXABLE_STABILITY_WIDTH - 1,
+        FIRST_UNINDEXABLE_STABILITY_WIDTH,
+        u64::MAX,
+    ] {
+        assert_passes(Check::SuanpanStabilityWidth, width, 0);
     }
 }
