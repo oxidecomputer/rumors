@@ -212,31 +212,67 @@ fn version_join_emitted(k: u64, j: u64) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Checks exact rank arithmetic at one of two alignment gaps, on either side
-/// of the largest gap a wasm32 `usize` can hold.
+/// One of `Rank`'s separately implemented arithmetic routes.
+enum RankRoute {
+    /// The `+` operator.
+    Add,
+    /// [`Rank::checked_sub`].
+    Subtract,
+    /// The `Sum` fold over `[small, deep]`, whose second summand shifts the
+    /// held value by the whole gap.
+    SumShift,
+    /// The `Sum` fold over `[small, deep, small]`, whose third summand lands
+    /// at the gap's bit offset without a further shift.
+    SumLanding,
+}
+
+/// Checks one arithmetic path on either side of wasm32's alignment limit.
 fn rank_arithmetic(case: u64) -> Result<(), Failure> {
     let deep =
         Rank::decode(&synthesis::rank(1u64 << 32)?[..]).map_err(|_| Failure::DecodeRejected)?;
 
     // Half has exponent 1, so aligning it to `deep` shifts by `usize::MAX`
     // bits. One has exponent 0, so its shift is `2^32` bits, the first gap
-    // that narrowing to a wasm32 `usize` would wrap.
-    let (small, add) = match case {
-        1 => (half(), true),
-        2 => (uniform(1u8).rank(), true),
-        3 => (half(), false),
-        4 => (uniform(1u8).rank(), false),
+    // that narrowing to a wasm32 `usize` would wrap. `Sum` folds through its
+    // own accumulator: there the two gaps straddle the last shift a wasm32
+    // `usize` can carry, and a summand landing after the `2^32`-bit shift sits
+    // at a bit offset no wasm32 `usize` can carry.
+    let (small, route) = match case {
+        1 => (half(), RankRoute::Add),
+        2 => (uniform(1u8).rank(), RankRoute::Add),
+        3 => (half(), RankRoute::Subtract),
+        4 => (uniform(1u8).rank(), RankRoute::Subtract),
+        5 => (half(), RankRoute::SumShift),
+        6 => (uniform(1u8).rank(), RankRoute::SumShift),
+        7 => (uniform(1u8).rank(), RankRoute::SumLanding),
         _ => return Err(Failure::InvalidArguments),
     };
-    if add {
-        let sum = &deep + &small;
-        if sum.checked_sub(&small).as_ref() != Some(&deep) {
-            return Err(Failure::WrongValue);
+    match route {
+        RankRoute::Add => {
+            let sum = &deep + &small;
+            if sum.checked_sub(&small).as_ref() != Some(&deep) {
+                return Err(Failure::WrongValue);
+            }
         }
-    } else {
-        let difference = small.checked_sub(&deep).ok_or(Failure::WrongValue)?;
-        if &difference + &deep != small {
-            return Err(Failure::WrongValue);
+        RankRoute::Subtract => {
+            let difference = small.checked_sub(&deep).ok_or(Failure::WrongValue)?;
+            if &difference + &deep != small {
+                return Err(Failure::WrongValue);
+            }
+        }
+        // Cases 1 to 4 check `+` and `checked_sub` at these exponents, so
+        // they can judge `Sum` in the cases below.
+        RankRoute::SumShift => {
+            let sum: Rank = [&small, &deep].into_iter().sum();
+            if sum != &deep + &small || sum.checked_sub(&small).as_ref() != Some(&deep) {
+                return Err(Failure::WrongValue);
+            }
+        }
+        RankRoute::SumLanding => {
+            let sum: Rank = [&small, &deep, &small].into_iter().sum();
+            if sum.checked_sub(&(&small + &small)).as_ref() != Some(&deep) {
+                return Err(Failure::WrongValue);
+            }
         }
     }
     Ok(())

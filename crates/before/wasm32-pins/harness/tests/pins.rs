@@ -165,6 +165,43 @@ fn rank_arithmetic_crosses_the_usize_gap_boundary() {
     }
 }
 
+/// Rank `Sum` is exact when it shifts its held value by `usize::MAX` or
+/// `usize::MAX + 1` bits, and when it then lands a summand `usize::MAX + 1`
+/// bits up.
+///
+/// `Sum` aligns its summands in its own accumulator, apart from `+` and
+/// `checked_sub`, so `rank_arithmetic_crosses_the_usize_gap_boundary` cannot
+/// see it. Each case puts a small rank before the deep one, so the
+/// deep summand shifts the held value by the whole exponent gap:
+///
+/// - Case 5 (half, then deep) shifts by `usize::MAX` bits.
+/// - Case 6 (one, then deep) shifts by `usize::MAX + 1` bits. Narrowing that
+///   shift through `usize` wraps it, and the deep summand traps at an
+///   unaddressable digit; case 5 survives the same narrowing, so the pair
+///   locates the transition.
+/// - Case 7 (one, deep, one) then lands the trailing one at bit offset
+///   `usize::MAX + 1` without a further shift. Narrowing that offset through
+///   `usize` lands it at bit zero instead, a wrong value that cases 5 and 6
+///   cannot see, because each of their summands lands at offset zero.
+///
+/// The guest judges cases 5 and 6 against the addition that test checks, and
+/// inverts all three by checked subtraction.
+///
+/// No case begins with the deep summand: the accumulator's growth while
+/// landing the next one would exhaust the 4 GiB address space, and the guest
+/// would abort on allocation. Case 5 peaks at 58,399 wasm pages (3.56 GiB),
+/// as does that test's subtraction of the deep rank from one, leaving less
+/// room than one more copy of the deep rank's 512 MiB numerator. After a
+/// change to `Sum`, `+`, `checked_sub`, or `Rank::decode`, either test may
+/// therefore abort on allocation, which the harness reports as a trap with no
+/// panic message.
+#[test]
+fn rank_sum_straddles_the_usize_alignment_limit() {
+    for case in 5..=7 {
+        assert_passes(Check::RankArithmetic, case, 0);
+    }
+}
+
 /// Every public shifted-accumulator route rejects a nonzero digit whose
 /// required buffer length cannot fit wasm32's `usize`, with the documented
 /// panic rather than an allocation failure.
