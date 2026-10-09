@@ -40,7 +40,7 @@ impl Count {
         // path. Its live offset is zero because its absolute height opened the
         // frozen-prefix representation.
         subtree_minima.open_subtrees(leaves.depth());
-        let first_leaf = height_prefixes.add_leaf(&recent_height_change, &mut answer);
+        let first_leaf = height_prefixes.add_leaf(&mut recent_height_change, &mut answer);
         subtree_minima.observe_leaf(&first_leaf, &mut answer, &mut height_prefixes);
 
         while !leaves.done() {
@@ -71,7 +71,7 @@ impl Count {
                 height_prefixes.freeze(&mut recent_height_change);
             }
 
-            let leaf = height_prefixes.add_leaf(&recent_height_change, &mut answer);
+            let leaf = height_prefixes.add_leaf(&mut recent_height_change, &mut answer);
             subtree_minima.observe_leaf(&leaf, &mut answer, &mut height_prefixes);
         }
 

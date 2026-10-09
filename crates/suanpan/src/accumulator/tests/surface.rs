@@ -2,9 +2,10 @@
 //!
 //! One generated program updates an [`Accumulator`] and an independent
 //! [`BigInt`] in lockstep. After every instruction, the observer checks every
-//! public query and primitive conversion. Instructions cover the standard
+//! public query and primitive conversion, reading clones so that observing
+//! never changes the tested history. Instructions cover the standard
 //! arithmetic traits, shifted limb and accumulator inputs, sums, reservation,
-//! reset, normalization, and both owned and borrowed operands.
+//! reset, normalization, in-place reads, and both owned and borrowed operands.
 //!
 //! The generators put explicit weight on the representation's boundaries:
 //! 30-bit small-path shifts, 32-bit digits, 64-bit limbs, the `2^96` small
@@ -15,7 +16,9 @@
 use num_bigint::{BigInt, BigUint};
 use proptest::prelude::*;
 
-use super::{assert_value, from_limbs, oracle_sign, Accumulator, TestBig as _};
+use super::{
+    assert_value, cancelled_top, from_limbs, oracle_sign, read_value, Accumulator, TestBig as _,
+};
 
 /// One primitive integer, retaining its Rust type for trait dispatch.
 #[derive(Clone, Debug)]
@@ -246,6 +249,18 @@ enum Operand {
         /// The surviving value.
         tail: Primitive,
     },
+    /// A primitive tail under a stored top that cancels across two digits.
+    ///
+    /// The digits `1` at `position` and `-2^32` at `position - 1` sum to
+    /// zero but stay stored, unlike [`CancelledHigh`](Self::CancelledHigh)'s,
+    /// which cancel within one digit. The stored width therefore exceeds the
+    /// value's until a read compacts it.
+    CancelledTop {
+        /// The position of the cancelled top digit, at least 1.
+        position: u64,
+        /// The surviving value.
+        tail: Primitive,
+    },
 }
 
 /// Build operand values exclusively through the public arithmetic surface.
@@ -290,8 +305,14 @@ impl Operand {
                 let mut actual = Accumulator::new();
                 actual.add_shifted_limbs(*shift, [1]);
                 actual.sub_shifted_limbs(*shift, [1]);
-                let (tail, oracle) = tail.values();
-                actual += &tail;
+                let (mut tail, oracle) = tail.values();
+                actual += &mut tail;
+                (actual, oracle)
+            }
+            Operand::CancelledTop { position, tail } => {
+                let mut actual = cancelled_top(*position);
+                let mut oracle = BigInt::ZERO;
+                tail.apply(PrimitiveArithmetic::AddAssign, &mut actual, &mut oracle);
                 (actual, oracle)
             }
         }
@@ -301,22 +322,36 @@ impl Operand {
 /// Arithmetic forms for accumulator operands.
 #[derive(Clone, Copy, Debug)]
 enum AccumulatorArithmetic {
-    /// `accumulator += &operand`.
+    /// `accumulator += &mut operand`.
     AddAssignBorrowed,
-    /// `accumulator -= &operand`.
+    /// `accumulator -= &mut operand`.
     SubAssignBorrowed,
     /// `accumulator += operand`.
     AddAssignOwned,
     /// `accumulator -= operand`.
     SubAssignOwned,
-    /// `accumulator + &operand`.
+    /// `accumulator + &mut operand`.
     AddBorrowed,
-    /// `accumulator - &operand`.
+    /// `accumulator - &mut operand`.
     SubBorrowed,
     /// `accumulator + operand`.
     AddOwned,
     /// `accumulator - operand`.
     SubOwned,
+}
+
+/// Distinguish the forms that leave the operand with the caller.
+impl AccumulatorArithmetic {
+    /// Whether the operand is borrowed rather than consumed.
+    fn borrows(self) -> bool {
+        matches!(
+            self,
+            Self::AddAssignBorrowed
+                | Self::SubAssignBorrowed
+                | Self::AddBorrowed
+                | Self::SubBorrowed
+        )
+    }
 }
 
 /// One public-surface instruction in the differential program.
@@ -377,6 +412,12 @@ enum Operation {
         /// Values and representations to sum.
         operands: Vec<Operand>,
     },
+    /// Read the magnitude in place, keeping the normalized form for later
+    /// steps.
+    Read {
+        /// Whether to use the scaled readout.
+        scaled: bool,
+    },
 }
 
 /// A generated instruction and a width for the stability query after it.
@@ -418,24 +459,33 @@ impl Operation {
                 arithmetic,
                 operand,
             } => {
-                let (operand, operand_oracle) = operand.values();
+                let (mut operand, operand_oracle) = operand.values();
                 match arithmetic {
-                    AccumulatorArithmetic::AddAssignBorrowed => *actual += &operand,
-                    AccumulatorArithmetic::SubAssignBorrowed => *actual -= &operand,
-                    AccumulatorArithmetic::AddAssignOwned => *actual += operand,
-                    AccumulatorArithmetic::SubAssignOwned => *actual -= operand,
+                    AccumulatorArithmetic::AddAssignBorrowed => *actual += &mut operand,
+                    AccumulatorArithmetic::SubAssignBorrowed => *actual -= &mut operand,
+                    AccumulatorArithmetic::AddAssignOwned => {
+                        *actual += core::mem::take(&mut operand)
+                    }
+                    AccumulatorArithmetic::SubAssignOwned => {
+                        *actual -= core::mem::take(&mut operand)
+                    }
                     AccumulatorArithmetic::AddBorrowed => {
-                        *actual = core::mem::take(actual) + &operand;
+                        *actual = core::mem::take(actual) + &mut operand;
                     }
                     AccumulatorArithmetic::SubBorrowed => {
-                        *actual = core::mem::take(actual) - &operand;
+                        *actual = core::mem::take(actual) - &mut operand;
                     }
                     AccumulatorArithmetic::AddOwned => {
-                        *actual = core::mem::take(actual) + operand;
+                        *actual = core::mem::take(actual) + core::mem::take(&mut operand);
                     }
                     AccumulatorArithmetic::SubOwned => {
-                        *actual = core::mem::take(actual) - operand;
+                        *actual = core::mem::take(actual) - core::mem::take(&mut operand);
                     }
+                }
+                if arithmetic.borrows() {
+                    // The operation may compact its operand, but never changes
+                    // its value.
+                    assert_value(&operand, &operand_oracle);
                 }
                 match arithmetic {
                     AccumulatorArithmetic::AddAssignBorrowed
@@ -493,14 +543,22 @@ impl Operation {
             }
             Operation::Reserve(bits) => actual.reserve_bits(*bits),
             Operation::Sum { borrowed, operands } => {
-                let (values, oracles): (Vec<_>, Vec<_>) =
+                let (mut values, oracles): (Vec<_>, Vec<_>) =
                     operands.iter().map(Operand::values).unzip();
-                *oracle = oracles.into_iter().sum();
-                *actual = if *borrowed {
-                    values.iter().sum()
+                *oracle = oracles.iter().sum();
+                if *borrowed {
+                    *actual = values.iter_mut().sum();
+                    // Summing may compact each operand, but never changes its
+                    // value.
+                    for (value, value_oracle) in values.iter().zip(&oracles) {
+                        assert_value(value, value_oracle);
+                    }
                 } else {
-                    values.into_iter().sum()
-                };
+                    *actual = values.into_iter().sum();
+                }
+            }
+            Operation::Read { scaled } => {
+                assert_eq!(&read_value(actual, *scaled), oracle, "in-place read");
             }
         }
     }
@@ -518,6 +576,7 @@ impl Operation {
             Operation::Normalize => 7,
             Operation::Reserve(_) => 8,
             Operation::Sum { .. } => 9,
+            Operation::Read { .. } => 10,
         }
     }
 }
@@ -717,6 +776,8 @@ fn arb_operand() -> BoxedStrategy<Operand> {
         }),
         2 => (arb_shift_value(1024).prop_filter("high cancellation", |&shift| shift >= 96), arb_primitive())
             .prop_map(|(shift, tail)| Operand::CancelledHigh { shift, tail }),
+        2 => (1u64..=40, arb_primitive())
+            .prop_map(|(position, tail)| Operand::CancelledTop { position, tail }),
     ]
     .boxed()
 }
@@ -777,6 +838,7 @@ fn arb_operation() -> BoxedStrategy<Operation> {
         2 => (any::<bool>(), proptest::collection::vec(arb_operand(), 0..=6)).prop_map(
             |(borrowed, operands)| Operation::Sum { borrowed, operands }
         ),
+        1 => any::<bool>().prop_map(|scaled| Operation::Read { scaled }),
     ]
     .boxed()
 }
@@ -794,7 +856,8 @@ fn arb_step() -> BoxedStrategy<Step> {
 proptest! {
     /// Every public arithmetic operation and observation agrees with an
     /// independent arbitrary-precision integer after every generated step, and
-    /// a shifted accumulator merge leaves its operand's value unchanged.
+    /// every operation that borrows an accumulator operand leaves its value
+    /// unchanged.
     #[test]
     fn complete_surface_matches_bigint(
         steps in proptest::collection::vec(arb_step(), 1..=80),

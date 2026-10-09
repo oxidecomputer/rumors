@@ -49,7 +49,7 @@ impl Integrator {
         let mut integral = Integrator::new();
 
         if current_orientation != 0 {
-            integral.open_difference(&diff, current_orientation);
+            integral.open_difference(&mut diff, current_orientation);
         }
 
         loop {

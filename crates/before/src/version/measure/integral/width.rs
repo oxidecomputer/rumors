@@ -24,11 +24,7 @@ pub struct ScaledWidth {
 /// Keep an interval's unwritten low prefix separate through readout and arithmetic.
 impl ScaledWidth {
     /// Read a sum of interval widths without materializing its zero prefix.
-    ///
-    /// Do not precede this with an accumulator sign read. Reading the sign can
-    /// rewrite digits and lower the lowest-written position, making this read
-    /// traverse a prefix it could otherwise skip.
-    pub fn read(width: &Accumulator) -> Self {
+    pub fn read(width: &mut Accumulator) -> Self {
         let (sign, magnitude, shift) = width.scaled_biguint_parts();
         debug_assert_ne!(sign, Ordering::Less, "interval widths only accumulate");
         Self { magnitude, shift }

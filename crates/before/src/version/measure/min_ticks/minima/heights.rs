@@ -60,7 +60,7 @@ impl HeightPrefixes {
     ///
     /// The absolute height is `frozen_prefix + live`. The live offset is added
     /// immediately; the prefix coefficient is deferred until settlement.
-    pub fn add_leaf(&mut self, live: &Accumulator, total: &mut Accumulator) -> LeafHeight {
+    pub fn add_leaf(&mut self, live: &mut Accumulator, total: &mut Accumulator) -> LeafHeight {
         let (ordering, magnitude) = live.biguint_parts();
         let negative = ordering == Ordering::Less;
         if negative {

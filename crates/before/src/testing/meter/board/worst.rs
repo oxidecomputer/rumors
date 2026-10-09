@@ -348,7 +348,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "span_encode", ["copy-hole", "-", "-"]),
     ("default", "span_decode", ["hoisted-window", "copy-hole", "staircase"]),
     ("default", "version_tick", ["memo-comb", "memo-oscillating", "mirror-narrow"]),
-    ("default", "version_ticks", ["memo-comb", "memo-oscillating", "mirror-narrow"]),
+    ("default", "version_ticks", ["memo-comb", "memo-oscillating", "memo-comb"]),
     ("default", "version_tick_adv_party", ["id-pair", "id-pair", "-"]),
     ("default", "version_rank", ["arming-train", "promo-rearm", "harmonic"]),
     ("default", "rank_clone", ["pure-comb", "-", "-"]),

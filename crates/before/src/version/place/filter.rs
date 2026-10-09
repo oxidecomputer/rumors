@@ -258,11 +258,11 @@ impl Comparison {
         debug_assert_eq!(HeightWidths::between(probe, bound), HeightWidths::Close);
         let mut difference = Accumulator::new();
         if probe.stored_digit_count() <= bound.stored_digit_count() {
-            difference += &*probe;
-            difference -= &*bound;
+            difference += &mut *probe;
+            difference -= &mut *bound;
         } else {
-            difference += &*bound;
-            difference -= &*probe;
+            difference += &mut *bound;
+            difference -= &mut *probe;
             difference = -difference;
         }
         let sign = difference.cmp_zero();

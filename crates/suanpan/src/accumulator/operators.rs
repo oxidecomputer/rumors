@@ -8,8 +8,10 @@
 //!
 //! Primitive inputs through 64 bits share the bounded small-value path.
 //! Full-width integers keep sign separate from magnitude so signed minima and
-//! large unsigned values never pass through an overflowing cast. Borrowed
-//! accumulators are read as stored, without normalization or cloning.
+//! large unsigned values never pass through an overflowing cast. Accumulator
+//! operands are read without cloning. They are borrowed mutably because the
+//! read compacts any cancellation at their top, so later reads do not pay for
+//! it again.
 //!
 //! Shift counts are checked, never wrapped. All primitive count types are
 //! accepted so literals and machine-sized indices work without casts.
@@ -85,32 +87,33 @@ macro_rules! wide_assignments {
 wide_assignments!(i128, i128::unsigned_abs, i128::is_negative);
 wide_assignments!(u128, |value| value, |_| false);
 
-/// Add a borrowed accumulator in time nearly linear in its working width.
+/// Add a mutably borrowed accumulator in time nearly linear in its working
+/// width.
 ///
-/// The operand is read directly without normalization or an intermediate
-/// allocation. Let `A` be its working width, `W` the greatest receiver working
-/// width, and `G` the receiver's growth. The amortized time is
-/// O(`A` log(`W` + 1) + `G`), and the operation adds O(`A` + `G`) retained
-/// space in the worst case. Growing the receiver may temporarily retain both
-/// its old and replacement allocations.
-/// Repeatedly adding a growing operand re-reads its width.
-impl AddAssign<&Accumulator> for Accumulator {
-    /// Apply the operand directly without normalizing or copying it.
-    fn add_assign(&mut self, rhs: &Accumulator) {
+/// The operand is read directly without an intermediate allocation. The call
+/// may reduce its working width without changing its value. Let `A` be its
+/// working width, `W` the greatest receiver working width, and `G` the
+/// receiver's growth. The amortized time is O(`A` log(`W` + 1) + `G`), and the
+/// operation adds O(`A` + `G`) retained space in the worst case. Growing the
+/// receiver may temporarily retain both its old and replacement allocations.
+impl AddAssign<&mut Accumulator> for Accumulator {
+    /// Apply the operand directly without copying it.
+    fn add_assign(&mut self, rhs: &mut Accumulator) {
         self.apply_accumulator(rhs, 0, Update::Add);
     }
 }
 
-/// Subtract a borrowed accumulator in amortized
+/// Subtract a mutably borrowed accumulator in amortized
 /// O(`A` log(`W` + 1) + `G`) time.
 ///
-/// Let `A` be the operand's working width, `W` the greatest receiver working
-/// width, and `G` the receiver's growth. This adds O(`A` + `G`) retained space
-/// in the worst case. Growing the receiver may temporarily retain both its old
-/// and replacement allocations.
-impl SubAssign<&Accumulator> for Accumulator {
+/// The call may reduce the operand's working width without changing its
+/// value. Let `A` be the operand's working width, `W` the greatest receiver
+/// working width, and `G` the receiver's growth. This adds O(`A` + `G`)
+/// retained space in the worst case. Growing the receiver may temporarily
+/// retain both its old and replacement allocations.
+impl SubAssign<&mut Accumulator> for Accumulator {
     /// Deposit each operand contribution with its sign reversed.
-    fn sub_assign(&mut self, rhs: &Accumulator) {
+    fn sub_assign(&mut self, rhs: &mut Accumulator) {
         self.apply_accumulator(rhs, 0, Update::Subtract);
     }
 }
@@ -138,8 +141,8 @@ impl AddAssign for Accumulator {
 /// replacement allocations.
 impl SubAssign for Accumulator {
     /// Read the owned operand directly, then release its storage.
-    fn sub_assign(&mut self, rhs: Self) {
-        *self -= &rhs;
+    fn sub_assign(&mut self, mut rhs: Self) {
+        *self -= &mut rhs;
     }
 }
 
@@ -197,51 +200,55 @@ macro_rules! consuming_arithmetic {
 
 consuming_arithmetic!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-/// Add a borrowed value into the owned receiver without cloning either value.
+/// Add a mutably borrowed value into the owned receiver without cloning
+/// either value.
 ///
-/// Let `A` be the operand's working width, `W` the greatest receiver working
-/// width, and `G` its growth. This takes amortized
+/// The call may reduce the operand's working width without changing its
+/// value. Let `A` be the operand's working width, `W` the greatest receiver
+/// working width, and `G` its growth. This takes amortized
 /// O(`A` log(`W` + 1) + `G`) time and adds
 /// O(`A` + `G`) retained space in the worst case. Growing the receiver may
 /// temporarily retain both its old and replacement allocations.
-impl Add<&Accumulator> for Accumulator {
+impl Add<&mut Accumulator> for Accumulator {
     /// The exact sum in the receiver's storage.
     type Output = Self;
 
     /// Read the borrowed operand directly into the owned receiver.
-    fn add(mut self, rhs: &Self) -> Self {
+    fn add(mut self, rhs: &mut Self) -> Self {
         self += rhs;
         self
     }
 }
 
-/// Subtract a borrowed value from the owned receiver without cloning.
+/// Subtract a mutably borrowed value from the owned receiver without cloning.
 ///
-/// Let `A` be the operand's working width, `W` the greatest receiver working
-/// width, and `G` its growth. This takes amortized
+/// The call may reduce the operand's working width without changing its
+/// value. Let `A` be the operand's working width, `W` the greatest receiver
+/// working width, and `G` its growth. This takes amortized
 /// O(`A` log(`W` + 1) + `G`) time and adds
 /// O(`A` + `G`) retained space in the worst case. Growing the receiver may
 /// temporarily retain both its old and replacement allocations.
-impl Sub<&Accumulator> for Accumulator {
+impl Sub<&mut Accumulator> for Accumulator {
     /// The exact difference in the receiver's storage.
     type Output = Self;
 
     /// Read the borrowed operand directly into the owned receiver.
-    fn sub(mut self, rhs: &Self) -> Self {
+    fn sub(mut self, rhs: &mut Self) -> Self {
         self -= rhs;
         self
     }
 }
 
-/// Sum borrowed values by reading each operand's working width once.
+/// Sum mutably borrowed values by reading each operand's working width once.
 ///
-/// If `T` is the sum of the input working widths, `W` the greatest result
-/// working width, and `G` its growth, this takes amortized
+/// The sum may reduce each operand's working width without changing its
+/// value. If `T` is the sum of the input working widths, `W` the greatest
+/// result working width, and `G` its growth, this takes amortized
 /// O(`T` log(`W` + 1) + `G`) time and adds O(`T` + `G`) retained space in the
 /// worst case. Allocation growth may temporarily retain O(`W` + `G`) space.
-impl<'a> Sum<&'a Accumulator> for Accumulator {
-    /// Accumulate directly without cloning or normalizing the inputs.
-    fn sum<I: Iterator<Item = &'a Accumulator>>(iter: I) -> Self {
+impl<'a> Sum<&'a mut Accumulator> for Accumulator {
+    /// Accumulate directly without cloning the inputs.
+    fn sum<I: Iterator<Item = &'a mut Accumulator>>(iter: I) -> Self {
         iter.fold(Self::new(), |mut total, operand| {
             total += operand;
             total
@@ -274,7 +281,7 @@ impl Add for Accumulator {
         if rhs.stored_digit_count() > self.stored_digit_count() {
             core::mem::swap(&mut self, &mut rhs);
         }
-        self += &rhs;
+        self += &mut rhs;
         self
     }
 }
@@ -291,8 +298,8 @@ impl Sub for Accumulator {
     type Output = Self;
 
     /// Preserve operand order and read the right operand directly.
-    fn sub(mut self, rhs: Self) -> Self {
-        self -= &rhs;
+    fn sub(mut self, mut rhs: Self) -> Self {
+        self -= &mut rhs;
         self
     }
 }
@@ -338,10 +345,8 @@ macro_rules! shifts {
         /// Let `A` be the old working width and `S` the result's. A nonzero
         /// value shifts in amortized O(`A` log(`S` + 1) + `S`) time and O(`S`)
         /// temporary space, because the old and new allocations may coexist
-        /// until the shift finishes. A zero shifts in O(1) space: in O(1) time
-        /// if [`is_known_zero`](Accumulator::is_known_zero) returns `true`, and
-        /// otherwise in O(`A`) time, not amortized, to confirm that its stored
-        /// digits cancel.
+        /// until the shift finishes. A zero shifts in O(1) space and in the
+        /// amortized time of [`cmp_zero`](Accumulator::cmp_zero).
         ///
         /// # Panics
         ///
@@ -413,7 +418,6 @@ impl Accumulator {
             }
             return;
         }
-        // Every deposit into the empty receiver extends its buffer, so
         // `add_shifted` compares the old value with zero first. A zero whose
         // digits cancel therefore leaves an empty receiver instead of landing
         // those digits at the shifted position.

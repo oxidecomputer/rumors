@@ -527,11 +527,11 @@ impl TickWalk<'_> {
                 // `target - anchor`, the offset needed to install that minimum.
                 let mut arm_offset = self.minima.follower_take(REL_FOLLOWER);
                 arm_offset = -arm_offset;
-                if let Some(link) = link {
-                    arm_offset += &link;
+                if let Some(mut link) = link {
+                    arm_offset += &mut link;
                     drop(link);
                 }
-                if self.minima.compare_above_vs(above, &arm_offset) == Ordering::Less {
+                if self.minima.compare_above_vs(above, &mut arm_offset) == Ordering::Less {
                     // The memoized minimum dominates the old maximum.
                     self.minima.arm_relative(arm_offset);
                     self.emit_at_min(depth + 1);
@@ -567,8 +567,8 @@ impl TickWalk<'_> {
         // Keeping the link folded in leaves `height - target`, ready to serve
         // as the next reference without materializing either absolute value.
         relation.add_bigint(above);
-        if let Some(link) = link {
-            relation -= &link;
+        if let Some(mut link) = link {
+            relation -= &mut link;
             drop(link);
         }
         let sign = relation.cmp_zero();
@@ -582,8 +582,8 @@ impl TickWalk<'_> {
             if first {
                 // First output leaf, coded absolute: value = h − below.
                 let mut absolute = Accumulator::new();
-                absolute += &self.height;
-                absolute -= &relation;
+                absolute += &mut self.height;
+                absolute -= &mut relation;
                 self.minima.emit_below_accum(relation);
                 let value = absolute.into_bigint();
                 debug_assert!(value.sign() != Sign::Minus, "a raised height is a natural");

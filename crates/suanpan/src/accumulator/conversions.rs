@@ -2,13 +2,17 @@
 //!
 //! Conversion keeps sign and magnitude separate so that signed minima never
 //! need to be negated in their own type. Construction retains the small
-//! representation whenever it fits. Extraction reads that value directly or
-//! temporarily normalizes stored digits; more than two 64-bit limbs cannot fit
-//! any primitive destination and is rejected without truncation.
+//! representation whenever it fits. Extraction reads a small value directly.
+//! For a wider one, it first asks whether every integer below `2^128` in
+//! magnitude leaves the value's sign unchanged. If so, the magnitude is at
+//! least `2^128`, fits no primitive destination, and is rejected without
+//! reading further. If the query does not establish that, it has compacted the
+//! value to at most six digits, which a normalizing read then extracts. Either
+//! way, extraction compacts only what it reads.
 //!
-//! `TryFrom` consumes its source, so a failed conversion returns the original
-//! accumulator as the error. This preserves both its exact value and any
-//! storage the caller may want to reuse.
+//! `TryFrom` consumes its source, so a failed conversion returns the same
+//! value as the error. This preserves both its exact value and any storage the
+//! caller may want to reuse.
 
 use core::cmp::Ordering;
 
@@ -33,11 +37,18 @@ impl Accumulator {
 
     /// Read a magnitude only when it fits the widest primitive integer.
     ///
-    /// Small-value reads take constant time without allocation. Other reads
-    /// pay the ordinary normalized-output cost.
-    fn primitive_parts(&self) -> Option<(Ordering, u128)> {
+    /// Small-value reads take constant time without allocation. A wider value
+    /// is read only when its magnitude might fit 128 bits, and then spans at
+    /// most six digits.
+    fn primitive_parts(&mut self) -> Option<(Ordering, u128)> {
         if let Some(value) = self.small {
             return Some((value.cmp(&0), value.unsigned_abs()));
+        }
+        // `Some` means no integer below `2^128` in magnitude can change the
+        // sign, so the magnitude is at least `2^128`. `None` leaves at most
+        // two digits above the four that 128 bits occupy.
+        if self.cmp_zero_stable_under(u128::BITS.into()).is_some() {
+            return None;
         }
         let (sign, limbs) = self.signed_magnitude();
         match limbs.as_ref() {
@@ -49,7 +60,7 @@ impl Accumulator {
     }
 
     /// Interpret a full primitive magnitude in the signed range, including MIN.
-    fn primitive_signed(&self) -> Option<i128> {
+    fn primitive_signed(&mut self) -> Option<i128> {
         let (sign, magnitude) = self.primitive_parts()?;
         if sign == Ordering::Less {
             if magnitude == 1u128 << 127 {
@@ -63,7 +74,7 @@ impl Accumulator {
     }
 
     /// Reject negative values before narrowing an unsigned magnitude.
-    fn primitive_unsigned(&self) -> Option<u128> {
+    fn primitive_unsigned(&mut self) -> Option<u128> {
         let (sign, magnitude) = self.primitive_parts()?;
         (sign != Ordering::Less).then_some(magnitude)
     }
@@ -84,14 +95,15 @@ macro_rules! conversions {
 
         /// Extract a primitive integer if and only if its value fits.
         ///
-        /// Takes O(`W`) time and O(`W`) temporary space for working width `W`.
-        /// Failure returns the original accumulator unchanged.
+        /// Takes amortized O(log(`W` + 1)) time and O(1) temporary space,
+        /// where `W` is the greatest working width reached. Failure returns
+        /// the same value, though the read may have changed its working width.
         impl TryFrom<Accumulator> for $integer {
-            /// The exact input, returned unchanged.
+            /// The input's exact value.
             type Error = Accumulator;
 
-            /// Normalize only when direct extraction is unavailable.
-            fn try_from(value: Accumulator) -> Result<Self, Self::Error> {
+            /// Read the value only as far as deciding whether it fits.
+            fn try_from(mut value: Accumulator) -> Result<Self, Self::Error> {
                 value.$parts().and_then(|number| Self::try_from(number).ok()).ok_or(value)
             }
         }
@@ -114,13 +126,15 @@ macro_rules! narrow_conversions {
 
         /// Extract an exactly fitting integer, returning the input on failure.
         ///
-        /// Takes O(`W`) time and O(`W`) temporary space for working width `W`.
+        /// Takes amortized O(log(`W` + 1)) time and O(1) temporary space,
+        /// where `W` is the greatest working width reached. Failure returns
+        /// the same value, though the read may have changed its working width.
         impl TryFrom<Accumulator> for $integer {
-            /// The original accumulator, unchanged.
+            /// The input's exact value.
             type Error = Accumulator;
 
             /// Narrow only after an exact signed or unsigned 128-bit conversion.
-            fn try_from(value: Accumulator) -> Result<Self, Self::Error> {
+            fn try_from(mut value: Accumulator) -> Result<Self, Self::Error> {
                 let number = value.$parts().and_then(|number| Self::try_from(number).ok());
                 number.ok_or(value)
             }

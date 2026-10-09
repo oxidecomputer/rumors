@@ -420,7 +420,7 @@ proptest! {
             // The accumulator-operand clause: a redundant signed
             // representation in digits 0..=floor can exceed every plain
             // magnitude under the floor, and the verdict covers it too.
-            let (operand, operand_oracle) =
+            let (mut operand, operand_oracle) =
                 build_probe(&probe_digits, probe_all_extreme, probe_negate, floor);
             prop_assert!(
                 operand.stored_digit_count() <= floor + 1,
@@ -435,14 +435,14 @@ proptest! {
                  exceeds any operand stored in digits 0..=floor"
             );
             let mut folded = acc.clone();
-            folded -= &operand;
+            folded -= &mut operand;
             prop_assert_eq!(
                 folded.cmp_zero(), sign,
                 "a decided verdict survives subtracting an operand stored \
                  in digits 0..=floor"
             );
             let mut folded = acc.clone();
-            folded += &operand;
+            folded += &mut operand;
             prop_assert_eq!(
                 folded.cmp_zero(), sign,
                 "a decided verdict survives adding an operand stored in \
@@ -508,7 +508,7 @@ proptest! {
                 "all far-wider cancellation must be compacted before subtraction"
             );
             let mut difference = left.clone();
-            difference -= &right;
+            difference -= &mut right;
             difference.cmp_zero()
         };
         prop_assert_eq!(actual, expected);

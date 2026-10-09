@@ -181,7 +181,7 @@ impl Integrator {
     /// `orientation` is `1` when the difference contributes as stored and `-1`
     /// when it contributes with the opposite sign. Reading the accumulator
     /// directly avoids normalizing the opening value merely to copy it here.
-    pub fn open_difference(&mut self, opening: &Accumulator, orientation: i8) {
+    pub fn open_difference(&mut self, opening: &mut Accumulator, orientation: i8) {
         match orientation {
             1 => self.base += opening,
             -1 => self.base -= opening,
@@ -191,9 +191,8 @@ impl Integrator {
 
     /// Add the next region, whose width at the common scale is `2^weight_shift`.
     pub fn interval(&mut self, weight_shift: u64) {
-        // This cheap test may miss cancellation in buffered digits. Adding a
-        // mathematically zero `live` inside `total`'s buffer is harmless, and
-        // `add_shifted` compacts and skips one that would extend that buffer.
+        // This cheap test may miss cancellation in buffered digits;
+        // `add_shifted` compacts `live` and skips it if zero.
         if !self.live.is_known_zero() {
             self.total.add_shifted(weight_shift, &mut self.live);
         }
@@ -258,7 +257,7 @@ impl Integrator {
         if self.parked.stored_digit_count() > drift_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
             self.defer_parked(parked);
         }
-        self.parked += &self.live;
+        self.parked += &mut self.live;
         self.live.reset();
 
         // reset() clears the whole allocated span. Segment digits can be high
@@ -271,7 +270,7 @@ impl Integrator {
     /// A following deferral reuses the value already needed for multiplication,
     /// rather than reading the parked accumulator twice at the same boundary.
     fn close_segment(&mut self) -> Option<BigInt> {
-        let width = ScaledWidth::read(&self.segment_width);
+        let width = ScaledWidth::read(&mut self.segment_width);
         if width.is_zero() {
             debug_assert!(
                 self.parked.is_known_zero(),
@@ -309,7 +308,7 @@ impl Integrator {
         }
         let parked = self.parked.to_bigint();
         if parked != BigInt::ZERO {
-            let width = ScaledWidth::read(&self.segment_width);
+            let width = ScaledWidth::read(&mut self.segment_width);
             width.add_product(&mut self.total, &parked);
         }
     }
@@ -323,7 +322,7 @@ impl Integrator {
         self.finish_segment();
         if !self.deferred.is_empty() {
             self.deferred
-                .add_width(&ScaledWidth::read(&self.segment_width));
+                .add_width(&ScaledWidth::read(&mut self.segment_width));
             self.deferred.finish(&mut self.total);
         }
         if !self.base.is_known_zero() {

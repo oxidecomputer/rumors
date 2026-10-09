@@ -123,7 +123,7 @@ impl Boundary {
         if decrease.stored_digit_count() >= boundary.stored_digit_count() + 2 {
             match decrease.cmp_zero_stable_under(boundary.stored_bits()) {
                 Some(Ordering::Greater) => {
-                    decrease -= &boundary;
+                    decrease -= &mut boundary;
                     return Remainder::Decrease(Positive(decrease));
                 }
                 Some(_) => unreachable!("the decrease is positive"),
@@ -133,7 +133,7 @@ impl Boundary {
         if boundary.stored_digit_count() >= decrease.stored_digit_count() + 2 {
             match boundary.cmp_zero_stable_under(decrease.stored_bits()) {
                 Some(Ordering::Greater) => {
-                    boundary -= &decrease;
+                    boundary -= &mut decrease;
                     return Remainder::Boundary(Self::from_positive(Positive(boundary)));
                 }
                 Some(_) => unreachable!("stored boundaries are positive"),
@@ -141,7 +141,7 @@ impl Boundary {
             }
         }
 
-        boundary -= &decrease;
+        boundary -= &mut decrease;
         match Signed::of(boundary) {
             Signed::Positive(boundary) => Remainder::Boundary(Self::from_positive(boundary)),
             Signed::Zero => Remainder::Equal,

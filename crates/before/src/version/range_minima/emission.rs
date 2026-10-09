@@ -113,7 +113,7 @@ impl RangeMinima<()> {
     ///
     /// Their difference is `gap + above - arm_offset`. Any deferred distance
     /// cancels because both values use the same anchor, so it need not be read.
-    pub fn compare_above_vs(&mut self, above: &BigInt, arm_offset: &Accumulator) -> Ordering {
+    pub fn compare_above_vs(&mut self, above: &BigInt, arm_offset: &mut Accumulator) -> Ordering {
         debug_assert!(self.armed(), "a comparison needs an armed range");
         self.anchor.compare_offset_to(above, arm_offset)
     }

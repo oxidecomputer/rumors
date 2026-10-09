@@ -31,10 +31,10 @@ assert_eq!(limbs.as_ref(), [0, 0, 0, 0, 0, 0, 0, 0, 1]);
 
 Construct zero with `Accumulator::new` or `Default`, or convert any
 primitive integer with `From`. Standard `+`, `-`, `+=`, `-=`, unary `-`,
-`<<`, and `<<=` operations accept the corresponding owned, borrowed, or
-primitive values. Consuming operations reuse their left operand; owned
-addition may instead reuse either input's allocation because addition is
-commutative.
+`<<`, and `<<=` operations accept the corresponding owned, mutably
+borrowed, or primitive values. Consuming operations reuse their left
+operand; owned addition may instead reuse either input's allocation because
+addition is commutative.
 
 Arbitrary-width magnitudes can be streamed as little-endian `u64` limbs
 through `add_shifted_limbs` and
@@ -45,15 +45,18 @@ shifted temporary.
 
 `cmp_zero` returns the exact comparison. It takes `&mut self`
 because the query compacts cancellation so later queries do not repeat the
-work. `is_known_zero` is a cheaper one-sided
+work. Every read compacts what it touches in the same way: magnitude reads
+and accumulator operands therefore take `&mut` too, and a failed primitive
+conversion returns the same value, perhaps in a different working width.
+`is_known_zero` is a cheaper one-sided
 check: `true` proves zero; `false` means the stored form is inconclusive.
 
 `signed_magnitude` returns normalized limbs
-and may allocate in proportion to the accumulator's working width. The scaled form returns
-a known power-of-two factor separately, which can avoid materializing an
-unused low zero prefix. Primitive `TryFrom` conversions are exact, and
-return the original accumulator on failure so its storage can still be
-reused.
+and keeps the normalized form, so reading again costs only the result's
+width. The scaled form returns a known power-of-two factor separately,
+which can avoid materializing an unused low zero prefix. Primitive
+`TryFrom` conversions are exact, and return the same value on failure so
+its storage can still be reused.
 
 To compare two totals, subtract one from a clone of the other and compare
 the difference with zero. When their scales differ greatly,
@@ -87,25 +90,24 @@ alive.
 | Exact or bounded comparison with zero | Amortized O(log(`W` + 1)) | O(1) retained |
 | Working-width and known-zero queries | O(1) | O(1) |
 | Unary `-` and `reset` | O(`W`) | O(1) |
-| `normalize`, producing working width `Q` | O(`W` + `Q` log(`Q` + 1)) | O(1) scratch; existing O(`W`) capacity retained for reuse |
-| Primitive `TryFrom` | O(`W`) | O(`W`) temporary |
+| `normalize`, producing working width `Q` | Amortized O(log(`W` + 1) + `Q`) | O(1) scratch; existing capacity retained for reuse |
+| Magnitude read producing `Q` limbs | Amortized O(log(`W` + 1) + `Q`) | O(`Q`) temporary |
+| Primitive `TryFrom` | Amortized O(log(`W` + 1)) | O(1) temporary |
 
 Any operation that grows the receiver may need O(`W` + `G`) temporary
 space while replacing its allocation. This is allocator work, not an
 additional copy made by the arithmetic. The retained bounds in the table
 describe what remains after the operation.
 Normalization can remove arbitrarily much cancelled width, but can extend
-the working width by at most one 32-bit position: `Q <= W + 32`. It rewrites
-the existing allocation rather than constructing a normalized copy, and
-deliberately retains that O(`W`) capacity for later updates. Its rebuilt
-skip metadata occupies O(`Q`) space within that retained bound. Only an
-extension beyond the existing capacity can temporarily keep both the old
-and replacement buffers alive.
+the working width by at most one 32-bit position. It rewrites the existing
+allocation rather than constructing a normalized copy, and deliberately
+retains that capacity for later updates. Only an extension beyond the
+existing capacity can temporarily keep both the old and replacement buffers
+alive.
 
-An unscaled magnitude read producing `Q` limbs takes O(`W` + `Q`) time,
-O(`W`) temporary space, and O(`Q`) output space. A scaled read can omit a
-low range known to be zero; for that operation, replace `W` with the number
-of bits between the lowest relevant update and the top of the working range.
+A magnitude read normalizes the digits it reads in place, with the same
+costs, and returns O(`Q`) output. A scaled read can omit a low range known
+to be zero, and that range is not part of its `Q`.
 
 The accumulator may retain more allocation than its current working width
 after cancellation or reset. A nonzero left shift can replace that

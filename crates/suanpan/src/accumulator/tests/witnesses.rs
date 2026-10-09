@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 
-use super::{assert_value, park_extreme_negative_digit, Accumulator, TestBig as _};
+use super::{assert_value, from_limbs, park_extreme_negative_digit, Accumulator, TestBig as _};
 use crate::accumulator::digit_index;
 use crate::accumulator::small::{SMALL_MAX, SMALL_SHIFT_MAX};
 
@@ -121,14 +121,14 @@ fn stability_covers_extreme_accumulator_operands() {
     );
     // |larger| > |operand|, so adding or subtracting it cannot flip the sign.
     let mut probe = larger.clone();
-    probe -= &operand;
+    probe -= &mut operand;
     assert_eq!(
         probe.cmp_zero(),
         Ordering::Greater,
         "larger − operand remains positive"
     );
     let mut probe = larger.clone();
-    probe += &operand;
+    probe += &mut operand;
     assert_eq!(
         probe.cmp_zero(),
         Ordering::Greater,
@@ -176,7 +176,7 @@ fn small_value_stability_threshold_is_tight_from_below() {
     );
     // Why false is required: the in-scope operand flips the sign.
     let mut probe = larger.clone();
-    probe -= &operand;
+    probe -= &mut operand;
     assert_eq!(
         probe.cmp_zero(),
         Ordering::Less,
@@ -316,11 +316,13 @@ fn comparison_compaction_tightens_the_stored_width() {
     );
 }
 
-/// Comparison compaction may write below the input's lowest position.
+/// Comparison compaction may write below the input's lowest position, and the
+/// scaled read compares with zero first.
 ///
-/// For 2^1280, it combines the top two positions and deposits the result one
-/// position lower. The scaled read consequently returns (2^32, 1248), not
-/// (1, 1280); either pair denotes the same magnitude.
+/// For 2^1280, the comparison combines the top two positions and deposits the
+/// result one position lower. The scaled read consequently returns
+/// (2^32, 1248), not (1, 1280); either pair denotes the same magnitude. The
+/// read keeps the lowered position, so reading again returns the same pair.
 #[test]
 fn comparison_compaction_lowers_the_scaled_read_shift() {
     // One unit parked at digit 40: the 1280-bit shift exceeds the
@@ -328,25 +330,11 @@ fn comparison_compaction_lowers_the_scaled_read_shift() {
     // representation with a one-digit written span at index 40.
     let mut acc = Accumulator::new();
     acc.add_limb_value_shl(&UBig::ONE, 1280);
-    // Before comparison, the scaled read prices the written span and
-    // returns the whole never-written prefix as the shift.
-    let (sign, magnitude, shift) = acc.sign_biguint_shl();
-    assert_eq!(sign, Ordering::Greater);
-    assert_eq!(
-        (magnitude, shift),
-        (UBig::ONE, 1280),
-        "untouched, the scaled read returns the full written-span shift"
-    );
     // A top coefficient of 1 cannot determine the sign without reading lower
     // digits. Combining the next position writes the partial sum one digit
     // lower, so the lowest-written position moves with it.
-    assert_eq!(acc.cmp_zero(), Ordering::Greater);
     let (sign, magnitude, shift) = acc.sign_biguint_shl();
     assert_eq!(sign, Ordering::Greater);
-    assert!(
-        shift < 1280,
-        "comparison compaction must lower the returned shift"
-    );
     assert_eq!(
         (&magnitude, shift),
         (&(UBig::ONE << 32usize), 1248),
@@ -358,6 +346,16 @@ fn comparison_compaction_lowers_the_scaled_read_shift() {
         UBig::ONE << 1280usize,
         "the collapse is value-preserving"
     );
+    // Reading in place keeps the lowered position, so every read returns the
+    // same pair.
+    for read in 0..2 {
+        let (sign, limbs, shift) = acc.scaled_signed_magnitude();
+        assert_eq!(
+            (sign, from_limbs(limbs.as_ref()), shift),
+            (Ordering::Greater, UBig::ONE << 32usize, 1248),
+            "in-place read {read}"
+        );
+    }
 }
 
 /// The representation `[0, −2]` normalizes to `−2^33` across a zero low digit.

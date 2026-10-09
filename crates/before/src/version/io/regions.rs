@@ -370,8 +370,7 @@ impl VersionSubtreeReader {
         let (last_depth, last_code_len) =
             self.fold_remaining(cursor, first, &mut net, &mut min, pending)?;
         let net = net.to_bigint();
-        let min = min.into_offset();
-        let min_from_exit = min.to_bigint();
+        let min_from_exit = min.into_offset().into_bigint();
         debug_assert_ne!(
             min_from_exit.sign(),
             Sign::Plus,

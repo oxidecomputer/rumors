@@ -59,8 +59,10 @@ const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 /// Use `+=` and `-=` with primitive integers or accumulator operands, and
 /// `<<=` with a nonnegative integer shift. Dedicated methods accept shifted
 /// operands and streams of 64-bit limbs without first constructing them.
-/// Comparing with zero may reduce the working width without changing the value.
 /// Read a normalized magnitude with [`signed_magnitude`](Self::signed_magnitude).
+/// Every read, including use as an operand, may change the working width
+/// without changing the value, so that no later operation pays for the same
+/// cancellation; this is why reads take `&mut`.
 ///
 /// See the [crate documentation](crate) for operation costs and input guidance.
 /// `Default` creates zero without allocating. Cloning and debug formatting
@@ -148,7 +150,7 @@ impl Accumulator {
     /// Panics if `other` is nonzero and the result needs more digit positions
     /// than a buffer can address. A zero operand never panics.
     pub fn add_shifted(&mut self, shift: u64, other: &mut Accumulator) {
-        self.apply_shifted_accumulator(other, shift, Update::Add);
+        self.apply_accumulator(other, shift, Update::Add);
     }
 
     /// Subtract another accumulator's value multiplied by `2^shift`.
@@ -167,7 +169,7 @@ impl Accumulator {
     /// Panics if `other` is nonzero and the result needs more digit positions
     /// than a buffer can address. A zero operand never panics.
     pub fn sub_shifted(&mut self, shift: u64, other: &mut Accumulator) {
-        self.apply_shifted_accumulator(other, shift, Update::Subtract);
+        self.apply_accumulator(other, shift, Update::Subtract);
     }
 
     /// Reset to zero, retaining allocated storage for reuse.
@@ -256,22 +258,22 @@ impl Accumulator {
     ///
     /// Cancellation can leave the working width much larger than the result's
     /// bit length. This method makes the two agree. It is useful before
-    /// repeatedly cloning or reading such a value, and retains allocated
-    /// capacity for later updates.
+    /// repeatedly cloning such a value, and retains allocated capacity for
+    /// later updates.
     ///
     /// # Complexity
     ///
-    /// Let `W` be the working width before normalization and `Q` the width
-    /// afterward. Cancellation can make `Q` arbitrarily smaller than `W`, but
-    /// the bounded stored digits guarantee `Q <= W + 32`.
+    /// Let `W` be the greatest working width reached and `Q` the width
+    /// afterward. Cancellation can make `Q` arbitrarily smaller than the
+    /// working width before normalization, but the bounded stored digits
+    /// guarantee that `Q` exceeds it by at most 32.
     ///
-    /// The operation takes O(`W` + `Q` log(`Q` + 1)) time and O(1) arithmetic
-    /// scratch. It rewrites the existing allocation instead of constructing a
-    /// normalized copy, and deliberately retains that O(`W`) capacity for
-    /// later updates even when `Q` is much smaller. The rebuilt skip metadata
-    /// occupies O(`Q`) space, within the same O(`W`) retained bound. If the one
-    /// possible new digit exceeds the existing capacity, reallocation may
-    /// temporarily retain both O(`W`) buffers.
+    /// The operation takes amortized O(log(`W` + 1) + `Q`) time and O(1)
+    /// arithmetic scratch. It rewrites the existing allocation instead of
+    /// constructing a normalized copy, and deliberately retains that capacity
+    /// for later updates even when `Q` is much smaller. If the one possible
+    /// new digit exceeds the existing capacity, reallocation may temporarily
+    /// retain both buffers.
     pub fn normalize(&mut self) {
         if self.small.is_none() {
             self.digits.normalize();
@@ -399,15 +401,19 @@ impl Accumulator {
     /// Return the comparison with zero and normalized magnitude limbs.
     ///
     /// The little-endian 64-bit limbs have no high zero word and are empty
-    /// exactly when the comparison is `Equal`. This read does not change the
-    /// value or its working width.
+    /// exactly when the comparison is `Equal`. The read keeps the normalized
+    /// form it computes, which has the same value in a working width that can
+    /// be far narrower and is at most 32 bits wider, so a repeated read costs
+    /// only the result's width. This is why it takes `&mut self`.
     ///
     /// # Complexity
     ///
-    /// If the result has `Q` limbs, this takes O(`W` + `Q`) time, O(`W`)
-    /// temporary space, and O(`Q`) returned space, where `W` is the working
-    /// width.
-    pub fn signed_magnitude(&self) -> (Ordering, impl AsRef<[u64]>) {
+    /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
+    /// time, O(`Q`) temporary space, and O(`Q`) returned space, where `W` is
+    /// the greatest working width reached. If the result needs one digit
+    /// position beyond the existing capacity, reallocation may temporarily
+    /// retain both buffers.
+    pub fn signed_magnitude(&mut self) -> (Ordering, impl AsRef<[u64]>) {
         if let Some(value) = self.small {
             touch(self.stored_digit_count() as u64);
             let (limbs, len) = limbs_from_u128(value.unsigned_abs());
@@ -421,18 +427,19 @@ impl Accumulator {
     ///
     /// The exact value is `±magnitude * 2^shift`. As in
     /// [`signed_magnitude`](Self::signed_magnitude), the magnitude is minimal
-    /// and little-endian; zero has no limbs. This read does not change the
-    /// accumulator. The method may factor out a low span known to be zero from
-    /// write history, avoiding a scan of that span. The factor need not be
+    /// and little-endian; zero has no limbs, and the read keeps the normalized
+    /// form it computes. The method may factor out a low span known to be zero
+    /// from write history, avoiding a scan of that span. The factor need not be
     /// maximal: cancellation can leave low zero bits in the magnitude.
     ///
     /// # Complexity
     ///
-    /// If the result has `Q` limbs, this takes O(`R` + `Q`) time, O(`R`)
-    /// temporary space, and O(`Q`) returned space. `R` spans the lowest
-    /// relevant update since construction or reset through the top of the
-    /// working range, including gaps.
-    pub fn scaled_signed_magnitude(&self) -> (Ordering, impl AsRef<[u64]>, u64) {
+    /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
+    /// time, O(`Q`) temporary space, and O(`Q`) returned space, where `W` is
+    /// the greatest working width reached. Omitting the factored span keeps
+    /// it out of `Q`. Reallocation may temporarily retain two buffers, as for
+    /// [`signed_magnitude`](Self::signed_magnitude).
+    pub fn scaled_signed_magnitude(&mut self) -> (Ordering, impl AsRef<[u64]>, u64) {
         if let Some(value) = self.small {
             touch(self.stored_digit_count() as u64);
             let (limbs, len) = limbs_from_u128(value.unsigned_abs());

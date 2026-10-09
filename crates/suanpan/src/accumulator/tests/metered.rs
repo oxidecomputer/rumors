@@ -10,7 +10,9 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 
-use super::{fresh, from_limbs, Accumulator, TestBig as _};
+use super::{
+    assert_value, cancelled_top, fresh, from_limbs, read_value, Accumulator, TestBig as _,
+};
 use crate::accumulator::operand::Update;
 use crate::touch_meter;
 
@@ -187,14 +189,16 @@ fn sign_query_skips_recorded_zero_ranges() {
 /// The accumulator-operand rows cost the operand's held digits, not
 /// the receiver's width or the shift.
 ///
-/// Borrowed `+=`, borrowed `-=`, and owned addition of a two-digit operand
-/// inside the receiver's buffer cost exactly 4 touches, a read and a deposit
-/// per operand digit, at either receiver width. `add_shifted` and
-/// `sub_shifted` deposit past the buffer, so they first compare the operand
-/// with zero. Its top digit, 1, does not decide, so the comparison reads and
-/// clears both digits and rewrites the value `2^32 + 1` as one digit at
-/// position 0: 5 touches. The deposit then reads and writes that one digit:
-/// 7 touches, at either shift.
+/// Every accumulator operand is first compared with zero. The two-digit
+/// operand's top digit, 1, does not decide, so the comparison reads and clears
+/// both digits and rewrites the value `2^32 + 1` as one digit at position 0:
+/// 5 touches. The deposit then reads that digit and writes it. Added to the
+/// receiver's digit `2^32 − 1`, it reaches the digit limit `2^33` and carries
+/// once: 8 touches for `+=` and owned addition. Subtracted, it leaves `−2`
+/// without a carry: 7, as for `add_shifted` and `sub_shifted`, whose deposits
+/// land past the receiver's digits. Each total holds at either receiver width
+/// and either shift. Adding the compacted operand again costs 3: one deciding
+/// touch, a read, and a deposit onto the digit the carry cleared.
 ///
 /// These are the cost table's "amortized O(operand's held digits),
 /// whatever the held width / independent of the shift" rows, pinned
@@ -213,36 +217,46 @@ fn accumulator_operand_rows_cost_the_operand() {
     // Receivers of 64 and 128 held digits: 2^k − 1 fills every digit.
     for held_bits in [2_048u32, 4_096] {
         let wide_value = (UBig::from(1u8) << held_bits as usize) - 1u8;
-        let operand = narrow();
 
+        let mut operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&wide_value);
         touch_meter::reset();
-        receiver += &operand;
+        receiver += &mut operand;
         assert_eq!(
             touch_meter::touches(),
-            4,
-            "adding 2 operand digits into {} held digits: 2 reads + 2 deposits",
+            8,
+            "adding 2 operand digits into {} held digits: 5 compacting the operand \
+             to one digit + 1 read + 1 deposit + 1 carry",
             held_bits / 32,
         );
+        touch_meter::reset();
+        receiver += &mut operand;
+        assert_eq!(
+            touch_meter::touches(),
+            3,
+            "adding the compacted operand again: 1 deciding touch + 1 read + 1 deposit"
+        );
 
+        let mut operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&wide_value);
         touch_meter::reset();
-        receiver -= &operand;
+        receiver -= &mut operand;
         assert_eq!(
             touch_meter::touches(),
-            4,
+            7,
             "borrowed subtraction at {held_bits} bits"
         );
 
+        let operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&wide_value);
         touch_meter::reset();
         receiver += operand;
         assert_eq!(
             touch_meter::touches(),
-            4,
+            8,
             "owned addition reads the narrower operand only"
         );
         let (sign, magnitude) = receiver.sign_biguint();
@@ -252,8 +266,8 @@ fn accumulator_operand_rows_cost_the_operand() {
             (UBig::from(1u8) << held_bits as usize) - 1u8 + UBig::from((1u64 << 32) | 1)
         );
     }
-    // Each scaled merge deposits past the buffer, so it first compacts the
-    // operand, for the same total at both shifts and in both signs.
+    // Each scaled merge compacts the operand the same way, for the same total
+    // at both shifts and in both signs.
     for shift in [32_000u64, 64_000] {
         let mut operand = narrow();
         let mut receiver = Accumulator::new();
@@ -307,13 +321,13 @@ fn accumulator_operand_rows_cost_the_operand() {
 /// `self`'s buffer keeps the sum"), observable in the exact counts.
 ///
 /// Two tied-width operands with different interior-zero populations:
-/// the fold pays one read per operand digit up to its top plus one
-/// deposit per *nonzero* operand digit, so which operand is read is
-/// visible whenever their nonzero counts differ. Here `other` is
-/// dense and `self` carries interior zeros — 6 touches at the
-/// 3-digit tie (3 reads + 3 deposits) and 10 at the 5-digit tie
-/// (5 + 5); a swap on the tie would read the zero-bearing buffer and
-/// undercount. The sum and the destination's reset behavior are
+/// the fold pays one touch for the operand's deciding top digit, one read
+/// per operand digit up to its top, and one deposit per *nonzero* operand
+/// digit, so which operand is read is visible whenever their nonzero counts
+/// differ. Here `other` is dense and `self` carries interior zeros — 7
+/// touches at the 3-digit tie (1 + 3 reads + 3 deposits) and 11 at the
+/// 5-digit tie (1 + 5 + 5); a swap on the tie would read the zero-bearing
+/// buffer and undercount. The sum and the destination's reset behavior are
 /// asserted alongside.
 #[test]
 fn merge_tie_reads_the_operand() {
@@ -322,9 +336,9 @@ fn merge_tie_reads_the_operand() {
     // dense, and both settle the same top digit index.
     let ties: [(&[u64], &[u64], usize, u64); 2] = [
         // self digits [5, 0, 7]; other digits [1, 2, 3].
-        (&[5, 7], &[(2 << 32) | 1, 3], 3, 6),
+        (&[5, 7], &[(2 << 32) | 1, 3], 3, 7),
         // self digits [5, 0, 0, 0, 7]; other digits [1, 2, 3, 4, 5].
-        (&[5, 0, 7], &[(2 << 32) | 1, (4 << 32) | 3, 5], 5, 10),
+        (&[5, 0, 7], &[(2 << 32) | 1, (4 << 32) | 3, 5], 5, 11),
     ];
     for (self_limbs, other_limbs, tied_count, expected) in ties {
         let mut receiver = Accumulator::new();
@@ -338,8 +352,9 @@ fn merge_tie_reads_the_operand() {
         assert_eq!(
             touch_meter::touches(),
             expected,
-            "a {tied_count}-digit tie reads the dense `other`: one read \
-             per operand digit plus one deposit per nonzero operand digit"
+            "a {tied_count}-digit tie reads the dense `other`: one deciding \
+             touch, one read per operand digit, and one deposit per nonzero \
+             operand digit"
         );
         let (sign, magnitude) = receiver.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
@@ -358,7 +373,8 @@ fn merge_tie_reads_the_operand() {
 /// - `<<=` reads the top digit to rule out zero, then reads and re-deposits
 ///   each digit: `2d + 1`. The top digit, `2^32 - 1`, settles the zero check
 ///   alone, and the total is the same at a thousandfold larger shift;
-/// - `sign_biguint` carries once through the span: `d`.
+/// - a magnitude read decides the sign on that same top digit, then
+///   normalizes the span in one pass: `d + 1`.
 ///
 /// Exact equality across the width doubling is the linearity claim, with no
 /// slack for a hidden second pass.
@@ -383,9 +399,9 @@ fn held_width_rows_cost_the_held_digits() {
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(
             touch_meter::touches(),
-            held_digits,
-            "sign_biguint at {held_digits} held digits: one carry pass \
-             over the span"
+            held_digits + 1,
+            "sign_biguint at {held_digits} held digits: one deciding touch and \
+             one normalizing pass over the span"
         );
         assert_eq!((sign, magnitude), (Ordering::Greater, wide_value.clone()));
 
@@ -393,9 +409,9 @@ fn held_width_rows_cost_the_held_digits() {
         let (limb_sign, limbs) = acc.signed_magnitude();
         assert_eq!(
             touch_meter::touches(),
-            held_digits,
-            "signed_magnitude at {held_digits} stored digits: the same one carry \
-             pass as sign_biguint"
+            held_digits + 1,
+            "signed_magnitude at {held_digits} stored digits: the same deciding \
+             touch and pass as sign_biguint"
         );
         assert_eq!(limb_sign, Ordering::Greater);
         assert_eq!(from_limbs(limbs.as_ref()), wide_value.clone());
@@ -631,8 +647,10 @@ fn decision_bound_top_decides_on_the_first_touch() {
 
 /// A scaled read skips only the low prefix, not gaps between written positions.
 ///
-/// Three nonzero digits at positions zero, 1000, and 1002 require exactly 1003
-/// touches. Charging only for the three writes would undercount the normalized read.
+/// Three nonzero digits at positions zero, 1000, and 1002 require exactly 1004
+/// touches: one to decide the sign on the top digit, and one per position in
+/// the normalizing pass. Charging only for the three writes would undercount
+/// the normalized read.
 #[test]
 fn scaled_read_costs_the_span_not_the_write_count() {
     let mut acc = Accumulator::new();
@@ -644,7 +662,7 @@ fn scaled_read_costs_the_span_not_the_write_count() {
     let (sign, magnitude, shift) = acc.sign_biguint_shl();
     assert_eq!(
         touch_meter::touches(),
-        1_003,
+        1_004,
         "the scaled read walks the whole span between the two writes: \
          its cost is the written span, not the written-digit count"
     );
@@ -709,5 +727,120 @@ fn no_collapse_fold_re_scans_the_prefix() {
             1_000,
             "after the collapse every sign read is one touch, at any k"
         );
+    }
+}
+
+/// A magnitude read costs the result's width, not a cancelled working width,
+/// and a repeated read costs only the normalized result.
+///
+/// The value `2^(32r) − 1`, `r` digits of `2^32 − 1`, sits under a top that
+/// cancels at position `p`. The first read compares with zero: it reads and
+/// clears each of the two cancelling digits (4 touches), crosses the recorded
+/// zero range below them in one untouched skip, and reads the deciding digit
+/// `r − 1` and rewrites it with a clear and a deposit (3). Its normalizing pass
+/// then touches the `r` digits: `r + 7` in all. The read keeps the normalized
+/// form, so every repeated read costs one deciding touch and the same pass:
+/// `r + 1`. Both totals are exact at two heights of the cancelled top and two
+/// result widths, through both readouts. A read that kept nothing would pay
+/// the first read's compaction every time.
+#[test]
+fn magnitude_reads_cost_the_result_width() {
+    for (digits, position) in [(64u64, 1_000u64), (64, 2_000), (128, 1_000), (128, 2_000)] {
+        let value = (UBig::from(1u8) << usize::try_from(32 * digits).unwrap()) - 1u8;
+        for scaled in [false, true] {
+            let mut acc = cancelled_top(position);
+            acc.add_limb_value(&value);
+            for (read, expected) in [(0, digits + 7), (1, digits + 1), (2, digits + 1)] {
+                touch_meter::reset();
+                let read_back = read_value(&mut acc, scaled);
+                assert_eq!(
+                    touch_meter::touches(),
+                    expected,
+                    "read {read} of {digits} digits under a top cancelled at {position} \
+                     (scaled: {scaled})"
+                );
+                assert_eq!(read_back, IBig::from(value.clone()));
+                assert_eq!(
+                    acc.stored_digit_count(),
+                    usize::try_from(digits).unwrap(),
+                    "the read keeps the value's own working width"
+                );
+            }
+        }
+    }
+}
+
+/// A primitive conversion costs what it reads, independent of the working
+/// width, and a failed conversion returns the compacted value.
+///
+/// `2^(32p)` has top digit 1 at position `p`. Converting it to `u64` first asks
+/// whether every adjustment below `2^128` leaves its sign unchanged: the top
+/// digit and the zero below it decide, and compacting them into one digit
+/// costs 5 touches. The answer proves the magnitude at least `2^128`, so the
+/// conversion fails without reading further. The returned value's compacted
+/// top decides each later conversion in 1 touch. A value of 5 under a top that
+/// cancels at position `p` converts in 9: the stability query reads and clears
+/// the two cancelling digits, skips the zero range, and rewrites the deciding
+/// digit 5 at position 0 (7), and the normalizing read then decides on that
+/// digit and passes over it (2). Both totals are exact at two heights.
+#[test]
+fn primitive_conversions_cost_what_they_read() {
+    for position in [1_000u64, 2_000] {
+        let mut wide = Accumulator::new();
+        wide.add_shifted_limbs(32 * position, [1]);
+        for (attempt, expected) in [(0, 5), (1, 1), (2, 1)] {
+            touch_meter::reset();
+            wide = u64::try_from(wide).expect_err("2^(32p) exceeds every primitive");
+            assert_eq!(
+                touch_meter::touches(),
+                expected,
+                "failed conversion {attempt} of 2^(32 * {position})"
+            );
+        }
+        assert_value(
+            &wide,
+            &(IBig::from(1) << usize::try_from(32 * position).unwrap()),
+        );
+
+        let mut narrow = cancelled_top(position);
+        narrow += 5_u8;
+        touch_meter::reset();
+        assert_eq!(u64::try_from(narrow).ok(), Some(5));
+        assert_eq!(
+            touch_meter::touches(),
+            9,
+            "converting 5 under a top cancelled at {position}: 7 for the \
+             stability query + 2 for the read"
+        );
+    }
+}
+
+/// An accumulator operand costs its value's width, not a cancelled working
+/// width, and adding it again costs only its compacted form.
+///
+/// The operand stores 5 under a top that cancels at position `p`. The first
+/// `+=` compares it with zero in 7 touches, as in
+/// `primitive_conversions_cost_what_they_read`, then reads and deposits its
+/// one remaining digit: 9. Adding it again costs one deciding touch, a read,
+/// and a deposit: 3. Both totals are exact at two heights of the cancelled
+/// top, and the operand keeps its value.
+#[test]
+fn accumulator_operands_cost_their_value_width() {
+    for position in [1_000u64, 2_000] {
+        let mut operand = cancelled_top(position);
+        operand += 5_u8;
+        let mut receiver = Accumulator::new();
+        receiver.add_limb_value(&((UBig::from(1u8) << 2_048usize) - 1u8));
+        for (addition, expected) in [(0, 9), (1, 3), (2, 3)] {
+            touch_meter::reset();
+            receiver += &mut operand;
+            assert_eq!(
+                touch_meter::touches(),
+                expected,
+                "addition {addition} of 5 under a top cancelled at {position}"
+            );
+        }
+        assert_value(&operand, &IBig::from(5));
+        assert_value(&receiver, &((IBig::from(1) << 2_048usize) - 1 + 15));
     }
 }

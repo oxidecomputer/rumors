@@ -48,8 +48,11 @@ proptest! {
     ///
     /// Independent cancellation patterns make either side start wider, make
     /// the first refusal expose the opposite side as wider, and cross the
-    /// two-digit cache boundary. Whenever an exact difference is retained, its
-    /// operands must have the width relation promised by the memory bound.
+    /// two-digit cache boundary. Whenever an exact difference is retained, it
+    /// obeys the memory bound: built from operands at most
+    /// [`HeightWidths::MAX_CLOSE_LEAD`] digits apart, whose widths compaction
+    /// only ever shrinks, it is at most that lead plus one carry digit wider
+    /// than the narrower height the comparison began with.
     #[test]
     fn height_comparison_matches_biguint(
         (probe_value, probe_extra, probe_subtracts_first) in arb_height(),
@@ -57,12 +60,18 @@ proptest! {
     ) {
         let mut probe = height(&probe_value, probe_extra, probe_subtracts_first);
         let mut bound = height(&bound_value, bound_extra, bound_subtracts_first);
+        let narrower = probe.stored_digit_count().min(bound.stored_digit_count());
         let (actual, difference) = Comparison::compare_heights(&mut probe, &mut bound);
         let expected = probe_value.cmp(&bound_value);
 
         prop_assert_eq!(actual, expected);
-        if difference.is_some() {
-            prop_assert_eq!(HeightWidths::between(&probe, &bound), HeightWidths::Close);
+        if let Some(difference) = &difference {
+            prop_assert!(
+                difference.stored_digit_count() <= narrower + HeightWidths::MAX_CLOSE_LEAD + 1,
+                "a retained difference of {} digits exceeds the memory bound over \
+                 a narrower height of {narrower} digits",
+                difference.stored_digit_count()
+            );
         }
         if expected == Ordering::Equal {
             prop_assert!(difference.is_some(), "equal heights require an exact difference");

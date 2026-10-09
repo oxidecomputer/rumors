@@ -66,21 +66,6 @@ impl core::fmt::Debug for ZeroRanges {
 
 /// Record skipped ranges, trim writes from them, and consume them during scans.
 impl ZeroRanges {
-    /// Rebuild every interior zero range after a full-buffer rewrite.
-    pub fn rebuild(&mut self, digits: &[i64]) {
-        self.clear();
-        let mut previous_nonzero = 0usize;
-        for (index, &digit) in digits.iter().enumerate() {
-            if digit == 0 {
-                continue;
-            }
-            if index > previous_nonzero.saturating_add(1) {
-                self.insert(previous_nonzero, index);
-            }
-            previous_nonzero = index;
-        }
-    }
-
     /// Record a write's untouched gap above the previous high digit.
     ///
     /// A genuine upward jump starts above every existing range, so its new

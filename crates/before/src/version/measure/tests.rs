@@ -272,11 +272,27 @@ fn spine_of(heights: &[BigUint]) -> Version {
 /// The exact-cancellation freeze schedule.
 ///
 /// Heights whose freezes park `+2^(32p)`, `−(2^32 − 1)·2^(32(p−1))`, and
-/// `−2^(32(p−1))`. Those terms cancel although the accumulator retains high
-/// positive and negative digits. A fourth freeze follows a climb to `2^(32q)`
-/// and return to the small drift `s`; it settles a segment against the
-/// zero-valued parked component before resetting the deferred state.
+/// `−2^(32(p−1))`. Those terms cancel although the parked accumulator retains
+/// a high positive digit over negative ones. A fourth freeze follows a climb to
+/// `2^(32q)`; it settles a segment against the zero-valued parked component.
+/// The final height `s` leaves the newly parked climb a closing segment.
+///
+/// Each freeze fires at a unit delta, after a drift whose stored digits must
+/// exceed that delta's one digit plus the freeze allowance `a`. A power
+/// `2^(32m)` fits no fewer than `m` digits, as `2^32·2^(32(m−1))`, so the
+/// smallest drifts, `2^(32(p−1))` and `2^(32q)`, cross the trigger in every
+/// stored form when `p − 1` and `q` are at least `a + 2`. No compaction can
+/// then keep a freeze from firing.
+///
+/// # Panics
+///
+/// Panics if `p − 1` or `q` is below `a + 2`.
 fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
+    let crossing = super::HEIGHT_FREEZE_ALLOWANCE_DIGITS + 2;
+    assert!(
+        p as usize > crossing && q as usize >= crossing,
+        "every drift must cross the freeze trigger in its shortest form"
+    );
     let x = BigUint::from(1u8) << (32 * p);
     let t = BigUint::from(1u8) << (32 * (p - 1));
     let z = BigUint::from(1u8) << (32 * q);
@@ -288,9 +304,9 @@ fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
         t,
         BigUint::from(1u8),
         BigUint::ZERO,
+        z.clone() - &BigUint::from(1u8),
         z,
         BigUint::from(s),
-        BigUint::from(s + 1),
     ]
 }
 
@@ -315,13 +331,13 @@ fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
 /// The worked point of the cancellation family, with the freeze tap proving
 /// the schedule really parks.
 ///
-/// Four freezes fire, the fourth settling and attempting to defer a parked
+/// Four freezes fire, the fourth settling a segment against a parked
 /// component whose buffered positive and negative terms cancel. The cheap
 /// `is_known_zero` check cannot detect that cancellation, and every fold
 /// stays exact against the tree oracle.
 #[test]
-fn parked_cancellation_settles_and_defers_exactly() {
-    let v = spine_of(&parked_cancellation_heights(11, 9, 5));
+fn parked_cancellation_settles_exactly() {
+    let v = spine_of(&parked_cancellation_heights(11, 10, 5));
     let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
     assert_single(&v);
     assert!(
@@ -334,14 +350,12 @@ fn parked_cancellation_settles_and_defers_exactly() {
 proptest! {
     /// The exact-cancellation family holds every fold to the tree oracle over
     /// the cancellation scale, the trailing climb's scale, and the final
-    /// narrow drift.
+    /// height.
     ///
-    /// A parked component whose terms cancel must charge nothing at later
-    /// settlements. A deferral considered after a large climb returns to a
-    /// narrow drift, skips the cancelled component, and still resets. Any
-    /// misaccounting in either zero case changes the exact totals.
+    /// A parked component whose terms cancel must charge nothing at the
+    /// settlement that follows; any misaccounting changes the exact totals.
     #[test]
-    fn parked_cancellation_family_agrees(p in 11u32..=14, q in 9u32..=12, s in 1u64..=6) {
+    fn parked_cancellation_family_agrees(p in 11u32..=14, q in 10u32..=13, s in 1u64..=6) {
         let v = spine_of(&parked_cancellation_heights(p, q, s));
         let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
         assert_single(&v);

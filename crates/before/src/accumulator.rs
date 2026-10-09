@@ -14,15 +14,18 @@ use suanpan::Accumulator;
 /// Signed input and normalized output at the big-integer boundary.
 pub(crate) trait BigIntAccumulator {
     /// Read the value as a sign and unsigned magnitude.
-    fn biguint_parts(&self) -> (Ordering, BigUint);
+    ///
+    /// Like every accumulator read, this may change the working width without
+    /// changing the value.
+    fn biguint_parts(&mut self) -> (Ordering, BigUint);
 
     /// Read the value as a sign, magnitude, and retained power-of-two scale.
-    fn scaled_biguint_parts(&self) -> (Ordering, BigUint, u64);
+    fn scaled_biguint_parts(&mut self) -> (Ordering, BigUint, u64);
 
     /// Read the value as a normalized signed integer.
-    fn to_bigint(&self) -> BigInt;
+    fn to_bigint(&mut self) -> BigInt;
 
-    /// Normalize and consume the value as a signed integer.
+    /// Consume the value as a normalized signed integer.
     fn into_bigint(self) -> BigInt;
 
     /// Add a signed integer.
@@ -42,19 +45,19 @@ pub(crate) fn digit_len(magnitude: &BigUint) -> usize {
 /// Convert directly between limb streams and big-integer values.
 impl BigIntAccumulator for Accumulator {
     /// Build an owned magnitude from the accumulator's borrowed limb output.
-    fn biguint_parts(&self) -> (Ordering, BigUint) {
+    fn biguint_parts(&mut self) -> (Ordering, BigUint) {
         let (sign, words) = Accumulator::signed_magnitude(self);
         (sign, magnitude(words.as_ref()))
     }
 
     /// Retain the known power-of-two scale instead of allocating its low zeros.
-    fn scaled_biguint_parts(&self) -> (Ordering, BigUint, u64) {
+    fn scaled_biguint_parts(&mut self) -> (Ordering, BigUint, u64) {
         let (sign, words, shift) = Accumulator::scaled_signed_magnitude(self);
         (sign, magnitude(words.as_ref()), shift)
     }
 
     /// Attach the exact sign to the normalized magnitude.
-    fn to_bigint(&self) -> BigInt {
+    fn to_bigint(&mut self) -> BigInt {
         let (sign, magnitude) = self.biguint_parts();
         BigInt::from_biguint(
             if sign == Ordering::Less {
@@ -66,11 +69,8 @@ impl BigIntAccumulator for Accumulator {
         )
     }
 
-    /// Collapse cancellation while the consumed accumulator is still mutable.
+    /// Read the consumed accumulator in place.
     fn into_bigint(mut self) -> BigInt {
-        // Collapse a redundant high prefix before allocating the normalized
-        // output, so conversion visits only the value's final width.
-        self.cmp_zero();
         self.to_bigint()
     }
 

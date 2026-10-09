@@ -67,7 +67,7 @@ use crate::Version;
 
 impl Side {
     /// The output delta when switching to this side.
-    fn switch_delta(self, diff: &Accumulator, old_step: Option<&HeightChange>) -> BigInt {
+    fn switch_delta(self, diff: &mut Accumulator, old_step: Option<&HeightChange>) -> BigInt {
         let (diff_sign, magnitude) = diff.biguint_parts();
         debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches sides");
         let negative = match self {
@@ -87,7 +87,7 @@ impl Side {
         self,
         out: &mut VersionWriter,
         depth: u64,
-        diff: &Accumulator,
+        diff: &mut Accumulator,
         next: Side,
         step_a: Option<&HeightChange>,
         step_b: Option<&HeightChange>,
@@ -238,7 +238,7 @@ fn sweep<const N: usize>(
             old_side.write_delta(
                 &mut emission.out,
                 depth,
-                &diff,
+                &mut diff,
                 emission.side,
                 step_a.as_ref(),
                 step_b.as_ref(),

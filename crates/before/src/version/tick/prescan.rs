@@ -280,7 +280,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                     // Add this difference to latest_minimum - first_minimum.
                     // Work follows the new difference's width, even if the sum
                     // is wide. Level zero has no deferred first entry.
-                    self.latest_from_first += &difference;
+                    self.latest_from_first += &mut difference;
                 }
                 self.memo.set_link(slot, StoredAccumulator::new(difference));
             }
@@ -316,7 +316,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         //   + (latest_minimum - first_minimum)
         //   = enclosing_minimum - first_minimum.
         let mut chain_span = self.minima.follower_take(REL_FOLLOWER);
-        chain_span += &self.latest_from_first;
+        chain_span += &mut self.latest_from_first;
         if chain_span.cmp_zero() != Ordering::Equal {
             // The first memo entry needs the reverse difference. It is copied
             // once at the width of the value that will be stored and consumed.
@@ -324,7 +324,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                 .first_slot
                 .expect("a nested level records its first lookahead when suspended");
             let mut link = Accumulator::new();
-            link += &chain_span;
+            link += &mut chain_span;
             link = -link;
             self.memo.set_link(first_slot, StoredAccumulator::new(link));
         }
@@ -338,7 +338,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .pop()
             .expect("a deeper reference level implies a suspended outer level");
         let mut resumed = outer.first_from_outer.restore();
-        resumed += &chain_span;
+        resumed += &mut chain_span;
         drop(chain_span);
         let latest_from_first = outer.latest_from_first.restore();
         let dead = core::mem::replace(&mut self.latest_from_first, latest_from_first);
@@ -452,9 +452,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
             }
             return;
         }
-        let net = walk.net_remaining(&mut self.cursor);
+        let mut net = walk.net_remaining(&mut self.cursor);
         if let Some(entry) = &mut self.entry_net {
-            *entry += &net;
+            *entry += &mut net;
         }
         self.minima.fold_accumulator(net);
     }

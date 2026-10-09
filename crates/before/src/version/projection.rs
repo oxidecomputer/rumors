@@ -146,7 +146,6 @@ impl VersionWriter {
                 // Entering ownership raises the output from zero to the current
                 // absolute height.
                 (false, true) => {
-                    height.cmp_zero();
                     let height = height.to_bigint();
                     debug_assert!(height.sign() != Sign::Minus, "heights are nonnegative");
                     height
@@ -155,7 +154,6 @@ impl VersionWriter {
                 // this boundary. If the Version stepped here too, remove that
                 // just-applied change to recover the preceding height.
                 (true, false) => {
-                    height.cmp_zero();
                     let now = height.to_bigint();
                     debug_assert!(now.sign() != Sign::Minus, "heights are nonnegative");
                     let before = match version_step {
@@ -375,9 +373,9 @@ impl<'a> Comparison<'a> {
             {
                 let mut net = Accumulator::new();
                 self.a.skip_deeper(a_bound, &mut net);
-                self.diff += &net;
+                self.diff += &mut net;
                 if let Some(height_a) = &mut self.height_a {
-                    *height_a += &net;
+                    *height_a += &mut net;
                 }
                 continue;
             }
@@ -387,9 +385,9 @@ impl<'a> Comparison<'a> {
             {
                 let mut net = Accumulator::new();
                 self.b.skip_deeper(b_bound, &mut net);
-                self.diff -= &net;
+                self.diff -= &mut net;
                 if let Some(height_b) = &mut self.height_b {
-                    *height_b += &net;
+                    *height_b += &mut net;
                 }
                 continue;
             }

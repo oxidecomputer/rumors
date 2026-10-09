@@ -95,7 +95,7 @@ proptest! {
 
             let mut width_accumulator = Accumulator::new();
             width_accumulator.add_shifted_limbs(shift, width.iter_u64_digits());
-            leaves.push(Aggregate::new(&height, &ScaledWidth::read(&width_accumulator)));
+            leaves.push(Aggregate::new(&height, &ScaledWidth::read(&mut width_accumulator)));
         }
         let mut actual = Accumulator::new();
         Aggregate::reduce(leaves, &mut actual);

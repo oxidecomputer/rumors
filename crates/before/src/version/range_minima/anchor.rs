@@ -89,13 +89,13 @@ impl Anchor {
     pub(super) fn arm_below(&mut self, below: Accumulator) -> Accumulator {
         // (h - A) - (h - v) = v - A. The new gap keeps the supplied buffer.
         let mut offset = core::mem::replace(&mut self.gap, below);
-        offset -= &self.gap;
+        offset -= &mut self.gap;
         self.move_by(offset)
     }
 
     /// Move the anchor by an owned difference, returning `v - old_minimum`.
-    pub(super) fn arm_relative(&mut self, offset: Accumulator) -> Accumulator {
-        self.gap -= &offset;
+    pub(super) fn arm_relative(&mut self, mut offset: Accumulator) -> Accumulator {
+        self.gap -= &mut offset;
         self.move_by(offset)
     }
 
@@ -106,7 +106,7 @@ impl Anchor {
     /// The merge consumes the narrower value and retains the wider buffer.
     fn move_by(&mut self, mut offset: Accumulator) -> Accumulator {
         for follower in self.followers.iter_mut().flatten() {
-            *follower += &offset;
+            *follower += &mut offset;
         }
         if let Some(deferred) = self.deferred.take() {
             offset += deferred;
@@ -207,10 +207,10 @@ impl Anchor {
     /// for the outer boundaries. The caller has already replaced the old gap.
     fn lower_by(&mut self, mut decrease: Accumulator) -> Accumulator {
         for follower in self.followers.iter_mut().flatten() {
-            *follower -= &decrease;
+            *follower -= &mut decrease;
         }
-        if let Some(deferred) = self.deferred.take() {
-            decrease -= &deferred;
+        if let Some(mut deferred) = self.deferred.take() {
+            decrease -= &mut deferred;
         }
         decrease
     }
@@ -235,11 +235,11 @@ impl Anchor {
     /// `m - X`. The gap merge reads the narrower buffer. The fixed number of
     /// followers adds at most a constant multiple of the consumed distance's width.
     pub(super) fn resolve(&mut self) {
-        let Some(deferred) = self.deferred.take() else {
+        let Some(mut deferred) = self.deferred.take() else {
             return;
         };
         for follower in self.followers.iter_mut().flatten() {
-            *follower -= &deferred;
+            *follower -= &mut deferred;
         }
         self.gap += deferred;
     }
@@ -261,26 +261,26 @@ impl Anchor {
     }
 
     /// Add `h - A` to convert an anchor-relative difference into `h - X`.
-    pub(super) fn add_gap_to(&self, delta: &mut Accumulator) {
-        *delta += &self.gap;
+    pub(super) fn add_gap_to(&mut self, delta: &mut Accumulator) {
+        *delta += &mut self.gap;
     }
 
     /// Subtract `h - m` to convert a height-relative difference into `m - X`.
-    pub(super) fn subtract_gap_from(&self, delta: &mut Accumulator) {
+    pub(super) fn subtract_gap_from(&mut self, delta: &mut Accumulator) {
         debug_assert!(
             !self.is_deferred(),
             "the anchor must first be the true minimum"
         );
-        *delta -= &self.gap;
+        *delta -= &mut self.gap;
     }
 
     /// Compare `h + above` with `A + candidate`, where deferred terms cancel.
     pub(super) fn compare_offset_to(
         &mut self,
         above: &BigInt,
-        candidate: &Accumulator,
+        candidate: &mut Accumulator,
     ) -> Ordering {
-        self.gap -= candidate;
+        self.gap -= &mut *candidate;
         self.gap.add_bigint(above);
         let sign = self.gap.cmp_zero();
         self.gap.sub_bigint(above);

@@ -212,17 +212,6 @@ proptest! {
 /// positions here, and a passing case still runs in milliseconds.
 const WIDEST_ZERO_SHIFT: u64 = 32 << 20;
 
-/// Digit positions that one operation on zero may add to the buffer, at any
-/// shift.
-///
-/// A zero deposited inside the buffer leaves the value unchanged, but when the
-/// receiver's top digit is near the digit limit, the deposit can carry one
-/// position past it. No carry goes further, because every position above is
-/// zero. Carries cannot build up at the new position either: read from the
-/// top, a zero's partial sums stay below 3, so the digit there stays within a
-/// few units of zero.
-const ZERO_RETAINED_GROWTH: usize = 1;
-
 /// A cancellation applied after the base construction, varying the stored form.
 #[derive(Clone, Debug)]
 enum Cancellation {
@@ -371,10 +360,9 @@ fn receiver() -> impl Strategy<Value = Receiver> {
 /// Assert that a shifted zero is still zero and takes no more space than the
 /// zero it came from.
 ///
-/// Stored digits may not grow, and the buffer may grow by at most
-/// [`ZERO_RETAINED_GROWTH`] positions. Both bounds depend only on the unshifted
-/// zero, so they hold at every shift. The crate promises constant space, not a
-/// particular stored form.
+/// Neither the stored digits nor the buffer may grow. Both bounds depend only
+/// on the unshifted zero, so they hold at every shift. The crate promises
+/// constant space, not a particular stored form.
 fn assert_shifted_zero(mut shifted: Accumulator, shift: u64, unshifted: &Accumulator) {
     // Read the space before comparing: the comparison compacts a cancelled
     // stored form, which would hide what the shift left behind.
@@ -393,20 +381,19 @@ fn assert_shifted_zero(mut shifted: Accumulator, shift: u64, unshifted: &Accumul
     );
     let retained_before = unshifted.digits.retained_len();
     assert!(
-        retained <= retained_before + ZERO_RETAINED_GROWTH,
+        retained <= retained_before,
         "a zero shifted by {shift} bits takes constant space: \
          {retained} retained digit positions, up from {retained_before}"
     );
 }
 
-/// Assert that applying a zero operand at a shift keeps both values and
-/// bounds the receiver's space.
+/// Assert that applying a zero operand at a shift keeps both values and leaves
+/// the receiver's space unchanged.
 ///
 /// The operand is a fresh clone of `zero`, so the call sees its cancelled form.
-/// The buffer may grow by at most [`ZERO_RETAINED_GROWTH`] positions. The
-/// stored digit count may rise to the larger of its former value and the
-/// buffer's length, plus the same allowance, because a zero deposited inside
-/// the buffer leaves its cancelling digits there.
+/// Comparing the operand with zero skips it, so neither the receiver's stored
+/// digit count nor its buffer may change, whether the zero's digits would land
+/// inside the buffer or past it.
 fn assert_zero_operand(
     receiver: &Receiver,
     name: &str,
@@ -421,19 +408,15 @@ fn assert_zero_operand(
     apply(&mut acc, shift, &mut operand);
     assert_value(&acc, &value);
     assert_value(&operand, &IBig::ZERO);
-    let stored = acc.stored_digit_count();
-    let stored_limit = stored_before.max(retained_before) + ZERO_RETAINED_GROWTH;
-    assert!(
-        stored <= stored_limit,
-        "{name} of a zero at {shift} bits takes constant space: \
-         {stored} stored digits, beyond the {stored_limit} the receiver's \
-         held space allows"
+    assert_eq!(
+        acc.stored_digit_count(),
+        stored_before,
+        "{name} of a zero at {shift} bits leaves the receiver's stored digits"
     );
-    let retained = acc.digits.retained_len();
-    assert!(
-        retained <= retained_before + ZERO_RETAINED_GROWTH,
-        "{name} of a zero at {shift} bits takes constant space: \
-         {retained} retained digit positions, up from {retained_before}"
+    assert_eq!(
+        acc.digits.retained_len(),
+        retained_before,
+        "{name} of a zero at {shift} bits leaves the receiver's buffer"
     );
 }
 
@@ -443,8 +426,8 @@ proptest! {
     ///
     /// Each zero is built by [`redundant_zero`], so it is never a known zero.
     /// A shifted zero may not gain stored digits. Adding or subtracting it
-    /// leaves every kind of receiver's value unchanged, with the bounds of
-    /// [`assert_zero_operand`]. No bound depends on the shift. Depositing the
+    /// leaves every kind of receiver's value and space unchanged, as
+    /// [`assert_zero_operand`] checks. No bound depends on the shift. Depositing the
     /// cancelling digits at the shifted position instead retains space that
     /// grows with the shift, and on a 32-bit target panics once that space
     /// reaches an unaddressable position.
@@ -468,18 +451,15 @@ proptest! {
 }
 
 proptest! {
-    /// Repeatedly adding zero at the top of a receiver's buffer keeps the
-    /// buffer within the larger of its former length and the value's width
-    /// plus [`ZERO_RETAINED_GROWTH`].
+    /// Repeatedly adding zero at the top of a receiver's buffer leaves the
+    /// buffer's length unchanged.
     ///
     /// Each step adds or subtracts a fresh clone of the same zero, so every
     /// step sees its cancelled form. Its top digit lands on the buffer's top
-    /// position or up to three positions past it, at a varying bit offset. A
-    /// zero deposited inside the buffer carries past it only where the
-    /// receiver's own value fills the top digit. Checking each
-    /// operation alone would miss growth that accumulates: a zero check that
-    /// let through zeros landing just past the buffer would grow it by one
-    /// position per step, while every step stayed within a constant.
+    /// position or up to three positions past it, at a varying bit offset.
+    /// Checking each operation alone would miss growth that accumulates: a
+    /// zero check that let through zeros landing just past the buffer would
+    /// grow it by one position per step.
     #[test]
     fn zero_operands_at_the_buffer_top_never_accumulate_space(
         k in 1u64..=40,
@@ -490,11 +470,7 @@ proptest! {
         let zero = redundant_zero(k, &cancellation);
         let top_offset = zero.stored_digit_count() as u64 - 1;
         let (mut acc, value) = receiver.build();
-        let value_digits = usize::try_from(value.bits().div_ceil(32)).unwrap().max(1);
-        let limit = acc
-            .digits
-            .retained_len()
-            .max(value_digits + ZERO_RETAINED_GROWTH);
+        let retained_before = acc.digits.retained_len();
         for (step, &(past_top, bit)) in landings.iter().enumerate() {
             let top = (acc.digits.retained_len() as u64).saturating_sub(1) + past_top;
             let shift = 32 * top.saturating_sub(top_offset) + bit;
@@ -505,11 +481,10 @@ proptest! {
             }
         }
         assert_value(&acc, &value);
-        let retained = acc.digits.retained_len();
-        assert!(
-            retained <= limit,
-            "{} zero operands at the buffer's top leave {retained} retained digit \
-             positions, beyond {limit}",
+        assert_eq!(
+            acc.digits.retained_len(),
+            retained_before,
+            "{} zero operands at the buffer's top leave the buffer's length",
             landings.len()
         );
     }

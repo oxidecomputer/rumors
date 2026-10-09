@@ -22,15 +22,18 @@ fn oracle_sign(oracle: &BigInt) -> Ordering {
 }
 
 /// Assert the accumulator's full value equals the oracle.
+///
+/// Each read runs on a clone: a read may rewrite the stored form, and the
+/// checked history must stay the one the test built.
 fn assert_value(acc: &Accumulator, oracle: &BigInt) {
-    let (sign, magnitude) = acc.biguint_parts();
+    let (sign, magnitude) = acc.clone().biguint_parts();
     assert_eq!(sign, oracle_sign(oracle), "accumulator sign");
     let rebuilt = match sign {
         Ordering::Less => -BigInt::from(magnitude),
         _ => BigInt::from(magnitude),
     };
     assert_eq!(&rebuilt, oracle, "accumulator magnitude");
-    assert_eq!(&acc.to_bigint(), oracle, "signed read");
+    assert_eq!(&acc.clone().to_bigint(), oracle, "signed read");
 }
 
 proptest! {
