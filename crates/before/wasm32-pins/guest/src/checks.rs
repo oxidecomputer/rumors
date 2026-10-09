@@ -183,15 +183,15 @@ fn version_join_emitted(k: u64, j: u64) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Checks one arithmetic path on either side of wasm32's alignment limit.
+/// Checks exact rank arithmetic at one of two alignment gaps, on either side
+/// of the largest gap a wasm32 `usize` can hold.
 fn rank_arithmetic(case: u64) -> Result<(), Failure> {
     let deep =
         Rank::decode(&synthesis::rank(1u64 << 32)?[..]).map_err(|_| Failure::DecodeRejected)?;
 
-    // Half has exponent 1, so aligning it to `deep` shifts by `usize::MAX`:
-    // the largest distance accepted by the contiguous big-integer path.
-    // One has exponent 0, so its 2^32-bit distance must instead use the
-    // accumulator path without narrowing the shift.
+    // Half has exponent 1, so aligning it to `deep` shifts by `usize::MAX`
+    // bits. One has exponent 0, so its shift is `2^32` bits, the first gap
+    // that narrowing to a wasm32 `usize` would wrap.
     let (small, add) = match case {
         1 => (half(), true),
         2 => (uniform(1u8).rank(), true),

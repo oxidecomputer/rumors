@@ -109,14 +109,14 @@ fn rank_decode_accepts_the_first_exponent_past_usize() {
     assert_passes(Check::RankDecode, 1u64 << 32, 0);
 }
 
-/// Rank addition and checked subtraction are exact when alignment shifts by
-/// `usize::MAX` bits and by `usize::MAX + 1` bits.
+/// Rank addition and checked subtraction are exact when alignment shifts a
+/// numerator by `usize::MAX` bits and by `usize::MAX + 1` bits.
 ///
-/// The former exercises the contiguous-big-integer path at its limit; the
-/// latter must use the shifted accumulator path. Wrapping or using the wrong
-/// route breaks the guest's exact inverse identities.
+/// The alignment gap is a `u64` bit count. Narrowing it to `usize` would keep
+/// the first shift and wrap the second to zero, which either breaks the guest's
+/// exact inverse identities or traps on a negative difference.
 #[test]
-fn rank_arithmetic_straddles_the_usize_alignment_limit() {
+fn rank_arithmetic_crosses_the_usize_gap_boundary() {
     for case in 1..=4 {
         assert_passes(Check::RankArithmetic, case, 0);
     }

@@ -28,7 +28,7 @@ pub enum Check {
     VersionCompare = 5,
     /// Join complementary versions synthesized from widths `a` and `b`.
     VersionJoinEmitted = 6,
-    /// Exercise the rank-arithmetic path selected by parameter `a`.
+    /// Exercise the rank-arithmetic case selected by parameter `a`.
     RankArithmetic = 7,
     /// Exercise the shifted-landing path selected by parameter `a`.
     SuanpanLanding = 8,
