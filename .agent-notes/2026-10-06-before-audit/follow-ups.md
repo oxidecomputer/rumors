@@ -162,3 +162,11 @@ audit. Each entry names its source and what it would catch.
 - #115's eleven values were derived on an older `main`; the landing check
   catches a value now too low, not one no longer equal to the rule's output.
 
+## suanpan toward crates.io (raised in #122's review, 2026-10-09)
+
+- `Display`, a value bit length in the style of `BigUint::bits`, and a
+  rounding readout with an explicit mode (the legitimate use of a right
+  shift).
+- An exact `f64` deposit and a correctly rounded `f64` readout would make
+  `suanpan` a full superaccumulator; a design project, not a cleanup.
+

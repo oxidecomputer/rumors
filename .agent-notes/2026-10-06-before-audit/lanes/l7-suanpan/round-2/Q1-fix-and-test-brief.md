@@ -122,3 +122,20 @@ new reading by its own convention, (9_742, 16_237): the rise is the
 constant deciding touch each read and operand now pays, linear in the hop
 count, so the band still detects what it exists for.
 
+## Owner's ruling (#122's API, 2026-10-09)
+
+`Accumulator` should mostly behave as a standard numeric type that is
+curiously `!Clone + !Sync`, with every operation fully amortized. Reads and
+operands go back to `&self`/`&Accumulator` through interior mutability
+(`RefCell`), and every operation taking two accumulators handles the
+same-cell case by construction. In: `Add`, `Sub`, `Neg`, `Sum`, `Shl` and
+their assign forms over every operand form; `PartialEq`, `Eq`,
+`PartialOrd`, `Ord`, also against primitives; a normalizing `Hash`
+consistent with `Eq`; standard sign queries replacing `cmp_zero`; and
+`num-bigint` interop behind an optional feature (conversions both ways,
+`TryFrom<&Accumulator> for BigUint`, and `BigInt`/`BigUint` operands), so
+`before` can drop its conversion code. Out: multiplication, division, and
+right shift (a floor division, whose real use is a rounding readout).
+`Debug`'s doc says its output can change when the value does not. Inherent
+methods made redundant are removed after the owner approves each.
+
