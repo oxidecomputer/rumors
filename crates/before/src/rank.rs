@@ -334,7 +334,9 @@ impl Rank {
     ///   or an all-zero final fraction group);
     /// - [`Decode::NotCanonical`] when the integral header declares a mantissa
     ///   width outside the format's `u64` range;
-    /// - [`Decode::Io`] when the reader itself fails.
+    /// - [`Decode::Io`] with the first error the reader returns other than
+    ///   [`Interrupted`](io::ErrorKind::Interrupted), which the decoder
+    ///   retries, as [`Read::read_exact`] does.
     ///
     /// # Complexity
     ///
@@ -551,7 +553,10 @@ const FRACTION_GROUP_BITS: u64 = 8;
 /// Bytes examined directly before decoding falls back to incremental reads.
 ///
 /// Retrying this fixed prefix bounds the extra work independently of input size.
-const DECODE_CHUNK_BYTES: usize = 64;
+///
+/// `pub(crate)` so the reader tests can end rank encodings beside the end
+/// of the prefix and of the first refill.
+pub(crate) const DECODE_CHUNK_BYTES: usize = 64;
 
 /// A byte-at-a-time source dressed as an MSB-first bit reader: one byte
 /// buffered, refilled strictly on demand.
