@@ -52,7 +52,7 @@ fn run(t: usize) -> (u64, u64, u64) {
     let bytes = v.encode().len() as u64;
     let expected = BigUint::from(HOISTED_WINDOW_GAPS as u64)
         + (BigUint::ONE << (32 * HOISTED_WINDOW_WIDTH))
-        + (BigUint::ONE << 288usize)
+        + (BigUint::ONE << meter::FREEZE_DRIFT_BITS)
         + 3u8;
     assert_eq!(
         v.min_ticks(),

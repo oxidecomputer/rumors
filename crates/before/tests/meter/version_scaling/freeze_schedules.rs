@@ -1,20 +1,22 @@
 //! Flatness checks for rank and minimum-tick freeze schedules.
 
 use super::*;
+use before::testing::meter::{FREEZE_DRIFT_BITS, PROMOTION_REARM_ARM_BITS};
 
 /// One `Version::rank` run over the freeze-position family
 /// `FP(k)`, both counters over the rank body alone.
 ///
 /// Carries `min_ticks`' closed form as the cross-fold semantic leg
 /// (proving the generator builds the tree this band reasons about)
-/// and the one-touch-per-operand-byte liveness floor.
+/// and the one-touch-per-nonzero-delta liveness floor.
 fn rank_freeze_position_run(k: usize) -> QueryRun {
     let encoded = Shape::FreezePosition.build1(k);
     let v = encoded.version();
     let bytes = v.encode().len() as u64;
-    let band = 289 + (usize::BITS - k.leading_zeros()) as usize;
+    let band = FREEZE_DRIFT_BITS + 1 + (usize::BITS - k.leading_zeros()) as usize;
     let expected = (BigUint::from(2 * k as u64) << band)
-        + BigUint::from((k * (k - 1)) as u64) * ((BigUint::ONE << 288usize) + BigUint::ONE)
+        + BigUint::from((k * (k - 1)) as u64)
+            * ((BigUint::ONE << FREEZE_DRIFT_BITS) + BigUint::ONE)
         + BigUint::from(k as u64);
     assert_eq!(
         v.min_ticks(),
@@ -29,11 +31,18 @@ fn rank_freeze_position_run(k: usize) -> QueryRun {
         bytes,
         touches: touch_meter::touches(),
     };
+    // The floor is the mechanism's irreducible work: every nonzero stored
+    // delta folds into the integral's accumulator at least once, and the
+    // stream stores `2k` of them (`2k − 1` drops between leaves and the
+    // terminal drop). The family's wide leaves cost about as many bytes as
+    // the integral spends touches, so a per-byte floor would rest on typical
+    // work.
     assert!(
-        run.touches >= run.bytes,
-        "rank at {bytes} operand bytes: {} digit touches under the \
-         one-per-byte floor: the fold's accumulator work is not metered",
+        run.touches >= 2 * k as u64,
+        "rank on FP({k}): {} digit touches under the one-per-nonzero-delta \
+         floor of {}: the fold's accumulator work is not metered",
         run.touches,
+        2 * k,
     );
     run
 }
@@ -56,7 +65,7 @@ const RANK_FREEZE_POSITION_CEILINGS: [u64; 2] = [95_040, 190_342];
 /// flat (×1.25) across a block-count doubling, under
 /// absolute two-scale ceilings.
 ///
-/// `FP(k)` fires one freeze per block — `Θ(k)` freezes at
+/// `FP(k)` fires a freeze in every block after the first — `Θ(k)` freezes at
 /// ever-deeper stream positions, every committed comb's count being
 /// O(1) — so any freeze accounting that reads an absolute position
 /// (or any whole-history state) per freeze goes quadratic here
@@ -180,7 +189,10 @@ fn rank_promotion_rearm_run(p: usize) -> QueryRun {
     let v = Shape::PromotionRearm.build1(p).version();
     let bytes = v.encode().len() as u64;
     let expected = BigUint::from(16 * p as u64)
-        + BigUint::from(p as u64) * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
+        + BigUint::from(p as u64)
+            * ((BigUint::ONE << PROMOTION_REARM_ARM_BITS)
+                + (BigUint::ONE << FREEZE_DRIFT_BITS)
+                + 2u8)
         + 1u8;
     assert_eq!(
         v.min_ticks(),
@@ -254,7 +266,8 @@ fn skyline_rank_promotion_rearm_is_flat_per_unit() {
 fn rank_lone_freeze_run(pre: usize, post: usize) -> QueryRun {
     let v = Shape::LoneFreeze.build2(pre, post).version();
     let bytes = v.encode().len() as u64;
-    let expected = BigUint::from(pre as u64) * ((BigUint::ONE << 288usize) + BigUint::from(2u8))
+    let expected = BigUint::from(pre as u64)
+        * ((BigUint::ONE << FREEZE_DRIFT_BITS) + BigUint::from(2u8))
         + BigUint::from((pre / 2) as u64)
         + BigUint::from((3 * post / 2) as u64)
         + BigUint::from(3u8);
@@ -391,9 +404,10 @@ const MIN_TICKS_FREEZE_POSITION_CEILINGS: [u64; 2] = [129_988, 259_988];
 #[test]
 fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
     let expected = |k: usize| {
-        let band = 289 + (usize::BITS - k.leading_zeros()) as usize;
+        let band = FREEZE_DRIFT_BITS + 1 + (usize::BITS - k.leading_zeros()) as usize;
         (BigUint::from(2 * k as u64) << band)
-            + BigUint::from((k * (k - 1)) as u64) * ((BigUint::ONE << 288usize) + BigUint::ONE)
+            + BigUint::from((k * (k - 1)) as u64)
+                * ((BigUint::ONE << FREEZE_DRIFT_BITS) + BigUint::ONE)
             + BigUint::from(k as u64)
     };
     let k = RANK_FREEZE_POSITION_SMALL;
@@ -440,7 +454,9 @@ fn skyline_min_ticks_promotion_rearm_is_flat_per_unit() {
     let expected = |p: usize| {
         BigUint::from(16 * p as u64)
             + BigUint::from(p as u64)
-                * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
+                * ((BigUint::ONE << PROMOTION_REARM_ARM_BITS)
+                    + (BigUint::ONE << FREEZE_DRIFT_BITS)
+                    + 2u8)
             + 1u8
     };
     let p = PROMOTION_REARM_SMALL;

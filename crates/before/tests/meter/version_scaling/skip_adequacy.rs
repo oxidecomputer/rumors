@@ -1,6 +1,7 @@
 //! Bands that prove accumulator skip summaries remain sufficient.
 
 use super::*;
+use before::testing::meter::{FREEZE_DRIFT_BITS, PROMOTION_REARM_ARM_BITS};
 
 // ── the accumulator skip mechanisms' before-level adequacy bands ──
 //
@@ -114,11 +115,11 @@ fn rank_freeze_parade_run(k: usize) -> QueryRun {
     // leaves, the block's k left-leaf wide drops, its internal
     // left children's half-minima differences (k/2 per level,
     // each level's difference doubling from the pair stride
-    // 2^288 + 1), and its root's absolute minimum
-    // 2^band − (k − 1)(2^288 + 1) − 2^288.
+    // 2^P + 1), and its root's absolute minimum
+    // 2^band − (k − 1)(2^P + 1) − 2^P, where P is FREEZE_DRIFT_BITS.
     let j = (usize::BITS - k.leading_zeros()) as usize - 1;
-    let band = 290 + (usize::BITS - k.leading_zeros()) as usize;
-    let w = BigUint::ONE << 288usize;
+    let band = FREEZE_DRIFT_BITS + 2 + (usize::BITS - k.leading_zeros()) as usize;
+    let w = BigUint::ONE << FREEZE_DRIFT_BITS;
     let stride = &w + BigUint::ONE;
     let expected = BigUint::from((64 * k - 1) as u64)
         + (BigUint::ONE << band)
@@ -143,7 +144,7 @@ fn rank_freeze_parade_run(k: usize) -> QueryRun {
     // the family's typical work: every nonzero stored delta folds
     // into the integral's accumulator at least once, and each of
     // the `k` freeze blocks stores two nonzero drops (the wide
-    // in-pair `2^288` and the unit cross-pair code).
+    // in-pair `2^P` and the unit cross-pair code).
     assert!(
         run.touches >= 2 * k as u64,
         "rank on FZ({k}): {} digit touches under the one-per-nonzero-delta \
@@ -294,7 +295,10 @@ fn rank_dense_suffix_run(p: usize) -> QueryRun {
     let v = Shape::DenseSuffix.build2(p, p).version();
     let bytes = v.encode().len() as u64;
     let expected = BigUint::from(p as u64)
-        + BigUint::from(p as u64) * ((BigUint::ONE << 608usize) + (BigUint::ONE << 288usize) + 2u8)
+        + BigUint::from(p as u64)
+            * ((BigUint::ONE << PROMOTION_REARM_ARM_BITS)
+                + (BigUint::ONE << FREEZE_DRIFT_BITS)
+                + 2u8)
         + 1u8;
     assert_eq!(
         v.min_ticks(),

@@ -426,6 +426,96 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
     );
 }
 
+/// Count the freezes the rank integral fires while `measure` runs.
+fn freezes_during(measure: impl FnOnce()) -> u64 {
+    let before = super::integral::FREEZE_HITS.with(|hits| hits.get());
+    measure();
+    super::integral::FREEZE_HITS.with(|hits| hits.get()) - before
+}
+
+/// Every meter family built to fire the integral's freeze fires exactly the
+/// freezes its layout implies.
+///
+/// A family that stops freezing still passes its value pins and its cost
+/// ceilings, while measuring a cheaper regime than its band claims, so each
+/// count is asserted here by name. The wide drifts are
+/// [`FREEZE_DRIFT_BITS`](crate::testing::meter::FREEZE_DRIFT_BITS) or wider,
+/// so they trip the trigger in every stored form, and no compaction of `live`
+/// can lower a count. Per family:
+///
+/// - `LF(pre, post)`: one, at the unit after the plateau drop.
+/// - `FP(k)`: `k − 1`; the first block's drop lies in the opening height.
+/// - `FZ(k)`: `k − 1`, one per cross-pair code.
+/// - `PR(p)`: `2p`, each block's arming and settling freezes.
+/// - `DS(p, d)`: `2p + 1`, the blocks' freezes and one where the trailing run
+///   follows the descent.
+/// - `WA(w, d)` and `HW(w, d, t)`: three, the arming, the settle, and the
+///   descent.
+/// - `AT(n, ..)`: `2n + 1`, each block's swing and kicker, and the closing
+///   plunge.
+/// - `PP(w, d)`: one, at the plunge.
+/// - `JP(k, m, d)` under `distance`: `2m`, two crests per comb level.
+#[test]
+fn freeze_families_fire_their_freezes() {
+    let rank_freezes = |encoded: Encoding| {
+        let version = version_of(&encoded);
+        freezes_during(|| {
+            version.rank();
+        })
+    };
+    let cases: [(&str, Encoding, u64); 18] = [
+        ("LF(2, 2)", Shape::LoneFreeze.build2(2, 2), 1),
+        ("LF(6, 2)", Shape::LoneFreeze.build2(6, 2), 1),
+        ("LF(2, 64)", Shape::LoneFreeze.build2(2, 64), 1),
+        ("FP(1)", Shape::FreezePosition.build1(1), 0),
+        ("FP(3)", Shape::FreezePosition.build1(3), 2),
+        ("FP(8)", Shape::FreezePosition.build1(8), 7),
+        ("FZ(1)", Shape::FreezeParade.build1(1), 0),
+        ("FZ(4)", Shape::FreezeParade.build1(4), 3),
+        ("PR(1)", Shape::PromotionRearm.build1(1), 2),
+        ("PR(3)", Shape::PromotionRearm.build1(3), 6),
+        ("DS(1, 2)", Shape::DenseSuffix.build2(1, 2), 3),
+        ("DS(3, 1)", Shape::DenseSuffix.build2(3, 1), 7),
+        ("WA(10, 2)", Shape::WideArming.build2(10, 2), 3),
+        ("HW(10, 1, 384)", Shape::HoistedWindow.build3(10, 1, 384), 3),
+        ("PP(10, 3)", Shape::PlateauPuncture.build2(10, 3), 1),
+        (
+            "AT(1, 19, 1)",
+            Shape::ArmingTrain.build_train(1, 19, 1, false),
+            3,
+        ),
+        (
+            "AT(3, 19, 1)",
+            Shape::ArmingTrain.build_train(3, 19, 1, false),
+            7,
+        ),
+        (
+            "AT(4, 19, 2, alternating)",
+            Shape::ArmingTrain.build_train(4, 19, 2, true),
+            9,
+        ),
+    ];
+    for (name, encoded, expected) in cases {
+        assert_eq!(
+            rank_freezes(encoded),
+            expected,
+            "freeze count of rank over {name}"
+        );
+    }
+    for (k, m, d) in [(320, 1, 1), (320, 6, 3)] {
+        let (a, b) = Shape::JumpPair.build_pair3(k, m, d);
+        let (a, b) = (version_of(&a), version_of(&b));
+        let expected = 2 * m as u64;
+        assert_eq!(
+            freezes_during(|| {
+                a.distance(&b);
+            }),
+            expected,
+            "freeze count of distance over JP({k}, {m}, {d})"
+        );
+    }
+}
+
 /// The two version-pair families agree with the oracle and the composed forms
 /// on distance and lag, at their own constructed pairings.
 ///
