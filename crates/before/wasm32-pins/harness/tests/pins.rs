@@ -140,3 +140,21 @@ fn suanpan_rejects_unaddressable_digit_landings() {
         );
     }
 }
+
+/// `reserve_bits` ignores requests that wasm32 cannot honor, in both
+/// accumulator representations.
+///
+/// `u64::MAX` bits needs more 32-bit positions than `usize` can count, and
+/// `2^33 - 31` bits is the smallest request whose `i64` digit storage exceeds
+/// `isize::MAX` bytes; both fail the capacity computation. `2^33 - 32` bits is
+/// the largest valid layout, `2^31 - 8` bytes. The scalar accumulator's
+/// request of that size is granted and kept, so the digit accumulator's cannot
+/// fit beside it in the 4 GiB linear memory, and only the allocator can refuse
+/// it. A panicking narrowing of the position count, or an infallible
+/// reservation, traps instead of returning.
+#[test]
+fn suanpan_ignores_unsatisfiable_reservations() {
+    for bits in [u64::MAX, (1 << 33) - 31, (1 << 33) - 32] {
+        assert_passes(Check::SuanpanReserve, bits, 0);
+    }
+}

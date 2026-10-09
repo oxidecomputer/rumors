@@ -511,10 +511,12 @@ impl Rank {
                 rank.num.bits().saturating_add(exp - rank.exp)
             }
         };
-        let widest = aligned_bits(self).max(aligned_bits(rhs)).saturating_add(1);
-        if let Ok(digits) = usize::try_from(widest / 32 + 2) {
-            acc.reserve_digits(digits);
-        }
+        // A sum is at most one bit wider than its wider aligned operand, so it
+        // occupies at most ceil(sum_bits / 32) positions. The request leaves
+        // one position of margin above that, or two when `sum_bits` is a
+        // multiple of 32.
+        let sum_bits = aligned_bits(self).max(aligned_bits(rhs)).saturating_add(1);
+        acc.reserve_bits(sum_bits.saturating_add(1 + 32));
         acc.add_shifted_limbs(exp - self.exp, self.num.iter_u64_digits());
         if subtract_rhs {
             acc.sub_shifted_limbs(exp - rhs.exp, rhs.num.iter_u64_digits());

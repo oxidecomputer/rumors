@@ -42,7 +42,7 @@ enum Op {
         shift: u64,
     },
     /// An allocation-shaping reservation: value-neutral by contract.
-    Reserve(usize),
+    Reserve(u64),
 }
 
 /// Apply one operation to the accumulator and the oracle in lockstep.
@@ -89,8 +89,8 @@ fn apply(acc: &mut Accumulator, oracle: &mut IBig, op: &Op) {
                 *oracle += scaled;
             }
         }
-        Op::Reserve(digits) => {
-            acc.reserve_digits(*digits);
+        Op::Reserve(bits) => {
+            acc.reserve_bits(*bits);
         }
     }
 }
@@ -146,7 +146,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
                     shift,
                 }
             }),
-        1 => (0usize..64).prop_map(Op::Reserve),
+        1 => (0u64..2_048).prop_map(Op::Reserve),
     ]
 }
 

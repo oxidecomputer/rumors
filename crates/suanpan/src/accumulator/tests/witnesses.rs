@@ -587,12 +587,12 @@ fn normalized_limb_conversion_corners() {
 /// Reservations below the stored width change nothing, and later writes behave
 /// identically whether or not their destination was reserved.
 #[test]
-fn reserve_digits_is_value_neutral() {
+fn reserve_bits_is_value_neutral() {
     // For a small value, the reservation prepares the inactive digit buffer
     // without changing the active representation or value.
     let mut acc = Accumulator::new();
     acc += 7_i64;
-    acc.reserve_digits(100);
+    acc.reserve_bits(3_200);
     assert!(
         acc.small.is_some(),
         "reserving storage does not change representation"
@@ -604,11 +604,41 @@ fn reserve_digits_is_value_neutral() {
     // reservation smaller than the stored width is a no-op.
     acc.add_limb_value(&(UBig::from(1u8) << 3_200usize));
     oracle += IBig::from(UBig::from(1u8) << 3_200usize);
-    acc.reserve_digits(500);
+    acc.reserve_bits(16_000);
     assert_value(&acc, &oracle);
-    acc.reserve_digits(1);
+    acc.reserve_bits(32);
     assert_value(&acc, &oracle);
     acc.sub_limb_value(&(UBig::from(1u8) << 12_800usize));
     oracle -= IBig::from(UBig::from(1u8) << 12_800usize);
     assert_value(&acc, &oracle);
+}
+
+/// An unsatisfiable reservation is ignored in both representations.
+///
+/// `reserve_bits` is a hint, so a request it cannot honor returns normally,
+/// leaves the value unchanged, and leaves the accumulator usable for later
+/// updates. On a 64-bit target every `u64` request has a valid layout, so only
+/// the allocator can refuse one. The requests, `2^60` bits (`2^58` bytes of
+/// storage) and `u64::MAX` bits (`2^62` bytes), are two that no 64-bit
+/// platform can address. The `wasm32-pins` workspace covers the
+/// 32-bit regime, where a request can also overflow the capacity computation.
+#[test]
+fn reserve_bits_ignores_unsatisfiable_requests() {
+    for request in [u64::MAX, 1 << 60] {
+        let mut scalar = Accumulator::new();
+        scalar += 7_i64;
+        // 2^3200 lies far outside the scalar range, forcing digits.
+        let mut digits = Accumulator::new();
+        digits.add_shifted_limbs(3_200, [1]);
+        digits += 7_i64;
+        let wide = IBig::from(UBig::from(1u8) << 3_200usize) + 7;
+
+        for (mut acc, mut oracle) in [(scalar, IBig::from(7)), (digits, wide)] {
+            acc.reserve_bits(request);
+            assert_value(&acc, &oracle);
+            acc += 1_i64;
+            oracle += 1;
+            assert_value(&acc, &oracle);
+        }
+    }
 }

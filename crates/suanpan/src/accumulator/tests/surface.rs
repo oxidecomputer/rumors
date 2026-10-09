@@ -367,8 +367,9 @@ enum Operation {
     Reset,
     /// Normalize the working form without changing the value.
     Normalize,
-    /// Reserve digit capacity without changing the value.
-    Reserve(usize),
+    /// Reserve storage for a working width in bits, which may be
+    /// unsatisfiable, without changing the value.
+    Reserve(u64),
     /// Replace the value by a sum of owned or borrowed accumulators.
     Sum {
         /// Whether the iterator yields references.
@@ -488,7 +489,7 @@ impl Operation {
                     "normalization grows by at most one digit"
                 );
             }
-            Operation::Reserve(digits) => actual.reserve_digits(*digits),
+            Operation::Reserve(bits) => actual.reserve_bits(*bits),
             Operation::Sum { borrowed, operands } => {
                 let (values, oracles): (Vec<_>, Vec<_>) =
                     operands.iter().map(Operand::values).unzip();
@@ -764,7 +765,13 @@ fn arb_operation() -> BoxedStrategy<Operation> {
         1 => Just(Operation::Negate),
         1 => Just(Operation::Reset),
         1 => Just(Operation::Normalize),
-        1 => (0usize..=128).prop_map(Operation::Reserve),
+        1 => prop_oneof![
+            0u64..=4_096,
+            // At least 2^60 bits needs at least 2^58 bytes of storage, more
+            // than any 64-bit platform can address, so the hint is ignored.
+            (1u64 << 60)..=u64::MAX,
+        ]
+        .prop_map(Operation::Reserve),
         2 => (any::<bool>(), proptest::collection::vec(arb_operand(), 0..=6)).prop_map(
             |(borrowed, operands)| Operation::Sum { borrowed, operands }
         ),

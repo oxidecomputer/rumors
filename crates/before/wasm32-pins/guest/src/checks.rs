@@ -26,6 +26,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
         Check::VersionJoinEmitted => version_join_emitted(a, b),
         Check::RankArithmetic => rank_arithmetic(a),
         Check::SuanpanLanding => suanpan_landing(a),
+        Check::SuanpanReserve => suanpan_reserve(a),
     }
 }
 
@@ -235,4 +236,30 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
     // position falls near the start of the buffer and the call returns
     // normally, so any return is a failure.
     Err(Failure::WrongValue)
+}
+
+/// Ignores unsatisfiable reservations in both accumulator representations.
+///
+/// The scalar accumulator keeps its storage while the digit accumulator
+/// reserves, so a request for `2^31 - 8` bytes can be granted at most once in
+/// wasm32's 4 GiB linear memory. Correct code returns from every
+/// `reserve_bits` call and leaves each value exact, so undoing the setup
+/// update reads zero.
+fn suanpan_reserve(bits: u64) -> Result<(), Failure> {
+    let mut scalar = Accumulator::new();
+    scalar += 7_u64;
+    scalar.reserve_bits(bits);
+    scalar -= 7_u64;
+
+    let mut digits = Accumulator::new();
+    digits.add_shifted_limbs(3_200, [1]);
+    digits.reserve_bits(bits);
+    digits.sub_shifted_limbs(3_200, [1]);
+
+    for mut accumulator in [scalar, digits] {
+        if accumulator.cmp_zero() != Ordering::Equal {
+            return Err(Failure::WrongValue);
+        }
+    }
+    Ok(())
 }
