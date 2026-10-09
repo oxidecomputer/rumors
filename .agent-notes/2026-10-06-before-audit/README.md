@@ -243,21 +243,24 @@ worktrees hold only source, so local disk needs no routine check. Agents'
 ### Landing an approved branch
 
 When the owner approves a branch listed in `QUESTIONS.md`, the coordinator
-lands it on local `main` and does not push:
+lands it on local `main` as a merge commit and does not push:
 
-1. Cherry-pick its commits in order, following the commit plan the owner
-   approved for the branch. The plan squashes review churn into logical
-   commits and keeps each failing-test-then-fix pair as two commits, since
-   the pair records that the test detects the defect. Commits are signed
-   on landing.
-2. Confirm that `main`'s tree outside `.agent-notes/` equals the reviewed
-   tip's tree plus whatever had already landed.
-3. Delete the branch's entry from `QUESTIONS.md`.
+1. Rewrite the branch to the commit plan the owner approved for it. The plan
+   squashes review churn into logical commits and keeps each
+   failing-test-then-fix pair as two commits, since the pair records that
+   the test detects the defect. Every commit is signed.
+2. Rebase the branch onto `main` and run the landing check at its tip.
+3. Merge with `git merge --no-ff -S`, under a message that names the change
+   ("Merge <what the branch does>"), as the repository's earlier merges do.
+   Because the branch sits on `main`, the merge's tree is exactly the
+   checked tip's tree; confirm that with `git diff <tip> main` empty.
+4. Delete the branch's entry from `QUESTIONS.md`.
 
-Rerun the gate before the next handoff only if the cherry-pick needed
-conflict resolution. Branches still in flight were cut from earlier bases;
-each rebases onto `main` before its own landing, and resolves conflicts
-there with a fresh gate.
+Each commit on `main`'s first-parent line is a checked merge or a notes
+commit, so `git bisect start --first-parent` never stops on a branch's
+deliberately failing test commit. A plain `git bisect` still descends into
+the branches. If the owner edits a branch after its check, the check reruns
+before the merge.
 
 ### Agent compaction
 
