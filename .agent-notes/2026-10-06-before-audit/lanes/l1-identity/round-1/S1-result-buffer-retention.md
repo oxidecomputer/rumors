@@ -99,3 +99,11 @@ vector's normal growth and the allocator's size classes, which the owner
 has found more efficient than exact reservations. No measurement is
 required; the board's pins and ceilings accommodate the movement.
 
+## Owner's ruling (question 126, 2026-10-09)
+
+With reservations removed, `version_ticks x copy-hole` fit a heap exponent of
+1.24 because its two ladder samples fell at different phases of the
+buffer's doubling. The copy-hole family is sized so its samples sit at the
+same phase of the doubling, as `family.rs` already does for other families;
+the board accommodates the other copy-hole readings that move.
+
