@@ -138,4 +138,6 @@ consistent with `Eq`; standard sign queries replacing `cmp_zero`; and
 right shift (a floor division, whose real use is a rounding readout).
 `Debug`'s doc says its output can change when the value does not. Inherent
 methods made redundant are removed after the owner approves each.
+Added the same day: `Display` and a value bit length in the style of
+`BigUint::bits` are in #122 too.
 

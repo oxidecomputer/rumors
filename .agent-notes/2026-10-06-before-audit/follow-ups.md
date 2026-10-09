@@ -164,9 +164,8 @@ audit. Each entry names its source and what it would catch.
 
 ## suanpan toward crates.io (raised in #122's review, 2026-10-09)
 
-- `Display`, a value bit length in the style of `BigUint::bits`, and a
-  rounding readout with an explicit mode (the legitimate use of a right
-  shift).
+- A rounding readout with an explicit mode (the legitimate use of a right
+  shift). `Display` and a value bit length moved into #122.
 - An exact `f64` deposit and a correctly rounded `f64` readout would make
   `suanpan` a full superaccumulator; a design project, not a cleanup.
 
