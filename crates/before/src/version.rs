@@ -6,6 +6,7 @@ use core::fmt::Debug;
 use core::hash::Hash;
 use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, Div};
+use std::borrow::Cow;
 use std::io::{Read, Result as IoResult, Write};
 
 use crate::bits::Bits;
@@ -724,9 +725,9 @@ impl Version {
         // pair walk exists there to fuse.
         //
         // Adjacent clone-identical inputs (the receiver included) collapse
-        // before the counter reads them ([`DedupRuns`]): both hull directions
-        // are idempotent, so a run of one shared buffer is one input.
-        let inputs = DedupRuns::new(self.with_items(iter), FoldInput::version).map(Hull::Input);
+        // before the counter reads them: both hull directions are idempotent,
+        // so a run of one shared buffer is one input.
+        let inputs = crate::fold::dedup_runs(self.with_items(iter), same_buffer).map(Hull::Input);
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             let (lo, hi) = match (a, b) {
                 // A leaf combine: two raw inputs derive their pair hull in one
@@ -866,14 +867,15 @@ impl Version {
     /// no input's bytes are copied. Empty input returns `None`; one input
     /// returns a shared-buffer clone so the result is owned.
     ///
-    /// [`DedupRuns`] removes adjacent inputs sharing the same buffer. Join and
-    /// meet are idempotent, so retaining one from each run preserves the result.
+    /// [`dedup_runs`](crate::fold::dedup_runs) removes adjacent inputs sharing
+    /// the same buffer. Join and meet are idempotent, so retaining one from
+    /// each run preserves the result.
     fn balanced_fold<I>(iter: I, extreme: Extreme) -> Option<Version>
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
-        let inputs = DedupRuns::new(iter.into_iter(), Borrow::borrow);
+        let inputs = crate::fold::dedup_runs(iter, same_buffer);
         let group = crate::fold::balanced_reduce(inputs.map(Group::Input), |a, b| {
             Group::Merged(match (a, b) {
                 (Group::Input(a), Group::Input(b)) => a.borrow().extreme(extreme, b.borrow()),
@@ -882,7 +884,7 @@ impl Version {
                     a
                 }
                 (Group::Merged(mut a), Group::Merged(b)) => {
-                    a.assign_extreme(extreme, &b);
+                    a.assign_extreme(extreme, b);
                     a
                 }
                 // Commutativity lets either operand supply the owned result.
@@ -1140,59 +1142,17 @@ impl Version {
     }
 }
 
-/// An iterator adapter collapsing adjacent runs of one shared stored buffer
-/// before a lattice fold reads them.
+/// Whether two fold inputs contribute one shared stored buffer.
 ///
 /// Join and meet are idempotent, so a run of clones contributes only one
-/// operand. Shared storage identifies such a clone in `O(1)` without reading
-/// either stream. Only adjacent duplicates collapse: retaining one previous
-/// item keeps the adapter single-pass with `O(1)` state. Scattered duplicates
-/// remain for the combining operation to handle normally.
-///
-/// `last` holds a **clone** of the last yielded item's version, not a raw
-/// address: the clone keeps the run's buffer alive, so no freed allocation can
-/// be reused at the same address mid-iteration and masquerade as a duplicate.
-#[must_use = "iterators are lazy and do nothing unless consumed"]
-struct DedupRuns<I, F> {
-    inner: I,
-    /// Projects each item to the version it contributes.
-    view: F,
-    /// A clone of the last yielded item's version (see above).
-    last: Option<Version>,
-}
-
-impl<I, F> DedupRuns<I, F> {
-    fn new(inner: I, view: F) -> Self {
-        DedupRuns {
-            inner,
-            view,
-            last: None,
-        }
-    }
-}
-
-impl<I, F> Iterator for DedupRuns<I, F>
-where
-    I: Iterator,
-    F: for<'a> Fn(&'a I::Item) -> &'a Version,
-{
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<I::Item> {
-        loop {
-            let item = self.inner.next()?;
-            let version = (self.view)(&item);
-            if self
-                .last
-                .as_ref()
-                .is_some_and(|prev| prev.0.ptr_eq(&version.0))
-            {
-                continue; // an adjacent clone: idempotence drops it
-            }
-            self.last = Some(version.clone());
-            return Some(item);
-        }
-    }
+/// operand. A clone shares its source's buffer, so comparing buffer address
+/// and length (`ptr_eq`) identifies it in `O(1)` without reading either
+/// stream. Equal addresses prove shared storage, and so equal values, only
+/// while both buffers are alive, because a new buffer can reuse a freed one's
+/// address; [`dedup_runs`](crate::fold::dedup_runs) compares only items it
+/// still holds.
+fn same_buffer<B: Borrow<Version>>(a: &B, b: &B) -> bool {
+    a.borrow().ptr_eq(b.borrow())
 }
 
 /// One entry in [`Version::balanced_fold`]: either an untouched input or an
@@ -1362,9 +1322,11 @@ impl Debug for Version {
 // (`Version::balanced_fold`). A cell with an owned left operand updates it in
 // place through `Version::assign_extreme`: the assign cells and the `own` value
 // cells, which move their left operand. A cell with a borrowed left operand
-// (`read`) builds a new value through `Version::extreme`. The borrowed assign
-// cell (`Version |= &Version`, `Version &= &Version`) is written out by hand;
-// the `binop_matrix!` macro generates the rest.
+// (`read`) builds a new value through `Version::extreme`. Both take the right
+// operand in the caller's form, so when the result is the right operand, an
+// owned one moves into the result and only a borrowed one is cloned. The
+// borrowed assign cell (`Version |= &Version`, `Version &= &Version`) is
+// written out by hand; the `binop_matrix!` macro generates the rest.
 
 /// Generates one binary-operator family's cells over owned and borrowed
 /// `Version` operands, apart from the hand-written borrowed assignment.
@@ -1392,7 +1354,7 @@ macro_rules! binop_matrix {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self;
-                $Assign::$assign(&mut out, r.borrow());
+                out.assign_extreme(Extreme::$extreme, r);
                 out
             }
         }
@@ -1407,7 +1369,7 @@ macro_rules! binop_matrix {
         impl $Op<$rhs> for $lhs {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
-                self.extreme(Extreme::$extreme, r.borrow())
+                self.extreme(Extreme::$extreme, r)
             }
         }
     };
@@ -1420,7 +1382,7 @@ macro_rules! binop_matrix {
         #[cfg_attr(not(doc), doc = $contract)]
         impl $Assign<$rhs> for $lhs {
             fn $assign(&mut self, r: $rhs) {
-                $Assign::$assign(self, r.borrow());
+                self.assign_extreme(Extreme::$extreme, r);
             }
         }
     };
@@ -1483,11 +1445,13 @@ binop_matrix! {
 ///
 /// [`Outcome::of`] holds the one short-circuit ladder of the join and the meet,
 /// and their one call into the lattice kernel. Every join and meet entry point
-/// maps the outcome to its result, cloning an operand only when the result *is*
-/// that operand. That rule matters for allocation, not only for time: a buffer
+/// maps the outcome to its result, cloning a borrowed operand only when the
+/// result *is* that operand, and moving an owned right operand instead of
+/// cloning it. That rule matters for allocation, not only for time: a buffer
 /// adopted from an exactly filled `Vec` allocates its shared reference count on
 /// its first clone, so a clone taken before the ladder would allocate even on
-/// paths that discard it.
+/// paths that discard it, and a clone of an owned operand allocates only to
+/// drop the original.
 enum Outcome {
     /// The result is the left operand.
     Left,
@@ -1522,10 +1486,14 @@ impl Outcome {
 impl Version {
     /// Return the pointwise `extreme` of `self` and `other` as a new value,
     /// sharing an operand's buffer when that operand is the result.
-    fn extreme(&self, extreme: Extreme, other: &Version) -> Version {
-        match Outcome::of(extreme, self, other) {
+    ///
+    /// `other` arrives in the caller's form: when it is the result, an owned
+    /// operand moves into the result and a borrowed one is cloned.
+    fn extreme<'r>(&self, extreme: Extreme, other: impl Into<Cow<'r, Version>>) -> Version {
+        let other = other.into();
+        match Outcome::of(extreme, self, &other) {
             Outcome::Left => self.clone(),
-            Outcome::Right => other.clone(),
+            Outcome::Right => other.into_owned(),
             Outcome::Empty => Version::new(),
             Outcome::Emitted(version) => version,
         }
@@ -1533,10 +1501,13 @@ impl Version {
 
     /// Replace `self` with the pointwise `extreme` of `self` and `other`,
     /// leaving it untouched when it is already the result.
-    fn assign_extreme(&mut self, extreme: Extreme, other: &Version) {
-        match Outcome::of(extreme, self, other) {
+    ///
+    /// `other` arrives in the caller's form, as in [`extreme`](Self::extreme).
+    fn assign_extreme<'r>(&mut self, extreme: Extreme, other: impl Into<Cow<'r, Version>>) {
+        let other = other.into();
+        match Outcome::of(extreme, self, &other) {
             Outcome::Left => {}
-            Outcome::Right => *self = other.clone(),
+            Outcome::Right => *self = other.into_owned(),
             Outcome::Empty => *self = Version::new(),
             Outcome::Emitted(version) => *self = version,
         }

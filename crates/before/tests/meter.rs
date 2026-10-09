@@ -82,6 +82,9 @@ mod answer_embedded_product;
 #[cfg(feature = "touch-meter")]
 #[path = "meter/deferred_wide_arming.rs"]
 mod deferred_wide_arming;
+#[cfg(feature = "scan-meter")]
+#[path = "meter/duplicate_runs.rs"]
+mod duplicate_runs;
 #[cfg(feature = "touch-meter")]
 #[path = "meter/eq_early_exit.rs"]
 mod eq_early_exit;

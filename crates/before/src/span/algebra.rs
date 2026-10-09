@@ -390,21 +390,15 @@ impl<'a> Span<'a> {
         I: IntoIterator,
         I::Item: Borrow<Span<'s>>,
     {
-        // The dedup filter: one (lo, hi) buffer-identity pair of state.
-        let mut last: Option<(Version, Version)> = None;
         let inputs = core::iter::once(FoldInput::Receiver(self))
-            .chain(iter.into_iter().map(FoldInput::Item))
-            .filter(move |input| {
-                let s = input.span();
-                let dup = last
-                    .as_ref()
-                    .is_some_and(|(lo, hi)| lo.ptr_eq(s.lo()) && hi.ptr_eq(s.hi()));
-                if !dup {
-                    last = Some((s.lo().clone(), s.hi().clone()));
-                }
-                !dup
-            })
-            .map(Group::Input);
+            .chain(iter.into_iter().map(FoldInput::Item));
+        // Two spans sharing both endpoint buffers are equal while both are
+        // alive, and `dedup_runs` compares only spans it still holds.
+        let inputs = crate::fold::dedup_runs(inputs, |a, b| {
+            let (a, b) = (a.span(), b.span());
+            a.lo().ptr_eq(b.lo()) && a.hi().ptr_eq(b.hi())
+        })
+        .map(Group::Input);
         let group = crate::fold::balanced_reduce(inputs, |a, b| {
             // Combining two point spans needs one lattice operation rather
             // than separate work for equal lower and upper endpoints. Shared
