@@ -95,3 +95,12 @@ three are fixed:
 The work goes on its own branch stacked on #48, after #48's question-121
 builder reports.
 
+## Owner's ruling (question 123, 2026-10-09)
+
+With the shifted merges compacting their operand, `before`'s `lone_freeze`
+meter family no longer crosses the freeze threshold: its ten-digit drift
+counted a redundant stored top digit that compaction removes. The family's
+plateau is widened so it crosses the threshold in compacted terms, with the
+derivation stated in its doc. The ceilings stay. The owner's goal: "ensure
+that the measurements continue to mean something."
+
