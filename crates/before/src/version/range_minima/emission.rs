@@ -9,6 +9,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, Sign};
 use suanpan::Accumulator;
 
+use super::boundary::Signed;
 use super::RangeMinima;
 use crate::accumulator::BigIntAccumulator as _;
 
@@ -70,7 +71,12 @@ impl RangeMinima<()> {
         match sign {
             Ordering::Greater => {}
             Ordering::Less => {
-                let decrease = self.anchor.undercut_offset(offset);
+                let Signed::Positive(decrease) = Signed::of(self.anchor.undercut_offset(offset))
+                else {
+                    unreachable!(
+                        "a dominating negative gap lowers the minimum by a positive amount"
+                    )
+                };
                 self.propagate_drop(decrease, &mut (), |(), _| ());
                 self.anchor.set_gap_below_offset(offset);
             }
