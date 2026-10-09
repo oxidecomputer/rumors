@@ -113,3 +113,12 @@ freeze trigger, as #48 derives `FREEZE_DRIFT_BITS`, adds WA and HW to #48's
 freeze-liveness test with their deferral counts, and accepts the board
 movement that follows.
 
+## Owner's rulings (question 125, 2026-10-09)
+
+The integrator restructuring in `fix/suanpan-uniform-amortization`'s commit
+`b9b2f2f1` was the owner's direct instruction to the builder, and stands.
+The seam-stop difference band (`STOPPING_DIFF_BAND`) is re-pinned to the
+new reading by its own convention, (9_742, 16_237): the rise is the
+constant deciding touch each read and operand now pays, linear in the hop
+count, so the band still detects what it exists for.
+
