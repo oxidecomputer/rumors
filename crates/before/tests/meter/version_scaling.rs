@@ -118,6 +118,9 @@ mod minimum_boundaries;
 /// Flatness checks for minimum-tick comb families.
 #[path = "version_scaling/minimum_combs.rs"]
 mod minimum_combs;
+/// Heap, allocation, and touch ceilings for minimum-tick constant factors.
+#[path = "version_scaling/minimum_resources.rs"]
+mod minimum_resources;
 /// Flatness checks for pairwise distance and masked comparison crossings.
 #[path = "version_scaling/pair_crossings.rs"]
 mod pair_crossings;
