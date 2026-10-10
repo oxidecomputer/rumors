@@ -140,9 +140,6 @@ trait TestBig {
     /// Read a clone of the held value into the big-integer oracle
     /// representation, leaving the stored form unchanged.
     fn sign_biguint(&self) -> (Ordering, UBig);
-    /// Read a clone of the held value and its retained scale into the oracle
-    /// representation, leaving the stored form unchanged.
-    fn sign_biguint_shl(&self) -> (Ordering, UBig, u64);
 }
 
 /// Keep the oracle library outside the production arithmetic paths.
@@ -190,12 +187,6 @@ impl TestBig for Accumulator {
     fn sign_biguint(&self) -> (Ordering, UBig) {
         let (sign, limbs) = self.clone().signed_magnitude();
         (sign, from_limbs(limbs.as_ref()))
-    }
-
-    /// Preserve the returned scale while converting a clone's magnitude.
-    fn sign_biguint_shl(&self) -> (Ordering, UBig, u64) {
-        let (sign, limbs, shift) = self.clone().scaled_signed_magnitude();
-        (sign, from_limbs(limbs.as_ref()), shift)
     }
 }
 

@@ -313,12 +313,15 @@ fn comparison_compaction_tightens_the_stored_width() {
 }
 
 /// Comparison compaction may write below the input's lowest position, and the
-/// scaled read compares with zero first.
+/// scaled read factors out exactly the zero digits below it, whatever their
+/// parity.
 ///
-/// For 2^1280, the comparison combines the top two positions and deposits the
-/// result one position lower. The scaled read consequently returns
-/// (2^32, 1248), not (1, 1280); either pair denotes the same magnitude. The
-/// read keeps the lowered position, so reading again returns the same pair.
+/// For 2^1280, one unit at digit 40, the read's comparison combines the top
+/// two positions and deposits the result at digit 39, one position lower. The
+/// read factors out the 39 digits below it, a 1,248-bit span that is not a
+/// whole number of limbs, and returns the one limb `2^32` above it: the same
+/// value, with no extra zero digit. It keeps the lowered position, so reading
+/// again returns the same triple.
 #[test]
 fn comparison_compaction_lowers_the_scaled_read_shift() {
     // One unit parked at digit 40: the 1280-bit shift exceeds the
@@ -326,30 +329,17 @@ fn comparison_compaction_lowers_the_scaled_read_shift() {
     // representation with a one-digit written span at index 40.
     let mut acc = Accumulator::new();
     acc.add_limb_value_shl(&UBig::ONE, 1280);
-    // A top coefficient of 1 cannot determine the sign without reading lower
-    // digits. Combining the next position writes the partial sum one digit
-    // lower, so the lowest-written position moves with it.
-    let (sign, magnitude, shift) = acc.sign_biguint_shl();
-    assert_eq!(sign, Ordering::Greater);
-    assert_eq!(
-        (&magnitude, shift),
-        (&(UBig::ONE << 32usize), 1248),
-        "the collapse re-deposits one digit down: shift 32 · 39, magnitude 2^32"
-    );
-    // The pair is one valid representation of the unchanged value.
-    assert_eq!(
-        magnitude << usize::try_from(shift).expect("the shift fits the address space"),
-        UBig::ONE << 1280usize,
-        "the collapse is value-preserving"
-    );
-    // Reading in place keeps the lowered position, so every read returns the
-    // same pair.
-    for read in 0..2 {
+    for read in 0..3 {
         let (sign, limbs, shift) = acc.scaled_signed_magnitude();
         assert_eq!(
-            (sign, from_limbs(limbs.as_ref()), shift),
-            (Ordering::Greater, UBig::ONE << 32usize, 1248),
-            "in-place read {read}"
+            (sign, &*limbs, shift),
+            (Ordering::Greater, &[1 << 32][..], 1248),
+            "read {read}: the span below digit 39 is factored out whole"
+        );
+        assert_eq!(
+            from_limbs(&limbs) << usize::try_from(shift).unwrap(),
+            UBig::ONE << 1280usize,
+            "read {read} reconstructs the value"
         );
     }
 }

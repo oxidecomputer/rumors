@@ -504,9 +504,8 @@ macro_rules! shifts {
         /// # Panics
         ///
         /// Panics if the count is negative. Panics if the value is nonzero and
-        /// the count exceeds `u64::MAX`, or the result needs more digit
-        /// positions than a buffer can address. Zero shifts by any nonnegative
-        /// count.
+        /// the count exceeds `u64::MAX`, or the result needs more storage than a
+        /// buffer can address. Zero shifts by any nonnegative count.
         impl ShlAssign<$integer> for Accumulator {
             fn shl_assign(&mut self, shift: $integer) {
                 self.value.get_mut().shift_left(shift_count(shift));

@@ -16,6 +16,13 @@ use super::{
 use crate::accumulator::operand::Update;
 use crate::touch_meter;
 
+/// Read a clone's sign, magnitude, and factored scale in bits, leaving the
+/// stored form unchanged.
+fn scaled_reading(acc: &Accumulator) -> (Ordering, UBig, u64) {
+    let (sign, limbs, shift) = acc.clone().scaled_signed_magnitude();
+    (sign, from_limbs(limbs.as_ref()), shift)
+}
+
 /// A scaled read skips an untouched low prefix; an unscaled read visits it.
 ///
 /// A two-limb value at bit 32,000 takes at most sixteen scaled-read touches
@@ -27,7 +34,7 @@ fn scaled_read_costs_the_written_span() {
     // Park a two-limb value at digit 1000 (bit shift 32_000).
     acc.add_limb_value_shl(&from_limbs(&[7, 9]), 32_000);
     touch_meter::reset();
-    let (sign, magnitude, shift) = acc.sign_biguint_shl();
+    let (sign, magnitude, shift) = scaled_reading(&acc);
     let scaled_read = touch_meter::touches();
     assert_eq!(sign, Ordering::Greater);
     assert_eq!(
@@ -52,7 +59,7 @@ fn scaled_read_costs_the_written_span() {
     );
     acc.reset();
     assert!(acc.is_known_zero());
-    let (sign, magnitude, shift) = acc.sign_biguint_shl();
+    let (sign, magnitude, shift) = scaled_reading(&acc);
     assert_eq!(
         (sign, magnitude, shift),
         (Ordering::Equal, UBig::ZERO, 0),
@@ -661,7 +668,7 @@ fn scaled_read_costs_the_span_not_the_write_count() {
     acc.add_limb_value_shl(&from_limbs(&[7, 9]), 32_000);
     acc += 5_i64;
     touch_meter::reset();
-    let (sign, magnitude, shift) = acc.sign_biguint_shl();
+    let (sign, magnitude, shift) = scaled_reading(&acc);
     assert_eq!(
         touch_meter::touches(),
         1_004,

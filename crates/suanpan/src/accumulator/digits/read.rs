@@ -8,8 +8,8 @@
 //! removed. The digits are paired into minimal 64-bit limbs as they arrive.
 //!
 //! An unscaled read starts at position zero. A scaled read starts at
-//! `lowest_written`, because every lower digit is zero; interior gaps still
-//! cost their full width.
+//! `lowest_written`, because every lower digit is zero, and reports the skipped
+//! prefix as a bit shift; interior gaps still cost their full width.
 
 use core::cmp::Ordering;
 
@@ -26,7 +26,7 @@ impl Digits {
         (ordering, limbs)
     }
 
-    /// Omit the known-zero low prefix and return its scale separately.
+    /// Omit the known-zero low prefix and return its width in bits.
     pub fn normalized_limbs_with_shift(&mut self) -> (Ordering, Limbs, u64) {
         let (ordering, limbs, start) = self.read_normalized(true);
         let shift = u64::try_from(start)

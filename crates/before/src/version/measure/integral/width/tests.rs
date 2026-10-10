@@ -81,6 +81,32 @@ proptest! {
         prop_assert_eq!(BigInt::from(&actual), expected);
     }
 
+    /// Converting a width at any bit shift, a multiple of 32 or not, yields
+    /// balanced digits of exactly `limbs · 2^shift`.
+    ///
+    /// The readout makes no promise about its shift's granularity, so the
+    /// conversion must split each limb across digits at any offset.
+    #[test]
+    fn scaled_widths_convert_at_any_bit_shift(
+        bytes in proptest::collection::vec(any::<u8>(), 0..64),
+        shift in prop_oneof![0u64..=96, 0u64..=4_096],
+    ) {
+        let value = BigUint::from_bytes_le(&bytes);
+        let mut accumulator = Accumulator::new();
+        accumulator.add_shifted_limbs(0, value.iter_u64_digits());
+        let (_, limbs) = accumulator.signed_magnitude();
+        let width = ScaledWidth { limbs, shift };
+        let sparse = SparseWidth::from_scaled(&width);
+        prop_assert_eq!(
+            dense_value(&sparse),
+            BigInt::from(value << usize::try_from(shift).unwrap())
+        );
+        prop_assert!(sparse.digits.iter().all(|&(_, digit)| {
+            digit != 0 && (-(1i64 << 31)..(1i64 << 31)).contains(&digit)
+        }), "every stored digit must be nonzero and balanced");
+        prop_assert!(sparse.digits.windows(2).all(|pair| pair[0].0 < pair[1].0));
+    }
+
     /// Reading, converting, and adding scaled widths preserves their sum and
     /// sparse invariants.
     ///

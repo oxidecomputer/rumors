@@ -211,8 +211,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if `other` is nonzero and the result needs more digit positions
-    /// than a buffer can address. A zero operand never panics.
+    /// Panics if `other` is nonzero and the result needs more storage than a
+    /// buffer can address. A zero operand never panics.
     pub fn add_shifted(&mut self, shift: u64, other: &Accumulator) {
         let value = self.value.get_mut();
         other.read(|operand| value.apply_accumulator(operand, shift, Update::Add));
@@ -240,8 +240,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if `other` is nonzero and the result needs more digit positions
-    /// than a buffer can address. A zero operand never panics.
+    /// Panics if `other` is nonzero and the result needs more storage than a
+    /// buffer can address. A zero operand never panics.
     pub fn sub_shifted(&mut self, shift: u64, other: &Accumulator) {
         let value = self.value.get_mut();
         other.read(|operand| value.apply_accumulator(operand, shift, Update::Subtract));
@@ -263,10 +263,9 @@ impl Accumulator {
     /// Reserve storage for a working width of at least `bits` bits, if the
     /// request can be honored.
     ///
-    /// This allocation hint does not change the value. Storage comes in whole
-    /// 32-bit positions, the unit [`stored_bits`](Self::stored_bits) reports,
-    /// so the request rounds up to a multiple of 32. Reserving the expected
-    /// width avoids repeated allocation growth and its transient memory use.
+    /// This allocation hint does not change the value, and the reservation may
+    /// round the request up. Reserving the expected width avoids repeated
+    /// allocation growth and its transient memory use.
     /// [`reset`](Self::reset) retains the reservation; a nontrivial
     /// `<<=` may release it.
     ///
@@ -282,7 +281,7 @@ impl Accumulator {
     /// // Reserve once for the width the following write reaches.
     /// total.reserve_bits(4_096);
     /// total.add_shifted_limbs(4_000, [1]);
-    /// assert_eq!(total.stored_bits(), 4_032);
+    /// assert!(total.stored_bits() >= 4_001);
     ///
     /// // No platform can address this much storage, so the hint is ignored:
     /// // the call returns normally and the value is unchanged.
@@ -403,8 +402,8 @@ impl Accumulator {
     /// `None` makes no claim about the answer: the smaller operand may or may
     /// not change it. The scan nevertheless compacts what it reads. When `bits`
     /// comes from another accumulator's [`stored_bits`](Self::stored_bits), a
-    /// `None` result leaves this accumulator at most two base-2^32 digit
-    /// positions (64 working bits) wider than that operand.
+    /// `None` result leaves this accumulator's working width at most 64 bits
+    /// wider than that operand's.
     ///
     /// ```
     /// use core::cmp::Ordering;
@@ -450,25 +449,19 @@ impl Accumulator {
         self.peek(Value::is_known_zero)
     }
 
-    /// Return the working width in 32-bit units, at least one.
-    ///
-    /// The working width covers every bit position the accumulator still has
-    /// to retain, including gaps. It can exceed the result's bit length after
-    /// cancellation. Prefer [`stored_bits`](Self::stored_bits) unless an
-    /// allocation calculation specifically needs 32-bit units.
-    ///
-    /// # Complexity
-    ///
-    /// O(1) time and space.
+    /// Return the working width in the representation's digits, at least one.
     #[inline]
-    pub fn stored_digit_count(&self) -> usize {
+    pub(crate) fn stored_digit_count(&self) -> usize {
         self.peek(Value::stored_digit_count)
     }
 
-    /// Return `32 * stored_digit_count()`.
+    /// Return the working width in bits: every bit position the accumulator
+    /// still retains, including gaps.
     ///
-    /// This is the accumulator's working width, not the result's bit length.
-    /// The result's magnitude is less than `2.01 * 2^stored_bits()`.
+    /// This is not the value's bit length, which it can far exceed after
+    /// cancellation; a read compacts it toward the value's own width. Whatever
+    /// the stored form, the value's magnitude is below `2^(stored_bits() + 2)`.
+    /// The width's granularity is unspecified.
     ///
     /// # Complexity
     ///
@@ -483,35 +476,48 @@ impl Accumulator {
     /// The limbs are minimal and empty exactly when the comparison is
     /// `Equal`. The read keeps the normalized form it computes, which has the
     /// same value in a working width that can be far narrower and is at most
-    /// 32 bits wider, so a repeated read costs only the result's width.
+    /// a constant wider, so a repeated read costs only the result's width.
     ///
     /// # Complexity
     ///
     /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
     /// time, where `W` is the greatest working width reached, and returns
-    /// O(`Q`) space, allocated only when `Q` exceeds two. If the result needs
-    /// one digit position beyond the existing capacity, reallocation may
-    /// temporarily retain both buffers.
+    /// O(`Q`) space, allocated only when `Q` exceeds two. If the normalized
+    /// form outgrows the existing capacity, reallocation may temporarily
+    /// retain both buffers.
     pub fn signed_magnitude(&self) -> (Ordering, Limbs) {
         self.read(Value::signed_magnitude)
     }
 
-    /// Return the comparison with zero, the magnitude's [`Limbs`], and a scale.
+    /// Return the comparison with zero, the magnitude's [`Limbs`], and a scale
+    /// in bits.
     ///
-    /// The exact value is `±magnitude * 2^shift`. As in
+    /// The exact value is `±limbs · 2^shift`. As in
     /// [`signed_magnitude`](Self::signed_magnitude), the limbs are minimal and
     /// empty exactly for zero, and the read keeps the normalized form it
-    /// computes. The method may factor out a low span known to be zero
-    /// from write history, avoiding a scan of that span. The factor need not be
-    /// maximal: cancellation can leave low zero bits in the magnitude.
+    /// computes. The method may factor out a low span known to be zero from
+    /// write history, avoiding a scan of it. The factor need not be maximal,
+    /// since cancellation can leave zero bits at the bottom of `limbs`, and
+    /// its granularity is unspecified.
+    ///
+    /// ```
+    /// use num_bigint::BigUint;
+    /// use suanpan::Accumulator;
+    ///
+    /// let mut total = Accumulator::new();
+    /// total.add_shifted_limbs(100_000, [3]);
+    /// let (_, limbs, shift) = total.scaled_signed_magnitude();
+    /// let magnitude = BigUint::new(limbs.iter().flat_map(|&l| [l as u32, (l >> 32) as u32]).collect());
+    /// assert_eq!(magnitude << shift, BigUint::from(3u8) << 100_000u32);
+    /// ```
     ///
     /// # Complexity
     ///
     /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
     /// time and returns O(`Q`) space, allocated only when `Q` exceeds two,
     /// where `W` is the greatest working width reached. Omitting the factored
-    /// span keeps it out of `Q`. Reallocation may temporarily retain two buffers, as for
-    /// [`signed_magnitude`](Self::signed_magnitude).
+    /// span keeps it out of `Q`. Reallocation may temporarily retain two
+    /// buffers, as for [`signed_magnitude`](Self::signed_magnitude).
     pub fn scaled_signed_magnitude(&self) -> (Ordering, Limbs, u64) {
         self.read(Value::scaled_signed_magnitude)
     }

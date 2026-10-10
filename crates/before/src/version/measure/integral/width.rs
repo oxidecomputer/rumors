@@ -11,12 +11,13 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::{Accumulator, Limbs};
 
-/// A nonnegative interval width `limbs * 2^shift`, with a digit-aligned shift.
+/// A nonnegative interval width `limbs · 2^shift`.
 pub struct ScaledWidth {
     /// Little-endian 64-bit limbs of the accumulator's written span, excluding
     /// its unwritten low prefix; empty for zero.
     limbs: Limbs,
-    /// Power-of-two scale, always a multiple of 32.
+    /// The bits the read factored out below `limbs`, with no promised
+    /// granularity.
     shift: u64,
 }
 
@@ -58,22 +59,29 @@ pub struct SparseWidth {
 /// Preserve balanced sparse digits through addition and clustered multiplication.
 impl SparseWidth {
     /// Convert one scaled width, balancing adjacent digits in a single pass.
+    ///
+    /// The shift need not be a multiple of 32: each of the limbs' 32-bit
+    /// pieces is shifted left by `shift % 32` bits, and the bits it pushes past
+    /// 32 join the next piece, so the unsigned digits start at index
+    /// `shift / 32` and run one past the limbs.
     pub fn from_scaled(width: &ScaledWidth) -> Self {
-        debug_assert_eq!(width.shift % 32, 0, "interval widths are digit-aligned");
         let start_index = width.shift / 32;
-        let digits = width
+        let offset = width.shift % 32;
+        let pieces = width
             .limbs
             .iter()
-            .enumerate()
-            .flat_map(|(limb_index, &limb)| {
-                [
-                    (
-                        start_index + 2 * limb_index as u64,
-                        (limb & 0xFFFF_FFFF) as i64,
-                    ),
-                    (start_index + 2 * limb_index as u64 + 1, (limb >> 32) as i64),
-                ]
+            .flat_map(|&limb| [limb & 0xFFFF_FFFF, limb >> 32])
+            .chain(core::iter::once(0));
+        let digits = pieces
+            .scan(0u64, move |spilled, piece| {
+                // A piece below 2^32 shifted by under 32 bits fits a u64; its
+                // top `offset` bits spill into the next digit.
+                let digit = ((piece << offset) & 0xFFFF_FFFF) | *spilled;
+                *spilled = piece >> (32 - offset);
+                Some(digit as i64)
             })
+            .enumerate()
+            .map(move |(index, digit)| (start_index + index as u64, digit))
             .filter(|&(_, digit)| digit != 0);
         let mut width = Self { digits: Vec::new() };
         width.combine(digits);

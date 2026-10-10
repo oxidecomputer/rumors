@@ -7,10 +7,10 @@ Exact signed accumulation with bounded carry and cancellation work.
 `Accumulator` is a signed integer of any width, built for running totals
 whose updates change sign near carry boundaries: a weighted sum that moves
 back and forth across `2^k`, for example. A normalized big integer carries
-through the same high digits on every such update. An accumulator keeps
-redundant signed digits instead, so each update touches only a few digits,
-and each read compacts the cancellation it touches, so no later operation
-pays for it again.
+through the same high positions on every such update. An accumulator keeps
+a redundant representation instead, so each update touches only a few
+positions, and each read compacts the cancellation it touches, so no later
+operation pays for it again.
 
 ```rust
 use suanpan::Accumulator;
@@ -79,7 +79,7 @@ skip reading a much narrower operand.
 ## Costs and storage
 
 Cancellation can shorten the value while the accumulator still holds
-digits at higher positions. Costs therefore use the *working width*
+storage at higher positions. Costs therefore use the *working width*
 rather than the value's bit length. Let `W` be the greatest working width
 the receiver has reached, `A` an accumulator operand's working width, `L`
 the number of input limbs, `G` the growth of the receiver's working width,
@@ -104,10 +104,11 @@ is paid for twice. Additional space excludes inputs and returned output.
 | Unary `-` and `reset` | O(`W`) | O(1) |
 
 Growing an allocation may briefly keep the old and new buffers alive. A
-read can extend the working width by at most one 32-bit position, and
-grows the buffer by exactly that position when it must. An accumulator may retain more allocation than its
-working width after cancellation or `reset`;
-`reserve_bits` avoids repeated growth.
+read can extend the working width by at most a constant, and grows the
+buffer by exactly that much when it must. An accumulator may retain more
+allocation than its working width after cancellation or
+`reset`; `reserve_bits`
+avoids repeated growth.
 
 ## Scope
 
@@ -123,8 +124,8 @@ cancellation. The crate requires `std`.
 - `num-bigint` converts accumulators to and from `num-bigint`'s `BigInt`
   and `BigUint`, and accepts both as `+=` and `-=` operands. Converting a
   negative value to `BigUint` fails with `NegativeValueError`.
-- `touch-meter` exposes a process-global counter of digit work in the
-  `touch_meter` module, for regression tests of the arithmetic core. It
+- `touch-meter` exposes a process-global counter of implementation steps in
+  the `touch_meter` module, for regression tests of the arithmetic core. It
   does not count allocation or all bookkeeping, so it does not by itself
   establish the bounds above. Counts are deterministic for a fixed
   implementation and operation sequence, but are no compatibility promise.
