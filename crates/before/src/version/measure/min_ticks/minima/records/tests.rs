@@ -1,17 +1,36 @@
 //! Tests for the minimum record stack.
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 
-use super::Records;
+use super::{Popped, Records};
+
+/// The signed offset a popped record carries.
+fn offset_of(popped: &Popped) -> BigInt {
+    let digits: Vec<u32> = popped
+        .magnitude
+        .limbs()
+        .iter()
+        .flat_map(|limb| [*limb as u32, (*limb >> 32) as u32])
+        .collect();
+    let sign = if popped.negative {
+        Sign::Minus
+    } else {
+        Sign::Plus
+    };
+    BigInt::from_biguint(sign, BigUint::from_slice(&digits))
+}
 
 /// Offsets of any sign and width, close counts, and first flags come back
 /// exactly, in LIFO order, after any interleaving of pushes, increments, and
-/// pops: the stack has one encoding for every width, with no inline bound.
+/// pops.
+///
+/// Each record's close count is its own: increments reach only the current
+/// minimum.
 #[test]
 fn records_round_trip_every_width_in_stack_order() {
     proptest!(|(ops in prop::collection::vec(
-        (any::<bool>(), -1i64..=1, 0u32..200, 0u8..4, any::<bool>()),
+        (any::<bool>(), -1i64..=1, 0u32..320, 0u8..4, any::<bool>()),
         1..60,
     ))| {
         let mut records = Records::new();
@@ -29,14 +48,14 @@ fn records_round_trip_every_width_in_stack_order() {
             if !push {
                 let popped = records.pop();
                 let (offset, closes, first) = model.pop().expect("model tracks the stack");
-                prop_assert_eq!(popped.offset, offset);
+                prop_assert_eq!(offset_of(&popped), offset);
                 prop_assert_eq!(popped.closes, closes);
                 prop_assert_eq!(popped.first, first);
             }
         }
         while let Some((offset, closes, first)) = model.pop() {
             let popped = records.pop();
-            prop_assert_eq!(popped.offset, offset);
+            prop_assert_eq!(offset_of(&popped), offset);
             prop_assert_eq!(popped.closes, closes);
             prop_assert_eq!(popped.first, first);
         }

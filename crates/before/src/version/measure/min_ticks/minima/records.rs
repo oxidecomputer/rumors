@@ -7,11 +7,12 @@
 //! suspended record is never moved or reread until it is settled. Only the
 //! top record's close count changes, so it is held explicitly.
 //!
-//! Every field is stored at its own width, so the stack has no capacity
-//! threshold: an offset of `w` bits costs about `2w` bits whatever `w` is.
+//! Offsets live in an [`IntegerStack`], so every record costs space in
+//! proportion to its offset's width.
 
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::{BigInt, Sign};
 
+use super::integers::{IntegerStack, Magnitude};
 use crate::bits::stack::{BitStack, PackedU64Stack};
 
 #[cfg(test)]
@@ -19,8 +20,10 @@ mod tests;
 
 /// A record removed from the stack for settlement.
 pub struct Popped {
-    /// The supplying leaf's offset from its reference.
-    pub offset: BigInt,
+    /// Whether the supplying leaf lies below its reference.
+    pub negative: bool,
+    /// The offset's magnitude.
+    pub magnitude: Magnitude,
     /// Subtree closes charged to this minimum.
     pub closes: u64,
     /// Whether this was the first record at its reference.
@@ -29,9 +32,8 @@ pub struct Popped {
 
 /// Live minimum records, the current minimum on top.
 pub struct Records {
-    /// Offset magnitude limbs, most significant pushed first, then a header
-    /// `limb count << 1 | negative`.
-    offsets: PackedU64Stack,
+    /// Each record's offset from its reference.
+    offsets: IntegerStack,
     /// Close counts of every record below the top.
     closes: PackedU64Stack,
     /// Whether each record is the first at its reference.
@@ -46,7 +48,7 @@ impl Records {
     /// Construct an empty stack.
     pub fn new() -> Self {
         Self {
-            offsets: PackedU64Stack::new(),
+            offsets: IntegerStack::new(),
             closes: PackedU64Stack::new(),
             first: BitStack::new(),
             top_closes: 0,
@@ -60,13 +62,8 @@ impl Records {
             self.closes.push(self.top_closes);
         }
         self.top_closes = 0;
-        let (sign, limbs) = offset.to_u64_digits();
-        for &limb in limbs.iter().rev() {
-            self.offsets.push(limb);
-        }
-        let count = u64::try_from(limbs.len()).expect("a limb count fits u64");
         self.offsets
-            .push(count << 1 | u64::from(sign == Sign::Minus));
+            .push(offset.sign() == Sign::Minus, offset.iter_u64_digits());
         self.first.push(first);
         self.len += 1;
     }
@@ -74,33 +71,25 @@ impl Records {
     /// Charge one more subtree close to the current minimum.
     pub fn increment(&mut self) {
         debug_assert!(self.len != 0, "an armed subtree has a current minimum");
-        // Each close consumes one internal node of the input, so the count
-        // cannot outgrow a u64.
+        // Each close consumes one internal node of a version held in memory,
+        // so the count stays far below u64::MAX.
         self.top_closes += 1;
     }
 
     /// Remove the current minimum, exposing the record below it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stack is empty.
     pub fn pop(&mut self) -> Popped {
-        let header = self.offsets.pop();
-        let count = header >> 1;
-        let mut digits = Vec::new();
-        for _ in 0..count {
-            let limb = self.offsets.pop();
-            digits.push(limb as u32);
-            digits.push((limb >> 32) as u32);
-        }
-        let sign = if header & 1 == 1 {
-            Sign::Minus
-        } else {
-            Sign::Plus
-        };
-        let offset = BigInt::from_biguint(sign, BigUint::new(digits));
+        let (negative, magnitude) = self.offsets.pop();
         let closes = self.top_closes;
         let first = self.first.pop().expect("each record has a first flag");
         self.len -= 1;
         self.top_closes = if self.len != 0 { self.closes.pop() } else { 0 };
         Popped {
-            offset,
+            negative,
+            magnitude,
             closes,
             first,
         }

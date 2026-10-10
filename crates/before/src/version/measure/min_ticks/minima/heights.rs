@@ -61,7 +61,7 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::BigInt;
 use suanpan::Accumulator;
 
 use crate::bits::stack::{BitStack, PackedU64Stack};
@@ -223,18 +223,19 @@ impl HeightReferences {
     /// reference to be settled, which releases that reference.
     pub fn settle_record(
         &mut self,
-        offset: &BigInt,
+        negative: bool,
+        magnitude: &[u64],
         closes: u64,
         first: bool,
         total: &mut Accumulator,
     ) {
         if closes != 0 {
-            fold_repeated(
-                total,
-                offset.magnitude(),
-                u128::from(closes),
-                offset.sign() != Sign::Minus,
-            );
+            let limbs = Scaled::new(magnitude, closes);
+            if negative {
+                total.add_shifted_limbs(0, limbs);
+            } else {
+                total.sub_shifted_limbs(0, limbs);
+            }
             let closes = i128::from(closes);
             if self.top.referenced {
                 self.top.coefficient -= closes;
@@ -332,23 +333,6 @@ impl HeightReferences {
         );
         let (sign, magnitude) = self.top.chunk.signed_magnitude();
         add_product(total, sign, magnitude.as_ref(), self.top.coefficient);
-    }
-}
-
-/// Add `count · factor` to `total`, or subtract it.
-///
-/// `count` is at most word-scale, so this is one multiplication linear in
-/// `factor`.
-fn fold_repeated(total: &mut Accumulator, factor: &BigUint, count: u128, subtract: bool) {
-    if count == 0 || *factor == BigUint::ZERO {
-        return;
-    }
-    let mut product = factor.clone();
-    product *= BigUint::from(count);
-    if subtract {
-        *total -= &product;
-    } else {
-        *total += &product;
     }
 }
 

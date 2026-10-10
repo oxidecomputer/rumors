@@ -49,6 +49,7 @@ use num_bigint::BigInt;
 use crate::version::range_minima::{Close, RangeMinima};
 
 mod heights;
+mod integers;
 mod records;
 #[cfg(test)]
 mod tests;
@@ -73,8 +74,13 @@ impl Events<'_> {
     /// Settle and remove the current minimum's record.
     fn settle_top(&mut self) {
         let popped = self.records.pop();
-        self.references
-            .settle_record(&popped.offset, popped.closes, popped.first, self.total);
+        self.references.settle_record(
+            popped.negative,
+            popped.magnitude.limbs(),
+            popped.closes,
+            popped.first,
+            self.total,
+        );
     }
 }
 
@@ -119,7 +125,13 @@ impl SubtreeMinima {
             Close::Equal => {}
             Close::Retired | Close::Lower(()) => {
                 let popped = self.records.pop();
-                references.settle_record(&popped.offset, popped.closes, popped.first, total);
+                references.settle_record(
+                    popped.negative,
+                    popped.magnitude.limbs(),
+                    popped.closes,
+                    popped.first,
+                    total,
+                );
             }
         }
     }
