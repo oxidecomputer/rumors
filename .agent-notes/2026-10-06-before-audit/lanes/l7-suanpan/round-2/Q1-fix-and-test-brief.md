@@ -186,3 +186,16 @@ stability query on a wide value it keeps without reading;
 `RangeMinima` moves boundary buffers and never reads them on push or pop.
 `suanpan` names its limb readout as a public type that derefs to
 `[u64]`, so `before` can keep it without copying.
+
+## Owner's rulings (#122 comparison and subtraction, 2026-10-09)
+
+`suanpan` gains `abs_diff`, which consumes two accumulators and returns
+their order and the magnitude of their difference, reusing the wider
+buffer. It fuses comparison and subtraction: far apart, the stability
+query decides; close, one in-place subtraction followed by a sign read
+decides. `range_minima`'s `lower_wide` uses it in place of its own
+pre-checks, which `Ord` could not replace, because `Ord` returns only an
+order and would subtract twice when the values are close. `Ord` also asks
+the stability query once at a lead of exactly two digits, falling back to
+subtraction on refusal, so it still terminates. `place/filter.rs` uses
+`Ord` in place of its copy of the comparison protocol.
