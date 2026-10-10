@@ -11,11 +11,10 @@
 //! heights and nested minima from being copied or scanned again for every later
 //! leaf.
 
-use core::cmp::Ordering;
-
+use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator::{self, BigIntAccumulator as _};
+use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::{Count, Version};
 
@@ -47,7 +46,7 @@ impl Count {
         // path. Its live offset is zero because its absolute height opened the
         // frozen-prefix representation.
         subtree_minima.open_subtrees(leaves.depth());
-        let first_leaf = height_prefixes.add_leaf(&mut recent_height_change, &mut answer);
+        let first_leaf = height_prefixes.add_leaf(&recent_height_change, &mut answer);
         subtree_minima.observe_leaf(&first_leaf, &mut answer, &mut height_prefixes);
 
         while !leaves.done() {
@@ -57,7 +56,7 @@ impl Count {
             // Both trackers advance to the next leaf height. The first holds
             // the leaf contribution; the second compares that height with the
             // minima of the subtrees that remain open.
-            recent_height_change.add_bigint(&height_change);
+            recent_height_change += &height_change;
             subtree_minima.advance_height(&height_change);
 
             // The turn keeps the ancestor at `turn_depth` open. It closes the
@@ -80,7 +79,7 @@ impl Count {
                 height_prefixes.freeze(&mut recent_height_change);
             }
 
-            let leaf = height_prefixes.add_leaf(&mut recent_height_change, &mut answer);
+            let leaf = height_prefixes.add_leaf(&recent_height_change, &mut answer);
             subtree_minima.observe_leaf(&leaf, &mut answer, &mut height_prefixes);
         }
 
@@ -89,12 +88,9 @@ impl Count {
         // stated in the module documentation.
         subtree_minima.close_all(&mut answer, &mut height_prefixes);
         height_prefixes.settle(&mut answer);
-        let (sign, magnitude) = answer.biguint_parts();
-        debug_assert_ne!(
-            sign,
-            Ordering::Less,
-            "a subtree minimum never exceeds the sum of its leaves"
-        );
-        Count(magnitude)
+        Count(
+            BigUint::try_from(&answer)
+                .expect("a subtree minimum never exceeds the sum of its leaves"),
+        )
     }
 }

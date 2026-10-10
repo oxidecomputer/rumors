@@ -38,7 +38,6 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::party::io::{PartyNode, PartyReader};
 
 use super::super::range_minima::RangeMinima;
@@ -272,15 +271,15 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // The follower already holds current_minimum - previous_minimum.
             // For the outermost entry, the previous reference is scan-entry
             // height instead.
-            let mut difference = self.minima.follower_take(REL_FOLLOWER);
-            if difference.cmp_zero() == Ordering::Equal {
+            let difference = self.minima.follower_take(REL_FOLLOWER);
+            if difference.sign() == Ordering::Equal {
                 drop(difference);
             } else {
                 if level > 0 {
                     // Add this difference to latest_minimum - first_minimum.
                     // Work follows the new difference's width, even if the sum
                     // is wide. Level zero has no deferred first entry.
-                    self.latest_from_first += &mut difference;
+                    self.latest_from_first += &difference;
                 }
                 self.memo.set_link(slot, StoredAccumulator::new(difference));
             }
@@ -316,15 +315,15 @@ impl<'a, 'm> PreScan<'a, 'm> {
         //   + (latest_minimum - first_minimum)
         //   = enclosing_minimum - first_minimum.
         let mut chain_span = self.minima.follower_take(REL_FOLLOWER);
-        chain_span += &mut self.latest_from_first;
-        if chain_span.cmp_zero() != Ordering::Equal {
+        chain_span += &self.latest_from_first;
+        if chain_span.sign() != Ordering::Equal {
             // The first memo entry needs the reverse difference. It is copied
             // once at the width of the value that will be stored and consumed.
             let first_slot = self
                 .first_slot
                 .expect("a nested level records its first lookahead when suspended");
             let mut link = Accumulator::new();
-            link += &mut chain_span;
+            link += &chain_span;
             link = -link;
             self.memo.set_link(first_slot, StoredAccumulator::new(link));
         }
@@ -338,7 +337,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .pop()
             .expect("a deeper reference level implies a suspended outer level");
         let mut resumed = outer.first_from_outer.restore();
-        resumed += &mut chain_span;
+        resumed += &chain_span;
         drop(chain_span);
         let latest_from_first = outer.latest_from_first.restore();
         let dead = core::mem::replace(&mut self.latest_from_first, latest_from_first);
@@ -359,7 +358,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
         let delta = PayloadKind::Delta.decode(code);
         self.minima.fold_height(&delta);
         if let Some(net) = &mut self.entry_net {
-            net.add_bigint(&delta);
+            *net += &delta;
         }
         delta
     }
@@ -389,7 +388,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .take()
             .expect("the entry net is retained until the first minimum");
         if let Some(offset) = offset {
-            relation.add_bigint(offset);
+            relation += offset;
         }
         self.pending_relation = Some(relation);
     }
@@ -428,7 +427,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             .expect("the descended leaf is pending");
         self.minima.fold_height(&skip.net);
         if let Some(net) = &mut self.entry_net {
-            net.add_bigint(&skip.net);
+            *net += &skip.net;
         }
         self.emit_offset(&skip.min_from_exit);
     }
@@ -452,9 +451,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
             }
             return;
         }
-        let mut net = walk.net_remaining(&mut self.cursor);
+        let net = walk.net_remaining(&mut self.cursor);
         if let Some(entry) = &mut self.entry_net {
-            *entry += &mut net;
+            *entry += &net;
         }
         self.minima.fold_accumulator(net);
     }
@@ -497,7 +496,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             );
             self.minima.fold_accumulator(net);
         }
-        let result = above.into_offset().into_bigint();
+        let result = BigInt::from(&above.into_offset());
         debug_assert!(result.sign() != Sign::Minus, "the fold floors at zero");
         result
     }

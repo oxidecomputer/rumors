@@ -6,6 +6,9 @@ description = "Exact signed accumulation with bounded carry and cancellation wor
 license = "MPL-2.0"
 readme = "README.md"
 
+[dependencies]
+num-bigint = { workspace = true, optional = true }
+
 [dev-dependencies]
 proptest = { workspace = true }
 num-bigint = { workspace = true }
@@ -14,3 +17,5 @@ num-bigint = { workspace = true }
 # Counts arithmetic digit work and streamed operand reads in a process-global
 # counter. Disabled by default; each recorded touch uses a relaxed atomic add.
 touch-meter = []
+# Converts to and from num-bigint's integers and accepts them as operands.
+num-bigint = ["dep:num-bigint"]

@@ -45,11 +45,11 @@ impl Integrator {
             mut diff,
             ..
         } = OpenedPair::open(a, b);
-        let mut current_orientation = orientation(diff.cmp_zero());
+        let mut current_orientation = orientation(diff.sign());
         let mut integral = Integrator::new();
 
         if current_orientation != 0 {
-            integral.open_difference(&mut diff, current_orientation);
+            integral.open_difference(&diff, current_orientation);
         }
 
         loop {
@@ -59,7 +59,7 @@ impl Integrator {
             }
 
             let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-            let diff_order = diff.cmp_zero();
+            let diff_order = diff.sign();
             let new_orientation = orientation(diff_order);
 
             // While the selected part is active, fold each input delta into the
@@ -82,7 +82,7 @@ impl Integrator {
                 // The delta folds above use the old orientation. This correction
                 // applies the orientation change to the updated signed difference.
                 // A sign crossing bounds its magnitude by the deltas just consumed.
-                integral.jump(new_orientation - current_orientation, diff_order, &mut diff);
+                integral.jump(new_orientation - current_orientation, diff_order, &diff);
                 current_orientation = new_orientation;
             }
 

@@ -16,7 +16,8 @@
 //! supplied width can represent, including the extra range of redundant
 //! signed digits.
 
-use super::{touch, Accumulator};
+use super::touch;
+use super::value::Value;
 
 /// Largest magnitude retained as one `i128` value.
 pub const SMALL_MAX: u128 = 1 << 96;
@@ -28,7 +29,7 @@ pub const SMALL_MAX: u128 = 1 << 96;
 pub const SMALL_SHIFT_MAX: u64 = 30;
 
 /// Operate on the small value and transfer it into digits when necessary.
-impl Accumulator {
+impl Value {
     /// Add a bounded delta, returning whether the small path handled it.
     ///
     /// A handled update may move its sum into digits. `false` means the

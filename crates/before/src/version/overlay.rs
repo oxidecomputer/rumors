@@ -24,7 +24,6 @@ use suanpan::Accumulator;
 
 use num_bigint::{BigInt, BigUint};
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::party::io::PartyRegionReader;
 use crate::version::io::regions::{HeightChange, RegionReader, VersionRegionReader};
 use crate::Version;
@@ -194,8 +193,8 @@ impl Side {
     /// Fold one delta into `D = height_a - height_b` from this side.
     pub fn fold(self, diff: &mut Accumulator, delta: &BigInt) {
         match self {
-            Side::A => diff.add_bigint(delta),
-            Side::B => diff.sub_bigint(delta),
+            Side::A => *diff += delta,
+            Side::B => *diff -= delta,
         }
     }
 }

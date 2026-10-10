@@ -308,7 +308,7 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
         // in 32 bits: a narrowed shift lands the 1 at digit 0, where the call
         // returns at once. Case 3's shift would instead land a narrowed digit
         // near 2^27, behind a 1 GiB allocation.
-        5 => accumulator.add_shifted(32 * (max + 1), &mut Accumulator::from(1_u8)),
+        5 => accumulator.add_shifted(32 * (max + 1), &Accumulator::from(1_u8)),
         // A small value shifted past the small representation's headroom
         // deposits directly at the same digit, without passing through
         // `add_shifted`.
@@ -343,8 +343,8 @@ fn suanpan_reserve(bits: u64) -> Result<(), Failure> {
     digits.reserve_bits(bits);
     digits.sub_shifted_limbs(3_200, [1]);
 
-    for mut accumulator in [scalar, digits] {
-        if accumulator.cmp_zero() != Ordering::Equal {
+    for accumulator in [scalar, digits] {
+        if accumulator.sign() != Ordering::Equal {
             return Err(Failure::WrongValue);
         }
     }
@@ -373,7 +373,7 @@ fn suanpan_zero_shift(case: u64) -> Result<(), Failure> {
         _ => return Err(Failure::InvalidArguments),
     }
     accumulator <<= 32 * u64::from(u32::MAX);
-    if accumulator.cmp_zero() == Ordering::Equal {
+    if accumulator.sign() == Ordering::Equal {
         Ok(())
     } else {
         Err(Failure::WrongValue)

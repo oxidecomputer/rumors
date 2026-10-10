@@ -13,6 +13,9 @@
 //! integer endpoint. Random values and shifts between those points exercise
 //! their neighborhoods rather than only the named examples.
 
+use core::cmp::Ordering;
+use core::hash::BuildHasher;
+
 use num_bigint::{BigInt, BigUint};
 use proptest::prelude::*;
 
@@ -127,6 +130,41 @@ impl Primitive {
             Primitive::U64(value) => values!(value),
             Primitive::U128(value) => values!(value),
             Primitive::Usize(value) => values!(value),
+        }
+    }
+
+    /// Check comparison and equality with this primitive against the oracle.
+    fn assert_comparisons(&self, actual: &Accumulator, oracle: &BigInt, trace: &[u8]) {
+        macro_rules! check {
+            ($value:expr) => {{
+                let value = *$value;
+                let expected = oracle.cmp(&BigInt::from(value));
+                assert_eq!(
+                    actual.clone().partial_cmp(&value),
+                    Some(expected),
+                    "ordering with {value} after {trace:?}"
+                );
+                assert_eq!(
+                    actual.clone() == value,
+                    expected == Ordering::Equal,
+                    "equality with {value} after {trace:?}"
+                );
+            }};
+        }
+
+        match self {
+            Primitive::I8(value) => check!(value),
+            Primitive::I16(value) => check!(value),
+            Primitive::I32(value) => check!(value),
+            Primitive::I64(value) => check!(value),
+            Primitive::I128(value) => check!(value),
+            Primitive::Isize(value) => check!(value),
+            Primitive::U8(value) => check!(value),
+            Primitive::U16(value) => check!(value),
+            Primitive::U32(value) => check!(value),
+            Primitive::U64(value) => check!(value),
+            Primitive::U128(value) => check!(value),
+            Primitive::Usize(value) => check!(value),
         }
     }
 
@@ -305,8 +343,8 @@ impl Operand {
                 let mut actual = Accumulator::new();
                 actual.add_shifted_limbs(*shift, [1]);
                 actual.sub_shifted_limbs(*shift, [1]);
-                let (mut tail, oracle) = tail.values();
-                actual += &mut tail;
+                let (tail, oracle) = tail.values();
+                actual += &tail;
                 (actual, oracle)
             }
             Operand::CancelledTop { position, tail } => {
@@ -322,17 +360,17 @@ impl Operand {
 /// Arithmetic forms for accumulator operands.
 #[derive(Clone, Copy, Debug)]
 enum AccumulatorArithmetic {
-    /// `accumulator += &mut operand`.
+    /// `accumulator += &operand`.
     AddAssignBorrowed,
-    /// `accumulator -= &mut operand`.
+    /// `accumulator -= &operand`.
     SubAssignBorrowed,
     /// `accumulator += operand`.
     AddAssignOwned,
     /// `accumulator -= operand`.
     SubAssignOwned,
-    /// `accumulator + &mut operand`.
+    /// `accumulator + &operand`.
     AddBorrowed,
-    /// `accumulator - &mut operand`.
+    /// `accumulator - &operand`.
     SubBorrowed,
     /// `accumulator + operand`.
     AddOwned,
@@ -427,6 +465,10 @@ struct Step {
     operation: Operation,
     /// Width supplied to `cmp_zero_stable_under` afterward.
     comparison_bits: u64,
+    /// An accumulator the result is compared with afterward.
+    comparand: Operand,
+    /// A primitive the result is compared with afterward.
+    primitive: Primitive,
 }
 
 /// Apply one instruction to the implementation and oracle.
@@ -461,8 +503,8 @@ impl Operation {
             } => {
                 let (mut operand, operand_oracle) = operand.values();
                 match arithmetic {
-                    AccumulatorArithmetic::AddAssignBorrowed => *actual += &mut operand,
-                    AccumulatorArithmetic::SubAssignBorrowed => *actual -= &mut operand,
+                    AccumulatorArithmetic::AddAssignBorrowed => *actual += &operand,
+                    AccumulatorArithmetic::SubAssignBorrowed => *actual -= &operand,
                     AccumulatorArithmetic::AddAssignOwned => {
                         *actual += core::mem::take(&mut operand)
                     }
@@ -470,10 +512,10 @@ impl Operation {
                         *actual -= core::mem::take(&mut operand)
                     }
                     AccumulatorArithmetic::AddBorrowed => {
-                        *actual = core::mem::take(actual) + &mut operand;
+                        *actual = core::mem::take(actual) + &operand;
                     }
                     AccumulatorArithmetic::SubBorrowed => {
-                        *actual = core::mem::take(actual) - &mut operand;
+                        *actual = core::mem::take(actual) - &operand;
                     }
                     AccumulatorArithmetic::AddOwned => {
                         *actual = core::mem::take(actual) + core::mem::take(&mut operand);
@@ -503,13 +545,13 @@ impl Operation {
                 operand,
                 shift,
             } => {
-                let (mut operand, operand_oracle) = operand.values();
+                let (operand, operand_oracle) = operand.values();
                 let scaled = &operand_oracle << *shift as usize;
                 if *subtract {
-                    actual.sub_shifted(*shift, &mut operand);
+                    actual.sub_shifted(*shift, &operand);
                     *oracle -= scaled;
                 } else {
-                    actual.add_shifted(*shift, &mut operand);
+                    actual.add_shifted(*shift, &operand);
                     *oracle += scaled;
                 }
                 // The merge may compact its operand, but never changes its value.
@@ -543,11 +585,11 @@ impl Operation {
             }
             Operation::Reserve(bits) => actual.reserve_bits(*bits),
             Operation::Sum { borrowed, operands } => {
-                let (mut values, oracles): (Vec<_>, Vec<_>) =
+                let (values, oracles): (Vec<_>, Vec<_>) =
                     operands.iter().map(Operand::values).unzip();
                 *oracle = oracles.iter().sum();
                 if *borrowed {
-                    *actual = values.iter_mut().sum();
+                    *actual = values.iter().sum();
                     // Summing may compact each operand, but never changes its
                     // value.
                     for (value, value_oracle) in values.iter().zip(&oracles) {
@@ -579,6 +621,83 @@ impl Operation {
             Operation::Read { .. } => 10,
         }
     }
+}
+
+/// Check the standard traits and sign queries against the oracle, on clones so
+/// that observing never changes the tested history.
+fn assert_standard_traits(actual: &Accumulator, oracle: &BigInt, step: &Step, trace: &[u8]) {
+    let sign = oracle_sign(oracle);
+    assert_eq!(
+        actual.clone().is_zero(),
+        sign == Ordering::Equal,
+        "is_zero after {trace:?}"
+    );
+    assert_eq!(
+        actual.clone().is_positive(),
+        sign == Ordering::Greater,
+        "is_positive after {trace:?}"
+    );
+    assert_eq!(
+        actual.clone().is_negative(),
+        sign == Ordering::Less,
+        "is_negative after {trace:?}"
+    );
+
+    // `num-bigint` pads integers through the same `Formatter` helper.
+    for (actual_text, oracle_text) in [
+        (actual.clone().to_string(), oracle.to_string()),
+        (format!("{:+}", actual.clone()), format!("{oracle:+}")),
+        (format!("{:>30}", actual.clone()), format!("{oracle:>30}")),
+        (format!("{:+030}", actual.clone()), format!("{oracle:+030}")),
+        (format!("{:*^31}", actual.clone()), format!("{oracle:*^31}")),
+    ] {
+        assert_eq!(actual_text, oracle_text, "formatting after {trace:?}");
+    }
+
+    let (comparand, comparand_oracle) = step.comparand.values();
+    let expected = oracle.cmp(&comparand_oracle);
+    assert_eq!(
+        actual.clone().cmp(&comparand),
+        expected,
+        "ordering after {trace:?}"
+    );
+    assert_eq!(
+        comparand.cmp(&actual.clone()),
+        expected.reverse(),
+        "reversed ordering after {trace:?}"
+    );
+    assert_eq!(
+        actual.clone() == comparand,
+        expected == Ordering::Equal,
+        "equality after {trace:?}"
+    );
+    assert_value(&comparand, &comparand_oracle);
+
+    // The same value in its plain stored form: equal, and hashed equally.
+    let plain = plain_form(oracle);
+    assert!(
+        actual.clone() == plain,
+        "equality across stored forms after {trace:?}"
+    );
+    let hasher = std::collections::hash_map::RandomState::new();
+    assert_eq!(
+        hasher.hash_one(actual.clone()),
+        hasher.hash_one(&plain),
+        "equal values hash equally after {trace:?}"
+    );
+
+    step.primitive.assert_comparisons(actual, oracle, trace);
+}
+
+/// Build the oracle's value from its limbs, a stored form without cancellation.
+fn plain_form(oracle: &BigInt) -> Accumulator {
+    let mut plain = Accumulator::new();
+    if oracle.sign() == num_bigint::Sign::Minus {
+        plain.sub_shifted_limbs(0, oracle.magnitude().iter_u64_digits());
+    } else {
+        plain.add_shifted_limbs(0, oracle.magnitude().iter_u64_digits());
+    }
+    plain
 }
 
 /// Check every public observation against the exact modeled value.
@@ -626,7 +745,7 @@ fn assert_observations(
     }
 
     assert_eq!(
-        actual.cmp_zero(),
+        actual.sign(),
         oracle_sign(oracle),
         "exact order after {trace:?}"
     );
@@ -664,9 +783,7 @@ fn assert_observations(
     check_conversion!(u128);
     check_conversion!(usize);
 
-    actual
-        .digits
-        .assert_invariants(actual.small.is_some(), trace);
+    actual.stored().assert_invariants(trace);
 }
 
 /// Bias one primitive type toward its endpoints while retaining arbitrary values.
@@ -845,19 +962,29 @@ fn arb_operation() -> BoxedStrategy<Operation> {
 
 /// Generate post-operation comparison widths at the same phase boundaries.
 fn arb_step() -> BoxedStrategy<Step> {
-    (arb_operation(), arb_shift_value(1024))
-        .prop_map(|(operation, comparison_bits)| Step {
+    (
+        arb_operation(),
+        arb_shift_value(1024),
+        arb_operand(),
+        arb_primitive(),
+    )
+        .prop_map(|(operation, comparison_bits, comparand, primitive)| Step {
             operation,
             comparison_bits,
+            comparand,
+            primitive,
         })
         .boxed()
 }
 
 proptest! {
     /// Every public arithmetic operation and observation agrees with an
-    /// independent arbitrary-precision integer after every generated step, and
-    /// every operation that borrows an accumulator operand leaves its value
-    /// unchanged.
+    /// independent arbitrary-precision integer after every generated step.
+    ///
+    /// Every operation that borrows an accumulator operand leaves its value
+    /// unchanged. The observations include formatting, the sign queries,
+    /// comparison and equality with another accumulator and with a primitive,
+    /// and equal hashes for equal values in different stored forms.
     #[test]
     fn complete_surface_matches_bigint(
         steps in proptest::collection::vec(arb_step(), 1..=80),
@@ -870,6 +997,7 @@ proptest! {
         for step in steps {
             step.operation.apply(&mut actual, &mut oracle);
             trace.push(step.operation.tag());
+            assert_standard_traits(&actual, &oracle, &step, &trace);
             assert_observations(
                 &mut actual,
                 &oracle,

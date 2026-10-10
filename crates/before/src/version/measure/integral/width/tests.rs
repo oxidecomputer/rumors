@@ -5,7 +5,6 @@ use proptest::prelude::*;
 use suanpan::Accumulator;
 
 use super::{ScaledWidth, SparseWidth};
-use crate::accumulator::BigIntAccumulator as _;
 
 /// These five digit positions split only where their zero gaps exceed the limit.
 ///
@@ -71,7 +70,7 @@ proptest! {
         let expected = &factor * dense_value(&width);
         let mut actual = Accumulator::new();
         width.add_product(&mut actual, &factor);
-        prop_assert_eq!(actual.to_bigint(), expected);
+        prop_assert_eq!(BigInt::from(&actual), expected);
     }
 
     /// Converting and adding scaled widths preserves their sum and sparse invariants.

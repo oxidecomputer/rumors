@@ -17,7 +17,6 @@ use suanpan::Accumulator;
 use num_bigint::{BigInt, BigUint, Sign};
 
 use super::tree::VersionTreeReader;
-use crate::accumulator::BigIntAccumulator as _;
 use crate::bits::stack::BitStack;
 use crate::Version;
 
@@ -126,7 +125,7 @@ impl<'a> VersionRegionReader<'a> {
     pub fn skip_deeper(&mut self, bound: u64, net: &mut Accumulator) {
         while self.peek_flip() > bound {
             let (_, step) = self.step();
-            net.add_bigint(&step);
+            *net += &step;
         }
     }
 
@@ -282,12 +281,12 @@ impl Extremum {
     }
 
     fn fold_armed(&mut self, delta: &BigInt) {
-        self.register.sub_bigint(delta);
+        self.register -= delta;
         let overtaken = match self.direction {
             Direction::Max => Ordering::Less,
             Direction::Min => Ordering::Greater,
         };
-        if self.register.cmp_zero() == overtaken {
+        if self.register.sign() == overtaken {
             match self.direction {
                 Direction::Max => self.register.reset(),
                 Direction::Min => self.register = Accumulator::new(),
@@ -329,7 +328,7 @@ impl VersionSubtreeReader {
             let code = cursor.payload();
             let delta = kind.decode(code);
             kind = PayloadKind::Delta;
-            net.add_bigint(&delta);
+            *net += &delta;
             extremum.fold(&delta);
             last = Some((depth, cursor.position() - start));
         }
@@ -346,7 +345,7 @@ impl VersionSubtreeReader {
         loop {
             let code = cursor.payload();
             let delta = PayloadKind::Delta.decode(code);
-            net.add_bigint(&delta);
+            net += &delta;
             if self.descend(cursor).is_none() {
                 break;
             }
@@ -369,8 +368,9 @@ impl VersionSubtreeReader {
         let mut min = Extremum::min(Accumulator::new());
         let (last_depth, last_code_len) =
             self.fold_remaining(cursor, first, &mut net, &mut min, pending)?;
-        let net = net.to_bigint();
-        let min_from_exit = min.into_offset().into_bigint();
+        let net = BigInt::from(&net);
+        let min = min.into_offset();
+        let min_from_exit = BigInt::from(&min);
         debug_assert_ne!(
             min_from_exit.sign(),
             Sign::Plus,

@@ -23,7 +23,8 @@
 use core::cmp::Ordering;
 
 use super::small::{SMALL_MAX, SMALL_SHIFT_MAX};
-use super::{digit_index, touch, Accumulator, DIGIT_BITS};
+use super::value::Value;
+use super::{digit_index, touch, DIGIT_BITS};
 
 /// Whether a contribution is added to or subtracted from the accumulator.
 #[derive(Clone, Copy)]
@@ -50,7 +51,7 @@ impl Update {
 }
 
 /// Add each operand in the form that avoids normalization and copying.
-impl Accumulator {
+impl Value {
     /// Add a full-width integer without forcing it through signed `i128`.
     ///
     /// Smaller primitives use `add_word` and its proven headroom instead.
@@ -93,12 +94,7 @@ impl Accumulator {
 
     /// Add or subtract a shifted accumulator, first compacting a digit-stored
     /// operand and skipping it if zero.
-    pub(crate) fn apply_accumulator(
-        &mut self,
-        other: &mut Accumulator,
-        shift: u64,
-        update: Update,
-    ) {
+    pub(crate) fn apply_accumulator(&mut self, other: &mut Value, shift: u64, update: Update) {
         if let Some(operand_value) = other.small {
             touch(1);
             if operand_value == 0 {

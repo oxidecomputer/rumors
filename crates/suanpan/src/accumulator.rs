@@ -6,38 +6,32 @@
 //! one-way transition prevents an alternating workload from repeatedly paying
 //! to convert the same value.
 //!
-//! Every update to the wide representation passes through [`Digits`]. That
-//! single write boundary maintains the digit bounds and the information that
-//! later comparisons with zero need to skip untouched zero ranges.
+//! Every update to the wide representation passes through
+//! [`Digits`](digits::Digits). That single write boundary maintains the digit
+//! bounds and the information that later comparisons with zero need to skip
+//! untouched zero ranges.
+//!
+//! [`Accumulator`] holds its [`Value`] in a `RefCell`, so that reads, which
+//! compact what they touch, can take `&self`.
 
+mod compare;
 mod conversions;
 mod digits;
+mod format;
+#[cfg(feature = "num-bigint")]
+mod interop;
 mod operand;
 mod operators;
 mod small;
+mod value;
 
+use core::cell::RefCell;
 use core::cmp::Ordering;
-use digits::Digits;
 use operand::Update;
-use small::limbs_from_u128;
+use value::Value;
 
-/// Owned normalized limbs, inline for small values and allocated when wide.
-enum MagnitudeLimbs {
-    /// Up to two limbs stored inside the return value.
-    Inline { limbs: [u64; 2], len: usize },
-    /// Arbitrarily wide normalized limbs.
-    Wide(Vec<u64>),
-}
-
-/// Expose normalized limbs without exposing their storage choice.
-impl AsRef<[u64]> for MagnitudeLimbs {
-    fn as_ref(&self) -> &[u64] {
-        match self {
-            Self::Inline { limbs, len } => &limbs[..*len],
-            Self::Wide(limbs) => limbs,
-        }
-    }
-}
+#[cfg(feature = "num-bigint")]
+pub use interop::NegativeValueError;
 
 /// Record digit work; compile away completely without the meter feature.
 #[inline(always)]
@@ -54,32 +48,47 @@ const DIGIT_BITS: u32 = 32;
 /// Mask selecting the low base-2^32 piece of a 64-bit operand limb.
 const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 
-/// A running signed integer supporting exact updates and cheap comparison with zero.
+/// A running signed integer with exact updates and amortized reads.
 ///
-/// Use `+=` and `-=` with primitive integers or accumulator operands, and
-/// `<<=` with a nonnegative integer shift. Dedicated methods accept shifted
-/// operands and streams of 64-bit limbs without first constructing them.
-/// Read a normalized magnitude with [`signed_magnitude`](Self::signed_magnitude).
-/// Every read, including use as an operand, may change the working width
-/// without changing the value, so that no later operation pays for the same
-/// cancellation; this is why reads take `&mut`.
+/// An accumulator behaves as a standard integer for addition, subtraction,
+/// negation, left shifts, comparison, equality, hashing, and formatting, with
+/// owned, borrowed, and primitive operands. Dedicated methods add shifted
+/// accumulators and streams of 64-bit limbs without first constructing them.
+/// There is no multiplication, division, or right shift.
 ///
-/// See the [crate documentation](crate) for operation costs and input guidance.
-/// `Default` creates zero without allocating. Debug formatting takes time and
-/// space linear in the retained allocation, which can exceed the current
-/// working width after cancellation. [`reset`](Self::reset) retains that
-/// allocation for reuse.
+/// Every read compacts the cancellation it touches, so no later operation pays
+/// for it again. A read can therefore change the stored form, and with it the
+/// working width that [`stored_bits`](Self::stored_bits) reports, but never
+/// the value. Reads take `&self`: the stored form lives in a [`RefCell`]. As a
+/// result an accumulator is [`Send`] but not [`Sync`].
 ///
 /// An accumulator cannot be cloned. A copy would carry the same uncompacted
 /// cancellation as its original, and both would pay to compact it, so the
-/// amortized costs above would no longer hold.
+/// amortized costs would no longer hold. To copy the value, add it to zero with
+/// `Accumulator::from(&total)`, which compacts the source first.
+///
+/// ```compile_fail
+/// let total = suanpan::Accumulator::from(3);
+/// let copy = total.clone(); // no `Clone`
+/// ```
+///
+/// ```compile_fail
+/// fn shared<T: Sync>(_: &T) {}
+/// shared(&suanpan::Accumulator::new()); // no `Sync`: reads go through a `RefCell`
+/// ```
+///
+/// See the [crate documentation](crate) for operation costs and input guidance.
+/// `Default` creates zero without allocating. [`reset`](Self::reset) clears
+/// the value and retains its allocation for reuse.
 pub struct Accumulator {
-    /// An exact small value, or `None` once the digit representation is active.
+    /// The value, in a cell so that reads through `&self` can compact it.
     ///
-    /// While this is `Some`, `digits` is empty or contains only zeros.
-    small: Option<i128>,
-    /// Retained digit storage and known zero ranges, active when `small` is `None`.
-    digits: Digits,
+    /// Only [`read`](Self::read) and [`peek`](Self::peek) borrow the cell,
+    /// each for one call of a closure that runs `Value` code, so no borrow
+    /// outlives its call or is held while another accumulator method or
+    /// caller code runs. An operation on two accumulators nests their borrows
+    /// only after it has checked that they differ.
+    value: RefCell<Value>,
 }
 
 /// Copy an accumulator for tests that compare a value before and after an
@@ -90,21 +99,43 @@ pub struct Accumulator {
 #[cfg(test)]
 impl Clone for Accumulator {
     fn clone(&self) -> Self {
-        Accumulator {
-            small: self.small,
-            digits: self.digits.clone(),
-        }
+        Accumulator::from_value(self.peek(Value::clone))
     }
 }
 
-/// Keep the representation choice behind one arithmetic interface.
+/// Construction, updates, and reads.
 impl Accumulator {
     /// Create a zero accumulator without allocating.
     pub fn new() -> Accumulator {
+        Accumulator::from_value(Value::new())
+    }
+
+    /// Wrap a value.
+    fn from_value(value: Value) -> Accumulator {
         Accumulator {
-            small: Some(0),
-            digits: Digits::new(),
+            value: RefCell::new(value),
         }
+    }
+
+    /// Run `f` on the value for a read that may compact it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cell is already borrowed, which no method of this crate
+    /// leaves possible: see the field's documentation.
+    fn read<R>(&self, f: impl FnOnce(&mut Value) -> R) -> R {
+        f(&mut self.value.borrow_mut())
+    }
+
+    /// Run `f` on the value for a read that leaves it as stored.
+    fn peek<R>(&self, f: impl FnOnce(&Value) -> R) -> R {
+        f(&self.value.borrow())
+    }
+
+    /// Borrow the stored value for a test to inspect.
+    #[cfg(test)]
+    fn stored(&self) -> core::cell::Ref<'_, Value> {
+        self.value.borrow()
     }
 
     /// Add little-endian 64-bit limbs multiplied by `2^shift`.
@@ -127,7 +158,9 @@ impl Accumulator {
     /// Panics if a nonzero contribution would land at or beyond `usize::MAX`,
     /// where the required retained span is unrepresentable.
     pub fn add_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
-        self.apply_limbs(limbs.into_iter(), shift, Update::Add);
+        self.value
+            .get_mut()
+            .apply_limbs(limbs.into_iter(), shift, Update::Add);
     }
 
     /// Subtract little-endian 64-bit limbs multiplied by `2^shift`.
@@ -144,15 +177,25 @@ impl Accumulator {
     /// Panics if a nonzero contribution would land at or beyond `usize::MAX`,
     /// where the required working width is unrepresentable.
     pub fn sub_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
-        self.apply_limbs(limbs.into_iter(), shift, Update::Subtract);
+        self.value
+            .get_mut()
+            .apply_limbs(limbs.into_iter(), shift, Update::Subtract);
     }
 
     /// Add another accumulator's value multiplied by `2^shift`.
     ///
     /// The operand is read directly; shifting it first would construct another
-    /// accumulator merely to consume it here. The call may reduce `other`'s
-    /// working width without changing its value. This is why `other` is
-    /// borrowed mutably.
+    /// accumulator merely to consume it here. The read may reduce `other`'s
+    /// working width without changing its value. The receiver is borrowed
+    /// mutably, so `other` is always a different accumulator.
+    ///
+    /// ```compile_fail
+    /// use suanpan::Accumulator;
+    ///
+    /// let mut total = Accumulator::from(3);
+    /// // The receiver cannot also be the operand.
+    /// total.add_shifted(1, &total);
+    /// ```
     ///
     /// # Complexity
     ///
@@ -167,27 +210,38 @@ impl Accumulator {
     ///
     /// Panics if `other` is nonzero and the result needs more digit positions
     /// than a buffer can address. A zero operand never panics.
-    pub fn add_shifted(&mut self, shift: u64, other: &mut Accumulator) {
-        self.apply_accumulator(other, shift, Update::Add);
+    pub fn add_shifted(&mut self, shift: u64, other: &Accumulator) {
+        let value = self.value.get_mut();
+        other.read(|operand| value.apply_accumulator(operand, shift, Update::Add));
     }
 
     /// Subtract another accumulator's value multiplied by `2^shift`.
     ///
-    /// The operand is read directly. The call may reduce `other`'s working
-    /// width without changing its value. This is why `other` is borrowed
-    /// mutably. Using the quantities defined in the [crate-level cost
+    /// The operand is read directly, and the read may reduce its working width
+    /// without changing its value. As with [`add_shifted`](Self::add_shifted),
+    /// `other` is always a different accumulator:
+    ///
+    /// ```compile_fail
+    /// let mut total = suanpan::Accumulator::from(3);
+    /// total.sub_shifted(1, &total);
+    /// ```
+    ///
+    /// # Complexity
+    ///
+    /// Using the quantities defined in the [crate-level cost
     /// model](crate#costs-and-storage), this takes amortized
     /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations. A zero operand adds O(1) retained space at
-    /// any shift.
+    /// the worst case. Growing the receiver may temporarily retain
+    /// both its old and replacement allocations. A zero operand adds O(1)
+    /// retained space at any shift.
     ///
     /// # Panics
     ///
     /// Panics if `other` is nonzero and the result needs more digit positions
     /// than a buffer can address. A zero operand never panics.
-    pub fn sub_shifted(&mut self, shift: u64, other: &mut Accumulator) {
-        self.apply_accumulator(other, shift, Update::Subtract);
+    pub fn sub_shifted(&mut self, shift: u64, other: &Accumulator) {
+        let value = self.value.get_mut();
+        other.read(|operand| value.apply_accumulator(operand, shift, Update::Subtract));
     }
 
     /// Reset to zero, retaining allocated storage for reuse.
@@ -200,10 +254,7 @@ impl Accumulator {
     /// O(`W`) time and O(1) additional space, where `W` is the working width
     /// before the reset. The accumulator retains its main allocation.
     pub fn reset(&mut self) {
-        if self.small.is_none() {
-            self.digits.reset();
-        }
-        self.small = Some(0);
+        self.value.get_mut().reset();
     }
 
     /// Reserve storage for a working width of at least `bits` bits, if the
@@ -222,7 +273,6 @@ impl Accumulator {
     /// storage as they would without the hint.
     ///
     /// ```
-    /// use core::cmp::Ordering;
     /// use suanpan::Accumulator;
     ///
     /// let mut total = Accumulator::new();
@@ -235,7 +285,7 @@ impl Accumulator {
     /// // the call returns normally and the value is unchanged.
     /// total.reserve_bits(u64::MAX);
     /// total.sub_shifted_limbs(4_000, [1]);
-    /// assert_eq!(total.cmp_zero(), Ordering::Equal);
+    /// assert!(total.is_zero());
     /// ```
     ///
     /// # Complexity
@@ -246,16 +296,12 @@ impl Accumulator {
     /// depend on the old and requested capacities. An ignored request retains
     /// no additional space.
     pub fn reserve_bits(&mut self, bits: u64) {
-        // A position count beyond `usize` can never be allocated, so
-        // saturating sends it to the same refusal as any oversized request.
-        let positions = usize::try_from(bits.div_ceil(u64::from(DIGIT_BITS))).unwrap_or(usize::MAX);
-        self.digits.reserve(positions);
+        self.value.get_mut().reserve_bits(bits);
     }
 
-    /// Compare the exact value with zero.
+    /// Return the value's ordering against zero.
     ///
-    /// The query may reduce the working width without changing the value. This
-    /// is why it takes `&mut self`.
+    /// The read may reduce the working width without changing the value.
     ///
     /// # Complexity
     ///
@@ -264,12 +310,32 @@ impl Accumulator {
     /// by earlier updates; the bound holds over the sequence that produced that
     /// work.
     #[inline]
-    pub fn cmp_zero(&mut self) -> Ordering {
-        if let Some(value) = self.small {
-            touch(1);
-            return value.cmp(&0);
-        }
-        self.digits.cmp_zero()
+    pub fn sign(&self) -> Ordering {
+        self.read(Value::cmp_zero)
+    }
+
+    /// Return whether the value is zero.
+    ///
+    /// This is [`sign`](Self::sign)` == Ordering::Equal`, with its cost.
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        self.sign() == Ordering::Equal
+    }
+
+    /// Return whether the value is greater than zero.
+    ///
+    /// This is [`sign`](Self::sign)` == Ordering::Greater`, with its cost.
+    #[inline]
+    pub fn is_positive(&self) -> bool {
+        self.sign() == Ordering::Greater
+    }
+
+    /// Return whether the value is less than zero.
+    ///
+    /// This is [`sign`](Self::sign)` == Ordering::Less`, with its cost.
+    #[inline]
+    pub fn is_negative(&self) -> bool {
+        self.sign() == Ordering::Less
     }
 
     /// Reduce the working width after cancellation.
@@ -292,9 +358,7 @@ impl Accumulator {
     /// new digit exceeds the existing capacity, reallocation may temporarily
     /// retain both buffers.
     pub fn normalize(&mut self) {
-        if self.small.is_none() {
-            self.digits.normalize();
-        }
+        self.value.get_mut().normalize();
     }
 
     /// Try to compare with zero without first applying a smaller operand.
@@ -307,16 +371,15 @@ impl Accumulator {
     /// To compare against another accumulator, pass its working-width bound
     /// from [`stored_bits`](Self::stored_bits). For example, a
     /// `Some(Greater)` result guarantees that both adding and subtracting the
-    /// other accumulator leave this value positive.
+    /// other accumulator leave this value positive. Comparing two accumulators
+    /// with `<` or [`cmp`](Ord::cmp) uses this query to avoid reading the
+    /// narrower one when the widths differ greatly.
     ///
     /// `None` makes no claim about the answer: the smaller operand may or may
     /// not change it. The scan nevertheless compacts what it reads. When `bits`
     /// comes from another accumulator's [`stored_bits`](Self::stored_bits), a
     /// `None` result leaves this accumulator at most two base-2^32 digit
-    /// positions (64 working bits) wider than that operand. If compaction
-    /// reveals that the other accumulator is now wider, the caller can retry
-    /// with their roles reversed. Once neither is much wider, apply the operand
-    /// and call [`cmp_zero`](Self::cmp_zero) to decide.
+    /// positions (64 working bits) wider than that operand.
     ///
     /// ```
     /// use core::cmp::Ordering;
@@ -331,41 +394,26 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Amortized O(log(`W` + 1)) time and O(1) additional space, where `W` is
-    /// the greatest working width reached. As with [`cmp_zero`](Self::cmp_zero),
-    /// this may finish work prepared by earlier updates.
-    pub fn cmp_zero_stable_under(&mut self, bits: u64) -> Option<Ordering> {
-        // Whole digits are the unit used by both representations. At least one
-        // digit is retained even for a zero-width adjustment.
-        let adjustment_digits = bits.div_ceil(u64::from(DIGIT_BITS)).max(1);
-
-        if let Some(value) = self.small {
-            touch(1);
-            // Three times the first power above the adjustment covers the
-            // extra range of a redundant top digit as well as an ordinary
-            // magnitude. Overflow merely means this small value cannot prove
-            // stability at the requested width.
-            let threshold_bits = u32::try_from(adjustment_digits.checked_mul(32)?).ok()?;
-            let threshold = 3u128.checked_shl(threshold_bits)?;
-            return (value.unsigned_abs() >= threshold).then(|| value.cmp(&0));
-        }
-        self.digits.cmp_zero_stable_above(adjustment_digits - 1)
+    /// the greatest working width reached. As with [`sign`](Self::sign), this
+    /// may finish work prepared by earlier updates.
+    pub fn cmp_zero_stable_under(&self, bits: u64) -> Option<Ordering> {
+        self.read(|value| value.cmp_zero_stable_under(bits))
     }
 
     /// Return whether zero can be established without scanning the value.
     ///
     /// `true` guarantees zero; `false` makes no claim. Use
-    /// [`cmp_zero`](Self::cmp_zero) for an exact zero test. After that returns
-    /// `Equal`, this method returns `true`.
+    /// [`is_zero`](Self::is_zero) for an exact zero test. After that returns
+    /// `true`, this method returns `true`.
     ///
     /// ```
-    /// use core::cmp::Ordering;
     /// use suanpan::Accumulator;
     ///
     /// let mut acc = Accumulator::new();
     /// acc.add_shifted_limbs(32, [1]);
     /// acc -= 1_i64 << 32;
     /// assert!(!acc.is_known_zero()); // The constant-time check need not see cancellation.
-    /// assert_eq!(acc.cmp_zero(), Ordering::Equal);
+    /// assert!(acc.is_zero());
     /// assert!(acc.is_known_zero());
     /// ```
     ///
@@ -374,10 +422,7 @@ impl Accumulator {
     /// O(1) time and space, without scanning or rewriting the value.
     #[inline]
     pub fn is_known_zero(&self) -> bool {
-        match self.small {
-            Some(value) => value == 0,
-            None => self.digits.is_known_zero(),
-        }
+        self.peek(Value::is_known_zero)
     }
 
     /// Return the working width in 32-bit units, at least one.
@@ -392,11 +437,7 @@ impl Accumulator {
     /// O(1) time and space.
     #[inline]
     pub fn stored_digit_count(&self) -> usize {
-        match self.small {
-            Some(0) => 1,
-            Some(value) => (128 - value.unsigned_abs().leading_zeros() as usize).div_ceil(32),
-            None => self.digits.stored_digit_count(),
-        }
+        self.peek(Value::stored_digit_count)
     }
 
     /// Return `32 * stored_digit_count()`.
@@ -409,10 +450,7 @@ impl Accumulator {
     /// O(1) time and space.
     #[inline]
     pub fn stored_bits(&self) -> u64 {
-        u64::try_from(self.stored_digit_count())
-            .expect("an allocated accumulator's digit count fits u64")
-            .checked_mul(u64::from(DIGIT_BITS))
-            .expect("an allocated accumulator's bit span fits u64")
+        self.peek(Value::stored_bits)
     }
 
     /// Return the comparison with zero and normalized magnitude limbs.
@@ -421,7 +459,7 @@ impl Accumulator {
     /// exactly when the comparison is `Equal`. The read keeps the normalized
     /// form it computes, which has the same value in a working width that can
     /// be far narrower and is at most 32 bits wider, so a repeated read costs
-    /// only the result's width. This is why it takes `&mut self`.
+    /// only the result's width.
     ///
     /// # Complexity
     ///
@@ -430,14 +468,8 @@ impl Accumulator {
     /// the greatest working width reached. If the result needs one digit
     /// position beyond the existing capacity, reallocation may temporarily
     /// retain both buffers.
-    pub fn signed_magnitude(&mut self) -> (Ordering, impl AsRef<[u64]>) {
-        if let Some(value) = self.small {
-            touch(self.stored_digit_count() as u64);
-            let (limbs, len) = limbs_from_u128(value.unsigned_abs());
-            return (value.cmp(&0), MagnitudeLimbs::Inline { limbs, len });
-        }
-        let (ordering, limbs) = self.digits.normalized_limbs();
-        (ordering, MagnitudeLimbs::Wide(limbs))
+    pub fn signed_magnitude(&self) -> (Ordering, impl AsRef<[u64]>) {
+        self.read(Value::signed_magnitude)
     }
 
     /// Return the comparison with zero, magnitude limbs, and scale.
@@ -456,14 +488,8 @@ impl Accumulator {
     /// the greatest working width reached. Omitting the factored span keeps
     /// it out of `Q`. Reallocation may temporarily retain two buffers, as for
     /// [`signed_magnitude`](Self::signed_magnitude).
-    pub fn scaled_signed_magnitude(&mut self) -> (Ordering, impl AsRef<[u64]>, u64) {
-        if let Some(value) = self.small {
-            touch(self.stored_digit_count() as u64);
-            let (limbs, len) = limbs_from_u128(value.unsigned_abs());
-            return (value.cmp(&0), MagnitudeLimbs::Inline { limbs, len }, 0);
-        }
-        let (ordering, limbs, shift) = self.digits.normalized_limbs_with_shift();
-        (ordering, MagnitudeLimbs::Wide(limbs), shift)
+    pub fn scaled_signed_magnitude(&self) -> (Ordering, impl AsRef<[u64]>, u64) {
+        self.read(Value::scaled_signed_magnitude)
     }
 }
 
@@ -480,17 +506,6 @@ impl Default for Accumulator {
     /// Return the same initial value as [`Accumulator::new`].
     fn default() -> Accumulator {
         Accumulator::new()
-    }
-}
-
-/// Format the accumulator's diagnostic state, including retained storage.
-impl core::fmt::Debug for Accumulator {
-    /// Include every field needed to diagnose arithmetic and storage behavior.
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut fields = formatter.debug_struct("Accumulator");
-        fields.field("small", &self.small);
-        self.digits.debug_fields(&mut fields);
-        fields.finish()
     }
 }
 

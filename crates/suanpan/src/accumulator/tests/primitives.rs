@@ -22,7 +22,7 @@ macro_rules! integer_boundaries {
                 for spilled in [false, true] {
                     let mut constructed = Accumulator::from(value);
                     if spilled {
-                        constructed.ensure_digits();
+                        constructed.value.get_mut().ensure_digits();
                     }
                     assert_value(&constructed, &oracle);
                     assert_eq!(<$integer>::try_from(constructed).unwrap(), value);
@@ -41,7 +41,7 @@ macro_rules! integer_boundaries {
                     for start in [-(SMALL_MAX as i128), -1, 0, 1, SMALL_MAX as i128] {
                         let mut total = Accumulator::from(start);
                         if spilled {
-                            total.ensure_digits();
+                            total.value.get_mut().ensure_digits();
                         }
                         total += value;
                         assert_value(&total, &(IBig::from(start) + &oracle));
@@ -63,7 +63,7 @@ macro_rules! integer_boundaries {
                 for spilled in [false, true] {
                     let mut value = value.clone();
                     if spilled {
-                        value.ensure_digits();
+                        value.value.get_mut().ensure_digits();
                     }
                     let rejected = <$integer>::try_from(value).unwrap_err();
                     assert_value(&rejected, &oracle);
@@ -106,7 +106,7 @@ proptest! {
     ) {
         let mut total = Accumulator::from(start);
         if spilled {
-            total.ensure_digits();
+            total.value.get_mut().ensure_digits();
         }
         let mut oracle = IBig::from(start);
         total += signed;
@@ -133,7 +133,7 @@ proptest! {
     ) {
         let mut held = Accumulator::from(value);
         if spilled {
-            held.ensure_digits();
+            held.value.get_mut().ensure_digits();
         }
         if let Some(sign) = held.cmp_zero_stable_under(bits) {
             prop_assert_eq!(sign, value.cmp(&0));
@@ -192,7 +192,7 @@ fn primitive_shift_counts_are_checked() {
         cancelled.sub_shifted_limbs(0, [1 << 32]);
         assert!(!cancelled.is_known_zero());
         cancelled <<= count;
-        assert_eq!(cancelled.cmp_zero(), Ordering::Equal);
+        assert_eq!(cancelled.sign(), Ordering::Equal);
     }
     let mut zero = Accumulator::new();
     zero <<= i128::MAX;
@@ -207,9 +207,9 @@ fn owned_arithmetic_reuses_storage_and_preserves_order() {
     scalar.add_shifted_limbs(256, [1]);
     scalar.reset();
     scalar += 7;
-    let retained = scalar.digits.stored_digits().as_ptr();
+    let retained = scalar.stored().digits.stored_digits().as_ptr();
     let scalar = -scalar;
-    assert_eq!(scalar.digits.stored_digits().as_ptr(), retained);
+    assert_eq!(scalar.stored().digits.stored_digits().as_ptr(), retained);
     assert_eq!(i64::try_from(scalar).unwrap(), -7);
 
     for left_shift in [64, 128, 192] {
@@ -221,25 +221,24 @@ fn owned_arithmetic_reuses_storage_and_preserves_order() {
             let expected =
                 (IBig::from(7) << left_shift as usize) + (IBig::from(11) << right_shift as usize);
             let selected = if right.stored_digit_count() > left.stored_digit_count() {
-                right.digits.stored_digits().as_ptr()
+                right.stored().digits.stored_digits().as_ptr()
             } else {
-                left.digits.stored_digits().as_ptr()
+                left.stored().digits.stored_digits().as_ptr()
             };
             let sum = left + right;
-            assert_eq!(sum.digits.stored_digits().as_ptr(), selected);
+            assert_eq!(sum.stored().digits.stored_digits().as_ptr(), selected);
             assert_value(&sum, &expected);
 
-            let address = sum.digits.stored_digits().as_ptr();
+            let address = sum.stored().digits.stored_digits().as_ptr();
             let negative = -sum;
-            assert_eq!(negative.digits.stored_digits().as_ptr(), address);
+            assert_eq!(negative.stored().digits.stored_digits().as_ptr(), address);
             assert_value(&negative, &(-&expected));
 
-            let mut values = [negative.clone(), Accumulator::from(13)];
-            assert_value(&values.iter_mut().sum(), &(-&expected + 13));
+            let values = [negative.clone(), Accumulator::from(13)];
+            assert_value(&values.iter().sum(), &(-&expected + 13));
             assert_value(&values.into_iter().sum(), &(-&expected + 13));
-            let mut negative = negative;
-            assert_value(&(Accumulator::from(13) + &mut negative), &(-&expected + 13));
-            assert_value(&(Accumulator::from(13) - &mut negative), &(&expected + 13));
+            assert_value(&(Accumulator::from(13) + &negative), &(-&expected + 13));
+            assert_value(&(Accumulator::from(13) - &negative), &(&expected + 13));
             assert_value(
                 &(Accumulator::from(13) - negative.clone()),
                 &(&expected + 13),
@@ -250,8 +249,5 @@ fn owned_arithmetic_reuses_storage_and_preserves_order() {
         }
     }
     assert_value(&core::iter::empty::<Accumulator>().sum(), &IBig::from(0));
-    assert_value(
-        &core::iter::empty::<&mut Accumulator>().sum(),
-        &IBig::from(0),
-    );
+    assert_value(&core::iter::empty::<&Accumulator>().sum(), &IBig::from(0));
 }

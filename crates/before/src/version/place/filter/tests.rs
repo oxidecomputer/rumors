@@ -58,10 +58,10 @@ proptest! {
         (probe_value, probe_extra, probe_subtracts_first) in arb_height(),
         (bound_value, bound_extra, bound_subtracts_first) in arb_height(),
     ) {
-        let mut probe = height(&probe_value, probe_extra, probe_subtracts_first);
-        let mut bound = height(&bound_value, bound_extra, bound_subtracts_first);
+        let probe = height(&probe_value, probe_extra, probe_subtracts_first);
+        let bound = height(&bound_value, bound_extra, bound_subtracts_first);
         let narrower = probe.stored_digit_count().min(bound.stored_digit_count());
-        let (actual, difference) = Comparison::compare_heights(&mut probe, &mut bound);
+        let (actual, difference) = Comparison::compare_heights(&probe, &bound);
         let expected = probe_value.cmp(&bound_value);
 
         prop_assert_eq!(actual, expected);

@@ -6,10 +6,14 @@
 //! value still reads correctly.
 
 mod differential;
+#[cfg(feature = "num-bigint")]
+mod interop;
 #[cfg(feature = "touch-meter")]
 mod metered;
 mod primitives;
 mod representation;
+mod same_cell;
+mod standard;
 mod surface;
 mod witnesses;
 
@@ -17,7 +21,17 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig, Sign};
 
+use super::value::Value;
 use super::Accumulator;
+
+/// Check a value's representation for the tests.
+impl Value {
+    /// Check the digit invariants after `trace`, including that a small value
+    /// leaves every retained digit zero.
+    fn assert_invariants(&self, trace: &[u8]) {
+        self.digits.assert_invariants(self.small.is_some(), trace);
+    }
+}
 
 /// Start at zero in either the scalar or digit representation.
 ///
@@ -26,7 +40,7 @@ use super::Accumulator;
 fn fresh(digits: bool) -> Accumulator {
     let mut acc = Accumulator::new();
     if digits {
-        acc.ensure_digits();
+        acc.value.get_mut().ensure_digits();
     }
     acc
 }
@@ -68,7 +82,7 @@ fn assert_value(acc: &Accumulator, oracle: &IBig) {
             own_width,
             "a read leaves the value's own working width (scaled read: {scaled})"
         );
-        read.digits.assert_invariants(read.small.is_some(), &[]);
+        read.stored().assert_invariants(&[]);
     }
 }
 
@@ -221,7 +235,7 @@ fn cancelled_top(position: u64) -> Accumulator {
 fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
     // Store both updates as digits so their sum remains one extreme signed
     // coefficient instead of being combined in the scalar.
-    acc.ensure_digits();
+    acc.value.get_mut().ensure_digits();
     acc.sub_shifted_limbs(32 * index, [1u64 << 32]);
     acc.sub_shifted_limbs(32 * index, [(1u64 << 32) - 1]);
 }

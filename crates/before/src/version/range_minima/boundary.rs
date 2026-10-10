@@ -40,8 +40,8 @@ pub(super) struct Positive(Accumulator);
 /// Classify a difference with one comparison against zero.
 impl Signed {
     /// Compare `difference` with zero once, negating a negative difference.
-    pub(super) fn of(mut difference: Accumulator) -> Self {
-        match difference.cmp_zero() {
+    pub(super) fn of(difference: Accumulator) -> Self {
+        match difference.sign() {
             Ordering::Greater => Self::Positive(Positive(difference)),
             Ordering::Equal => Self::Zero,
             Ordering::Less => Self::Negative(Positive(-difference)),
@@ -123,7 +123,7 @@ impl Boundary {
         if decrease.stored_digit_count() >= boundary.stored_digit_count() + 2 {
             match decrease.cmp_zero_stable_under(boundary.stored_bits()) {
                 Some(Ordering::Greater) => {
-                    decrease -= &mut boundary;
+                    decrease -= &boundary;
                     return Remainder::Decrease(Positive(decrease));
                 }
                 Some(_) => unreachable!("the decrease is positive"),
@@ -133,7 +133,7 @@ impl Boundary {
         if boundary.stored_digit_count() >= decrease.stored_digit_count() + 2 {
             match boundary.cmp_zero_stable_under(decrease.stored_bits()) {
                 Some(Ordering::Greater) => {
-                    boundary -= &mut decrease;
+                    boundary -= &decrease;
                     return Remainder::Boundary(Self::from_positive(Positive(boundary)));
                 }
                 Some(_) => unreachable!("stored boundaries are positive"),
@@ -141,7 +141,7 @@ impl Boundary {
             }
         }
 
-        boundary -= &mut decrease;
+        boundary -= &decrease;
         match Signed::of(boundary) {
             Signed::Positive(boundary) => Remainder::Boundary(Self::from_positive(boundary)),
             Signed::Zero => Remainder::Equal,

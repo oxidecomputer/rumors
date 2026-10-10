@@ -85,7 +85,7 @@ impl Operands {
                 *oracle += &self.p224;
             }
             _ => {
-                assert_eq!(acc.cmp_zero(), oracle_sign(oracle), "comparison with zero");
+                assert_eq!(acc.sign(), oracle_sign(oracle), "comparison with zero");
             }
         }
     }
@@ -111,9 +111,7 @@ fn check_schedules(
         let mut next_acc = acc.clone();
         let mut next_oracle = oracle.clone();
         operands.apply(&mut next_acc, &mut next_oracle, op);
-        next_acc
-            .digits
-            .assert_invariants(next_acc.small.is_some(), schedule);
+        next_acc.stored().assert_invariants(schedule);
         assert_value(&next_acc, &next_oracle);
         if depth > 1 {
             check_schedules(operands, &next_acc, &next_oracle, schedule, depth - 1);
@@ -190,14 +188,14 @@ proptest! {
                 }
                 _ => {
                     prop_assert_eq!(
-                        acc.cmp_zero(),
+                        acc.sign(),
                         oracle_sign(&oracle),
                         "sign at step {}",
                         step
                     );
                 }
             }
-            acc.digits.assert_invariants(acc.small.is_some(), &schedule);
+            acc.stored().assert_invariants(&schedule);
             if step % 32 == 0 {
                 assert_value(&acc, &oracle);
             }
@@ -264,7 +262,7 @@ fn redundant_zero(k: u64, cancellation: &Cancellation) -> Accumulator {
             let mut operand = Accumulator::new();
             operand.add_shifted_limbs(0, limbs.iter().copied());
             zero.add_shifted_limbs(*shift, limbs.iter().copied());
-            zero.sub_shifted(*shift, &mut operand);
+            zero.sub_shifted(*shift, &operand);
         }
     }
     assert_value(&zero, &IBig::ZERO);
@@ -363,13 +361,13 @@ fn receiver() -> impl Strategy<Value = Receiver> {
 /// Neither the stored digits nor the buffer may grow. Both bounds depend only
 /// on the unshifted zero, so they hold at every shift. The crate promises
 /// constant space, not a particular stored form.
-fn assert_shifted_zero(mut shifted: Accumulator, shift: u64, unshifted: &Accumulator) {
+fn assert_shifted_zero(shifted: Accumulator, shift: u64, unshifted: &Accumulator) {
     // Read the space before comparing: the comparison compacts a cancelled
     // stored form, which would hide what the shift left behind.
     let stored = shifted.stored_digit_count();
-    let retained = shifted.digits.retained_len();
+    let retained = shifted.stored().digits.retained_len();
     assert_eq!(
-        shifted.cmp_zero(),
+        shifted.sign(),
         Ordering::Equal,
         "shifting zero by {shift} bits yields zero"
     );
@@ -379,7 +377,7 @@ fn assert_shifted_zero(mut shifted: Accumulator, shift: u64, unshifted: &Accumul
         "a zero shifted by {shift} bits takes constant space: \
          {stored} stored digits, up from {stored_before}"
     );
-    let retained_before = unshifted.digits.retained_len();
+    let retained_before = unshifted.stored().digits.retained_len();
     assert!(
         retained <= retained_before,
         "a zero shifted by {shift} bits takes constant space: \
@@ -397,15 +395,15 @@ fn assert_shifted_zero(mut shifted: Accumulator, shift: u64, unshifted: &Accumul
 fn assert_zero_operand(
     receiver: &Receiver,
     name: &str,
-    apply: fn(&mut Accumulator, u64, &mut Accumulator),
+    apply: fn(&mut Accumulator, u64, &Accumulator),
     shift: u64,
     zero: &Accumulator,
 ) {
     let (mut acc, value) = receiver.build();
     let stored_before = acc.stored_digit_count();
-    let retained_before = acc.digits.retained_len();
-    let mut operand = zero.clone();
-    apply(&mut acc, shift, &mut operand);
+    let retained_before = acc.stored().digits.retained_len();
+    let operand = zero.clone();
+    apply(&mut acc, shift, &operand);
     assert_value(&acc, &value);
     assert_value(&operand, &IBig::ZERO);
     assert_eq!(
@@ -414,7 +412,7 @@ fn assert_zero_operand(
         "{name} of a zero at {shift} bits leaves the receiver's stored digits"
     );
     assert_eq!(
-        acc.digits.retained_len(),
+        acc.stored().digits.retained_len(),
         retained_before,
         "{name} of a zero at {shift} bits leaves the receiver's buffer"
     );
@@ -470,19 +468,19 @@ proptest! {
         let zero = redundant_zero(k, &cancellation);
         let top_offset = zero.stored_digit_count() as u64 - 1;
         let (mut acc, value) = receiver.build();
-        let retained_before = acc.digits.retained_len();
+        let retained_before = acc.stored().digits.retained_len();
         for (step, &(past_top, bit)) in landings.iter().enumerate() {
-            let top = (acc.digits.retained_len() as u64).saturating_sub(1) + past_top;
+            let top = (acc.stored().digits.retained_len() as u64).saturating_sub(1) + past_top;
             let shift = 32 * top.saturating_sub(top_offset) + bit;
             if step % 2 == 0 {
-                acc.add_shifted(shift, &mut zero.clone());
+                acc.add_shifted(shift, &zero.clone());
             } else {
-                acc.sub_shifted(shift, &mut zero.clone());
+                acc.sub_shifted(shift, &zero.clone());
             }
         }
         assert_value(&acc, &value);
         assert_eq!(
-            acc.digits.retained_len(),
+            acc.stored().digits.retained_len(),
             retained_before,
             "{} zero operands at the buffer's top leave the buffer's length",
             landings.len()

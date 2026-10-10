@@ -15,7 +15,6 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::meter::registry::Shape;
@@ -112,7 +111,7 @@ fn assert_pointwise(a: &Version, b: &Version, out: &Version, meet: bool) {
     let mut intervals = 0u64;
     loop {
         intervals += 1;
-        let (against_a, against_b) = (oa.cmp_zero(), ob.cmp_zero());
+        let (against_a, against_b) = (oa.sign(), ob.sign());
         if meet {
             assert!(
                 against_a <= core::cmp::Ordering::Equal && against_b <= core::cmp::Ordering::Equal,
@@ -186,9 +185,9 @@ fn assert_pointwise(a: &Version, b: &Version, out: &Version, meet: bool) {
 /// stream sits on the difference's negative side.
 fn fold_step(diff: &mut Accumulator, subtract: bool, step: &HeightChange) {
     if subtract {
-        diff.sub_bigint(step);
+        *diff -= step;
     } else {
-        diff.add_bigint(step);
+        *diff += step;
     }
 }
 

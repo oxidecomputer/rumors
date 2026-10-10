@@ -11,7 +11,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator::{self, BigIntAccumulator as _};
+use crate::accumulator;
 
 /// A nonnegative interval width `magnitude * 2^shift`, with a digit-aligned shift.
 pub struct ScaledWidth {
@@ -24,8 +24,8 @@ pub struct ScaledWidth {
 /// Keep an interval's unwritten low prefix separate through readout and arithmetic.
 impl ScaledWidth {
     /// Read a sum of interval widths without materializing its zero prefix.
-    pub fn read(width: &mut Accumulator) -> Self {
-        let (sign, magnitude, shift) = width.scaled_biguint_parts();
+    pub fn read(width: &Accumulator) -> Self {
+        let (sign, magnitude, shift) = accumulator::scaled_biguint_parts(width);
         debug_assert_ne!(sign, Ordering::Less, "interval widths only accumulate");
         Self { magnitude, shift }
     }

@@ -1,99 +1,34 @@
-//! Interoperation between [`Accumulator`] and `num_bigint` integers.
+//! Big-integer helpers for [`Accumulator`] beyond `suanpan`'s `num-bigint`
+//! interop.
 //!
-//! Accumulation needs no big-integer allocation: callers stream unsigned
-//! magnitudes with `iter_u64_digits()`, and signed inputs select addition or
-//! subtraction here. Output methods construct `BigUint` or `BigInt` only when
-//! an algorithm needs a normalized result. Values that fit in `u128` cross
-//! this boundary without allocating an intermediate limb buffer.
+//! Conversions to and from `BigInt` and `BigUint`, and big-integer operands,
+//! come from `suanpan` itself. This module adds a magnitude's width in
+//! accumulator digits and the scaled read, which returns a value's
+//! power-of-two scale separately so that a known zero prefix is never
+//! materialized.
 
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-/// Signed input and normalized output at the big-integer boundary.
-pub(crate) trait BigIntAccumulator {
-    /// Read the value as a sign and unsigned magnitude.
-    ///
-    /// Like every accumulator read, this may change the working width without
-    /// changing the value.
-    fn biguint_parts(&mut self) -> (Ordering, BigUint);
-
-    /// Read the value as a sign, magnitude, and retained power-of-two scale.
-    fn scaled_biguint_parts(&mut self) -> (Ordering, BigUint, u64);
-
-    /// Read the value as a normalized signed integer.
-    fn to_bigint(&mut self) -> BigInt;
-
-    /// Consume the value as a normalized signed integer.
-    fn into_bigint(self) -> BigInt;
-
-    /// Add a signed integer.
-    fn add_bigint(&mut self, value: &BigInt);
-
-    /// Subtract a signed integer.
-    fn sub_bigint(&mut self, value: &BigInt);
-}
-
-/// A magnitude's width in the accumulator's base-2^32 digits (minimum one).
+/// A magnitude's width in the accumulator's base-2^32 digits, at least one.
 pub(crate) fn digit_len(magnitude: &BigUint) -> usize {
     usize::try_from(magnitude.bits().div_ceil(32))
         .expect("digit counts fit usize")
         .max(1)
 }
 
-/// Convert directly between limb streams and big-integer values.
-impl BigIntAccumulator for Accumulator {
-    /// Build an owned magnitude from the accumulator's borrowed limb output.
-    fn biguint_parts(&mut self) -> (Ordering, BigUint) {
-        let (sign, words) = Accumulator::signed_magnitude(self);
-        (sign, magnitude(words.as_ref()))
-    }
-
-    /// Retain the known power-of-two scale instead of allocating its low zeros.
-    fn scaled_biguint_parts(&mut self) -> (Ordering, BigUint, u64) {
-        let (sign, words, shift) = Accumulator::scaled_signed_magnitude(self);
-        (sign, magnitude(words.as_ref()), shift)
-    }
-
-    /// Attach the exact sign to the normalized magnitude.
-    fn to_bigint(&mut self) -> BigInt {
-        let (sign, magnitude) = self.biguint_parts();
-        BigInt::from_biguint(
-            if sign == Ordering::Less {
-                Sign::Minus
-            } else {
-                Sign::Plus
-            },
-            magnitude,
-        )
-    }
-
-    /// Read the consumed accumulator in place.
-    fn into_bigint(mut self) -> BigInt {
-        self.to_bigint()
-    }
-
-    /// Stream the magnitude through the operation selected by its sign.
-    fn add_bigint(&mut self, value: &BigInt) {
-        if value.sign() == Sign::Minus {
-            self.sub_shifted_limbs(0, value.magnitude().iter_u64_digits());
-        } else {
-            self.add_shifted_limbs(0, value.magnitude().iter_u64_digits());
-        }
-    }
-
-    /// Reverse the signed input's operation without allocating its negation.
-    fn sub_bigint(&mut self, value: &BigInt) {
-        if value.sign() == Sign::Minus {
-            self.add_shifted_limbs(0, value.magnitude().iter_u64_digits());
-        } else {
-            self.sub_shifted_limbs(0, value.magnitude().iter_u64_digits());
-        }
-    }
+/// Read a value as a sign, a magnitude, and a power-of-two scale.
+///
+/// The value is `±magnitude · 2^shift`, as
+/// [`Accumulator::scaled_signed_magnitude`] returns it.
+pub(crate) fn scaled_biguint_parts(value: &Accumulator) -> (Ordering, BigUint, u64) {
+    let (sign, words, shift) = value.scaled_signed_magnitude();
+    (sign, magnitude(words.as_ref()), shift)
 }
 
-/// Convert suanpan's little-endian 64-bit words into `BigUint`'s 32-bit digits.
+/// Convert little-endian 64-bit words into a `BigUint`.
 fn magnitude(words: &[u64]) -> BigUint {
     match words {
         [] => BigUint::ZERO,
@@ -107,6 +42,3 @@ fn magnitude(words: &[u64]) -> BigUint {
         ),
     }
 }
-
-#[cfg(test)]
-mod tests;

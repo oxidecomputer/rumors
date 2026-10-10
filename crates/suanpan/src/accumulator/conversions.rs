@@ -18,12 +18,13 @@ use core::cmp::Ordering;
 
 use super::operand::Update;
 use super::small::SMALL_MAX;
+use super::value::Value;
 use super::Accumulator;
 
 /// Share the sign/magnitude boundary across primitive integer types.
-impl Accumulator {
+impl Value {
     /// Construct an exact primitive value without an overflowing signed cast.
-    fn from_magnitude(magnitude: u128, update: Update) -> Self {
+    pub(crate) fn from_magnitude(magnitude: u128, update: Update) -> Self {
         let mut result = Self::new();
         if magnitude <= SMALL_MAX {
             let value = magnitude as i128;
@@ -40,7 +41,7 @@ impl Accumulator {
     /// Small-value reads take constant time without allocation. A wider value
     /// is read only when its magnitude might fit 128 bits, and then spans at
     /// most six digits.
-    fn primitive_parts(&mut self) -> Option<(Ordering, u128)> {
+    pub(crate) fn primitive_parts(&mut self) -> Option<(Ordering, u128)> {
         if let Some(value) = self.small {
             return Some((value.cmp(&0), value.unsigned_abs()));
         }
@@ -89,7 +90,7 @@ macro_rules! conversions {
         impl From<$integer> for Accumulator {
             /// Keep magnitude and sign separate throughout construction.
             fn from(value: $integer) -> Self {
-                Self::from_magnitude($magnitude(value), $update(value))
+                Accumulator::from_value(Value::from_magnitude($magnitude(value), $update(value)))
             }
         }
 
@@ -104,7 +105,7 @@ macro_rules! conversions {
 
             /// Read the value only as far as deciding whether it fits.
             fn try_from(mut value: Accumulator) -> Result<Self, Self::Error> {
-                value.$parts().and_then(|number| Self::try_from(number).ok()).ok_or(value)
+                value.value.get_mut().$parts().and_then(|number| Self::try_from(number).ok()).ok_or(value)
             }
         }
     )*};
@@ -135,7 +136,11 @@ macro_rules! narrow_conversions {
 
             /// Narrow only after an exact signed or unsigned 128-bit conversion.
             fn try_from(mut value: Accumulator) -> Result<Self, Self::Error> {
-                let number = value.$parts().and_then(|number| Self::try_from(number).ok());
+                let number = value
+                    .value
+                    .get_mut()
+                    .$parts()
+                    .and_then(|number| Self::try_from(number).ok());
                 number.ok_or(value)
             }
         }

@@ -100,10 +100,8 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, BigUint};
+use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
-
-use crate::accumulator::BigIntAccumulator as _;
 
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
@@ -181,7 +179,7 @@ impl Integrator {
     /// `orientation` is `1` when the difference contributes as stored and `-1`
     /// when it contributes with the opposite sign. Reading the accumulator
     /// directly avoids normalizing the opening value merely to copy it here.
-    pub fn open_difference(&mut self, opening: &mut Accumulator, orientation: i8) {
+    pub fn open_difference(&mut self, opening: &Accumulator, orientation: i8) {
         match orientation {
             1 => self.base += opening,
             -1 => self.base -= opening,
@@ -194,7 +192,7 @@ impl Integrator {
         // This cheap test may miss cancellation in buffered digits;
         // `add_shifted` compacts `live` and skips it if zero.
         if !self.live.is_known_zero() {
-            self.total.add_shifted(weight_shift, &mut self.live);
+            self.total.add_shifted(weight_shift, &self.live);
         }
         if self.tracks_width {
             self.segment_width
@@ -210,7 +208,7 @@ impl Integrator {
     /// one or two. Applying the signed accumulator directly avoids normalizing
     /// it into a temporary magnitude merely to stream that magnitude back into
     /// another accumulator.
-    pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &mut Accumulator) {
+    pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &Accumulator) {
         if order == Ordering::Equal {
             return;
         }
@@ -244,7 +242,7 @@ impl Integrator {
     /// only settle the segment early and park nothing.
     fn freeze(&mut self) {
         // Compact the drift so that its width measures its value.
-        self.live.cmp_zero();
+        self.live.sign();
         let drift_digits = self.live.stored_digit_count();
         self.tracks_width = true;
         #[cfg(test)]
@@ -264,7 +262,7 @@ impl Integrator {
                 self.parked.reset();
             }
         }
-        self.parked += &mut self.live;
+        self.parked += &self.live;
         self.live.reset();
 
         // reset() clears the whole allocated span. Segment digits can be high
@@ -278,7 +276,7 @@ impl Integrator {
     /// A following deferral reuses the value already needed for multiplication,
     /// rather than reading the parked accumulator twice at the same boundary.
     fn close_segment(&mut self) -> Option<BigInt> {
-        let width = ScaledWidth::read(&mut self.segment_width);
+        let width = ScaledWidth::read(&self.segment_width);
         if width.is_zero() {
             debug_assert!(
                 self.parked.is_known_zero(),
@@ -290,7 +288,7 @@ impl Integrator {
         if self.parked.is_known_zero() {
             return None;
         }
-        let parked = self.parked.to_bigint();
+        let parked = BigInt::from(&self.parked);
         if parked == BigInt::ZERO {
             return None;
         }
@@ -303,9 +301,9 @@ impl Integrator {
         if self.parked.is_known_zero() {
             return;
         }
-        let parked = self.parked.to_bigint();
+        let parked = BigInt::from(&self.parked);
         if parked != BigInt::ZERO {
-            let width = ScaledWidth::read(&mut self.segment_width);
+            let width = ScaledWidth::read(&self.segment_width);
             width.add_product(&mut self.total, &parked);
         }
     }
@@ -319,12 +317,18 @@ impl Integrator {
         self.finish_segment();
         if !self.deferred.is_empty() {
             self.deferred
-                .add_width(&ScaledWidth::read(&mut self.segment_width));
+                .add_width(&ScaledWidth::read(&self.segment_width));
             self.deferred.finish(&mut self.total);
         }
         if !self.base.is_known_zero() {
-            self.total.add_shifted(closing_shift, &mut self.base);
+            self.total.add_shifted(closing_shift, &self.base);
         }
-        self.total.biguint_parts()
+        let (sign, magnitude) = BigInt::from(&self.total).into_parts();
+        let sign = match sign {
+            Sign::Minus => Ordering::Less,
+            Sign::NoSign => Ordering::Equal,
+            Sign::Plus => Ordering::Greater,
+        };
+        (sign, magnitude)
     }
 }

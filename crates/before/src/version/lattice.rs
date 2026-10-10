@@ -57,8 +57,6 @@ use suanpan::Accumulator;
 
 use num_bigint::{BigInt, Sign};
 
-use crate::accumulator::BigIntAccumulator as _;
-
 use super::order::OrderState;
 use super::overlay::{advance_diff, OpenedPair, Side};
 use crate::version::io::regions::{HeightChange, RegionReader};
@@ -67,15 +65,14 @@ use crate::Version;
 
 impl Side {
     /// The output delta when switching to this side.
-    fn switch_delta(self, diff: &mut Accumulator, old_step: Option<&HeightChange>) -> BigInt {
-        let (diff_sign, magnitude) = diff.biguint_parts();
-        debug_assert_ne!(diff_sign, Ordering::Equal, "a tie never switches sides");
-        let negative = match self {
-            Side::A => diff_sign == Ordering::Less,
-            Side::B => diff_sign == Ordering::Greater,
+    fn switch_delta(self, diff: &Accumulator, old_step: Option<&HeightChange>) -> BigInt {
+        let diff = BigInt::from(diff);
+        debug_assert_ne!(diff.sign(), Sign::NoSign, "a tie never switches sides");
+        // Switching to A outputs `D = height_a - height_b`; switching to B, `-D`.
+        let switched = match self {
+            Side::A => diff,
+            Side::B => -diff,
         };
-        let switched =
-            BigInt::from_biguint(if negative { Sign::Minus } else { Sign::Plus }, magnitude);
         match old_step {
             Some(step) => switched + step,
             None => switched,
@@ -87,7 +84,7 @@ impl Side {
         self,
         out: &mut VersionWriter,
         depth: u64,
-        diff: &mut Accumulator,
+        diff: &Accumulator,
         next: Side,
         step_a: Option<&HeightChange>,
         step_b: Option<&HeightChange>,
@@ -205,7 +202,7 @@ fn sweep<const N: usize>(
     } = OpenedPair::open(a, b);
 
     let mut directions = OrderState::new();
-    let sign = diff.cmp_zero();
+    let sign = diff.sign();
     directions.fold(sign);
 
     // The first region's selected height opens each output.
@@ -229,7 +226,7 @@ fn sweep<const N: usize>(
 
     while !(cursor_a.done() && cursor_b.done()) {
         let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-        let sign = diff.cmp_zero();
+        let sign = diff.sign();
         directions.fold(sign);
         let depth = cursor_a.depth().max(cursor_b.depth());
         for emission in &mut outputs {
@@ -238,7 +235,7 @@ fn sweep<const N: usize>(
             old_side.write_delta(
                 &mut emission.out,
                 depth,
-                &mut diff,
+                &diff,
                 emission.side,
                 step_a.as_ref(),
                 step_b.as_ref(),

@@ -97,7 +97,7 @@ impl<'a> BoundSide<'a> {
 
     /// Fold this interval's sign into the surviving directions.
     fn read(&mut self) {
-        self.directions.fold(self.diff.cmp_zero());
+        self.directions.fold(self.diff.sign());
     }
 
     /// The relation the completed sweep decided, as the causal order.

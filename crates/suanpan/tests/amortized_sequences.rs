@@ -30,9 +30,9 @@ fn s1(rounds: usize, d_bits: u64) -> u64 {
     touches(|| {
         for _ in 0..rounds {
             acc.add_shifted_limbs(d_bits, [1]);
-            assert_eq!(acc.cmp_zero(), std::cmp::Ordering::Greater);
+            assert_eq!(acc.sign(), std::cmp::Ordering::Greater);
             acc.sub_shifted_limbs(d_bits, [1]);
-            assert_eq!(acc.cmp_zero(), std::cmp::Ordering::Less);
+            assert_eq!(acc.sign(), std::cmp::Ordering::Less);
         }
     })
 }

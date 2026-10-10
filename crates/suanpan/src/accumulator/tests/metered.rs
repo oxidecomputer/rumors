@@ -176,7 +176,7 @@ fn sign_query_skips_recorded_zero_ranges() {
     // across digits 1,000 and 1,001 above the never-written run.
     acc.sub_value_shl(&UBig::from(1u64 << 32), 32 * 1_000);
     touch_meter::reset();
-    assert_eq!(acc.cmp_zero(), Ordering::Equal);
+    assert_eq!(acc.sign(), Ordering::Equal);
     assert_eq!(
         touch_meter::touches(),
         6,
@@ -210,7 +210,9 @@ fn accumulator_operand_rows_cost_the_operand() {
         // Arm the digit representation explicitly: this row measures digit-to-digit
         // accumulator folds, not the small-value operand path.
         let mut acc = fresh(true);
-        acc.digits
+        acc.value
+            .get_mut()
+            .digits
             .apply_limbs(core::iter::once((1 << 32) | 1), Update::Add, 0);
         acc
     };
@@ -218,11 +220,11 @@ fn accumulator_operand_rows_cost_the_operand() {
     for held_bits in [2_048u32, 4_096] {
         let wide_value = (UBig::from(1u8) << held_bits as usize) - 1u8;
 
-        let mut operand = narrow();
+        let operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&wide_value);
         touch_meter::reset();
-        receiver += &mut operand;
+        receiver += &operand;
         assert_eq!(
             touch_meter::touches(),
             8,
@@ -231,18 +233,18 @@ fn accumulator_operand_rows_cost_the_operand() {
             held_bits / 32,
         );
         touch_meter::reset();
-        receiver += &mut operand;
+        receiver += &operand;
         assert_eq!(
             touch_meter::touches(),
             3,
             "adding the compacted operand again: 1 deciding touch + 1 read + 1 deposit"
         );
 
-        let mut operand = narrow();
+        let operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&wide_value);
         touch_meter::reset();
-        receiver -= &mut operand;
+        receiver -= &operand;
         assert_eq!(
             touch_meter::touches(),
             7,
@@ -269,11 +271,11 @@ fn accumulator_operand_rows_cost_the_operand() {
     // Each scaled merge compacts the operand the same way, for the same total
     // at both shifts and in both signs.
     for shift in [32_000u64, 64_000] {
-        let mut operand = narrow();
+        let operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&((UBig::from(1u8) << 2_048usize) - 1u8));
         touch_meter::reset();
-        receiver.add_shifted(shift, &mut operand);
+        receiver.add_shifted(shift, &operand);
         assert_eq!(
             touch_meter::touches(),
             7,
@@ -293,11 +295,11 @@ fn accumulator_operand_rows_cost_the_operand() {
                 + (UBig::from((1u64 << 32) | 1) << usize::try_from(shift).unwrap())
         );
 
-        let mut operand = narrow();
+        let operand = narrow();
         let mut receiver = Accumulator::new();
         receiver.add_limb_value(&((UBig::from(1u8) << 2_048usize) - 1u8));
         touch_meter::reset();
-        receiver.sub_shifted(shift, &mut operand);
+        receiver.sub_shifted(shift, &operand);
         assert_eq!(
             touch_meter::touches(),
             7,
@@ -479,9 +481,9 @@ fn u64_comb_touches_are_flat_and_exact() {
         touch_meter::reset();
         for _ in 0..pairs {
             acc += u64::MAX;
-            assert_eq!(acc.cmp_zero(), Ordering::Greater, "above the cliff");
+            assert_eq!(acc.sign(), Ordering::Greater, "above the cliff");
             acc -= u64::MAX;
-            assert_eq!(acc.cmp_zero(), Ordering::Greater, "back below the cliff");
+            assert_eq!(acc.sign(), Ordering::Greater, "back below the cliff");
         }
         assert_eq!(
             touch_meter::touches(),
@@ -687,7 +689,8 @@ fn no_collapse_fold_re_scans_the_prefix() {
     /// stands, every time.
     fn no_collapse_read_touches(acc: &Accumulator) -> u64 {
         let mut touches = 0u64;
-        let digits = acc.digits.stored_digits();
+        let value = acc.stored();
+        let digits = value.digits.stored_digits();
         let mut index = digits.len() - 1;
         let mut partial: i128 = 0;
         loop {
@@ -712,7 +715,7 @@ fn no_collapse_fold_re_scans_the_prefix() {
              on every read"
         );
         touch_meter::reset();
-        assert_eq!(acc.cmp_zero(), Ordering::Greater);
+        assert_eq!(acc.sign(), Ordering::Greater);
         assert_eq!(
             touch_meter::touches(),
             2 * prefix_digits + 3,
@@ -720,7 +723,7 @@ fn no_collapse_fold_re_scans_the_prefix() {
         );
         touch_meter::reset();
         for _ in 0..1_000 {
-            assert_eq!(acc.cmp_zero(), Ordering::Greater);
+            assert_eq!(acc.sign(), Ordering::Greater);
         }
         assert_eq!(
             touch_meter::touches(),
@@ -833,7 +836,7 @@ fn accumulator_operands_cost_their_value_width() {
         receiver.add_limb_value(&((UBig::from(1u8) << 2_048usize) - 1u8));
         for (addition, expected) in [(0, 9), (1, 3), (2, 3)] {
             touch_meter::reset();
-            receiver += &mut operand;
+            receiver += &operand;
             assert_eq!(
                 touch_meter::touches(),
                 expected,
@@ -842,5 +845,32 @@ fn accumulator_operands_cost_their_value_width() {
         }
         assert_value(&operand, &IBig::from(5));
         assert_value(&receiver, &((IBig::from(1) << 2_048usize) - 1 + 15));
+    }
+}
+
+/// Comparing with a far narrower accumulator decides in the wider one's
+/// stability query, without reading the narrower one.
+///
+/// `5·2^(32k)` against `2^100`, which spans four digits: the top digit 5 at
+/// position `k` decides at once, one touch at any `k`, in either operand
+/// order. A comparison that subtracted would read `k` digits.
+#[test]
+fn far_wider_comparisons_read_only_the_wider_top() {
+    for digits in [1_000u64, 2_000] {
+        let mut wide = Accumulator::new();
+        wide.add_shifted_limbs(32 * digits, [5]);
+        let narrow = Accumulator::from(1u128 << 100);
+        for (left, right, expected) in [
+            (&wide, &narrow, Ordering::Greater),
+            (&narrow, &wide, Ordering::Less),
+        ] {
+            touch_meter::reset();
+            assert_eq!(left.cmp(right), expected);
+            assert_eq!(
+                touch_meter::touches(),
+                1,
+                "far-wider comparison at {digits} digits"
+            );
+        }
     }
 }

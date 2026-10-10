@@ -73,7 +73,6 @@ use core::cmp::Ordering;
 use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::causally::Coverage;
 
 use super::super::order::OrderState;
@@ -168,9 +167,9 @@ impl Comparison {
     }
 
     /// Fold this interval's height relation into the surviving directions.
-    fn read(&mut self, probe: &mut Accumulator, bound: &mut Accumulator) {
-        let sign = match &mut self.difference {
-            Some(difference) => difference.cmp_zero(),
+    fn read(&mut self, probe: &Accumulator, bound: &Accumulator) {
+        let sign = match &self.difference {
+            Some(difference) => difference.sign(),
             None => {
                 let (sign, difference) = Self::compare_heights(probe, bound);
                 self.difference = difference;
@@ -214,8 +213,8 @@ impl Comparison {
     /// combined width. An exact difference is never built from a far-wider
     /// operand.
     fn compare_heights(
-        probe: &mut Accumulator,
-        bound: &mut Accumulator,
+        probe: &Accumulator,
+        bound: &Accumulator,
     ) -> (Ordering, Option<Accumulator>) {
         loop {
             match HeightWidths::between(probe, bound) {
@@ -258,14 +257,14 @@ impl Comparison {
         debug_assert_eq!(HeightWidths::between(probe, bound), HeightWidths::Close);
         let mut difference = Accumulator::new();
         if probe.stored_digit_count() <= bound.stored_digit_count() {
-            difference += &mut *probe;
-            difference -= &mut *bound;
+            difference += probe;
+            difference -= bound;
         } else {
-            difference += &mut *bound;
-            difference -= &mut *probe;
+            difference += bound;
+            difference -= probe;
             difference = -difference;
         }
-        let sign = difference.cmp_zero();
+        let sign = difference.sign();
         (sign, Some(difference))
     }
 }
@@ -344,8 +343,7 @@ pub fn admits<'a>(
         // One read per live bound per elementary interval, in demand order.
         for slot in &mut walk.sides {
             let Some(side) = slot else { continue };
-            side.comparison
-                .read(&mut walk.probe_height, &mut side.bound);
+            side.comparison.read(&walk.probe_height, &side.bound);
             let directions = side.comparison.directions;
             match side.demand {
                 // A required direction refuted refutes membership: the walk's
@@ -441,7 +439,7 @@ impl CursorSet for MemberCursors<'_> {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
-                self.probe_height.add_bigint(&step);
+                self.probe_height += &step;
                 for side in self.sides.iter_mut().flatten() {
                     side.comparison
                         .fold(Side::A, &self.probe_height, &side.bound, &step);
@@ -453,7 +451,7 @@ impl CursorSet for MemberCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                side.bound.add_bigint(&step);
+                side.bound += &step;
                 side.comparison
                     .fold(Side::B, &self.probe_height, &side.bound, &step);
                 flip
@@ -541,15 +539,11 @@ pub fn coverage<'a>(
             let Some(side) = slot else { continue };
 
             if side.lo.live {
-                side.lo
-                    .comparison
-                    .read(&mut walk.lo_height, &mut side.bound);
+                side.lo.comparison.read(&walk.lo_height, &side.bound);
             }
 
             if side.hi.live {
-                side.hi
-                    .comparison
-                    .read(&mut walk.hi_height, &mut side.bound);
+                side.hi.comparison.read(&walk.hi_height, &side.bound);
             }
 
             match side.demand {
@@ -769,7 +763,7 @@ impl CursorSet for SpanCursors<'_> {
         match slot {
             Self::HI => {
                 let (flip, step) = self.hi.step();
-                self.hi_height.add_bigint(&step);
+                self.hi_height += &step;
                 for side in self.sides.iter_mut().flatten() {
                     if side.hi.live {
                         side.hi
@@ -781,7 +775,7 @@ impl CursorSet for SpanCursors<'_> {
             }
             Self::LO => {
                 let (flip, step) = self.lo.step();
-                self.lo_height.add_bigint(&step);
+                self.lo_height += &step;
                 for side in self.sides.iter_mut().flatten() {
                     if side.lo.live {
                         side.lo
@@ -796,7 +790,7 @@ impl CursorSet for SpanCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                side.bound.add_bigint(&step);
+                side.bound += &step;
                 if side.lo.live {
                     side.lo
                         .comparison

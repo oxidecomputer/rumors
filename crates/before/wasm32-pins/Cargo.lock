@@ -825,6 +825,9 @@ dependencies = [
 [[package]]
 name = "suanpan"
 version = "0.1.0"
+dependencies = [
+ "num-bigint",
+]
 
 [[package]]
 name = "syn"

@@ -14,7 +14,6 @@ use num_bigint::BigInt;
 use suanpan::Accumulator;
 
 use super::width::{ScaledWidth, SparseWidth};
-use crate::accumulator::BigIntAccumulator as _;
 
 /// Deferred heights, ordered by the boundary where each began to apply.
 pub struct DeferredIntegral {
@@ -54,7 +53,7 @@ impl DeferredIntegral {
 
     /// Defer a nonzero height from the current boundary onward.
     pub fn push(&mut self, height: BigInt) {
-        let width = ScaledWidth::read(&mut self.width);
+        let width = ScaledWidth::read(&self.width);
         debug_assert!(!width.is_zero(), "a deferral follows at least one interval");
         self.entries.push(Entry { height, width });
 
@@ -70,7 +69,7 @@ impl DeferredIntegral {
             "an empty deferred integral needs no reduction"
         );
         let entries = core::mem::take(&mut self.entries);
-        let final_width = ScaledWidth::read(&mut self.width);
+        let final_width = ScaledWidth::read(&self.width);
         let mut leaves = Vec::with_capacity(entries.len() + 1);
         for entry in entries {
             leaves.push(Aggregate::new(&entry.height, &entry.width));
@@ -98,7 +97,7 @@ impl Aggregate {
     /// Convert one entry into the representations used throughout the reduction.
     fn new(height: &BigInt, width: &ScaledWidth) -> Self {
         let mut heights = Accumulator::new();
-        heights.add_bigint(height);
+        heights += height;
         Self {
             heights,
             widths: SparseWidth::from_scaled(width),
@@ -111,14 +110,14 @@ impl Aggregate {
     }
 
     /// Merge a newer right group into this older left group.
-    fn merge(&mut self, mut right: Self, total: &mut Accumulator) {
+    fn merge(&mut self, right: Self, total: &mut Accumulator) {
         // Pairs entirely within either half have already contributed. This
         // product accounts exactly for the pairs crossing this split.
-        let heights = self.heights.to_bigint();
+        let heights = BigInt::from(&self.heights);
         if heights != BigInt::ZERO {
             right.widths.add_product(total, &heights);
         }
-        self.heights += &mut right.heights;
+        self.heights += &right.heights;
         self.widths.add(right.widths);
     }
     /// Reduce boundary-ordered groups, balancing the work by integer data size.
