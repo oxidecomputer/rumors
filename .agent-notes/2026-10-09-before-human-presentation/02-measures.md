@@ -255,10 +255,69 @@ the same table without overrides needs every aggregate around the
 override's prefix.
 
 So `brick_distance` is the length of the shortest description of the
-difference in a language with overrides. It is not an event count, and it
-has no causal reading, since no operation lowers heights. Its only plausible
-consumer would be sizing a compact delta encoding between versions, which
-nothing needs today.
+difference in a language with overrides. Because no operation lowers
+heights, a negative brick never corresponds to an event, so the measure has
+no reading in terms of history. That does not make signed quantities
+meaningless: a signed difference compares two states, as clock skew
+compares two clocks that never run backward. `a − b` is positive where `a`
+leads and negative where `b` leads, and `brick_distance` measures how
+complex that pattern of leads is to describe. Individual bricks still do not
+mean "who leads here": in "+1 everywhere, −1 in the hole", the hole is where
+the two versions are level. The plausible consumer is sizing a compact delta
+encoding between versions, which nothing needs today.
+
+### Signed comparison: skew
+
+Finch's question: is there a signed, integer-valued *skew* between two
+versions, in the sense of clock skew?
+
+**A skew is a potential difference (proved).** Ask, as clock skew satisfies,
+that skews add along chains: `skew(a, c) = skew(a, b) + skew(b, c)`. Fixing a
+reference version `v₀` and setting `φ(a) = skew(a, v₀)` gives
+`skew(a, b) = φ(a) − φ(b)`. So choosing a skew means choosing one scalar per
+version, and the single-version measures are the candidates.
+
+**Lead minus lead.** The area form is already a potential difference:
+`b.lag(&a) − a.lag(&b) = ∫ (a − b) = rank(a) − rank(b)`, which `rank_cmp`
+integrates. The counted form, `lag_bricks(b, a) − lag_bricks(a, b)`, does not
+add along chains, because bricks are not modular. Modularity of `rank` is
+exactly what makes "my lead minus your lead" a potential difference.
+
+**No integer skew sees every advance (proved).** Below `flat(1)` there are
+strict chains of every length:
+`0 < Version { 0..0.1 => 1, 0.1..1 => 0 } < Version { 0..0.11 => 1, 0.11..1 => 0 } < … < flat(1)`.
+An integer-valued `φ` that rises on every strict advance would need
+`φ(flat(1)) − φ(0)` to exceed every chain length. So an integer skew is at
+best weakly monotone, and `rank` is a dyadic rational because it is strictly
+monotone. Strict sensitivity and integer values cannot coexist.
+
+**Candidates:**
+
+| Skew | Integer | Depth-independent | Respects order | Causal reading |
+|---|---|---|---|---|
+| `rank(a) − rank(b)` | no (dyadic) | no | strictly | net area of history |
+| `max(a) − max(b)` | yes | yes | weakly | `s > 0` means `a` has seen at least `s` ticks `b` has not |
+| `min(a) − min(b)` | yes | yes | weakly | difference in full layers every id has seen |
+| `min_ticks(a) − min_ticks(b)` | yes | yes | no | none |
+| net count of a minimal signed decomposition of `a − b` | ill-defined | | | |
+
+The causal reading of the maximum skew is the missing-ticks bound from
+[Causal content](#causal-content), read in both directions. It is one-sided:
+concurrent versions can have skew 0 while each lacks many ticks of the
+other's, and activity below the peak never registers. The true tick skew,
+the difference in the number of ticks behind `a` and behind `b`, is
+unidentifiable from the versions, since each count is unbounded above.
+
+The net signed count is ill-defined because minimal decompositions differ.
+`Version { 0..0.01 => 1, 0.01..0.1 => 0, 0.1..1 => 1 }` is `flat(1)` less a
+quarter (one brick added, one subtracted) or two added pieces. Both have two
+bricks, with nets 0 and 2.
+
+**Naming.** "Tick skew" overclaims, since the maximum skew bounds ticks
+rather than counting them. "Depth" collides with tree depth. A candidate is
+to call the maximum height a version's *peak*, and the minimum its *base*,
+the paper's term for the root's base value, giving `peak_skew` and
+`base_skew`. These are working names, not rulings.
 
 Computing it means choosing a base for every node of the two versions' common
 refinement, minimizing `Σ |base|` subject to each leaf's path sum: a tree L1
