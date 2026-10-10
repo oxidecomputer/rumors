@@ -132,6 +132,10 @@ thread_local! {
     pub static MERGES_TO_OLDER: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// References buried with a chunk too wide to copy.
     pub static WIDE_CHUNKS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// Negative coefficients pushed onto the coefficient stack.
+    pub static NEGATIVE_STACKED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// Negative coefficients popped off the coefficient stack.
+    pub static NEGATIVE_UNSTACKED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// The most references held below the top at once.
     pub static MAX_BURIED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
@@ -490,6 +494,10 @@ fn add_product(total: &mut Accumulator, sign: Ordering, magnitude: &[u64], coeff
 
 /// Push a signed 128-bit value as its zigzag code, low word below.
 fn push_i128(stack: &mut PackedU64Stack, value: i128) {
+    #[cfg(test)]
+    if value < 0 {
+        bump(&NEGATIVE_STACKED);
+    }
     let code = ((value << 1) ^ (value >> 127)) as u128;
     stack.push(code as u64);
     stack.push((code >> 64) as u64);
@@ -499,7 +507,12 @@ fn push_i128(stack: &mut PackedU64Stack, value: i128) {
 fn pop_i128(stack: &mut PackedU64Stack) -> i128 {
     let high = u128::from(stack.pop());
     let code = (high << 64) | u128::from(stack.pop());
-    ((code >> 1) as i128) ^ -((code & 1) as i128)
+    let value = ((code >> 1) as i128) ^ -((code & 1) as i128);
+    #[cfg(test)]
+    if value < 0 {
+        bump(&NEGATIVE_UNSTACKED);
+    }
+    value
 }
 
 /// Chunks of buried references: packed copies, or whole accumulators.

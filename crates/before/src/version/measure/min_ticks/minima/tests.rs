@@ -4,8 +4,8 @@ use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use super::heights::{
-    MAX_BURIED, MAX_READ_EXCESS, MERGES_TO_NEWER, MERGES_TO_OLDER, RECORD_FREEZES, UNREAD_FREEZES,
-    UNREAD_FREEZE_BITS, WIDE_CHUNKS,
+    MAX_BURIED, MAX_READ_EXCESS, MERGES_TO_NEWER, MERGES_TO_OLDER, NEGATIVE_STACKED,
+    NEGATIVE_UNSTACKED, RECORD_FREEZES, UNREAD_FREEZES, UNREAD_FREEZE_BITS, WIDE_CHUNKS,
 };
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::oracles::tree::Version as Tree;
@@ -27,7 +27,7 @@ fn arb_height() -> impl Strategy<Value = BigUint> {
 }
 
 /// Event trees of up to 64 nodes whose leaves draw from [`arb_height`].
-fn arb_tree() -> impl Strategy<Value = Tree> {
+fn arb_random_tree() -> impl Strategy<Value = Tree> {
     arb_height()
         .prop_map(Tree::leaf)
         .prop_recursive(8, 64, 2, |inner| {
@@ -35,13 +35,99 @@ fn arb_tree() -> impl Strategy<Value = Tree> {
         })
 }
 
+/// Random event trees, a quarter of them followed by
+/// [`negative_coefficient_tree`], which random trees almost never reach.
+fn arb_tree() -> impl Strategy<Value = Tree> {
+    prop_oneof![
+        3 => arb_random_tree(),
+        1 => (arb_random_tree(), 3usize..8, 5usize..300).prop_map(|(prefix, closes, lift)| {
+            Tree::node(0u64, prefix, negative_coefficient_tree(closes, lift))
+        }),
+    ]
+}
+
+/// A tree whose reference above the bottom one goes negative, is stacked
+/// below the top, and is popped again.
+///
+/// With `W = 2^lift` and `i = W + 3`, the leaves are `0, W, W + 1`, then
+/// `i`, `i + 64`, `i + 65`, `closes − 1` more leaves at `i + 65`, then `W + 2`,
+/// `W + 2 + 2^20`, `W + 3 + 2^20`. The step to `W + 1` freezes a reference
+/// `R`, which keeps the records of `W + 1`, `i`, and `i + 64`: three leaves.
+/// The step to `i + 65` freezes again, burying `R`. The record of `i` then
+/// settles with `closes` closes, since `i` is the minimum of a left chain
+/// of `closes` nodes, so `R`'s coefficient falls to `2 − closes`; the chain's
+/// later leaves sit level with `i + 65`, so no freeze in between merges
+/// leaves back into `R`'s count. The leaf
+/// `W + 2` undercuts it and records at the newer top, and the step to
+/// `W + 3 + 2^20` freezes once more, stacking `R`'s negative coefficient;
+/// settling `W + 2`'s record releases that top and pops it.
+///
+/// # Panics
+///
+/// Panics if `closes < 3`, where the coefficient stays nonnegative, or if
+/// `lift < 5`, where the step to `W + 1` does not freeze.
+fn negative_coefficient_tree(closes: usize, lift: usize) -> Tree {
+    assert!(closes >= 3 && lift >= 5);
+    let wide = BigUint::from(1u8) << lift;
+    let i = &wide + 3u8;
+    let jump = BigUint::from(1u8) << 20usize;
+    let mut chain = Tree::node(
+        0u64,
+        Tree::leaf(i.clone()),
+        Tree::node(0u64, Tree::leaf(&i + 64u8), Tree::leaf(&i + 65u8)),
+    );
+    for _ in 1..closes {
+        chain = Tree::node(0u64, chain, Tree::leaf(&i + 65u8));
+    }
+    let undercut = &wide + 2u8;
+    let after = Tree::node(
+        0u64,
+        Tree::leaf(undercut.clone()),
+        Tree::node(
+            0u64,
+            Tree::leaf(&undercut + &jump),
+            Tree::leaf(&undercut + &jump + 1u8),
+        ),
+    );
+    let outer = Tree::node(
+        0u64,
+        Tree::leaf(&wide + 1u8),
+        Tree::node(0u64, chain, after),
+    );
+    Tree::node(
+        0u64,
+        Tree::leaf(BigUint::ZERO),
+        Tree::node(0u64, Tree::leaf(wide), outer),
+    )
+}
+
+/// `min_ticks` equals the tree oracle when a reference above the bottom one
+/// stacks a negative coefficient below the top and later pops it.
+///
+/// The coefficient stack stores signed values as zigzag codes; this shape is
+/// the one that stores and restores a negative value, at every close count
+/// and lift.
+#[test]
+fn a_negative_stacked_coefficient_settles_exactly() {
+    proptest!(|(closes in 3usize..24, lift in 5usize..400)| {
+        let stacked = NEGATIVE_STACKED.with(|c| c.get());
+        let unstacked = NEGATIVE_UNSTACKED.with(|c| c.get());
+        let tree = negative_coefficient_tree(closes, lift);
+        prop_assert_eq!(from_oracle_version(&tree).min_ticks(), tree.min_ticks());
+        prop_assert!(NEGATIVE_STACKED.with(|c| c.get()) > stacked, "no negative coefficient was stacked");
+        prop_assert!(NEGATIVE_UNSTACKED.with(|c| c.get()) > unstacked, "no negative coefficient was popped");
+    });
+}
+
 /// Read the reference-path counters on this thread.
-fn counters() -> [u64; 4] {
+fn counters() -> [u64; 6] {
     [
         RECORD_FREEZES.with(|c| c.get()),
         MERGES_TO_NEWER.with(|c| c.get()),
         MERGES_TO_OLDER.with(|c| c.get()),
         WIDE_CHUNKS.with(|c| c.get()),
+        NEGATIVE_STACKED.with(|c| c.get()),
+        NEGATIVE_UNSTACKED.with(|c| c.get()),
     ]
 }
 
@@ -49,8 +135,9 @@ fn counters() -> [u64; 4] {
 /// wide heights.
 ///
 /// The run also reaches every reference path: record-trigger freezes, merges
-/// charged to each neighbour, wide chunks moved whole, and more than one
-/// reference buried at once.
+/// charged to each neighbour, wide chunks moved whole, a negative coefficient
+/// stacked below the top and popped again, and more than one reference buried
+/// at once.
 #[test]
 fn min_ticks_matches_the_tree_oracle_across_reference_paths() {
     let before = counters();
@@ -65,6 +152,8 @@ fn min_ticks_matches_the_tree_oracle_across_reference_paths() {
         "merges to newer",
         "merges to older",
         "wide chunks",
+        "a stacked negative coefficient",
+        "a popped negative coefficient",
     ]
     .iter()
     .zip(before.iter().zip(after.iter()))
