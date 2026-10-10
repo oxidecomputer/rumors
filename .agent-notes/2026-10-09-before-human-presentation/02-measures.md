@@ -650,6 +650,9 @@ quadratic running-sum hazard. Run it from its directory:
   `min_ticks`;
 - `cargo run --bin triangle`: brick counts of absolute differences breaking
   the triangle inequality;
+- `cargo run --bin amplify`: the readable notation's length against encoded
+  size, for an alternating spine and for a wide base height (used in
+  05-further-observations.md);
 - `python3 py/norm.py`: the signed brick norm by dynamic programming over
   shallow dyadic trees, checked against popcount and NAF weight on every
   prefix indicator at depth 6;

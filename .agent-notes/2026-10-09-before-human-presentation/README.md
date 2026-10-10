@@ -14,7 +14,10 @@ supersedes the other sections wherever they differ:
    the partial-order and knowledge-matrix views, and prior art.
 4. [04-forking-api.md](04-forking-api.md): a tangent: `into_forks(n)` and a
    lazy `forking()` API whose fork count is chosen during iteration.
-5. [probe/](probe/): the throwaway crate behind 02's evidence.
+5. [05-further-observations.md](05-further-observations.md): further notes
+   on notation, semantics, API, and process, including the notation's
+   superlinear size.
+6. [probe/](probe/): the throwaway crate behind 02's and 05's evidence.
 
 ## The question
 
@@ -57,6 +60,10 @@ evidence that two versions are concurrent.
   output, for codec work.
 - **The multi-line skyline drawing is a named adapter** (working name
   `skyline()`), not `{:#?}`.
+- **`Debug` output may be superlinear in the encoded size** (ruled
+  acceptable): it prints absolute positions and heights where the encoding
+  stores deltas. Its bound is documented like `Display`'s; see
+  [05-further-observations.md](05-further-observations.md#notation).
 
 ### Spelling numbers
 
