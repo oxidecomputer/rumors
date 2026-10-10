@@ -163,12 +163,12 @@ its two fields; this replaces that with a hand-written impl.
 ### Clock
 
 A clock renders as its version with its own arms annotated, as though by a
-one-party legend containing only itself (ruled): `(own)` on one line, an
-aligned `// own` comment when pretty-printed.
+one-party legend containing only itself (ruled): an inline `/* own */`
+comment on one line, an aligned `// own` comment when pretty-printed.
 
 ```
-Clock { 0..0.1 => 1, 0.1..1 => 2 (own) }
-Clock { 0..1 => 0 (own) }                      // the seed clock
+Clock { 0..0.1 => 1, 0.1..1 => 2 /* own */ }
+Clock { 0..1 => 0 /* own */ }                  // the seed clock
 
 Clock {
     0..0.1 => 1,
@@ -188,7 +188,7 @@ real legend, the clock's own arms show its name instead of `own`.
   and adjacent arms merge only when both height and ownership agree.
   `Clock::shape`'s `Overlay` already walks exactly this refinement.
 - **Never unannotated.** A `Party` is never empty, so every clock has at
-  least one `(own)` arm.
+  least one arm annotated `own`.
 - **Spellings weighed and set aside.** Brackets on the height
   (`0.1..1 => [2]`) are compact but mark the height when ownership belongs to
   the ids, and read as an array in Rust-flavored text. Brackets around the
@@ -211,11 +211,14 @@ lies in.
   live party is missing from the legend or identity leaked through a dropped
   `Party`.
 - With a legend, a version's arms split at ownership boundaries and each arm
-  names its owner: a parenthetical on one line, a trailing comment when
-  pretty-printed, with the comments vertically aligned.
+  names its owner in Rust comment syntax (ruled): an inline `/* … */`
+  comment on one line, placed before the arm's comma so it attaches to its
+  arm, and a trailing `//` comment when pretty-printed, vertically aligned.
+  An annotation is commentary on the value, not part of it, and comment
+  syntax says so in both modes.
 
 ```
-Version { 0..0.1 => 3 (alice), 0.1..0.101 => 1 (bob), 0.101..0.11 => 2 (bob), 0.11..1 => 2 (carol) }
+Version { 0..0.1 => 3 /* alice */, 0.1..0.101 => 1 /* bob */, 0.101..0.11 => 2 /* bob */, 0.11..1 => 2 /* carol */ }
 
 Version {
     0..0.1 => 3,        // alice

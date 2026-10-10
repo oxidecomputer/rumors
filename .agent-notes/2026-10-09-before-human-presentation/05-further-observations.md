@@ -160,10 +160,10 @@ version.
 it in one place, at the cost of updating examples when the notation
 changes.
 
-**A clock rendering that marks ownership inline**, as an alternative pretty
-form: `Clock { 0..0.1 => 3 (own), 0.1..0.11 => 2, 0.11..1 => 1 }` answers
-"what does my own region look like" at a glance, where the struct form
-separates party and version.
+**A clock rendering that marks ownership inline**, which answers "what does
+my own region look like" at a glance where a struct form separates party and
+version, is now ruled: `Clock { 0..0.1 => 3 /* own */, 0.1..0.11 => 2, 0.11..1 => 1 }`.
+See the README's Clock section.
 
 **A "which fork API?" table** in the docs, covering `fork`, `forks(k)`,
 `From<Party> for [Party; N]`, and the proposed `into_forks(n)` and

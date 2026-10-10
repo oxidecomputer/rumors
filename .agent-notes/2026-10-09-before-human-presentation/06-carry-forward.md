@@ -48,7 +48,8 @@ detail lives.
 
 - `Debug` for `Party` (`Party(0.001..0.01, …)`), `Version` and `Span`
   (`Version { … }` match arms in braces, merged maximal runs; `Span` as a
-  height band), `Clock` (its version with its own arms annotated `(own)`),
+  height band), `Clock` (its version with its own arms annotated
+  `/* own */`),
   and the `causally` forms, which inherit it.
 - Views render as the value they denote: `OwnVersion`, `OwnSpan`, `Ranked`
   (README, Views).
