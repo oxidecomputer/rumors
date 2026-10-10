@@ -51,7 +51,8 @@ Wide values stream in as little-endian `u64` limbs through
 two given first. `add_shifted` and
 `sub_shifted` take another accumulator the same
 way, and `signed_magnitude` reads a value
-out as limbs.
+out as `Limbs`, which dereference to a `[u64]` slice and stay inline
+below `2^128`.
 
 ## Reads compact what they touch
 

@@ -47,7 +47,8 @@
 //! two given first. [`add_shifted`](Accumulator::add_shifted) and
 //! [`sub_shifted`](Accumulator::sub_shifted) take another accumulator the same
 //! way, and [`signed_magnitude`](Accumulator::signed_magnitude) reads a value
-//! out as limbs.
+//! out as [`Limbs`], which dereference to a `[u64]` slice and stay inline
+//! below `2^128`.
 //!
 //! # Reads compact what they touch
 //!
@@ -129,6 +130,6 @@ mod accumulator;
 #[cfg(feature = "touch-meter")]
 pub mod touch_meter;
 
-pub use accumulator::Accumulator;
 #[cfg(feature = "num-bigint")]
 pub use accumulator::NegativeValueError;
+pub use accumulator::{Accumulator, Limbs};

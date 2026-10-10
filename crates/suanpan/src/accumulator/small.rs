@@ -74,13 +74,3 @@ impl Value {
         self.digits.activate();
     }
 }
-
-/// Place an unsigned small-value magnitude in a two-limb stack buffer.
-pub fn limbs_from_u128(value: u128) -> ([u64; 2], usize) {
-    let limbs = [value as u64, (value >> 64) as u64];
-    let len = usize::from(value != 0) + usize::from(value > u128::from(u64::MAX));
-    debug_assert!(len <= 2);
-    debug_assert_eq!(len == 0, value == 0);
-    debug_assert!(len < 2 || limbs[1] != 0);
-    (limbs, len)
-}

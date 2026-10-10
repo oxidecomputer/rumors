@@ -21,6 +21,7 @@ mod digits;
 mod format;
 #[cfg(feature = "num-bigint")]
 mod interop;
+mod limbs;
 mod operand;
 mod operators;
 mod small;
@@ -33,6 +34,7 @@ use value::Value;
 
 #[cfg(feature = "num-bigint")]
 pub use interop::NegativeValueError;
+pub use limbs::Limbs;
 
 /// Record digit work; compile away completely without the meter feature.
 #[inline(always)]
@@ -431,42 +433,41 @@ impl Accumulator {
         self.peek(Value::stored_bits)
     }
 
-    /// Return the comparison with zero and normalized magnitude limbs.
+    /// Return the comparison with zero and the magnitude's [`Limbs`].
     ///
-    /// The little-endian 64-bit limbs have no high zero word and are empty
-    /// exactly when the comparison is `Equal`. The read keeps the normalized
-    /// form it computes, which has the same value in a working width that can
-    /// be far narrower and is at most 32 bits wider, so a repeated read costs
-    /// only the result's width.
+    /// The limbs are minimal and empty exactly when the comparison is
+    /// `Equal`. The read keeps the normalized form it computes, which has the
+    /// same value in a working width that can be far narrower and is at most
+    /// 32 bits wider, so a repeated read costs only the result's width.
     ///
     /// # Complexity
     ///
     /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
-    /// time, O(`Q`) temporary space, and O(`Q`) returned space, where `W` is
-    /// the greatest working width reached. If the result needs one digit
-    /// position beyond the existing capacity, reallocation may temporarily
-    /// retain both buffers.
-    pub fn signed_magnitude(&self) -> (Ordering, impl AsRef<[u64]>) {
+    /// time, where `W` is the greatest working width reached, and returns
+    /// O(`Q`) space, allocated only when `Q` exceeds two. If the result needs
+    /// one digit position beyond the existing capacity, reallocation may
+    /// temporarily retain both buffers.
+    pub fn signed_magnitude(&self) -> (Ordering, Limbs) {
         self.read(Value::signed_magnitude)
     }
 
-    /// Return the comparison with zero, magnitude limbs, and scale.
+    /// Return the comparison with zero, the magnitude's [`Limbs`], and a scale.
     ///
     /// The exact value is `±magnitude * 2^shift`. As in
-    /// [`signed_magnitude`](Self::signed_magnitude), the magnitude is minimal
-    /// and little-endian; zero has no limbs, and the read keeps the normalized
-    /// form it computes. The method may factor out a low span known to be zero
+    /// [`signed_magnitude`](Self::signed_magnitude), the limbs are minimal and
+    /// empty exactly for zero, and the read keeps the normalized form it
+    /// computes. The method may factor out a low span known to be zero
     /// from write history, avoiding a scan of that span. The factor need not be
     /// maximal: cancellation can leave low zero bits in the magnitude.
     ///
     /// # Complexity
     ///
     /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
-    /// time, O(`Q`) temporary space, and O(`Q`) returned space, where `W` is
-    /// the greatest working width reached. Omitting the factored span keeps
-    /// it out of `Q`. Reallocation may temporarily retain two buffers, as for
+    /// time and returns O(`Q`) space, allocated only when `Q` exceeds two,
+    /// where `W` is the greatest working width reached. Omitting the factored
+    /// span keeps it out of `Q`. Reallocation may temporarily retain two buffers, as for
     /// [`signed_magnitude`](Self::signed_magnitude).
-    pub fn scaled_signed_magnitude(&self) -> (Ordering, impl AsRef<[u64]>, u64) {
+    pub fn scaled_signed_magnitude(&self) -> (Ordering, Limbs, u64) {
         self.read(Value::scaled_signed_magnitude)
     }
 }

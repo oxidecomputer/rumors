@@ -10,27 +10,10 @@
 use core::cmp::Ordering;
 
 use super::digits::Digits;
+use super::limbs::Limbs;
 use super::operand::Update;
-use super::small::{limbs_from_u128, SMALL_MAX, SMALL_SHIFT_MAX};
+use super::small::{SMALL_MAX, SMALL_SHIFT_MAX};
 use super::{touch, DIGIT_BITS};
-
-/// Owned normalized limbs, inline for small values and allocated when wide.
-pub(crate) enum MagnitudeLimbs {
-    /// Up to two limbs stored inside the return value.
-    Inline { limbs: [u64; 2], len: usize },
-    /// Arbitrarily wide normalized limbs.
-    Wide(Vec<u64>),
-}
-
-/// Expose normalized limbs without exposing their storage choice.
-impl AsRef<[u64]> for MagnitudeLimbs {
-    fn as_ref(&self) -> &[u64] {
-        match self {
-            Self::Inline { limbs, len } => &limbs[..*len],
-            Self::Wide(limbs) => limbs,
-        }
-    }
-}
 
 /// An exact signed integer in one of two representations.
 ///
@@ -132,26 +115,22 @@ impl Value {
 
     /// Return the sign and minimal magnitude limbs, normalizing what the read
     /// touches.
-    pub(crate) fn signed_magnitude(&mut self) -> (Ordering, MagnitudeLimbs) {
+    pub(crate) fn signed_magnitude(&mut self) -> (Ordering, Limbs) {
         if let Some(value) = self.small {
             touch(self.stored_digit_count() as u64);
-            let (limbs, len) = limbs_from_u128(value.unsigned_abs());
-            return (value.cmp(&0), MagnitudeLimbs::Inline { limbs, len });
+            return (value.cmp(&0), Limbs::from_u128(value.unsigned_abs()));
         }
-        let (ordering, limbs) = self.digits.normalized_limbs();
-        (ordering, MagnitudeLimbs::Wide(limbs))
+        self.digits.normalized_limbs()
     }
 
     /// Return the sign, minimal magnitude limbs, and a power-of-two scale,
     /// normalizing what the read touches.
-    pub(crate) fn scaled_signed_magnitude(&mut self) -> (Ordering, MagnitudeLimbs, u64) {
+    pub(crate) fn scaled_signed_magnitude(&mut self) -> (Ordering, Limbs, u64) {
         if let Some(value) = self.small {
             touch(self.stored_digit_count() as u64);
-            let (limbs, len) = limbs_from_u128(value.unsigned_abs());
-            return (value.cmp(&0), MagnitudeLimbs::Inline { limbs, len }, 0);
+            return (value.cmp(&0), Limbs::from_u128(value.unsigned_abs()), 0);
         }
-        let (ordering, limbs, shift) = self.digits.normalized_limbs_with_shift();
-        (ordering, MagnitudeLimbs::Wide(limbs), shift)
+        self.digits.normalized_limbs_with_shift()
     }
 
     /// Negate in place.
