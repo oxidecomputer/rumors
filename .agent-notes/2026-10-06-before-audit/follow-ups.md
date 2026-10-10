@@ -169,3 +169,26 @@ audit. Each entry names its source and what it would catch.
 - An exact `f64` deposit and a correctly rounded `f64` readout would make
   `suanpan` a full superaccumulator; a design project, not a cleanup.
 
+
+## Scheduled branches (owner, 2026-10-10)
+
+These are scheduled, not proposals: the owner asked for each, to be built
+once the branches it depends on land.
+
+- **The rank integrator's `parked` tier, justified and clarified.** After
+  #122 lands. A board family that removing `parked` fails, built from the
+  rank prototype's `zz-nf-d8` shape (narrow freezes: heap about 0.04 bytes
+  per input byte with `parked`, 4.66 without); the integrator's module doc
+  stating what `parked` buys; and any clarity rework that leaves every board
+  reading unchanged. Source: the rank prototype (`explore/rank-single-tier`)
+  and the owner's ruling in the suanpan lane record.
+
+- **`RangeMinima`'s wide-boundary heap.** After #122 and
+  `fix/min-ticks-transient-heap` land, since both edit `range_minima`. A
+  `min_ticks` spine whose steps exceed 64 bits reads about 27 heap bytes per
+  input byte on `main`, over the board's heap ceiling; the `min_ticks`
+  prototype infers one whole `Accumulator` per suspended level in a doubling
+  `Vec`. No board family samples it, so the fix branch starts with that
+  family as its demonstration. `reference-dense e=65` (about 19 bytes per
+  input byte on `main`) may share the cause. Source: the `min_ticks`
+  prototype's probe table.
