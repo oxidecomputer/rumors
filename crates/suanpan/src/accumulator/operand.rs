@@ -36,6 +36,16 @@ pub enum Update {
 }
 
 impl Update {
+    /// The update that applies a magnitude of the given sign: subtraction
+    /// for a negative one, addition otherwise.
+    pub fn from_sign(sign: Ordering) -> Update {
+        if sign == Ordering::Less {
+            Update::Subtract
+        } else {
+            Update::Add
+        }
+    }
+
     /// Apply this update to a bounded positive or signed contribution.
     pub fn apply(self, contribution: i128) -> i128 {
         debug_assert_ne!(

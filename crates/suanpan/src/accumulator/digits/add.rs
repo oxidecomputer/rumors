@@ -28,11 +28,7 @@ impl Digits {
     /// this path therefore costs a fixed number of deposits rather than work
     /// proportional to the shift.
     pub fn deposit_value(&mut self, value: i128, shift: u64) {
-        let update = if value.is_negative() {
-            Update::Subtract
-        } else {
-            Update::Add
-        };
+        let update = Update::from_sign(value.cmp(&0));
         self.deposit_magnitude(value.unsigned_abs(), update, shift);
     }
 

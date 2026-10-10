@@ -15,6 +15,7 @@
 use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
 
+use super::conversions::SignMagnitude;
 use super::operand::Update;
 use super::value::Value;
 use super::Accumulator;
@@ -109,37 +110,6 @@ fn compare_primitive(value: &mut Value, sign: Ordering, magnitude: u128) -> Orde
         _ => value_sign.cmp(&sign),
     }
 }
-
-/// A primitive integer as a sign and a magnitude.
-trait SignMagnitude: Copy {
-    /// Return the sign against zero and the magnitude, widened losslessly.
-    fn sign_magnitude(self) -> (Ordering, u128);
-}
-
-/// Signed primitives take their magnitude from `unsigned_abs`.
-macro_rules! signed_sign_magnitude {
-    ($($integer:ty),* $(,)?) => {$(
-        impl SignMagnitude for $integer {
-            fn sign_magnitude(self) -> (Ordering, u128) {
-                (self.cmp(&0), self.unsigned_abs() as u128)
-            }
-        }
-    )*};
-}
-
-/// Unsigned primitives are their own magnitude.
-macro_rules! unsigned_sign_magnitude {
-    ($($integer:ty),* $(,)?) => {$(
-        impl SignMagnitude for $integer {
-            fn sign_magnitude(self) -> (Ordering, u128) {
-                (self.cmp(&0), self as u128)
-            }
-        }
-    )*};
-}
-
-signed_sign_magnitude!(i8, i16, i32, i64, i128, isize);
-unsigned_sign_magnitude!(u8, u16, u32, u64, u128, usize);
 
 /// Comparisons against every primitive integer, with the accumulator on the
 /// left.

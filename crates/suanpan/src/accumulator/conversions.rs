@@ -21,6 +21,40 @@ use super::small::SMALL_MAX;
 use super::value::Value;
 use super::Accumulator;
 
+/// A primitive integer as a sign and a magnitude.
+///
+/// A `u128` magnitude holds every primitive's exactly, including that of
+/// `i128::MIN`, so no signed value is negated in its own type.
+pub(super) trait SignMagnitude: Copy {
+    /// Return the sign against zero and the magnitude, widened losslessly.
+    fn sign_magnitude(self) -> (Ordering, u128);
+}
+
+/// Signed primitives take their magnitude from `unsigned_abs`.
+macro_rules! signed_sign_magnitude {
+    ($($integer:ty),* $(,)?) => {$(
+        impl SignMagnitude for $integer {
+            fn sign_magnitude(self) -> (Ordering, u128) {
+                (self.cmp(&0), self.unsigned_abs() as u128)
+            }
+        }
+    )*};
+}
+
+/// Unsigned primitives are their own magnitude.
+macro_rules! unsigned_sign_magnitude {
+    ($($integer:ty),* $(,)?) => {$(
+        impl SignMagnitude for $integer {
+            fn sign_magnitude(self) -> (Ordering, u128) {
+                (self.cmp(&0), self as u128)
+            }
+        }
+    )*};
+}
+
+signed_sign_magnitude!(i8, i16, i32, i64, i128, isize);
+unsigned_sign_magnitude!(u8, u16, u32, u64, u128, usize);
+
 /// Share the sign/magnitude boundary across primitive integer types.
 impl Value {
     /// Construct an exact primitive value without an overflowing signed cast.
@@ -83,14 +117,15 @@ impl Value {
 
 /// Implement construction and exact extraction for one signedness family.
 macro_rules! conversions {
-    ($parts:ident, $magnitude:expr, $update:expr; $($integer:ty),* $(,)?) => {$(
+    ($parts:ident; $($integer:ty),* $(,)?) => {$(
         /// Construct an exact integer in O(1) time and additional space.
         ///
         /// Values of magnitude at most 2^96 need no heap allocation.
         impl From<$integer> for Accumulator {
             /// Keep magnitude and sign separate throughout construction.
             fn from(value: $integer) -> Self {
-                Accumulator::from_value(Value::from_magnitude($magnitude(value), $update(value)))
+                let (sign, magnitude) = value.sign_magnitude();
+                Accumulator::from_value(Value::from_magnitude(magnitude, Update::from_sign(sign)))
             }
         }
 
@@ -105,37 +140,6 @@ macro_rules! conversions {
 
             /// Read the value only as far as deciding whether it fits.
             fn try_from(mut value: Accumulator) -> Result<Self, Self::Error> {
-                value.value.get_mut().$parts().and_then(|number| Self::try_from(number).ok()).ok_or(value)
-            }
-        }
-    )*};
-}
-
-conversions!(primitive_signed, |value: i128| value.unsigned_abs(), |value: i128| if value.is_negative() { Update::Subtract } else { Update::Add }; i128);
-conversions!(primitive_unsigned, |value: u128| value, |_| Update::Add; u128);
-
-/// Widen the remaining primitives before sharing conversion machinery.
-macro_rules! narrow_conversions {
-    ($wide:ty, $parts:ident; $($integer:ty),* $(,)?) => {$(
-        /// Construct a machine-sized integer without allocation.
-        impl From<$integer> for Accumulator {
-            /// The widening conversion preserves every input bit.
-            fn from(value: $integer) -> Self {
-                Self::from(value as $wide)
-            }
-        }
-
-        /// Extract an exactly fitting integer, returning the input on failure.
-        ///
-        /// Takes amortized O(log(`W` + 1)) time and O(1) temporary space,
-        /// where `W` is the greatest working width reached. Failure returns
-        /// the same value, though the read may have changed its working width.
-        impl TryFrom<Accumulator> for $integer {
-            /// The input's exact value.
-            type Error = Accumulator;
-
-            /// Narrow only after an exact signed or unsigned 128-bit conversion.
-            fn try_from(mut value: Accumulator) -> Result<Self, Self::Error> {
                 let number = value
                     .value
                     .get_mut()
@@ -147,5 +151,5 @@ macro_rules! narrow_conversions {
     )*};
 }
 
-narrow_conversions!(i128, primitive_signed; i8, i16, i32, i64, isize);
-narrow_conversions!(u128, primitive_unsigned; u8, u16, u32, u64, usize);
+conversions!(primitive_signed; i8, i16, i32, i64, i128, isize);
+conversions!(primitive_unsigned; u8, u16, u32, u64, u128, usize);

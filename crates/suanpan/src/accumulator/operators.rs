@@ -20,6 +20,7 @@
 use core::iter::Sum;
 use core::ops::{Add, AddAssign, Neg, Shl, ShlAssign, Sub, SubAssign};
 
+use super::conversions::SignMagnitude;
 use super::operand::Update;
 use super::Accumulator;
 
@@ -49,39 +50,30 @@ word_assignments!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 
 /// Full-width primitives carry their sign beside a `u128` magnitude.
 macro_rules! wide_assignments {
-    ($integer:ty, $magnitude:expr, $negative:expr) => {
+    ($($integer:ty),* $(,)?) => {$(
         /// Add in amortized O(log(`W` + 1)) time and O(1) retained space.
         impl AddAssign<$integer> for Accumulator {
             fn add_assign(&mut self, rhs: $integer) {
-                let update = if $negative(rhs) {
-                    Update::Subtract
-                } else {
-                    Update::Add
-                };
+                let (sign, magnitude) = rhs.sign_magnitude();
                 self.value
                     .get_mut()
-                    .apply_magnitude($magnitude(rhs), update);
+                    .apply_magnitude(magnitude, Update::from_sign(sign));
             }
         }
 
         /// Subtract in amortized O(log(`W` + 1)) time and O(1) retained space.
         impl SubAssign<$integer> for Accumulator {
             fn sub_assign(&mut self, rhs: $integer) {
-                let update = if $negative(rhs) {
-                    Update::Add
-                } else {
-                    Update::Subtract
-                };
+                let (sign, magnitude) = rhs.sign_magnitude();
                 self.value
                     .get_mut()
-                    .apply_magnitude($magnitude(rhs), update);
+                    .apply_magnitude(magnitude, Update::from_sign(sign.reverse()));
             }
         }
-    };
+    )*};
 }
 
-wide_assignments!(i128, i128::unsigned_abs, i128::is_negative);
-wide_assignments!(u128, |value| value, |_| false);
+wide_assignments!(i128, u128);
 
 /// Consuming operators, borrowed-receiver operators, and sums of primitives.
 macro_rules! primitive_operators {
