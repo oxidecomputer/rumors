@@ -7,15 +7,19 @@ use super::heights::{MAX_BURIED, MERGES_TO_NEWER, MERGES_TO_OLDER, RECORD_FREEZE
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::oracles::tree::Version as Tree;
 
-/// A leaf height from one of four width bands: small, a little past the
-/// record allowance, around one machine word, and far past it.
+/// A leaf height from one of four width bands.
+///
+/// The bands are small, a little past the record allowance, around one
+/// machine word, and on either side of
+/// [`INLINE_CHUNK_BITS`](super::heights::INLINE_CHUNK_BITS), where a buried
+/// chunk stops being copied.
 fn arb_height() -> impl Strategy<Value = BigUint> {
     let one = || BigUint::from(1u8);
     prop_oneof![
         (0u64..8).prop_map(BigUint::from),
         (0u64..8, 5usize..9).prop_map(move |(s, e)| (one() << e) + s),
         (0u64..8, 62usize..70).prop_map(move |(s, e)| (one() << e) + s),
-        (0u64..8, 120usize..200).prop_map(move |(s, e)| (one() << e) + s),
+        (0u64..8, 240usize..340).prop_map(move |(s, e)| (one() << e) + s),
     ]
 }
 

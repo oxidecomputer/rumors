@@ -56,14 +56,15 @@
 //! width read, less one digit. Freezes add only drifts the input paid for.
 //! Total merge work is therefore linear in the input. Burying the top
 //! reference and exposing it again cost a constant: a chunk is copied only
-//! when its working width is at most 64 bits, and wider chunks move whole
-//! without being read.
+//! when it is at most [`INLINE_CHUNK_BITS`] wide, and wider chunks move
+//! whole without being read.
 
 use core::cmp::Ordering;
 
 use num_bigint::BigInt;
 use suanpan::Accumulator;
 
+use super::integers::IntegerStack;
 use crate::bits::stack::{BitStack, PackedU64Stack};
 
 /// Bits a stored offset may exceed its leaf's height change by before the
@@ -74,6 +75,16 @@ use crate::bits::stack::{BitStack, PackedU64Stack};
 /// of height change, so both costs stay proportional to the input.
 pub const RECORD_SLACK_BITS: u64 = 4;
 
+/// The widest working width, in bits, at which a buried chunk is copied into
+/// packed storage instead of moving whole.
+///
+/// Copying a chunk costs at most this many bits per move, a constant. A
+/// chunk that moves whole costs nothing per move but keeps its accumulator:
+/// a fixed-size structure, plus digits that take twice its working width. The
+/// bound confines that form to chunks this wide, whose height changes the
+/// input paid for in a stretch no other live reference shares.
+pub const INLINE_CHUNK_BITS: u64 = 256;
+
 #[cfg(test)]
 thread_local! {
     /// Record-trigger freezes on this test thread.
@@ -82,7 +93,7 @@ thread_local! {
     pub static MERGES_TO_NEWER: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// Reference removals that moved the coefficient to the older neighbour.
     pub static MERGES_TO_OLDER: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-    /// References buried with a chunk wider than one inline word.
+    /// References buried with a chunk too wide to copy.
     pub static WIDE_CHUNKS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// The most references held below the top at once.
     pub static MAX_BURIED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
@@ -420,56 +431,55 @@ fn pop_i128(stack: &mut PackedU64Stack) -> i128 {
     ((code >> 1) as i128) ^ -((code & 1) as i128)
 }
 
-/// The widest working width [`ChunkStack::push`] reads to try the inline form.
-const INLINE_READ_BITS: u64 = 64;
-
-/// Chunks of buried references: inline words, or whole accumulators.
-///
-/// A chunk whose working width is at most 64 bits is read (a constant
-/// cost) and stored inline when it fits an `i64`; any other chunk moves
-/// whole, without being read, so a wide chunk that moves between the top and
-/// the stack repeatedly costs nothing per move.
+/// Chunks of buried references: packed copies, or whole accumulators.
 struct ChunkStack {
-    /// Whether each chunk is held whole.
-    wide: BitStack,
-    /// Zigzag codes of inline chunks.
-    narrow: PackedU64Stack,
-    /// Chunks held whole.
-    wide_values: Vec<Accumulator>,
+    /// Whether each chunk moved whole.
+    whole: BitStack,
+    /// Chunks at most [`INLINE_CHUNK_BITS`] wide, at their exact width.
+    packed: IntegerStack,
+    /// Chunks that moved whole.
+    whole_values: Vec<Accumulator>,
 }
 
 impl ChunkStack {
     /// Construct an empty stack.
     fn new() -> Self {
         Self {
-            wide: BitStack::new(),
-            narrow: PackedU64Stack::new(),
-            wide_values: Vec::new(),
+            whole: BitStack::new(),
+            packed: IntegerStack::new(),
+            whole_values: Vec::new(),
         }
     }
 
-    /// Push a chunk, reading it only if its working width is at most 64 bits.
+    /// Push a chunk, copying it only if its working width is at most
+    /// [`INLINE_CHUNK_BITS`].
     fn push(&mut self, chunk: Accumulator) {
-        if chunk.stored_bits() <= INLINE_READ_BITS {
-            if let Ok(value) = i64::try_from(&BigInt::from(&chunk)) {
-                self.wide.push(false);
-                self.narrow.push(((value << 1) ^ (value >> 63)) as u64);
-                return;
-            }
+        if chunk.stored_bits() <= INLINE_CHUNK_BITS {
+            let (sign, magnitude) = chunk.signed_magnitude();
+            self.whole.push(false);
+            self.packed
+                .push(sign == Ordering::Less, magnitude.as_ref().iter().copied());
+            return;
         }
         #[cfg(test)]
         bump(&WIDE_CHUNKS);
-        self.wide.push(true);
-        self.wide_values.push(chunk);
+        self.whole.push(true);
+        self.whole_values.push(chunk);
     }
 
     /// Pop the newest chunk.
     fn pop(&mut self) -> Accumulator {
-        if self.wide.pop().expect("a buried reference has a chunk") {
-            self.wide_values.pop().expect("each wide tag has a value")
-        } else {
-            let code = self.narrow.pop();
-            Accumulator::from(((code >> 1) as i64) ^ -((code & 1) as i64))
+        if self.whole.pop().expect("a buried reference has a chunk") {
+            return self.whole_values.pop().expect("each whole tag has a value");
         }
+        let (negative, magnitude) = self.packed.pop();
+        let mut chunk = Accumulator::new();
+        let sign = if negative {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+        add_signed_limbs(&mut chunk, sign, magnitude.limbs());
+        chunk
     }
 }
